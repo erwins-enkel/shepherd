@@ -592,6 +592,9 @@
         .catch(() => {
           if (seq !== previewSeq) return;
           previewFailed = true;
+          // Unknown whether it matters: ask the derive route, which checks again itself and
+          // answers `skipped` when it does not — the start never waits forever, nor goes unread.
+          if (pick === null) deriveFor = { repo, value: true };
         });
     }, 200);
     return () => clearTimeout(timer);
@@ -632,8 +635,17 @@
   const deriveHasText = $derived(!!deriveTask.prompt || !!deriveTask.issue?.title.trim());
   /** The answer for the task as it is now; null while that one is still being read. */
   const currentDerivation = $derived(derivation?.key === deriveKey ? derivation.value : null);
+  /** No Automatic preview has answered for this repo yet, so whether reading the requirements
+   *  matters is not known: the task does not start before it is (the preview may wait on a
+   *  capability refresh, and a repo switch asks again). */
+  const deriveUnknown = $derived(
+    runOnAvailable &&
+      pickedId === null &&
+      !requirementsTouched &&
+      deriveFor?.repo !== repoPath.trim(),
+  );
   const requirementsPending = $derived(
-    deriveApplies && deriveHasText && currentDerivation === null,
+    deriveHasText && ((deriveApplies && currentDerivation === null) || deriveUnknown),
   );
   const requirementsUnclear = $derived(deriveApplies && currentDerivation?.status === "unclear");
 

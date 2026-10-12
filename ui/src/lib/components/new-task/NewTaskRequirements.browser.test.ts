@@ -5,6 +5,7 @@ import "../../../app.css";
 import type {
   InstanceIdentity,
   Placement,
+  PlacementPreview,
   RemoteInstance,
   RepoConfig,
   RepoEntry,
@@ -312,6 +313,37 @@ describe("requirements read from the task (#2773)", () => {
     await typePrompt("Erweitere die Web-Einstellungen");
     await expect.poll(deriveText, READ).toBe(m.newtask_derive_failed());
     expect(chips()).toEqual([]);
+  });
+
+  it("does not start before the Automatic preview says whether reading can matter", async () => {
+    let answer: (value: PlacementPreview) => void = () => {};
+    vi.mocked(previewPlacement).mockImplementation(
+      () => new Promise((resolve) => (answer = resolve)),
+    );
+    const onsubmit = open();
+    await typePrompt("Erweitere die native macOS-App");
+    await expect.poll(() => vi.mocked(previewPlacement).mock.calls.length, READ).toBeGreaterThan(0);
+    expect(runButton().disabled).toBe(true);
+    expect(readinessText()).toContain(m.newtask_readiness_requirements_pending());
+    runButton().click();
+    await settle(300);
+    expect(onsubmit).not.toHaveBeenCalled();
+
+    answer({ active: true, placement: placedHere, deriveRequirements: false });
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(deriveRequirements).not.toHaveBeenCalled();
+  });
+
+  it("a failed preview still reads the task: the server checks whether it matters", async () => {
+    vi.mocked(previewPlacement).mockRejectedValue(new TypeError("network down"));
+    vi.mocked(deriveRequirements).mockResolvedValue({ status: "derived", requirements: ["xcode"] });
+    const onsubmit = open();
+    await typePrompt("Erweitere die native macOS-App");
+    await expect.element(removeChip(["xcode"]), READ).toBeVisible();
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0].requirements).toEqual(["xcode"]);
   });
 
   it("reads nothing while the machines do not differ, and the task starts right away", async () => {

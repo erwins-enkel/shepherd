@@ -131,23 +131,35 @@ extension ShepherdClient {
     }
 
     /// Correlation is a header: held tasks must never persist a stale spawn id in their body.
-    public func createSession(_ request: CreateSessionRequest, spawnID: String) async throws -> CreateOutcome {
+    /// `idempotencyKey` makes the submission run at most once (#2761); the composer sends one while
+    /// the machine choice is active, and the same one again only for an unanswered send (#2776).
+    /// A refusal about the machine (#2772) throws `MachineRefusal`.
+    public func createSession(_ request: CreateSessionRequest, spawnID: String,
+                              idempotencyKey: String? = nil) async throws -> CreateOutcome {
         do {
             switch try await generated.createSession(.init(
-                headers: .init(xShepherdSpawnId: spawnID), body: .json(request))) {
+                headers: .init(xShepherdSpawnId: spawnID, idempotencyKey: idempotencyKey), body: .json(request))) {
             case .created(let created): return .created(try created.body.json)
             case .ok(let ok): return .held(try ok.body.json)
             case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
             case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
-            case .unprocessableContent(let bad): throw ShepherdError.unprocessable(try bad.body.json.error)
-            case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+            case .unprocessableContent(let bad):
+                let body = try bad.body.json
+                if let refusal = MachineRefusal(body) { throw refusal }
+                throw ShepherdError.unprocessable(body.error)
+            case .badGateway(let bad):
+                let body = try bad.body.json
+                // An attachment did not reach the machine (#2766): its code names the cause.
+                if body.code == "remote_upload_failed" { throw ShepherdError.fromUpstream(body) }
+                throw ShepherdError.upstreamFailure(body.error)
             // A task sent to a connected machine got no answer (remote_dispatch_unknown, #2763).
             case .gatewayTimeout(let timeout): throw ShepherdError.fromUpstream(try timeout.body.json)
             case .undocumented(let code, _):
                 throw ShepherdError.fromUndocumented(statusCode: code, route: "createSession")
             }
-        } catch { throw ShepherdError.from(error, route: "createSession") }
+        } catch let error as MachineRefusal { throw error }
+        catch { throw ShepherdError.from(error, route: "createSession") }
     }
 
     public func cancelSpawn(id: String) async throws -> Bool {

@@ -43,6 +43,8 @@ final class IOSComposeTarget {
     private(set) var profileID: UUID?
     private(set) var repoKey: String?
     var prompt = ""
+    /// The pick and the chips a Run on choice takes to another server (#2776).
+    var runOn: IOSRunOnCarry?
     init(hub: IOSServerHub) {
         profileID = hub.connectedIDs.first { hub.models[$0] === hub.composeModel }
     }
@@ -90,15 +92,18 @@ struct IOSMultiServerComposeSheet: View {
             if hub.connected.count == 1 { IOSComposeSheet().environment(owner) }
             else if let target, let app = target.model(in: hub), let store = app.store {
                 let activation = app.activationGeneration
+                // The task is submitted through this server, which chooses the machine (#2776);
+                // the other servers are Run on choices, no longer a separate picker.
                 IOSComposeContent(app: app, store: store, activation: activation,
                     fixtureCurrent: { owner.sheet == .newSession && app.store === store && app.activationGeneration == activation && target.model(in: hub) === app },
-                    serverPicker: AnyView(IOSComposeServerPicker(hub: hub, target: target)),
+                    servers: runOnServers(target),
                     repoCatalogue: catalogue(target),
                     close: { owner.sheet = nil },
                     onCreated: { id in
                         if let profileID = target.profileID { hub.select(.init(profileID: profileID, sessionID: id)) }
                         owner.sheet = nil
-                    }, initialPrompt: target.prompt, initialRepoPath: target.repoPath(in: hub), promptChanged: { target.prompt = $0 })
+                    }, initialPrompt: target.prompt, initialRepoPath: target.repoPath(in: hub), initialRunOn: target.runOn,
+                    promptChanged: { target.prompt = $0 })
                     .id(ObjectIdentifier(store))
             } else if let target {
                 VStack(spacing: 16) {
@@ -108,6 +113,20 @@ struct IOSMultiServerComposeSheet: View {
                 }.padding().foregroundStyle(ComposePalette.ink)
             }
         }.onAppear { if target == nil { target = IOSComposeTarget(hub: hub) } }
+    }
+    /// The entry server and the other connected servers carrying the repo, as Run on choices.
+    private func runOnServers(_ target: IOSComposeTarget) -> IOSRunOnServers? {
+        func server(_ id: UUID) -> IOSRunOnServer? {
+            guard let profile = hub.profiles.first(where: { $0.id == id }) else { return nil }
+            return IOSRunOnServer(profileID: id, name: profile.name,
+                                  instanceID: hub.models[id]?.extension(IOSInstanceIdentity.self)?.instanceID)
+        }
+        guard let entryID = target.profileID, let entry = server(entryID) else { return nil }
+        let others = target.servers(in: hub).filter { $0 != entryID }.compactMap(server)
+        return IOSRunOnServers(entry: entry, others: others, switchTo: { next, carry in
+            target.runOn = carry
+            target.select(next.profileID, hub: hub)
+        })
     }
     private func catalogue(_ target: IOSComposeTarget) -> IOSComposeRepoCatalogue {
         IOSComposeRepoCatalogue(choices: IOSComposeRepoChoice.choices(hub), selectedKey: target.repoKey,

@@ -112,6 +112,13 @@ From a script, leave `target` out for the automatic choice, or send `target: { i
 name the machine, with the create request and an `Idempotency-Key`
 ([External Task API](external-task-api.md)).
 
+**In the native apps.** New Task in Shepherd for Mac and on iOS has the same **Run on**,
+requirement chips, reason and question, and the server chooses by the same rules: on
+**Automatic** the app sends no machine. The Mac herd shows waiting, blocked, busy and
+start-unknown tasks in the machine's group, with **Run on …** and **Cancel**. The iOS app with
+several servers submits through the one it is on: **Run on** lists that server's machines, and any
+other connected server it does not reach as a machine moves the task there.
+
 ## Automatic choice
 
 A task names what it needs as **requirements**: the chips under the prompt in New Task, or

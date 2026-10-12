@@ -76,6 +76,11 @@ struct RepoBranchRow: View {
                         }
                     }.padding().frame(minWidth: 240)
                 }
+                // Run on (#2776): only while the server places tasks among machines.
+                if model.runOn.active {
+                    Text(verbatim: L.t("newtask_runon_on")).foregroundStyle(.secondary)
+                    RunOnPicker(runOn: model.runOn)
+                }
                 upstreamStatus.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(branch.repairingBase)

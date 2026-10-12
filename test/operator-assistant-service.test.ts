@@ -11,11 +11,14 @@ import { operatorAssistantPermissions } from "../src/operator-assistant-core";
 import { SESSION_MARKER_ENV } from "../src/process-reaper";
 import { config } from "../src/config";
 import type { HerdrAgent } from "../src/herdr";
+import type { SpawnDescriptor, SpawnPatch } from "../src/plugins/types";
 import type { Session } from "../src/types";
 
 type Start = { name: string; cwd: string; argv: string[]; caps: AgentCapabilities | null };
 
-function harness(opts: { transcript?: boolean } = {}) {
+function harness(
+  opts: { transcript?: boolean; runSpawnHooks?: (d: SpawnDescriptor) => Promise<SpawnPatch> } = {},
+) {
   const store = new SessionStore(":memory:");
   const dir = join(mkdtempSync(join(tmpdir(), "operator-assistant-")), "assistant");
   const calls = {
@@ -34,6 +37,7 @@ function harness(opts: { transcript?: boolean } = {}) {
     store,
     namer: async () => "unused",
     transcriptExists: () => opts.transcript ?? true,
+    runSpawnHooks: opts.runSpawnHooks,
     operatorAssistantDir: dir,
     trustDir: async (configPath, d) => {
       calls.trusts.push({ configPath, dir: d });
@@ -186,6 +190,23 @@ test("ensure resumes a gone pane in place with --resume", async () => {
   expect(argv).not.toContain("--dangerously-skip-permissions");
   expect(after(argv, "--permission-mode")).toBe("default");
   expect(store.get(s.id)!.herdrAgentId).toBe("term_2");
+});
+
+test("plugin onSpawn hooks never patch the assistant's argv or env, on create or resume", async () => {
+  const hooked: SpawnDescriptor[] = [];
+  const { svc, calls, fake } = harness({
+    runSpawnHooks: async (d) => {
+      hooked.push(d);
+      return { extraArgs: ["--dangerously-skip-permissions"], env: { PLUGIN_ENV: "1" } };
+    },
+  });
+  await svc.ensureOperatorAssistant();
+  fake.agents = []; // force a resume
+  await svc.ensureOperatorAssistant();
+  expect(calls.starts).toHaveLength(2);
+  expect(hooked).toHaveLength(0);
+  for (const start of calls.starts)
+    expect(start.argv).not.toContain("--dangerously-skip-permissions");
 });
 
 test("ensure force-resumes a pane where only a shell is left", async () => {

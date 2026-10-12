@@ -2847,7 +2847,9 @@ export class SessionService {
     | { patchEnv: Record<string, string>; finalInnerArgv: string[] }
     | { holdReason: string; abortCause?: PluginSpawnAborted }
   > {
-    if (!this.deps.runSpawnHooks) return { patchEnv: {}, finalInnerArgv: innerArgv };
+    if (!this.deps.runSpawnHooks || ctx.operatorAssistant) {
+      return { patchEnv: {}, finalInnerArgv: innerArgv };
+    }
     // ADVISORY descriptor env: the explicit overlay Shepherd sets ON TOP OF the inherited
     // process env (see SpawnDescriptor). Under trusted the agent also inherits the parent
     // env; the sandbox passthrough vars are only set explicitly when a membrane wraps.
@@ -2938,6 +2940,9 @@ export class SessionService {
       /** Operator cancellation, checked inside herdr's auto-detect poll loop. Interactive
        *  create only — resume/drain/relaunch pass none and behave exactly as before. */
       signal?: AbortSignal;
+      /** The Operator Assistant (#1446): plugin onSpawn hooks are skipped, so no plugin can patch
+       *  its read-only argv (e.g. append a permission bypass) or its env. */
+      operatorAssistant?: boolean;
     },
   ): Promise<SpawnOutcome> {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
@@ -3834,6 +3839,7 @@ export class SessionService {
       // ctx.state keyed by sessionId; see issue #1124).
       model: session.model ?? null,
       agentProvider: session.agentProvider,
+      operatorAssistant: isOperatorAssistant(session),
     });
   }
 
@@ -4516,8 +4522,8 @@ export class SessionService {
 
   /**
    * Spawn a fresh assistant: its private dir with Claude's workspace trust pre-accepted, then the
-   * assistant argv through the common prepareSpawn (api-key auth, env passthrough, renderer env,
-   * plugin hooks) on the `trusted` profile, then the row. No prompt rides the argv, so nothing is
+   * assistant argv through the common prepareSpawn (api-key auth, env passthrough, renderer env;
+   * plugin onSpawn hooks skipped) on the `trusted` profile, then the row. No prompt rides the argv, so nothing is
    * spent until the operator asks. Model and effort are Shepherd's configured Claude defaults.
    */
   private async createOperatorAssistant(): Promise<Session> {
@@ -4547,6 +4553,7 @@ export class SessionService {
         profileOverride: "trusted",
         model,
         agentProvider: "claude",
+        operatorAssistant: true,
       });
       try {
         this.deps.store.create({

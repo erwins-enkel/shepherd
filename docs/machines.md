@@ -157,6 +157,19 @@ The reason is shown before you start and on the session afterwards: "Needs macOS
   yourself, is never read. The reading runs on the autopilot classifier's CLI and model and takes a
   few seconds.
 
+### Platform order
+
+When several machines fit a task, the order of platforms decides. Set it under **Settings →
+Machines → Automatic choice → Preferred platform**: **Linux, then macOS** (the default) or **macOS,
+then Linux**.
+
+- **It ranks only machines that fit.** The requirements decide first: a task that needs Xcode goes
+  to the Mac whatever the order. Among machines of the same platform the machine ID decides.
+- **Each Shepherd keeps its own.** A task lands on the same machine wherever it is submitted only if
+  every connected Shepherd uses the same order. Change it on each of them.
+- **It applies to new tasks.** A task that is already waiting or running keeps its machine, and a
+  retry under the same `Idempotency-Key` goes where the first submission went.
+
 ## Waiting tasks
 
 A task that cannot start on its machine right now stays visible at the top of that machine's group
@@ -189,6 +202,24 @@ in the herd, in one of four states. Hover the state for what it means and what h
 From a script, a create that waits answers `200` with `held: true` and `waiting: true`; cancel it
 with `DELETE /api/remote-dispatches/{id}` and redirect it with
 `POST /api/remote-dispatches/{id}/redirect` ([External Task API](external-task-api.md)).
+
+## When nothing starts
+
+Some tasks are refused before anything is sent: nothing is stored, waited for or started on another
+machine. New Task shows the reason as a warning before you start, and again if you start anyway; the
+API answers with a code ([External Task API](external-task-api.md)).
+
+| New Task says                                             | Why                                                                                                                                         | API                                                      |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| "No connected machine has Xcode — nothing will start."    | No connected machine with the project has every requirement. A machine that has them but no checkout is named too.                          | `422 no_suitable_machine` with `missing` and `elsewhere` |
+| "MacBook is missing Xcode (license not accepted)."        | The machine picked under **Run on** lacks a requirement. "This machine is missing …" when this Shepherd's own fresh check refuses the task. | `422 missing_capabilities` with `missing` (and `host`)   |
+| "MacBook isn't reachable right now."                      | The picked machine dropped off before you started. Only the automatic choice waits for a machine; a machine you pick must be reachable.     | `409 remote_target_unavailable`                          |
+| "MacBook has no checkout of this project."                | The picked machine has no checkout with the project's forge remote.                                                                         | `422 remote_project_missing`                             |
+| "… runs on a platform that isn't released for tasks yet." | A Windows machine named through the API ([Windows](#windows-modeled-not-released)).                                                         | `422 remote_target_unreleased`                           |
+
+Together with the machine's status (Connected, Unreachable, …) and the four states of a waiting
+task, every reason a task does not run is shown as itself: offline, busy, a missing capability, an
+unknown start or a refusal. None of them falls back to another machine.
 
 ## Work with its sessions
 
@@ -232,7 +263,30 @@ someone your login.
 - **No silent fallback.** A task meant for a machine that is out of reach does not start on
   another one by itself: it waits for that machine until you cancel it or run it elsewhere.
 - **Follow-up work stays on the machine:** review, pull request and merge are its Shepherd's.
-- **Windows** is listed as a platform, but not released for tasks.
+- **No cloning.** A machine works from its own checkout of the project. Shepherd never clones one
+  for it.
+- **No waking up.** Shepherd doesn't wake a sleeping machine (no Wake-on-LAN). A task waiting for it
+  starts once you wake it.
+- **One machine per task.** A task for several platforms ("change it on macOS, iOS and Android") is
+  not split into one task per platform. Split it yourself.
+- **No rule files.** The choice is made per task, from what it needs, never from rules kept in the
+  repository or a subproject.
+- **Each Shepherd keeps its own.** Drain and epics, merging, settings (the platform order too),
+  usage limits and backlogs stay with each Shepherd. Nothing is merged across machines.
+- **Windows** is listed, but not released for tasks ([below](#windows-modeled-not-released)).
+
+## Windows: modeled, not released
+
+Windows is part of the model, but no task runs on it yet: Shepherd itself, its herdr connection, its
+paths and worktrees are not proven on Windows. That is separate work.
+
+- A Shepherd on Windows can be connected. **Settings → Machines** lists it with its platform and
+  checked capabilities, marked **Not released**.
+- The automatic choice never picks it, and **Run on** doesn't offer it. Named through the API it is
+  refused with `remote_target_unreleased`, and nothing is sent.
+- On its own it doesn't turn the automatic choice on: with only Windows machines connected, New Task
+  stays as it is without machines.
+- It becomes a machine for tasks only once Shepherd's compatibility with Windows is proven.
 
 ## Test a branch on two machines
 
@@ -311,7 +365,54 @@ coordinator, the Mac the machine; the project is checked out on both.
 | 20  | On Linux, type "Erweitere die native macOS-App" in New Task.                               | The chip **Xcode** appears, and it says "Runs on MacBook — Needs Xcode".                                                           |
 | 21  | Replace the prompt with "Implementiere die Web-Einstellungen".                             | No chip, and "No special requirements – preferred: Linux".                                                                         |
 | 22  | Replace it with "Passe die App an das neue Logo an".                                       | New Task asks what the task needs; **Start** stays disabled until you pick an answer.                                              |
+| 23  | On Linux, add the **Xcode** chip and pick **This machine** under **Run on**.               | New Task warns that the Linux machine is missing Xcode; starting it anyway starts nothing.                                         |
+| 24  | Make Xcode go missing while a task waits ([below](#xcode-missing-on-purpose)).             | **Blocked** in the MacBook's group, naming Xcode: only the Command Line Tools. Nothing starts.                                     |
+| 25  | Bring Xcode back ([below](#xcode-missing-on-purpose)).                                     | The task starts on the Mac, once.                                                                                                  |
+| 26  | Lose an answer on purpose ([below](#lose-an-answer-on-purpose)).                           | One session on the Mac; the repeated request answers that same session. Nothing runs twice.                                        |
+| 27  | In Shepherd for Mac and on iOS, repeat 14, 15 and 20–22.                                   | The same reason and question as in the web UI; each task starts on the same machine.                                               |
+
+### Xcode missing on purpose
+
+Rows 24 and 25 check that a missing Xcode is named and that nothing starts without it.
+
+1. Turn Tailscale off on the Mac and start an Xcode task on Linux: it waits for the MacBook.
+2. On the Mac, select the Command Line Tools instead of Xcode, then turn Tailscale on:
+
+   ```bash
+   sudo xcode-select -s /Library/Developer/CommandLineTools
+   ```
+
+   Before Linux sends the task, it asks the Mac for a fresh check. That check finds only the
+   Command Line Tools, so the task is **Blocked**, and Settings → Machines on Linux names it too.
+
+3. Select Xcode again, choose **Check capabilities** in Settings → Machines on the Mac (or wait up
+   to five minutes for its own check), then **Check now** for the MacBook on Linux:
+
+   ```bash
+   sudo xcode-select -s /Applications/Xcode.app
+   ```
+
+### Lose an answer on purpose
+
+Row 26 needs an access token on the Linux branch Shepherd and the absolute path of its checkout of
+the project. On the Linux host, send the task and stop the branch Shepherd hard a second later. Stop
+it by the process that listens on its loopback port, not by port alone: `tailscale serve` listens on
+the same port number.
+
+```bash
+pid=$(ss -ltnpH 'src 127.0.0.1:7350' | grep -o 'pid=[0-9]*' | cut -d= -f2)
+curl -s -X POST https://<linux>.<tailnet>.ts.net:7350/api/sessions \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: acceptance-lost-1' \
+  -d '{"repoPath":"<checkout>","baseBranch":"main","prompt":"Build the macOS app and run its tests","requirements":["xcode"]}' &
+sleep 1; kill -9 "$pid"
+```
+
+Start the branch Shepherd again as before, then send the same `curl` once more. Whether it stopped
+before or after the task reached the Mac, the task runs there exactly once.
 
 The automated counterpart, `test/machines-two-instances.test.ts`, runs in `bun run test`: two
 Shepherd processes with their own ports and state, a cut network between them and a crash of the
-coordinator.
+coordinator. It covers manual assignment, the automatic choice from either Shepherd and client, the
+question about an unclear task, a lost answer, and a task that waits for an unreachable or
+Xcode-less Mac across a crash of the coordinator and starts there once the Mac is back.

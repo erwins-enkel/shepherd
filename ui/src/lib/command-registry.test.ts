@@ -11,6 +11,7 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     onNextNeedsYou: vi.fn(),
     onLearnings: vi.fn(),
     onDiagnoseEpic: vi.fn(),
+    onOperatorAssistant: vi.fn(),
     onDecommission: vi.fn(),
     decommissionDesig: "TASK-07",
     hasSessions: true,
@@ -33,6 +34,7 @@ describe("buildCommands — availability", () => {
       "learnings",
       "retry",
       "diagnose-epic",
+      "operator-assistant",
       "next-needs-you",
       "decommission",
     ]);
@@ -58,7 +60,7 @@ describe("buildCommands — availability", () => {
     expect(ids(ctx({ hasLearnings: false }))).not.toContain("learnings");
   });
 
-  it("always offers New task, Settings, Usage and Diagnose epic", () => {
+  it("always offers New task, Settings, Usage, Diagnose epic and the Operator Assistant", () => {
     const bare = ids(
       ctx({
         hasSessions: false,
@@ -68,7 +70,7 @@ describe("buildCommands — availability", () => {
         decommissionDesig: null,
       }),
     );
-    expect(bare).toEqual(["new-task", "settings", "usage", "diagnose-epic"]);
+    expect(bare).toEqual(["new-task", "settings", "usage", "diagnose-epic", "operator-assistant"]);
   });
 });
 
@@ -107,6 +109,7 @@ describe("buildCommands — run() wiring", () => {
     byId["learnings"].run();
     byId["retry"].run();
     byId["diagnose-epic"].run();
+    byId["operator-assistant"].run();
     byId["next-needs-you"].run();
     expect(c.onNewTask).toHaveBeenCalledOnce();
     expect(c.onBroadcast).toHaveBeenCalledOnce();
@@ -115,6 +118,7 @@ describe("buildCommands — run() wiring", () => {
     expect(c.onLearnings).toHaveBeenCalledOnce();
     expect(c.onRetry).toHaveBeenCalledOnce();
     expect(c.onDiagnoseEpic).toHaveBeenCalledOnce();
+    expect(c.onOperatorAssistant).toHaveBeenCalledOnce();
     expect(c.onNextNeedsYou).toHaveBeenCalledOnce();
   });
 

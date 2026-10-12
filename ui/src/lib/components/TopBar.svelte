@@ -45,6 +45,7 @@
   import TopBarUsage from "./top-bar/TopBarUsage.svelte";
   import TopBarBadges from "./top-bar/TopBarBadges.svelte";
   import TopBarSearch from "./top-bar/TopBarSearch.svelte";
+  import TopBarAssist from "./top-bar/TopBarAssist.svelte";
   import TopBarGear from "./top-bar/TopBarGear.svelte";
   import TopBarMobileSheet from "./top-bar/TopBarMobileSheet.svelte";
 
@@ -87,6 +88,9 @@
     oncommandbar,
     onmanageplugins,
     settingsChordAllowed = () => true,
+    assistant = null,
+    assistantOpen = false,
+    onassistant,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -146,6 +150,12 @@
     onmanageplugins?: () => void;
     /** Page-level gate for the Cmd/Ctrl+, chord (e.g. "no overlay open"). */
     settingsChordAllowed?: () => boolean;
+    /** The Operator Assistant's live row (#1446); its status lights the Assist toggle's pip. */
+    assistant?: Session | null;
+    /** Whether the Operator Assistant panel is open (the toggle's pressed state). */
+    assistantOpen?: boolean;
+    /** Toggles the Operator Assistant panel. Absent → no Assist toggle and no sheet row. */
+    onassistant?: () => void;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -977,6 +987,16 @@
         {diagnosticsOverall}
         {ondiagnose}
       />{/if}
+    {#if onassistant && !mobile}
+      <TopBarAssist
+        {assistant}
+        open={assistantOpen}
+        compact={compactBadges}
+        {workingBlocked}
+        {backgroundBusy}
+        onclick={onassistant}
+      />
+    {/if}
     {#if !mobile}
       <TopBarSearch compact={compactBadges} oncommandbar={() => oncommandbar?.()} />
     {/if}
@@ -1076,6 +1096,7 @@
     {pluginItems}
     onPluginItem={choosePlugin}
     onManagePlugins={chooseManagePlugins}
+    {onassistant}
   />
 {/if}
 

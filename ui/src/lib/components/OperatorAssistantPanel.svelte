@@ -1,0 +1,378 @@
+<script lang="ts">
+  import type {
+    OperatorAssistantUnavailableReason,
+    Session,
+    TerminalClientInfo,
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { modelLabel } from "#lib/model-label.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { operatorAssistantExplanation } from "#lib/tooltips/explanations.js";
+  import { assistantPanelView, type AssistantAction } from "#lib/operator-assistant.svelte.js";
+  import AssistantGlyph from "./AssistantGlyph.svelte";
+  import Viewport from "./Viewport.svelte";
+
+  // The Operator Assistant panel (#1446). Non-modal: docked beside the selected session on
+  // desktop, a full-screen phone screen with Back. Never the `drawer` / `overlay` classes — the
+  // page reads those as "a modal is open" and would stand its shortcuts down while it shows.
+  let {
+    session,
+    available,
+    reason,
+    pending,
+    failed,
+    mobile = false,
+    touch = false,
+    connected = true,
+    terminalOwners = null,
+    workingBlocked = {},
+    backgroundBusy = {},
+    herd = [],
+    typeRequest = null,
+    ontyped,
+    onnavigate,
+    consumeAutoFocusTerm,
+    onretry,
+    onreset,
+    onclose,
+    ondiagnose,
+  }: {
+    /** The assistant's live row (store.assistant); null until one is spawned. */
+    session: Session | null;
+    /** store.assistantAvailable: null until the bootstrap GET lands. */
+    available: boolean | null;
+    reason: OperatorAssistantUnavailableReason | null;
+    /** The ensure / reset in flight, and the one that last failed (AssistantLifecycle). */
+    pending: AssistantAction | null;
+    failed: AssistantAction | null;
+    mobile?: boolean;
+    touch?: boolean;
+    connected?: boolean;
+    terminalOwners?: Record<string, TerminalClientInfo> | null;
+    workingBlocked?: Record<string, boolean>;
+    backgroundBusy?: Record<string, boolean>;
+    /** Live herd sessions (store.sessions): their desigs link in the assistant's terminal. */
+    herd?: Session[];
+    /** An "Ask the assistant" prefill, typed (not sent) once the terminal attaches. */
+    typeRequest?: { text: string; tick: number } | null;
+    ontyped?: (tick: number) => void;
+    /** A desig link in the terminal was activated: select that session. */
+    onnavigate?: (id: string) => void;
+    /** One-shot: whether the terminal may take the keyboard when it mounts. */
+    consumeAutoFocusTerm?: () => boolean;
+    /** Re-run the request that failed (or re-check availability). */
+    onretry: () => void;
+    /** New conversation, confirmed: archive this assistant and spawn a fresh one. */
+    onreset: () => void;
+    /** Close (desktop) or Back (phone). */
+    onclose: () => void;
+    /** Open Settings at its Diagnose section. */
+    ondiagnose: () => void;
+  } = $props();
+
+  const view = $derived(assistantPanelView({ session, available, pending, failed }));
+  const model = $derived(session?.model ? modelLabel(session.model) : null);
+
+  const UNAVAILABLE: Record<OperatorAssistantUnavailableReason, () => string> = {
+    claude_missing: m.operator_assistant_unavailable_claude_missing,
+    herdr_unreachable: m.operator_assistant_unavailable_herdr_unreachable,
+  };
+  // No reason: the node itself is fine but this Shepherd can't run agents at all (the demo).
+  const unavailableText = $derived(
+    reason ? UNAVAILABLE[reason]() : m.operator_assistant_unavailable_generic(),
+  );
+  const errorText = $derived(
+    failed === "reset" ? m.operator_assistant_error_reset() : m.operator_assistant_error_ensure(),
+  );
+
+  // Two-step arm → confirm for New conversation, like the card menu's armed actions: the first
+  // click arms (the label asks), a second within the window archives this conversation. It
+  // disarms on its own after the window, and when the conversation goes away under it.
+  const RESET_ARM_MS = 3000;
+  let resetArmed = $state(false);
+  let resetTimer: ReturnType<typeof setTimeout> | undefined;
+  function disarmReset() {
+    resetArmed = false;
+    clearTimeout(resetTimer);
+  }
+  function onResetClick() {
+    if (resetArmed) {
+      disarmReset();
+      onreset();
+      return;
+    }
+    resetArmed = true;
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => (resetArmed = false), RESET_ARM_MS);
+  }
+  $effect(() => {
+    if (view !== "live") disarmReset();
+  });
+  $effect(() => () => clearTimeout(resetTimer));
+
+  let viewport: Viewport | undefined = $state();
+  /** Hand the keyboard to the assistant's terminal (the panel was asked to open while open). */
+  export function focusTerminal() {
+    viewport?.focusTerminal();
+  }
+</script>
+
+<aside class="oap" class:phone={mobile} aria-label={m.operator_assistant_title()}>
+  <header class="oap-head">
+    <div class="oap-row">
+      {#if mobile}
+        <button
+          type="button"
+          class="icon-btn oap-btn"
+          aria-label={m.operator_assistant_back()}
+          onclick={onclose}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg
+          >
+        </button>
+      {/if}
+      <span class="oap-mark"><AssistantGlyph size="var(--fs-base)" /></span>
+      <h2 class="oap-title">{m.operator_assistant_title()}</h2>
+      {#if !mobile}
+        <button
+          type="button"
+          class="icon-btn oap-btn oap-close"
+          aria-label={m.operator_assistant_close()}
+          onclick={onclose}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg
+          >
+        </button>
+      {/if}
+    </div>
+    <div class="oap-row oap-meta">
+      <span class="badge" use:statusTip={{ text: operatorAssistantExplanation() }}
+        >{m.operator_assistant_readonly()}</span
+      >
+      {#if model}<span class="badge">{model}</span>{/if}
+      <button
+        type="button"
+        class="gbtn oap-new"
+        class:armed={resetArmed}
+        disabled={view !== "live"}
+        onclick={onResetClick}
+        >{resetArmed ? m.operator_assistant_new_confirm() : m.operator_assistant_new()}</button
+      >
+    </div>
+  </header>
+
+  {#if view === "live" && session}
+    <div class="oap-term">
+      <Viewport
+        bind:this={viewport}
+        variant="assistant"
+        {session}
+        {mobile}
+        {touch}
+        {connected}
+        {terminalOwners}
+        {workingBlocked}
+        {backgroundBusy}
+        {herd}
+        {typeRequest}
+        {ontyped}
+        {onnavigate}
+        {consumeAutoFocusTerm}
+      />
+    </div>
+  {:else if view === "unavailable"}
+    <div class="oap-state" role="status">
+      <p class="oap-state-title">{m.operator_assistant_unavailable_title()}</p>
+      <p>{unavailableText}</p>
+      <p class="oap-hint">{m.operator_assistant_unavailable_hint()}</p>
+      <div class="oap-actions">
+        <button type="button" class="gbtn primary" onclick={ondiagnose}
+          >{m.operator_assistant_open_diagnose()}</button
+        >
+        {#if reason}
+          <button type="button" class="gbtn" disabled={pending !== null} onclick={onretry}
+            >{m.operator_assistant_check_again()}</button
+          >
+        {/if}
+      </div>
+    </div>
+  {:else if view === "error"}
+    <div class="oap-state" role="alert">
+      <p class="oap-state-title">{errorText}</p>
+      <div class="oap-actions">
+        <button type="button" class="gbtn primary" onclick={onretry}>{m.common_retry()}</button>
+      </div>
+    </div>
+  {:else}
+    <div class="oap-state" role="status">
+      <p class="oap-hint">{m.operator_assistant_spawning()}</p>
+    </div>
+  {/if}
+</aside>
+
+<style>
+  /* Flex column in both homes: the desktop grid's third track (stretched to the row) and the
+     phone's main region (flex: 1 fills the screen under the hidden chrome). */
+  .oap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+  /* The header sits on the terminal like the session console's own header: hairline on three
+     sides, the terminal's top border closes it. */
+  .oap-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--color-head);
+    border: 1px solid var(--color-line);
+    border-bottom: 0;
+  }
+  .oap-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .oap-meta {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .oap-mark {
+    color: var(--color-amber);
+    display: flex;
+  }
+  .oap-title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .oap-btn {
+    color: var(--color-muted);
+  }
+  .oap-close {
+    margin-right: -4px;
+  }
+  /* Inline Badge recipe (/design-system): the 2px micro-label. */
+  .badge {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+  /* Button recipe (/design-system .gbtn). */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .gbtn.primary,
+  .gbtn.armed {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
+  }
+  .oap-new {
+    margin-left: auto;
+  }
+  .oap-term {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .oap-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px 14px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    line-height: 1.45;
+  }
+  .oap-state p {
+    margin: 0;
+  }
+  .oap-state-title {
+    color: var(--color-ink-bright);
+    font-weight: 600;
+  }
+  .oap-hint {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
+  .oap-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  /* Phone: full-bleed chrome like the session console's merged header, thumb-sized controls. */
+  .oap.phone .oap-head {
+    margin-inline: calc(-1 * var(--mobile-shell-pad));
+    border-inline: 0;
+  }
+  .oap.phone .oap-state {
+    margin-inline: calc(-1 * var(--mobile-shell-pad));
+    border-inline: 0;
+  }
+  .oap.phone .oap-btn {
+    width: 44px;
+    height: 44px;
+    margin-left: -10px;
+  }
+  .oap.phone .gbtn {
+    min-height: 44px;
+  }
+</style>

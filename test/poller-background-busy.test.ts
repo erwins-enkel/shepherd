@@ -36,11 +36,12 @@ function setup(initialScan: Scan) {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSessionInput);
   const agent: HerdrAgent = { ...baseAgent };
+  const agents = [agent];
   const log: string[] = [];
   const box = { scan: initialScan, clock: 100_000 };
   const poller = new StatusPoller(
     store,
-    { listAsync: () => Promise.resolve([agent]), read: () => "", readAsync: async () => "" } as any,
+    { listAsync: () => Promise.resolve(agents), read: () => "", readAsync: async () => "" } as any,
     (id, status) => log.push(`status:${status}`),
     () => {},
     1000,
@@ -74,7 +75,7 @@ function setup(initialScan: Scan) {
       onChange: (id, busy) => log.push(`bg:${busy}`),
     },
   );
-  return { store, s, agent, log, box, poller };
+  return { store, s, agent, agents, log, box, poller };
 }
 
 const busy: Scan = (w) => new Map(w.map((p) => [p, ["git push"]]));
@@ -90,6 +91,36 @@ test("edge probe flags the session BEFORE the resting status onChange", async ()
   expect(log.slice(0, 2)).toEqual(["bg:true", "status:idle"]);
   expect(poller.isBackgroundBusy(s.id)).toBe(true);
   expect(poller.backgroundBusySnapshot()).toEqual({ [s.id]: true });
+});
+
+test("the Operator Assistant is never probed or flagged; the task beside it is", async () => {
+  const scanned: string[] = [];
+  const { store, s, agent, agents, box, poller } = setup((w) => {
+    scanned.push(...w);
+    return busy(w);
+  });
+  const assistant = store.create({
+    ...baseSessionInput,
+    name: "operator-assistant",
+    repoPath: "/assistant",
+    worktreePath: "/assistant",
+    branch: null,
+    baseBranch: "",
+    isolated: false,
+    herdrAgentId: "term_b",
+    operatorAssistant: true,
+  });
+  const assistantAgent: HerdrAgent = { ...baseAgent, terminalId: "term_b", cwd: "/assistant" };
+  agents.push(assistantAgent);
+  await poller.tick(); // both running
+  agent.agentStatus = "idle";
+  assistantAgent.agentStatus = "idle";
+  await poller.tick(); // the resting edge probe
+  box.clock += 5000;
+  await poller.tick(); // the throttled background sweep
+  expect(scanned).not.toContain("/assistant");
+  expect(poller.isBackgroundBusy(s.id)).toBe(true);
+  expect(poller.isBackgroundBusy(assistant.id)).toBe(false);
 });
 
 test("going running clears the flag", async () => {

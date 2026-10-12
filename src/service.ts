@@ -6080,10 +6080,11 @@ export class SessionService {
     let steered = 0;
     // Resolve + screen targets up front: unknown ids drop, and (defensively) so do clean
     // terminals — a terminal can never carry haltReason, and a mixed id set must not steer or
-    // resume one. Screening here (not per-iteration branches) keeps the loop's complexity flat.
+    // resume one — and the Operator Assistant, which only the operator steers (#1446). Screening
+    // here (not per-iteration branches) keeps the loop's complexity flat.
     const targets = ids
       .map((id) => this.deps.store.get(id))
-      .filter((s): s is Session => s !== null && !s.terminal);
+      .filter((s): s is Session => s !== null && !s.terminal && !isOperatorAssistant(s));
     for (const s of targets) {
       const id = s.id;
       let succeeded = false;
@@ -6150,8 +6151,9 @@ export class SessionService {
       // A clean-terminal session must never receive an agent steer (the herdr.send invariant) —
       // and one terminal in a fleet-wide id set must not abort the broadcast for everyone else.
       // Skipped BEFORE the liveness split and reported additively (delivered + queued + offline
-      // + skipped === total); old clients simply ignore the new count (#1630 precedent).
-      if (s?.terminal) {
+      // + skipped === total); old clients simply ignore the new count (#1630 precedent). The
+      // Operator Assistant is skipped the same way: a herd broadcast is not addressed to it (#1446).
+      if (s?.terminal || isOperatorAssistant(s)) {
         skipped++;
         continue;
       }
@@ -6194,8 +6196,11 @@ export class SessionService {
     const agents = this.deps.herdr.list(); // let a herdr-unreachable error propagate
     // Clean terminals are filtered out BEFORE matching: they have no agent, and a shell running
     // a long build could plausibly read `working` through some future match path — it must never
-    // receive a stray ESC (haltAll deliberately bypasses the sendSteerTo funnel guard).
-    const sessions = this.deps.store.list({ activeOnly: true }).filter((s) => !s.terminal);
+    // receive a stray ESC (haltAll deliberately bypasses the sendSteerTo funnel guard). The
+    // Operator Assistant is not herd work, so a herd e-stop leaves it alone too (#1446).
+    const sessions = this.deps.store
+      .list({ activeOnly: true })
+      .filter((s) => !s.terminal && !isOperatorAssistant(s));
     let halted = 0;
     for (const agent of matchAgents(sessions, agents).values()) {
       if (agent?.agentStatus !== "working") continue;

@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { promisify } from "node:util";
 import { SESSION_AUTO_ARCHIVE_MS, config } from "./config";
 import { maintenance } from "./maintenance";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import type { GitForge } from "./forge/types";
 import type { SessionStore } from "./store";
 import type { LivenessState, Session } from "./types";
@@ -136,12 +137,22 @@ export class SessionArchiver {
    * A null `settledAt` is never eligible: it means the clock was never stamped (a legacy row the
    * migration could not seed), and guessing an age from `updatedAt` here is exactly the mistake
    * the column exists to avoid — boot reconcile rewrites settled rows and bumps it.
+   *
+   * The Operator Assistant is never a candidate: it rests between questions by design, and only
+   * the operator's New conversation archives it (#1446).
    */
   private candidates(): Session[] {
     const cutoff = this.now() - SESSION_AUTO_ARCHIVE_MS;
     return this.deps.store
       .list({ activeOnly: true })
-      .filter((s) => !s.terminal && isSettled(s) && s.settledAt != null && s.settledAt <= cutoff)
+      .filter(
+        (s) =>
+          !s.terminal &&
+          !isOperatorAssistant(s) &&
+          isSettled(s) &&
+          s.settledAt != null &&
+          s.settledAt <= cutoff,
+      )
       .sort((a, b) => (a.settledAt ?? 0) - (b.settledAt ?? 0));
   }
 

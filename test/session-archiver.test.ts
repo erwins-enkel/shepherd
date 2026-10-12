@@ -219,6 +219,23 @@ test("running, blocked and terminal sessions are out of scope", async () => {
   expect(h.archived).toEqual([]);
 });
 
+test("the Operator Assistant is never auto-archived; a settled task beside it is", async () => {
+  const assistant = session({
+    id: "assistant",
+    repoPath: "/assistant",
+    worktreePath: "/assistant",
+    branch: null,
+    baseBranch: "",
+    autopilotEnabled: false,
+    planGateEnabled: false,
+    autoMergeEnabled: false,
+    operatorAssistant: true,
+  });
+  const h = harness([assistant, session()]);
+  await h.archiver.tick();
+  expect(h.archived).toEqual(["s1"]);
+});
+
 test("a herdr update in progress pauses the sweep", async () => {
   const h = harness([session()]);
   maintenance.begin();

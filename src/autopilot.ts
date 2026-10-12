@@ -11,6 +11,7 @@ import { isConflicting, isDefiniteConflict } from "./pr-conflict";
 import { OWNERSHIP_TTL_MS } from "./automerge-core";
 import { DRAFT_PR_NOTE } from "./service";
 import { resumeThenSteer } from "./resume-then-steer";
+import { isOperatorAssistant } from "./operator-assistant-core";
 
 /**
  * Agent-facing steer templates. NOT UI chrome — never i18n'd (they are typed into the
@@ -331,8 +332,11 @@ export class AutopilotService {
     return s.status === "running" || s.status === "blocked" || this.isBackgroundBusy(s.id);
   }
 
-  /** Resolve a session's effective autopilot opt-in: override wins; null inherits the repo. */
+  /** Resolve a session's effective autopilot opt-in: override wins; null inherits the repo. Never
+   *  for the Operator Assistant, whose turns only the operator drives (#1446) — this one gate
+   *  stands down every steer, classify and re-engage path. */
   private enabled(s: Session): boolean {
+    if (isOperatorAssistant(s)) return false;
     return effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled);
   }
 
@@ -568,6 +572,8 @@ export class AutopilotService {
    *  before its classify (see onDone below); drain-first shifts BOTH together, so the
    *  PR-poll↔classify overlap is preserved — no separate up-front prewarm is needed (#1094). */
   async handle(change: SessionStateChange): Promise<void> {
+    // The Operator Assistant: skip the done-edge PR poll and tail read too, not just the steer.
+    if (isOperatorAssistant(change.snapshot.session)) return;
     const { id } = change.snapshot;
     if (change.kind === "status") {
       this.onStatus(id, change.status); // clears a pause on operator reply

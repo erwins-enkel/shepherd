@@ -51,6 +51,7 @@ import { agentTmpDir } from "./tmp-sweep";
 import { config } from "./config";
 import { SessionLiveness, type LivenessOutcome, type TranscriptSignals } from "./session-liveness";
 import { CodexTranscriptLocator, readCodexTranscriptSignals } from "./codex-activity";
+import { isOperatorAssistant } from "./operator-assistant-core";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 const AUTH_SIG = "auth"; // fixed signature → a resting MCP-auth block fires once per episode
@@ -902,8 +903,11 @@ export class StatusPoller {
     this.lastLivenessSweepAt = t;
     // Terminal sessions are exempt: scanClaudeAliveByWorktree matches agent comms only, so a
     // shell would read husk/stranded and auto-revive could re-spawn it. Pane existence is
-    // their real signal (sweepTerminalPanes).
-    const candidates = sessions.filter((s) => s.worktreePath && !s.terminal);
+    // their real signal (sweepTerminalPanes). So is the Operator Assistant: only the operator
+    // resumes it (opening its panel), never auto-revive or "revive all" (#1446).
+    const candidates = sessions.filter(
+      (s) => s.worktreePath && !s.terminal && !isOperatorAssistant(s),
+    );
     let byWorktree: Map<string, boolean> | null;
     try {
       byWorktree = this.livenessWiring.scan(candidates.map((s) => s.worktreePath));
@@ -1083,9 +1087,15 @@ export class StatusPoller {
     return this.backgroundBusy.has(id);
   }
 
-  /** Eligible for the background-shell probe: resting, non-terminal, has a worktree. */
+  /** Eligible for the background-shell probe: resting, non-terminal, not the Operator Assistant
+   *  (#1446), has a worktree. */
   private bgEligible(s: Session, status: Session["status"] = s.status): boolean {
-    return (status === "idle" || status === "done") && !s.terminal && !!s.worktreePath;
+    return (
+      (status === "idle" || status === "done") &&
+      !s.terminal &&
+      !isOperatorAssistant(s) &&
+      !!s.worktreePath
+    );
   }
 
   private setBackgroundBusy(id: string, t: number): void {
@@ -1988,8 +1998,11 @@ export class StatusPoller {
     // marker, so a session whose only awaiting-input signal is the hook (herdr 0.7.5 never latches
     // `blocked`) still surfaces it when the hold expires instead of losing it. The `lastReadAt`
     // stamp is already set, so the retry is throttled to the normal cadence.
+    // Never for the Operator Assistant: the operator is looking at its panel, so its block is
+    // announced at once rather than paying a judge call for patience (#1446).
     if (
       this.blockBackstop &&
+      !isOperatorAssistant(s) &&
       BACKSTOP_GATED_SHAPES.has(reason.shape) &&
       this.blockBackstop.hold(id, reason)
     ) {

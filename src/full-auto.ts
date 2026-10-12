@@ -2,6 +2,7 @@ import type { Session } from "./types";
 import type { RepoConfig } from "./store";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { isEpicChild } from "./epic-branch";
+import { isOperatorAssistant } from "./operator-assistant-core";
 
 /**
  * A session is "full-auto" — the merge train carries its PR all the way to a merge — when
@@ -17,12 +18,19 @@ import { isEpicChild } from "./epic-branch";
 export function isFullAuto(
   s: Pick<
     Session,
-    "autopilotEnabled" | "autoMergeEnabled" | "baseBranch" | "agentProvider" | "epicParent"
+    | "autopilotEnabled"
+    | "autoMergeEnabled"
+    | "baseBranch"
+    | "agentProvider"
+    | "epicParent"
+    | "operatorAssistant"
   > & {
     isolated?: boolean;
   },
   cfg: Pick<RepoConfig, "autopilotEnabled" | "autoMergeEnabled" | "draftMode">,
 ): boolean {
+  // The Operator Assistant has no PR to carry, and it never counts as autonomous work (#1446).
+  if (isOperatorAssistant(s)) return false;
   // Epic children are squash-merged into their integration branch by the drain's retire path,
   // never carried by the merge train — exclude them regardless of repo auto-merge config.
   // Identity, not base-branch shape: a child based on anything else is still a child (#2067).

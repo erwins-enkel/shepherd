@@ -47,9 +47,9 @@ interface Rig {
 }
 
 /** A poller wired to a REAL BlockBackstop over a fake judge that always answers `p`. */
-function rig(mode: BlockJudgeMode, p: number): Rig {
+function rig(mode: BlockJudgeMode, p: number, over: { operatorAssistant?: boolean } = {}): Rig {
   const store = new SessionStore(":memory:");
-  const s = store.create(baseSession);
+  const s = store.create({ ...baseSession, ...over });
   const blocks: { id: string; block: BlockReason | null }[] = [];
   const rows: BlockJudgeLogRow[] = [];
   let agentStatus: "working" | "blocked" = "blocked";
@@ -149,6 +149,15 @@ test("armed: a confident forgery is held for its band, then announced", async ()
   expect(r.blocks).toHaveLength(1);
   expect(r.blocks[0]!.block!.shape).toBe("menu");
   expect(r.asks).toBe(1); // one ask for the whole episode
+});
+
+test("armed: the Operator Assistant's block is never judged — it is announced at once", async () => {
+  // The same confident forgery the test above holds for its band.
+  const r = rig("armed", 0.95, { operatorAssistant: true });
+  await r.tick();
+  expect(r.asks).toBe(0);
+  expect(r.rows).toHaveLength(0);
+  expect(r.blocks.map((b) => b.id)).toEqual([r.sessionId]);
 });
 
 test("armed: a below-floor answer announces on the next cadence", async () => {

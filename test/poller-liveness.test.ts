@@ -297,6 +297,54 @@ test("liveness: auto-revive fires (default account) only after the 2-sweep debou
   }
 });
 
+test("liveness: the Operator Assistant is never swept, stranded or auto-revived — the task beside it is", async () => {
+  const store = new SessionStore(":memory:");
+  const s = makeStrandedSession(store);
+  const assistant = store.create({
+    ...baseSessionInput,
+    name: "operator-assistant",
+    repoPath: "/assistant",
+    worktreePath: "/assistant",
+    branch: null,
+    baseBranch: "",
+    isolated: false,
+    herdrAgentId: "term_b",
+    operatorAssistant: true,
+  });
+  store.setSpawnIdentity(assistant.id, "spawn_old_b", null); // a restored-pane husk too
+  const scanned: string[][] = [];
+  const revived: string[] = [];
+  let clock = 100_000;
+  const prev = config.autoReviveEnabled;
+  config.autoReviveEnabled = true;
+  try {
+    const poller = makePoller({
+      store,
+      agents: [baseHerdrAgent, { ...baseHerdrAgent, terminalId: "term_b", cwd: "/assistant" }],
+      scan: (worktrees) => {
+        scanned.push(worktrees);
+        return new Map(worktrees.map((w) => [w, false]));
+      },
+      onChange: () => {},
+      sweepMs: 4000,
+      now: () => clock,
+    });
+    poller.revive = async (id) => {
+      revived.push(id);
+      return "revived";
+    };
+    await poller.tick();
+    clock += 5000;
+    await poller.tick();
+    expect(scanned).toEqual([["/wt-a"], ["/wt-a"]]);
+    expect(poller.strandedIds()).toEqual([s.id]);
+    expect(revived).toEqual([s.id]);
+    expect(poller.livenessOf(assistant.id)).toBeUndefined();
+  } finally {
+    config.autoReviveEnabled = prev;
+  }
+});
+
 test("liveness: an agent record herdr dropped on exit (0.9.2, #4687) reads husk, never stranded — no auto-revive", async () => {
   // herdr 0.9.2 drops a sandboxed session's self-reported agent once claude exits. Even with the
   // daemon-restart fingerprint (spawnTerminalId != the last terminal), no matched pane means no

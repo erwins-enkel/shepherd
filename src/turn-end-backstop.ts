@@ -30,6 +30,7 @@
 //     selection, on top of the `delivered` stand-down below.
 
 import { isSettledIdle } from "./recap-core";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import type { SessionStore } from "./store";
 import type { Session, SessionStatus } from "./types";
 
@@ -203,6 +204,9 @@ export class TurnEndBackstopService {
     const live = new Set<string>();
     const started: Promise<void>[] = [];
     for (const s of this.deps.store.list({ activeOnly: true })) {
+      // The Operator Assistant has no turn-end consumer to recover: no plan gate, no autopilot,
+      // no finish push (#1446).
+      if (isOperatorAssistant(s)) continue;
       live.add(s.id);
       const p = this.considerSession(s, now);
       if (p) started.push(p);

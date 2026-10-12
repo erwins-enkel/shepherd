@@ -228,6 +228,36 @@ test("attachPush pushes on session:block with a reason, ignores null", async () 
   expect(calls[0]).toMatchObject({ kind: "blocked", sessionId: "z" });
 });
 
+test("attachPush never pushes for the Operator Assistant's done or block; a task's still push", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachPush(events, store, push);
+  const assistant = store.create({
+    name: "operator-assistant",
+    prompt: "",
+    repoPath: "/assistant",
+    baseBranch: "",
+    branch: null,
+    worktreePath: "/assistant",
+    isolated: false,
+    herdrSession: "default",
+    herdrAgentId: "term_oa",
+    operatorAssistant: true,
+  });
+  const reason: BlockReason = { shape: "yes-no", options: [], tail: [] };
+  events.emit("session:status", { id: assistant.id, status: "done" });
+  events.emit("session:block", { id: assistant.id, block: reason });
+  events.emit("session:status", { id: "task", status: "done" });
+  events.emit("session:block", { id: "task", block: reason });
+  await Promise.resolve();
+  expect(calls.map((c) => [c.kind, c.sessionId])).toEqual([
+    ["done", "task"],
+    ["blocked", "task"],
+  ]);
+});
+
 test("notify debounces repeats within the cooldown window, fires again after it", async () => {
   let count = 0;
   let t = 0;

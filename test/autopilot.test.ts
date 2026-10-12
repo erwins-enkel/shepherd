@@ -588,6 +588,46 @@ test("session override off beats repo on", async () => {
   expect(h.events.length).toBe(0);
 });
 
+test("the Operator Assistant is never classified, steered or re-engaged — even with autopilot forced on", async () => {
+  // Its row is created with autopilot off; force every gate open (an override flipped through the
+  // API, full-auto, a red open PR) so only the assistant predicate can stand it down.
+  const assistant = sess({
+    operatorAssistant: true,
+    repoPath: "/assistant",
+    worktreePath: "/assistant",
+    branch: null,
+    baseBranch: "",
+    isolated: false,
+    planGateEnabled: false,
+    autopilotEnabled: true,
+    status: "idle",
+  });
+  const h = harness({
+    session: assistant,
+    repoEnabled: true,
+    verdict: { kind: "gate", summary: "x" },
+    fullAuto: true,
+    prGit: {
+      kind: "github",
+      state: "open",
+      number: 1,
+      checks: "failure",
+      headSha: "h1",
+      deployConfigured: false,
+    },
+  });
+  await h.svc.handle({
+    kind: "status",
+    status: "done",
+    snapshot: { id: "s1", session: assistant },
+  });
+  await h.svc.onBlock("s1", block());
+  await h.svc.tick();
+  await flush();
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events).toEqual([]);
+});
+
 test("merge-train driver (override off, repo on) is never classified or steered", async () => {
   // A merge-train driver is created with autopilotEnabled:false even though the repo
   // default is on — neither a finished turn nor a steerable block may steer it elsewhere.

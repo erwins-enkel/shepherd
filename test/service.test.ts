@@ -4310,6 +4310,78 @@ test("haltAll keeps interrupting after one pane's send throws; counts only the l
   expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 2 } });
 });
 
+test("haltAll, broadcast and retryHalted leave the Operator Assistant alone; the task beside it is reached", async () => {
+  const sent: { target: string; text: string }[] = [];
+  const store = new SessionStore(":memory:");
+  const task = store.create({
+    name: "a",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/a",
+    worktreePath: "/wt/a",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const assistant = store.create({
+    name: "operator-assistant",
+    prompt: "",
+    repoPath: "/assistant",
+    baseBranch: "",
+    branch: null,
+    worktreePath: "/assistant",
+    isolated: false,
+    herdrSession: "default",
+    herdrAgentId: "term_oa",
+    claudeSessionId: "claude-oa",
+    operatorAssistant: true,
+  });
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    events: { emit: () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      list: () => [
+        { terminalId: "term_a", agentStatus: "working", cwd: "/wt/a", name: "" },
+        { terminalId: "term_oa", agentStatus: "working", cwd: "/assistant", name: "" },
+      ],
+      stop: async () => {},
+      send: async (target: string, text: string) => {
+        sent.push({ target, text });
+      },
+    } as any,
+  });
+
+  expect(await svc.haltAll()).toEqual({ halted: 1 });
+  expect(sent).toEqual([{ target: "term_a", text: "\x1b" }]);
+
+  sent.length = 0;
+  expect(await svc.broadcast([task.id, assistant.id], "go")).toEqual({
+    delivered: 0,
+    queued: 1,
+    offline: 0,
+    skipped: 1,
+    total: 2,
+  });
+  expect(sent.map((m) => m.target)).toEqual(["term_a", "term_a"]); // paste + CR, task only
+
+  sent.length = 0;
+  expect(await svc.retryHalted([assistant.id], "continue")).toEqual({
+    resumed: 0,
+    steered: 0,
+    total: 1,
+  });
+  expect(sent).toEqual([]);
+});
+
 test("haltAll throws (no emit) when herdr can't be reached — never a silent no-op", async () => {
   const emitted: { e: string; d: unknown }[] = [];
   const sent: unknown[] = [];

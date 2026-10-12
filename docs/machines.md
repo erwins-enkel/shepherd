@@ -6,7 +6,9 @@ worktree, herdr, the agent, builds and tests. The Shepherd you started it from s
 and lets you steer it. Typical setup: a Linux server you work from (the **coordinator**) and a
 MacBook with Xcode that takes macOS and iOS tasks.
 
-Today you choose the machine yourself, per task. Nothing moves to another machine on its own.
+Shepherd picks the machine for each task by what it needs: a task that needs Xcode goes to the
+MacBook, any other to Linux. You can always name the machine yourself. A running session never
+moves to another machine.
 
 ## How it works
 
@@ -86,8 +88,11 @@ coordinator.
 
 ## Start a task on a machine
 
-In **New Task**, pick the machine under **Run on**. It offers connected machines that have the
-project checked out and run a platform released for tasks (Linux, macOS).
+In **New Task**, **Run on** starts on **Automatic**: Shepherd chooses the machine (see
+[Automatic choice](#automatic-choice)) and shows which one and why before you start, for example
+"Runs on MacBook — Needs Xcode". To choose yourself, pick **This machine** or a connected machine
+that has the project checked out and runs a platform released for tasks (Linux, macOS). A machine
+you pick must have what the task needs, or nothing starts and the dialog says what is missing.
 
 - The machine starts from the base branch **as pushed to origin**. Push first.
 - Attachments are uploaded to the machine right before the task is sent. If one can't be sent, the
@@ -99,8 +104,38 @@ project checked out and run a platform released for tasks (Linux, macOS).
   if it never arrived. It never starts twice and never goes elsewhere. Until the machine confirms
   it, you can cancel it.
 
-From a script, send `target: { instanceId }` with the create request and an `Idempotency-Key`
+From a script, leave `target` out for the automatic choice, or send `target: { instanceId }` to
+name the machine, with the create request and an `Idempotency-Key`
 ([External Task API](external-task-api.md)).
+
+## Automatic choice
+
+A task names what it needs as **requirements**: the chips under the prompt in New Task, or
+`requirements` in the API, from the capabilities each machine verifies (Xcode, the iOS and Android
+SDKs, the agent CLIs, the sandbox profiles, the platform). Shepherd then:
+
+1. Considers this Shepherd and every connected machine that runs a released platform, has the
+   project checked out, and whose capability check, not older than 15 minutes, has every
+   requirement.
+2. Prefers Linux over macOS, because Linux has the full sandbox and runs all the time. Among
+   machines of the same platform the machine ID decides, so the choice is stable.
+3. Starts the task on the first one, right away, without asking.
+
+The reason is shown before you start and on the session afterwards: "Needs macOS and Xcode",
+"No special requirements – preferred: Linux", "Chosen manually".
+
+- **Wherever you submit.** Every Shepherd with connected machines chooses by the same rules. A web
+  task without requirements submitted on the MacBook runs on Linux; an Xcode task submitted on Linux
+  runs on the MacBook. This needs both Shepherds connected to each other and using the same platform
+  order. Each Shepherd keeps its own order under **Settings → Machines → Automatic choice**, and
+  the setting says so.
+- **Nothing fits.** If no connected machine has a requirement, nothing starts and Shepherd names what
+  is missing, for example "No connected machine has Xcode".
+- **The right machine is offline.** If the machine a task is meant for is asleep or out of reach,
+  nothing starts: Shepherd says which machine it is and which others would fit. It never falls back
+  to another machine on its own. Pick one under **Run on** to start it there.
+- **Requirements are not guessed yet.** Shepherd reads only the requirements you give it. Without
+  any, a task runs on the preferred platform.
 
 ## Work with its sessions
 
@@ -141,8 +176,8 @@ someone your login.
   origin. Commits and edits that exist only on the coordinator don't travel.
 - **No live migration.** A session stays on the machine it started on. To continue elsewhere, push
   its branch and start a new task there.
-- **You choose the machine.** There is no automatic choice yet, and never a silent fallback to
-  another machine.
+- **No silent fallback.** A task meant for a machine that is out of reach does not start on
+  another one by itself. Waiting for it is not supported yet.
 - **Follow-up work stays on the machine:** review, pull request and merge are its Shepherd's.
 - **Windows** is listed as a platform, but not released for tasks.
 
@@ -214,6 +249,9 @@ coordinator, the Mac the machine; the project is checked out on both.
 | 11  | Connect the iOS app to both Shepherds.                                                     | Every session appears exactly once.                                                                                                |
 | 12  | Archive the task from Linux.                                                               | It is archived on the Mac and leaves both herds.                                                                                   |
 | 13  | When testing a branch: check the live instance.                                            | It kept running throughout; its database, herdr session, checkouts and preview mappings were never touched.                        |
+| 14  | On Linux and on the Mac, open New Task on **Automatic**, add the **Xcode** requirement.    | Both say "Runs on MacBook — Needs Xcode"; started from either side, it runs on the Mac.                                            |
+| 15  | Remove the requirement and start it on each side.                                          | Both say "No special requirements – preferred: Linux"; it runs on Linux, and the session shows that reason.                        |
+| 16  | Put the Mac to sleep and start the Xcode task on Linux.                                    | Nothing starts: Linux says the MacBook would run it but is not reachable. Nothing runs on Linux instead.                           |
 
 The automated counterpart, `test/machines-two-instances.test.ts`, runs in `bun run test`: two
 Shepherd processes with their own ports and state, a cut network between them and a crash of the

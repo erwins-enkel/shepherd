@@ -162,7 +162,12 @@ describe("RemoteDispatcher", () => {
     });
     const [post] = net.posts();
     expect(post!.url).toBe("http://mac.test/api/sessions");
-    expect(post!.body).toEqual({ ...BODY, repoPath: "/Users/kai/dev/app" });
+    // `target` names the machine itself (#2772): it runs the task and never places it again.
+    expect(post!.body).toEqual({
+      ...BODY,
+      repoPath: "/Users/kai/dev/app",
+      target: { instanceId: MAC },
+    });
     expect(post!.headers.authorization).toBe(`Bearer token-${MAC}`);
     // The machine gets the dispatch ID generated here, never the client's key.
     expect(post!.headers["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
@@ -759,6 +764,7 @@ describe("RemoteDispatcher attachments", () => {
       repoPath: "/Users/kai/dev/app",
       images: [`${MAC_STAGING}/m-1.png`, `${MAC_STAGING}/m-2.pdf`],
       attachmentNames: ["Attachment 1.png", "Attachment 2.png"],
+      target: { instanceId: MAC },
     });
     // No path of this machine reaches the other one.
     expect(create!.raw).not.toContain(dir);

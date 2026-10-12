@@ -3,7 +3,9 @@
   import {
     checkInstanceCapabilities,
     getInstance,
+    getSettings,
     listRemoteInstances,
+    putMachinePlatformOrder,
     renameInstance,
   } from "#lib/api.js";
   import type { InstanceIdentity, RemoteInstance } from "#lib/types.js";
@@ -35,6 +37,11 @@
   let capsError = $state("");
 
   let machines = $state<RemoteInstance[]>([]);
+  /** This instance's platform order for the automatic machine choice (#2772); null until loaded
+   *  (or on a server that has none). */
+  let order = $state<string[] | null>(null);
+  let savingOrder = $state(false);
+  let orderError = $state("");
   let loading = $state(true);
   let loadFailed = $state(false);
   let now = $state(Date.now());
@@ -85,6 +92,27 @@
     }
   }
 
+  async function loadOrder() {
+    try {
+      order = (await getSettings()).machinePlatformOrder ?? null;
+    } catch {
+      order = null;
+    }
+  }
+
+  async function saveOrder(value: string) {
+    if (savingOrder) return;
+    savingOrder = true;
+    orderError = "";
+    try {
+      order = (await putMachinePlatformOrder(value.split(","))).machinePlatformOrder;
+    } catch {
+      orderError = m.settings_machines_order_failed();
+    } finally {
+      savingOrder = false;
+    }
+  }
+
   function startRename() {
     nameDraft = self?.name ?? "";
     nameError = "";
@@ -109,6 +137,7 @@
   onMount(() => {
     void loadSelf();
     void loadMachines();
+    void loadOrder();
     const timer = setInterval(() => {
       void loadSelf();
       void loadMachines();
@@ -197,5 +226,27 @@
     </div>
   {/if}
 </div>
+
+{#if order}
+  <!-- The order the automatic machine choice (#2772) ranks fitting machines by. -->
+  <div class="mch-block">
+    <span class="mch-micro"><HighlightText text={m.settings_machines_order_title()} {query} /></span
+    >
+    <label class="mch-fld">
+      <span class="mch-lbl">{m.settings_machines_order_label()}</span>
+      <select
+        class="pui-input"
+        value={order.join(",")}
+        disabled={savingOrder}
+        onchange={(e) => saveOrder(e.currentTarget.value)}
+      >
+        <option value="linux,macos">{m.settings_machines_order_linux_first()}</option>
+        <option value="macos,linux">{m.settings_machines_order_macos_first()}</option>
+      </select>
+    </label>
+    <p class="mch-hint">{m.settings_machines_order_note()}</p>
+    {#if orderError}<p class="mch-hint mch-err" role="alert">{orderError}</p>{/if}
+  </div>
+{/if}
 
 <MachineConnectForm {query} onconnected={upsert} />

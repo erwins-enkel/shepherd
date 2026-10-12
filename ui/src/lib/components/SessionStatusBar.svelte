@@ -7,6 +7,9 @@
   import { isColdResume } from "#lib/cold-resume.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { placementReason } from "#lib/placement.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { placementExplanation } from "#lib/tooltips/explanations.js";
   import GlossaryText from "./GlossaryText.svelte";
 
   // `activity` is the LIVE runtime-identity carrier: the poller persists what it observes, but that
@@ -47,6 +50,8 @@
     ),
   );
   const identity = $derived([providerLabel(provider), ...environment.segments].join(" · "));
+  // Why the task runs on this machine (#2772) — only when a machine choice was made.
+  const placement = $derived(launch?.placement ?? null);
   const identityTitle = $derived(environment.tooltip);
 
   // The elapsed segment is SESSION AGE — wall-clock since createdAt (to archive time for
@@ -121,6 +126,15 @@
       <GlossaryText text={coldLabel} />
     </span>
   {/if}
+  {#if placement}
+    <span class="ssb-sep" aria-hidden="true">·</span>
+    <button
+      type="button"
+      class="ssb-placement"
+      use:statusTip={{ text: placementExplanation(placement), wide: true }}
+      >{placementReason(placement)}</button
+    >
+  {/if}
   <span class="ssb-sep" aria-hidden="true">·</span>
   <span class="ssb-elapsed" title={elapsedTitle}>{elapsedText}</span>
 </div>
@@ -154,6 +168,19 @@
   .ssb-tokens,
   .ssb-elapsed {
     flex-shrink: 0;
+  }
+
+  /* The reason of the machine choice (#2772): informational, so it yields width first. */
+  .ssb-placement {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    cursor: help;
   }
 
   .ssb-unavailable {

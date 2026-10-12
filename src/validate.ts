@@ -24,6 +24,7 @@ import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
 import { type Capability, parseRequirements } from "./remote-instances/capabilities";
+import { type Placement, parsePlacementRecord } from "./remote-instances/placement";
 import { normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
@@ -61,6 +62,7 @@ const ALLOWED_KEYS = new Set([
   "mergeTrainPrs",
   "baseCommit",
   "requirements",
+  "placement",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
 
@@ -593,6 +595,27 @@ export function validateCreate(
   };
 }
 
+const PLACEMENT_PREVIEW_KEYS = new Set(["repoPath", "requirements"]);
+
+/** A `POST /api/placement` body (#2772), its `target` already split off: one of this machine's
+ *  repos and the task's optional requirements — the two inputs the machine choice reads. */
+export function validatePlacementPreview(
+  body: unknown,
+  repoRoot: string,
+): { ok: true; value: { repoPath: string; requirements: Capability[] } } | Err {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return err("body must be a non-null object");
+  }
+  const obj = body as Record<string, unknown>;
+  const unknown = Object.keys(obj).find((key) => !PLACEMENT_PREVIEW_KEYS.has(key));
+  if (unknown !== undefined) return err(`unknown key: ${unknown}`);
+  const repoPath = validateRepoPath(obj.repoPath, resolve(expandHome(repoRoot)));
+  if (!repoPath.ok) return repoPath;
+  const requirements = parseRequirements(obj.requirements);
+  if (requirements && "error" in requirements) return err(requirements.error);
+  return { ok: true, value: { repoPath: repoPath.value, requirements: requirements ?? [] } };
+}
+
 const TERMINAL_ALLOWED_KEYS = new Set(["repoPath", "terminal"]);
 
 /** The clean-terminal arm of the create union: exactly `{ repoPath, terminal: true }` — a stray
@@ -669,6 +692,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   mergeTrainPrs: number[] | undefined;
   baseCommit: string | undefined;
   requirements: Capability[] | undefined;
+  placement: Placement | undefined;
 }> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
@@ -695,6 +719,8 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   if (!baseCommit.ok) return baseCommit;
   const requirements = parseRequirements(obj.requirements);
   if (requirements && "error" in requirements) return err(requirements.error);
+  const placement = parsePlacementRecord(obj.placement);
+  if (placement && "error" in placement) return err(placement.error);
 
   return field({
     planGateEnabled: planGateEnabled.value,
@@ -706,6 +732,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     mergeTrainPrs: mergeTrainPrs.value,
     baseCommit: baseCommit.value,
     requirements,
+    placement,
   });
 }
 

@@ -64,6 +64,7 @@ function stubApi(opts: {
   self?: InstanceIdentity;
   machines?: RemoteInstance[];
   connect?: (body: Record<string, unknown>) => { payload: unknown; status: number };
+  order?: string[];
 }) {
   const calls: { url: string; method: string; body: string }[] = [];
   let machines = [...(opts.machines ?? [])];
@@ -85,6 +86,10 @@ function stubApi(opts: {
       return jsonRes(payload, status);
     }
     if (url === "/api/remote-instances") return jsonRes({ instances: machines });
+    if (url === "/api/settings" && opts.order) {
+      if (method === "PUT") return jsonRes(JSON.parse(body));
+      return jsonRes({ machinePlatformOrder: opts.order });
+    }
     if (method === "DELETE") {
       machines = machines.filter((x) => !url.endsWith(x.instanceId));
       return jsonRes({ ok: true });
@@ -243,6 +248,19 @@ describe("SettingsMachinesPanel", () => {
     const blocks = [...document.querySelectorAll("[data-capabilities]")];
     expect(blocks).toHaveLength(3);
     expect(blocks.filter((b) => b.textContent?.includes(noneTail))).toHaveLength(2);
+  });
+
+  it("sets this Shepherd's platform order and says it must match everywhere (#2772)", async () => {
+    const calls = stubApi({ machines: [machine()], order: ["linux", "macos"] });
+    render(SettingsMachinesPanel);
+    const select = page.getByRole("combobox", { name: m.settings_machines_order_label() });
+    await expect.element(select).toHaveValue("linux,macos");
+    await expect.element(page.getByText(m.settings_machines_order_note())).toBeInTheDocument();
+    await select.selectOptions("macos,linux");
+    await expect
+      .poll(() => calls.find((c) => c.url === "/api/settings" && c.method === "PUT")?.body)
+      .toBe(JSON.stringify({ machinePlatformOrder: ["macos", "linux"] }));
+    await expect.element(select).toHaveValue("macos,linux");
   });
 
   it("shows a Windows machine as not released", async () => {

@@ -2,10 +2,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { RemoteInstance, RepoConfig, RepoEntry } from "#lib/types.js";
+import type {
+  InstanceIdentity,
+  Placement,
+  PlacementPreview,
+  RemoteInstance,
+  RepoConfig,
+  RepoEntry,
+} from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { capabilityList } from "#lib/placement.js";
 import {
   ApiError,
+  PlacementRefusedError,
+  getInstance,
+  previewPlacement,
   listIssues,
   getEpics,
   getTodo,
@@ -18,9 +29,11 @@ import {
   getCommands,
 } from "#lib/api.js";
 
-// "Run on" in the New Task dialog (#2763): only there while a machine is connected, offering the
-// machines that have the project, carrying the target, a dispatch key and any attachments (#2766)
-// into the submit, and retrying an unanswered send under the same key.
+// "Run on" in the New Task dialog (#2763): only there while a machine is connected. Automatic is
+// the default (#2772) — the server's preview says where the task runs and why, the requirement chips
+// feed it — or the operator names this machine or one that has the project. The submit carries the
+// target only for a named machine, a dispatch key, the requirements and any attachments (#2766),
+// and retries an unanswered send under the same key.
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -34,6 +47,8 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     putRepoConfig: vi.fn(),
     listRepos: vi.fn(),
     listRemoteInstances: vi.fn(),
+    getInstance: vi.fn(),
+    previewPlacement: vi.fn(),
     branchStatus: vi.fn(),
     getCommands: vi.fn(),
   };
@@ -106,6 +121,30 @@ function machine(over: Partial<RemoteInstance> = {}): RemoteInstance {
   };
 }
 
+const self: InstanceIdentity = {
+  instanceId: "self-1",
+  name: "moes-tavern",
+  version: "2.2.0",
+  federationApi: 2,
+  platform: "linux",
+  arch: "x64",
+};
+const here = { instanceId: "self-1", name: "moes-tavern", platform: "linux" };
+const mac = { instanceId: "mac-1", name: "MacBook", platform: "macos" };
+
+function placed(target: Placement["target"], over: Partial<Placement> = {}): Placement {
+  return {
+    mode: "auto",
+    target,
+    requirements: [],
+    basis: "preference",
+    preferred: target.platform,
+    by: { instanceId: "self-1", name: "moes-tavern" },
+    decidedAt: 1,
+    ...over,
+  };
+}
+
 beforeEach(async () => {
   await page.viewport(1280, 900);
   vi.mocked(getTodo).mockResolvedValue({ exists: false, content: "" });
@@ -116,6 +155,8 @@ beforeEach(async () => {
   vi.mocked(putRepoConfig).mockResolvedValue(cfg());
   vi.mocked(listRepos).mockResolvedValue({ repos: [repo], recentWindowDays: 30 });
   vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [] });
+  vi.mocked(getInstance).mockResolvedValue(self);
+  vi.mocked(previewPlacement).mockResolvedValue({ active: true, placement: placed(here) });
   vi.mocked(branchStatus).mockResolvedValue({ ahead: 0, behind: 0, diverged: false } as never);
   vi.mocked(getCommands).mockResolvedValue({ commands: [] });
 });
@@ -139,6 +180,18 @@ async function submit() {
   run.click();
 }
 
+const placementText = () => document.querySelector(".nt-placement")?.textContent?.trim();
+
+async function addRequirement(id: string) {
+  await expect.poll(() => addSelect()).not.toBeNull();
+  const select = addSelect()!;
+  select.value = id;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+const addSelect = () =>
+  document.querySelector<HTMLSelectElement>(`select[aria-label="${m.newtask_requirements_add()}"]`);
+
 async function pickMachine(instanceId: string) {
   await expect.poll(() => runOnSelect()).not.toBeNull();
   const select = runOnSelect()!;
@@ -146,22 +199,101 @@ async function pickMachine(instanceId: string) {
   select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-describe("Run on (#2763)", () => {
-  it("is absent without a connected machine, and the task carries no target", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({
-      instances: [machine({ status: "unreachable" })],
-    });
+describe("Run on (#2763) and the automatic choice (#2772)", () => {
+  it("is absent without machines: no target, no key, no preview", async () => {
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
     await typePrompt("do it");
     await submit();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(runOnSelect()).toBeNull();
-    expect(onsubmit.mock.calls[0]![0].target).toBeUndefined();
-    expect(onsubmit.mock.calls[0]![0].dispatchKey).toBeUndefined();
+    expect(addSelect()).toBeNull();
+    const input = onsubmit.mock.calls[0]![0];
+    expect(input.target).toBeUndefined();
+    expect(input.dispatchKey).toBeUndefined();
+    expect(input.requirements).toBeUndefined();
+    expect(previewPlacement).not.toHaveBeenCalled();
   });
 
-  it("offers the connected machines that have the project and sends the task there", async () => {
+  it("starts on Automatic and shows where the task runs and why before it is submitted", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
+    await expect.poll(() => runOnSelect()?.options.length).toBe(3);
+    expect([...runOnSelect()!.options].map((o) => o.textContent?.trim())).toEqual([
+      m.newtask_runon_auto(),
+      m.newtask_runon_here(),
+      "MacBook (macOS)",
+    ]);
+    expect(runOnSelect()!.value).toBe("");
+    await expect.poll(placementText).toBe(
+      m.placement_runs_on({
+        machine: m.placement_this_machine({ machine: "moes-tavern" }),
+        reason: m.placement_basis_preference_none({ platform: "Linux" }),
+      }),
+    );
+    expect(previewPlacement).toHaveBeenLastCalledWith({ repoPath: repo.path });
+
+    // Its explanation rides the select itself, so focus and assistive tech reach it.
+    expect(runOnSelect()!.getAttribute("aria-description")).toContain(m.tooltip_runon_summary());
+    await typePrompt("change the settings page");
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    const input = onsubmit.mock.calls[0]![0];
+    // Automatic: the server decides, so the task names no machine — but carries a key.
+    expect(input.target).toBeUndefined();
+    expect(input.dispatchKey).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("feeds the requirement chips to the preview and the task", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(previewPlacement).mockImplementation(async (body) =>
+      body.requirements?.includes("xcode")
+        ? {
+            active: true,
+            placement: placed(mac, {
+              basis: "requirements",
+              preferred: null,
+              requirements: ["xcode"],
+            }),
+          }
+        : { active: true, placement: placed(here) },
+    );
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
+    await addRequirement("xcode");
+    await expect.poll(placementText).toBe(
+      m.placement_runs_on({
+        machine: "MacBook",
+        reason: m.placement_basis_requirements({ list: capabilityList(["xcode"]) }),
+      }),
+    );
+    expect(previewPlacement).toHaveBeenLastCalledWith({
+      repoPath: repo.path,
+      requirements: ["xcode"],
+    });
+    // Bound for another machine: the dialog says what it has of the code.
+    await expect
+      .element(page.getByText(m.newtask_runon_notice({ machine: "MacBook", base: "main" })))
+      .toBeVisible();
+
+    await typePrompt("build the macOS app");
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    const input = onsubmit.mock.calls[0]![0];
+    expect(input.requirements).toEqual(["xcode"]);
+    expect(input.target).toBeUndefined();
+
+    // A chip can be removed again.
+    await page
+      .getByRole("button", {
+        name: m.newtask_requirements_remove({ capability: capabilityList(["xcode"]) }),
+      })
+      .click();
+    await expect.poll(() => addSelect()?.options.length).toBeGreaterThan(10);
+  });
+
+  it("names a machine as the target, and this machine by its own ID", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({
       instances: [
         machine(),
@@ -169,17 +301,20 @@ describe("Run on (#2763)", () => {
         machine({ instanceId: "down-1", name: "Laptop", status: "unreachable" }),
       ],
     });
+    vi.mocked(previewPlacement).mockImplementation(async (body) => ({
+      active: true,
+      placement: placed(body.target?.instanceId === "mac-1" ? mac : here, {
+        mode: body.target ? "manual" : "auto",
+        basis: body.target ? "manual" : "preference",
+      }),
+    }));
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
-    await expect.poll(() => runOnSelect()?.options.length).toBe(2);
-    expect([...runOnSelect()!.options].map((o) => o.textContent?.trim())).toEqual([
-      m.newtask_runon_here(),
-      "MacBook (macOS)",
-    ]);
-
-    // Its explanation rides the select itself, so focus and assistive tech reach it.
-    expect(runOnSelect()!.getAttribute("aria-description")).toContain(m.tooltip_runon_summary());
+    await expect.poll(() => runOnSelect()?.options.length).toBe(3);
     await pickMachine("mac-1");
+    await expect
+      .poll(placementText)
+      .toBe(m.placement_runs_on({ machine: "MacBook", reason: m.placement_basis_manual() }));
     await expect
       .element(page.getByText(m.newtask_runon_notice({ machine: "MacBook", base: "main" })))
       .toBeVisible();
@@ -191,6 +326,72 @@ describe("Run on (#2763)", () => {
     expect(input.dispatchKey).toMatch(/^[0-9a-f-]{36}$/);
     expect(input.repoPath).toBe(repo.path);
     expect(input.prompt).toBe("port the settings screen");
+
+    await pickMachine("self-1");
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(2);
+    expect(onsubmit.mock.calls[1]![0].target).toEqual({ instanceId: "self-1" });
+  });
+
+  it("keeps this machine's first-task confirmation for a task placed here", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    // Even without this Shepherd's identity, the record says it was placed where it was decided.
+    vi.mocked(getInstance).mockRejectedValue(new Error("offline"));
+    vi.mocked(getRepoConfig).mockResolvedValue({ ...cfg(), automationConfirmed: false });
+    // A repo of its own: repo config is cached per path across the file.
+    const fresh = { ...repo, name: "fresh", path: "/repo/fresh", realPath: "/repo/fresh" };
+    vi.mocked(listRepos).mockResolvedValue({ repos: [fresh], recentWindowDays: 30 });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: fresh.path } });
+    await expect.poll(placementText).toContain("moes-tavern");
+    await typePrompt("change the settings page");
+    await submit();
+    await expect.element(page.getByText(m.firsttask_confirm_title())).toBeVisible();
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
+  it("says before submitting when no machine fits", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    const refused: PlacementPreview = {
+      active: true,
+      refusal: {
+        code: "no_suitable_machine",
+        error: "no connected machine has android-sdk; nothing was started",
+        missing: ["android-sdk"],
+        together: false,
+        elsewhere: [],
+      },
+    };
+    vi.mocked(previewPlacement).mockResolvedValue(refused);
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await expect
+      .poll(placementText)
+      .toBe(m.placement_refusal_none({ list: capabilityList(["android-sdk"]) }));
+  });
+
+  it("names what is missing when the create refuses the machine choice", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    const refusal = {
+      code: "preferred_machine_offline",
+      error: "MacBook would run this task but is not reachable right now (timeout)",
+      host: mac,
+      status: "timeout",
+      alternatives: [],
+    };
+    const onsubmit = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new PlacementRefusedError(
+          new ApiError(409, refusal.error, "preferred_machine_offline", true),
+          refusal,
+        ),
+      );
+    render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
+    await typePrompt("build it");
+    await submit();
+    await expect
+      .element(page.getByText(m.placement_refusal_offline({ machine: "MacBook" })))
+      .toBeVisible();
   });
 
   const windows = () =>
@@ -204,28 +405,23 @@ describe("Run on (#2763)", () => {
   it("never offers a Windows machine (not released, #2770)", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [windows(), machine()] });
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
-    await expect.poll(() => runOnSelect()?.options.length).toBe(2);
+    await expect.poll(() => runOnSelect()?.options.length).toBe(3);
     expect([...runOnSelect()!.options].map((o) => o.value)).not.toContain("win-1");
   });
 
-  it("with only a Windows machine connected the dialog is unchanged", async () => {
+  it("is unchanged while the server says the choice is not active (only Windows)", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [windows()] });
+    vi.mocked(previewPlacement).mockResolvedValue({ active: false });
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
+    await expect.poll(() => vi.mocked(previewPlacement).mock.calls.length).toBeGreaterThan(0);
+    await expect.poll(runOnSelect).toBeNull();
     await typePrompt("do it");
     await submit();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(runOnSelect()).toBeNull();
     expect(onsubmit.mock.calls[0]![0].target).toBeUndefined();
-  });
-
-  it("says when no connected machine has the project", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({
-      instances: [machine({ projects: ["acme/other"] })],
-    });
-    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
-    await expect.element(page.getByText(m.newtask_runon_none())).toBeVisible();
-    expect(runOnSelect()!.disabled).toBe(true);
+    expect(onsubmit.mock.calls[0]![0].dispatchKey).toBeUndefined();
   });
 
   // #2766: attachments travel with the task; the server uploads them to the machine.

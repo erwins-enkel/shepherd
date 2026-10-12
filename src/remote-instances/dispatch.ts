@@ -53,6 +53,7 @@ import {
   postRemoteJson,
   requestRemote,
 } from "./client";
+import { type RemoteUnfitCode, remoteUnfit } from "./placement";
 import type { RemoteInstanceService } from "./service";
 import { type SessionHost, hostNames } from "./sessions";
 
@@ -144,19 +145,15 @@ export interface RemoteSubmit {
   instanceId: string;
   /** Forge slug (`owner/repo`) of the project, the identity it is matched on. */
   project: string;
-  /** The validated create body without `target`; `repoPath` is replaced by the machine's path.
-   *  `images`, if any, are this machine's staged files (validated real paths). */
+  /** The validated create body without `target`; `repoPath` is replaced by the machine's path and
+   *  `target` set to the machine itself. `images`, if any, are this machine's staged files
+   *  (validated real paths). `placement`, if any, is this Shepherd's record of the choice (#2772). */
   body: Record<string, unknown>;
   /** Hash of the submitter's whole body. */
   payloadHash: string;
 }
 
-export type RemoteRefusalCode =
-  | "remote_target_unknown"
-  | "remote_target_unavailable"
-  | "remote_target_unreleased"
-  | "remote_project_missing"
-  | "dispatch_payload_mismatch";
+export type RemoteRefusalCode = RemoteUnfitCode | "dispatch_payload_mismatch";
 
 export type RemoteOutcome =
   | { kind: "started"; session: Record<string, unknown> & { host: SessionHost } }
@@ -326,7 +323,13 @@ export class RemoteDispatcher {
       clientKey,
       instanceId: req.instanceId,
       payloadHash: req.payloadHash,
-      wireBody: JSON.stringify({ ...req.body, repoPath: path }),
+      // `target` names the machine itself (#2772): it runs the task there and never places it
+      // again — so two machines connected to each other cannot hand a task back and forth.
+      wireBody: JSON.stringify({
+        ...req.body,
+        repoPath: path,
+        target: { instanceId: req.instanceId },
+      }),
       state: "sending",
       ...NO_OUTCOME,
       createdAt: at,
@@ -346,12 +349,9 @@ export class RemoteDispatcher {
     const machine = this.instances.get(req.instanceId);
     const creds = this.store.getRemoteInstance(req.instanceId);
     if (!machine || !creds) return refused("remote_target_unknown");
-    if (machine.status !== "connected") {
-      return refused("remote_target_unavailable", machine.reason ?? machine.status);
-    }
-    // A platform not cleared to run tasks (Windows, #2770) is listed but never sent a task.
-    if (!machine.released) return refused("remote_target_unreleased", machine.info?.platform);
-    if (!machine.projects?.includes(req.project)) return refused("remote_project_missing");
+    // Not connected, a platform not released for tasks (#2770) or no checkout of the project.
+    const unfit = remoteUnfit(machine, req.project);
+    if (unfit) return refused(unfit.code, unfit.reason);
     const repos = await getRemoteJson(creds, "/api/repos", { fetch: this.fetch });
     if (!repos.ok) return refused("remote_target_unavailable", repos.failure.reason);
     return parseProjectPath(repos.body, req.project) ?? refused("remote_project_missing");

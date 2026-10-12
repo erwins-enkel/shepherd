@@ -67,6 +67,7 @@ import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { resolveAptabaseHost } from "./telemetry";
 import {
   validateCreate,
+  validatePlacementPreview,
   validateRelaunchOverrides,
   validateModelChoice,
   validateReplaceAgentChoice,
@@ -113,21 +114,41 @@ import {
 } from "./access-tokens";
 import {
   instanceIdentity,
+  instancePlatform,
   parseInstanceNamePatch,
   setInstanceName,
 } from "./remote-instances/identity";
-import { describeMissing } from "./remote-instances/capabilities";
+import {
+  type Capability,
+  describeMissing,
+  platformReleased,
+} from "./remote-instances/capabilities";
+import {
+  type MachineView,
+  type Placement,
+  type PlacementDecision,
+  type PlacementRefusal,
+  PLATFORM_ORDER_SETTING,
+  decidePlacement,
+  describeRefusal,
+  parsePlatformOrder,
+  placementActive,
+  placementRecord,
+  storedPlatformOrder,
+} from "./remote-instances/placement";
 import { CapabilityService } from "./remote-instances/capability-probe";
 import {
   RemoteInstanceService,
   parseConnectRequest,
   parseLabelPatch,
   type ConnectError,
+  type RemoteInstanceSummary,
 } from "./remote-instances/service";
-import type {
-  MachineRoute,
-  RemoteSessionMirror,
-  RemoteTerminal,
+import {
+  type MachineRoute,
+  type RemoteSessionMirror,
+  type RemoteTerminal,
+  hostNames,
 } from "./remote-instances/sessions";
 import {
   RemoteDispatcher,
@@ -450,6 +471,9 @@ export interface AppDeps {
    *  `capabilities(deps)` accessor lazily builds an unstarted one (no probe until asked);
    *  `index.ts` injects the started singleton that re-probes every 5 minutes. */
   capabilities?: CapabilityService;
+  /** This host's platform as `GET /api/instance` reports it and the machine choice (#2772) ranks
+   *  it. Absent ⇒ the real one; tests stand in for another platform. */
+  hostPlatform?: string;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -949,6 +973,9 @@ function remoteDispatcher(deps: AppDeps): Pick<RemoteDispatcher, "submit" | "lis
 function capabilities(deps: AppDeps): CapabilityService {
   return (deps.capabilities ??= new CapabilityService());
 }
+function hostPlatform(deps: AppDeps): string {
+  return deps.hostPlatform ?? instancePlatform();
+}
 
 /**
  * Requests that pass the gate UN-credentialed (issue #1079). Scoped deliberately tight:
@@ -1426,7 +1453,10 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
 // `POST /api/instance/capabilities` re-probes on demand (also `full`-only by default).
 
 function instanceBody(deps: AppDeps) {
-  return { ...instanceIdentity(deps.store), capabilities: capabilities(deps).report() };
+  return {
+    ...instanceIdentity(deps.store, hostPlatform(deps)),
+    capabilities: capabilities(deps).report(),
+  };
 }
 
 async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -3223,6 +3253,34 @@ function spawnTrackerFor(req: Request, deps: AppDeps): SpawnPhaseTracker {
   });
 }
 
+// ── POST /api/placement — where a task would run and why (#2772) ──
+//
+// The form shows this before a task is submitted. It decides through the same `decide` as the
+// create, so with the same readiness the create lands where the preview said. Nothing is stored or
+// sent. `{active:false}` while no machine could take a task: then the form stays as it always was.
+async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps, token } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "placement" || parts[2] || req.method !== "POST") {
+    return null;
+  }
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const target = splitTarget(await req.json().catch(() => null), deps.store);
+  if ("error" in target) return json({ error: target.error }, 400);
+  const parsed = validatePlacementPreview(target.body, config.repoRoot);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const { repoPath, requirements } = parsed.value;
+  const repoErr = repositoryInputError(token, { repoPath });
+  if (repoErr) return repoErr;
+  const named = target.instanceId !== null && !target.self;
+  if (!named && !placementActive(remoteInstances(deps).list())) return json({ active: false });
+  const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
+  if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN });
+  const decision = await decide(deps, { requirements, project, override: target.instanceId });
+  if (decision.ok) return json({ active: true, placement: decision.placement });
+  return json({ active: true, refusal: placementRefusal(decision.refusal).body });
+}
+
 // ── cancel an in-flight spawn: POST /api/spawns/:spawnId/cancel ──
 //
 // Separate from the create request on purpose — that request is the thing being cancelled, and it
@@ -3252,7 +3310,7 @@ async function refuseMissingCapabilities(
 
 // POST /api/sessions — create a session.
 async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
-  const { req, parts, deps, token } = ctx;
+  const { req, parts, deps } = ctx;
   if (!(req.method === "POST" && !parts[2])) return null;
   const b = firstRunBlock();
   if (b) return b;
@@ -3265,18 +3323,61 @@ async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
   // reaches this machine's path validation, hold gate or spawn.
   const target = splitTarget(raw, deps.store);
   if ("error" in target) return json({ error: target.error }, 400);
-  if (target.instanceId !== null) {
-    return createOnMachine(ctx, { ...target, raw, clientKey: dispatchId });
+  return onePerKey(deps.store, dispatchId, () => routeCreate(ctx, raw, target, dispatchId));
+}
+
+/** Keyed creates running in this process, per store and Idempotency-Key (#2772). The next one
+ *  under the same key waits for it and then follows it wherever it went, so a machine choice that
+ *  changes in between can never send one key here AND to a machine. */
+const keyedCreates = new WeakMap<object, Map<string, Promise<unknown>>>();
+
+async function onePerKey<T>(
+  store: object,
+  key: string | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (key === undefined) return run();
+  let running = keyedCreates.get(store);
+  if (!running) keyedCreates.set(store, (running = new Map()));
+  const mine = (running.get(key) ?? Promise.resolve()).then(run, run);
+  running.set(key, mine);
+  try {
+    return await mine;
+  } finally {
+    if (running.get(key) === mine) running.delete(key);
+  }
+}
+
+/** A parsed create, from here on: a keyed retry follows its first submission, a named machine gets
+ *  it, anything else is validated here and placed (#2772). */
+async function routeCreate(
+  ctx: Ctx,
+  raw: unknown,
+  target: CreateTarget,
+  dispatchId: string | undefined,
+): Promise<Response> {
+  const { req, deps, token } = ctx;
+  // A keyed retry goes where its first submission went (#2772) — whatever a choice would say now.
+  const sentTo = dispatchId && deps.store.getRemoteDispatchByKey(dispatchId)?.instanceId;
+  const named = target.instanceId !== null && !target.self ? target.instanceId : null;
+  if (sentTo || named) {
+    const instanceId = (sentTo || named)!;
+    return createOnMachine(ctx, {
+      body: target.body as Record<string, unknown>,
+      instanceId,
+      raw,
+      clientKey: dispatchId,
+    });
   }
   const body = target.body;
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
   const repoErr = repositoryInputError(token, result.value);
   if (repoErr) return repoErr;
-  const create = () => createValidatedSession(req, body, result.value, deps);
+  const placed = await placeCreate(ctx, result.value, { self: target.self, raw, dispatchId });
+  if (placed instanceof Response) return placed;
+  const create = () => createValidatedSession(req, body, placed, deps);
   if (dispatchId === undefined) return create();
-  // One key names one submission, local or sent to a machine — never both.
-  if (deps.store.getRemoteDispatchByKey(dispatchId)) return keyReusedResponse();
   // Keyed (#2761): reserved now — after validation and the repo grant, before the hold gate and
   // the spawn — so a retry or a concurrent duplicate replays this outcome instead of running again.
   const claim = { id: dispatchId, payloadHash: payloadHash(raw), repoPath: result.value.repoPath };
@@ -3284,13 +3385,15 @@ async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
 }
 
 type CreateTarget =
-  { body: unknown; instanceId: null } | { body: Record<string, unknown>; instanceId: string };
+  | { body: unknown; instanceId: null; self: false }
+  | { body: Record<string, unknown>; instanceId: string; self: boolean };
 
-/** A create body's `target` (#2763): the connected machine to run on — or `null` for this one,
- *  when it is absent or names this instance. The body comes back without it, so `target` never
- *  reaches the local validator, a held task or the spawn. */
+/** A create body's `target` (#2763): the machine the submitter named — this instance (`self`) or a
+ *  connected one — or none (`instanceId` null): then the task is placed automatically (#2772). The
+ *  body comes back without it, so `target` never reaches the local validator, a held task or the
+ *  spawn. */
 function splitTarget(raw: unknown, store: AppDeps["store"]): CreateTarget | { error: string } {
-  if (!isRecord(raw) || !("target" in raw)) return { body: raw, instanceId: null };
+  if (!isRecord(raw) || !("target" in raw)) return { body: raw, instanceId: null, self: false };
   const { target, ...body } = raw;
   if (
     !isRecord(target) ||
@@ -3300,8 +3403,177 @@ function splitTarget(raw: unknown, store: AppDeps["store"]): CreateTarget | { er
   ) {
     return { error: "target must be {instanceId: string}" };
   }
-  if (target.instanceId === instanceIdentity(store).instanceId) return { body, instanceId: null };
-  return { body, instanceId: target.instanceId };
+  const self = target.instanceId === instanceIdentity(store).instanceId;
+  return { body, instanceId: target.instanceId, self };
+}
+
+// ── automatic machine choice (#2772) ───────────────────────────────────────
+// The create route and `POST /api/placement` decide through the same `decide`, so the form's
+// preview and the create agree on the same readiness. See `remote-instances/placement.ts`.
+
+/** This Shepherd as the choice sees it. Its capability report is refreshed first only when it is
+ *  asked about requirements and the last report is missing or stale. */
+async function localMachineView(deps: AppDeps, refresh: boolean): Promise<MachineView> {
+  const identity = instanceIdentity(deps.store, hostPlatform(deps));
+  const last = capabilities(deps).report();
+  if (refresh && (!last || last.stale)) await capabilities(deps).refresh();
+  return {
+    host: { instanceId: identity.instanceId, name: identity.name, platform: identity.platform },
+    local: true,
+    connected: true,
+    status: "connected",
+    reason: null,
+    released: platformReleased(identity.platform),
+    hasProject: true,
+    report: capabilities(deps).report(),
+  };
+}
+
+/** Every connected machine as the choice sees it, named as a session's `host` names it. One this
+ *  Shepherd has never reached has no platform, so it is never released and never chosen. */
+function remoteMachineViews(
+  machines: RemoteInstanceSummary[],
+  project: string | undefined,
+): MachineView[] {
+  const names = hostNames(machines);
+  return machines.map((m) => ({
+    host: {
+      instanceId: m.instanceId,
+      name: names.get(m.instanceId) ?? m.name,
+      platform: m.info?.platform ?? "unknown",
+    },
+    local: false,
+    connected: m.status === "connected",
+    status: m.status,
+    reason: m.reason,
+    released: m.released,
+    hasProject: project !== undefined && (m.projects?.includes(project) ?? false),
+    report: m.capabilities,
+  }));
+}
+
+interface PlaceInput {
+  requirements: Capability[];
+  /** Forge slug of the project; undefined = no other machine can match it. */
+  project: string | undefined;
+  /** null = automatic; else the named machine (this one's own ID included). */
+  override: string | null;
+}
+
+async function decide(deps: AppDeps, input: PlaceInput): Promise<PlacementDecision> {
+  const self = instanceIdentity(deps.store).instanceId;
+  const judgesHere = input.override === null || input.override === self;
+  const local = await localMachineView(deps, judgesHere && input.requirements.length > 0);
+  const machines = remoteMachineViews(remoteInstances(deps).list(), input.project);
+  return decidePlacement([local, ...machines], {
+    requirements: input.requirements,
+    override: input.override,
+    order: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
+    by: { instanceId: local.host.instanceId, name: local.host.name },
+    now: Date.now(),
+  });
+}
+
+const REMOTE_UNFIT_CODES = new Set<string>([
+  "remote_target_unknown",
+  "remote_target_unavailable",
+  "remote_target_unreleased",
+  "remote_project_missing",
+]);
+
+/** A refused choice as the create answers it and the preview shows it: status and body. The codes
+ *  the dispatcher shares keep its wording; the others name what is missing or out of reach. */
+function placementRefusal(refusal: PlacementRefusal): {
+  status: number;
+  body: Record<string, unknown>;
+} {
+  if (REMOTE_UNFIT_CODES.has(refusal.code)) {
+    const r = refusal as Extract<PlacementRefusal, { reason: string | null }>;
+    const { status, error } = REMOTE_REFUSAL[r.code];
+    return {
+      status,
+      body: {
+        error,
+        code: r.code,
+        ...(r.reason && { reason: r.reason }),
+        ...(r.host && { host: r.host }),
+      },
+    };
+  }
+  const own = refusal as Exclude<PlacementRefusal, { reason: string | null }>;
+  const status = own.code === "preferred_machine_offline" ? 409 : 422;
+  return { status, body: { error: describeRefusal(own), ...own } };
+}
+
+const PROJECT_UNKNOWN = {
+  error: "this project has no forge identity another machine could match it by",
+  code: "remote_project_unknown",
+};
+
+/**
+ * Where a validated local create runs (#2772). Unplaced — exactly as before — for a clean terminal,
+ * a keyed submission already made here, or while no machine could take a task. Named this machine:
+ * runs here, keeping a coordinator's record of the choice (or recording the operator's). Otherwise
+ * placed: here (the input then carries its record), on a connected machine (sent there, the
+ * outcome answered), or refused with the reason.
+ */
+async function placeCreate(
+  ctx: Ctx,
+  value: CreateSessionInput,
+  req: { self: boolean; raw: unknown; dispatchId: string | undefined },
+): Promise<CreateSessionInput | Response> {
+  const { deps } = ctx;
+  if (value.terminal === true) return value;
+  const { placement: sent, ...input } = value;
+  if (req.dispatchId && deps.store.getDispatch(req.dispatchId)) return input;
+  const active = placementActive(remoteInstances(deps).list());
+  if (req.self) {
+    // A coordinator's record names this machine as its target; anything else is not one.
+    const own = instanceIdentity(deps.store).instanceId;
+    const record = sent?.target.instanceId === own ? sent : undefined;
+    return record || active
+      ? { ...input, placement: record ?? (await manualHere(deps, input)) }
+      : input;
+  }
+  if (!active) return input;
+  const project = repoRemoteSlug(deps.resolveForge?.(input.repoPath));
+  const decision = await decide(deps, {
+    requirements: input.requirements ?? [],
+    project,
+    override: null,
+  });
+  if (!decision.ok) {
+    const { status, body } = placementRefusal(decision.refusal);
+    return json(body, status);
+  }
+  const { placement } = decision;
+  if (placement.target.instanceId === instanceIdentity(deps.store).instanceId) {
+    return { ...input, placement };
+  }
+  return createOnMachine(ctx, {
+    body: isRecord(req.raw) ? req.raw : {},
+    instanceId: placement.target.instanceId,
+    raw: req.raw,
+    clientKey: req.dispatchId,
+    placement,
+  });
+}
+
+/** The record of the operator naming this machine. */
+async function manualHere(
+  deps: AppDeps,
+  input: { requirements?: Capability[] },
+): Promise<Placement> {
+  const here = await localMachineView(deps, false);
+  return placementRecord(
+    here,
+    {
+      requirements: input.requirements ?? [],
+      by: { instanceId: here.host.instanceId, name: here.host.name },
+      now: Date.now(),
+    },
+    { mode: "manual", basis: "manual", preferred: null },
+  );
 }
 
 /** A repo's identity across machines: its forge slug — for a fork the clone origin, since a fork's
@@ -3333,10 +3605,13 @@ function keyReusedResponse(): Response {
 }
 
 /**
- * POST /api/sessions with a `target` (#2763): the WHOLE session starts on that connected machine.
- * General inputs are validated here exactly like a local create and need the same grant; paths,
- * holds and the sandbox are the machine's to check. Nothing starts here and no local event is
- * emitted — the session reaches this Shepherd's herd through the machine's mirror (#2762).
+ * POST /api/sessions for a connected machine (#2763): named in `target`, chosen automatically
+ * (#2772, `placement` given) or a keyed retry of a dispatch already sent. The WHOLE session starts
+ * there. General inputs are validated here exactly like a local create and need the same grant; a
+ * named machine must fit (#2772) — connected, released, the project checked out, the requirements
+ * verified — and paths, holds and the sandbox are the machine's to check. Nothing starts here and
+ * no local event is emitted — the session reaches this Shepherd's herd through the machine's mirror
+ * (#2762).
  */
 async function createOnMachine(
   { deps, token }: Ctx,
@@ -3345,6 +3620,7 @@ async function createOnMachine(
     body: Record<string, unknown>;
     instanceId: string;
     clientKey: string | undefined;
+    placement?: Placement;
   },
 ): Promise<Response> {
   const result = validateCreate(req.body, config.repoRoot, { remote: true });
@@ -3353,14 +3629,17 @@ async function createOnMachine(
   if (repoErr) return repoErr;
   if (req.clientKey && deps.store.getDispatch(req.clientKey)) return keyReusedResponse();
   const project = repoRemoteSlug(deps.resolveForge?.(result.value.repoPath));
-  if (!project) {
-    return json(
-      {
-        error: "this project has no forge identity another machine could match it by",
-        code: "remote_project_unknown",
-      },
-      422,
-    );
+  if (!project) return json(PROJECT_UNKNOWN, 422);
+  const retry = req.clientKey !== undefined && deps.store.getRemoteDispatchByKey(req.clientKey);
+  let placement = req.placement;
+  if (!placement && !retry) {
+    const requirements = "requirements" in result.value ? (result.value.requirements ?? []) : [];
+    const decision = await decide(deps, { requirements, project, override: req.instanceId });
+    if (!decision.ok) {
+      const { status, body } = placementRefusal(decision.refusal);
+      return json(body, status);
+    }
+    placement = decision.placement;
   }
   // Attachments go as the files validated above (#2766); the dispatcher uploads them there.
   const images = result.value.terminal === true ? [] : result.value.images;
@@ -3368,7 +3647,8 @@ async function createOnMachine(
     clientKey: req.clientKey,
     instanceId: req.instanceId,
     project,
-    body: images.length > 0 ? { ...req.body, images } : req.body,
+    // This Shepherd's record of the choice replaces anything the submitter sent as one.
+    body: { ...req.body, ...(images.length > 0 && { images }), placement },
     payloadHash: payloadHash(req.raw),
   });
   return remoteOutcomeResponse(outcome);
@@ -6940,6 +7220,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // Without it the Access panel's empty token list would read as "no machine access at all",
       // even on a deployment where SHEPHERD_TOKEN has been driving Hermes all along.
       envTokenActive: config.token !== null,
+      // The platform order the machine choice ranks fitting machines by (#2772); Linux first.
+      machinePlatformOrder: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
       reducedPushMode: config.reducedPushMode,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
       autoReviveEnabled: config.autoReviveEnabled,
@@ -7138,7 +7420,18 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
+  ["machinePlatformOrder", putMachinePlatformOrder],
 ];
+
+/** The platform order of the machine choice (#2772): this instance's own. A task lands on the same
+ *  machine wherever it is submitted only while every connected Shepherd uses the same order. */
+function putMachinePlatformOrder(value: unknown, deps: Ctx["deps"]): Response {
+  const order = parsePlatformOrder(value);
+  if (!order)
+    return json({ error: "machinePlatformOrder must list linux and macos, each once" }, 400);
+  deps.store.setSetting(PLATFORM_ORDER_SETTING, JSON.stringify(order));
+  return json({ machinePlatformOrder: order });
+}
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
   if (typeof value !== "boolean") {
@@ -7717,6 +8010,8 @@ async function heldUpdate(
   // Same for an explicit base commit (#2761): the composer has no field for it, and an edit must
   // never silently re-base a task that was pinned to a revision. An edit that names one wins.
   value.baseCommit ??= existing.input.baseCommit;
+  // The record of the machine choice (#2772) is the placer's, never an edit's: carried forward.
+  value.placement = existing.input.placement;
   deps.store.updateHeldTask(id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json(deps.store.getHeldTask(id), 200);
@@ -10285,6 +10580,7 @@ const ROUTE_HANDLERS = [
   handleHeld,
   handleDispatches,
   handleRemoteDispatches,
+  handlePlacementPreview,
   handleRetry,
   handleHalt,
   handleFsDirs,

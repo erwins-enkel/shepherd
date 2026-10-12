@@ -16,6 +16,12 @@ import type {
   RemoteDispatchView,
   RemoteOutcome,
 } from "../../src/remote-instances/dispatch";
+import { FEDERATION_API_VERSION } from "../../src/remote-instances/identity";
+import type { Placement } from "../../src/remote-instances/placement";
+import type {
+  RemoteInstanceService,
+  RemoteInstanceSummary,
+} from "../../src/remote-instances/service";
 import * as fx from "./event-fixtures";
 import {
   bearer,
@@ -151,7 +157,7 @@ describe("instance", () => {
     };
     const first = await read();
     expect(first.instanceId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(first.federationApi).toBe(1);
+    expect(first.federationApi).toBe(FEDERATION_API_VERSION);
     expect((await read()).instanceId).toBe(first.instanceId);
   });
 
@@ -583,6 +589,35 @@ describe("sessions", () => {
     ];
     const savedForge = s.stubs.resolveForge.forge;
     s.stubs.resolveForge.forge = { slug: "acme/app" };
+    // The named machine must fit before anything is handed over (#2772): connected, released, the
+    // project checked out.
+    const machine: RemoteInstanceSummary = {
+      instanceId: host.instanceId,
+      name: host.name,
+      label: null,
+      reportedName: host.name,
+      url: "http://mac.test",
+      tokenHint: null,
+      createdAt: 1,
+      status: "connected",
+      reason: null,
+      checkedAt: 1,
+      lastSeenAt: 1,
+      info: {
+        version: "2.2.0",
+        federationApi: FEDERATION_API_VERSION,
+        platform: "macos",
+        arch: "arm64",
+      },
+      projects: ["acme/app"],
+      capabilities: null,
+      released: true,
+    };
+    const savedInstances = s.deps.remoteInstances;
+    s.deps.remoteInstances = {
+      list: () => [machine],
+      get: () => machine,
+    } as unknown as RemoteInstanceService;
     try {
       for (const outcome of outcomes) {
         s.deps.remoteDispatch = {
@@ -605,8 +640,121 @@ describe("sessions", () => {
       }
     } finally {
       s.deps.remoteDispatch = undefined;
+      s.deps.remoteInstances = savedInstances;
       s.stubs.resolveForge.forge = savedForge;
     }
+  });
+
+  // #2772: a coordinator sends its record of the choice with a task it placed here; the body
+  // matches the contract and the session keeps the record.
+  test("POST /api/sessions keeps a coordinator's placement record for a task targeted here", async () => {
+    const identity = await fetch(`${s.baseUrl}/api/instance`, { headers: bearer(token) });
+    const { instanceId, name } = (await identity.json()) as { instanceId: string; name: string };
+    const placement: Placement = {
+      mode: "auto",
+      target: { instanceId, name, platform: "linux" },
+      requirements: [],
+      basis: "preference",
+      preferred: "linux",
+      by: { instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d", name: "MacBook" },
+      decidedAt: 1,
+    };
+    const body = { prompt: "placed here", target: { instanceId }, placement };
+    validateRequest("POST", "/api/sessions", {
+      repoPath: s.validRepo,
+      baseBranch: "main",
+      ...body,
+    });
+    const res = await post(body);
+    const created = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
+    expect(res.status).toBe(201);
+    expect(s.deps.store.get(created.id)?.launchMetadata?.placement).toEqual(placement);
+  });
+
+  // #2772: the preview of the automatic machine choice — not active without machines, the target
+  // and its reason, or what the create would refuse; a bad body is 400, another repo 403.
+  test("POST /api/placement previews the machine choice (200), refuses bad input (400) and other repos (403)", async () => {
+    const preview = (body: unknown, auth = bearer(token)) =>
+      fetch(`${s.baseUrl}/api/placement`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...auth },
+        body: JSON.stringify(body),
+      });
+    const check = async (body: Record<string, unknown>, status: number) => {
+      validateRequest("POST", "/api/placement", body);
+      const res = await preview(body);
+      const answer = await validateResponse("POST", "/api/placement", res);
+      expect(res.status).toBe(status);
+      return answer as Record<string, unknown>;
+    };
+
+    expect(await check({ repoPath: s.validRepo }, 200)).toEqual({ active: false });
+
+    const machine: RemoteInstanceSummary = {
+      instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
+      name: "MacBook",
+      label: null,
+      reportedName: "MacBook",
+      url: "http://mac.test",
+      tokenHint: null,
+      createdAt: 1,
+      status: "connected",
+      reason: null,
+      checkedAt: 1,
+      lastSeenAt: 1,
+      info: {
+        version: "2.2.0",
+        federationApi: FEDERATION_API_VERSION,
+        platform: "macos",
+        arch: "arm64",
+      },
+      projects: ["acme/app"],
+      capabilities: {
+        vocabulary: 1,
+        probedAt: 1,
+        ageMs: 1_000,
+        stale: false,
+        checks: [{ id: "xcode", ok: true, reason: null, detail: "16.4 (16F6)" }],
+      },
+      released: true,
+    };
+    const savedInstances = s.deps.remoteInstances;
+    const savedForge = s.stubs.resolveForge.forge;
+    s.deps.remoteInstances = {
+      list: () => [machine],
+      get: () => machine,
+    } as unknown as RemoteInstanceService;
+    s.stubs.resolveForge.forge = { slug: "acme/app" };
+    try {
+      const placed = await check({ repoPath: s.validRepo, requirements: ["xcode"] }, 200);
+      expect(placed).toMatchObject({
+        active: true,
+        placement: { mode: "auto", basis: "requirements", target: { name: "MacBook" } },
+      });
+      const refused = await check({ repoPath: s.validRepo, requirements: ["android-sdk"] }, 200);
+      expect(refused).toMatchObject({
+        active: true,
+        refusal: { code: "no_suitable_machine", missing: ["android-sdk"] },
+      });
+    } finally {
+      s.deps.remoteInstances = savedInstances;
+      s.stubs.resolveForge.forge = savedForge;
+    }
+
+    const bad = await preview({ repoPath: s.validRepo, requirements: ["arch:x64"] });
+    await validateResponse("POST", "/api/placement", bad);
+    expect(bad.status).toBe(400);
+
+    // A token restricted to no repository may not preview this one.
+    const { id, token: restricted } = await mintToken(s, cookie, "no repos");
+    await fetch(`${s.baseUrl}/api/access-tokens/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ repoPaths: [] }),
+    });
+    const denied = await preview({ repoPath: s.validRepo }, bearer(restricted));
+    await validateResponse("POST", "/api/placement", denied);
+    expect(denied.status).toBe(403);
   });
 
   test("GET /api/sessions and /api/sessions/{id}", async () => {

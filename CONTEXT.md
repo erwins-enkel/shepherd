@@ -48,6 +48,14 @@ _Avoid_: job, order, request (overloaded)
 A new task this Shepherd sends to a connected machine to run there: stored here before it is sent, delivered under its own dispatch ID, and only ever sent again to that same machine. Its attachments are uploaded to that machine just before it is sent, once. When no answer comes back its start status is unknown — not failed — until this Shepherd has asked the machine what became of it; until the machine confirms it, it can be canceled.
 _Avoid_: forward, relay, remote job
 
+**Placement**:
+Where a new task runs and why, chosen once when it is submitted: the machine — this Shepherd or a connected one — and the reason (its requirements, the platform order, the only candidate, or the operator's choice). Recorded on the session; it never moves the task afterwards and never falls back to another machine on its own.
+_Avoid_: routing, scheduling, load balancing
+
+**Requirement**:
+A capability a task needs from the machine it runs on (Xcode, an SDK, an agent CLI, a sandbox profile, a platform); the placement only picks a machine whose verified capabilities include every one.
+_Avoid_: constraint, tag, label
+
 **Base Commit**:
 The commit a session's worktree was actually created from; an explicitly requested one is used as-is, never freshened to the branch tip.
 _Avoid_: base sha, start commit

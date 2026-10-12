@@ -96,6 +96,29 @@ describe("RemoteSessionDetail started from here (#2763)", () => {
     await expect.element(page.getByText("MacBook · TASK-07")).toBeInTheDocument();
     expect(page.getByText(m.remote_detail_base()).elements()).toHaveLength(0);
     expect(page.getByText(m.remote_detail_sandbox()).elements()).toHaveLength(0);
+    expect(page.getByText(m.remote_detail_placement()).elements()).toHaveLength(0);
+  });
+
+  it("says why it runs on that machine, as the Shepherd that chose it recorded (#2772)", async () => {
+    const placement = {
+      mode: "auto" as const,
+      target: host,
+      requirements: ["xcode"],
+      basis: "requirements" as const,
+      preferred: null,
+      by: { instanceId: "l1", name: "moes-tavern" },
+      decidedAt: 1,
+    };
+    render(RemoteSessionDetail, {
+      session: remote({ launchMetadata: { placement } as Session["launchMetadata"] }),
+      nowMs: Date.now(),
+    });
+    await expect.element(page.getByText(m.remote_detail_placement())).toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(m.placement_basis_requirements({ list: m.settings_machines_cap_xcode() })),
+      )
+      .toBeInTheDocument();
   });
 });
 

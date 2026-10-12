@@ -411,6 +411,43 @@ test("PATCH /api/held/:id → replaces input, stays held, emits held:changed", a
   expect(emitted.some((e) => e.event === "held:changed")).toBe(true);
 });
 
+test("PATCH /api/held/:id keeps the machine choice's record and ignores one sent (#2772)", async () => {
+  const { app, store } = harness();
+  const placement = {
+    mode: "auto" as const,
+    target: { instanceId: "i-linux", name: "moes-tavern", platform: "linux" },
+    requirements: [],
+    basis: "preference" as const,
+    preferred: "linux",
+    by: { instanceId: "i-linux", name: "moes-tavern" },
+    decidedAt: 1,
+  };
+  store.addHeldTask({
+    id: "held-1",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "p",
+      model: null,
+      images: [],
+      placement,
+    },
+    createdAt: 1000,
+    reason: "usage",
+  });
+  const res = await patchHeld(app, "held-1", {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "p (edited)",
+    model: null,
+    images: [],
+    placement: { ...placement, basis: "manual", mode: "manual" },
+  });
+  expect(res.status).toBe(200);
+  expect(store.getHeldTask("held-1")?.input.placement).toEqual(placement);
+});
+
 test("PATCH /api/held/:id preserves merge-train membership the composer can't edit", async () => {
   const { app, store } = harness();
 

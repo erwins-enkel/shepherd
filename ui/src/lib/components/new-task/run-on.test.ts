@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ApiError } from "#lib/api.js";
+import { ApiError, PlacementRefusedError } from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { RemoteInstance } from "#lib/types.js";
 import {
   connectedMachines,
   dispatchKeyFor,
   isUnansweredSend,
+  keyedSend,
   machineLabel,
-  machineSend,
   pendingAfter,
+  placementFailureMessage,
   runOnFailureMessage,
   runOnMachines,
 } from "./run-on";
@@ -85,25 +86,45 @@ describe("dispatch keys (#2763)", () => {
   });
 });
 
-describe("machine sends (#2763)", () => {
-  it("is null for a task that starts here", () => {
-    expect(machineSend(null, null, { prompt: "a" })).toBeNull();
+describe("keyed sends (#2763, #2772)", () => {
+  it("is null while the machine choice is not active: no key, as before", () => {
+    expect(keyedSend(false, null, { prompt: "a" })).toBeNull();
   });
 
   it("keeps the key across attempts of the same task, whatever the spawn id", () => {
-    const first = machineSend(machine(), null, { prompt: "a", spawnId: "s1" })!;
+    const first = keyedSend(true, null, { prompt: "a", spawnId: "s1" })!;
     const pending = pendingAfter(first, new ApiError(504, "x", "remote_dispatch_unknown", true));
-    const again = machineSend(machine(), pending, { prompt: "a", spawnId: "s2" })!;
+    const again = keyedSend(true, pending, { prompt: "a", spawnId: "s2" })!;
     expect(again.key).toBe(first.key);
-    expect(machineSend(machine(), pending, { prompt: "b", spawnId: "s3" })!.key).not.toBe(
-      first.key,
-    );
+    expect(keyedSend(true, pending, { prompt: "b", spawnId: "s3" })!.key).not.toBe(first.key);
   });
 
   it("forgets the key after an answered failure", () => {
-    const send = machineSend(machine(), null, { prompt: "a" })!;
+    const send = keyedSend(true, null, { prompt: "a" })!;
     expect(pendingAfter(send, new ApiError(422, "x", "remote_rejected", true))).toBeNull();
     expect(pendingAfter(null, new TypeError("x"))).toBeNull();
+  });
+});
+
+describe("placementFailureMessage (#2772)", () => {
+  it("puts a refused machine choice into words, and leaves anything else alone", () => {
+    const refusal = {
+      code: "missing_capabilities",
+      error: "MacBook is missing capabilities: xcode (not_installed)",
+      host: { instanceId: "m1", name: "MacBook", platform: "macos" },
+      missing: [{ capability: "xcode", reason: "not_installed" }],
+    };
+    const err = new PlacementRefusedError(
+      new ApiError(422, refusal.error, "missing_capabilities", true),
+      refusal,
+    );
+    expect(placementFailureMessage(err)).toBe(
+      m.placement_refusal_missing({
+        machine: "MacBook",
+        list: `${m.settings_machines_cap_xcode()} (${m.settings_machines_cap_reason_not_installed()})`,
+      }),
+    );
+    expect(placementFailureMessage(new ApiError(422, "x", "remote_rejected", true))).toBeNull();
   });
 });
 

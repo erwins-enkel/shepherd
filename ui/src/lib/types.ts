@@ -241,6 +241,44 @@ export interface RemoteInstance {
   released: boolean;
 }
 
+/** Where a task was placed and why (#2772) — mirrors `Placement` in
+ *  src/remote-instances/placement.ts. Language-neutral; `#lib/placement.ts` puts it into words. */
+export interface Placement {
+  mode: "auto" | "manual";
+  target: SessionHost;
+  requirements: string[];
+  /** What decided: the operator, the requirements (one platform fits), the platform order (several
+   *  fit, `preferred` set) or that only one machine can run the task. */
+  basis: "manual" | "requirements" | "preference" | "only_candidate";
+  preferred: string | null;
+  /** The Shepherd that decided. */
+  by: { instanceId: string; name: string };
+  decidedAt: number;
+}
+
+/** Why the create would refuse a task (#2772): its `code` and `error`, plus the fields that code
+ *  carries — `missing` (capabilities, or `{capability, reason}` for a named machine), `together`,
+ *  `elsewhere`, `host`, `status`, `alternatives`, `reason`. */
+export interface PlacementRefusal {
+  code: string;
+  error: string;
+  host?: SessionHost;
+  missing?: (string | { capability: string; reason: string })[];
+  together?: boolean;
+  elsewhere?: SessionHost[];
+  alternatives?: SessionHost[];
+  status?: string;
+  reason?: string;
+}
+
+/** `POST /api/placement` (#2772): not active (no machine could take a task), or the machine and
+ *  why, or the refusal. */
+export interface PlacementPreview {
+  active: boolean;
+  placement?: Placement;
+  refusal?: PlacementRefusal;
+}
+
 export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;
@@ -258,6 +296,9 @@ export interface Settings {
   /** Auto-revive stranded default-account sessions after a herdr daemon restart (#1630); opt-in
    *  (default off). */
   autoReviveEnabled: boolean;
+  /** The platform order the machine choice ranks fitting machines by (#2772), Linux first by
+   *  default; this instance's own. Absent from older servers. */
+  machinePlatformOrder?: string[];
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
@@ -2958,6 +2999,8 @@ export interface SessionLaunchMetadata {
     egressDegraded: boolean;
   };
   agent: { provider: AgentProvider; model: string | null; effort: string | null };
+  /** Where the task was placed and why (#2772); absent when no machine choice was made. */
+  placement?: Placement;
 }
 
 /** Create input mirrors the server's discriminated union (src/types.ts): the terminal arm has
@@ -2990,8 +3033,11 @@ export interface StandardCreateInput {
   epicAuthoring?: boolean; // epic-authoring task kind; absent → false (guided EPIC-draft shaping)
   plain?: boolean; // plain task kind; absent → false (agent without guards)
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
-  /** Run on this connected machine instead of here (#2763); absent → this machine. */
+  /** The machine to run on (#2763), overriding the automatic choice (#2772); absent → chosen by
+   *  the server while a machine is connected, else this machine. */
   target?: { instanceId: string };
+  /** Capabilities the machine that runs it must have (#2770); the choice honours them (#2772). */
+  requirements?: string[];
 }
 
 /** A task that was held (not immediately spawned) because usage was too high.

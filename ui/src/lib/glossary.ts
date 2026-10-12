@@ -305,6 +305,14 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_capability_term",
     bodyKey: "gloss_capability_def",
   },
+  {
+    // Internal: a capability a task needs from the machine it runs on (#2772) — what the
+    // automatic machine choice matches against each machine's verified capabilities.
+    id: "requirement",
+    kind: "internal",
+    termKey: "gloss_requirement_term",
+    bodyKey: "gloss_requirement_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

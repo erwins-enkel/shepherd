@@ -12,6 +12,7 @@
   import {
     BROWSER_VIEW_TAKEN_OVER,
     connectBrowserView,
+    createFrameAckGate,
     openBrowserPopout,
     keyMessage,
     modifiersOf,
@@ -158,9 +159,24 @@
   // Ack only once the frame is painted: the server sends the next one after the ack, so a slow
   // link backs off instead of queueing frames.
   // A frame that fails to decode is acked too: a missing ack stalls the screencast.
+  // While the window is hidden the ack is held, which pauses the screencast at its source (#3035).
+  const ackGate = createFrameAckGate(
+    () => send({ type: "frameAck" }),
+    () => document.visibilityState === "hidden",
+  );
   function onFrameSettled() {
-    send({ type: "frameAck" });
+    ackGate.settled();
   }
+  $effect(() => {
+    const onVisibility = () => {
+      // Back in view after a pause: re-select the tab to restart the screencast, since a page
+      // that changed while paused and is static now would never send a fresh frame.
+      if (document.visibilityState === "visible" && ackGate.visible() && selected)
+        send({ type: "select", targetId: selected });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  });
 
   function pagePoint(e: MouseEvent): { x: number; y: number } | null {
     if (!imgEl) return null;

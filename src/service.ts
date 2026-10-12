@@ -159,6 +159,7 @@ import {
   scanForInjection,
 } from "./untrusted";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
+import { waitingAttachments } from "./remote-instances/dispatch";
 
 /** Post-archive late-credit await window: after a merge-train session archives,
  *  its completion-tracker entry waits this long for a poller-gated late merge to
@@ -4780,7 +4781,7 @@ export class SessionService {
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived")
       throw new Error(`cannot stage relaunch uploads for ${originalId}: missing or archived`);
-    sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
+    sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now(), waitingAttachments(this.deps.store));
     const copied = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
     const namesByStored = new Map(
       (s.launchMetadata?.attachments ?? [])

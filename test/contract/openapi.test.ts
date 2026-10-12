@@ -566,7 +566,7 @@ describe("sessions", () => {
           submit: async () => outcome,
           list: () => [],
           cancel: async () => ({ kind: "not_found" }),
-        };
+        } as unknown as NonNullable<typeof s.deps.remoteDispatch>;
         const body = { prompt: "remote", target: { instanceId: host.instanceId } };
         validateRequest("POST", "/api/sessions", {
           repoPath: s.validRepo,
@@ -969,7 +969,7 @@ describe("remote dispatches", () => {
       list: () => [],
       cancel: async () => ({ kind: "not_found" }),
       ...over,
-    };
+    } as NonNullable<typeof s.deps.remoteDispatch>;
   };
   const list = () => fetch(`${s.baseUrl}/api/remote-dispatches`, { headers: bearer(token) });
 

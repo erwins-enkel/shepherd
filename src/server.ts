@@ -145,8 +145,11 @@ import {
 } from "./remote-instances/sessions";
 import {
   RemoteDispatcher,
+  type RemoteDispatchRow,
+  type RemoteDispatchView,
   type RemoteOutcome,
   type RemoteRefusalCode,
+  placementOf,
 } from "./remote-instances/dispatch";
 import { isRecord } from "./remote-instances/client";
 import {
@@ -453,10 +456,10 @@ export interface AppDeps {
     "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal" | "route" | "machines"
   >;
   /** Sends new tasks to connected machines (#2763), lists the ones no machine has confirmed and
-   *  cancels them (#2774). Same memo-slot contract as `remoteInstances`: the
-   *  `remoteDispatcher(deps)` accessor lazily builds one over it; `index.ts` injects the one its
-   *  probe reconciles. */
-  remoteDispatch?: Pick<RemoteDispatcher, "submit" | "list" | "cancel">;
+   *  cancels them (#2774), keeps the ones waiting for their machine and redirects them (#2775).
+   *  Same memo-slot contract as `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily
+   *  builds one over it; `index.ts` injects the one its probe reconciles. */
+  remoteDispatch?: RemoteDispatchPort;
   /** This instance's verified capabilities (#2770). Same memo-slot contract: the
    *  `capabilities(deps)` accessor lazily builds an unstarted one (no probe until asked);
    *  `index.ts` injects the started singleton that re-probes every 5 minutes. */
@@ -950,11 +953,18 @@ function accessTokens(deps: AppDeps): AccessTokenService {
 function remoteInstances(deps: AppDeps): RemoteInstanceService {
   return (deps.remoteInstances ??= new RemoteInstanceService({ store: deps.store }));
 }
-function remoteDispatcher(deps: AppDeps): Pick<RemoteDispatcher, "submit" | "list" | "cancel"> {
+type RemoteDispatchPort = Pick<
+  RemoteDispatcher,
+  "submit" | "wait" | "list" | "get" | "cancel" | "redirect" | "claimForHere" | "announceRedirected"
+>;
+
+function remoteDispatcher(deps: AppDeps): RemoteDispatchPort {
   return (deps.remoteDispatch ??= new RemoteDispatcher({
     store: deps.store,
     instances: remoteInstances(deps),
     events: deps.events,
+    here: () =>
+      localMachine(instanceIdentity(deps.store, hostPlatform(deps)), capabilities(deps).report()),
   }));
 }
 function capabilities(deps: AppDeps): CapabilityService {
@@ -1879,12 +1889,20 @@ async function handleDispatches({ req, parts, deps }: Ctx): Promise<Response | n
   return json({ error: "dispatch already arrived", code: "dispatch_arrived", dispatch }, 409);
 }
 
-// ── /api/remote-dispatches — tasks sent to connected machines that no machine confirmed (#2774) ──
-//   GET           → {dispatches}: start status unknown, or a cancel on its way
-//   DELETE /{id}  → cancel one: 200 done, 202 delivered once its machine answers, 409 not possible
+// ── /api/remote-dispatches — tasks for connected machines that are not settled (#2774, #2775) ──
+//   GET                  → {dispatches}: start status unknown, a cancel on its way, waiting here
+//                          for its machine, or held there
+//   DELETE /{id}         → cancel one: 200 done, 202 delivered once its machine answers, 409 not
+//                          possible
+//   POST /{id}/redirect  → run a waiting one on another fitting machine, or this one (#2775)
 // `full` scope only, and not classified for repository-restricted tokens (deny by default there).
-async function handleRemoteDispatches({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] !== "api" || parts[1] !== "remote-dispatches" || parts[3]) return null;
+async function handleRemoteDispatches(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "remote-dispatches") return null;
+  if (req.method === "POST" && parts[2] && parts[3] === "redirect" && !parts[4]) {
+    return redirectWaitingTask(ctx, parts[2]);
+  }
+  if (parts[3]) return null;
   if (req.method === "GET" && !parts[2]) return json({ dispatches: remoteDispatcher(deps).list() });
   if (req.method !== "DELETE" || !parts[2]) return null;
   const result = await remoteDispatcher(deps).cancel(parts[2]);
@@ -1899,6 +1917,90 @@ async function handleRemoteDispatches({ req, parts, deps }: Ctx): Promise<Respon
     },
     409,
   );
+}
+
+function notRedirectable(dispatch: RemoteDispatchView): Response {
+  return json(
+    {
+      error: `only a task that waits for its machine can be redirected; its state on ${dispatch.host.name} is ${dispatch.state}`,
+      code: "remote_dispatch_not_redirectable",
+      dispatch,
+    },
+    409,
+  );
+}
+
+/** A redirect body: exactly `{target: {instanceId}}`. */
+function parseRedirectTarget(body: unknown): string | null {
+  if (!isRecord(body) || Object.keys(body).length !== 1 || !isRecord(body.target)) return null;
+  const { target } = body;
+  const id = target.instanceId;
+  return Object.keys(target).length === 1 && typeof id === "string" && id ? id : null;
+}
+
+/**
+ * POST /api/remote-dispatches/{id}/redirect (#2775): run a task that waits for its machine on
+ * another one now. The machine must fit as a manual choice does — connected, released, with the
+ * project and every requirement verified — or the refusal is answered and the task keeps waiting.
+ * Another machine gets it under the same dispatch ID (it was never sent) and answers like a
+ * create; this machine starts it under the task's own client key, so a retry of the original
+ * create replays this start.
+ */
+async function redirectWaitingTask(ctx: Ctx, id: string): Promise<Response> {
+  const { req, deps } = ctx;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const instanceId = parseRedirectTarget(await req.json().catch(() => null));
+  if (!instanceId) return json({ error: "body must be {target: {instanceId: string}}" }, 400);
+  const current = remoteDispatcher(deps).get(id);
+  if (!current) return json({ error: "not found" }, 404);
+  if (current.state !== "waiting") return notRedirectable(current);
+  const row = deps.store.getRemoteDispatch(id)!;
+  const requirements = placementOf(row.wireBody)?.requirements ?? [];
+  const decision = await decide(deps, {
+    requirements,
+    project: row.project ?? undefined,
+    override: instanceId,
+  });
+  if (!decision.ok) {
+    const { status, body } = placementRefusal(decision.refusal);
+    return json(body, status);
+  }
+  const { placement } = decision;
+  if (placement.target.instanceId === instanceIdentity(deps.store).instanceId) {
+    return redirectHere(ctx, row, placement);
+  }
+  const result = await remoteDispatcher(deps).redirect(id, { instanceId, placement });
+  if (result.kind === "not_found") return json({ error: "not found" }, 404);
+  if (result.kind === "not_redirectable") return notRedirectable(result.dispatch);
+  return remoteOutcomeResponse(result.outcome);
+}
+
+/** A waiting task redirected to this machine: checked here as a create is — its input and, on a
+ *  fresh probe, its requirements — BEFORE it leaves its machine's queue, then started under its
+ *  own client key. */
+async function redirectHere(
+  { req, deps }: Ctx,
+  row: RemoteDispatchRow,
+  placement: Placement,
+): Promise<Response> {
+  const body = JSON.parse(row.wireBody) as Record<string, unknown>;
+  const result = validateCreate(body, config.repoRoot);
+  if (!result.ok) return json({ error: result.error }, 400);
+  // Never stored as waiting: a clean terminal is never placed (#2772).
+  if (result.value.terminal === true) return json({ error: "not a task" }, 400);
+  // The record of this choice replaces the one that meant it for its machine.
+  const value: CreateSessionInput = { ...result.value, placement };
+  const refused = await refuseMissingCapabilities(value, deps);
+  if (refused) return refused;
+  const claim = await remoteDispatcher(deps).claimForHere(row.id);
+  if (claim.kind === "not_found") return json({ error: "not found" }, 404);
+  if (claim.kind === "not_redirectable") return notRedirectable(claim.dispatch);
+  const create = () => createValidatedSession(req, body, value, deps);
+  const claimKey = { id: row.clientKey, payloadHash: row.payloadHash, repoPath: value.repoPath };
+  const res = await runDispatch(deps.store, claimKey, create);
+  remoteDispatcher(deps).announceRedirected(claim.row, placement.target);
+  return res;
 }
 
 async function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): Promise<boolean> {
@@ -3220,7 +3322,10 @@ async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
   const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
   if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN });
   const decision = await decide(deps, { requirements, project, override: target.instanceId });
-  if (decision.ok) return json({ active: true, placement: decision.placement });
+  if (decision.ok) {
+    const { placement, wait } = decision;
+    return json({ active: true, placement, ...(wait && { wait }) });
+  }
   return json({ active: true, refusal: placementRefusal(decision.refusal).body });
 }
 
@@ -3458,16 +3563,18 @@ async function placeCreate(
     const { status, body } = placementRefusal(decision.refusal);
     return json(body, status);
   }
-  const { placement } = decision;
+  const { placement, wait } = decision;
   if (placement.target.instanceId === instanceIdentity(deps.store).instanceId) {
     return { ...input, placement };
   }
+  // Out of reach (#2775): stored here, sent once that machine can take it — never elsewhere.
   return createOnMachine(ctx, {
     body: isRecord(req.raw) ? req.raw : {},
     instanceId: placement.target.instanceId,
     raw: req.raw,
     clientKey: req.dispatchId,
     placement,
+    wait: wait !== undefined,
   });
 }
 
@@ -3533,6 +3640,8 @@ async function createOnMachine(
     instanceId: string;
     clientKey: string | undefined;
     placement?: Placement;
+    /** The machine is out of reach (#2775): store the task to wait for it, send nothing. */
+    wait?: boolean;
   },
 ): Promise<Response> {
   const result = validateCreate(req.body, config.repoRoot, { remote: true });
@@ -3555,7 +3664,8 @@ async function createOnMachine(
   }
   // Attachments go as the files validated above (#2766); the dispatcher uploads them there.
   const images = result.value.terminal === true ? [] : result.value.images;
-  const outcome = await remoteDispatcher(deps).submit({
+  const dispatcher = remoteDispatcher(deps);
+  const outcome = await (req.wait ? dispatcher.wait : dispatcher.submit).call(dispatcher, {
     clientKey: req.clientKey,
     instanceId: req.instanceId,
     project,

@@ -311,7 +311,7 @@ function summaryOf(wireBody: string): string {
 const dispatchPath = (id: string) => `/api/dispatches/${encodeURIComponent(id)}`;
 
 /** The choice a stored body carries (#2772), or null when it carries none. */
-function placementOf(wireBody: string): Placement | null {
+export function placementOf(wireBody: string): Placement | null {
   const record = parsePlacementRecord((JSON.parse(wireBody) as Record<string, unknown>).placement);
   return record && !("error" in record) ? record : null;
 }
@@ -382,6 +382,13 @@ export class RemoteDispatcher {
       .listOpenRemoteDispatches()
       .filter((row) => machines.has(row.instanceId) && !this.inflight.has(row.id))
       .map((row) => this.view(row));
+  }
+
+  /** One dispatch as dashboards see it, whatever its state; null when unknown here or its machine
+   *  was removed. */
+  get(id: string): RemoteDispatchView | null {
+    const row = this.store.getRemoteDispatch(id);
+    return row && this.store.getRemoteInstance(row.instanceId) ? this.view(row) : null;
   }
 
   /** How many tasks wait here for their machine (#2775). */

@@ -115,11 +115,7 @@ import {
   parseInstanceNamePatch,
   setInstanceName,
 } from "./remote-instances/identity";
-import {
-  type Capability,
-  describeMissing,
-  platformReleased,
-} from "./remote-instances/capabilities";
+import { type Capability, describeMissing } from "./remote-instances/capabilities";
 import {
   type MachineView,
   type Placement,
@@ -128,9 +124,11 @@ import {
   PLATFORM_ORDER_SETTING,
   decidePlacement,
   describeRefusal,
+  localMachine,
   parsePlatformOrder,
   placementActive,
   placementRecord,
+  remoteMachineViews,
   storedPlatformOrder,
 } from "./remote-instances/placement";
 import { CapabilityService } from "./remote-instances/capability-probe";
@@ -139,13 +137,11 @@ import {
   parseConnectRequest,
   parseLabelPatch,
   type ConnectError,
-  type RemoteInstanceSummary,
 } from "./remote-instances/service";
 import {
   type MachineRoute,
   type RemoteSessionMirror,
   type RemoteTerminal,
-  hostNames,
 } from "./remote-instances/sessions";
 import {
   RemoteDispatcher,
@@ -3361,42 +3357,12 @@ function splitTarget(raw: unknown, store: AppDeps["store"]): CreateTarget | { er
 /** This Shepherd as the choice sees it. Its capability report is refreshed first only when it is
  *  asked about requirements and the last report is missing or stale. */
 async function localMachineView(deps: AppDeps, refresh: boolean): Promise<MachineView> {
-  const identity = instanceIdentity(deps.store, hostPlatform(deps));
   const last = capabilities(deps).report();
   if (refresh && (!last || last.stale)) await capabilities(deps).refresh();
-  return {
-    host: { instanceId: identity.instanceId, name: identity.name, platform: identity.platform },
-    local: true,
-    connected: true,
-    status: "connected",
-    reason: null,
-    released: platformReleased(identity.platform),
-    hasProject: true,
-    report: capabilities(deps).report(),
-  };
-}
-
-/** Every connected machine as the choice sees it, named as a session's `host` names it. One this
- *  Shepherd has never reached has no platform, so it is never released and never chosen. */
-function remoteMachineViews(
-  machines: RemoteInstanceSummary[],
-  project: string | undefined,
-): MachineView[] {
-  const names = hostNames(machines);
-  return machines.map((m) => ({
-    host: {
-      instanceId: m.instanceId,
-      name: names.get(m.instanceId) ?? m.name,
-      platform: m.info?.platform ?? "unknown",
-    },
-    local: false,
-    connected: m.status === "connected",
-    status: m.status,
-    reason: m.reason,
-    released: m.released,
-    hasProject: project !== undefined && (m.projects?.includes(project) ?? false),
-    report: m.capabilities,
-  }));
+  return localMachine(
+    instanceIdentity(deps.store, hostPlatform(deps)),
+    capabilities(deps).report(),
+  );
 }
 
 interface PlaceInput {
@@ -3448,8 +3414,7 @@ function placementRefusal(refusal: PlacementRefusal): {
     };
   }
   const own = refusal as Exclude<PlacementRefusal, { reason: string | null }>;
-  const status = own.code === "preferred_machine_offline" ? 409 : 422;
-  return { status, body: { error: describeRefusal(own), ...own } };
+  return { status: 422, body: { error: describeRefusal(own), ...own } };
 }
 
 const PROJECT_UNKNOWN = {

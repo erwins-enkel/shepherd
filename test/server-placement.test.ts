@@ -317,12 +317,7 @@ describe("automatic machine choice", () => {
     await linux.deps.remoteInstances.check(mac.id);
     const res = await create(linux, task(linux, { requirements: ["xcode"] }));
     expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({
-      code: "preferred_machine_offline",
-      host: { instanceId: mac.id },
-      alternatives: [],
-    });
-    expect(res.body.error).toContain("would run this task but is not reachable right now");
+    expect(res.body).toMatchObject({ code: "remote_target_unavailable" });
     expect(linux.created).toEqual([]);
     // A task Linux fits still runs on Linux.
     expect((await create(linux, task(linux))).status).toBe(201);

@@ -781,6 +781,111 @@ describe("sessions", () => {
     expect(denied.status).toBe(403);
   });
 
+  // #2773: the task's requirements read from its description — skipped while it cannot change the
+  // choice, otherwise what the helper answered, as data; a bad body is 400, another repo 403.
+  test("POST /api/requirements/derive reads a task's requirements (200), refuses bad input (400) and other repos (403)", async () => {
+    const derive = (body: unknown, auth = bearer(token)) =>
+      fetch(`${s.baseUrl}/api/requirements/derive`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...auth },
+        body: JSON.stringify(body),
+      });
+    const check = async (body: Record<string, unknown>, status: number) => {
+      validateRequest("POST", "/api/requirements/derive", body);
+      const res = await derive(body);
+      const answer = await validateResponse("POST", "/api/requirements/derive", res);
+      expect(res.status).toBe(status);
+      return answer as Record<string, unknown>;
+    };
+    const task = {
+      repoPath: s.validRepo,
+      prompt: "Implementiere die Ansicht in der iOS-App",
+      issue: { title: "iOS: Einstellungen", body: "Die Ansicht fehlt." },
+    };
+
+    expect(await check(task, 200)).toEqual({ status: "skipped" });
+
+    const machine = {
+      instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
+      name: "MacBook",
+      label: null,
+      reportedName: "MacBook",
+      url: "http://mac.test",
+      tokenHint: null,
+      createdAt: 1,
+      status: "connected",
+      reason: null,
+      checkedAt: 1,
+      lastSeenAt: 1,
+      info: {
+        version: "2.2.0",
+        federationApi: FEDERATION_API_VERSION,
+        platform: "macos",
+        arch: "arm64",
+      },
+      projects: ["acme/app"],
+      capabilities: {
+        vocabulary: 1,
+        probedAt: 1,
+        ageMs: 1_000,
+        stale: false,
+        checks: [
+          { id: "xcode", ok: true, reason: null },
+          { id: "sdk:ios", ok: true, reason: null },
+        ],
+      },
+      released: true,
+    } satisfies RemoteInstanceSummary;
+    const savedInstances = s.deps.remoteInstances;
+    const savedForge = s.stubs.resolveForge.forge;
+    s.deps.remoteInstances = {
+      list: () => [machine],
+      get: () => machine,
+    } as unknown as RemoteInstanceService;
+    s.stubs.resolveForge.forge = { slug: "acme/app" };
+    s.deps.deriveTaskRequirements = async () => ({
+      status: "derived",
+      requirements: ["sdk:ios", "xcode"],
+    });
+    try {
+      const shown = await fetch(`${s.baseUrl}/api/placement`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({ repoPath: s.validRepo }),
+      });
+      expect(await validateResponse("POST", "/api/placement", shown)).toMatchObject({
+        active: true,
+        deriveRequirements: true,
+      });
+      expect(await check(task, 200)).toEqual({
+        status: "derived",
+        requirements: ["sdk:ios", "xcode"],
+      });
+      s.deps.deriveTaskRequirements = async () => ({ status: "unclear", options: [["xcode"], []] });
+      expect(await check(task, 200)).toEqual({ status: "unclear", options: [["xcode"], []] });
+      s.deps.deriveTaskRequirements = async () => ({ status: "failed", cause: "timeout" });
+      expect(await check(task, 200)).toEqual({ status: "failed", cause: "timeout" });
+    } finally {
+      s.deps.remoteInstances = savedInstances;
+      s.stubs.resolveForge.forge = savedForge;
+      delete s.deps.deriveTaskRequirements;
+    }
+
+    const bad = await derive({ repoPath: s.validRepo, prompt: "" });
+    await validateResponse("POST", "/api/requirements/derive", bad);
+    expect(bad.status).toBe(400);
+
+    const { id, token: restricted } = await mintToken(s, cookie, "no repos for derive");
+    await fetch(`${s.baseUrl}/api/access-tokens/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ repoPaths: [] }),
+    });
+    const denied = await derive(task, bearer(restricted));
+    await validateResponse("POST", "/api/requirements/derive", denied);
+    expect(denied.status).toBe(403);
+  });
+
   test("GET /api/sessions and /api/sessions/{id}", async () => {
     const created = await createSession("listed");
     const list = await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) });

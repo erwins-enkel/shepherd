@@ -1286,6 +1286,9 @@ components:
           $ref: "#/components/schemas/PlacementWait"
         refusal:
           $ref: "#/components/schemas/PlacementRefusal"
+        deriveRequirements:
+          type: boolean
+          description: "Present while `active`. true: reading the task's requirements from its description can change where it runs — no target was named, and the machines that could take it differ in what a description can call for (Xcode, the iOS SDK, the iOS simulator, the Android SDK). A client then asks POST /api/requirements/derive before submitting, as New Task does. false: it cannot, and nothing needs to be derived."
     PlacementWait:
       type: object
       additionalProperties: true
@@ -1300,6 +1303,65 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SessionHost"
+    RequirementsDeriveRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repoPath
+        - prompt
+      description: "The task as it would be submitted: the prompt and the attached issue's title and body. Either the prompt or the issue title must not be empty. The repository is never read."
+      properties:
+        repoPath:
+          type: string
+        prompt:
+          type: string
+          maxLength: 8000
+        issue:
+          type: object
+          additionalProperties: false
+          required:
+            - title
+          properties:
+            title:
+              type: string
+              maxLength: 500
+            body:
+              type: string
+              maxLength: 100000
+    RequirementsDerivation:
+      type: object
+      additionalProperties: true
+      required:
+        - status
+      description: "What the task's description calls for, as data from the capability vocabulary — never prose; clients put it into words. skipped: reading it cannot change where the task runs (no machine connected, or the machines that could take it verify the same), and nothing ran. derived: `requirements` (possibly empty) — what the description calls for, with what each implies (the iOS simulator needs the iOS SDK, which needs Xcode). unclear: the description could mean different things or contradicts itself; `options` holds 2–3 requirement sets (an empty one = nothing special) for the operator to choose from before the task starts. failed: nothing was derived — `cause` is timeout, error (including an answer outside the vocabulary) or unavailable (no helper could run); nothing is guessed."
+      properties:
+        status:
+          anyOf:
+            - type: string
+              enum:
+                - skipped
+                - derived
+                - unclear
+                - failed
+            - type: string
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+        options:
+          type: array
+          items:
+            type: array
+            items:
+              $ref: "#/components/schemas/Capability"
+        cause:
+          anyOf:
+            - type: string
+              enum:
+                - timeout
+                - error
+                - unavailable
+            - type: string
     Repo:
       type: object
       additionalProperties: true
@@ -8426,6 +8488,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlacementPreview"
+        "400":
+          description: Invalid input (see error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The token is restricted to other repositories (repository_not_allowed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/requirements/derive:
+    post:
+      operationId: deriveRequirements
+      description: "Read a new task's requirements from its prompt and attached issue, before it is submitted (New Task does this while the operator is still writing). Runs only when it can change where the task runs — see PlacementPreview.deriveRequirements; otherwise answers `skipped`. A transient helper reads the task text only, never the repository, within 30 seconds. POST /api/sessions never derives: send what this answers (or what the operator made of it) as `requirements`."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequirementsDeriveRequest"
+      responses:
+        "200":
+          description: The derived requirements, the alternatives to ask about, or why there are none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequirementsDerivation"
         "400":
           description: Invalid input (see error text).
           content:

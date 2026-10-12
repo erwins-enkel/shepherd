@@ -111,7 +111,14 @@ function collectionRoutePolicy(
     return { kind: "bootstrap" };
   if (method === "GET" && COLLECTION_READS.has(path)) return { kind: "collection" };
   if (key === "GET /api/branches") return { kind: "repo", path: params.get("repo") ?? "" };
-  if (["POST /api/sessions", "POST /api/issues", "POST /api/placement"].includes(key)) {
+  if (
+    [
+      "POST /api/sessions",
+      "POST /api/issues",
+      "POST /api/placement",
+      "POST /api/requirements/derive",
+    ].includes(key)
+  ) {
     return { kind: "body" };
   }
   if (key === "POST /api/uploads") {

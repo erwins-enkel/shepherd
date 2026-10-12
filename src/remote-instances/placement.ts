@@ -378,6 +378,20 @@ function placeManually(machines: readonly MachineView[], req: PlacementRequest):
   return { ok: true, placement: placementRecord(machine, req, how) };
 }
 
+/** Whether requirements from `capabilities` can change where a task runs (#2773): at least two
+ *  machines could take it — released, with the project — and they differ in which of them their
+ *  reports verify. A machine out of reach counts on its last report, as it does in the choice. */
+export function choiceDependsOn(
+  machines: readonly MachineView[],
+  capabilities: readonly Capability[],
+): boolean {
+  const candidates = machines.filter((m) => m.released && m.hasProject);
+  const profiles = new Set(
+    candidates.map((m) => capabilities.filter((c) => missingOn(m, [c]).length === 0).join(",")),
+  );
+  return candidates.length >= 2 && profiles.size >= 2;
+}
+
 /** Where a task runs: the machine the submitter named, if it fits, or the best fitting one. */
 export function decidePlacement(
   machines: readonly MachineView[],

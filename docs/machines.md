@@ -139,8 +139,16 @@ The reason is shown before you start and on the session afterwards: "Needs macOS
   the task waits for it ([Waiting tasks](#waiting-tasks)). New Task says so before you start, for
   example "Waits for MacBook — Needs Xcode", and names the machines that would fit now. It never
   falls back to another machine on its own. Pick one under **Run on** to start it there instead.
-- **Requirements are not guessed yet.** Shepherd reads only the requirements you give it. Without
-  any, a task runs on the preferred platform.
+- **Read from the task.** While the machines that could take a task differ in Xcode, the iOS SDK,
+  the iOS simulator or the Android SDK, New Task reads what the task needs from its prompt and
+  attached issue, a second after you stop typing. The repository is never read, so a `native/`
+  folder or a `Package.swift` alone never sends a task to the Mac, and mentioning a Mac in passing
+  doesn't either. What it reads shows up as chips you can correct; once you change them they're
+  yours. If the description is unclear ("the app" in a repo with a website and a native app), New
+  Task asks which it is, and the task can't start before you answer. If nothing can be read in
+  time, it says so and adds nothing. A task named for a machine, or one whose chips you set
+  yourself, is never read. The reading runs on the autopilot classifier's CLI and model and takes a
+  few seconds.
 
 ## Waiting tasks
 
@@ -293,6 +301,9 @@ coordinator, the Mac the machine; the project is checked out on both.
 | 17  | Restart the Linux Shepherd, then wake the Mac.                                             | The task is still waiting after the restart; once the Mac is back it starts there, once.                                           |
 | 18  | Put the Mac to sleep again, start another Xcode task and pick **Run here** on Linux.       | Not offered: Linux lacks Xcode. Through the API the redirect is refused with `missing_capabilities`; the task keeps waiting.       |
 | 19  | Cancel that waiting task, then wake the Mac.                                               | It never starts anywhere.                                                                                                          |
+| 20  | On Linux, type "Erweitere die native macOS-App" in New Task.                               | The chip **Xcode** appears, and it says "Runs on MacBook — Needs Xcode".                                                           |
+| 21  | Replace the prompt with "Implementiere die Web-Einstellungen".                             | No chip, and "No special requirements – preferred: Linux".                                                                         |
+| 22  | Replace it with "Passe die App an das neue Logo an".                                       | New Task asks what the task needs; **Start** stays disabled until you pick an answer.                                              |
 
 The automated counterpart, `test/machines-two-instances.test.ts`, runs in `bun run test`: two
 Shepherd processes with their own ports and state, a cut network between them and a crash of the

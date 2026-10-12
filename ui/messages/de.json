@@ -6295,5 +6295,21 @@
   "gloss_waiting_task_term": "wartender Auftrag",
   "gloss_waiting_task_def": "Eine Aufgabe, die Shepherd für den Rechner aufbewahrt, für den sie bestimmt ist, solange dieser schläft, nicht erreichbar ist oder ihm eine Fähigkeit fehlt. Gesendet wird nichts, bis der Rechner wieder da ist und eine frische Prüfung seiner Fähigkeiten und des Projekts besteht; dann startet sie dort von selbst, samt Anhängen. Sie wandert nie von selbst auf einen anderen Rechner – du kannst sie abbrechen oder auf einem anderen passenden Rechner ausführen. Sie übersteht einen Neustart dieses Shepherd.",
   "feat_run_on_waiting_title": "Aufgaben warten auf den richtigen Rechner",
-  "feat_run_on_waiting_body": "Schläft der Rechner, den eine Aufgabe braucht, oder ist er nicht erreichbar, wird sie zum [[waiting-task|wartenden Auftrag]], statt woanders zu starten: Die Herde zeigt sie in der Gruppe dieses Rechners, und sie startet dort von selbst, sobald er wieder da ist und eine frische Prüfung besteht. Brich sie ab oder führe sie auf einem anderen passenden Rechner aus. Eine Aufgabe, die ein ausgelasteter Rechner hält, und eine, der eine Fähigkeit fehlt, sind als solche zu erkennen."
+  "feat_run_on_waiting_body": "Schläft der Rechner, den eine Aufgabe braucht, oder ist er nicht erreichbar, wird sie zum [[waiting-task|wartenden Auftrag]], statt woanders zu starten: Die Herde zeigt sie in der Gruppe dieses Rechners, und sie startet dort von selbst, sobald er wieder da ist und eine frische Prüfung besteht. Brich sie ab oder führe sie auf einem anderen passenden Rechner aus. Eine Aufgabe, die ein ausgelasteter Rechner hält, und eine, der eine Fähigkeit fehlt, sind als solche zu erkennen.",
+  "newtask_readiness_requirements_pending": "Anforderungen werden aus der Aufgabe gelesen …",
+  "newtask_readiness_requirements_unclear": "beantworte zuerst die Frage zu den Anforderungen",
+  "newtask_derive_pending": "Anforderungen werden aus der Aufgabe gelesen …",
+  "newtask_derive_found": "Aus der Aufgabe gelesen: braucht {list}",
+  "newtask_derive_none": "Aus der Aufgabe gelesen: nichts Besonderes nötig",
+  "newtask_derive_failed": "Die Anforderungen ließen sich nicht aus der Aufgabe lesen – füge nötige selbst hinzu.",
+  "newtask_derive_question": "Unklar, was diese Aufgabe braucht – was davon?",
+  "newtask_derive_option_none": "Nichts Besonderes (z. B. Web)",
+  "tooltip_derive_title": "Aus der Aufgabe gelesene Anforderungen",
+  "tooltip_derive_summary": "Shepherd hat aus Prompt und verknüpftem Issue gelesen, was diese Aufgabe braucht, weil sich die verbundenen Rechner darin unterscheiden.",
+  "tooltip_derive_reads": "Was gelesen wird",
+  "tooltip_derive_reads_body": "Nur Prompt und Issue – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon.",
+  "tooltip_derive_correct": "Korrigieren",
+  "tooltip_derive_correct_body": "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine, und Shepherd überschreibt sie nicht mehr.",
+  "feat_derived_requirements_title": "„Neue Aufgabe“ liest, was eine Aufgabe braucht",
+  "feat_derived_requirements_body": "Sind Rechner mit unterschiedlichen Werkzeugen verbunden, liest „Neue Aufgabe“ schon beim Schreiben aus Prompt und Issue, was eine Aufgabe braucht – Xcode für eine Mac- oder iOS-App, das Android SDK für Android – und zeigt es als Chips, die du korrigieren kannst. Ist die Beschreibung unklar, fragt sie vor dem Start nach; kann sie es nicht erkennen, sagt sie das und rät nichts."
 }

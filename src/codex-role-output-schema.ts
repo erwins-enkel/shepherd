@@ -17,4 +17,5 @@ export const CODEX_ROLE_OUTPUT_SCHEMAS = {
   optimizer: schemaPath("optimizer.json"),
   mergeIntra: schemaPath("merge-intra.json"),
   mergeCross: schemaPath("merge-cross.json"),
+  requirements: schemaPath("requirements.json"),
 } as const;

@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "requirements": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["xcode", "sdk:ios", "ios-simulator", "android-sdk"] }
+    },
+    "unclear": { "type": "boolean" },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["xcode", "sdk:ios", "ios-simulator", "android-sdk"] }
+      }
+    }
+  },
+  "required": ["requirements", "unclear", "options"],
+  "additionalProperties": false
+}

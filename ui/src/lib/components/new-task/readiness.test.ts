@@ -14,6 +14,8 @@ function input(over: Partial<ReadinessInput> = {}): ReadinessInput {
     upstream: null,
     holdLikely: false,
     provider: "claude",
+    requirementsPending: false,
+    requirementsUnclear: false,
     ...over,
   };
 }
@@ -31,6 +33,8 @@ describe("deriveReadiness blockers", () => {
     ["repairing", { repairing: true }],
     ["uploading", { uploading: true }],
     ["submitting", { submitting: true }],
+    ["requirements_pending", { requirementsPending: true }],
+    ["requirements_unclear", { requirementsUnclear: true }],
   ] as const)("blocks with %s", (blocker, over) => {
     const r = deriveReadiness(input(over));
     expect(r.canSubmit).toBe(false);
@@ -73,6 +77,14 @@ describe("deriveReadiness blockers", () => {
     expect(deriveReadiness(input({ promptEmpty: true, baseMissing: true })).blocker).toBe(
       "base_missing",
     );
+  });
+
+  // #2773: the requirements come after everything about the task itself — and the question about
+  // them before the wait for them.
+  it("orders empty_prompt > requirements_unclear > requirements_pending", () => {
+    const both = { requirementsPending: true, requirementsUnclear: true };
+    expect(deriveReadiness(input({ promptEmpty: true, ...both })).blocker).toBe("empty_prompt");
+    expect(deriveReadiness(input(both)).blocker).toBe("requirements_unclear");
   });
 });
 

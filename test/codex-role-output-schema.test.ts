@@ -20,6 +20,7 @@ const CASES: readonly [SchemaName, string][] = [
   ["optimizer", "optimizer.json"],
   ["mergeIntra", "merge-intra.json"],
   ["mergeCross", "merge-cross.json"],
+  ["requirements", "requirements.json"],
 ];
 
 function readJson(path: string): unknown {
@@ -63,7 +64,7 @@ function assertStructuredOutputSubset(node: unknown, location = "root"): void {
 }
 
 describe("Codex role output schemas", () => {
-  test("exports absolute existing paths for all nine role contracts", () => {
+  test("exports absolute existing paths for all ten role contracts", () => {
     expect(Object.keys(CODEX_ROLE_OUTPUT_SCHEMAS)).toEqual(CASES.map(([name]) => name));
     for (const path of Object.values(CODEX_ROLE_OUTPUT_SCHEMAS)) {
       expect(isAbsolute(path)).toBe(true);
@@ -148,6 +149,17 @@ describe("Codex role output schemas", () => {
     const groups = structuredClone(merge.groups) as Record<string, unknown>[];
     groups[0]!.memberIds = ["only-one"];
     expect(compiled.get("mergeIntra")!({ ...merge, groups })).toBe(false);
+
+    const requirements = readJson(join(FIXTURE_DIR, "requirements.json")) as Record<
+      string,
+      unknown
+    >;
+    expect(compiled.get("requirements")!({ ...requirements, requirements: ["moes-tavern"] })).toBe(
+      false,
+    );
+    expect(compiled.get("requirements")!({ ...requirements, options: [["sdk:macos"]] })).toBe(
+      false,
+    );
   });
 
   test("enforces prompt array bounds and visual content limits", () => {

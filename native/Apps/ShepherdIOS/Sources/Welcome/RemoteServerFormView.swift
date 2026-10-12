@@ -16,12 +16,6 @@ struct RemoteServerFormView: View {
         NavigationStack {
             Form {
                 Section {
-                    Button { focused = false; pairing = true } label: {
-                        Label(L.t("native_pairing_connect"), systemImage: "qrcode.viewfinder")
-                    }.accessibilityLabel(L.t("native_pairing_scan"))
-                        .accessibilityIdentifier("scan-pairing-qr")
-                }
-                Section {
                     TextField(L.t("native_welcome_remote_name_label"), text: $name)
                         .accessibilityIdentifier("server-name")
                     TextField(L.t("native_welcome_remote_url_label"), text: $address)
@@ -34,10 +28,22 @@ struct RemoteServerFormView: View {
                     .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("connect-server")
                     .keyboardShortcut(.defaultAction)
+                // Below the manual fields so large Dynamic Type keeps the address field on screen.
+                Section {
+                    Button { focused = false; pairing = true } label: {
+                        Label(L.t("native_pairing_connect"), systemImage: "qrcode.viewfinder")
+                    }.accessibilityIdentifier("scan-pairing-qr-row")
+                }
             }
             .navigationTitle(L.t("native_welcome_remote_title"))
             .toolbar { ToolbarItem(placement: .cancellationAction) {
                 Button(L.t("common_cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { focused = false; pairing = true } label: {
+                    Image(systemName: "qrcode.viewfinder")
+                }.accessibilityLabel(L.t("native_pairing_scan"))
+                    .accessibilityIdentifier("scan-pairing-qr")
             } }
             .onAppear { focused = true }
             .fullScreenCover(isPresented: $pairing) {

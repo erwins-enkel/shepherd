@@ -14,14 +14,14 @@ struct ServerListView: View {
             Section {
                 Text(verbatim: L.t("native_ios_welcome_subtitle"))
                     .foregroundStyle(.secondary)
+                Button(L.t("native_toolbar_add_server")) { adding = true }
+                    .accessibilityIdentifier("add-server")
                 if (hub?.profiles ?? app.savedServers).isEmpty {
                     Button { pairing = true } label: {
                         Label(L.t("native_pairing_connect"), systemImage: "qrcode.viewfinder")
                     }.accessibilityLabel(L.t("native_pairing_scan"))
                         .accessibilityIdentifier("scan-pairing-qr")
                 }
-                Button(L.t("native_toolbar_add_server")) { adding = true }
-                    .accessibilityIdentifier("add-server")
             }
             Section(L.t("native_welcome_saved_title")) {
                 ForEach(hub?.profiles ?? app.savedServers) { profile in

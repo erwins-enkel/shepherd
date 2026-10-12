@@ -6,6 +6,7 @@ struct RemoteServerFormView: View {
     let onConnect: (ServerProfile) -> Void
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @State private var pairing = false
     @State private var name = ""
     @State private var address = ""
     @State private var error: String?
@@ -27,12 +28,27 @@ struct RemoteServerFormView: View {
                     .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("connect-server")
                     .keyboardShortcut(.defaultAction)
+                // Below the manual fields so large Dynamic Type keeps the address field on screen.
+                Section {
+                    Button { focused = false; pairing = true } label: {
+                        Label(L.t("native_pairing_connect"), systemImage: "qrcode.viewfinder")
+                    }.accessibilityIdentifier("scan-pairing-qr-row")
+                }
             }
             .navigationTitle(L.t("native_welcome_remote_title"))
             .toolbar { ToolbarItem(placement: .cancellationAction) {
                 Button(L.t("common_cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { focused = false; pairing = true } label: {
+                    Image(systemName: "qrcode.viewfinder")
+                }.accessibilityLabel(L.t("native_pairing_scan"))
+                    .accessibilityIdentifier("scan-pairing-qr")
             } }
             .onAppear { focused = true }
+            .fullScreenCover(isPresented: $pairing) {
+                PairingSheet(onConnected: { dismiss() }).environment(app)
+            }
         }
     }
     private func submit() {

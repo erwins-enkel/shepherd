@@ -153,6 +153,7 @@
     settingsMobileView = "list",
     focusPluginId = null,
     focusSteerId = null,
+    showPairing = false,
     onsettingsclose,
     onsettingsherdrupdate,
     onsettingscodexupdate,
@@ -296,6 +297,7 @@
     settingsMobileView?: "list" | "detail";
     focusPluginId?: string | null;
     focusSteerId?: string | null;
+    showPairing?: boolean;
     onsettingsclose: () => void;
     onsettingsherdrupdate: () => void;
     onsettingscodexupdate: () => void;
@@ -651,6 +653,7 @@
 
 {#if showSettings}
   <Settings
+    {showPairing}
     initialTab={settingsTab}
     initialMobileView={settingsMobileView}
     connected={store.connected}

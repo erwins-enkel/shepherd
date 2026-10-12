@@ -1,3 +1,4 @@
+import AppKit
 import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
@@ -13,6 +14,15 @@ struct SettingsAccessView: View {
     var body: some View {
         let model = settings.tokens
         Form {
+            Section(L.t("pairing_title")) {
+                Text(verbatim: L.t("native_pairing_mac_hint")).foregroundStyle(.secondary)
+                Button(L.t("native_pairing_mac_button")) {
+                    guard let baseURL = app.activeProfile?.baseURL,
+                          var url = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
+                    url.path = "/"; url.queryItems = [URLQueryItem(name: "pair", value: "iphone")]; url.fragment = nil
+                    if let target = url.url { NSWorkspace.shared.open(target) }
+                }.disabled(app.activeProfile == nil)
+            }
             if settings.snapshot?.settings.envTokenActive == true { Text(L.t("native_settings_env_token")) }
             if let error = model.error { Text(verbatim: error).foregroundStyle(.red) }
             if !model.authenticated {

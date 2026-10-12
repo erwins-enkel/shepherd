@@ -5,6 +5,8 @@ import ShepherdAppCore
 struct ShepherdIOSApp: App {
     @UIApplicationDelegateAdaptor(IOSAppDelegate.self) private var appDelegate
     @State private var hub: IOSServerHub
+    @State private var pairingLink: PairingLaunch?
+    private struct PairingLaunch: Identifiable { let id = UUID(); let raw: String }
     private let launch: IOSLaunchEnvironment
 
     init() {
@@ -27,6 +29,13 @@ struct ShepherdIOSApp: App {
                     ForEach(hub.connectedIDs, id: \.self) { id in
                         if let app = hub.models[id] { IOSServerRuntimeView(app: app).environment(hub) }
                     }
+                }
+                .onOpenURL { url in
+                    guard url.scheme?.lowercased() == "shepherd" else { return }
+                    pairingLink = PairingLaunch(raw: url.absoluteString)
+                }
+                .fullScreenCover(item: $pairingLink) { link in
+                    PairingSheet(initialLink: link.raw).environment(hub).environment(hub.focused)
                 }
                 .task {
                     IOSPushRegistration.shared.attach(hub, enabled: !launch.configuration.isIsolated)

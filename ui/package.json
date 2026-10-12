@@ -50,7 +50,8 @@
     "marked": "^18.1.0",
     "mermaid": "^12.1.0",
     "shiki": "^4.5.0",
-    "svelte-dnd-action": "^0.9.80"
+    "svelte-dnd-action": "^0.9.80",
+    "uqr": "0.1.3"
   },
   "imports": {
     "#lib/*": "./src/lib/*"

@@ -1,3 +1,5 @@
+import { PairingCodeService } from "./pairing-codes";
+import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
 import { localHealthIdentity } from "./local-health";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
 import type { RepoConfig, SessionStore, StoredPushSub } from "./store";
@@ -386,6 +388,7 @@ export interface AppDeps {
    *  `accessTokens(deps)` accessor lazily builds one from `store`, so `checkAuth` always has an
    *  instance no matter which dispatch entry point the request arrived through. */
   accessTokens?: AccessTokenService;
+  pairingCodes?: PairingCodeService;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -839,8 +842,11 @@ async function sessionUsageDto(s: Session, store: SessionStore): Promise<Session
   };
 }
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
 
 /** 409 while the first-run gate is pending — nothing may spawn or scaffold until a repo root
  *  is picked. Returns null (proceed) once resolved. */
@@ -879,7 +885,7 @@ function accessTokens(deps: AppDeps): AccessTokenService {
 function isPublicRequest(req: Request): boolean {
   // Match the dispatcher before exempting static assets from authentication.
   const path = "/" + new URL(req.url).pathname.split("/").filter(Boolean).join("/");
-  if (req.method === "POST" && path === "/api/login") return true;
+  if (req.method === "POST" && ["/api/login", "/api/pair"].includes(path)) return true;
   if (req.method === "GET" || req.method === "HEAD") {
     // Public liveness (handleHealth): an un-credentialed probe deploy/update.sh + the
     // onboarding harness can hit BEFORE login. Exempt it ahead of the /api reject below.
@@ -1165,6 +1171,47 @@ function handleMe({ req, parts, token }: Ctx): Response | null {
         }
       : {}),
   });
+}
+
+// Peer identity comes from Bun, never spoofable request headers. Pure dispatch tests share
+// an "unknown" bucket; a reverse proxy also shares its upstream bucket deliberately.
+const pairingPeers = new WeakMap<Request, string>();
+
+const NO_STORE = { "Cache-Control": "no-store" };
+
+/** `/api/pair` body → the token name to mint, or the 400 to answer. */
+async function readPairBody(req: Request): Promise<{ code: unknown; name: string } | Response> {
+  const body: unknown = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "invalid body" }, 400);
+  }
+  const { code, deviceName } = body as Record<string, unknown>;
+  if (deviceName !== undefined && (typeof deviceName !== "string" || deviceName.length > 64)) {
+    return json({ error: "deviceName must be at most 64 characters" }, 400);
+  }
+  const device =
+    String(deviceName ?? "")
+      .replace(/[\p{Cc}\p{Cf}]/gu, "")
+      .trim() || "iPhone";
+  return { code, name: `Shepherd for iOS (${device})`.slice(0, ACCESS_TOKEN_NAME_MAX) };
+}
+
+async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[2]) return null;
+  if (parts[1] !== "pairing-codes" && parts[1] !== "pair") return null;
+  const svc = (deps.pairingCodes ??= new PairingCodeService());
+  if (parts[1] === "pairing-codes") {
+    return requireOperatorSession(req) ?? json(svc.mint(), 201, NO_STORE);
+  }
+  if (!svc.allowAttempt(pairingPeers.get(req) ?? "unknown")) {
+    return json({ error: "pairing_rate_limited" }, 429, { "Retry-After": "60" });
+  }
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = await readPairBody(req);
+  if (parsed instanceof Response) return parsed;
+  if (!svc.consume(parsed.code)) return json({ error: "pairing_code_invalid" }, 401);
+  return json(accessTokens(deps).mint(parsed.name, null, "full"), 201, NO_STORE);
 }
 
 // ── access tokens (issue #2082) ────────────────────────────────────────────
@@ -9583,6 +9630,7 @@ const ROUTE_HANDLERS = [
   handleLogout,
   handleMe,
   handleAccessTokens,
+  handlePairing,
   handlePing,
   handleHealth,
   handleTerminalTransport,
@@ -10370,6 +10418,7 @@ export function serve(deps: AppDeps, port: number) {
     // layer, before the app-level MAX_UPLOAD_BYTES check ever runs.
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     fetch(req, server) {
+      pairingPeers.set(req, server.requestIP(req)?.address ?? "unknown");
       const authErr = checkAuth(req, deps);
       if (authErr instanceof Response) return authErr;
       const tokenId = authErr?.id;

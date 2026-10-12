@@ -133,6 +133,31 @@ final class IOSServerHub {
         model.extension(SidebarModel.self)?.lens = lens
     }
 
+    /// Pair on the per-server model so authentication shares its queue with sign-in/removal.
+    func pair(link: PairingLink, deviceName: String) async throws {
+        let profile = try catalogue.addRemoteProfile(name: "", address: link.baseURL.absoluteString)
+        guard !removing.contains(profile.id) else { throw CancellationError() }
+        let existing = models[profile.id]
+        let model = existing ?? newModel(profile.id)
+        model.reloadProfiles()
+        models[profile.id] = model
+        do {
+            try await model.pair(link: link, deviceName: deviceName)
+            guard models[profile.id] === model, !removing.contains(profile.id) else { throw CancellationError() }
+            if !connectedIDs.contains(profile.id) { connectedIDs.append(profile.id) }
+            focusedID = profile.id
+            managingServers = false
+            persist()
+            model.extension(SidebarModel.self)?.lens = lens
+        } catch {
+            if existing == nil, models[profile.id] === model {
+                model.deactivate()
+                models.removeValue(forKey: profile.id)
+            }
+            throw error
+        }
+    }
+
     /// Fixture/live launches already own an activated model and its credential lifetime.
     func adopt(_ model: AppModel, profile: ServerProfile) {
         models[profile.id] = model

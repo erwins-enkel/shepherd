@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PairingQR from "./PairingQR.svelte";
   import { onMount } from "svelte";
   import {
     listAccessTokens,
@@ -25,10 +26,12 @@
   let {
     payload,
     query = "",
+    showPairing = false,
   }: {
     payload: Settings | null;
     /** Active settings-search query — highlights this panel's indexed labels. */
     query?: string;
+    showPairing?: boolean;
   } = $props();
 
   /** Mirrors ACCESS_TOKEN_EXPIRY_DAYS in src/access-tokens.ts; the server rejects anything else. */
@@ -264,6 +267,8 @@
     void loadRepos();
   });
 </script>
+
+<PairingQR previewHost={payload?.previewHost} initiallyOpen={showPairing} {query} />
 
 <div class="block">
   <span class="micro"><HighlightText text={m.settings_access_env_title()} {query} /></span>

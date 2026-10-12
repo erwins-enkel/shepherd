@@ -17,6 +17,12 @@
 		<string>en</string>
 		<string>de</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array><dict>
+		<key>CFBundleURLName</key><string>run.shepherd.pairing</string>
+		<key>CFBundleURLSchemes</key><array><string>shepherd</string></array>
+		<key>CFBundleTypeRole</key><string>Editor</string>
+	</dict></array>
 	<key>CFBundleName</key>
 	<string>Shepherd</string>
 	<key>CFBundlePackageType</key>
@@ -33,7 +39,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Shepherd uses the camera when you attach a photo to a session.</string>
+	<string>Shepherd uses the camera to attach photos and scan QR codes to connect to your server.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Shepherd uses the microphone while you dictate a task.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

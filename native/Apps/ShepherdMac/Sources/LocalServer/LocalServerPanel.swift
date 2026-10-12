@@ -325,6 +325,12 @@ struct LocalServerPanel: View {
             Button(L.t("native_local_open_web")) { NSWorkspace.shared.open(model.baseURL) }
                 .disabled(!panel.canOpenWeb)
                 .accessibilityIdentifier("local-open-web")
+            Button(L.t("native_pairing_mac_button")) {
+                guard var url = URLComponents(url: model.baseURL, resolvingAgainstBaseURL: false) else { return }
+                url.path = "/"; url.queryItems = [URLQueryItem(name: "pair", value: "iphone")]; url.fragment = nil
+                if let target = url.url { NSWorkspace.shared.open(target) }
+            }.disabled(!panel.canOpenWeb)
+                .accessibilityIdentifier("local-connect-iphone")
             Button(L.t("native_local_connect")) {
                 if let onConnect { onConnect() } else { Task { await model.connect(app) } }
             }

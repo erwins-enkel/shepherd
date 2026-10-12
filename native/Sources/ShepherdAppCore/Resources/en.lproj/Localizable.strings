@@ -720,7 +720,7 @@
 "native_ios_actions_revision" = "Revision";
 "native_ios_actions_server_default" = "Server default";
 "native_ios_attachment_camera" = "Take Photo";
-"native_ios_attachment_camera_usage" = "Shepherd uses the camera when you attach a photo to a session.";
+"native_ios_attachment_camera_usage" = "Shepherd uses the camera to attach photos and scan QR codes to connect to your server.";
 "native_ios_attachment_files" = "Choose File";
 "native_ios_attachment_invalid" = "The image could not be imported.";
 "native_ios_attachment_photos" = "Photo Library";
@@ -951,6 +951,18 @@
 "native_notify_usage_body" = "Approaching the usage cap.";
 "native_notify_usage_body_reset" = "Approaching the usage cap — resets at %1$@.";
 "native_notify_usage_title" = "5-hour limit at %1$@%%";
+"native_pairing_camera_denied" = "Allow camera access in Settings to scan the QR code.";
+"native_pairing_connect" = "Connect with QR code";
+"native_pairing_expired" = "This QR code has expired or was already used. Scan the current code in the web app.";
+"native_pairing_invalid" = "This is not a Shepherd QR code.";
+"native_pairing_mac_button" = "Connect iPhone…";
+"native_pairing_mac_hint" = "Shows a QR code in the web app that you scan with the Shepherd app on your iPhone.";
+"native_pairing_open_settings" = "Open Settings";
+"native_pairing_rate_limited" = "Too many attempts. Wait a minute and scan again.";
+"native_pairing_retry" = "Scan again";
+"native_pairing_scan" = "Scan QR code";
+"native_pairing_scan_hint" = "Point the camera at the QR code in the web app under Settings → Access.";
+"native_pairing_unavailable" = "QR scanning is unavailable on this device. You can still enter the server address manually.";
 "native_quit_confirm_action" = "Quit app";
 "native_quit_confirm_title" = "Quit Shepherd?";
 "native_recovery_reopen" = "Reopen terminal";
@@ -1318,6 +1330,7 @@
 "owed_repo_filter_empty" = "No post-merge steps owed for %1$@.";
 "owed_title" = "Post-merge steps owed";
 "owed_tracking_issue" = "Tracking issue ↗";
+"pairing_title" = "Connect iPhone";
 "plangate_changes" = "REWORK · %1$@/%2$@";
 "plangate_edited" = "PLAN EDITED";
 "plangate_error" = "REVIEW ERR";

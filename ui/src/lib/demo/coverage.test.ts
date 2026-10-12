@@ -402,6 +402,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
 
   // Settings/plugin/update WRITES and the probes behind them. Every corresponding read is
   // in INVENTORY; installing a plugin or applying an update has nothing to act on here.
+  // The static demo has no server or credential store to pair a real device with.
+  "Device pairing": ["/api/pairing-codes"],
   "settings, plugin + update actions": [
     "/api/access-tokens/:p",
     "/api/push/devices/:p",

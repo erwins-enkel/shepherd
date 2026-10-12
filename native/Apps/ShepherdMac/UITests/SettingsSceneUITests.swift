@@ -27,6 +27,9 @@ final class SettingsSceneUITests: XCTestCase {
         }
         app.menuBars.menuBarItems["Shepherd"].click()
         XCTAssertFalse(app.menuItems["Notifications…"].exists)
+        let openWebBackend = app.menuItems["Open web backend"]
+        XCTAssertTrue(openWebBackend.exists)
+        XCTAssertFalse(openWebBackend.isEnabled, "the local backend is stopped in an isolated launch")
         app.typeKey(.escape, modifierFlags: [])
     }
 

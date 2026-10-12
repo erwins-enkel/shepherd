@@ -9,11 +9,9 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
     private static let repos = Mutex<[String: String]>([:])
     private static let settings = Mutex<[String: String]>([:])
     private static let diagnostics = Mutex<[String: String]>([:])
-    /// The machine choice per origin (#2776): placement preview, derivation and identity, and every
-    /// create body with its Idempotency-Key.
+    /// The machine choice per origin (#2776): the placement preview, and every create body with
+    /// its Idempotency-Key.
     private static let placements = Mutex<[String: String]>([:])
-    private static let derivations = Mutex<[String: String]>([:])
-    private static let instances = Mutex<[String: String]>([:])
     private static let creates = Mutex<[String: [(body: Data, key: String?)]]>([:])
     static func set(_ sessions: [Session], for url: URL) { snapshots.withLock { $0[url.host() ?? ""] = sessions } }
     /// Raw `repos` array JSON for one origin; others serve the single `shepherd` repo.
@@ -21,8 +19,6 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
     static func setSettings(_ json: String, for url: URL) { settings.withLock { $0[url.host() ?? ""] = json } }
     static func setDiagnostics(_ json: String, for url: URL) { diagnostics.withLock { $0[url.host() ?? ""] = json } }
     static func setPlacement(_ json: String, for url: URL) { placements.withLock { $0[url.host() ?? ""] = json } }
-    static func setDerivation(_ json: String, for url: URL) { derivations.withLock { $0[url.host() ?? ""] = json } }
-    static func setInstance(_ json: String, for url: URL) { instances.withLock { $0[url.host() ?? ""] = json } }
     /// The create bodies this origin received, oldest first, with their Idempotency-Key.
     static func created(at url: URL) -> [(body: Data, key: String?)] { creates.withLock { $0[url.host() ?? ""] ?? [] } }
     /// URLSession hands a body to URLProtocol as a stream.
@@ -60,10 +56,6 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
         case "/api/health": body = Data(#"{"ok":true,"version":"2.1.0"}"#.utf8)
         case "/api/placement" where Self.placements.withLock({ $0[url.host() ?? ""] }) != nil:
             body = Data((Self.placements.withLock { $0[url.host() ?? ""] } ?? "").utf8)
-        case "/api/requirements/derive" where Self.derivations.withLock({ $0[url.host() ?? ""] }) != nil:
-            body = Data((Self.derivations.withLock { $0[url.host() ?? ""] } ?? "").utf8)
-        case "/api/instance" where Self.instances.withLock({ $0[url.host() ?? ""] }) != nil:
-            body = Data((Self.instances.withLock { $0[url.host() ?? ""] } ?? "").utf8)
         case "/api/diagnostics":
             body = Data((Self.diagnostics.withLock { $0[url.host() ?? ""] } ?? Self.readyDiagnostics).utf8)
         case "/api/repos":

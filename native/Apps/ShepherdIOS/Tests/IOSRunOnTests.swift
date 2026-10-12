@@ -40,8 +40,16 @@ final class IOSRunOnTests: XCTestCase {
         """#
     }
 
-    private func composer(_ store: SessionStore, defaults: UserDefaults) -> ComposeModel {
-        let runOn = RunOnModel(client: store.client)
+    /// The preview and the create go over the fixture transport; the derivation is answered here,
+    /// since the client's long-running session does not see a registered URLProtocol (its HTTP
+    /// mapping is covered by `ShepherdClientPlacementTests`).
+    private func composer(_ store: SessionStore, defaults: UserDefaults,
+                          derived: [String] = []) -> ComposeModel {
+        let client = store.client
+        let answer = RequirementsDerivation(status: .init(value1: .derived, value2: "derived"),
+                                           requirements: derived.map(Capability.init(id:)))
+        let runOn = RunOnModel(reads: .init(preview: { try await client.previewPlacement($0) },
+                                            derive: { _ in answer }))
         runOn.previewDelay = .zero
         runOn.deriveDelay = .zero
         return ComposeModel(defaults: defaults,
@@ -86,9 +94,9 @@ final class IOSRunOnTests: XCTestCase {
         await hub.connect(a); await hub.connect(b)
         for (profile, other) in [(a, "mac"), (b, "linux")] {
             let store = try XCTUnwrap(hub.models[profile.id]?.store)
-            for (prompt, derived) in [("Fix the iOS build in Xcode", #"["xcode"]"#), ("Restyle the web settings page", "[]")] {
-                IOSMultiServerFixtureTransport.setDerivation(#"{"status":"derived","requirements":\#(derived)}"#, for: profile.baseURL)
-                let compose = composer(store, defaults: launch.defaults)
+            let tasks: [(String, [String])] = [("Fix the iOS build in Xcode", ["xcode"]), ("Restyle the web settings page", [])]
+            for (prompt, derived) in tasks {
+                let compose = composer(store, defaults: launch.defaults, derived: derived)
                 compose.repoPath = "/fixtures/shepherd"; compose.prompt = prompt
                 await compose.refreshPlacement()
                 await compose.deriveRequirements()
@@ -100,7 +108,7 @@ final class IOSRunOnTests: XCTestCase {
                     isCurrent: { true })
                 let sent = try lastCreate(profile)
                 XCTAssertNil(sent.json["target"], "Automatic leaves the machine to \(profile.name)")
-                XCTAssertEqual(sent.json["requirements"] as? [String], derived == "[]" ? nil : ["xcode"])
+                XCTAssertEqual(sent.json["requirements"] as? [String], derived.isEmpty ? nil : derived)
                 XCTAssertNotNil(sent.key, "every create is keyed while the choice is active")
                 submission.teardown(); compose.teardown()
             }

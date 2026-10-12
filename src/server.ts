@@ -250,6 +250,7 @@ import {
   type ApplyResult,
   type GithubBackoff,
 } from "./agent-control";
+import type { OperatorDiagDeps } from "./operator-assistant-tools";
 import {
   anyLiveRepairSession,
   computeLandingReady,
@@ -269,7 +270,7 @@ import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./ba
 import { peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
-import { join, normalize, basename } from "node:path";
+import { dirname, join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import type { Server, ServerWebSocket } from "bun";
@@ -4728,16 +4729,48 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   return json(outcome.body, outcome.status);
 }
 
-/** The control plane's deps: AppDeps plus the Shared Browser tab opener `browser_request_login`
- *  needs (a tab remembered as the session's, so Browser View preselects it). */
+/** The control plane's deps: AppDeps plus the Operator Assistant's diagnostic reads and the Shared
+ *  Browser tab opener `browser_request_login` needs (a tab remembered as the session's, so Browser
+ *  View preselects it). */
 function mcpDeps(deps: AppDeps): AgentControlDeps {
   const browser = deps.sharedBrowser;
-  if (!browser) return deps;
   return {
     ...deps,
-    openLoginTab: async (repoPath, url, sessionId) => {
-      await browser.open(repoPath, url, { sessionId });
+    operatorDiag: operatorDiagDeps(deps),
+    ...(browser && {
+      openLoginTab: async (repoPath: string, url: string, sessionId: string) => {
+        await browser.open(repoPath, url, { sessionId });
+      },
+    }),
+  };
+}
+
+/** The Operator Assistant's diagnostic reads (#1446): the same services the operator routes read.
+ *  The epic diagnosis is what GET /api/epic/diagnose returns — the drain's diagnosis of the
+ *  parent's run, which is the repo's stored run when it is this parent's (the diagnosis reads only
+ *  the run's repo and parent). herdr's server log sits beside its socket. */
+function operatorDiagDeps(deps: AppDeps): OperatorDiagDeps {
+  const drain = deps.drain;
+  return {
+    repos: () => listRepos(config.repoRoot).map((r) => r.path),
+    holds: deps.holds,
+    drain,
+    diagnoseEpic:
+      drain &&
+      ((repoPath, parent) => {
+        const dir = safeRepoDir(repoPath, config.repoRoot);
+        return dir
+          ? drain.diagnoseEpic(dir, runForParent(deps.store, dir, parent))
+          : Promise.resolve(null);
+      }),
+    diagnostics: deps.diagnostics,
+    logPaths: {
+      shepherd: config.shepherdLogPath,
+      "herdr-server": join(dirname(config.herdrSocketPath), "herdr-server.log"),
+      "herdr-update": config.herdrUpdateLogPath,
+      "codex-update": config.codexUpdateLogPath,
     },
+    herdrSocketPath: config.herdrSocketPath,
   };
 }
 

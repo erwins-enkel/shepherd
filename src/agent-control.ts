@@ -21,6 +21,8 @@
  *     Plus `browser_request_login` (issue #2882), the one tool with no REST twin: it raises a
  *     Login Request (src/login-request.ts) and long-polls for the operator's answer. Only the
  *     operator app can resolve it — the agent cannot mark its own request done.
+ *     And the Operator Assistant's diagnostic tools (issue #1446), which live in
+ *     src/operator-assistant-tools.ts and are registered here for that one session only.
  *  3. **The session-gated tool catalog** (`agentTools`) — a session only sees the tools its
  *     capabilities warrant (queue tools when the repo runs the build queue, the draft tool for
  *     an epic-authoring session). An empty catalog means the spawn passes no `--mcp-config` at
@@ -45,6 +47,14 @@ import type { RateLimitSnapshot } from "./forge/rate-limit";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import {
+  applyHerdStatus,
+  applyLogsTail,
+  applyRepoAutomation,
+  applySystemHealth,
+  OPERATOR_DIAG_TOOLS,
+  type OperatorDiagDeps,
+} from "./operator-assistant-tools";
 import type { PrCache } from "./pr-poller";
 import type { SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, Session } from "./types";
@@ -72,6 +82,8 @@ export interface AgentControlDeps {
   openLoginTab?: (repoPath: string, url: string, sessionId: string) => Promise<void>;
   /** One `browser_request_login` call's wait window (ms); default `LOGIN_WAIT_MS`. */
   loginWaitMs?: number;
+  /** The Operator Assistant's diagnostic reads (#1446); absent ⇒ its tools answer "unavailable". */
+  operatorDiag?: OperatorDiagDeps;
 }
 
 /** Transport-neutral outcome of an applier: the REST route renders it as a Response, the MCP
@@ -588,14 +600,14 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.epicDraft) tools.push(EPIC_DRAFT);
   if (caps.sessionRead) tools.push(SESSIONS_LIST, SESSIONS_SHOW, SELF_STATUS);
   if (caps.browserLogin) tools.push(BROWSER_REQUEST_LOGIN);
+  if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
   return tools;
 }
 
 /** True when a session has any control plane to drive — the gate on passing `--mcp-config` at
- *  spawn/resume at all (src/service.ts). `operatorDiag` counts on its own: the assistant is always
- *  wired to its endpoint. */
+ *  spawn/resume at all (src/service.ts). */
 export function hasAgentTools(caps: AgentCapabilities): boolean {
-  return caps.operatorDiag || toolsFor(caps).length > 0;
+  return toolsFor(caps).length > 0;
 }
 
 /** The `browserLogin` rule, shared by the spawn path (resolved profile) and the row path
@@ -705,6 +717,10 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   self_status: (deps, id) => applySelfStatus(deps, id),
   browser_request_login: (deps, id, args, signal) =>
     applyBrowserRequestLogin(deps, id, args, signal),
+  herd_status: (deps, _id, args) => applyHerdStatus(deps, args),
+  repo_automation: (deps, _id, args) => applyRepoAutomation(deps, args),
+  system_health: (deps) => applySystemHealth(deps),
+  logs_tail: (deps, _id, args) => applyLogsTail(deps, args),
 };
 
 /** Run one `tools/call`. A tool the session isn't entitled to is a protocol error (-32602); an

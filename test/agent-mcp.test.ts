@@ -196,7 +196,6 @@ test("the Operator Assistant gets only operatorDiag — no queue, epic, browser 
     browserLogin: false,
     operatorDiag: true,
   });
-  // Its endpoint is wired even before the diagnostic tools land in the catalog.
   expect(hasAgentTools(sessionCapabilities(deps, sessionId))).toBe(true);
   const names = agentTools(deps, sessionId).map((t) => t.name);
   for (const t of [
@@ -214,6 +213,64 @@ test("no other session ever gets operatorDiag", () => {
     const { deps, sessionId } = harness(opts);
     expect(sessionCapabilities(deps, sessionId).operatorDiag).toBe(false);
   }
+});
+
+const DIAG_TOOLS = ["herd_status", "repo_automation", "system_health", "logs_tail"];
+
+test("the Operator Assistant's tools/list is exactly the four diagnostic tools", async () => {
+  const { deps, sessionId } = harness({ operatorAssistant: true, buildQueue: true });
+  const out = await handleMcpRequest(deps, sessionId, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/list",
+  });
+  const tools = (out.body as { result: { tools: { name: string; description: string }[] } }).result
+    .tools;
+  expect(tools.map((t) => t.name)).toEqual(DIAG_TOOLS);
+  for (const t of tools) expect(t.description).toContain("Read-only.");
+});
+
+test("normal and plain sessions never see the diagnostic tools", () => {
+  for (const opts of [{}, { plain: true }, { buildQueue: true, sharedBrowser: true }]) {
+    const { deps, sessionId } = harness(opts);
+    const names = agentTools(deps, sessionId).map((t) => t.name);
+    for (const t of DIAG_TOOLS) expect(names).not.toContain(t);
+  }
+});
+
+test("a normal session calling a diagnostic tool is the -32602 entitlement error", async () => {
+  const { deps, sessionId } = harness();
+  for (const name of DIAG_TOOLS) {
+    const body = (await call(deps, sessionId, name, { source: "shepherd" })).body as {
+      error: { code: number; message: string };
+    };
+    expect(body.error.code).toBe(-32602);
+    expect(body.error.message).toContain(name);
+  }
+});
+
+test("the assistant's herd_status runs over MCP and leaves out the assistant's own row", async () => {
+  const { deps, sessionId, store } = harness({ operatorAssistant: true });
+  const other = store.create({
+    name: "worker",
+    prompt: "p",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/worker",
+    worktreePath: "/repo",
+    isolated: false,
+    herdrSession: "sess-x",
+    herdrAgentId: "agent-w",
+    claudeSessionId: "claude-w",
+    model: null,
+  });
+  const { isError, payload } = toolPayload(await call(deps, sessionId, "herd_status", {}));
+  expect(isError).toBe(false);
+  expect(payload.sessions.map((s: { desig: string }) => s.desig)).toEqual([other.desig]);
+  // Unwired host reads answer as an isError result the model can read, not a protocol error.
+  const logs = toolPayload(await call(deps, sessionId, "logs_tail", { source: "shepherd" }));
+  expect(logs.isError).toBe(true);
+  expect(logs.payload.error).toContain("unavailable");
 });
 
 // ── protocol ─────────────────────────────────────────────────────────────────

@@ -5526,6 +5526,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return rows;
   }
 
+  /** One session's newest signals, newest first — the Operator Assistant's `herd_status` (#1446). */
+  listSessionSignals(sessionId: string, limit: number): Signal[] {
+    return this.db
+      .query(
+        `SELECT id, repoPath, sessionId, kind, payload, ts FROM signals
+         WHERE sessionId = ? ORDER BY ts DESC LIMIT ?`,
+      )
+      .all(sessionId, limit) as Signal[];
+  }
+
   /** In-window signal tally by kind across every repo (#2151 R1's repeat-incident indicator).
    *  `sessions` counts DISTINCT non-null sessionIds, which is what separates one thrashing task
    *  from a class of problem recurring across many. Aggregated in SQL so the read stays bounded

@@ -94,7 +94,13 @@ test("permissions: exact shape — MCP the only allow, Bash asks, edits and cred
       "Write",
       "NotebookEdit",
       "Read(~/.shepherd/env)",
+      "Read(~/.shepherd/*.key)",
+      "Read(~/.shepherd/*.db*)",
+      "Read(~/.shepherd/forges.json)",
+      "Read(~/.shepherd/backups/**)",
+      "Read(~/.shepherd/plugins/**)",
       "Read(~/.config/shepherd/config.toml)",
+      "Read(~/.claude.json)",
       "Read(~/.claude/.credentials.json)",
       "Read(~/.codex/auth.json)",
       "Read(~/.config/gh/hosts.yml)",
@@ -106,8 +112,24 @@ test("permissions: exact shape — MCP the only allow, Bash asks, edits and cred
       "Read(~/.git-credentials)",
       "Read(~/.docker/config.json)",
       "Read(~/.kube/config)",
+      "Read(//proc/**/environ)",
     ],
   });
+});
+
+test("permissions: the state-dir rules follow Shepherd's real state dir, never the whole dir", () => {
+  const home = "/home/op";
+  const inHome = operatorAssistantPermissions("/home/op/.shepherd-dev/", home).deny;
+  expect(inHome).toContain("Read(~/.shepherd-dev/env)");
+  expect(inHome).toContain("Read(~/.shepherd-dev/*.db*)");
+  const elsewhere = operatorAssistantPermissions("/srv/shepherd", home).deny;
+  expect(elsewhere).toContain("Read(//srv/shepherd/env)");
+  expect(elsewhere).toContain("Read(//srv/shepherd/backups/**)");
+  // The install (~/.shepherd/app) is the assistant's grounding: no rule may cover the whole dir.
+  for (const rule of operatorAssistantPermissions().deny) {
+    expect(rule).not.toMatch(/^Read\(~\/\.shepherd\/\*\*\)$/);
+    expect(rule).not.toContain("app");
+  }
 });
 
 const brief = (language: "en" | "de" = "en") =>

@@ -12,6 +12,7 @@
  * Agent-facing English (the brief is read by the model, never rendered as operator chrome), so no
  * i18n — same precedent as the spawn directives in src/service.ts.
  */
+import { homedir } from "node:os";
 import { effortForSpawn } from "./default-effort";
 import { operatorLanguageBlock, type OperatorLanguage } from "./operator-language";
 import type { Session } from "./types";
@@ -23,10 +24,10 @@ export function isOperatorAssistant(s: Pick<Session, "operatorAssistant"> | null
 }
 
 /** Credential and env files the assistant may never read. `Read(…)` deny rules also bind `Grep` and
- *  `Glob`. `~/` is the CLI's home-relative rule prefix. */
+ *  `Glob`. `~/` is the CLI's home-relative rule prefix, `//` its absolute one. */
 const CREDENTIAL_PATHS = [
-  "~/.shepherd/env",
   "~/.config/shepherd/config.toml",
+  "~/.claude.json",
   "~/.claude/.credentials.json",
   "~/.codex/auth.json",
   "~/.config/gh/hosts.yml",
@@ -38,23 +39,49 @@ const CREDENTIAL_PATHS = [
   "~/.git-credentials",
   "~/.docker/config.json",
   "~/.kube/config",
+  "//proc/**/environ",
 ];
+
+/** What in Shepherd's state dir (beside its db) the assistant may never read: the env file, keys,
+ *  the database (settings, token hashes), forge config, backups and plugins. Its logs stay
+ *  readable behind a prompt; the redacted `logs_tail` is the intended path. Not the whole dir: a
+ *  default install lives in it (`~/.shepherd/app`), and that is the assistant's grounding. */
+const STATE_SECRETS = ["env", "*.key", "*.db*", "forges.json", "backups/**", "plugins/**"];
+
+/** `dir` as a rule prefix: home-relative when under `home`, else the absolute `//` form. */
+function rulePrefix(dir: string, home: string): string {
+  const d = dir.replace(/\/+$/, "");
+  if (d === "~" || d.startsWith("~/")) return d;
+  if (d.startsWith(`${home}/`)) return `~${d.slice(home.length)}`;
+  return `/${d}`;
+}
 
 /** The `permissions` block of the assistant's `--settings` overlay. The Shepherd MCP read tools are
  *  the ONLY allow rule: reads inside the assistant dir and the `--add-dir` install root are allowed
  *  by Claude's own defaults, and every other read prompts. `ask: ["Bash"]` makes every command
- *  prompt, including ones Claude would treat as read-only. */
-export function operatorAssistantPermissions(): {
+ *  prompt, including ones Claude would treat as read-only. `stateDir` is Shepherd's state dir
+ *  (dirname of its db). */
+export function operatorAssistantPermissions(
+  stateDir = "~/.shepherd",
+  home = homedir(),
+): {
   defaultMode: "default";
   allow: string[];
   ask: string[];
   deny: string[];
 } {
+  const state = rulePrefix(stateDir, home);
   return {
     defaultMode: "default",
     allow: ["mcp__shepherd"],
     ask: ["Bash"],
-    deny: ["Edit", "Write", "NotebookEdit", ...CREDENTIAL_PATHS.map((p) => `Read(${p})`)],
+    deny: [
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      ...STATE_SECRETS.map((p) => `Read(${state}/${p})`),
+      ...CREDENTIAL_PATHS.map((p) => `Read(${p})`),
+    ],
   };
 }
 
@@ -148,7 +175,7 @@ README.md, PRD.md, docs/ (operations.md), docs-site/src/content/docs/ (operating
 2. Epic shows "label-drain suspended" or "Paused": repo_automation({epicParent}). With autoDrainEnabled off nothing starts from labels and landing-PR repairs don't run; otherwise the pause reason names the session, the usage ceiling or the forge. Fix: right-click or long-press the repo chip → Repo automation settings → Auto-Drain on (maxAuto still applies), or resume the epic from its epic card.
 3. Agent died with exit 127: logs_tail({source: "herdr-server", contains: "code: 127"}) shows pane.exit … ExitStatus { code: 127 }: the spawned command isn't on herdr's PATH, e.g. ~/.local/bin missing from herdr.service Environment=PATH. Fix: add it there, systemctl --user daemon-reload, restart herdr (running agents die and must be resumed). If claude itself is missing, the Fix on its check in Settings → Diagnose installs it.
 4. New Task fails / herdr agent list ENOENT: system_health shows herdr offline or its socket missing: the herdr server isn't running (systemctl --user status herdr). Fix: systemctl --user enable --now herdr; a unit with Restart=on-failure stays down after a clean stop like Update Herd and needs Restart=always.
-5. Node unresponsive: system_health shows high load or PSI. With approval, run ps for the runaway process, readlink /proc/<pid>/cwd, and map a <repo parent>/.shepherd-worktrees/<repo>-<name> cwd to the session of that name. Fix: the operator stops that session from its card, or kills the pid you name.
+5. Node unresponsive: system_health shows high load or PSI. With approval, run ps -eo pid,pcpu,pmem,etime,comm --sort=-pcpu | head -15 (never full args: agents' command lines carry session ids and prompts) for the runaway process, readlink /proc/<pid>/cwd, and map a <repo parent>/.shepherd-worktrees/<repo>-<name> cwd to the session of that name. Fix: the operator stops that session from its card, or kills the pid you name.
 
 ## Guardrails
 - Read-only. Edits are denied; you never change state. For a fix, give the exact command or UI path for the operator, and what it changes.

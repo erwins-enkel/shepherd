@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { claudeTranscriptExists } from "./usage";
 import type { RepoConfig, SessionStore } from "./store";
 import { TERMINAL_CLAIM_TTL_MS } from "./store";
@@ -4623,7 +4623,7 @@ export class SessionService {
       claudeSessionId: s.claudeSessionId,
       settings: spawnSettingsOverlay({
         hooks: { sessionId: s.id, baseUrl, token: config.token },
-        permissions: operatorAssistantPermissions(),
+        permissions: operatorAssistantPermissions(dirname(config.dbPath)),
       }),
       mcpConfig: agentMcpConfigArg(s.id, baseUrl),
       brief: operatorAssistantBrief({

@@ -336,6 +336,57 @@ describe("automatic machine choice", () => {
     }
   });
 
+  test("the preview offers the machines Run on can name: this one first, then those that could take it (#2776)", async () => {
+    const { linux, mac } = await pair();
+    const ids = async (at: Node, over: Record<string, unknown> = {}) =>
+      ((await preview(at, over)).body.machines as { instanceId: string }[]).map(
+        (h) => h.instanceId,
+      );
+    expect(await ids(linux)).toEqual([linux.id, mac.id]);
+    expect(await ids(mac)).toEqual([mac.id, linux.id]);
+    // Named or not, fitting or not: the list is what a create may name, not a verdict.
+    expect(await ids(linux, { target: { instanceId: mac.id } })).toEqual([linux.id, mac.id]);
+    expect(await ids(mac, { requirements: ["android-sdk"] })).toEqual([mac.id, linux.id]);
+    // A machine out of reach cannot be named: only this one is left.
+    await sleep(mac, linux);
+    const shown = await preview(linux);
+    expect(shown.body.active).toBe(true);
+    expect((shown.body.machines as { instanceId: string }[]).map((h) => h.instanceId)).toEqual([
+      linux.id,
+    ]);
+  });
+
+  test("a create shaped as the native apps send it lands by the same rules from either Shepherd (#2776)", async () => {
+    const { linux, mac } = await pair();
+    // What ComposeModel.createRequest sends on Automatic: no `target`, the chips as
+    // `requirements` (absent when there are none), and an Idempotency-Key per submission.
+    const native = (at: Node, requirements: Capability[]) =>
+      task(at, {
+        prompt:
+          requirements.length > 0 ? "fix the iOS build in Xcode" : "restyle the web settings page",
+        agentProvider: "claude",
+        research: false,
+        epicAuthoring: false,
+        plain: false,
+        ...(requirements.length > 0 && { requirements }),
+      });
+    let n = 0;
+    for (const at of [linux, mac]) {
+      for (const [requirements, expected] of [
+        [["xcode"], mac],
+        [[], linux],
+      ] as [Capability[], Node][]) {
+        linux.created.length = 0;
+        mac.created.length = 0;
+        const body = native(at, requirements);
+        expect(body).not.toHaveProperty("target");
+        const res = await create(at, body, { key: `native-${++n}` });
+        expect(res.status).toBe(201);
+        expect(ranOn([linux, mac])).toEqual([expected]);
+      }
+    }
+  });
+
   test("a named machine that does not fit is refused with the reason, and nothing starts", async () => {
     const { linux, mac } = await pair();
     const res = await create(linux, {

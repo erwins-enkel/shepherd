@@ -489,8 +489,11 @@ public final class ComposeModel {
     /// `.task(id:)` key of the placement preview: the repo, the chips and the pick.
     public var placementKey: RunOnModel.PreviewKey { runOn.previewKey }
 
-    /// `.task(id:)` key of reading the requirements: the repo and the task text.
-    public var deriveKey: RunOnModel.DeriveKey { runOn.deriveKey(deriveText) }
+    /// `.task(id:)` key of reading the requirements: the repo, the task text and whether reading
+    /// applies — the preview may say so only after the last edit.
+    public var deriveKey: RunOnModel.DeriveTrigger {
+        RunOnModel.DeriveTrigger(key: runOn.deriveKey(deriveText), applies: runOn.deriveApplies)
+    }
 
     public func refreshPlacement() async { await runOn.refreshPreview() }
 

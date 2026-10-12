@@ -12702,6 +12702,7 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"derivationDecodesTheQuestionAndTheFailure() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"dispatchesAreListedCanceledAndRedirected() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"machineRefusalsKeepTheirFieldsAndOtherFailuresStayAsTheyWere() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"previewDecodesTheChoiceAndTheMachinesAndAnOldServerIsNotFound() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"previewDecodesTheChoiceAndTheMachinesAndAnOldServerIsNotFound() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.RunOnModelTests\",\"theReadStartsWhenThePreviewSaysItMattersAfterTheLastEdit() async throws\"]"
   ]
 }

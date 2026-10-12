@@ -128,6 +128,22 @@ extension CoreSeamTests {
         #expect(failing.readiness().canSubmit)
     }
 
+    @Test func theReadStartsWhenThePreviewSaysItMattersAfterTheLastEdit() async throws {
+        let fake = FakeReads()
+        fake.preview = { _ in try activePreview(derive: true) }
+        fake.derive = { _ in try wire(#"{"status":"derived","requirements":["xcode"]}"#) }
+        let model = composer(fake)
+        defer { model.teardown() }
+        model.prompt = "Fix the Xcode build"
+        let typed = model.deriveKey
+        await model.deriveRequirements()
+        #expect(fake.derives.isEmpty, "nothing to read before the preview answers")
+        await model.refreshPlacement()
+        #expect(model.deriveKey != typed, "the view's read runs again once it applies")
+        await model.deriveRequirements()
+        #expect(model.runOn.requirements == ["xcode"])
+    }
+
     @Test func aPickOrChipsSkipTheReading() async throws {
         let fake = FakeReads()
         fake.preview = { request in try activePreview(derive: request.target == nil) }

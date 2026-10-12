@@ -64,6 +64,13 @@ public final class RunOnModel {
         let text: DeriveText
     }
 
+    /// What reading the requirements depends on: the task, and whether it is the server's to read
+    /// right now — a preview that says so after the last edit must start the read too.
+    public struct DeriveTrigger: Hashable, Sendable {
+        let key: DeriveKey
+        let applies: Bool
+    }
+
     /// One keyed attempt: its Idempotency-Key and the body it went out with.
     public struct Send: Equatable, Sendable {
         public let key: String

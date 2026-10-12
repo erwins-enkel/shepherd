@@ -971,6 +971,8 @@ components:
           items:
             $ref: "#/components/schemas/Capability"
           description: Capabilities the machine that runs the task must have. While machines are connected the automatic choice only picks a machine whose report has them all. The machine that runs it verifies them by a fresh probe when it accepts the task; a missing one answers 422 with code missing_capabilities and nothing starts.
+        placement:
+          $ref: "#/components/schemas/Placement"
     ArchiveSessionRequest:
       type: object
       additionalProperties: false
@@ -1107,7 +1109,7 @@ components:
         - preferred
         - by
         - decidedAt
-      description: "Where a task was placed and why: the record of the Shepherd that chose the machine. It is language-neutral; clients put it into words. A session placed while machines were connected carries it as `launchMetadata.placement`, on the machine that runs it as well. It is a record only and never decides where a task runs."
+      description: "Where a task was placed and why: the record of the Shepherd that chose the machine. It is language-neutral; clients put it into words. A session placed while machines were connected carries it as `launchMetadata.placement`, on the machine that runs it as well, and a held task keeps it in its stored input. It is a record only and never decides where a task runs. In a create body (CreateSessionRequest.placement) it is what a coordinator Shepherd sends along with a task it placed on another instance: that instance keeps it only when the body's `target` names that instance itself and the record names it as its `target`; otherwise the instance records its own choice instead. Clients do not send it."
       properties:
         mode:
           description: auto = chosen by the rules; manual = the machine named in `target`.
@@ -4864,6 +4866,8 @@ components:
           items:
             $ref: "#/components/schemas/Capability"
           description: Capabilities the machine that runs the task must have. While machines are connected the automatic choice only picks a machine whose report has them all. The machine that runs it verifies them by a fresh probe when it accepts the task; a missing one answers 422 with code missing_capabilities and nothing starts.
+        placement:
+          $ref: "#/components/schemas/Placement"
         auto:
           type: boolean
       description: Stored StandardCreateInput. Mirrors the core create request fields, but also carries server-owned fields such as auto from Up Next. The core request is closed and cannot validate this stored response. PATCH still accepts the core CreateSessionRequest.

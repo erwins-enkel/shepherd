@@ -17,6 +17,7 @@ import type {
   RemoteOutcome,
 } from "../../src/remote-instances/dispatch";
 import { FEDERATION_API_VERSION } from "../../src/remote-instances/identity";
+import type { Placement } from "../../src/remote-instances/placement";
 import type {
   RemoteInstanceService,
   RemoteInstanceSummary,
@@ -584,6 +585,32 @@ describe("sessions", () => {
       s.deps.remoteInstances = savedInstances;
       s.stubs.resolveForge.forge = savedForge;
     }
+  });
+
+  // #2772: a coordinator sends its record of the choice with a task it placed here; the body
+  // matches the contract and the session keeps the record.
+  test("POST /api/sessions keeps a coordinator's placement record for a task targeted here", async () => {
+    const identity = await fetch(`${s.baseUrl}/api/instance`, { headers: bearer(token) });
+    const { instanceId, name } = (await identity.json()) as { instanceId: string; name: string };
+    const placement: Placement = {
+      mode: "auto",
+      target: { instanceId, name, platform: "linux" },
+      requirements: [],
+      basis: "preference",
+      preferred: "linux",
+      by: { instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d", name: "MacBook" },
+      decidedAt: 1,
+    };
+    const body = { prompt: "placed here", target: { instanceId }, placement };
+    validateRequest("POST", "/api/sessions", {
+      repoPath: s.validRepo,
+      baseBranch: "main",
+      ...body,
+    });
+    const res = await post(body);
+    const created = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
+    expect(res.status).toBe(201);
+    expect(s.deps.store.get(created.id)?.launchMetadata?.placement).toEqual(placement);
   });
 
   // #2772: the preview of the automatic machine choice — not active without machines, the target

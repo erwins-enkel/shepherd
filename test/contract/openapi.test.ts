@@ -76,6 +76,64 @@ describe("health", () => {
   });
 });
 
+describe("pairing", () => {
+  test("operator invitation is public to redeem exactly once", async () => {
+    const invitation = await fetch(`${s.baseUrl}/api/pairing-codes`, {
+      method: "POST",
+      headers: { cookie },
+    });
+    const { code } = (await validateResponse("POST", "/api/pairing-codes", invitation)) as {
+      code: string;
+    };
+    const pair = () =>
+      fetch(`${s.baseUrl}/api/pair`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, deviceName: "Contract iPhone" }),
+      });
+    const paired = await pair();
+    const body = (await validateResponse("POST", "/api/pair", paired)) as {
+      token: string;
+      entry: { id: string; scope: string };
+    };
+    expect(paired.status).toBe(201);
+    expect(body.entry.scope).toBe("full");
+    const replay = await pair();
+    await validateResponse("POST", "/api/pair", replay);
+    expect(replay.status).toBe(401);
+    await fetch(`${s.baseUrl}/api/access-tokens/${body.entry.id}`, {
+      method: "DELETE",
+      headers: bearer(body.token),
+    });
+  });
+  test("pairing errors conform to the contract", async () => {
+    const forbidden = await fetch(`${s.baseUrl}/api/pairing-codes`, {
+      method: "POST",
+      headers: bearer(token),
+    });
+    await validateResponse("POST", "/api/pairing-codes", forbidden);
+    expect(forbidden.status).toBe(403);
+    const bad = await fetch(`${s.baseUrl}/api/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "null",
+    });
+    await validateResponse("POST", "/api/pair", bad);
+    expect(bad.status).toBe(400);
+    // The same bounded window as production; no sleeps or clock-sensitive expiry needed.
+    let last: Response | undefined;
+    for (let i = 0; i < 11; i++) {
+      last = await fetch(`${s.baseUrl}/api/pair`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: "invalid" }),
+      });
+    }
+    await validateResponse("POST", "/api/pair", last!);
+    expect(last!.status).toBe(429);
+  });
+});
+
 describe("auth", () => {
   test("POST /api/login rejects a wrong password", async () => {
     const res = await fetch(`${s.baseUrl}/api/login`, {

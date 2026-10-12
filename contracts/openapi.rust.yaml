@@ -138,6 +138,28 @@ components:
             expiresAt:
               type: integer
               nullable: true
+    PairingCode:
+      type: object
+      required:
+        - code
+        - expiresAt
+      properties:
+        code:
+          type: string
+          pattern: ^shpp_[A-Za-z0-9_-]{43}$
+        expiresAt:
+          type: integer
+          description: Expiry in Unix milliseconds; valid for five minutes.
+    PairRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+        deviceName:
+          type: string
+          maxLength: 64
     AccessTokenMintRequest:
       type: object
       additionalProperties: false
@@ -6471,6 +6493,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /api/pairing-codes:
+    post:
+      operationId: mintPairingCode
+      security:
+        - cookieAuth: []
+      description: Create an ephemeral single-use iPhone pairing invitation. Only operator sessions may mint one; at most five invitations remain outstanding.
+      responses:
+        "201":
+          description: Pairing invitation; never cache or log it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingCode"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Operator session required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/pair:
+    post:
+      operationId: pairDevice
+      security: []
+      description: Consume a pairing invitation and mint a full-scope access token with no expiry. The code is consumed before minting; it cannot be reused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairRequest"
+      responses:
+        "201":
+          description: Device paired; plaintext token returned exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenMinted"
+        "400":
+          description: Invalid request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid, expired or used invitation (pairing_code_invalid).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many pairing attempts; retry after sixty seconds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/login:
     post:
       operationId: login

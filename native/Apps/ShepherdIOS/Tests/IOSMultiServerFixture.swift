@@ -9,11 +9,35 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
     private static let repos = Mutex<[String: String]>([:])
     private static let settings = Mutex<[String: String]>([:])
     private static let diagnostics = Mutex<[String: String]>([:])
+    /// The machine choice per origin (#2776): placement preview, derivation and identity, and every
+    /// create body with its Idempotency-Key.
+    private static let placements = Mutex<[String: String]>([:])
+    private static let derivations = Mutex<[String: String]>([:])
+    private static let instances = Mutex<[String: String]>([:])
+    private static let creates = Mutex<[String: [(body: Data, key: String?)]]>([:])
     static func set(_ sessions: [Session], for url: URL) { snapshots.withLock { $0[url.host() ?? ""] = sessions } }
     /// Raw `repos` array JSON for one origin; others serve the single `shepherd` repo.
     static func setRepos(_ json: String, for url: URL) { repos.withLock { $0[url.host() ?? ""] = json } }
     static func setSettings(_ json: String, for url: URL) { settings.withLock { $0[url.host() ?? ""] = json } }
     static func setDiagnostics(_ json: String, for url: URL) { diagnostics.withLock { $0[url.host() ?? ""] = json } }
+    static func setPlacement(_ json: String, for url: URL) { placements.withLock { $0[url.host() ?? ""] = json } }
+    static func setDerivation(_ json: String, for url: URL) { derivations.withLock { $0[url.host() ?? ""] = json } }
+    static func setInstance(_ json: String, for url: URL) { instances.withLock { $0[url.host() ?? ""] = json } }
+    /// The create bodies this origin received, oldest first, with their Idempotency-Key.
+    static func created(at url: URL) -> [(body: Data, key: String?)] { creates.withLock { $0[url.host() ?? ""] ?? [] } }
+    /// URLSession hands a body to URLProtocol as a stream.
+    private static func body(of request: URLRequest) -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open(); defer { stream.close() }
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
     static let readyDiagnostics = #"{"checks":[{"id":"claude","state":"ok","hintKey":"fixture"},{"id":"codex","state":"ok","hintKey":"fixture"}],"generatedAt":0,"overall":"ok"}"#
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host?.hasSuffix(".multi.fixture.invalid") == true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -23,6 +47,8 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
         let body: Data
         switch url.path {
         case "/api/sessions" where request.httpMethod == "POST":
+            let sent = (body: Self.body(of: request), key: request.value(forHTTPHeaderField: "Idempotency-Key"))
+            Self.creates.withLock { $0[url.host() ?? "", default: []].append(sent) }
             status = 201; body = Data(IOSComposeFixtureTransport.sessionJSON.utf8)
             if let session = try? JSONDecoder().decode(Session.self, from: body) {
                 Self.snapshots.withLock { $0[url.host() ?? "", default: []].append(session) }
@@ -32,6 +58,12 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
             let json = Self.settings.withLock { $0[url.host() ?? ""] } ?? #"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultEffort":"medium","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de"}"#
             body = Data(json.utf8)
         case "/api/health": body = Data(#"{"ok":true,"version":"2.1.0"}"#.utf8)
+        case "/api/placement" where Self.placements.withLock({ $0[url.host() ?? ""] }) != nil:
+            body = Data((Self.placements.withLock { $0[url.host() ?? ""] } ?? "").utf8)
+        case "/api/requirements/derive" where Self.derivations.withLock({ $0[url.host() ?? ""] }) != nil:
+            body = Data((Self.derivations.withLock { $0[url.host() ?? ""] } ?? "").utf8)
+        case "/api/instance" where Self.instances.withLock({ $0[url.host() ?? ""] }) != nil:
+            body = Data((Self.instances.withLock { $0[url.host() ?? ""] } ?? "").utf8)
         case "/api/diagnostics":
             body = Data((Self.diagnostics.withLock { $0[url.host() ?? ""] } ?? Self.readyDiagnostics).utf8)
         case "/api/repos":

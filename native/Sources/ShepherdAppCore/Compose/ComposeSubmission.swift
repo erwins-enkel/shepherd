@@ -25,6 +25,8 @@ public final class ComposeSubmission {
     public private(set) var recoveryFailure: BackendFailure?
     /// The machine the attempt in flight goes to when it does not start on this server (#2776).
     public private(set) var sendingTo: SessionHost?
+    /// The machine the last create waits for or is held on (#2776); nil after a hold here.
+    public private(set) var heldOn: SessionHost?
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
     @ObservationIgnored private var timer: Task<Void, Never>?
     private var generation = 0
@@ -74,6 +76,7 @@ public final class ComposeSubmission {
         let keyed = model.runOn.send(for: request)
         let machine = model.runOn.remoteTarget
         sendingTo = machine
+        heldOn = nil
         recoveryFailure = nil
         busy = true; slow = false; message = nil; progress = nil; cancelRequested = false
         generation += 1
@@ -107,7 +110,10 @@ public final class ComposeSubmission {
             case .held(let held):
                 model.discardSubmittedDraft()
                 message = PlacementCopy.held(held)
-                teardown()
+                heldOn = held.host
+                // A task waiting for its machine or held there leaves the composer usable: a
+                // client that stays open to say so can start the next task (#2776).
+                if held.host == nil { teardown() }
                 onHeld()
                 return nil
             }

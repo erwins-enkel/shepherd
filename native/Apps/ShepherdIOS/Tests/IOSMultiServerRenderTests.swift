@@ -52,9 +52,12 @@ final class IOSMultiServerRenderTests: XCTestCase {
         compose.repoPath = "/fixtures/shepherd"; compose.prompt = "Add a server picker to the task composer"
         let engine = FakeDictationEngine()
         let voice = DictationController(engine: engine, getText: { compose.prompt }, setText: { compose.prompt = $0 })
-        let target = IOSComposeTarget(hub: hub)
+        // Two servers without a machine choice: Run on offers the entry and the other server (#2776).
+        let servers = IOSRunOnServers(entry: .init(profileID: studio.id, name: studio.name, instanceID: nil),
+                                      others: [.init(profileID: laptop.id, name: laptop.name, instanceID: nil)],
+                                      switchTo: { _, _ in })
         let renderer = ImageRenderer(content: IOSComposeContent(app: app, store: store, activation: app.activationGeneration,
-            model: compose, voice: voice, serverPicker: AnyView(IOSComposeServerPicker(hub: hub, target: target)))
+            model: compose, voice: voice, servers: servers)
             .environment(\.composeRendering, true).frame(width: 390, height: 844))
         renderer.scale = 2
         try XCTUnwrap(renderer.uiImage?.pngData()).write(to: directory.appendingPathComponent("compose-server-picker.png"))

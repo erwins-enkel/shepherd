@@ -16,6 +16,11 @@ import type {
   RemoteDispatchView,
   RemoteOutcome,
 } from "../../src/remote-instances/dispatch";
+import { FEDERATION_API_VERSION } from "../../src/remote-instances/identity";
+import type {
+  RemoteInstanceService,
+  RemoteInstanceSummary,
+} from "../../src/remote-instances/service";
 import * as fx from "./event-fixtures";
 import {
   bearer,
@@ -93,7 +98,7 @@ describe("instance", () => {
     };
     const first = await read();
     expect(first.instanceId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(first.federationApi).toBe(1);
+    expect(first.federationApi).toBe(FEDERATION_API_VERSION);
     expect((await read()).instanceId).toBe(first.instanceId);
   });
 
@@ -525,6 +530,35 @@ describe("sessions", () => {
     ];
     const savedForge = s.stubs.resolveForge.forge;
     s.stubs.resolveForge.forge = { slug: "acme/app" };
+    // The named machine must fit before anything is handed over (#2772): connected, released, the
+    // project checked out.
+    const machine: RemoteInstanceSummary = {
+      instanceId: host.instanceId,
+      name: host.name,
+      label: null,
+      reportedName: host.name,
+      url: "http://mac.test",
+      tokenHint: null,
+      createdAt: 1,
+      status: "connected",
+      reason: null,
+      checkedAt: 1,
+      lastSeenAt: 1,
+      info: {
+        version: "2.2.0",
+        federationApi: FEDERATION_API_VERSION,
+        platform: "macos",
+        arch: "arm64",
+      },
+      projects: ["acme/app"],
+      capabilities: null,
+      released: true,
+    };
+    const savedInstances = s.deps.remoteInstances;
+    s.deps.remoteInstances = {
+      list: () => [machine],
+      get: () => machine,
+    } as unknown as RemoteInstanceService;
     try {
       for (const outcome of outcomes) {
         s.deps.remoteDispatch = {
@@ -547,6 +581,7 @@ describe("sessions", () => {
       }
     } finally {
       s.deps.remoteDispatch = undefined;
+      s.deps.remoteInstances = savedInstances;
       s.stubs.resolveForge.forge = savedForge;
     }
   });

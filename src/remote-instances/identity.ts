@@ -16,9 +16,10 @@ import { SHEPHERD_VERSION } from "../version";
  * The federation API level this build speaks. A coordinator only treats a machine as compatible
  * when both sides report the SAME integer (strict, deliberately: both run the same codebase, and a
  * later slice can widen this to a range once there is a second level to be compatible with). Bump
- * it whenever a server-to-server route a connected machine relies on changes shape.
+ * it whenever a server-to-server route a connected machine relies on changes shape. 2 (#2772): a
+ * task sent to a machine carries its `placement` record and names the machine as its `target`.
  */
-export const FEDERATION_API_VERSION = 1;
+export const FEDERATION_API_VERSION = 2;
 
 /** Upper bound for this instance's name and for a machine's local label. */
 export const INSTANCE_NAME_MAX = 64;
@@ -59,13 +60,17 @@ function instanceId(store: Store): string {
   return id;
 }
 
-export function instanceIdentity(store: Store): InstanceIdentity {
+/** `platform` defaults to this host's; tests stand in for another one. */
+export function instanceIdentity(
+  store: Store,
+  platform: string = instancePlatform(),
+): InstanceIdentity {
   return {
     instanceId: instanceId(store),
     name: store.getSetting(NAME_KEY) ?? defaultInstanceName(),
     version: SHEPHERD_VERSION,
     federationApi: FEDERATION_API_VERSION,
-    platform: instancePlatform(),
+    platform,
     arch: process.arch,
   };
 }

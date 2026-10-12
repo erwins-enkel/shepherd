@@ -3995,6 +3995,8 @@ export class SessionService {
         model: args.spawnInput.model,
         effort: args.spawnInput.effort ?? null,
       },
+      // Where it was placed and why (#2772) — only when a machine choice was made.
+      ...(args.input.placement && { placement: args.input.placement }),
     };
   }
 

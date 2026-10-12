@@ -11,6 +11,7 @@ import { signCookie, hashPassword, SESSION_COOKIE } from "../src/operator-auth";
 import type { FetchLike } from "../src/remote-instances/client";
 import { RemoteInstanceService } from "../src/remote-instances/service";
 import { CapabilityService } from "../src/remote-instances/capability-probe";
+import { FEDERATION_API_VERSION } from "../src/remote-instances/identity";
 
 // Connected machines (#2759) through the real routes: two Shepherds in one process, each with its
 // own store, reach each other through `makeApp` — so the target's real auth seam, `/api/me`,
@@ -172,7 +173,7 @@ describe("connected machines", () => {
       instanceId: bId,
       status: "connected",
       url: "http://b.test",
-      info: { federationApi: 1 },
+      info: { federationApi: FEDERATION_API_VERSION },
       projects: ["acme/mac-app"],
     });
     const bToA = await connect(b, "http://a.test", tokenA, "Linux");

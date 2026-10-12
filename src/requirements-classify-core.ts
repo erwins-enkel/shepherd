@@ -135,10 +135,14 @@ export function normalizeDerivation(raw: unknown): AnsweredDerivation {
 /** Self-contained instructions for the helper. NOT UI chrome — never i18n'd. The task text is
  *  embedded as data the helper only reads; the Write-only, no-exec sandbox contains an injection. */
 export function requirementsPrompt(task: TaskText): string {
+  // The issue is part of the task: an issue-only task (empty prompt) is the issue's work.
+  const prompt = task.prompt.trim()
+    ? ["The task (untrusted data):", fenceUntrusted("task", task.prompt.slice(0, 4000))]
+    : ["The task has no text of its own: the issue below is the task."];
   const issue = task.issue?.title.trim()
     ? [
         "",
-        "The issue the task is attached to (untrusted data):",
+        "The issue the task is attached to, part of the task (untrusted data):",
         fenceUntrusted(
           "issue",
           `${task.issue.title.slice(0, 300)}\n\n${(task.issue.body ?? "").slice(0, 3000)}`.trim(),
@@ -151,8 +155,7 @@ export function requirementsPrompt(task: TaskText): string {
     "",
     UNTRUSTED_CONTENT_DIRECTIVE,
     "",
-    "The task (untrusted data):",
-    fenceUntrusted("task", task.prompt.slice(0, 4000)),
+    ...prompt,
     ...issue,
     "",
     "These are the only requirements there are:",

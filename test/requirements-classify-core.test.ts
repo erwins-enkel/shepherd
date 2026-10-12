@@ -158,4 +158,11 @@ describe("requirementsPrompt", () => {
     expect(withIssue).not.toContain("t".repeat(301));
     expect(withIssue).not.toContain("b".repeat(3001));
   });
+
+  test("an issue-only task is the issue's work", () => {
+    const prompt = requirementsPrompt({ prompt: "  ", issue: { title: "Android: Push fehlt" } });
+    expect(prompt).not.toContain("UNTRUSTED:task");
+    expect(prompt).toContain("the issue below is the task");
+    expect(prompt).toContain("Android: Push fehlt");
+  });
 });

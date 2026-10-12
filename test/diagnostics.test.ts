@@ -13,15 +13,13 @@ import {
   hasMeaningfulLimit,
   herdrLimitFromProps,
   nextDiagnosticsDelay,
-  parseCgroupUnit,
   parseMemTotal,
-  parsePsiAvg10,
   parseSwap,
-  parseSystemctlShow,
   proposeHostLimits,
   type DiagnosticsDeps,
   type HostCapacityFacts,
 } from "../src/diagnostics";
+import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "../src/host-parse";
 import type { HerdrAgent } from "../src/herdr";
 import type { MiseClaudeState } from "../src/mise-claude";
 import {

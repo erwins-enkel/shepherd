@@ -890,7 +890,7 @@ components:
       additionalProperties: false
       required:
         - instanceId
-      description: The connected machine a new task runs on, by the instance ID GET /api/remote-instances lists. The WHOLE session starts there; nothing starts here. This instance's own ID means here. repoPath then names this instance's checkout only to identify the project (its forge slug); the machine must be connected and have that project checked out, and runs the task in its own checkout. The task is stored before it is sent, and a retry (same Idempotency-Key) only ever goes to the same machine. Attachments (images, staged here) are uploaded to the machine right before the task is sent and travel as its own staged copies; a retry reuses those uploads.
+      description: "The machine a new task runs on, by the instance ID GET /api/remote-instances lists — an override of the automatic choice. Absent while a machine is connected, this instance places the task itself (see POST /api/placement). A named machine must fit: connected, released, the project checked out, the requirements verified by its last report — otherwise it is refused with the reason and nothing is sent. The WHOLE session starts there; nothing starts here. This instance's own ID means here. repoPath then names this instance's checkout only to identify the project (its forge slug); the machine must be connected and have that project checked out, and runs the task in its own checkout. The task is stored before it is sent, and a retry (same Idempotency-Key) only ever goes to the same machine. Attachments (images, staged here) are uploaded to the machine right before the task is sent and travel as its own staged copies; a retry reuses those uploads."
       properties:
         instanceId:
           type: string
@@ -970,7 +970,7 @@ components:
           maxItems: 32
           items:
             $ref: "#/components/schemas/Capability"
-          description: Capabilities this instance must have. They are verified by a fresh probe when the request is accepted; a missing one answers 422 with code missing_capabilities and nothing starts.
+          description: Capabilities the machine that runs the task must have. While machines are connected the automatic choice only picks a machine whose report has them all. The machine that runs it verifies them by a fresh probe when it accepts the task; a missing one answers 422 with code missing_capabilities and nothing starts.
     ArchiveSessionRequest:
       type: object
       additionalProperties: false
@@ -1096,6 +1096,118 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RemoteDispatch"
+    Placement:
+      type: object
+      additionalProperties: true
+      required:
+        - mode
+        - target
+        - requirements
+        - basis
+        - preferred
+        - by
+        - decidedAt
+      description: "Where a task was placed and why: the record of the Shepherd that chose the machine. It is language-neutral; clients put it into words. A session placed while machines were connected carries it as `launchMetadata.placement`, on the machine that runs it as well. It is a record only and never decides where a task runs."
+      properties:
+        mode:
+          description: auto = chosen by the rules; manual = the machine named in `target`.
+          anyOf:
+            - type: string
+              enum:
+                - auto
+                - manual
+            - type: string
+        target:
+          $ref: "#/components/schemas/SessionHost"
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+        basis:
+          description: "What decided: the operator (manual), the requirements — only one platform fits (requirements), the platform order among several fitting machines (preference, with `preferred`), or that only one machine can run the task at all (only_candidate)."
+          anyOf:
+            - type: string
+              enum:
+                - manual
+                - requirements
+                - preference
+                - only_candidate
+            - type: string
+        preferred:
+          type:
+            - string
+            - "null"
+          description: The platform the order preferred among several that fit; null when the order did not decide.
+        by:
+          type: object
+          additionalProperties: true
+          required:
+            - instanceId
+            - name
+          description: The Shepherd that decided.
+          properties:
+            instanceId:
+              type: string
+            name:
+              type: string
+        decidedAt:
+          type: integer
+    PlacementRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repoPath
+      properties:
+        repoPath:
+          type: string
+        requirements:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/Capability"
+        target:
+          $ref: "#/components/schemas/TaskTarget"
+    PlacementRefusal:
+      type: object
+      additionalProperties: true
+      required:
+        - code
+        - error
+      description: "Why POST /api/sessions would refuse the task, as it would answer it. no_suitable_machine (422): no machine fits — `missing` lists the capabilities no connected machine with the project has (all of them with `together` when none has them together), `elsewhere` the connected machines that would fit but have no checkout of the project. preferred_machine_offline (409): the machine the task is meant for is out of reach — `host`, its `status`, and the connected machines that fit too in `alternatives` (a manual choice away); nothing falls back on its own. missing_capabilities (422): the named machine lacks requirements — `host` and `missing` as {capability, reason}; reason not_verified when no fresh report confirms one. remote_target_unknown, remote_target_unavailable, remote_target_unreleased, remote_project_missing, remote_project_unknown: the named machine cannot take a task (see POST /api/sessions)."
+      properties:
+        code:
+          type: string
+        error:
+          type: string
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        status:
+          type: string
+        reason:
+          type: string
+        together:
+          type: boolean
+        alternatives:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionHost"
+        elsewhere:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionHost"
+    PlacementPreview:
+      type: object
+      additionalProperties: true
+      required:
+        - active
+      properties:
+        active:
+          type: boolean
+          description: "false: no connected machine could take a task, so a create runs here exactly as it always did and the form shows no machine choice."
+        placement:
+          $ref: "#/components/schemas/Placement"
+        refusal:
+          $ref: "#/components/schemas/PlacementRefusal"
     Repo:
       type: object
       additionalProperties: true
@@ -4751,7 +4863,7 @@ components:
           maxItems: 32
           items:
             $ref: "#/components/schemas/Capability"
-          description: Capabilities this instance must have. They are verified by a fresh probe when the request is accepted; a missing one answers 422 with code missing_capabilities and nothing starts.
+          description: Capabilities the machine that runs the task must have. While machines are connected the automatic choice only picks a machine whose report has them all. The machine that runs it verifies them by a fresh probe when it accepts the task; a missing one answers 422 with code missing_capabilities and nothing starts.
         auto:
           type: boolean
       description: Stored StandardCreateInput. Mirrors the core create request fields, but also carries server-owned fields such as auto from Up Next. The core request is closed and cannot validate this stored response. PATCH still accepts the core CreateSessionRequest.
@@ -7684,7 +7796,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     post:
       operationId: createSession
-      description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). With `target` the session is started on that connected machine instead: the 201 session and the 200 held task then carry `host`, and nothing starts here."
+      description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. The choice is recorded on the session as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. A keyed retry goes where its first submission went."
       parameters:
         - name: X-Shepherd-Spawn-Id
           in: header
@@ -7726,13 +7838,13 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled), or it was canceled here but the machine has not confirmed the cancel yet — the task may have reached it first and be running there; it is not sent again (remote_dispatch_cancel_pending)."
+          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled), or it was canceled here but the machine has not confirmed the cancel yet — the task may have reached it first and be running there; it is not sent again (remote_dispatch_cancel_pending). Chosen automatically also: the machine the task is meant for is out of reach and nothing falls back on its own (preferred_machine_offline — `host`, `status`, the fitting connected machines in `alternatives`)."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: "The base branch (or the requested baseCommit) does not resolve to a commit in the repo, or this instance does not meet a requirement (code `missing_capabilities`; `error` names each unmet capability and its reason, and `missing` lists them as `{capability, reason}`). A keyed retry (Idempotency-Key) replays the refusal from the dispatch record with `error` and `code` only, without `missing`. With a target also: the machine refused the task (remote_rejected — `error` is its reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected machine has that ID (remote_target_unknown), the machine's platform is not released for tasks (remote_target_unreleased — `reason` is the platform, e.g. windows), the machine has no checkout of the project (remote_project_missing) or the repo has no forge identity (remote_project_unknown)."
+          description: "The base branch (or the requested baseCommit) does not resolve to a commit in the repo, or this instance does not meet a requirement (code `missing_capabilities`; `error` names each unmet capability and its reason, and `missing` lists them as `{capability, reason}`). A keyed retry (Idempotency-Key) replays the refusal from the dispatch record with `error` and `code` only, without `missing`. With a target also: the machine refused the task (remote_rejected — `error` is its reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected machine has that ID (remote_target_unknown), the machine's platform is not released for tasks (remote_target_unreleased — `reason` is the platform, e.g. windows), the machine has no checkout of the project (remote_project_missing), the repo has no forge identity (remote_project_unknown), or the machine's report lacks a requirement (missing_capabilities with `host`; reason not_verified when no fresh report confirms it). Chosen automatically also: no machine fits (no_suitable_machine — `missing` lists the capabilities no connected machine with the project has)."
           content:
             application/json:
               schema:
@@ -7957,6 +8069,37 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: "Not cancelable (remote_dispatch_not_cancelable): it is being sent right now, or the machine already has it — `dispatch` (a RemoteDispatch) says what it is now."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/placement:
+    post:
+      operationId: previewPlacement
+      description: Where a new task would run and why — decided exactly as POST /api/sessions decides it for the same repoPath, requirements and target with the same readiness, so a form can show it before submitting. Nothing is stored or sent. While no connected machine could take a task `active` is false. Otherwise the answer has either `placement` (the target and the reason) or `refusal` (what POST /api/sessions would answer).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlacementRequest"
+      responses:
+        "200":
+          description: The machine and the reason, the refusal, or that the choice is not active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlacementPreview"
+        "400":
+          description: Invalid input (see error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The token is restricted to other repositories (repository_not_allowed).
           content:
             application/json:
               schema:

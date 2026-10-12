@@ -138,6 +138,7 @@ final class LocalServerModel {
     private var automaticUpdatesAllowed = true
     private var automaticProfileSource: (() -> ServerProfile?)?
     private var automaticCheckInFlight = false
+    private var automaticRunnerRepairInFlight = false
     private var quittingUpdates = false
     /// The in-flight `install()`, held so the quit path can cancel it — see
     /// `beginInstall()` / `cancelInstallForQuit()`.
@@ -332,10 +333,23 @@ final class LocalServerModel {
             guard !busy, !recoveryFailed, !quittingUpdates,
                   lifecycleGeneration == expected else { return }
         }
-        guard automaticStartAllowed, startOnLaunch, !busy, !recoveryFailed,
+        guard automaticStartAllowed, automaticChecksAllowed, startOnLaunch, !busy, !recoveryFailed,
               !quittingUpdates, lifecycleGeneration == expected else { return }
-        if state.isRunning { await startRunner() }
-        else if state == .stopped { await start() }
+        if state.isRunning { await repairRunnerAutomatically() }
+        else if state == .stopped {
+            await repairRunnerAutomatically()
+            guard !busy, !quittingUpdates, lifecycleGeneration == expected,
+                  automaticChecksAllowed, startOnLaunch else { return }
+            // Discovery before the update/runner waits can already be stale.
+            // Adopt a newly healthy owned server, or leave a foreign one alone.
+            guard await resolveState(), state == .stopped else { return }
+            await act(ifLifecycleGeneration: expected) {
+                guard self.state == .stopped, self.automaticChecksAllowed, self.startOnLaunch,
+                      !self.quittingUpdates else { return }
+                self.state = .starting
+                await self.supervisor.start()
+            }
+        }
     }
 
     /// `refresh()` without the `busy` guard, for the one caller that is itself
@@ -493,7 +507,7 @@ final class LocalServerModel {
         guard updatesAllowed, automaticChecksAllowed else { return }
         await refresh()
         // Wake/monitor checks can repair an offline runner, but never undo Stop.
-        if automaticStartAllowed, state.isRunning { await startRunner() }
+        if state.isRunning { await repairRunnerAutomatically() }
     }
 
     func bindAutomaticProfile(_ source: @escaping () -> ServerProfile?) {
@@ -731,8 +745,20 @@ final class LocalServerModel {
         await pullLog()
     }
 
-    /// Called within the existing busy turn; runner failure leaves the server
-    /// available for diagnostics and is shown separately in the panel.
+    /// Background repair has its own admission gate and leaves server controls
+    /// available. LocalRunnerStart.run() coalesces with explicit runner starts.
+    private func repairRunnerAutomatically() async {
+        guard automaticStartAllowed, automaticChecksAllowed, !busy,
+              !recoveryFailed, !quittingUpdates, !automaticRunnerRepairInFlight else { return }
+        automaticRunnerRepairInFlight = true
+        let progress = sampleProgress()
+        defer { progress.cancel(); automaticRunnerRepairInFlight = false }
+        await ensureRunner()
+        await pullLog()
+    }
+
+    /// Shared by explicit lifecycle turns and background repair; failure leaves
+    /// the server available for diagnostics and is shown separately in the panel.
     private func ensureRunner() async {
         runnerFailure = nil
         if case .failure(let failure) = await supervisor.startRunner() { runnerFailure = failure }
@@ -798,9 +824,10 @@ final class LocalServerModel {
     /// Synchronous because `applicationWillTerminate` gets no await.
     nonisolated func terminateForQuit() { supervisor.terminateForQuit() }
 
-    private func act(_ body: @MainActor () async -> Void) async {
+    private func act(ifLifecycleGeneration expected: Int? = nil, _ body: @MainActor () async -> Void) async {
         guard await ensureLaunchRecovery() else { return }
-        guard !busy, !recoveryFailed else { return }
+        guard !busy, !recoveryFailed,
+              expected == nil || lifecycleGeneration == expected else { return }
         busy = true
         generation += 1
         lifecycleGeneration += 1

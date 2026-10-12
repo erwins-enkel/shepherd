@@ -29,12 +29,16 @@ restart the server. An answering daemon is never restarted or stopped. A missing
 runner still allows the server to start, with a separate runner failure shown in the panel.
 Only the local panel's **Stop**/**Restart** signal the server group. herdr remains independent.
 
-After launch discovery/adoption, the app ensures herdr for an adopted healthy server without
-restarting it, or starts herdr then the server when an installation is stopped. **Start local
-server when the app opens** in **Run on this Mac** / local-server settings controls this behavior
+Launch discovery/adoption runs for every profile. With the local endpoint active, or no profile
+yet, the app ensures herdr for an adopted healthy server without restarting it, or starts herdr
+then the server when an installation is stopped. After waiting for herdr, it repeats discovery
+before starting the server, adopting a newly healthy owned server or leaving an external server
+alone. **Start local server when the app opens** in **Run on this Mac** / local-server settings controls this behavior
 and defaults to on. Isolated launches and UI tests never auto-start; missing installations,
 external servers, failed servers and failed deployment recovery are left alone. Wake/monitor
 refreshes may ensure herdr for a running supervised server, but never start a stopped server.
+Background runner repair leaves Stop, Restart and Connect available; the explicit **Start runner**
+action retains its busy state while it runs.
 
 herdr launches in a separate process group with SIGHUP ignored, stdin on `/dev/null` and
 stdout/stderr appended to the private `~/.shepherd/run/herdr-runner.log` (0600). Its output has no

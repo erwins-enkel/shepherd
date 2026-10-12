@@ -370,6 +370,137 @@ extension MacSeamTests {
         #expect(calls.withLock { $0 } == 0)
     }
 
+    @Test(arguments: [ServerProfile.Mode.local, .remote])
+    func launchAutoStartReadsTheBoundProfile(mode: ServerProfile.Mode) async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let calls = Mutex<[String]>([])
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), allowTemporaryUpdates: true, probeExternal: { false },
+            health: { true }, launch: { calls.withLock { $0.append("server") }; return launch },
+            runnerStart: { calls.withLock { $0.append("runner") }; return .success(()) },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
+        defer { model.terminateForQuit(); if let pid = model.state.pid { killpg(pid, SIGKILL) } }
+        let selected = Mutex<ServerProfile?>(nil)
+        model.bindAutomaticProfile { selected.withLock { $0 } }
+        // Change the source without delivering its observer; the launch must
+        // use the real selection rather than cached update permission.
+        selected.withLock { $0 = ServerProfile(name: "Selected", baseURL: model.baseURL, mode: mode) }
+        await model.refreshAtLaunch()
+        #expect(model.state.isRunning == (mode == .local))
+        #expect(calls.withLock { $0 } == (mode == .local ? ["runner", "server"] : []))
+        await model.stop()
+    }
+
+    @Test(arguments: [true, false])
+    func listenerAppearingDuringLaunchRunnerWaitPreventsSpawn(owned: Bool) async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let first = LocalServerSupervisor(environment: environment, health: { true }, launch: { launch })
+        defer { first.terminateNow(gracePeriod: 0) }
+        let discovered = Mutex<Components.Schemas.Health?>(nil)
+        let gate = LocalServerGate()
+        let spawns = Mutex(0)
+        let model = LocalServerModel(environment: environment, isolated: false,
+            defaults: freshLocalDefaults(), allowTemporaryUpdates: true,
+            discoverExternal: { discovered.withLock { $0 } }, health: { true },
+            launch: { spawns.withLock { $0 += 1 }; return launch },
+            runnerStart: { await gate.wait(); return .success(()) },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
+        defer { model.terminateForQuit(); if let pid = model.state.pid { killpg(pid, SIGKILL) } }
+        let pending = Task { await model.refreshAtLaunch() }
+        #expect(await waitForGate(gate))
+        var expected: LocalServerState = .externallyManaged
+        if owned {
+            await first.start()
+            expected = await first.state
+            first.terminateForQuit()
+            let health = try ownedHealth(in: home)
+            discovered.withLock { $0 = health }
+        } else {
+            discovered.withLock { $0 = .init(ok: true, version: "foreign") }
+        }
+        await gate.open()
+        await pending.value
+        #expect(model.state == expected)
+        #expect(spawns.withLock { $0 } == 0)
+        if owned { await model.stop() }
+    }
+
+    @Test(arguments: [true, false])
+    func stopOrRemoteSelectionDuringLaunchRunnerWaitPreventsSpawn(stop: Bool) async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let spawns = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), allowTemporaryUpdates: true, probeExternal: { false },
+            launch: { spawns.withLock { $0 += 1 }; return nil },
+            runnerStart: { await gate.wait(); return .success(()) },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
+        let selected = Mutex<ServerProfile?>(nil)
+        model.bindAutomaticProfile { selected.withLock { $0 } }
+        let pending = Task { await model.refreshAtLaunch() }
+        #expect(await waitForGate(gate))
+        if stop { await model.stop() }
+        else { selected.withLock { $0 = ServerProfile(name: "Remote", baseURL: model.baseURL, mode: .remote) } }
+        await gate.open()
+        await pending.value
+        #expect(model.state == .stopped)
+        #expect(spawns.withLock { $0 } == 0)
+    }
+
+    @Test func automaticRunnerRepairLeavesStopAvailable() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let gate = LocalServerGate()
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), allowTemporaryUpdates: true, probeExternal: { false },
+            health: { true }, launch: { launch }, runnerStart: {
+                let count = calls.withLock { $0 += 1; return $0 }
+                if count > 1 { await gate.wait() }
+                return .success(())
+            }, updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
+        defer { model.terminateForQuit(); if let pid = model.state.pid { killpg(pid, SIGKILL) } }
+        await model.start()
+        let pending = Task { await model.automaticRefresh() }
+        #expect(await waitForGate(gate))
+        #expect(!model.busy)
+        #expect(model.canStop && model.canRestart)
+        // An overlapping wake must not begin another background repair.
+        await model.automaticRefresh()
+        #expect(calls.withLock { $0 } == 2)
+        await model.stop()
+        #expect(model.state == .stopped)
+        await gate.open()
+        await pending.value
+        #expect(model.state == .stopped)
+    }
+
+    @Test func stopDuringFinalLaunchDiscoveryPreventsSpawn() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let probes = Mutex(0)
+        let spawns = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), allowTemporaryUpdates: true, probeExternal: {
+                let count = probes.withLock { $0 += 1; return $0 }
+                if count > 1 { await gate.wait() }
+                return false
+            }, launch: { spawns.withLock { $0 += 1 }; return nil },
+            runnerStart: { .success(()) },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
+        let pending = Task { await model.refreshAtLaunch() }
+        #expect(await waitForGate(gate))
+        await model.stop()
+        await gate.open()
+        await pending.value
+        #expect(probes.withLock { $0 } == 2)
+        #expect(model.state == .stopped)
+        #expect(spawns.withLock { $0 } == 0)
+    }
+
     @Test(arguments: [true, false])
     func externalAndMissingInstallationsNeverAutoStart(external: Bool) async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
@@ -384,7 +515,8 @@ extension MacSeamTests {
         #expect(calls.withLock { $0 } == 0)
     }
 
-    @Test func adoptedServerEnsuresRunnerAtLaunchAndWakeWithoutRestart() async throws {
+    @Test(arguments: [ServerProfile.Mode.local, .remote])
+    func adoptedServerEnsuresRunnerOnlyForLocalProfileWithoutRestart(mode: ServerProfile.Mode) async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let environment = try checkout(in: home)
         let launch = try fakeScript(in: home, emitPasswordOnce: false)
@@ -401,12 +533,14 @@ extension MacSeamTests {
             runnerStart: { calls.withLock { $0.append("runner") }; return .success(()) },
             updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
         defer { next.terminateForQuit() }
+        let profile = ServerProfile(name: "Selected", baseURL: next.baseURL, mode: mode)
+        next.bindAutomaticProfile { profile }
         await next.refreshAtLaunch()
         #expect(next.state == .running(pid: pid))
-        #expect(calls.withLock { $0 } == ["runner"])
+        #expect(calls.withLock { $0 } == (mode == .local ? ["runner"] : []))
         await next.automaticRefresh()
         #expect(next.state == .running(pid: pid))
-        #expect(calls.withLock { $0 } == ["runner", "runner"])
+        #expect(calls.withLock { $0 } == (mode == .local ? ["runner", "runner"] : []))
         await next.stop()
     }
 

@@ -603,6 +603,7 @@ export const KEYS_LOCALSERVER: readonly string[] = [
   "native_local_recheck",
   "native_local_restart",
   "native_local_start",
+  "native_local_start_on_launch",
   "native_local_state_external",
   "native_local_state_installing",
   "native_local_state_not_installed",

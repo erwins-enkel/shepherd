@@ -6311,5 +6311,6 @@
   "tooltip_derive_correct": "Correct it",
   "tooltip_derive_correct_body": "Remove or add chips before you start. Once you change them they're yours, and Shepherd no longer overwrites them.",
   "feat_derived_requirements_title": "New Task reads what a task needs",
-  "feat_derived_requirements_body": "While machines with different tools are connected, New Task reads a task's requirements from its prompt and issue as you write — Xcode for a Mac or iOS app, the Android SDK for Android — and shows them as chips you can correct. When the description is unclear it asks before anything starts; when it can't tell, it says so and guesses nothing."
+  "feat_derived_requirements_body": "While machines with different tools are connected, New Task reads a task's requirements from its prompt and issue as you write — Xcode for a Mac or iOS app, the Android SDK for Android — and shows them as chips you can correct. When the description is unclear it asks before anything starts; when it can't tell, it says so and guesses nothing.",
+  "native_local_start_on_launch": "Start local server when the app opens"
 }

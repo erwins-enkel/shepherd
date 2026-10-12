@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import Darwin
 import Synchronization
 
 /// Uses herdr's established liveness command before and after `herdr server`.
@@ -14,7 +15,6 @@ public actor LocalRunnerStart {
   private let start: (@Sendable (URL, [String: String]) async throws -> Void)?
   private var operation: Task<Result<Void, LocalServerFailure>, Never>?
   private var daemon: Process?
-  private var output: Task<Void, Never>?
 
   public init(
     environment: LocalServerEnvironment, log: LogRing,
@@ -73,20 +73,30 @@ public actor LocalRunnerStart {
   }
 
   private func launch(binary: URL, values: [String: String]) throws {
+    let directory = environment.homeDirectory.appendingPathComponent(".shepherd/run")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    let logURL = directory.appendingPathComponent("herdr-runner.log")
+    // Copy-truncate preserves other writers' descriptors if a concurrent
+    // caller also found the daemon offline. Append output survives app quit.
+    LocalServerLogTail.maintain(logURL)
+    let fd = open(logURL.path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600)
+    guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+    let output = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    defer { try? output.close() }
+    guard fchmod(fd, 0o600) == 0 else { throw CocoaError(.fileWriteUnknown) }
     let process = Process()
-    let pipe = Pipe()
-    process.executableURL = binary
-    process.arguments = ["server"]
+    // Match the server launch: Foundation creates a separate process group
+    // on Darwin; ignore orphaned-group HUP across exec and inherit no terminal.
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", "trap '' HUP; exec \"$@\"", "shepherd-runner", binary.path, "server"]
     process.environment = values
     process.currentDirectoryURL = environment.homeDirectory
     process.standardInput = FileHandle.nullDevice
-    process.standardOutput = pipe
-    process.standardError = pipe
+    process.standardOutput = output
+    process.standardError = output
     try process.run()
     daemon = process
-    output = Task { [log] in
-      await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await log.append(line) }
-    }
   }
 
   /// Bound the CLI probe itself as well as the polling window. Only this

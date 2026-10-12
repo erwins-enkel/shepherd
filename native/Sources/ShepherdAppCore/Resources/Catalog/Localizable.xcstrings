@@ -15015,6 +15015,23 @@
         }
       }
     },
+    "native_local_start_on_launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokalen Server beim Öffnen der App starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start local server when the app opens"
+          }
+        }
+      }
+    },
     "native_local_state_external": {
       "extractionState": "manual",
       "localizations": {

@@ -5,6 +5,13 @@ import ShepherdKit
 // server. Only the supplied temporary directory and /bin/sh fixture are used.
 #if os(macOS)
 let home = URL(fileURLWithPath: CommandLine.arguments[1])
+if CommandLine.arguments.dropFirst(2).first == "runner" {
+  let runner = LocalRunnerStart(environment: LocalServerEnvironment(home: home, processEnvironment: [
+    "PATH": "/usr/bin:/bin", "HERDR_BIN": home.appendingPathComponent("fake runner").path,
+  ]), log: LogRing())
+  guard case .success = await runner.run() else { exit(1) }
+  exit(0)
+}
 let launch = LocalServerLaunch(executable: URL(fileURLWithPath: "/bin/sh"),
   arguments: [home.appendingPathComponent("fake.sh").path], workingDirectory: home,
   environment: ["PATH": "/usr/bin:/bin"])

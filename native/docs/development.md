@@ -24,7 +24,23 @@ Python venv; set `DMGBUILD` to an existing binary to reuse a local installation.
 
 `native/scripts/mac-dev.sh` builds before quitting and reopening the app. Quitting leaves the
 local server and sessions running; `--yes` and `--force` remain accepted for compatibility.
+**Start** and **Restart** first ensure herdr is answering (`herdr agent list`), then start or
+restart the server. An answering daemon is never restarted or stopped. A missing or timed-out
+runner still allows the server to start, with a separate runner failure shown in the panel.
 Only the local panel's **Stop**/**Restart** signal the server group. herdr remains independent.
+
+After launch discovery/adoption, the app ensures herdr for an adopted healthy server without
+restarting it, or starts herdr then the server when an installation is stopped. **Start local
+server when the app opens** in **Run on this Mac** / local-server settings controls this behavior
+and defaults to on. Isolated launches and UI tests never auto-start; missing installations,
+external servers, failed servers and failed deployment recovery are left alone. Wake/monitor
+refreshes may ensure herdr for a running supervised server, but never start a stopped server.
+
+herdr launches in a separate process group with SIGHUP ignored, stdin on `/dev/null` and
+stdout/stderr appended to the private `~/.shepherd/run/herdr-runner.log` (0600). Its output has no
+app-owned pipe, so the daemon and its agents survive app quit. The runner log uses the server's
+10 MiB copy-truncate rotation on runner spawn; the previous copy is `herdr-runner.log.1`.
+Runner progress stays in the panel's log ring; daemon output is available in the log file.
 
 The supervisor redirects stdin to `/dev/null`, stdout/stderr to `~/.shepherd/run/server.log`
 (private permissions, rotated to `server.log.1` on each spawn), and tails bounded chunks for the

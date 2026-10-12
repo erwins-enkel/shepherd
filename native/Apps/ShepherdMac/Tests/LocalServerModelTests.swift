@@ -135,6 +135,11 @@ extension MacSeamTests {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("s5-app-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        // Start now probes herdr: never inherit the operator's binary/socket.
+        let config = url.appendingPathComponent(".shepherd")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        try "HERDR_BIN=\(url.path)/missing-runner\nHERDR_SOCKET_PATH=\(url.path)/runner.sock\n".write(
+            to: config.appendingPathComponent("env"), atomically: true, encoding: .utf8)
         return url
     }
 
@@ -266,6 +271,223 @@ extension MacSeamTests {
         await model.refresh()
         #expect(model.state == .externallyManaged)
         #expect(model.canStop == false)
+    }
+
+    private func freshLocalDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "local-server-tests-\(UUID().uuidString)")!
+    }
+
+    @Test func startAndRestartEnsureRunnerBeforeLaunchingServer() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let calls = Mutex<[String]>([])
+        let gate = LocalServerGate()
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            health: { true }, launch: { calls.withLock { $0.append("server") }; return launch },
+            runnerStart: {
+                calls.withLock { $0.append("runner") }
+                await gate.wait()
+                return .success(())
+            })
+        defer { model.terminateForQuit(); if let pid = model.state.pid { killpg(pid, SIGKILL) } }
+        let starting = Task { await model.start() }
+        #expect(await waitForGate(gate))
+        #expect(model.busy)
+        #expect(calls.withLock { $0 } == ["runner"])
+        // Busy protects the entire runner/server operation.
+        await model.restart()
+        await gate.open()
+        await starting.value
+        #expect(model.state.isRunning)
+        await model.restart()
+        #expect(calls.withLock { $0 } == ["runner", "server", "runner", "server"])
+        #expect(model.runnerFailure == nil)
+        await model.stop()
+    }
+
+    @Test(arguments: [LocalServerFailure.runnerMissing, .runnerTimeout])
+    func runnerFailureStillStartsServerAndCanBeCleared(failure: LocalServerFailure) async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let fail = Mutex(true)
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            health: { true }, launch: { launch },
+            runnerStart: { fail.withLock { $0 } ? .failure(failure) : .success(()) })
+        defer { model.terminateForQuit(); if let pid = model.state.pid { killpg(pid, SIGKILL) } }
+        await model.start()
+        #expect(model.state.isRunning)
+        #expect(model.runnerFailure == failure)
+        fail.withLock { $0 = false }
+        await model.restart()
+        #expect(model.state.isRunning)
+        #expect(model.runnerFailure == nil)
+        await model.stop()
+    }
+
+    @Test func launchPreferenceDefaultsOnAndPersists() throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let defaults = freshLocalDefaults()
+        let first = LocalServerModel(environment: environment, defaults: defaults, probeExternal: { false })
+        #expect(first.startOnLaunch)
+        first.startOnLaunch = false
+        let next = LocalServerModel(environment: environment, defaults: defaults, probeExternal: { false })
+        #expect(!next.startOnLaunch)
+    }
+
+    @Test(arguments: [true, false])
+    func launchStartsStoppedInstallationOnlyWithPreferenceOn(enabled: Bool) async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let calls = Mutex<[String]>([])
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), allowTemporaryUpdates: true, probeExternal: { false },
+            health: { true }, launch: { calls.withLock { $0.append("server") }; return launch },
+            runnerStart: { calls.withLock { $0.append("runner") }; return .success(()) },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
+        defer { model.terminateForQuit(); if let pid = model.state.pid { killpg(pid, SIGKILL) } }
+        model.startOnLaunch = enabled
+        await model.refreshAtLaunch()
+        #expect(model.state.isRunning == enabled)
+        #expect(calls.withLock { $0 } == (enabled ? ["runner", "server"] : []))
+        await model.stop()
+        // Launch is one-shot; neither a wake nor another registration undoes Stop.
+        await model.refreshAtLaunch()
+        await model.automaticRefresh()
+        #expect(model.state == .stopped)
+        #expect(calls.withLock { $0 } == (enabled ? ["runner", "server"] : []))
+    }
+
+    @Test func isolatedLaunchNeverStartsRunnerOrServer() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: true,
+            defaults: freshLocalDefaults(), probeExternal: { false },
+            launch: { calls.withLock { $0 += 1 }; return nil },
+            runnerStart: { calls.withLock { $0 += 1 }; return .success(()) })
+        await model.refreshAtLaunch()
+        #expect(model.state == .stopped)
+        #expect(calls.withLock { $0 } == 0)
+    }
+
+    @Test(arguments: [true, false])
+    func externalAndMissingInstallationsNeverAutoStart(external: Bool) async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let calls = Mutex(0)
+        let environment = external ? try checkout(in: home) : LocalServerEnvironment(home: home, processEnvironment: [:])
+        let model = LocalServerModel(environment: environment,
+            isolated: false, defaults: freshLocalDefaults(), probeExternal: { external },
+            launch: { calls.withLock { $0 += 1 }; return nil },
+            runnerStart: { calls.withLock { $0 += 1 }; return .success(()) })
+        await model.refreshAtLaunch()
+        #expect(model.state == (external ? .externallyManaged : .notInstalled))
+        #expect(calls.withLock { $0 } == 0)
+    }
+
+    @Test func adoptedServerEnsuresRunnerAtLaunchAndWakeWithoutRestart() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let first = LocalServerSupervisor(environment: environment, health: { true }, launch: { launch })
+        defer { first.terminateNow(gracePeriod: 0) }
+        await first.start()
+        let pid = try #require(await first.state.pid)
+        first.terminateForQuit()
+        let health = try ownedHealth(in: home)
+        let calls = Mutex<[String]>([])
+        let next = LocalServerModel(environment: environment, isolated: false, defaults: freshLocalDefaults(),
+            allowTemporaryUpdates: true, discoverExternal: { health }, health: { true },
+            launch: { calls.withLock { $0.append("server") }; return launch },
+            runnerStart: { calls.withLock { $0.append("runner") }; return .success(()) },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) })
+        defer { next.terminateForQuit() }
+        await next.refreshAtLaunch()
+        #expect(next.state == .running(pid: pid))
+        #expect(calls.withLock { $0 } == ["runner"])
+        await next.automaticRefresh()
+        #expect(next.state == .running(pid: pid))
+        #expect(calls.withLock { $0 } == ["runner", "runner"])
+        await next.stop()
+    }
+
+    @Test func stopDuringLaunchDiscoveryPreventsAutomaticStartup() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), probeExternal: { await gate.wait(); return false },
+            launch: { calls.withLock { $0 += 1 }; return nil },
+            runnerStart: { calls.withLock { $0 += 1 }; return .success(()) })
+        let launch = Task { await model.refreshAtLaunch() }
+        #expect(await waitForGate(gate))
+        await model.stop()
+        await gate.open()
+        await launch.value
+        #expect(model.state == .stopped)
+        #expect(calls.withLock { $0 } == 0)
+    }
+
+    @Test func supersededLaunchDiscoveryWaitsUntilExternalServerIsResolved() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let first = LocalServerGate()
+        let second = LocalServerGate()
+        let retry = LocalServerGate()
+        let probes = Mutex(0)
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), probeExternal: {
+                let count = probes.withLock { $0 += 1; return $0 }
+                if count == 1 { await first.wait(); return false }
+                if count == 2 { await second.wait() }
+                else { await retry.wait() }
+                return true
+            }, launch: { calls.withLock { $0 += 1 }; return nil },
+            runnerStart: { calls.withLock { $0 += 1 }; return .success(()) })
+        let launch = Task { await model.refreshAtLaunch() }
+        #expect(await waitForGate(first))
+        let panel = Task { await model.refresh() }
+        #expect(await waitForGate(second))
+        await first.open()
+        #expect(await waitForGate(retry))
+        #expect(calls.withLock { $0 } == 0)
+        await second.open()
+        await retry.open()
+        await panel.value
+        await launch.value
+        #expect(model.state == .externallyManaged)
+        #expect(calls.withLock { $0 } == 0)
+    }
+
+    @Test func failedServerDoesNotAutoStart() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: false,
+            defaults: freshLocalDefaults(), probeExternal: { false },
+            launch: { calls.withLock { $0 += 1 }; return nil },
+            runnerStart: { calls.withLock { $0 += 1 }; return .success(()) })
+        await model.start()
+        #expect(model.state == .failed(.bunMissing))
+        let before = calls.withLock { $0 }
+        await model.refreshAtLaunch()
+        #expect(model.state == .failed(.bunMissing))
+        #expect(calls.withLock { $0 } == before)
+    }
+
+    @Test func failedLaunchRecoveryNeverStartsRunnerOrServer() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let run = home.appendingPathComponent(".shepherd/run")
+        try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
+        try "invalid journal".write(to: run.appendingPathComponent("backend-update.json"),
+            atomically: true, encoding: .utf8)
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: environment, isolated: false,
+            defaults: freshLocalDefaults(), allowTemporaryUpdates: true, probeExternal: { false },
+            launch: { calls.withLock { $0 += 1 }; return nil },
+            runnerStart: { calls.withLock { $0 += 1 }; return .success(()) })
+        await model.refreshAtLaunch()
+        #expect(model.state == .failed(.updateFailed(exitCode: 1)))
+        #expect(calls.withLock { $0 } == 0)
     }
 
     @Test func upgradingBunStartsTheSupervisorAndPullsTheLog() async throws {

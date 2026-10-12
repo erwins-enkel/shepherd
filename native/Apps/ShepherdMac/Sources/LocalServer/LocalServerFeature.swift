@@ -26,7 +26,7 @@ enum LocalServerFeature {
         guard !installed else { return }
         installed = true
         // Ownership recovery/adoption also runs with a remote active profile.
-        Task { await LocalServerModel.shared.refresh() }
+        Task { await LocalServerModel.shared.refreshAtLaunch() }
         // Automated launches must never fetch or mutate the operator's checkout.
         if !LaunchEnvironment.configuration().isIsolated {
             LocalServerModel.shared.bindAutomaticProfile { [weak app] in app?.activeProfile }

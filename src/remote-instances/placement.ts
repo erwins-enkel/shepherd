@@ -178,7 +178,7 @@ export function remoteUnfit(
 
 /** The requirements `machine` does not meet as far as its report shows. A connected machine's
  *  stale report — or no report — verifies nothing. */
-export function missingOn(machine: MachineView, requirements: readonly Capability[]) {
+function missingOn(machine: MachineView, requirements: readonly Capability[]) {
   if (requirements.length === 0) return [];
   const { report } = machine;
   if (!report || (machine.connected && report.stale)) {

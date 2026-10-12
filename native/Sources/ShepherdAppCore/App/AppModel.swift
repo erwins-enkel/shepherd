@@ -234,6 +234,10 @@ public final class AppModel {
         try await ProfileSetup.login(profile: $0, password: $1, credentials: $2)
     }
     @ObservationIgnored
+    public var pairingExchange: @MainActor (ServerProfile, String, String, any CredentialStore) async throws -> Void = {
+        try await ProfileSetup.pair(profile: $0, code: $1, deviceName: $2, credentials: $3)
+    }
+    @ObservationIgnored
     var logout: @MainActor (ServerProfile, any CredentialStore) async throws -> Void = {
         try await ProfileSetup.logout(profile: $0, credentials: $1)
     }
@@ -836,6 +840,40 @@ public final class AppModel {
         try? await refreshStore(store)
         guard store === self.store else { return }
         await refreshHealth()
+    }
+
+    /// Add/reuse the normalized server, store its paired token, and enter its session list.
+    /// Existing sign-in and activation paths remain unchanged; late completions use the same fences.
+    @discardableResult
+    public func pair(link: PairingLink, deviceName: String) async throws -> ServerProfile {
+        let profile = try addRemoteProfile(name: "", address: link.baseURL.absoluteString)
+        let generation = activationGeneration
+        pendingSignIns += 1
+        defer { pendingSignIns -= 1 }
+        if let authenticationQueue {
+            try await authenticationQueue.run {
+                guard generation == self.activationGeneration,
+                      !self.removing.contains(profile.id), self.profiles.contains(where: { $0.id == profile.id })
+                else { throw CancellationError() }
+                try await self.completePairing(profile: profile, link: link, deviceName: deviceName, generation: generation)
+            }
+        } else {
+            try await completePairing(profile: profile, link: link, deviceName: deviceName, generation: generation)
+        }
+        return profile
+    }
+
+    private func completePairing(profile: ServerProfile, link: PairingLink, deviceName: String, generation: Int) async throws {
+        try await pairingExchange(profile, link.code, deviceName, credentials)
+        guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id }) else {
+            try? await logout(profile, credentials)
+            try? credentials.delete(for: profile.credentialKey)
+            throw CancellationError()
+        }
+        guard generation == activationGeneration else { throw CancellationError() }
+        sheet = nil
+        continueComposeHandover(for: profile)
+        await activate(profile)
     }
 
     public func signIn(profile: ServerProfile, password: String) async throws {

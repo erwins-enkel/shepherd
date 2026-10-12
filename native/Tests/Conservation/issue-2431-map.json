@@ -12637,6 +12637,13 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeFooterKeyboardTests.swift\",\"MacSeamTests.ComposeFooterKeyboardTests\",\"returnInsertsNewlineAndCommandReturnSubmitsOnce(holdLikely: Bool) async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeLayoutTests.swift\",\"MacSeamTests.ComposeLayoutTests\",\"columnsKeepFooterVisible(width: CGFloat, height: CGFloat) async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"credentialFailureHasUsableRetryInsideCompose() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"unknownDefaultsNeverPresentManualTimeline(loading: Bool) async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"unknownDefaultsNeverPresentManualTimeline(loading: Bool) async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PairingLinkTests.swift\",\"CoreSeamTests.PairingLinkTests\",\"foreignAndAmbiguousLinksAreRejected()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PairingLinkTests.swift\",\"CoreSeamTests.PairingLinkTests\",\"missingOrMalformedCodeIsRejected()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PairingLinkTests.swift\",\"CoreSeamTests.PairingLinkTests\",\"rejectsInsecureRemoteButAcceptsTailnet()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PairingLinkTests.swift\",\"CoreSeamTests.PairingLinkTests\",\"validAddressUsesFormNormalization() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"pairInvalidDoesNotChangeCredential() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"pairRevokesWhenStorageFails() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"pairStoresCredential() async throws\"]"
   ]
 }

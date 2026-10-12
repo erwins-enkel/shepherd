@@ -720,7 +720,7 @@
 "native_ios_actions_revision" = "Revision";
 "native_ios_actions_server_default" = "Server-Standard";
 "native_ios_attachment_camera" = "Foto aufnehmen";
-"native_ios_attachment_camera_usage" = "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst.";
+"native_ios_attachment_camera_usage" = "Shepherd verwendet die Kamera für Fotoanhänge und zum Scannen von QR-Codes, um dich mit deinem Server zu verbinden.";
 "native_ios_attachment_files" = "Datei wählen";
 "native_ios_attachment_invalid" = "Das Bild konnte nicht importiert werden.";
 "native_ios_attachment_photos" = "Fotomediathek";
@@ -951,6 +951,18 @@
 "native_notify_usage_body" = "Limit fast erreicht.";
 "native_notify_usage_body_reset" = "Limit fast erreicht — Reset um %1$@.";
 "native_notify_usage_title" = "5-Stunden-Limit bei %1$@ %%";
+"native_pairing_camera_denied" = "Erlaube den Kamerazugriff in den Einstellungen, um den QR-Code zu scannen.";
+"native_pairing_connect" = "Mit QR-Code verbinden";
+"native_pairing_expired" = "Dieser QR-Code ist abgelaufen oder wurde bereits verwendet. Scanne den aktuellen Code in der Web-Oberfläche.";
+"native_pairing_invalid" = "Kein Shepherd-QR-Code.";
+"native_pairing_mac_button" = "iPhone verbinden…";
+"native_pairing_mac_hint" = "Zeigt in der Web-Oberfläche einen QR-Code, den du mit der Shepherd-App auf dem iPhone scannst.";
+"native_pairing_open_settings" = "Einstellungen öffnen";
+"native_pairing_rate_limited" = "Zu viele Versuche. Warte eine Minute und scanne erneut.";
+"native_pairing_retry" = "Erneut scannen";
+"native_pairing_scan" = "QR-Code scannen";
+"native_pairing_scan_hint" = "Richte die Kamera auf den QR-Code in der Web-Oberfläche unter Einstellungen → Zugriff.";
+"native_pairing_unavailable" = "QR-Scannen ist auf diesem Gerät nicht verfügbar. Du kannst die Serveradresse weiterhin manuell eingeben.";
 "native_quit_confirm_action" = "App beenden";
 "native_quit_confirm_title" = "Shepherd beenden?";
 "native_recovery_reopen" = "Terminal erneut öffnen";
@@ -1318,6 +1330,7 @@
 "owed_repo_filter_empty" = "Keine offenen Schritte nach dem Merge für %1$@.";
 "owed_title" = "Offene Schritte nach dem Merge";
 "owed_tracking_issue" = "Tracking-Issue ↗";
+"pairing_title" = "iPhone verbinden";
 "plangate_changes" = "REWORK · %1$@/%2$@";
 "plangate_edited" = "PLAN GEÄNDERT";
 "plangate_error" = "PRÜFFEHLER";

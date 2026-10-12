@@ -37,6 +37,54 @@ struct ProfileSetupTests {
           createdAt: 1, lastUsedAt: nil, expiresAt: nil, scope: .full)))
   }
 
+  @Test("pair exchanges a code without password/cookies and stores the normal credential")
+  func pairStoresCredential() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("POST", "/api/pair", status: 201, json: try mintedJSON())
+    let credentials = InMemoryCredentialStore()
+    let stored = try await ProfileSetup.pair(
+      profile: profile(server), code: "shpp_fixture", deviceName: "Test iPhone", credentials: credentials,
+      urlSessionFactory: { _ in server.urlSession() })
+    #expect(stored == StoredCredential(token: "shp_minted", tokenId: "tok_1"))
+    #expect(try credentials.load(for: "k") == stored)
+    let requests = server.requests()
+    #expect(requests.count == 1)
+    let request = try #require(requests.first)
+    #expect(request.path == "/api/pair")
+    let sent = try JSONDecoder().decode(Components.Schemas.PairRequest.self, from: try #require(request.body))
+    #expect(sent.code == "shpp_fixture")
+    #expect(sent.deviceName == "Test iPhone")
+  }
+
+  @Test("expired pairing code retains an existing credential")
+  func pairInvalidDoesNotChangeCredential() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("POST", "/api/pair", status: 401, json: try Fixtures.errorJSON("pairing_code_invalid"))
+    let prior = StoredCredential(token: "shp_prior", tokenId: "prior")
+    let credentials = InMemoryCredentialStore(seed: ["k": prior])
+    await #expect(throws: ProfileSetup.PairingError.invalidCode) {
+      try await ProfileSetup.pair(profile: profile(server), code: "expired", deviceName: "iPhone",
+        credentials: credentials, urlSessionFactory: { _ in server.urlSession() })
+    }
+    #expect(try credentials.load(for: "k") == prior)
+  }
+
+  @Test("failed pairing storage revokes only its newly minted token")
+  func pairRevokesWhenStorageFails() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("POST", "/api/pair", status: 201, json: try mintedJSON())
+    server.stub("DELETE", "/api/access-tokens/tok_1", status: 200, json: try Fixtures.json(Components.Schemas.Ok(ok: true)))
+    await #expect(throws: SaveFailingCredentialStore.SaveFailure.self) {
+      try await ProfileSetup.pair(profile: profile(server), code: "fixture", deviceName: "iPhone",
+        credentials: SaveFailingCredentialStore(), urlSessionFactory: { _ in server.urlSession() })
+    }
+    let revoked = try #require(server.requests().first { $0.path == "/api/access-tokens/tok_1" })
+    #expect(revoked.method == "DELETE")
+  }
+
   @Test("the token name carries the hostname and fits the contract's 64 chars")
   func tokenName() {
     #expect(ProfileSetup.tokenName(hostName: "probe") == "Shepherd for Mac (probe)")

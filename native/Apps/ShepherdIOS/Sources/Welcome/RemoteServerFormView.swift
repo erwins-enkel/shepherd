@@ -6,6 +6,7 @@ struct RemoteServerFormView: View {
     let onConnect: (ServerProfile) -> Void
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @State private var pairing = false
     @State private var name = ""
     @State private var address = ""
     @State private var error: String?
@@ -14,6 +15,12 @@ struct RemoteServerFormView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Button { focused = false; pairing = true } label: {
+                        Label(L.t("native_pairing_connect"), systemImage: "qrcode.viewfinder")
+                    }.accessibilityLabel(L.t("native_pairing_scan"))
+                        .accessibilityIdentifier("scan-pairing-qr")
+                }
                 Section {
                     TextField(L.t("native_welcome_remote_name_label"), text: $name)
                         .accessibilityIdentifier("server-name")
@@ -33,6 +40,9 @@ struct RemoteServerFormView: View {
                 Button(L.t("common_cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
             } }
             .onAppear { focused = true }
+            .fullScreenCover(isPresented: $pairing) {
+                PairingSheet(onConnected: { dismiss() }).environment(app)
+            }
         }
     }
     private func submit() {

@@ -131,6 +131,52 @@ public enum ProfileSetup {
     return credential
   }
 
+  public enum PairingError: Error, Equatable, Sendable {
+    case invalidCode
+    case rateLimited
+  }
+
+  /// Exchanges only the ephemeral invitation. The durable token follows login's storage path.
+  /// A failed Keychain write revokes this exact token through bearer self-revocation.
+  @discardableResult
+  public static func pair(
+    profile: ServerProfile, code: String, deviceName: String,
+    credentials: any CredentialStore,
+    urlSessionFactory: @Sendable (URLSessionConfiguration) -> URLSession = {
+      URLSession(configuration: $0)
+    }
+  ) async throws -> StoredCredential {
+    let validated = try profile.validated()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.httpShouldSetCookies = false
+    let session = urlSessionFactory(configuration)
+    defer { session.invalidateAndCancel() }
+    let client = Client(serverURL: validated.baseURL,
+      transport: URLSessionTransport(configuration: .init(session: session)))
+    var device = deviceName
+    while device.utf16.count > 64 { device.removeLast() }
+    let minted: Components.Schemas.AccessTokenMinted
+    do {
+      switch try await client.pairDevice(.init(body: .json(.init(code: code, deviceName: device)))) {
+      case .created(let created): minted = try created.body.json
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw PairingError.invalidCode
+      case .tooManyRequests: throw PairingError.rateLimited
+      case .undocumented(let statusCode, _):
+        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "pairDevice")
+      }
+    } catch let error as PairingError { throw error }
+      catch { throw ShepherdError.from(error, route: "pairDevice") }
+    let credential = StoredCredential(token: minted.token, tokenId: minted.entry.id)
+    do { try credentials.save(credential, for: validated.credentialKey) }
+    catch {
+      let cleanup = InMemoryCredentialStore(seed: [validated.credentialKey: credential])
+      try? await logout(profile: validated, credentials: cleanup, urlSession: session)
+      throw error
+    }
+    return credential
+  }
+
   /// Best-effort cleanup for a caller that mints under a fixed, repeatable
   /// name — an isolated UI-test launch mints `"Shepherd UI test (<host>)"`
   /// on every run. Revokes every existing token named exactly `name` before

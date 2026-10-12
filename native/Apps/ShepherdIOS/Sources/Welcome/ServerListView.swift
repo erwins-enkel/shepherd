@@ -5,6 +5,7 @@ import ShepherdKit
 struct ServerListView: View {
     @Environment(AppModel.self) private var app
     @Environment(IOSServerHub.self) private var hub: IOSServerHub?
+    @State private var pairing = false
     @State private var adding = false
     @State private var removing: ServerProfile?
     @State private var pendingLogin: ServerProfile?
@@ -13,6 +14,12 @@ struct ServerListView: View {
             Section {
                 Text(verbatim: L.t("native_ios_welcome_subtitle"))
                     .foregroundStyle(.secondary)
+                if (hub?.profiles ?? app.savedServers).isEmpty {
+                    Button { pairing = true } label: {
+                        Label(L.t("native_pairing_connect"), systemImage: "qrcode.viewfinder")
+                    }.accessibilityLabel(L.t("native_pairing_scan"))
+                        .accessibilityIdentifier("scan-pairing-qr")
+                }
                 Button(L.t("native_toolbar_add_server")) { adding = true }
                     .accessibilityIdentifier("add-server")
             }
@@ -60,6 +67,7 @@ struct ServerListView: View {
                 else { app.sheet = .login(profile) }
             }
         }) { RemoteServerFormView { pendingLogin = $0 }.environment(app) }
+        .fullScreenCover(isPresented: $pairing) { PairingSheet().environment(app) }
         .confirmationDialog(L.t("native_welcome_saved_remove_confirm_title", removing?.name ?? ""),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
             if let profile = removing {

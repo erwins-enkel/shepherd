@@ -46,6 +46,32 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(launch.defaults.array(forKey: IOSServerHub.connectedKey) as? [String], [])
     }
 
+    func testPairingReusesProfileFocusesItAndPreservesOtherServer() async throws {
+        let (launch, hub, a, b) = try fixture()
+        defer { stop(hub) }
+        await hub.connect(b)
+        await hub.connect(a, login: true)
+        let model = try XCTUnwrap(hub.models[a.id])
+        let other = try XCTUnwrap(hub.models[b.id])
+        model.pairingExchange = { profile, code, deviceName, credentials in
+            XCTAssertEqual(code, "shpp_" + String(repeating: "a", count: 43))
+            XCTAssertEqual(deviceName, "Test iPhone")
+            try credentials.save(.init(token: "fixture-paired", tokenId: "paired"), for: profile.credentialKey)
+        }
+        var url = URLComponents(string: "shepherd://pair")!
+        url.queryItems = [.init(name: "server", value: a.baseURL.absoluteString),
+            .init(name: "code", value: "shpp_" + String(repeating: "a", count: 43))]
+        let link = try XCTUnwrap(PairingLink.parse(url.string!))
+        try await hub.pair(link: link, deviceName: "Test iPhone")
+        XCTAssertEqual(hub.profiles.count, 2)
+        XCTAssertEqual(hub.focusedID, a.id)
+        XCTAssertTrue(hub.models[b.id] === other)
+        XCTAssertNotNil(other.store)
+        XCTAssertNotNil(model.store)
+        XCTAssertNil(model.sheet)
+        XCTAssertEqual(try launch.credentials.load(for: a.credentialKey)?.tokenId, "paired")
+    }
+
     /// A cold launch renders the root before any restored server has activated.
     /// The session list must appear once one has, without another UI event.
     func testHasSidebarNotifiesObserversWhenARestoredServerActivates() async throws {

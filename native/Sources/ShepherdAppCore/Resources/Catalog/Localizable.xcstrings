@@ -12381,13 +12381,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst."
+            "value": "Shepherd verwendet die Kamera für Fotoanhänge und zum Scannen von QR-Codes, um dich mit deinem Server zu verbinden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shepherd uses the camera when you attach a photo to a session."
+            "value": "Shepherd uses the camera to attach photos and scan QR codes to connect to your server."
           }
         }
       }
@@ -16335,6 +16335,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "5-hour limit at %1$@%%"
+          }
+        }
+      }
+    },
+    "native_pairing_camera_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaube den Kamerazugriff in den Einstellungen, um den QR-Code zu scannen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow camera access in Settings to scan the QR code."
+          }
+        }
+      }
+    },
+    "native_pairing_connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit QR-Code verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect with QR code"
+          }
+        }
+      }
+    },
+    "native_pairing_expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser QR-Code ist abgelaufen oder wurde bereits verwendet. Scanne den aktuellen Code in der Web-Oberfläche."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This QR code has expired or was already used. Scan the current code in the web app."
+          }
+        }
+      }
+    },
+    "native_pairing_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Shepherd-QR-Code."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is not a Shepherd QR code."
+          }
+        }
+      }
+    },
+    "native_pairing_mac_button": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone verbinden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect iPhone…"
+          }
+        }
+      }
+    },
+    "native_pairing_mac_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt in der Web-Oberfläche einen QR-Code, den du mit der Shepherd-App auf dem iPhone scannst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a QR code in the web app that you scan with the Shepherd app on your iPhone."
+          }
+        }
+      }
+    },
+    "native_pairing_open_settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        }
+      }
+    },
+    "native_pairing_rate_limited": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Versuche. Warte eine Minute und scanne erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many attempts. Wait a minute and scan again."
+          }
+        }
+      }
+    },
+    "native_pairing_retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut scannen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan again"
+          }
+        }
+      }
+    },
+    "native_pairing_scan": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR-Code scannen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan QR code"
+          }
+        }
+      }
+    },
+    "native_pairing_scan_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richte die Kamera auf den QR-Code in der Web-Oberfläche unter Einstellungen → Zugriff."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point the camera at the QR code in the web app under Settings → Access."
+          }
+        }
+      }
+    },
+    "native_pairing_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR-Scannen ist auf diesem Gerät nicht verfügbar. Du kannst die Serveradresse weiterhin manuell eingeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR scanning is unavailable on this device. You can still enter the server address manually."
           }
         }
       }
@@ -22608,6 +22812,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tracking issue ↗"
+          }
+        }
+      }
+    },
+    "pairing_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect iPhone"
           }
         }
       }

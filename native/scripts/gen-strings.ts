@@ -27,6 +27,22 @@ const OUT = join(ROOT, "native", "Sources", "ShepherdAppCore", "Resources");
  * Core: the shell — window, welcome, login, first run, session list, detail
  * header, shared status and effort labels.
  */
+export const KEYS_PAIRING: readonly string[] = [
+  "native_pairing_camera_denied",
+  "native_pairing_connect",
+  "native_pairing_expired",
+  "native_pairing_invalid",
+  "native_pairing_mac_button",
+  "native_pairing_mac_hint",
+  "native_pairing_open_settings",
+  "native_pairing_rate_limited",
+  "native_pairing_retry",
+  "native_pairing_scan",
+  "native_pairing_scan_hint",
+  "native_pairing_unavailable",
+  "pairing_title",
+];
+
 export const KEYS_CORE: readonly string[] = [
   "agent_provider_claude",
   "agent_provider_codex",
@@ -1868,6 +1884,7 @@ export const KEYS_SETTINGS: readonly string[] = [
  */
 export const KEYS: readonly string[] = [
   ...KEYS_CORE,
+  ...KEYS_PAIRING,
   ...KEYS_TERMINAL,
   ...KEYS_MAC_STEERS,
   ...KEYS_IOS_CHROME,

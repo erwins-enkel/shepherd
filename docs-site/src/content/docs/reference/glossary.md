@@ -330,8 +330,22 @@ prompt; through the API, `requirements`. With **Run on: Automatic**, Shepherd st
 the task on a connected [machine](#machine) — or this one — that has every
 requirement verified, preferring Linux over macOS, and shows which and why before
 it starts. If none has them, nothing starts and the missing capability is named; if
-the machine a task is meant for is offline, nothing starts elsewhere on its own.
-The machine checks the requirements again when it accepts the task.
+the machine a task is meant for is offline, the task becomes a
+[waiting task](#waiting-task) — nothing starts elsewhere on its own. The machine
+checks the requirements again when it accepts the task.
+
+### Waiting task
+
+A task Shepherd keeps for the [machine](#machine) it is meant for while that
+machine is asleep, out of reach or missing a [requirement](#requirement). It shows
+at the top of that machine's group in the herd — **Waiting** while the machine is
+away, **Blocked** while it is back but lacks a requirement or the project's
+checkout — and nothing is sent until the machine is back and a fresh check of its
+capabilities and project passes; then it starts there by itself, attachments
+included. It never moves to another machine on its own: cancel it, or run it on
+another machine that fits now (**Run here**, **Run on …**). It survives a restart of
+this Shepherd. A task a busy machine has already accepted and holds shows as
+**Busy** instead.
 
 ## Industry terms
 

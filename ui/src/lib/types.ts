@@ -258,7 +258,7 @@ export interface Placement {
 
 /** Why the create would refuse a task (#2772): its `code` and `error`, plus the fields that code
  *  carries — `missing` (capabilities, or `{capability, reason}` for a named machine), `together`,
- *  `elsewhere`, `host`, `status`, `alternatives`, `reason`. */
+ *  `elsewhere`, `host`, `reason`. */
 export interface PlacementRefusal {
   code: string;
   error: string;
@@ -266,16 +266,22 @@ export interface PlacementRefusal {
   missing?: (string | { capability: string; reason: string })[];
   together?: boolean;
   elsewhere?: SessionHost[];
-  alternatives?: SessionHost[];
-  status?: string;
   reason?: string;
 }
 
+/** The machine a task is meant for is out of reach (#2775): the task would wait for it. `status`
+ *  says why; `alternatives` fit too and are a manual choice away. */
+export interface PlacementWait {
+  status: string;
+  alternatives: SessionHost[];
+}
+
 /** `POST /api/placement` (#2772): not active (no machine could take a task), or the machine and
- *  why, or the refusal. */
+ *  why — with `wait` when that machine is out of reach (#2775) — or the refusal. */
 export interface PlacementPreview {
   active: boolean;
   placement?: Placement;
+  wait?: PlacementWait;
   refusal?: PlacementRefusal;
 }
 
@@ -1750,7 +1756,9 @@ export interface RemoteDispatch {
     | "held"
     | "rejected"
     | "upload_failed"
-    | "canceled";
+    | "canceled"
+    | "waiting"
+    | "redirected";
   host: SessionHost;
   /** The issue title, else the prompt's first line. */
   summary: string;
@@ -1760,6 +1768,19 @@ export interface RemoteDispatch {
   code?: string;
   createdAt: number;
   updatedAt: number;
+  /** Waiting only (#2775): why it is meant for `host`, how far `host` is from taking it now, and
+   *  the connected machines — this one included — it could run on now. */
+  placement?: Placement;
+  readiness?: DispatchReadiness;
+  alternatives?: SessionHost[];
+}
+
+/** How far the machine a waiting task is meant for is from taking it (#2775). */
+export interface DispatchReadiness {
+  state: "offline" | "unreleased" | "project_missing" | "missing_capabilities" | "ready";
+  /** offline: why — a connection status or an unreachable reason code. */
+  status?: string;
+  missing?: { capability: string; reason: string }[];
 }
 
 /** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
@@ -3056,6 +3077,9 @@ export interface HeldResult {
   count: number;
   /** Set when the task was held on a connected machine (#2763) — `id`/`count` are that machine's. */
   host?: SessionHost;
+  /** The task waits here for `host`, which is out of reach (#2775); `dispatch` is that wait. */
+  waiting?: true;
+  dispatch?: RemoteDispatch;
 }
 
 /** Selectable Claude model aliases; null = Claude's own default.

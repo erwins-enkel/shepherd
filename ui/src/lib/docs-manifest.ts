@@ -33,7 +33,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Run tasks on another machine",
     path: "/machines/",
     keywords:
-      "connect another shepherd as a machine — linux and macos setup, the trust decision, limits and an end-to-end checklist. how it works prepare each machine make it reachable in your tailnet create a token on the machine connect it start a task on a machine automatic choice work with its sessions the trust decision limits test a branch on two machines check a two-machine setup end to end",
+      "connect another shepherd as a machine — linux and macos setup, the trust decision, limits and an end-to-end checklist. how it works prepare each machine make it reachable in your tailnet create a token on the machine connect it start a task on a machine automatic choice waiting tasks work with its sessions the trust decision limits test a branch on two machines check a two-machine setup end to end",
   },
   {
     title: "Operating Shepherd",
@@ -87,13 +87,13 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "External Task API",
     path: "/reference/external-task-api/",
     keywords:
-      "submit tasks to shepherd from external agents over plain http. tl;dr why no new endpoint is needed cors / csrf does not block programmatic clients what actually gates access recommended setup for a remote agent copy instructions for another agent repository grants and changes request schema responses watching and cancelling a slow start idempotent submission (idempotency-key) running on a connected machine (target) automatic choice usage-aware hold gate steering and ending a task exporting a whole session by task-id gaps are marked, never silent",
+      "submit tasks to shepherd from external agents over plain http. tl;dr why no new endpoint is needed cors / csrf does not block programmatic clients what actually gates access recommended setup for a remote agent copy instructions for another agent repository grants and changes request schema responses watching and cancelling a slow start idempotent submission (idempotency-key) running on a connected machine (target) automatic choice waiting for a machine usage-aware hold gate steering and ending a task exporting a whole session by task-id gaps are marked, never silent",
   },
   {
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",

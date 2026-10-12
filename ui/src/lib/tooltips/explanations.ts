@@ -1,8 +1,15 @@
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
-import type { Placement, RemoteDispatch, SessionConnection, SessionHost } from "#lib/types.js";
+import type {
+  Placement,
+  PlacementWait,
+  RemoteDispatch,
+  SessionConnection,
+  SessionHost,
+} from "#lib/types.js";
 import { lastKnownLabel, platformName } from "#lib/remote-sessions.js";
 import { capabilityList, placementReason } from "#lib/placement.js";
+import { isBlocked, missingList, offlineLabel } from "#lib/remote-dispatches.js";
 
 export function planGateExplanation(): TooltipExplanation {
   return {
@@ -390,13 +397,98 @@ export function placementExplanation(p: Placement): TooltipExplanation {
   };
 }
 
-/** A task sent to a connected machine that has not confirmed it (#2774): why its start is unknown,
- *  what Shepherd does about it, and what a cancel does — or, once cancelled, what happens until
- *  the machine answers. */
-export function remoteDispatchExplanation(
-  d: Pick<RemoteDispatch, "state" | "host">,
+/** That a task never moves on its own (#2775), and where it could run now instead. */
+function noFallback(alternatives: readonly SessionHost[] | undefined): string {
+  const machines = (alternatives ?? []).map((h) => h.name).join(", ");
+  return machines
+    ? m.tooltip_waiting_fallback_body({ machines })
+    : m.tooltip_waiting_fallback_none();
+}
+
+/** A task waiting for the machine it is meant for (#2775): out of reach, or back but blocked —
+ *  when it starts, that it never goes elsewhere on its own, and what Cancel and Run on do. */
+function waitingExplanation(
+  d: Pick<RemoteDispatch, "state" | "host" | "readiness" | "placement" | "alternatives">,
 ): TooltipExplanation {
   const machine = d.host.name;
+  const reason = d.placement ? placementReason(d.placement) : "";
+  const fallback = { label: m.tooltip_waiting_fallback(), text: noFallback(d.alternatives) };
+  const cancel = {
+    label: m.tooltip_dispatch_cancel(),
+    text: m.tooltip_waiting_cancel_body({ machine }),
+  };
+  if (isBlocked(d)) {
+    const state = d.readiness?.state;
+    const summary =
+      state === "missing_capabilities"
+        ? m.tooltip_blocked_missing_summary({ machine, list: missingList(d.readiness) })
+        : state === "project_missing"
+          ? m.tooltip_blocked_project_summary({ machine })
+          : m.tooltip_blocked_unreleased_summary({ machine });
+    return {
+      title: m.tooltip_blocked_title({ machine }),
+      summary,
+      sections: [
+        { label: m.tooltip_blocked_next(), text: m.tooltip_blocked_next_body({ machine }) },
+        fallback,
+        cancel,
+      ],
+    };
+  }
+  const ready = d.readiness?.state === "ready";
+  return {
+    title: m.tooltip_waiting_title({ machine }),
+    summary: ready
+      ? m.tooltip_waiting_ready_summary({ machine })
+      : m.tooltip_waiting_offline_summary({ machine, reason }),
+    sections: [
+      ...(ready
+        ? []
+        : [{ label: m.tooltip_waiting_connection(), text: offlineLabel(d.readiness?.status) }]),
+      { label: m.tooltip_waiting_start(), text: m.tooltip_waiting_start_body({ machine }) },
+      fallback,
+      cancel,
+    ],
+  };
+}
+
+/** A task its machine accepted but holds (#2775): busy there — when it starts, and what Cancel does. */
+function heldExplanation(machine: string): TooltipExplanation {
+  return {
+    title: m.tooltip_held_title({ machine }),
+    summary: m.tooltip_held_summary({ machine }),
+    sections: [
+      { label: m.tooltip_waiting_start(), text: m.tooltip_held_start_body({ machine }) },
+      { label: m.tooltip_dispatch_cancel(), text: m.tooltip_held_cancel_body({ machine }) },
+      { label: m.tooltip_held_elsewhere(), text: m.tooltip_held_elsewhere_body() },
+    ],
+  };
+}
+
+/** The machine choice's wait (#2775), before a task is submitted: the machine it is meant for is
+ *  out of reach, so the task would wait for it. */
+export function placementWaitExplanation(p: Placement, wait: PlacementWait): TooltipExplanation {
+  const machine = p.target.name;
+  return {
+    title: m.tooltip_waiting_title({ machine }),
+    summary: m.tooltip_waiting_offline_summary({ machine, reason: placementReason(p) }),
+    sections: [
+      { label: m.tooltip_waiting_connection(), text: offlineLabel(wait.status) },
+      { label: m.tooltip_waiting_start(), text: m.tooltip_waiting_start_body({ machine }) },
+      { label: m.tooltip_waiting_fallback(), text: noFallback(wait.alternatives) },
+    ],
+  };
+}
+
+/** A task for a connected machine that is not settled: its start is unknown (#2774) — why, what
+ *  Shepherd does about it, and what a cancel does — or, once cancelled, what happens until the
+ *  machine answers; or it waits for its machine, or is held there (#2775). */
+export function remoteDispatchExplanation(
+  d: Pick<RemoteDispatch, "state" | "host" | "readiness" | "placement" | "alternatives">,
+): TooltipExplanation {
+  const machine = d.host.name;
+  if (d.state === "waiting") return waitingExplanation(d);
+  if (d.state === "held") return heldExplanation(machine);
   if (d.state === "canceling") {
     return {
       title: m.remote_dispatch_canceling(),

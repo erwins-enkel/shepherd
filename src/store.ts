@@ -1331,15 +1331,16 @@ const DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS dispatches (
 /** Tasks this Shepherd sent to a connected machine (#2763, src/remote-instances/dispatch.ts): stored
  *  BEFORE they are sent, so a retry goes out again under the same `id` to the same `instanceId`.
  *  `clientKey` is the submitter's Idempotency-Key; `id` is what the machine receives as its own.
- *  `uploads` (#2766): the machine's paths for the task's attachments, once uploaded. */
+ *  `uploads` (#2766): the machine's paths for the task's attachments, once uploaded. `project`
+ *  (#2775): the forge slug a waiting task is matched on when its machine comes back. */
 const REMOTE_DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS remote_dispatches (
   id TEXT PRIMARY KEY, clientKey TEXT NOT NULL UNIQUE, instanceId TEXT NOT NULL,
   payloadHash TEXT NOT NULL, wireBody TEXT NOT NULL, state TEXT NOT NULL,
   sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
-  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, uploads TEXT)`;
+  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, uploads TEXT, project TEXT)`;
 
 const REMOTE_DISPATCH_COLUMNS = `id, clientKey, instanceId, payloadHash, wireBody, state, sessionId,
-  heldId, reason, code, httpStatus, createdAt, updatedAt, uploads`;
+  heldId, reason, code, httpStatus, createdAt, updatedAt, uploads, project`;
 
 /**
  * Fresh-install DDL for `reviewer_spawns`. Exported so the fresh-schema path can be tested in
@@ -2024,8 +2025,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
     this.db.run(DISPATCHES_DDL);
     this.db.run(REMOTE_DISPATCHES_DDL);
-    // A table created before #2766 has no `uploads`; a fresh one already does (no write here).
-    this.addMissingColumns("remote_dispatches", { uploads: "TEXT" });
+    // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
+    // has both (no write here).
+    this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
     // Commits the whole bootstrap (see the BEGIN above). No try/ROLLBACK: a throw here escapes the
     // constructor, so no caller ever holds this store, and SQLite discards the open transaction
     // when the handle is finalized. Deliberately no wrapping block — that would re-indent the
@@ -2165,8 +2167,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (
       this.db.run(
         `INSERT INTO remote_dispatches (id, clientKey, instanceId, payloadHash, wireBody, state,
-           sessionId, heldId, reason, code, httpStatus, createdAt, updatedAt, uploads)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+           sessionId, heldId, reason, code, httpStatus, createdAt, updatedAt, uploads, project)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
         [
           row.id,
           row.clientKey,
@@ -2182,6 +2184,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           row.createdAt,
           row.updatedAt,
           row.uploads,
+          row.project,
         ],
       ).changes === 1
     );
@@ -2203,26 +2206,87 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** Dispatches no machine has confirmed yet (#2774): `sending`, `unknown`, `canceling` — oldest
-   *  first. What the reconciler re-checks and the herd shows. */
+  /** Dispatches not settled for good, oldest first: the ones no machine has confirmed yet (#2774:
+   *  `sending`, `unknown`, `canceling`), the ones waiting here for their machine and the ones held
+   *  there (#2775: `waiting`, `held`). What the reconciler follows up and the herd shows. */
   listOpenRemoteDispatches(): RemoteDispatchRow[] {
     return this.db
       .query(
         `SELECT ${REMOTE_DISPATCH_COLUMNS} FROM remote_dispatches
-         WHERE state IN ('sending', 'unknown', 'canceling') ORDER BY createdAt, id`,
+         WHERE state IN ('sending', 'unknown', 'canceling', 'waiting', 'held')
+         ORDER BY createdAt, id`,
       )
       .all() as RemoteDispatchRow[];
   }
 
-  /** The operator cancels a dispatch no machine has confirmed (#2774). Only from `sending` or
-   *  `unknown`: a known outcome is never turned into a cancel. */
+  /** The operator cancels a dispatch no machine has confirmed (#2774), or one its machine holds
+   *  (#2775). Never from any other state: a known outcome is never turned into a cancel. */
   markRemoteDispatchCanceling(id: string, now = Date.now()): boolean {
     return (
       this.db.run(
         `UPDATE remote_dispatches SET state = 'canceling', updatedAt = ?
-           WHERE id = ? AND state IN ('sending', 'unknown')`,
+           WHERE id = ? AND state IN ('sending', 'unknown', 'held')`,
         [now, id],
       ).changes === 1
+    );
+  }
+
+  // A waiting dispatch (#2775) was never sent, so each of these writes only while it still waits:
+  // whichever of a send, a redirect or a cancel gets there first wins, and the others see `false`.
+
+  /** It goes out now: the text the machine will receive replaces the stored body. */
+  startWaitingRemoteDispatch(id: string, wireBody: string, now = Date.now()): boolean {
+    return (
+      this.db.run(
+        `UPDATE remote_dispatches SET state = 'sending', wireBody = ?, updatedAt = ?
+           WHERE id = ? AND state = 'waiting'`,
+        [wireBody, now, id],
+      ).changes === 1
+    );
+  }
+
+  /** It waits for another machine now (a redirect whose send did not get through). */
+  retargetWaitingRemoteDispatch(
+    id: string,
+    instanceId: string,
+    wireBody: string,
+    now = Date.now(),
+  ): boolean {
+    return (
+      this.db.run(
+        `UPDATE remote_dispatches SET instanceId = ?, wireBody = ?, updatedAt = ?
+           WHERE id = ? AND state = 'waiting'`,
+        [instanceId, wireBody, now, id],
+      ).changes === 1
+    );
+  }
+
+  /** It never goes out: canceled, `code` says by whom or why. */
+  cancelWaitingRemoteDispatch(id: string, code: string | null, now = Date.now()): boolean {
+    return (
+      this.db.run(
+        `UPDATE remote_dispatches SET state = 'canceled', code = ?, updatedAt = ?
+           WHERE id = ? AND state = 'waiting'`,
+        [code, now, id],
+      ).changes === 1
+    );
+  }
+
+  /** It runs on this machine instead: the row goes, its client key now names a local dispatch. */
+  deleteWaitingRemoteDispatch(id: string): boolean {
+    return (
+      this.db.run(`DELETE FROM remote_dispatches WHERE id = ? AND state = 'waiting'`, [id])
+        .changes === 1
+    );
+  }
+
+  /** What became of a task its machine held (#2775): started or dropped there. Only over `held`. */
+  settleHeldRemoteDispatch(id: string, o: RemoteDispatchOutcome, now = Date.now()): void {
+    this.db.run(
+      `UPDATE remote_dispatches SET state = ?, sessionId = ?, heldId = ?, reason = ?, code = ?,
+         httpStatus = ?, updatedAt = ?
+         WHERE id = ? AND state = 'held'`,
+      [o.state, o.sessionId, o.heldId, o.reason, o.code, o.httpStatus, now, id],
     );
   }
 

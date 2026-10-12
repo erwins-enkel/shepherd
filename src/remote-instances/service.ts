@@ -231,6 +231,15 @@ export class RemoteInstanceService {
     return current ? this.summary(current) : null;
   }
 
+  /** Record a capability report fetched outside the probe — the fresh check right before a waiting
+   *  task is sent (#2775) — so the machine's summary shows what it has now. Only while it is
+   *  connected; no listener is told, nothing that follows a machine depends on its capabilities. */
+  noteCapabilities(instanceId: string, snapshot: CapabilitySnapshot): void {
+    const state = this.states.get(instanceId);
+    if (state?.status === "connected")
+      this.states.set(instanceId, { ...state, capabilities: snapshot });
+  }
+
   /** One round over every machine. No rows ⇒ no request. */
   async probeAll(): Promise<void> {
     await Promise.all(this.store.listRemoteInstances().map((row) => this.probe(row)));

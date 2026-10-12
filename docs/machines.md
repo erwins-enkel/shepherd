@@ -24,6 +24,9 @@ moves to another machine.
   nothing is sent and nothing runs on your side in its place.
 - **A new task is handed over once.** It goes out with a dispatch ID, so sending it again never
   starts it twice there, even after a lost answer or a restart.
+- **A task waits for its machine.** If the machine a task is meant for is asleep or out of reach,
+  the task waits on your Shepherd and starts there once the machine is back. It never starts on
+  another machine by itself ([Waiting tasks](#waiting-tasks)).
 
 ## Prepare each machine
 
@@ -97,7 +100,8 @@ you pick must have what the task needs, or nothing starts and the dialog says wh
 - The machine starts from the base branch **as pushed to origin**. Push first.
 - Attachments are uploaded to the machine right before the task is sent. If one can't be sent, the
   task doesn't start.
-- A refusal or a hold on the machine is shown with its reason.
+- A refusal on the machine is shown with its reason. A task the machine holds (its usage limit
+  or capacity) shows as **Busy** in that machine's group until it starts there.
 - If no answer comes back, the task shows as **Start status unknown** in that machine's group of
   the herd. Shepherd asks the machine as soon as it can be reached, also after a restart of your
   Shepherd, and then about once a minute. It then shows the session, or sends the same task again
@@ -132,10 +136,44 @@ The reason is shown before you start and on the session afterwards: "Needs macOS
 - **Nothing fits.** If no connected machine has a requirement, nothing starts and Shepherd names what
   is missing, for example "No connected machine has Xcode".
 - **The right machine is offline.** If the machine a task is meant for is asleep or out of reach,
-  nothing starts: Shepherd says which machine it is and which others would fit. It never falls back
-  to another machine on its own. Pick one under **Run on** to start it there.
+  the task waits for it ([Waiting tasks](#waiting-tasks)). New Task says so before you start, for
+  example "Waits for MacBook — Needs Xcode", and names the machines that would fit now. It never
+  falls back to another machine on its own. Pick one under **Run on** to start it there instead.
 - **Requirements are not guessed yet.** Shepherd reads only the requirements you give it. Without
   any, a task runs on the preferred platform.
+
+## Waiting tasks
+
+A task that cannot start on its machine right now stays visible at the top of that machine's group
+in the herd, in one of four states. Hover the state for what it means and what happens next.
+
+| State                    | Meaning                                                                                                                                            | What happens                                                                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Waiting**              | The machine is asleep or out of reach. Nothing was sent.                                                                                           | It starts there by itself once the machine answers again and a fresh check of its capabilities and its checkout of the project passes.        |
+| **Blocked**              | The machine is back, but it lacks a requirement (for example Xcode's license is not accepted) or has no checkout of the project. Nothing was sent. | It starts by itself once a check passes. Fix it on the machine, or run it elsewhere.                                                          |
+| **Busy**                 | The machine accepted the task but holds it: it is at its usage limit or at capacity.                                                               | The machine starts it when it has room. Cancel discards it there.                                                                             |
+| **Start status unknown** | The task was sent, but no answer came back.                                                                                                        | Shepherd asks the machine, then shows the session or sends the same task again if it never arrived (see [above](#start-a-task-on-a-machine)). |
+
+- **Waiting survives restarts.** The task is stored on your Shepherd. After a restart it is still
+  listed and still starts once its machine is back.
+- **Attachments travel late.** They are uploaded to the machine only when the task is actually
+  sent, and are kept on your Shepherd until then, also beyond the usual 24 hours.
+- **Cancel** removes a waiting or blocked task; nothing was ever sent. A busy task is discarded on
+  the machine; if it started there in the meantime, it keeps running.
+- **Run on another machine.** A waiting or blocked task offers **Run here** or **Run on …** for
+  each connected machine that fits it right now, including your Shepherd. It starts there at once.
+  A machine that does not fit is refused with the reason, and the task keeps waiting. A busy task
+  is not moved: cancel it and start it again.
+- **Only preferred is still waited for.** A task without requirements submitted on the MacBook while
+  Linux is asleep waits for Linux, because Linux is preferred, and offers the MacBook as
+  **Run here**. Nothing falls back by itself.
+- **Removing a machine** cancels the tasks waiting for it.
+- Only the automatic choice waits. A machine you name under **Run on** or in `target` must be
+  reachable, or nothing starts.
+
+From a script, a create that waits answers `200` with `held: true` and `waiting: true`; cancel it
+with `DELETE /api/remote-dispatches/{id}` and redirect it with
+`POST /api/remote-dispatches/{id}/redirect` ([External Task API](external-task-api.md)).
 
 ## Work with its sessions
 
@@ -177,7 +215,7 @@ someone your login.
 - **No live migration.** A session stays on the machine it started on. To continue elsewhere, push
   its branch and start a new task there.
 - **No silent fallback.** A task meant for a machine that is out of reach does not start on
-  another one by itself. Waiting for it is not supported yet.
+  another one by itself: it waits for that machine until you cancel it or run it elsewhere.
 - **Follow-up work stays on the machine:** review, pull request and merge are its Shepherd's.
 - **Windows** is listed as a platform, but not released for tasks.
 
@@ -251,7 +289,10 @@ coordinator, the Mac the machine; the project is checked out on both.
 | 13  | When testing a branch: check the live instance.                                            | It kept running throughout; its database, herdr session, checkouts and preview mappings were never touched.                        |
 | 14  | On Linux and on the Mac, open New Task on **Automatic**, add the **Xcode** requirement.    | Both say "Runs on MacBook — Needs Xcode"; started from either side, it runs on the Mac.                                            |
 | 15  | Remove the requirement and start it on each side.                                          | Both say "No special requirements – preferred: Linux"; it runs on Linux, and the session shows that reason.                        |
-| 16  | Put the Mac to sleep and start the Xcode task on Linux.                                    | Nothing starts: Linux says the MacBook would run it but is not reachable. Nothing runs on Linux instead.                           |
+| 16  | Put the Mac to sleep and start the Xcode task on Linux.                                    | It waits: Linux shows **Waiting** in the MacBook's group, with "Needs Xcode". Nothing runs on Linux instead.                       |
+| 17  | Restart the Linux Shepherd, then wake the Mac.                                             | The task is still waiting after the restart; once the Mac is back it starts there, once.                                           |
+| 18  | Put the Mac to sleep again, start another Xcode task and pick **Run here** on Linux.       | Not offered: Linux lacks Xcode. Through the API the redirect is refused with `missing_capabilities`; the task keeps waiting.       |
+| 19  | Cancel that waiting task, then wake the Mac.                                               | It never starts anywhere.                                                                                                          |
 
 The automated counterpart, `test/machines-two-instances.test.ts`, runs in `bun run test`: two
 Shepherd processes with their own ports and state, a cut network between them and a crash of the

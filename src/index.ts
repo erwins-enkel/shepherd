@@ -59,7 +59,9 @@ import { AccessTokenService } from "./access-tokens";
 import { CapabilityService } from "./remote-instances/capability-probe";
 import { RemoteInstanceService } from "./remote-instances/service";
 import { RemoteSessionMirror } from "./remote-instances/sessions";
-import { RemoteDispatcher } from "./remote-instances/dispatch";
+import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
+import { instanceIdentity } from "./remote-instances/identity";
+import { localMachine } from "./remote-instances/placement";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
@@ -680,9 +682,10 @@ function startBackground(): void {
   for (const start of deferredStarts) start();
 }
 
-// drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL
+// drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL — not
+// the attachments of a task still waiting for its machine (#2775), uploaded only once it is sent
 deferredStarts.push(() => {
-  sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
+  sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now(), waitingAttachments(store));
 });
 const herdr: IHerdrDriver = await selectHerdrDriver();
 const herdrSocketActive = herdr instanceof SocketHerdrDriver;
@@ -1081,8 +1084,15 @@ deferredStarts.push(() => remoteInstances.start());
 const remoteSessions = new RemoteSessionMirror({ store, instances: remoteInstances });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
 // Tasks sent to them (#2763). A dispatch whose start is unknown (#2774) is reconciled after every
-// probe that finds its machine connected — on reconnect, after this restart, and each round.
-const remoteDispatch = new RemoteDispatcher({ store, instances: remoteInstances, events });
+// probe that finds its machine connected — on reconnect, after this restart, and each round; a task
+// waiting for its machine (#2775) is sent then, and one held there is followed up. `here` is this
+// Shepherd as the machine choice sees it: what a waiting task could run on instead.
+const remoteDispatch = new RemoteDispatcher({
+  store,
+  instances: remoteInstances,
+  events,
+  here: () => localMachine(instanceIdentity(store), capabilities.report()),
+});
 remoteInstances.onChange((instanceId) => {
   remoteDispatch
     .reconcile(instanceId)

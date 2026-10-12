@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { m } from "#lib/paraglide/messages.js";
-import { capabilityList, placementReason, placementRefusalText } from "./placement";
+import {
+  capabilityList,
+  placementReason,
+  placementRefusalText,
+  placementWaitText,
+} from "./placement";
 import type { Placement } from "#lib/types.js";
 
 // The automatic machine choice (#2772) in words: the reason a task runs where it runs, and why a
@@ -72,20 +77,6 @@ describe("placementRefusalText", () => {
     );
   });
 
-  it("explains an offline machine and offers the alternatives", () => {
-    expect(
-      placementRefusalText({
-        code: "preferred_machine_offline",
-        error: "x",
-        host: mac,
-        status: "timeout",
-        alternatives: [linux],
-      }),
-    ).toBe(
-      `${m.placement_refusal_offline({ machine: "MacBook" })} ${m.placement_refusal_alternatives({ machines: "moes-tavern" })}`,
-    );
-  });
-
   it("names what a named machine — or this one — lacks, and why", () => {
     const missing = [{ capability: "xcode", reason: "not_verified" }];
     const list = `${m.settings_machines_cap_xcode()} (${m.settings_machines_cap_reason_not_verified()})`;
@@ -100,6 +91,19 @@ describe("placementRefusalText", () => {
   it("falls back to the server's sentence for a code it does not know", () => {
     expect(placementRefusalText({ code: "something_new", error: "the server says so" })).toBe(
       "the server says so",
+    );
+  });
+});
+
+describe("placementWaitText (#2775)", () => {
+  it("says the task waits for the machine it is meant for, and where it could run now", () => {
+    const xcode = placement({ target: mac, requirements: ["xcode"], basis: "requirements" });
+    const reason = m.placement_basis_requirements({ list: capabilityList(["xcode"]) });
+    expect(placementWaitText(xcode, { status: "timeout", alternatives: [] })).toBe(
+      m.placement_waits_for({ machine: "MacBook", reason }),
+    );
+    expect(placementWaitText(xcode, { status: "timeout", alternatives: [linux] })).toBe(
+      `${m.placement_waits_for({ machine: "MacBook", reason })} ${m.placement_refusal_alternatives({ machines: "moes-tavern" })}`,
     );
   });
 });

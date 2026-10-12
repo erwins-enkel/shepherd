@@ -403,9 +403,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/repo-browser/open",
     // Answering a Login Request: no seeded session raises one, so the banner never renders.
     "/api/sessions/:p/login-request",
-    // Canceling a task whose start on a machine is unknown (#2774): the demo connects no
-    // machines, so no such row renders.
+    // Canceling a task whose start on a machine is unknown (#2774), or redirecting one that
+    // waits for its machine (#2775): the demo connects no machines, so no such row renders.
     "/api/remote-dispatches/:p",
+    "/api/remote-dispatches/:p/redirect",
     // The machine choice preview (#2772): asked only while a machine is connected, and the demo
     // connects none.
     "/api/placement",

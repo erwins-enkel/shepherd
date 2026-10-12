@@ -3526,6 +3526,7 @@ export class SessionService {
       epicDraft: Boolean(input.epicAuthoring),
       sessionRead: !input.plain,
       browserLogin: browserLoginAllowed(repoConfig.sharedBrowserEnabled, input.plain, profile),
+      operatorDiag: false,
     };
     this.pushAgentMcpFlag(argv, sessionId, baseUrl, caps);
     // Serve the endpoint until the row exists; `create` clears this however the spawn ends.

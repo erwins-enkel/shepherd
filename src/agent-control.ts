@@ -44,6 +44,7 @@ import { validateEpicDraft } from "./epic-author";
 import type { RateLimitSnapshot } from "./forge/rate-limit";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import type { PrCache } from "./pr-poller";
 import type { SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, Session } from "./types";
@@ -537,7 +538,25 @@ export interface AgentCapabilities {
   /** `browser_request_login` — a non-plain, non-autonomous session in a repo with the Shared
    *  Browser on (the same sessions that get a Browser Attach config). */
   browserLogin: boolean;
+  /** The Operator Assistant's diagnostic tools (#1446) — that session only, and nothing else. */
+  operatorDiag: boolean;
 }
+
+/** An unknown session's capabilities: none. */
+const NO_CAPABILITIES: AgentCapabilities = {
+  buildQueue: false,
+  epicDraft: false,
+  sessionRead: false,
+  browserLogin: false,
+  operatorDiag: false,
+};
+
+/** The Operator Assistant's capabilities: its diagnostic tools and nothing else — no queue, epic,
+ *  browser or `sessions_*` tools. Shared by the spawn path (no row yet) and the row path. */
+export const OPERATOR_ASSISTANT_CAPABILITIES: AgentCapabilities = {
+  ...NO_CAPABILITIES,
+  operatorDiag: true,
+};
 
 /**
  * The NON-CODE session modes — research, epic-authoring, landing-repair, plain. The first three
@@ -573,9 +592,10 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
 }
 
 /** True when a session has any control plane to drive — the gate on passing `--mcp-config` at
- *  spawn/resume at all (src/service.ts). */
+ *  spawn/resume at all (src/service.ts). `operatorDiag` counts on its own: the assistant is always
+ *  wired to its endpoint. */
 export function hasAgentTools(caps: AgentCapabilities): boolean {
-  return toolsFor(caps).length > 0;
+  return caps.operatorDiag || toolsFor(caps).length > 0;
 }
 
 /** The `browserLogin` rule, shared by the spawn path (resolved profile) and the row path
@@ -592,8 +612,8 @@ export function browserLoginAllowed(
  *  mode flags, so a resume applies the same non-code suppression the spawn did. */
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
   const session = deps.store.get(sessionId);
-  if (!session)
-    return { buildQueue: false, epicDraft: false, sessionRead: false, browserLogin: false };
+  if (!session) return NO_CAPABILITIES;
+  if (isOperatorAssistant(session)) return OPERATOR_ASSISTANT_CAPABILITIES;
   const repoConfig = deps.store.getRepoConfig(session.repoPath);
   return {
     buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(session),
@@ -604,6 +624,7 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
       session.plain,
       session.sandboxApplied,
     ),
+    operatorDiag: false,
   };
 }
 

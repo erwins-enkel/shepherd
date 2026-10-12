@@ -34,6 +34,7 @@ function harness(
     plain?: boolean;
     sharedBrowser?: boolean;
     sandboxApplied?: SandboxProfile;
+    operatorAssistant?: boolean;
   } = {},
 ): {
   deps: AgentControlDeps;
@@ -66,6 +67,7 @@ function harness(
     landingRepair: opts.landingRepair,
     plain: opts.plain,
     sandboxApplied: opts.sandboxApplied,
+    operatorAssistant: opts.operatorAssistant,
   });
   return {
     deps: { store, events: { emit: (event, data) => emitted.push({ event, data }) } },
@@ -176,7 +178,42 @@ test("an unknown session gets no tools", () => {
     epicDraft: false,
     sessionRead: false,
     browserLogin: false,
+    operatorDiag: false,
   });
+});
+
+test("the Operator Assistant gets only operatorDiag — no queue, epic, browser or sessions_* tools", () => {
+  const { deps, sessionId } = harness({
+    operatorAssistant: true,
+    buildQueue: true,
+    sharedBrowser: true,
+    epicAuthoring: true,
+  });
+  expect(sessionCapabilities(deps, sessionId)).toEqual({
+    buildQueue: false,
+    epicDraft: false,
+    sessionRead: false,
+    browserLogin: false,
+    operatorDiag: true,
+  });
+  // Its endpoint is wired even before the diagnostic tools land in the catalog.
+  expect(hasAgentTools(sessionCapabilities(deps, sessionId))).toBe(true);
+  const names = agentTools(deps, sessionId).map((t) => t.name);
+  for (const t of [
+    "queue_write",
+    "queue_step",
+    "epic_draft",
+    "browser_request_login",
+    ...READ_TOOLS,
+  ])
+    expect(names).not.toContain(t);
+});
+
+test("no other session ever gets operatorDiag", () => {
+  for (const opts of [{}, { plain: true }, { research: true }, { buildQueue: true }]) {
+    const { deps, sessionId } = harness(opts);
+    expect(sessionCapabilities(deps, sessionId).operatorDiag).toBe(false);
+  }
 });
 
 // ── protocol ─────────────────────────────────────────────────────────────────

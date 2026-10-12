@@ -125,6 +125,12 @@ test("permissions: the state-dir rules follow Shepherd's real state dir, never t
   const elsewhere = operatorAssistantPermissions("/srv/shepherd", home).deny;
   expect(elsewhere).toContain("Read(//srv/shepherd/env)");
   expect(elsewhere).toContain("Read(//srv/shepherd/backups/**)");
+  // The env file stays at ~/.shepherd/env when SHEPHERD_DB moves the db: denied either way.
+  expect(inHome).toContain("Read(~/.shepherd/env)");
+  expect(elsewhere).toContain("Read(~/.shepherd/env)");
+  for (const deny of [inHome, elsewhere, operatorAssistantPermissions().deny]) {
+    expect(new Set(deny).size).toBe(deny.length);
+  }
   // The install (~/.shepherd/app) is the assistant's grounding: no rule may cover the whole dir.
   for (const rule of operatorAssistantPermissions().deny) {
     expect(rule).not.toMatch(/^Read\(~\/\.shepherd\/\*\*\)$/);

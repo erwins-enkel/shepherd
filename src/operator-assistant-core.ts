@@ -26,6 +26,9 @@ export function isOperatorAssistant(s: Pick<Session, "operatorAssistant"> | null
 /** Credential and env files the assistant may never read. `Read(…)` deny rules also bind `Grep` and
  *  `Glob`. `~/` is the CLI's home-relative rule prefix, `//` its absolute one. */
 const CREDENTIAL_PATHS = [
+  // Every unit reads its env from here (deploy/shepherd.service), wherever SHEPHERD_DB moved the
+  // state dir, so this rule never follows the state dir.
+  "~/.shepherd/env",
   "~/.config/shepherd/config.toml",
   "~/.claude.json",
   "~/.claude/.credentials.json",
@@ -75,12 +78,15 @@ export function operatorAssistantPermissions(
     defaultMode: "default",
     allow: ["mcp__shepherd"],
     ask: ["Bash"],
+    // A Set: with the default state dir, its env rule and the fixed one are the same rule.
     deny: [
-      "Edit",
-      "Write",
-      "NotebookEdit",
-      ...STATE_SECRETS.map((p) => `Read(${state}/${p})`),
-      ...CREDENTIAL_PATHS.map((p) => `Read(${p})`),
+      ...new Set([
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        ...STATE_SECRETS.map((p) => `Read(${state}/${p})`),
+        ...CREDENTIAL_PATHS.map((p) => `Read(${p})`),
+      ]),
     ],
   };
 }

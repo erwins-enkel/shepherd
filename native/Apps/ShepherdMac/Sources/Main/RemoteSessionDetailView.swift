@@ -71,6 +71,13 @@ struct RemoteSessionDetailView: View {
             fact(L.t("remote_detail_repo"), (session.repoPath as NSString).lastPathComponent,
                 help: session.repoPath)
             fact(L.t("remote_detail_branch"), session.branch ?? session.baseBranch)
+            if let placement = session.launchMetadata?.placement {
+                // Why it runs on that machine (#2776), as the Shepherd that chose it recorded.
+                GridRow {
+                    Text(verbatim: L.t("remote_detail_placement")).foregroundStyle(.secondary)
+                    PlacementReason(placement: placement)
+                }
+            }
             if let base = session.baseCommit {
                 // The commit the machine actually started from (#2763): its origin, not this checkout.
                 fact(L.t("remote_detail_base"), "\(session.baseBranch) @ \(base.prefix(7))", help: base)

@@ -432,7 +432,11 @@ create with that body would do, without storing or sending anything:
 with the refusal's fields as above. `{ active: true, placement, wait: { status,
 alternatives } }` means the machine in `placement` is out of reach and the task
 would wait for it; `alternatives` are the connected machines that fit too. New Task
-shows it before you submit.
+shows it before you submit. Every `active` answer also lists `machines`: what `target`
+may name for this repo right now — this Shepherd first, then each connected machine
+whose platform is released and that has the project checked out. The native apps
+offer these under **Run on**, since `GET /api/remote-instances` needs a signed-in
+operator and their token is not one.
 
 ### Waiting for a machine
 

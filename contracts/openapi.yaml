@@ -616,6 +616,20 @@ components:
           $ref: "#/components/schemas/SessionHost"
         connection:
           $ref: "#/components/schemas/SessionConnection"
+        launchMetadata:
+          oneOf:
+            - $ref: "#/components/schemas/SessionLaunchMetadata"
+            - type: "null"
+    SessionLaunchMetadata:
+      type: object
+      additionalProperties: true
+      description: >-
+        What the session was launched with, recorded when it was created; null on sessions older
+        than the record. Only `placement` is described for clients; the other members are this
+        server's own launch record and may change.
+      properties:
+        placement:
+          $ref: "#/components/schemas/Placement"
     SessionList:
       type: array
       items:
@@ -1032,6 +1046,17 @@ components:
             in what a description can call for (Xcode, the iOS SDK, the iOS simulator, the Android
             SDK). A client then asks POST /api/requirements/derive before submitting, as New Task
             does. false: it cannot, and nothing needs to be derived.
+        machines:
+          type: array
+          description: >-
+            Present while `active` (#2776): the machines a create may name in `target` for this
+            repo right now — this instance first, then every connected machine whose platform is
+            released for tasks and that has the project checked out (by forge slug). A client that
+            cannot list the connected machines itself (GET /api/remote-instances needs an operator
+            session, which a native app's token is not) offers these under Run on. Whether one
+            fits the requirements is what a preview with it as `target` answers.
+          items:
+            $ref: "#/components/schemas/SessionHost"
     PlacementWait:
       type: object
       additionalProperties: true

@@ -122,6 +122,11 @@ struct ComposeSheetContent: View {
             seedRepo()
         }
         .task(id: RepoGuardLoad(path: model.repoPath, retry: repoConfigRetry)) { await loadRepoGuards() }
+        // Where the task will run (#2776): the preview follows the repo, the chips and the pick;
+        // the requirements are read from the task a beat after the last edit. Both are POSTs, which
+        // a read-only audited launch refuses, so it keeps the composer as it was.
+        .task(id: model.placementKey) { if current, app.liveRequestAudit == nil { await model.refreshPlacement() } }
+        .task(id: model.deriveKey) { if current, app.liveRequestAudit == nil { await model.deriveRequirements() } }
         .onChange(of: model.prompt) { _, prompt in
             app.updateComposeHandoverPrompt(prompt, activation: activation)
         }
@@ -160,10 +165,13 @@ struct ComposeSheetContent: View {
         guard current else { return }
         Task {
             let session = await submission.submit(model: model, repoResolved: repo != nil, holdLikely: holdLikely,
-                force: force, events: store.events(), recovery: app.extension(BackendRecoveryModel.self), create: { try await store.client.createSession($0, spawnID: $1) },
+                force: force, events: store.events(), recovery: app.extension(BackendRecoveryModel.self),
+                send: { try await store.client.createSession($0, spawnID: $1.spawnID, idempotencyKey: $1.idempotencyKey) },
                 onHeld: { app.sheet = nil }, isCurrent: { current })
             if let session, current {
-                store.apply(.sessionNew(session))
+                // Started on another machine (#2776): it belongs to the mirrored sessions.
+                if let host = session.host { store.apply(.mirrored(host: host, event: .sessionNew(session))) }
+                else { store.apply(.sessionNew(session)) }
                 app.selectedSessionID = session.id
                 app.sheet = nil
             }
@@ -223,7 +231,9 @@ struct ComposeSheetContent: View {
                             .monospacedDigit().foregroundStyle(.secondary)
                     }
                 }
-            } else { Text(verbatim: L.t("newtask_spawning")) }
+            } else {
+                Text(verbatim: submission.sendingTo.map { L.t("newtask_runon_starting", $0.name) } ?? L.t("newtask_spawning"))
+            }
             Button(submission.canceling || submission.cancelRequested ? L.t("newtask_spawn_canceling") : L.t("newtask_spawn_cancel")) {
                 Task { await submission.cancel(using: { try await store.client.cancelSpawn(id: $0) }, isCurrent: { current }) }
             }.disabled(submission.canceling || submission.cancelRequested)

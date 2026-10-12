@@ -153,6 +153,7 @@ import {
   type MachineRoute,
   type RemoteSessionMirror,
   type RemoteTerminal,
+  type SessionHost,
 } from "./remote-instances/sessions";
 import {
   RemoteDispatcher,
@@ -3385,19 +3386,32 @@ async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
   const named = target.instanceId !== null && !target.self;
   if (!named && !placementActive(remoteInstances(deps).list())) return json({ active: false });
   const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
-  if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN });
+  const machines = await runOnMachines(deps, project);
+  if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN, machines });
   // Only Automatic reads requirements from the task (#2773): a named machine is the operator's pick.
   const deriveRequirements = target.instanceId === null && (await derivationMatters(deps, project));
   const decision = await decide(deps, { requirements, project, override: target.instanceId });
   if (decision.ok) {
     const { placement, wait } = decision;
-    return json({ active: true, placement, ...(wait && { wait }), deriveRequirements });
+    return json({ active: true, placement, ...(wait && { wait }), deriveRequirements, machines });
   }
   return json({
     active: true,
     refusal: placementRefusal(decision.refusal).body,
     deriveRequirements,
+    machines,
   });
+}
+
+/** The machines a create may name for this project (#2776): this instance first, then every
+ *  connected machine whose platform is released and that has the project checked out — what the
+ *  web form lists from GET /api/remote-instances, which a native app's token cannot read. */
+async function runOnMachines(deps: AppDeps, project: string | undefined): Promise<SessionHost[]> {
+  const local = await localMachineView(deps, false);
+  const remote = remoteMachineViews(remoteInstances(deps).list(), project).filter(
+    (m) => m.connected && m.released && m.hasProject,
+  );
+  return [local.host, ...remote.map((m) => m.host)];
 }
 
 // ── POST /api/requirements/derive — what a task calls for, read from its description (#2773) ──

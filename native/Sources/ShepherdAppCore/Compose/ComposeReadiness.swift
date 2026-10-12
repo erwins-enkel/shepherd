@@ -17,6 +17,10 @@ public enum ComposeReadiness {
         var behind: Bool
         var holdLikely: Bool
         var provider: AgentProvider
+        /// The task's requirements are still being read from its description (#2773, #2776).
+        var requirementsPending = false
+        /// The description was unclear: the operator answers the question first.
+        var requirementsUnclear = false
     }
     public struct State {
         public let blocker: String?
@@ -37,6 +41,8 @@ public enum ComposeReadiness {
         case "no_repo": L.t("newtask_readiness_no_repo")
         case "base_missing": L.t("newtask_readiness_base_missing")
         case "empty_prompt": L.t("newtask_readiness_empty_prompt")
+        case "requirements_unclear": L.t("newtask_readiness_requirements_unclear")
+        case "requirements_pending": L.t("newtask_readiness_requirements_pending")
         default: L.t("newtask_readiness_ready")
         }
     }
@@ -50,7 +56,8 @@ public enum ComposeReadiness {
     private static func blocker(_ i: Input) -> String? {
         i.submitting ? "submitting" : i.uploading ? "uploading" : i.uploadFailed ? "upload_failed"
             : i.repairing ? "repairing" : !i.repoResolved ? "no_repo" : i.baseMissing ? "base_missing"
-            : i.promptEmpty && !i.issueSeeded ? "empty_prompt" : nil
+            : i.promptEmpty && !i.issueSeeded ? "empty_prompt"
+            : i.requirementsUnclear ? "requirements_unclear" : i.requirementsPending ? "requirements_pending" : nil
     }
 
     public static func holdLikely(limits: UsageLimits?, settings: ShepherdKit.Settings?) -> Bool {
@@ -68,6 +75,9 @@ extension ComposeModel {
             baseMissing: repoBranches.baseMissing, repairing: repoBranches.repairingBase,
             uploading: attachments.inFlight, uploadFailed: attachments.hasFailedUploads, submitting: submitting,
             checking: repoBranches.upstreamLoading, diverged: repoBranches.upstream?.diverged ?? false,
-            behind: (repoBranches.upstream?.behind ?? 0) > 0, holdLikely: holdLikely, provider: provider))
+            behind: (repoBranches.upstream?.behind ?? 0) > 0,
+            // A likely usage hold is this server's: a task that runs on another machine is not held here.
+            holdLikely: holdLikely && runOn.remoteTarget == nil, provider: provider,
+            requirementsPending: requirementsPending, requirementsUnclear: runOn.requirementsUnclear(deriveText)))
     }
 }

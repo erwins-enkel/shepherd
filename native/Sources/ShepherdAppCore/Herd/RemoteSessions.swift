@@ -90,28 +90,50 @@ public struct RemoteExplanation: Equatable, Sendable {
 }
 
 /// One connected machine's mirrored sessions, shown as its own read-only group after the local
-/// lifecycle groups.
+/// lifecycle groups, with its tasks that are not settled at the top (#2774, #2775).
 public struct HerdMachineGroup: Identifiable, Equatable {
     public let host: SessionHost
-    public let connection: SessionConnection
+    /// The state of the link; nil for a machine with only tasks that are not settled.
+    public let connection: SessionConnection?
     public let sessions: [Session]
+    public let dispatches: [RemoteDispatch]
     public var id: String { host.instanceId }
 
-    /// One group per machine, in the order the machines' sessions first appear — the web's
-    /// `machineGroups`. A session that is not mirrored is skipped.
-    public static func groups(_ remote: [Session]) -> [HerdMachineGroup] {
+    public init(host: SessionHost, connection: SessionConnection?, sessions: [Session],
+                dispatches: [RemoteDispatch] = []) {
+        self.host = host
+        self.connection = connection
+        self.sessions = sessions
+        self.dispatches = dispatches
+    }
+
+    /// One group per machine, in the order the machines' sessions first appear; a machine with
+    /// only tasks that are not settled follows them — the web's `machineGroups`. A session that is
+    /// not mirrored is skipped.
+    public static func groups(_ remote: [Session], dispatches: [RemoteDispatch] = []) -> [HerdMachineGroup] {
         var order: [String] = []
-        var byMachine: [String: (host: SessionHost, connection: SessionConnection, sessions: [Session])] = [:]
+        var byMachine: [String: (host: SessionHost, connection: SessionConnection?, sessions: [Session],
+                                 dispatches: [RemoteDispatch])] = [:]
         for session in remote {
             guard let host = session.host, let connection = session.connection else { continue }
             if byMachine[host.instanceId] == nil {
                 order.append(host.instanceId)
-                byMachine[host.instanceId] = (host, connection, [])
+                byMachine[host.instanceId] = (host, connection, [], [])
             }
             byMachine[host.instanceId]?.sessions.append(session)
         }
+        for dispatch in dispatches {
+            if byMachine[dispatch.host.instanceId] == nil {
+                order.append(dispatch.host.instanceId)
+                byMachine[dispatch.host.instanceId] = (dispatch.host, nil, [], [])
+            }
+            byMachine[dispatch.host.instanceId]?.dispatches.append(dispatch)
+        }
         return order.compactMap { id in
-            byMachine[id].map { HerdMachineGroup(host: $0.host, connection: $0.connection, sessions: $0.sessions) }
+            byMachine[id].map {
+                HerdMachineGroup(host: $0.host, connection: $0.connection, sessions: $0.sessions,
+                                 dispatches: $0.dispatches)
+            }
         }
     }
 }

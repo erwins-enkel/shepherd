@@ -56,6 +56,7 @@ public final class SidebarModel: AppExtension {
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private var offlineSessions: [Session] = []
     @ObservationIgnored private var offlineRemoteSessions: [Session] = []
+    @ObservationIgnored private var offlineRemoteDispatches: [RemoteDispatch] = []
     /// Bumped by every `refresh()`; a snapshot whose generation is no longer the newest is dropped
     /// rather than installed — the rule `SessionStore.refresh()` already uses. This guards races
     /// BETWEEN this model's own refreshes; `app.activationGeneration` (checked in `refresh()`)
@@ -201,7 +202,11 @@ public final class SidebarModel: AppExtension {
     /// name this server's checkouts (`HerdMachineGroups.svelte`).
     public var machineGroups: [HerdMachineGroup] {
         guard lens == .all else { return [] }
-        return HerdMachineGroup.groups(store?.remoteSessions ?? offlineRemoteSessions)
+        // Tasks for machines that are not settled (#2776) only while the herd is not narrowed to
+        // repos, as on the web.
+        let dispatches = activeRepos.isEmpty
+            ? (app?.extension(RemoteDispatchesModel.self)?.dispatches ?? offlineRemoteDispatches) : []
+        return HerdMachineGroup.groups(store?.remoteSessions ?? offlineRemoteSessions, dispatches: dispatches)
     }
 
     public var tallies: HerdTallies {
@@ -475,6 +480,8 @@ public final class SidebarModel: AppExtension {
         func install(sessions: [Session]) { offlineSessions = sessions }
         /// Stands in for the store's mirrored sessions when the model was built without one.
         func install(remoteSessions: [Session]) { offlineRemoteSessions = remoteSessions }
+        /// Stands in for the herd's tasks for machines that are not settled.
+        func install(remoteDispatches: [RemoteDispatch]) { offlineRemoteDispatches = remoteDispatches }
         /// Arms a one-shot "a newer refresh landed while yours was in flight".
         func armStaleGeneration() { staleOnce = true }
     #endif

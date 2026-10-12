@@ -31,6 +31,10 @@ struct SidebarView: View {
 
         return VStack(spacing: 0) {
             HeaderStrip(model: model)
+            // How a task for a machine ended, or what a cancel or a redirect did (#2776).
+            if let dispatches = app.extension(RemoteDispatchesModel.self), let notice = dispatches.notice {
+                NoticeBar(message: notice.text, tone: notice.alert ? .warning : .success) { dispatches.dismissNotice() }
+            }
             if let queues = app.extension(QueuesModel.self) {
                 VStack(alignment: .leading, spacing: 6) {
                     HeldQueueView(model: queues)

@@ -684,6 +684,13 @@ describe("sessions", () => {
     const created = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
     expect(res.status).toBe(201);
     expect(s.deps.store.get(created.id)?.launchMetadata?.placement).toEqual(placement);
+    // #2776: clients read the record from the session listing as `launchMetadata.placement`.
+    const listed = (await validateResponse(
+      "GET",
+      "/api/sessions",
+      await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) }),
+    )) as { id: string; launchMetadata?: { placement?: Placement } }[];
+    expect(listed.find((x) => x.id === created.id)?.launchMetadata?.placement).toEqual(placement);
   });
 
   // #2772: the preview of the automatic machine choice — not active without machines, the target
@@ -746,6 +753,11 @@ describe("sessions", () => {
         active: true,
         placement: { mode: "auto", basis: "requirements", target: { name: "MacBook" } },
       });
+      // #2776: what Run on may name — this instance first, then the machine with the project.
+      expect((placed.machines as { name: string }[]).map((h) => h.name)).toEqual([
+        (placed.placement as { by: { name: string } }).by.name,
+        "MacBook",
+      ]);
       const refused = await check({ repoPath: s.validRepo, requirements: ["android-sdk"] }, 200);
       expect(refused).toMatchObject({
         active: true,

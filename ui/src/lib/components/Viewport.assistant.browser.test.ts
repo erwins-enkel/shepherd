@@ -25,10 +25,10 @@ vi.mock("#lib/pty.js", () => ({
   }),
 }));
 // The per-session resume, spied so the assistant's Resume can be shown NOT to use it.
-const apiResume = vi.fn(async () => {});
+const { apiResume } = vi.hoisted(() => ({ apiResume: vi.fn(async () => {}) }));
 vi.mock("#lib/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("#lib/api.js")>()),
-  resumeSession: (...a: unknown[]) => apiResume(...(a as [])),
+  resumeSession: apiResume,
 }));
 const { default: Viewport } = await import("./Viewport.svelte");
 type Props = ComponentProps<typeof Viewport>;

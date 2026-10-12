@@ -1066,6 +1066,12 @@ describe("ambient GETs + issue peek (#2295)", () => {
     expect(body.complete).toBe(true);
   });
 
+  it("GET /api/operator-assistant reports the assistant unavailable, with no row", async () => {
+    const { status, body } = await get("/api/operator-assistant");
+    expect(status).toBe(200);
+    expect(body).toEqual({ available: false, reason: null, session: null });
+  });
+
   it("GET /api/plugins/voice-whisper/status reports the plugin absent", async () => {
     const { body } = await get("/api/plugins/voice-whisper/status");
     expect(body.available).toBe(false);

@@ -910,10 +910,10 @@
         .then((r) => alive && (todoExists = r.exists))
         .catch(() => {});
     load();
-    const t = setInterval(load, 5000);
+    const stop = pollWhileVisible(load, 5000); // skip hidden-tab ticks; refresh on return
     return () => {
       alive = false;
-      clearInterval(t);
+      stop();
     };
   });
   // Don't strand the operator on a To-Do tab that just vanished (TODO.md removed).

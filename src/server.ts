@@ -4774,6 +4774,50 @@ function operatorDiagDeps(deps: AppDeps): OperatorDiagDeps {
   };
 }
 
+/** Why the Operator Assistant can't run, read off Settings → Diagnose, or null when it can (or when
+ *  diagnostics is unwired). It runs claude only, so any non-ok `claude` check is missing — that row
+ *  reads `optional` rather than `error` while codex is present. It runs in a herdr pane, so a
+ *  `herdr` error (absent, offline, unsupported or needing a restart) leaves it nowhere to run. */
+async function operatorAssistantUnavailable(
+  deps: AppDeps,
+): Promise<"claude_missing" | "herdr_unreachable" | null> {
+  if (!deps.diagnostics) return null;
+  const { checks } = await deps.diagnostics.current(Date.now());
+  const state = (id: string) => checks.find((c) => c.id === id)?.state;
+  const claude = state("claude");
+  if (claude !== undefined && claude !== "ok") return "claude_missing";
+  if (state("herdr") === "error") return "herdr_unreachable";
+  return null;
+}
+
+// GET /api/operator-assistant → {available, reason, session}; POST → ensure the assistant is live;
+// POST /api/operator-assistant/reset → New conversation (#1446). Operator app only: none of these
+// sits under /api/sessions/<id>, so isAgentIngressRoute never admits them. Unavailable ⇒ 503
+// {error, reason} and nothing spawns. A successful ensure/reset emits `operator-assistant:update`,
+// deliberately not `session:new`, so the row never joins another client's herd.
+async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "operator-assistant")) return null;
+  const reset = parts[2] === "reset" && !parts[3];
+  if (parts[2] && !reset) return null;
+  if (req.method === "GET" && !reset) {
+    const reason = await operatorAssistantUnavailable(deps);
+    const session = deps.store.getLiveOperatorAssistant();
+    return json({ available: reason === null, reason, session });
+  }
+  if (req.method !== "POST") return null;
+  const reason = await operatorAssistantUnavailable(deps);
+  if (reason) return json({ error: "operator assistant unavailable", reason }, 503);
+  try {
+    const session = reset
+      ? await deps.service.resetOperatorAssistant()
+      : await deps.service.ensureOperatorAssistant();
+    deps.events.emit("operator-assistant:update", { session });
+    return json({ session });
+  } catch (e) {
+    return createErrorResponse(e);
+  }
+}
+
 // GET /api/login-requests — every open Login Request (#2882), keyed by session id (bootstrap).
 function handleLoginRequestsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "login-requests" && !parts[2]) {
@@ -9586,6 +9630,7 @@ const ROUTE_HANDLERS = [
   handleSessionMcp,
   handleSessionLoginRequest,
   handleLoginRequestsSnapshot,
+  handleOperatorAssistant,
   handleBuildQueue,
   handleEpicDraft,
   handleTaskExport,

@@ -55,9 +55,14 @@
   import { trimTrailingWhitespace } from "#lib/terminalSelection.js";
   import { composeKeystrokes } from "#lib/compose.js";
   import { findCommandLinks } from "#lib/slashLinks.js";
+  import { desigIndex, findDesigLinks } from "#lib/desigLinks.js";
   import { oscLinkHandler, openTerminalLink } from "#lib/terminalLinks.js";
   import { createTypingCounter } from "#lib/terminal-input.js";
-  import { shouldForwardEscape } from "#lib/terminalEscape.js";
+  import {
+    noteTerminalFocus,
+    ownsDriftedEscape,
+    shouldForwardEscape,
+  } from "#lib/terminalEscape.js";
   import { altComboKey, isPtySuppressedChord } from "./herd-keynav";
   import { detectNotesKey } from "#lib/notesAffordance.js";
   import { hasCodexQuestionsHint } from "#lib/codexQuestionsAffordance.js";
@@ -79,6 +84,7 @@
   import TaskTipAmendments from "#lib/components/TaskTipAmendments.svelte";
   import { toasts } from "#lib/toasts.svelte.js";
   import SteerBar from "#lib/components/SteerBar.svelte";
+  import ControlBar from "#lib/components/ControlBar.svelte";
   import SessionStatusBar from "#lib/components/SessionStatusBar.svelte";
   import ComposeBar from "#lib/components/ComposeBar.svelte";
   import LeftoverDialog from "#lib/components/LeftoverDialog.svelte";
@@ -142,10 +148,14 @@
     workingBlocked = {},
     backgroundBusy = {},
     authUrl = null,
-    consumeAutoFocusTerm = () => true,
+    consumeAutoFocusTerm = () => variant !== "assistant",
     drain = null,
     autoMergeTrain = {},
     subagents = {},
+    variant = "session",
+    typeRequest = null,
+    ontyped,
+    herd = [],
   }: {
     session: Session;
     terminalOwners?: Record<string, TerminalClientInfo> | null;
@@ -216,8 +226,9 @@
     /** One-shot gate for the mount auto-focus: the page records whether the selection
      *  that remounted this terminal *wants* the keyboard (click / Alt-combo / Enter →
      *  yes; plain j/k chaining → no), and this consumes that intent — read it, reset
-     *  it to true, return it. The always-true default merely keeps the prop optional
-     *  (tests / future callers). */
+     *  it to true, return it. The default merely keeps the prop optional (tests / future
+     *  callers): always yes for a session, always no for the assistant variant, which
+     *  must never take the keyboard from the session terminal beside it on its own. */
     consumeAutoFocusTerm?: () => boolean;
     /** Live drain status for this session's repo; passed through to GitRail →
      *  AutomationPanel so the epic-mode precedence indicator can render. */
@@ -228,7 +239,24 @@
     /** Live per-session sub-agent roster map (the whole store.subagents record);
      *  the Activity tab's fan-out section reads this session's entry from it. */
     subagents?: Record<string, SubagentEntry[]>;
+    /** "assistant" = the Operator Assistant's bare terminal (#1446): the terminal, its banners,
+     *  the touch key bar and the compose sheet only — no identity header, tabs, git/review/CI/
+     *  auto-merge strips, steer bar, recap or swipe paging. Desig tokens naming a `herd` session
+     *  link to `onnavigate`. The default "session" is the full session console. */
+    variant?: "session" | "assistant";
+    /** Type `text` into the agent's prompt WITHOUT submitting it (an "Ask the assistant" prefill):
+     *  sent once per `tick` as soon as the terminal is attached, then the terminal takes focus
+     *  (desktop). Same `{…, tick}` idiom as renameRequest. */
+    typeRequest?: { text: string; tick: number } | null;
+    /** A typeRequest's text was sent. Clear the request here: a remounted Viewport would
+     *  otherwise type it again. */
+    ontyped?: (tick: number) => void;
+    /** Live herd sessions (store.sessions) whose desigs the assistant variant links. */
+    herd?: Session[];
   } = $props();
+
+  // The Operator Assistant renders a bare terminal; every session-console surface checks this.
+  const assistant = $derived(variant === "assistant");
 
   // Display-side status for every header/status render below (see display-status.ts).
   const dStatus = $derived(displayStatus(session, workingBlocked, backgroundBusy));
@@ -377,6 +405,10 @@
   let pendingCopy = $state<string | null>(null);
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
+  // true once the current attach has delivered output, i.e. the PTY socket is open and a send
+  // lands (connectPty drops sends on a socket that isn't open). Gates typeRequest; reset on every
+  // rebuild, park and end.
+  let ptyLive = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
   // splits the two cases: "gone" = the agent exited (offer provider resume),
   // "unreachable" = herdr itself is down (offer a plain re-attach).
@@ -451,6 +483,10 @@
           knownCommands = new Set();
       });
   });
+
+  // Live herd desig → session id, for the assistant variant's desig links (read lazily by the
+  // link provider, so a session variant never builds it).
+  const herdDesigs = $derived(desigIndex(herd));
 
   // Build a terminal line's visible text together with a string-index → 0-based column
   // map by walking cells, so a wide char (emoji/CJK: 2 columns but 1+ string chars)
@@ -834,6 +870,7 @@
   $effect(() => {
     const id = unitId;
     usage = null;
+    if (assistant) return; // only the header + status bar show usage; the assistant has neither
     let alive = true;
     const load = () =>
       getSessionUsage(id)
@@ -856,6 +893,7 @@
   $effect(() => {
     const rp = session.repoPath;
     todoExists = null;
+    if (assistant) return; // no tab bar → no To-Do tab
     let alive = true;
     const load = () =>
       getTodo(rp)
@@ -995,9 +1033,12 @@
   // config is fetched lazily, so make sure it is loaded for this session's repo.
   $effect(() => {
     const repoPath = session.repoPath;
+    if (assistant) return; // its cwd is Shepherd's own assistant dir, not a repo
     untrack(() => void repoConfig.ensure(repoPath));
   });
-  const hasBrowser = $derived(repoConfig.sharedBrowserOn(session.repoPath) && !session.archivedAt);
+  const hasBrowser = $derived(
+    !assistant && repoConfig.sharedBrowserOn(session.repoPath) && !session.archivedAt,
+  );
   $effect(() => {
     if (!hasBrowser && tab === "browser") tab = "term";
   });
@@ -1683,7 +1724,9 @@
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
     resumeEpoch; // a resume bumps this → rebuild the terminal + re-attach to the new agent
     if (!el) return;
+    const mount = el;
     parked = false; // fresh attach for this unit
+    ptyLive = false;
     scrolledUp = false; // fresh terminal starts pinned to the bottom
     clearAgentScrollState();
     notesKey = null; // no prompt scraped yet on this fresh terminal
@@ -1768,6 +1811,7 @@
       term.rows,
       (d) => {
         hasFreshOutput = true;
+        if (!ptyLive) ptyLive = true;
         term.write(d);
       },
       // reconnected (e.g. after a mobile app-switch dropped the socket): refit in
@@ -1780,12 +1824,14 @@
       // another device took over this terminal — park and offer to take it back
       () => {
         parked = true;
+        ptyLive = false;
       },
       // the connection stopped for good — note it in the buffer + surface a
       // recovery prompt. "gone" → agent exited (status badge already flipped to
       // "done" via session:status); "unreachable" → herdr is down, just re-attach.
       (reason) => {
         endReason = reason;
+        ptyLive = false;
         term.write(
           `\r\n\x1b[2m${reason === "unreachable" ? m.viewport_herdr_unreachable() : m.viewport_session_ended()}\x1b[0m\r\n`,
         );
@@ -1838,6 +1884,32 @@
         );
       },
     });
+
+    // Assistant only: link desig tokens (TASK-31) that name a live herd session, so a tap selects
+    // that session in the main viewport. Same link layer and column mapping as the command links.
+    if (assistant) {
+      term.registerLinkProvider({
+        provideLinks(bufferLineNumber, callback) {
+          const line = term.buffer.active.getLine(bufferLineNumber - 1);
+          const { text, colAt } = line
+            ? lineTextWithColumns(line, linkCell)
+            : { text: "", colAt: [] };
+          const found = findDesigLinks(text, herdDesigs);
+          callback(
+            found.length === 0
+              ? undefined
+              : found.map((f) => ({
+                  text: text.slice(f.start, f.end),
+                  range: {
+                    start: { x: colAt[f.start]! + 1, y: bufferLineNumber },
+                    end: { x: colAt[f.end - 1]! + 1, y: bufferLineNumber },
+                  },
+                  activate: () => onnavigate?.(f.id),
+                })),
+          );
+        },
+      });
+    }
 
     // Claude's `c to copy` emits OSC 52 (ESC]52;c;<base64>). xterm has no built-in handler, so
     // forward the decoded text to the browser clipboard. The bytes arrive async over the WS
@@ -2007,6 +2079,7 @@
           active: document.activeElement,
           body: document.body,
           terminalEl: el ?? null,
+          ownsDriftedFocus: ownsDriftedEscape(mount, !assistant),
         })
       )
         return;
@@ -2019,6 +2092,9 @@
       term.focus();
     };
     window.addEventListener("keydown", onWindowKeydown, true);
+    // Remember which terminal the operator last typed in, for the drifted-focus Escape above.
+    const onTermFocusIn = () => noteTerminalFocus(mount);
+    mount.addEventListener("focusin", onTermFocusIn);
 
     // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
     // the tab returns. pageshow+persisted covers iOS Safari's bfcache restore,
@@ -2308,6 +2384,7 @@
       disposed = true; // stops a pending document.fonts.ready remeasure after teardown
       codexQuestions = false;
       window.removeEventListener("keydown", onWindowKeydown, true);
+      mount.removeEventListener("focusin", onTermFocusIn);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
       el?.removeEventListener("click", onTap);
@@ -2333,6 +2410,27 @@
       fitRef = undefined;
       term.dispose();
     };
+  });
+
+  // "Ask the assistant" prefill: type the request's text into the agent's prompt as a bracketed
+  // paste with NO trailing CR, so it waits in the input box for the operator to review and send.
+  // Waits for ptyLive, so a request made before the terminal attached (the Ask that opens the
+  // panel) is typed once it has. One send per tick; untracked so the send's own state writes
+  // (operator-input counter, the owner's ontyped) can't re-run this.
+  let typedTick = -1;
+  $effect(() => {
+    const req = typeRequest;
+    const c = conn;
+    if (!req || req.tick === typedTick || !ptyLive || !c) return;
+    typedTick = req.tick;
+    untrack(() => {
+      bumpOperatorInput();
+      c.send(`\x1b[200~${req.text}\x1b[201~`);
+      // desktop only, like the mount auto-focus: on touch it would pop the soft keyboard over
+      // the question; the key bar's Enter sends it there.
+      if (!mobile && !touch) termRef?.focus();
+      ontyped?.(req.tick);
+    });
   });
 
   // repaint the live terminal when the active theme changes (no recreation)
@@ -2386,7 +2484,8 @@
     const root = viewportEl;
     // read switchOrder/onnavigate here (via canSwitch) so the listeners re-bind when
     // switching (un)becomes available; switchIdx/gotoSwitch read fresh at commit time.
-    if (!root || !mobile || (!onback && !canSwitch)) return;
+    // The assistant has no herd to page through, and its pane sits beside the session's.
+    if (!root || !mobile || assistant || (!onback && !canSwitch)) return;
     let startX = 0;
     let startY = 0;
     let armed = false; // a single-finger touch is in progress and eligible
@@ -2656,422 +2755,439 @@
   {#snippet renameNoteEl()}
     {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
   {/snippet}
-  <!-- header -->
-  <div
-    class="vp-head"
-    class:mobile={compact}
-    class:phone={mobile}
-    class:renaming
-    class:working={working && !tintColor}
-    style:background={tintWash ?? undefined}
-  >
-    {#if onback}
-      <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
-        >{mobile ? "☰" : m.viewport_back_button()}</button
-      >
-    {/if}
-    {#if showQueueNav}
-      <div class="queue-nav" role="group" aria-label={m.common_needs_you({ count: queue.length })}>
-        <button
-          type="button"
-          onclick={() => gotoQueue(-1)}
-          aria-label={m.viewport_queue_prev_aria()}>‹</button
+  <!-- The session console's chrome: identity header, git strip, build queue, epic-draft bar. The
+       Operator Assistant shows none of it, only the terminal below. -->
+  {#if !assistant}
+    <!-- header -->
+    <div
+      class="vp-head"
+      class:mobile={compact}
+      class:phone={mobile}
+      class:renaming
+      class:working={working && !tintColor}
+      style:background={tintWash ?? undefined}
+    >
+      {#if onback}
+        <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
+          >{mobile ? "☰" : m.viewport_back_button()}</button
         >
-        {#if queueIdx >= 0}
-          <span class="queue-pos"
-            >{m.viewport_queue_position({ idx: queueIdx + 1, total: queue.length })}</span
+      {/if}
+      {#if showQueueNav}
+        <div
+          class="queue-nav"
+          role="group"
+          aria-label={m.common_needs_you({ count: queue.length })}
+        >
+          <button
+            type="button"
+            onclick={() => gotoQueue(-1)}
+            aria-label={m.viewport_queue_prev_aria()}>‹</button
           >
-        {/if}
-        <button type="button" onclick={() => gotoQueue(1)} aria-label={m.viewport_queue_next_aria()}
-          >›</button
-        >
-      </div>
-    {/if}
-    {#if statusGlyph}
-      <!-- phone: shape mark partnering the header tint so blocked/done read
+          {#if queueIdx >= 0}
+            <span class="queue-pos"
+              >{m.viewport_queue_position({ idx: queueIdx + 1, total: queue.length })}</span
+            >
+          {/if}
+          <button
+            type="button"
+            onclick={() => gotoQueue(1)}
+            aria-label={m.viewport_queue_next_aria()}>›</button
+          >
+        </div>
+      {/if}
+      {#if statusGlyph}
+        <!-- phone: shape mark partnering the header tint so blocked/done read
            without colour. The word is on .vp-status-sr for assistive tech. -->
-      <span class="vp-status-glyph" style="color:{tintColor}" aria-hidden="true">{statusGlyph}</span
-      >
-    {/if}
-    {#if mobile}
-      <!-- phone: the merged header carries repo · session (the top bar is hidden
+        <span class="vp-status-glyph" style="color:{tintColor}" aria-hidden="true"
+          >{statusGlyph}</span
+        >
+      {/if}
+      {#if mobile}
+        <!-- phone: the merged header carries repo · session (the top bar is hidden
            here), and the session name doubles as the profile/token meta trigger -->
-      <!-- the repo glyph — the configured project emoji, else the generic ▣ — stands in
+        <!-- the repo glyph — the configured project emoji, else the generic ▣ — stands in
            for the repo name (herd-card convention) to free header width; tapping it
            toggles the name back in. Lives outside the .desig-wrap so focusing it doesn't
            also pop the meta tooltip, and so this button isn't nested inside
            .ctx-trigger's role="button" (which would also make insideTitle() class a tap
            on it as a tap on the title, folding the header). -->
-      <span
-        class="ctx-glyph actionable"
-        class:emoji={!!repoIcon}
-        role="button"
-        tabindex="0"
-        aria-expanded={ctxRepoShown}
-        aria-label={m.viewport_ctx_repo_toggle_aria({ repo: repoName })}
-        onclick={(e) => {
-          e.stopPropagation();
-          ctxRepoShown = !ctxRepoShown;
-        }}
-        onkeydown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
+        <span
+          class="ctx-glyph actionable"
+          class:emoji={!!repoIcon}
+          role="button"
+          tabindex="0"
+          aria-expanded={ctxRepoShown}
+          aria-label={m.viewport_ctx_repo_toggle_aria({ repo: repoName })}
+          onclick={(e) => {
             e.stopPropagation();
             ctxRepoShown = !ctxRepoShown;
-          }
-        }}>{repoIcon || "▣"}</span
-      >
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <!-- the wrap is a non-interactive container; the pointer/focus handlers only
+          }}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              ctxRepoShown = !ctxRepoShown;
+            }
+          }}>{repoIcon || "▣"}</span
+        >
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- the wrap is a non-interactive container; the pointer/focus handlers only
            track hover/focus state to reveal the popover. The interactive trigger
            (.ctx-trigger, role="button") lives inside it. -->
-      <span
-        class="desig-wrap ctx"
-        class:editing={renaming}
-        class:meta-open={metaVisible}
-        class:hovering={hoverOpen}
-        bind:this={desigWrapEl}
-        onpointerenter={onWrapPointerEnter}
-        onpointerleave={onWrapPointerLeave}
-        onfocusin={onWrapFocusIn}
-        onfocusout={onWrapFocusOut}
-      >
-        {#if renaming}
-          {@render renameField()}
-        {:else}
-          <span
-            class="ctx-trigger"
-            role="button"
-            tabindex="0"
-            aria-label={`${m.topbar_detail_context_aria({ repo: repoName, name: session.name })} — ${m.viewport_title_enter_renames()}`}
-            aria-describedby={metaDescId}
-            onclick={onTitleTap}
-            onkeydown={onTitleKey}
-            oncontextmenu={onTriggerContextMenu}
-            use:longPress={{ onTrigger: openMeta }}
-          >
-            {#if ctxRepoShown}
-              <span class="ctx-repo">{repoName}</span>
-              <span class="ctx-sep">·</span>
-            {/if}
-            <span class="ctx-name">{session.name}</span>
-          </span>
-          {@render metaPop()}
-        {/if}
-        <span class="vp-meta-sr" id={metaDescId}>{m.viewport_meta_desc()}</span>
-      </span>
-    {:else}
-      <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
+        <span
+          class="desig-wrap ctx"
+          class:editing={renaming}
+          class:meta-open={metaVisible}
+          class:hovering={hoverOpen}
+          bind:this={desigWrapEl}
+          onpointerenter={onWrapPointerEnter}
+          onpointerleave={onWrapPointerLeave}
+          onfocusin={onWrapFocusIn}
+          onfocusout={onWrapFocusOut}
+        >
+          {#if renaming}
+            {@render renameField()}
+          {:else}
+            <span
+              class="ctx-trigger"
+              role="button"
+              tabindex="0"
+              aria-label={`${m.topbar_detail_context_aria({ repo: repoName, name: session.name })} — ${m.viewport_title_enter_renames()}`}
+              aria-describedby={metaDescId}
+              onclick={onTitleTap}
+              onkeydown={onTitleKey}
+              oncontextmenu={onTriggerContextMenu}
+              use:longPress={{ onTrigger: openMeta }}
+            >
+              {#if ctxRepoShown}
+                <span class="ctx-repo">{repoName}</span>
+                <span class="ctx-sep">·</span>
+              {/if}
+              <span class="ctx-name">{session.name}</span>
+            </span>
+            {@render metaPop()}
+          {/if}
+          <span class="vp-meta-sr" id={metaDescId}>{m.viewport_meta_desc()}</span>
+        </span>
+      {:else}
+        <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
            that used to sit inline in the header, reclaiming horizontal space -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <!-- non-interactive container; pointer/focus handlers only track state to
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- non-interactive container; pointer/focus handlers only track state to
            reveal the popover. The interactive trigger (.desig, role="button")
            lives inside it. -->
-      <span
-        class="desig-wrap"
-        class:editing={renaming}
-        class:meta-open={metaVisible}
-        class:hovering={hoverOpen}
-        bind:this={desigWrapEl}
-        onpointerenter={onWrapPointerEnter}
-        onpointerleave={onWrapPointerLeave}
-        onfocusin={onWrapFocusIn}
-        onfocusout={onWrapFocusOut}
-      >
-        {#if renaming}
-          {@render renameField()}
-        {:else}
-          <span
-            class="desig"
-            role="button"
-            tabindex="0"
-            aria-label={`${m.viewport_meta_aria()} — ${m.viewport_title_enter_renames()}`}
-            aria-describedby={metaDescId}
-            onclick={onTitleTap}
-            onkeydown={onTitleKey}
-            oncontextmenu={onTriggerContextMenu}
-            use:longPress={{ onTrigger: openMeta }}>{session.desig}</span
-          >
-          {@render metaPop()}
-        {/if}
-        <span class="vp-meta-sr" id={metaDescId}>{m.viewport_meta_desc()}</span>
-      </span>
-      {#if !renaming}
-        <!-- visible task title: on normal desktop this restores the name beside the
+        <span
+          class="desig-wrap"
+          class:editing={renaming}
+          class:meta-open={metaVisible}
+          class:hovering={hoverOpen}
+          bind:this={desigWrapEl}
+          onpointerenter={onWrapPointerEnter}
+          onpointerleave={onWrapPointerLeave}
+          onfocusin={onWrapFocusIn}
+          onfocusout={onWrapFocusOut}
+        >
+          {#if renaming}
+            {@render renameField()}
+          {:else}
+            <span
+              class="desig"
+              role="button"
+              tabindex="0"
+              aria-label={`${m.viewport_meta_aria()} — ${m.viewport_title_enter_renames()}`}
+              aria-describedby={metaDescId}
+              onclick={onTitleTap}
+              onkeydown={onTitleKey}
+              oncontextmenu={onTriggerContextMenu}
+              use:longPress={{ onTrigger: openMeta }}>{session.desig}</span
+            >
+            {@render metaPop()}
+          {/if}
+          <span class="vp-meta-sr" id={metaDescId}>{m.viewport_meta_desc()}</span>
+        </span>
+        {#if !renaming}
+          <!-- visible task title: on normal desktop this restores the name beside the
              designator; on compact/touch desktop it keeps the previous name target.
              Pointer-only rename target — the adjacent desig owns the keyboard/AT path
              (a button role here would announce a second, redundant control for the
              same identity), so no role/tabindex/keydown by design. Hidden while
              renaming: the input already shows the editable name in the desig slot. -->
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <!-- keep use:longPress here — .vp-name is the most obvious hold target on
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <!-- keep use:longPress here — .vp-name is the most obvious hold target on
              touch-desktop; dropping it leaves that press doing nothing. The popover
              still anchors to .desig-wrap (its sibling). Mouse hover on .vp-name opens
              nothing (the pointer handlers are on the wrap) — pre-existing, unchanged. -->
-        <span
-          class="vp-name"
-          title={session.name}
-          bind:this={vpNameEl}
-          onclick={onTitleTap}
-          oncontextmenu={onTriggerContextMenu}
-          use:longPress={{ onTrigger: openMeta }}>{session.name}</span
-        >
+          <span
+            class="vp-name"
+            title={session.name}
+            bind:this={vpNameEl}
+            onclick={onTitleTap}
+            oncontextmenu={onTriggerContextMenu}
+            use:longPress={{ onTrigger: openMeta }}>{session.name}</span
+          >
+        {/if}
       {/if}
-    {/if}
-    {#if !compact}
-      {#if !renaming && branchLabel && !branchRepeatsSessionName}
-        <!-- hidden while the rename editor is open — the editor claims the full
+      {#if !compact}
+        {#if !renaming && branchLabel && !branchRepeatsSessionName}
+          <!-- hidden while the rename editor is open — the editor claims the full
              row width, so the branch label would only fight it for space -->
-        <span class="sep">·</span>
-        <span class="branch" title={session.branch ?? session.worktreePath}>{branchLabel}</span>
-      {/if}
-      <!-- transient post-rename note (e.g. "branch kept"); the rename input itself
+          <span class="sep">·</span>
+          <span class="branch" title={session.branch ?? session.worktreePath}>{branchLabel}</span>
+        {/if}
+        <!-- transient post-rename note (e.g. "branch kept"); the rename input itself
            takes the title's slot in place when active -->
-      {@render renameNoteEl()}
-    {/if}
-    <div class="spacer"></div>
-    <ViewportTabBar
-      bind:tab
-      {session}
-      {previewPort}
-      todoExists={!!todoExists}
-      {hasFiles}
-      {hasPreview}
-      {hasBrowser}
-      {compact}
-      {headerFolded}
-      {vpBodyId}
-      {tabId}
-      {foldRegionId}
-    />
-    {#if !compact}
-      <span class="sep">·</span>
-      <!-- git-rail disclosure — grouped with the work-state chips (status ·
+        {@render renameNoteEl()}
+      {/if}
+      <div class="spacer"></div>
+      <ViewportTabBar
+        bind:tab
+        {session}
+        {previewPort}
+        todoExists={!!todoExists}
+        {hasFiles}
+        {hasPreview}
+        {hasBrowser}
+        {compact}
+        {headerFolded}
+        {vpBodyId}
+        {tabId}
+        {foldRegionId}
+      />
+      {#if !compact}
+        <span class="sep">·</span>
+        <!-- git-rail disclosure — grouped with the work-state chips (status ·
            PLANNING) it shares meaning with, anchored in the right cluster so a
            short task name no longer strands it mid-bar. Reveals the full rail
            (PR / CI / merge / critic / ready / verdict) plus the autopilot toggle
            as a second header row (.vp-git-strip). A direct tap toggles instantly
            and is the keyboard/AT path (aria-expanded); tapping the task title
            (onTitleTap) toggles the same strip. -->
-      <button
-        class="git-toggle"
-        class:open={gitOpen}
-        class:attention={prAttention || planAttention}
-        class:clear={prClear}
-        type="button"
-        aria-expanded={gitOpen}
-        onclick={() => (gitOpen = !gitOpen)}
-        title={gitToggleState
-          ? m.viewport_git_actions_title_state({ state: gitToggleState })
-          : m.viewport_git_actions_title()}
-        aria-label={gitToggleState
-          ? m.viewport_git_actions_aria_state({ state: gitToggleState })
-          : m.viewport_git_actions_aria()}
-      >
-        <span class="gt-dot" aria-hidden="true"></span>
-        <span class="gt-label">{m.viewport_git_actions()}</span>
-        <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
-      </button>
-    {/if}
-    {#if mobile}
-      <!-- connection state, alert-by-exception: a lone red dot only when dropped -->
-      {#if !connected}
-        <span
-          class="vp-offline"
-          title={m.topbar_conn_tip_disconnected()}
-          aria-label={m.topbar_conn_tip_disconnected()}>●</span
+        <button
+          class="git-toggle"
+          class:open={gitOpen}
+          class:attention={prAttention || planAttention}
+          class:clear={prClear}
+          type="button"
+          aria-expanded={gitOpen}
+          onclick={() => (gitOpen = !gitOpen)}
+          title={gitToggleState
+            ? m.viewport_git_actions_title_state({ state: gitToggleState })
+            : m.viewport_git_actions_title()}
+          aria-label={gitToggleState
+            ? m.viewport_git_actions_aria_state({ state: gitToggleState })
+            : m.viewport_git_actions_aria()}
         >
+          <span class="gt-dot" aria-hidden="true"></span>
+          <span class="gt-label">{m.viewport_git_actions()}</span>
+          <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
+        </button>
       {/if}
-      {#if hotGauge}
-        <span
-          class="vp-gauge"
-          aria-label={m.topbar_gauge_toggle_aria({ period: hotGauge.label, pct: hotGauge.w.pct })}
-        >
-          <span class="g-bar"
-            ><span
-              class="g-fill"
-              style="transform:scaleX({Math.min(Math.max(hotGauge.w.pct, 0), 100) /
-                100});background:{gaugeColor(hotGauge.w.pct)}"
-            ></span></span
+      {#if mobile}
+        <!-- connection state, alert-by-exception: a lone red dot only when dropped -->
+        {#if !connected}
+          <span
+            class="vp-offline"
+            title={m.topbar_conn_tip_disconnected()}
+            aria-label={m.topbar_conn_tip_disconnected()}>●</span
           >
-        </span>
-      {/if}
-      <!-- sighted users read status from the header tint + leading shape glyph;
+        {/if}
+        {#if hotGauge}
+          <span
+            class="vp-gauge"
+            aria-label={m.topbar_gauge_toggle_aria({ period: hotGauge.label, pct: hotGauge.w.pct })}
+          >
+            <span class="g-bar"
+              ><span
+                class="g-fill"
+                style="transform:scaleX({Math.min(Math.max(hotGauge.w.pct, 0), 100) /
+                  100});background:{gaugeColor(hotGauge.w.pct)}"
+              ></span></span
+            >
+          </span>
+        {/if}
+        <!-- sighted users read status from the header tint + leading shape glyph;
            keep the word for assistive tech -->
-      <span class="vp-status-sr">{statusLabel(dStatus)}</span>
-    {:else}
-      <!-- desktop status: a single shape-coded glyph — done (✓) and idle/archived
+        <span class="vp-status-sr">{statusLabel(dStatus)}</span>
+      {:else}
+        <!-- desktop status: a single shape-coded glyph — done (✓) and idle/archived
            (●) share the slate hue, so shape carries the distinction; the status
            word lives in title + aria. -->
-      <span
-        class="status-mark"
-        style="color:{STATUS_COLOR[dStatus]}"
-        role="img"
-        title={statusLabel(dStatus)}
-        aria-label={statusLabel(dStatus)}>{statusMark}</span
-      >
-    {/if}
-    <!-- plan-gate state in the focused view: the pre-execution lifecycle (PLANNING /
+        <span
+          class="status-mark"
+          style="color:{STATUS_COLOR[dStatus]}"
+          role="img"
+          title={statusLabel(dStatus)}
+          aria-label={statusLabel(dStatus)}>{statusMark}</span
+        >
+      {/if}
+      <!-- plan-gate state in the focused view: the pre-execution lifecycle (PLANNING /
          REWORK / READY / REVIEW ERR; the Review-plan trigger on the git rail acts on this
          state), and during execution the legible read-only PLAN re-open of the signed-off
          plan (issue #809). Self-hides outside the plan phase. Unlike the session-list cards
          (UnitRow, which passes allowView={false}), the focused view surfaces the
          executing read-only chip — it is its home. -->
-    <PlanGateBadge {session} pulseReady />
-    {#if !compact}
-      <!-- passive at-rest pip: the READY control lives in the git strip; its ON
+      <PlanGateBadge {session} pulseReady />
+      {#if !compact}
+        <!-- passive at-rest pip: the READY control lives in the git strip; its ON
            state stays glance-able here. Autopilot's ON state is surfaced solely
            by the Automation pill in GitRail; paused/complete states still appear
            via AutopilotBadge below. -->
-      {#if session.readyToMerge}
-        <span
-          class="state-pip ready"
-          role="img"
-          aria-label={m.gitrail_ready_on_title()}
-          title={m.gitrail_ready_on_title()}>✓</span
-        >
-      {/if}
-      <!-- REVIEWING (in-flight critic, surfaced in the GitRail/auto-pill) outranks the
+        {#if session.readyToMerge}
+          <span
+            class="state-pip ready"
+            role="img"
+            aria-label={m.gitrail_ready_on_title()}
+            title={m.gitrail_ready_on_title()}>✓</span
+          >
+        {/if}
+        <!-- REVIEWING (in-flight critic, surfaced in the GitRail/auto-pill) outranks the
            autopilot badge — mirror the cards' precedence so NEEDS YOU/DELIVERED never
            co-renders with REVIEWING anywhere. -->
-      {#if !reviews.isReviewing(session.id)}<AutopilotBadge
-          {session}
-          repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
-        />{/if}
-    {/if}
-    <ViewportHeaderActions
-      {compact}
-      {renaming}
-      {tab}
-      {headerCollapsed}
-      {foldRegionId}
-      {toggleFold}
-      bind:redrawOpen
-      {ended}
-      {parked}
-      {resuming}
-      {resumable}
-      {stranded}
-      {resumeSession}
-      {prReady}
-      {armed}
-      {decommission}
-      {renameNote}
-      onnudge={redrawNudge}
-      onreattach={redrawReattach}
-      onfullscreen={redrawFullscreen}
-      onresume={redrawResume}
-      fontSize={effectiveFontSize}
-      fontAtMin={effectiveFontSize <= FONT_MIN}
-      fontAtMax={effectiveFontSize >= FONT_MAX}
-      onfontstep={stepTerminalFont}
-    />
-  </div>
+        {#if !reviews.isReviewing(session.id)}<AutopilotBadge
+            {session}
+            repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
+          />{/if}
+      {/if}
+      <ViewportHeaderActions
+        {compact}
+        {renaming}
+        {tab}
+        {headerCollapsed}
+        {foldRegionId}
+        {toggleFold}
+        bind:redrawOpen
+        {ended}
+        {parked}
+        {resuming}
+        {resumable}
+        {stranded}
+        {resumeSession}
+        {prReady}
+        {armed}
+        {decommission}
+        {renameNote}
+        onnudge={redrawNudge}
+        onreattach={redrawReattach}
+        onfullscreen={redrawFullscreen}
+        onresume={redrawResume}
+        fontSize={effectiveFontSize}
+        fontAtMin={effectiveFontSize <= FONT_MIN}
+        fontAtMax={effectiveFontSize >= FONT_MAX}
+        onfontstep={stepTerminalFont}
+      />
+    </div>
 
-  <!-- the git rail gets its own strip when there's no room for it inline:
+    <!-- the git rail gets its own strip when there's no room for it inline:
        always on compact layouts (mobile + unfolded fold, where the header wraps),
        and on desktop only while the PR disclosure toggle is open. The strip is
        the session-lifecycle surface, so the lifecycle cluster (ready — inside
        GitRail — autopilot, plus decommission on compact) lives here too, off the
        identity row; on desktop decommission stays inline in the actions cluster. -->
-  {#if (compact && !headerCollapsed) || gitOpen}
-    <div class="vp-git-strip">
-      <GitRail
-        sessionId={session.id}
-        repoPath={session.repoPath}
-        name={session.name}
-        prompt={session.prompt}
-        ready={session.readyToMerge}
-        status={dStatus}
-        planPhase={session.planPhase}
-        {drain}
-        autopilotOn={autopilotEffective}
-        issueNumber={session.issueNumber}
-        isolated={session.isolated}
-        baseBranch={session.baseBranch}
-        ondecommission={confirmDecommission}
-        mobile
-      />
-      <span class="strip-controls">
-        <!-- per-session autopilot override toggle. Reflects the EFFECTIVE state
+    {#if (compact && !headerCollapsed) || gitOpen}
+      <div class="vp-git-strip">
+        <GitRail
+          sessionId={session.id}
+          repoPath={session.repoPath}
+          name={session.name}
+          prompt={session.prompt}
+          ready={session.readyToMerge}
+          status={dStatus}
+          planPhase={session.planPhase}
+          {drain}
+          autopilotOn={autopilotEffective}
+          issueNumber={session.issueNumber}
+          isolated={session.isolated}
+          baseBranch={session.baseBranch}
+          ondecommission={confirmDecommission}
+          mobile
+        />
+        <span class="strip-controls">
+          <!-- per-session autopilot override toggle. Reflects the EFFECTIVE state
              (session override, else repo default) so a null-override session isn't
              shown as off while the repo default has it running. -->
-        <button
-          class="ap-toggle"
-          class:on={autopilotEffective}
-          type="button"
-          aria-pressed={autopilotEffective}
-          aria-label={m.session_autopilot_toggle_aria()}
-          title={autopilotEffective
-            ? m.session_autopilot_on_label()
-            : m.session_autopilot_off_label()}
-          onclick={toggleSessionAutopilot}
-        >
-          {#if compact}
-            {autopilotEffective ? m.session_autopilot_on_short() : m.session_autopilot_off_short()}
-          {:else}
-            {autopilotEffective ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
-          {/if}
-        </button>
-        {#if compact && !prReady}
-          <!-- compact only: the rare destructive action, parked at the strip's far
+          <button
+            class="ap-toggle"
+            class:on={autopilotEffective}
+            type="button"
+            aria-pressed={autopilotEffective}
+            aria-label={m.session_autopilot_toggle_aria()}
+            title={autopilotEffective
+              ? m.session_autopilot_on_label()
+              : m.session_autopilot_off_label()}
+            onclick={toggleSessionAutopilot}
+          >
+            {#if compact}
+              {autopilotEffective
+                ? m.session_autopilot_on_short()
+                : m.session_autopilot_off_short()}
+            {:else}
+              {autopilotEffective
+                ? m.session_autopilot_on_label()
+                : m.session_autopilot_off_label()}
+            {/if}
+          </button>
+          {#if compact && !prReady}
+            <!-- compact only: the rare destructive action, parked at the strip's far
                edge; once a PR is up it graduates to the identity row as the green
                ready nudge. Desktop always renders decommission inline in the
                actions cluster, so it never duplicates here. -->
-          <button
-            class="decom icon-btn compact"
-            class:armed
-            type="button"
-            onclick={decommission}
-            title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
-            aria-label={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_aria()}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
+            <button
+              class="decom icon-btn compact"
+              class:armed
+              type="button"
+              onclick={decommission}
+              title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
+              aria-label={armed
+                ? m.viewport_confirm_decommission()
+                : m.viewport_decommission_aria()}
             >
-          </button>
-        {/if}
-      </span>
-    </div>
-  {/if}
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
+              >
+            </button>
+          {/if}
+        </span>
+      </div>
+    {/if}
 
-  <!-- Keep approval/start actions reachable even with the compact header folded. -->
-  <BuildQueuePanel
-    sessionId={session.id}
-    enabled={repoConfig.flags(session.repoPath).buildQueue}
-    queue={buildQueue ?? null}
-    sessionStatus={session.status}
-    planPhase={session.planPhase}
-    planReview={planGates.isReviewing(session.id) ? "reviewing" : planGate ? "available" : null}
-    terminalEnded={ended}
-    folded={headerFolded}
-    onbootstrap={(q) => onSeedBuildQueue?.(q)}
-  />
+    <!-- Keep approval/start actions reachable even with the compact header folded. -->
+    <BuildQueuePanel
+      sessionId={session.id}
+      enabled={repoConfig.flags(session.repoPath).buildQueue}
+      queue={buildQueue ?? null}
+      sessionStatus={session.status}
+      planPhase={session.planPhase}
+      planReview={planGates.isReviewing(session.id) ? "reviewing" : planGate ? "available" : null}
+      terminalEnded={ended}
+      folded={headerFolded}
+      onbootstrap={(q) => onSeedBuildQueue?.(q)}
+    />
 
-  <!-- epic draft review (issue #1507): a one-line bar — the draft itself opens in EpicDraftModal, so
+    <!-- epic draft review (issue #1507): a one-line bar — the draft itself opens in EpicDraftModal, so
        the terminal keeps the column. Deliberately OUTSIDE the !headerFolded gate: it takes `folded`
        and decides for itself, because a draft awaiting review must survive the fold (headerCollapsed
        is persisted, so a folded phone operator would otherwise have no path to approve or abort). -->
-  <EpicDraftPanel
-    sessionId={session.id}
-    epicAuthoring={session.epicAuthoring}
-    folded={headerFolded}
-    onreview={() => (epicDraftOpen = true)}
-  />
+    <EpicDraftPanel
+      sessionId={session.id}
+      epicAuthoring={session.epicAuthoring}
+      folded={headerFolded}
+      onreview={() => (epicDraftOpen = true)}
+    />
+  {/if}
 
   <!-- terminal (stays mounted across tab switches) -->
   <div
     class="vp-body"
     data-swipe-page
-    role="tabpanel"
+    role={assistant ? undefined : "tabpanel"}
     id={vpBodyId}
-    aria-labelledby={tabId(tab)}
+    aria-labelledby={assistant ? undefined : tabId(tab)}
     style:--review-banner-h={`${reviewBannerH || ciBannerH || autoMergeH}px`}
   >
     <div
@@ -3130,37 +3246,39 @@
       {reattach}
       {resumeSession}
     />
-    <!-- Non-blocking review-in-flight banner: reserved bottom strip. The terminal
+    {#if !assistant}
+      <!-- Non-blocking review-in-flight banner: reserved bottom strip. The terminal
          (.term-mount) shrinks by this banner's height (--review-banner-h) so the
          strip sits BELOW the live prompt, not over it. Stays mounted across tab
          switches (state survives); it suppresses its own render off the term tab.
          (issue #1022) -->
-    <ReviewInFlightBanner
-      {session}
-      {dStatus}
-      {activity}
-      keystrokes={opKeystrokes}
-      {tab}
-      bind:height={reviewBannerH}
-      bind:active={reviewActive}
-      bind:inflight={reviewInFlight}
-    />
-    <!-- Non-blocking "CI is running" banner: same bottom strip, shown only when no
+      <ReviewInFlightBanner
+        {session}
+        {dStatus}
+        {activity}
+        keystrokes={opKeystrokes}
+        {tab}
+        bind:height={reviewBannerH}
+        bind:active={reviewActive}
+        bind:inflight={reviewInFlight}
+      />
+      <!-- Non-blocking "CI is running" banner: same bottom strip, shown only when no
          review banner claims it (reviewActive) so the two never overlap. -->
-    <CiRunningBanner {git} {tab} {reviewActive} bind:height={ciBannerH} />
-    <!-- Full-auto merge strip: same bottom slot, last in line — shown only when neither banner
+      <CiRunningBanner {git} {tab} {reviewActive} bind:height={ciBannerH} />
+      <!-- Full-auto merge strip: same bottom slot, last in line — shown only when neither banner
          above claims it. Its `owned` signal dims the terminal regardless of who holds the slot. -->
-    <AutoMergeBanner
-      sessionId={session.id}
-      repoPath={session.repoPath}
-      {git}
-      status={autoMergeTrain[session.repoPath]}
-      {tab}
-      stripTaken={reviewActive || ciStripShown}
-      handedBack={session.autopilotPaused}
-      bind:height={autoMergeH}
-      bind:owned={autoMergeOwned}
-    />
+      <AutoMergeBanner
+        sessionId={session.id}
+        repoPath={session.repoPath}
+        {git}
+        status={autoMergeTrain[session.repoPath]}
+        {tab}
+        stripTaken={reviewActive || ciStripShown}
+        handedBack={session.autopilotPaused}
+        bind:height={autoMergeH}
+        bind:owned={autoMergeOwned}
+      />
+    {/if}
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
@@ -3256,9 +3374,11 @@
        ReviewInFlightBanner above shows the REVIEWER's env while this keeps the task's.
        Sits between .vp-body and SteerBar/controls so the ctrl-row stays bottom-most
        (the foldable swipe-up compose gesture starts on the bottom-most element). -->
-  <SessionStatusBar {session} {usage} {activity} />
+  {#if !assistant}
+    <SessionStatusBar {session} {usage} {activity} />
+  {/if}
 
-  {#if tab === "term"}
+  {#if tab === "term" && !assistant}
     <SteerBar
       focusedId={session.id}
       repoPath={session.repoPath}
@@ -3279,6 +3399,21 @@
         composeOpen = true;
       }}
     />
+  {/if}
+
+  {#if assistant && (mobile || touch) && tab === "term"}
+    <!-- The touch Esc lives in the steer bar, which the assistant doesn't show. Keep it, on the
+         same left anchor, so a phone can still interrupt a turn or refuse a permission prompt. -->
+    <div class="vp-esc-row" data-swipe-ignore>
+      <ControlBar
+        include={["cancel"]}
+        scroll={false}
+        onkey={(seq) => {
+          bumpOperatorInput();
+          conn?.send(seq);
+        }}
+      />
+    </div>
   {/if}
 
   <!-- control-key bar: any touch device (incl. unfolded foldables wider than the
@@ -3312,7 +3447,7 @@
     />
   {/if}
 
-  {#if tab !== "activity"}
+  {#if tab !== "activity" && !assistant}
     <SessionRecap {session} autoMergeOwned={autoMergeHandsOff} />
   {/if}
 
@@ -3322,7 +3457,7 @@
        to the terminal AND keeps the ctrl-row the bottom-most element, so the
        swipe-up-from-the-bottom-edge compose gesture lands on it (the footer would
        otherwise sit below the row and swallow the gesture's start on foldables). -->
-  {#if !compact}
+  {#if !compact && !assistant}
     <div class="vp-foot">
       <span>{m.viewport_type_steer_hint()}</span>
       <span class="sep">·</span>
@@ -4352,6 +4487,13 @@
     border-top: 1px solid var(--color-line);
     font-size: var(--fs-meta);
     color: var(--color-muted);
+    flex-shrink: 0;
+  }
+  /* the assistant's lone touch Esc, styled as the steer row it stands in for (SteerBar .steer-row) */
+  .vp-esc-row {
+    display: flex;
+    background: var(--color-head);
+    border-top: 1px solid var(--color-line);
     flex-shrink: 0;
   }
 

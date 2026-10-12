@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldForwardEscape } from "./terminalEscape";
+import { noteTerminalFocus, ownsDriftedEscape, shouldForwardEscape } from "./terminalEscape";
 
 // Stand-ins; identity + a fake `contains` are all the predicate inspects.
 const body = {} as Element;
@@ -24,6 +24,7 @@ const ok = {
   active: body,
   body,
   terminalEl,
+  ownsDriftedFocus: true,
 } as const;
 
 describe("shouldForwardEscape", () => {
@@ -72,5 +73,42 @@ describe("shouldForwardEscape", () => {
 
   it("never steals Escape from an open modal/drawer overlay", () => {
     expect(shouldForwardEscape({ ...ok, overlayOpen: true })).toBe(false);
+  });
+
+  it("leaves a drifted-focus Escape to the terminal that owns it", () => {
+    expect(shouldForwardEscape({ ...ok, ownsDriftedFocus: false })).toBe(false);
+    expect(shouldForwardEscape({ ...ok, active: null, ownsDriftedFocus: false })).toBe(false);
+  });
+
+  it("still forwards focus inside its own terminal regardless of drift ownership", () => {
+    expect(shouldForwardEscape({ ...ok, active: xtermTextarea, ownsDriftedFocus: false })).toBe(
+      true,
+    );
+  });
+});
+
+describe("ownsDriftedEscape", () => {
+  // A mount stand-in: isConnected + offsetParent (null = display:none) are all it reads.
+  const mount = (shown = true, connected = true) =>
+    ({ isConnected: connected, offsetParent: shown ? {} : null }) as unknown as HTMLElement;
+
+  it("gives a drifted Escape to the terminal last focused while it is on screen", () => {
+    const session = mount();
+    const assistant = mount();
+    noteTerminalFocus(assistant);
+    expect(ownsDriftedEscape(assistant, false)).toBe(true);
+    expect(ownsDriftedEscape(session, true)).toBe(false);
+    noteTerminalFocus(session);
+    expect(ownsDriftedEscape(assistant, false)).toBe(false);
+    expect(ownsDriftedEscape(session, true)).toBe(true);
+  });
+
+  it("falls back to the session terminal once the last-focused one is hidden or gone", () => {
+    const session = mount();
+    for (const last of [mount(false), mount(true, false)]) {
+      noteTerminalFocus(last);
+      expect(ownsDriftedEscape(session, true)).toBe(true);
+      expect(ownsDriftedEscape(last, false)).toBe(false);
+    }
   });
 });

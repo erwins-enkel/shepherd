@@ -10,7 +10,7 @@ import type { RemoteDispatch, Session } from "#lib/types.js";
 // Cancel goes to the server; the row only says what came of it (#2774).
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
-  return { ...actual, cancelRemoteDispatch: vi.fn() };
+  return { ...actual, cancelRemoteDispatch: vi.fn(), redirectRemoteDispatch: vi.fn() };
 });
 
 const api = await import("#lib/api.js");
@@ -37,6 +37,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   toasts.items = [];
   vi.mocked(api.cancelRemoteDispatch).mockReset();
+  vi.mocked(api.redirectRemoteDispatch).mockReset();
 });
 
 describe("a task whose start on a machine is unknown (#2774)", () => {
@@ -120,5 +121,138 @@ describe("a task whose start on a machine is unknown (#2774)", () => {
       },
     });
     expect(document.querySelector(".dispatch-row")).toBeNull();
+  });
+});
+
+describe("a task waiting for its machine, or held there (#2775)", () => {
+  const HERE = { instanceId: "here", name: "moes-tavern", platform: "linux" };
+  const BOX = { instanceId: "box", name: "Box", platform: "linux" };
+  const placement = {
+    mode: "auto" as const,
+    target: HOST,
+    requirements: ["xcode"],
+    basis: "requirements" as const,
+    preferred: null,
+    by: { instanceId: HERE.instanceId, name: HERE.name },
+    decidedAt: 1,
+  };
+  const waiting = (over: Partial<RemoteDispatch> = {}) =>
+    dispatch({
+      state: "waiting",
+      placement,
+      readiness: { state: "offline", status: "timeout" },
+      alternatives: [],
+      ...over,
+    });
+  const blocked = () =>
+    waiting({
+      readiness: {
+        state: "missing_capabilities",
+        missing: [{ capability: "xcode", reason: "license_not_accepted" }],
+      },
+    });
+  const description = () =>
+    document.querySelector(".dispatch-state")!.getAttribute("aria-description") ?? "";
+  const buttons = () =>
+    [...document.querySelectorAll(".dispatch-row button")].map((b) => b.textContent?.trim());
+
+  it("offline: waits with what it needs, explains when it starts, offers Cancel", async () => {
+    renderGroups([waiting()]);
+    await expect.element(page.getByText(m.remote_dispatch_waiting())).toBeVisible();
+    expect(document.querySelector(".dispatch-detail")!.textContent).toBe(
+      m.placement_basis_requirements({ list: "Xcode" }),
+    );
+    expect(description()).toContain(m.tooltip_waiting_title({ machine: "MacBook" }));
+    expect(description()).toContain(m.tooltip_waiting_start_body({ machine: "MacBook" }));
+    expect(description()).toContain(m.tooltip_waiting_fallback_none());
+    expect(buttons()).toEqual([m.common_cancel()]);
+  });
+
+  it("offers the machines that fit now — this one as Run here — and runs it there", async () => {
+    vi.mocked(api.redirectRemoteDispatch).mockResolvedValue({
+      ...({} as Session),
+      id: "s-1",
+    });
+    renderGroups([waiting({ alternatives: [HERE, BOX] })]);
+    await expect.element(page.getByText(m.remote_dispatch_waiting())).toBeVisible();
+    expect(buttons()).toEqual([
+      m.remote_dispatch_run_here(),
+      m.remote_dispatch_run_on({ machine: "Box" }),
+      m.common_cancel(),
+    ]);
+    expect(description()).toContain(
+      m.tooltip_waiting_fallback_body({ machines: "moes-tavern, Box" }),
+    );
+    await page
+      .getByRole("button", {
+        name: m.remote_dispatch_redirect_aria({ machine: "MacBook", target: "Box" }),
+      })
+      .click();
+    expect(api.redirectRemoteDispatch).toHaveBeenCalledExactlyOnceWith("d-1", "box");
+    await vi.waitFor(() =>
+      expect(toasts.items.map((t) => t.text)).toEqual([
+        m.toast_dispatch_started_on({ machine: "Box" }),
+      ]),
+    );
+  });
+
+  it("a machine that does not fit (any more) says why", async () => {
+    vi.mocked(api.redirectRemoteDispatch).mockRejectedValue(
+      new ApiError(409, "not reachable", "remote_target_unavailable", true),
+    );
+    renderGroups([waiting({ alternatives: [BOX] })]);
+    await page
+      .getByRole("button", {
+        name: m.remote_dispatch_redirect_aria({ machine: "MacBook", target: "Box" }),
+      })
+      .click();
+    await vi.waitFor(() =>
+      expect(toasts.items.map((t) => t.text)).toEqual([
+        m.newtask_runon_unavailable({ machine: "Box" }),
+      ]),
+    );
+  });
+
+  it("blocked: names the missing capability and the next step", async () => {
+    renderGroups([blocked()]);
+    await expect.element(page.getByText(m.remote_dispatch_blocked())).toBeVisible();
+    expect(document.querySelector(".dispatch-state")!.classList.contains("blocked")).toBe(true);
+    const list = `Xcode (${m.settings_machines_cap_reason_license_not_accepted()})`;
+    expect(document.querySelector(".dispatch-detail")!.textContent).toBe(
+      m.remote_dispatch_missing_detail({ list }),
+    );
+    expect(description()).toContain(
+      m.tooltip_blocked_missing_summary({ machine: "MacBook", list }),
+    );
+    expect(description()).toContain(m.tooltip_blocked_next_body({ machine: "MacBook" }));
+  });
+
+  it("busy: held there, cancelable, never redirected", async () => {
+    renderGroups([dispatch({ state: "held", heldId: "h-1", alternatives: [BOX] })]);
+    await expect.element(page.getByText(m.remote_dispatch_held())).toBeVisible();
+    expect(description()).toContain(m.tooltip_held_summary({ machine: "MacBook" }));
+    expect(description()).toContain(m.tooltip_held_elsewhere_body());
+    expect(buttons()).toEqual([m.common_cancel()]);
+  });
+
+  it("the four states side by side read differently", async () => {
+    renderGroups([
+      waiting(),
+      dispatch({ id: "d-2", state: "held", heldId: "h-1" }),
+      { ...blocked(), id: "d-3" },
+      dispatch({ id: "d-4" }),
+    ]);
+    await expect.element(page.getByText(m.remote_dispatch_held())).toBeVisible();
+    const labels = [...document.querySelectorAll(".dispatch-state")].map((e) => e.textContent);
+    expect(labels).toEqual([
+      m.remote_dispatch_waiting(),
+      m.remote_dispatch_held(),
+      m.remote_dispatch_blocked(),
+      m.remote_dispatch_unknown(),
+    ]);
+    const tips = [...document.querySelectorAll(".dispatch-state")].map((e) =>
+      e.getAttribute("aria-description"),
+    );
+    expect(new Set(tips).size).toBe(4);
   });
 });

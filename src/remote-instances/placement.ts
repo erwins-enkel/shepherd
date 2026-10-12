@@ -15,9 +15,12 @@
  *   and runs all the time), then by instance ID. Nothing in the ranking depends on which Shepherd
  *   decides, so a task lands on the same machine wherever it is submitted — as long as every
  *   Shepherd uses the same order.
- * - The top machine out of reach is a refusal, never a silent fallback to the next one: the
- *   operator picks another machine by hand (waiting for it is a later slice, #2775).
+ * - The top machine out of reach is never replaced by the next one: the task waits for it (#2775)
+ *   and the connected machines that fit too are offered as a manual choice — no silent fallback.
  * - A machine named by the submitter must fit the same way, or it is refused with the reason.
+ *
+ * The same rules judge a waiting task's machine when it comes back (`readinessOf`) and the machines
+ * it could be redirected to (`fittingNow`), so what the herd offers is what a redirect accepts.
  */
 import {
   type Capability,
@@ -25,9 +28,11 @@ import {
   type MissingCapability,
   isCapability,
   missingRequirements,
+  platformReleased,
 } from "./capabilities";
+import type { InstanceIdentity } from "./identity";
 import type { RemoteInstanceSummary } from "./service";
-import type { SessionHost } from "./sessions";
+import { type SessionHost, hostNames } from "./sessions";
 
 /** Settings key of this instance's platform order (a JSON array). */
 export const PLATFORM_ORDER_SETTING = "machinePlatformOrder";
@@ -93,18 +98,20 @@ export type PlacementRefusal =
       /** Connected machines that would fit but have no checkout of the project. */
       elsewhere: SessionHost[];
     }
-  | {
-      code: "preferred_machine_offline";
-      host: SessionHost;
-      status: string;
-      /** Connected machines that fit too — a manual choice away. */
-      alternatives: SessionHost[];
-    }
   | { code: "missing_capabilities"; host: SessionHost; missing: MissingCapability[] }
   | { code: RemoteUnfitCode; host: SessionHost | null; reason: string | null };
 
+/** The machine a task is meant for is out of reach (#2775): the task waits for it. `status` says
+ *  why it is out of reach; `alternatives` are the connected machines — this one included — that fit
+ *  too, a manual choice away. Nothing falls back to them on its own. */
+export interface PlacementWait {
+  status: string;
+  alternatives: SessionHost[];
+}
+
 export type PlacementDecision =
-  { ok: true; placement: Placement } | { ok: false; refusal: PlacementRefusal };
+  | { ok: true; placement: Placement; wait?: PlacementWait }
+  | { ok: false; refusal: PlacementRefusal };
 
 export interface PlacementRequest {
   requirements: Capability[];
@@ -178,13 +185,88 @@ export function remoteUnfit(
 
 /** The requirements `machine` does not meet as far as its report shows. A connected machine's
  *  stale report — or no report — verifies nothing. */
-function missingOn(machine: MachineView, requirements: readonly Capability[]) {
+function missingOn(
+  machine: Pick<MachineView, "connected" | "report">,
+  requirements: readonly Capability[],
+) {
   if (requirements.length === 0) return [];
   const { report } = machine;
   if (!report || (machine.connected && report.stale)) {
     return requirements.map((capability) => ({ capability, reason: NOT_VERIFIED }));
   }
   return missingRequirements(report, requirements);
+}
+
+/** This Shepherd as the choice sees it: its identity and its last capability report. */
+export function localMachine(
+  identity: Pick<InstanceIdentity, "instanceId" | "name" | "platform">,
+  report: CapabilityReport | null,
+): MachineView {
+  return {
+    host: { instanceId: identity.instanceId, name: identity.name, platform: identity.platform },
+    local: true,
+    connected: true,
+    status: "connected",
+    reason: null,
+    released: platformReleased(identity.platform),
+    hasProject: true,
+    report,
+  };
+}
+
+/** Every connected machine as the choice sees it, named as a session's `host` names it. One this
+ *  Shepherd has never reached has no platform, so it is never released and never chosen. */
+export function remoteMachineViews(
+  machines: RemoteInstanceSummary[],
+  project: string | undefined,
+): MachineView[] {
+  const names = hostNames(machines);
+  return machines.map((m) => ({
+    host: {
+      instanceId: m.instanceId,
+      name: names.get(m.instanceId) ?? m.name,
+      platform: m.info?.platform ?? "unknown",
+    },
+    local: false,
+    connected: m.status === "connected",
+    status: m.status,
+    reason: m.reason,
+    released: m.released,
+    hasProject: project !== undefined && (m.projects?.includes(project) ?? false),
+    report: m.capabilities,
+  }));
+}
+
+/** How far a waiting task's machine is from taking it (#2775). `offline`: not connected (`status`
+ *  says why); `unreleased`: its platform runs no tasks; `project_missing`: no checkout of the
+ *  project; `missing_capabilities`: its report lacks a requirement (`not_verified` while no fresh
+ *  report confirms one); `ready`: it fits — the task goes out with the next check. */
+export type ReadinessState =
+  "offline" | "unreleased" | "project_missing" | "missing_capabilities" | "ready";
+
+export interface Readiness {
+  state: ReadinessState;
+  status?: string;
+  missing?: MissingCapability[];
+}
+
+/** A waiting task's machine judged by the same rules as the choice that picked it. */
+export function readinessOf(
+  machine: Pick<
+    RemoteInstanceSummary,
+    "status" | "reason" | "released" | "info" | "projects" | "capabilities"
+  >,
+  project: string,
+  requirements: readonly Capability[],
+): Readiness {
+  const unfit = remoteUnfit(machine, project);
+  if (unfit?.code === "remote_target_unavailable") {
+    return { state: "offline", status: unfit.reason ?? machine.status };
+  }
+  if (unfit?.code === "remote_target_unreleased") return { state: "unreleased" };
+  if (unfit) return { state: "project_missing" };
+  const missing = missingOn({ connected: true, report: machine.capabilities }, requirements);
+  return missing.length > 0 ? { state: "missing_capabilities", missing } : { state: "ready" };
 }
 
 function fits(machine: MachineView, requirements: readonly Capability[]): boolean {
@@ -252,6 +334,20 @@ function basisOf(ranked: readonly MachineView[], requirements: readonly Capabili
   return { basis: basis as PlacementBasis, preferred: null };
 }
 
+/** The connected machines — this one included — that could run a task with `requirements` right
+ *  now, best first, without `except` (the machine a waiting task is meant for). */
+export function fittingNow(
+  machines: readonly MachineView[],
+  requirements: readonly Capability[],
+  order: readonly string[],
+  except: string | null = null,
+): SessionHost[] {
+  return machines
+    .filter((m) => m.connected && m.host.instanceId !== except && fits(m, requirements))
+    .sort(byPreference(order))
+    .map((m) => m.host);
+}
+
 function placeAutomatically(
   machines: readonly MachineView[],
   req: PlacementRequest,
@@ -259,19 +355,12 @@ function placeAutomatically(
   const ranked = machines.filter((m) => fits(m, req.requirements)).sort(byPreference(req.order));
   const top = ranked[0];
   if (!top) return { ok: false, refusal: noSuitableMachine(machines, req.requirements) };
-  if (!top.connected) {
-    return {
-      ok: false,
-      refusal: {
-        code: "preferred_machine_offline",
-        host: top.host,
-        status: top.reason ?? top.status,
-        alternatives: ranked.filter((m) => m.connected).map((m) => m.host),
-      },
-    };
-  }
   const how = { mode: "auto" as const, ...basisOf(ranked, req.requirements) };
-  return { ok: true, placement: placementRecord(top, req, how) };
+  const placement = placementRecord(top, req, how);
+  if (top.connected) return { ok: true, placement };
+  // Out of reach: the task waits for it (#2775) — never for the next one in line.
+  const alternatives = fittingNow(machines, req.requirements, req.order, top.host.instanceId);
+  return { ok: true, placement, wait: { status: top.reason ?? top.status, alternatives } };
 }
 
 function placeManually(machines: readonly MachineView[], req: PlacementRequest): PlacementDecision {
@@ -312,8 +401,6 @@ export function describeRefusal(
           : "";
       return `no connected machine has ${what}${refusal.together && refusal.missing.length > 1 ? " together" : ""}${elsewhere}; nothing was started`;
     }
-    case "preferred_machine_offline":
-      return `${refusal.host.name} would run this task but is not reachable right now (${refusal.status}); nothing was started. Name another machine in target to run it there`;
     case "missing_capabilities":
       return `${refusal.host.name} is missing capabilities: ${listOf(refusal.missing.map((m) => `${m.capability} (${m.reason})`))}`;
   }

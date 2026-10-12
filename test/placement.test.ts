@@ -10,12 +10,17 @@ import {
   type PlacementRequest,
   decidePlacement,
   describeRefusal,
+  fittingNow,
+  localMachine,
   parsePlacementRecord,
   parsePlatformOrder,
   placementActive,
+  readinessOf,
+  remoteMachineViews,
   remoteUnfit,
   storedPlatformOrder,
 } from "../src/remote-instances/placement";
+import type { RemoteInstanceSummary } from "../src/remote-instances/service";
 
 // Automatic machine choice (#2772): the pure decision over a view of every machine.
 
@@ -153,17 +158,22 @@ describe("automatic placement", () => {
     expect(target([mac({ local: true }), linux({ hasProject: false })], request())).toBe(MAC_ID);
   });
 
-  test("an offline preferred machine is refused, never replaced by the next one", () => {
+  test("an offline preferred machine is waited for, never replaced by the next one", () => {
+    // Linux is preferred and asleep; the Mac fits too — it is offered, not used.
     const offline = linux({ connected: false, status: "unreachable", reason: "timeout" });
     const d = decidePlacement([mac({ local: true }), offline], request());
     expect(d).toEqual({
-      ok: false,
-      refusal: {
-        code: "preferred_machine_offline",
-        host: offline.host,
-        status: "timeout",
-        alternatives: [mac().host],
+      ok: true,
+      placement: {
+        mode: "auto",
+        target: offline.host,
+        requirements: [],
+        basis: "preference",
+        preferred: "linux",
+        by: { instanceId: LINUX_ID, name: "moes-tavern" },
+        decidedAt: 42,
       },
+      wait: { status: "timeout", alternatives: [mac().host] },
     });
     // Out of reach, a machine is judged on what it last reported — even a stale report.
     const sleeping = mac({
@@ -176,9 +186,12 @@ describe("automatic placement", () => {
       request({ requirements: ["xcode"] }),
     );
     expect(x).toMatchObject({
-      ok: false,
-      refusal: { code: "preferred_machine_offline", alternatives: [] },
+      ok: true,
+      placement: { target: sleeping.host, basis: "requirements" },
+      wait: { status: "unreachable", alternatives: [] },
     });
+    // Connected, no wait.
+    expect(decidePlacement([linux({ local: true }), mac()], request())).not.toHaveProperty("wait");
   });
 
   test("no fitting machine names what is missing", () => {
@@ -334,14 +347,6 @@ describe("rules", () => {
     );
     expect(
       describeRefusal({
-        code: "preferred_machine_offline",
-        host: mac().host,
-        status: "timeout",
-        alternatives: [],
-      }),
-    ).toContain("MacBook would run this task but is not reachable right now (timeout)");
-    expect(
-      describeRefusal({
         code: "missing_capabilities",
         host: linux().host,
         missing: [{ capability: "xcode", reason: "other_platform" }],
@@ -381,5 +386,91 @@ describe("rules", () => {
     ]) {
       expect(parsePlacementRecord(bad)).toEqual({ error: "placement must be a placement record" });
     }
+  });
+});
+
+describe("waiting tasks (#2775)", () => {
+  test("the machines a waiting task could run on now: connected, fitting, best first", () => {
+    const views = [
+      mac({ local: true }),
+      linux(),
+      machine("00000000-0000-4000-8000-000000000002", "box", "linux", { connected: false }),
+    ];
+    expect(fittingNow(views, [], DEFAULT_PLATFORM_ORDER)).toEqual([linux().host, mac().host]);
+    expect(fittingNow(views, [], DEFAULT_PLATFORM_ORDER, LINUX_ID)).toEqual([mac().host]);
+    expect(fittingNow(views, ["xcode"], DEFAULT_PLATFORM_ORDER, MAC_ID)).toEqual([]);
+  });
+
+  function summary(over: Partial<RemoteInstanceSummary> = {}): RemoteInstanceSummary {
+    return {
+      instanceId: MAC_ID,
+      name: "MacBook",
+      label: null,
+      reportedName: "MacBook",
+      url: "https://mac.example",
+      tokenHint: null,
+      createdAt: 0,
+      status: "connected",
+      reason: null,
+      checkedAt: 1,
+      lastSeenAt: 1,
+      info: { version: "2.2.0", federationApi: 2, platform: "macos", arch: "arm64" },
+      projects: ["acme/app"],
+      capabilities: report(["platform:macos", "xcode"]),
+      released: true,
+      ...over,
+    };
+  }
+
+  test("readiness names what keeps the machine from taking the task", () => {
+    expect(readinessOf(summary(), "acme/app", ["xcode"])).toEqual({ state: "ready" });
+    expect(
+      readinessOf(summary({ status: "unreachable", reason: "timeout" }), "acme/app", ["xcode"]),
+    ).toEqual({ state: "offline", status: "timeout" });
+    expect(readinessOf(summary({ status: "unauthorized" }), "acme/app", [])).toEqual({
+      state: "offline",
+      status: "unauthorized",
+    });
+    expect(readinessOf(summary({ released: false }), "acme/app", [])).toEqual({
+      state: "unreleased",
+    });
+    expect(readinessOf(summary(), "acme/other", [])).toEqual({ state: "project_missing" });
+    expect(readinessOf(summary(), "acme/app", ["xcode", "sdk:ios"])).toEqual({
+      state: "missing_capabilities",
+      missing: [{ capability: "sdk:ios", reason: "not_installed" }],
+    });
+    // A stale report — or none — verifies nothing.
+    expect(
+      readinessOf(summary({ capabilities: report(["xcode"], true) }), "acme/app", ["xcode"]),
+    ).toEqual({
+      state: "missing_capabilities",
+      missing: [{ capability: "xcode", reason: "not_verified" }],
+    });
+    expect(readinessOf(summary({ capabilities: null }), "acme/app", [])).toEqual({
+      state: "ready",
+    });
+  });
+
+  test("this Shepherd and its machines as the choice sees them", () => {
+    const here = localMachine(
+      { instanceId: LINUX_ID, name: "moes-tavern", platform: "linux" },
+      report(["platform:linux"]),
+    );
+    expect(here).toMatchObject({
+      host: { instanceId: LINUX_ID, name: "moes-tavern", platform: "linux" },
+      local: true,
+      connected: true,
+      released: true,
+      hasProject: true,
+    });
+    const [m] = remoteMachineViews([summary({ status: "unreachable" })], "acme/app");
+    expect(m).toMatchObject({
+      host: { instanceId: MAC_ID, name: "MacBook", platform: "macos" },
+      local: false,
+      connected: false,
+      released: true,
+      hasProject: true,
+    });
+    expect(remoteMachineViews([summary()], undefined)[0]!.hasProject).toBe(false);
   });
 });

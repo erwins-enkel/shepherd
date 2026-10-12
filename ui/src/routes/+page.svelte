@@ -2346,7 +2346,8 @@
 
   /** A task named for a machine (#2763) or placed by the server while machines are connected
    *  (#2772). Started elsewhere, that machine reports no spawn phases here, so this waits for the
-   *  answer itself: a hold waits in THAT machine's queue; a started session is shown right away,
+   *  answer itself: a hold waits in THAT machine's queue, a task for a machine out of reach waits
+   *  here for it (#2775); a started session is shown right away,
    *  before the mirror relays the machine's own frame — and since its repo is that machine's
    *  checkout, the repo filter does not follow it. Started here, it is a local session as ever. */
   async function submitPlaced(
@@ -2368,6 +2369,9 @@
     });
     if (r === null) {
       toasts.info(m.toast_dispatch_unknown());
+    } else if ("held" in r && r.waiting && r.host) {
+      // The machine it is meant for is out of reach (#2775): it waits in that machine's group.
+      toasts.info(m.toast_task_waiting_for({ machine: r.host.name }));
     } else if ("held" in r) {
       toasts.info(r.host ? m.toast_task_held_on({ machine: r.host.name }) : m.toast_task_held());
     } else if ("host" in r && r.host) {

@@ -128,6 +128,24 @@ test("sweepStaging deletes files older than maxAge, keeps fresh ones", () => {
   expect(existsSync(fresh)).toBe(true);
 });
 
+test("sweepStaging keeps the files a waiting task still has to upload, however old (#2775)", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const waiting = join(staging, "waiting.png");
+  const abandoned = join(staging, "abandoned.png");
+  writeFileSync(waiting, "x");
+  writeFileSync(abandoned, "y");
+  const now = Date.now();
+  const twoDaysAgoSec = (now - 48 * 3600_000) / 1000;
+  utimesSync(waiting, twoDaysAgoSec, twoDaysAgoSec);
+  utimesSync(abandoned, twoDaysAgoSec, twoDaysAgoSec);
+
+  sweepStaging(root, 24 * 3600_000, now, new Set(["waiting.png"]));
+
+  expect(existsSync(waiting)).toBe(true);
+  expect(existsSync(abandoned)).toBe(false);
+});
+
 test("sweepStaging is a no-op when staging dir is absent", () => {
   expect(() => sweepStaging(root, 1000, Date.now())).not.toThrow();
 });

@@ -124,11 +124,19 @@ export function copyStagedIntoWorktree(
   return copied;
 }
 
-/** Best-effort: delete staged files older than maxAgeMs. No-op if dir absent. */
-export function sweepStaging(repoRoot: string, maxAgeMs: number, now: number): void {
+/** Best-effort: delete staged files older than maxAgeMs. No-op if dir absent. A file named in
+ *  `keep` stays however old it is: a task waiting for its machine (#2775) uploads it only once
+ *  it is sent. */
+export function sweepStaging(
+  repoRoot: string,
+  maxAgeMs: number,
+  now: number,
+  keep: ReadonlySet<string> = new Set(),
+): void {
   const dir = stagingDir(repoRoot);
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
+    if (keep.has(name)) continue;
     const p = join(dir, name);
     try {
       if (now - statSync(p).mtimeMs > maxAgeMs) rmSync(p, { force: true });

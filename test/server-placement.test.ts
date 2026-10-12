@@ -11,6 +11,8 @@ import { AccessTokenService } from "../src/access-tokens";
 import { RemoteInstanceService } from "../src/remote-instances/service";
 import { RemoteSessionMirror } from "../src/remote-instances/sessions";
 import { RemoteDispatcher } from "../src/remote-instances/dispatch";
+import { instanceIdentity } from "../src/remote-instances/identity";
+import { localMachine } from "../src/remote-instances/placement";
 import type { FetchLike } from "../src/remote-instances/client";
 import type { CapabilityService } from "../src/remote-instances/capability-probe";
 import {
@@ -38,6 +40,11 @@ interface Node {
   checkout: string;
   /** The capabilities this node's report says are available; mutable. */
   ok: Capability[];
+  /** How often this node's capabilities were probed on demand (`refresh`). */
+  probes: number;
+  port: number;
+  /** The next task this node sends to a machine reaches it, but the answer is lost. */
+  dropCreate: boolean;
 }
 
 const nodes: Node[] = [];
@@ -60,7 +67,7 @@ afterEach(() => {
 });
 
 /** A report of `node.ok`, always fresh: what the node's own probe found just now. */
-function fixedCapabilities(node: { ok: Capability[] }): CapabilityService {
+function fixedCapabilities(node: { ok: Capability[]; probes: number }): CapabilityService {
   const snapshot = (): CapabilitySnapshot => ({
     vocabulary: 1,
     probedAt: Date.now(),
@@ -72,7 +79,10 @@ function fixedCapabilities(node: { ok: Capability[] }): CapabilityService {
   });
   return {
     report: () => capabilityReport(snapshot(), Date.now()),
-    refresh: async () => snapshot(),
+    refresh: async () => {
+      node.probes++;
+      return snapshot();
+    },
     verify: async (requirements: Capability[]) => missingRequirements(snapshot(), requirements),
   } as unknown as CapabilityService;
 }
@@ -112,7 +122,7 @@ function startNode(dir: string, platform: "linux" | "macos", ok: Capability[]): 
   });
   remoteInstances.onChange((id) => remoteSessions.sync(id));
   const forge = { slug: "acme/app", isFork: false } as unknown as GitForge;
-  const node = { ok: [...ok] } as Node;
+  const node = { ok: [...ok], probes: 0, dropCreate: false } as Node;
   const deps = {
     store,
     events,
@@ -136,10 +146,31 @@ function startNode(dir: string, platform: "linux" | "macos", ok: Capability[]): 
       projections: () => [],
     },
   };
+  // As index.ts wires it: a task waiting for a machine (#2775) is followed up after every probe.
+  const dispatcher = new RemoteDispatcher({
+    store,
+    instances: remoteInstances,
+    events,
+    fetch: async (input, init) => {
+      const res = await fetch(input, init);
+      if (node.dropCreate && init.method === "POST" && input.endsWith("/api/sessions")) {
+        node.dropCreate = false;
+        await res.body?.cancel();
+        throw new TypeError("connection reset after the machine accepted");
+      }
+      return res;
+    },
+    here: () => localMachine(instanceIdentity(store, platform), deps.capabilities.report()),
+  });
+  Object.assign(deps, { remoteDispatch: dispatcher });
+  remoteInstances.onChange((id) => {
+    void (node.deps.remoteDispatch as RemoteDispatcher).reconcile(id).catch(() => {});
+  });
   const server = serve(deps, 0);
   Object.assign(node, {
     deps,
     server,
+    port: server.port,
     base: `http://127.0.0.1:${server.port}`,
     token: deps.accessTokens.mint("machine", null, "full", null).token,
     id: store.getSetting("instanceId") ?? "",
@@ -221,6 +252,38 @@ function preview(node: Node, over: Record<string, unknown> = {}) {
 function ranOn(pair: Node[]): Node[] {
   return pair.filter((n) => n.created.length > 0);
 }
+
+/** `node` goes to sleep: its server stops answering, and `seenBy`'s probe notices. */
+async function sleep(node: Node, seenBy: Node): Promise<void> {
+  node.server.stop(true);
+  await seenBy.deps.remoteInstances.check(node.id);
+}
+
+/** `node` wakes up on the same address, and `seenBy`'s next probe finds it. */
+async function wake(node: Node, seenBy: Node): Promise<void> {
+  node.server = serve(node.deps, node.port);
+  await seenBy.deps.remoteInstances.check(node.id);
+}
+
+async function until<T>(read: () => Promise<T> | T, ok: (v: T) => boolean, ms = 3_000): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await read();
+    if (ok(value)) return value;
+    if (Date.now() > deadline) throw new Error(`timed out; last value: ${JSON.stringify(value)}`);
+    await Bun.sleep(10);
+  }
+}
+
+type Listed = { id: string; state: string; readiness?: { state: string }; [k: string]: unknown };
+
+async function waiting(node: Node): Promise<Listed[]> {
+  return ((await call(node, "GET", "/api/remote-dispatches")).body as { dispatches: Listed[] })
+    .dispatches;
+}
+
+const redirect = (node: Node, id: string, instanceId: string) =>
+  call(node, "POST", `/api/remote-dispatches/${id}/redirect`, { target: { instanceId } });
 
 describe("automatic machine choice", () => {
   test("no requirements ⇒ Linux, Xcode ⇒ the Mac — whichever Shepherd it is submitted to", async () => {
@@ -311,19 +374,18 @@ describe("automatic machine choice", () => {
     expect(ranOn([linux, mac])).toEqual([]);
   });
 
-  test("the fitting machine out of reach is refused and explained, never replaced", async () => {
+  test("the fitting machine out of reach is waited for, never replaced", async () => {
     const { linux, mac } = await pair();
-    mac.server.stop(true);
-    await linux.deps.remoteInstances.check(mac.id);
+    await sleep(mac, linux);
     const res = await create(linux, task(linux, { requirements: ["xcode"] }));
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      code: "preferred_machine_offline",
+      held: true,
+      waiting: true,
       host: { instanceId: mac.id },
-      alternatives: [],
+      dispatch: { state: "waiting", alternatives: [] },
     });
-    expect(res.body.error).toContain("would run this task but is not reachable right now");
-    expect(linux.created).toEqual([]);
+    expect(ranOn([linux, mac])).toEqual([]);
     // A task Linux fits still runs on Linux.
     expect((await create(linux, task(linux))).status).toBe(201);
     expect(linux.created).toHaveLength(1);
@@ -465,5 +527,265 @@ describe("without connected machines", () => {
       },
     );
     expect(allowed).toEqual({ status: 200, body: { active: false } });
+  });
+});
+
+describe("waiting for the right machine (#2775)", () => {
+  test("a sleeping MacBook: the Xcode task waits, then starts there once it is back and checked", async () => {
+    const { linux, mac } = await pair();
+    await sleep(mac, linux);
+    const body = task(linux, { requirements: ["xcode"] });
+    const res = await create(linux, body, { key: "xcode-1" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      held: true,
+      waiting: true,
+      count: 1,
+      host: { instanceId: mac.id },
+      dispatch: {
+        state: "waiting",
+        readiness: { state: "offline" },
+        placement: {
+          requirements: ["xcode"],
+          basis: "requirements",
+          target: { instanceId: mac.id },
+        },
+      },
+    });
+    expect(ranOn([linux, mac])).toEqual([]);
+    // The preview says the same before a submit.
+    expect((await preview(linux, { requirements: ["xcode"] })).body).toMatchObject({
+      active: true,
+      placement: { target: { instanceId: mac.id } },
+      wait: { alternatives: [] },
+    });
+    // A retry under the key: still that one waiting task.
+    const again = await create(linux, body, { key: "xcode-1" });
+    expect(again.body).toMatchObject({ waiting: true, id: res.body.id });
+    expect(await waiting(linux)).toHaveLength(1);
+
+    const probes = mac.probes;
+    await wake(mac, linux);
+    await until(
+      () => mac.created.length,
+      (n) => n === 1,
+    );
+    // The Mac checked its capabilities right before the task was sent.
+    expect(mac.probes).toBeGreaterThan(probes);
+    expect(mac.created[0]).toMatchObject({
+      repoPath: mac.checkout,
+      placement: { requirements: ["xcode"], target: { instanceId: mac.id } },
+    });
+    expect(
+      await until(
+        () => waiting(linux),
+        (l) => l.length === 0,
+      ),
+    ).toEqual([]);
+    expect(linux.created).toEqual([]);
+    // The retry now gets the session that runs on the Mac.
+    const replay = await create(linux, body, { key: "xcode-1" });
+    expect(replay.status).toBe(201);
+    expect(mac.created).toHaveLength(1);
+  });
+
+  test("back without Xcode it is blocked and nothing is sent; with Xcode again it starts", async () => {
+    const { linux, mac } = await pair();
+    await sleep(mac, linux);
+    await create(linux, task(linux, { requirements: ["xcode"] }));
+    mac.ok = mac.ok.filter((c) => c !== "xcode");
+    await wake(mac, linux);
+    const [blocked] = await until(
+      () => waiting(linux),
+      (l) => l[0]?.readiness?.state === "missing_capabilities",
+    );
+    expect(blocked).toMatchObject({
+      state: "waiting",
+      readiness: { missing: [{ capability: "xcode", reason: "not_installed" }] },
+    });
+    expect(mac.created).toEqual([]);
+    mac.ok.push("xcode");
+    await linux.deps.remoteInstances.check(mac.id);
+    await until(
+      () => mac.created.length,
+      (n) => n === 1,
+    );
+  });
+
+  test("while it waits: an unfit machine is refused, a cancel makes sure it never starts", async () => {
+    const { linux, mac } = await pair();
+    await sleep(mac, linux);
+    const { body } = await create(linux, task(linux, { requirements: ["xcode"] }));
+    const id = body.id as string;
+    // Linux has no Xcode: refused with the reason, and it keeps waiting.
+    const unfit = await redirect(linux, id, linux.id);
+    expect(unfit.status).toBe(422);
+    expect(unfit.body).toMatchObject({
+      code: "missing_capabilities",
+      host: { instanceId: linux.id },
+      missing: [{ capability: "xcode" }],
+    });
+    expect((await redirect(linux, id, "nope")).body).toMatchObject({
+      code: "remote_target_unknown",
+    });
+    // The Mac is asleep: not a machine to run it on now either.
+    expect((await redirect(linux, id, mac.id)).body).toMatchObject({
+      code: "remote_target_unavailable",
+    });
+    expect((await redirect(linux, "nope", linux.id)).status).toBe(404);
+    expect((await call(linux, "POST", `/api/remote-dispatches/${id}/redirect`, {})).status).toBe(
+      400,
+    );
+    expect((await waiting(linux)).map((d) => d.state)).toEqual(["waiting"]);
+
+    const canceled = await call(linux, "DELETE", `/api/remote-dispatches/${id}`);
+    expect(canceled.status).toBe(200);
+    expect(canceled.body).toMatchObject({ state: "canceled" });
+    expect(await waiting(linux)).toEqual([]);
+    const late = await redirect(linux, id, linux.id);
+    expect(late.status).toBe(409);
+    expect(late.body).toMatchObject({
+      code: "remote_dispatch_not_redirectable",
+      dispatch: { state: "canceled" },
+    });
+    await wake(mac, linux);
+    await Bun.sleep(50);
+    expect(ranOn([linux, mac])).toEqual([]);
+  });
+
+  test("Linux only preferred and asleep: no fallback, the Mac is offered and taken by hand", async () => {
+    const { linux, mac } = await pair();
+    await sleep(linux, mac);
+    const body = task(mac);
+    const res = await create(mac, body, { key: "web-1" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      waiting: true,
+      host: { instanceId: linux.id },
+      dispatch: {
+        placement: { basis: "preference", preferred: "linux" },
+        alternatives: [{ instanceId: mac.id }],
+      },
+    });
+    expect((await preview(mac)).body).toMatchObject({
+      placement: { target: { instanceId: linux.id } },
+      wait: { alternatives: [{ instanceId: mac.id }] },
+    });
+    expect(ranOn([linux, mac])).toEqual([]);
+
+    // Taken by hand to the Mac — this Shepherd — under the task's own key.
+    const moved = await redirect(mac, res.body.id as string, mac.id);
+    expect(moved.status).toBe(201);
+    expect(mac.created).toHaveLength(1);
+    expect(mac.created[0]).toMatchObject({ placement: { mode: "manual", basis: "manual" } });
+    expect(await waiting(mac)).toEqual([]);
+    // The original create, retried under its key, replays that start.
+    const replay = await create(mac, body, { key: "web-1" });
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(moved.body.id);
+    expect(mac.created).toHaveLength(1);
+    // Linux back: nothing goes there.
+    await wake(linux, mac);
+    await Bun.sleep(50);
+    expect(linux.created).toEqual([]);
+  });
+
+  test("redirected to another fitting machine, it runs there once and never on the first", async () => {
+    const { linux, mac } = await pair();
+    const box = startNode("app-box", "linux", ["platform:linux", "agent:claude"]);
+    await connect(mac, box);
+    box.id = await instanceId(box);
+    // The one the order prefers (lower ID among the two Linux machines) is asleep.
+    const [first, second] = [linux, box].sort((a, b) => (a.id < b.id ? -1 : 1)) as [Node, Node];
+    await sleep(first, mac);
+    const res = await create(mac, task(mac), { key: "web-2" });
+    expect(res.body).toMatchObject({
+      waiting: true,
+      host: { instanceId: first.id },
+      dispatch: { alternatives: [{ instanceId: second.id }, { instanceId: mac.id }] },
+    });
+    const id = res.body.id as string;
+    const moved = await redirect(mac, id, second.id);
+    expect(moved.status).toBe(201);
+    expect(moved.body).toMatchObject({ host: { instanceId: second.id } });
+    expect(second.created).toHaveLength(1);
+    expect(second.created[0]).toMatchObject({ placement: { mode: "manual" } });
+    expect(await waiting(mac)).toEqual([]);
+    // Started there: no longer redirectable, and the first machine never gets it.
+    expect((await redirect(mac, id, mac.id)).status).toBe(409);
+    await wake(first, mac);
+    await Bun.sleep(50);
+    expect(first.created).toEqual([]);
+    expect(mac.created).toEqual([]);
+  });
+
+  test("a restart of the coordinator keeps it waiting, and it starts once", async () => {
+    const { linux, mac } = await pair();
+    await sleep(mac, linux);
+    await create(linux, task(linux, { requirements: ["xcode"] }), { key: "xcode-2" });
+    // Restarted: a fresh dispatcher over the same store, nothing in memory.
+    linux.deps.remoteDispatch = new RemoteDispatcher({
+      store: linux.deps.store,
+      instances: linux.deps.remoteInstances,
+      events: linux.deps.events,
+    });
+    expect((await waiting(linux)).map((d) => [d.state, d.readiness?.state])).toEqual([
+      ["waiting", "offline"],
+    ]);
+    await wake(mac, linux);
+    await until(
+      () => mac.created.length,
+      (n) => n === 1,
+    );
+    await linux.deps.remoteInstances.check(mac.id);
+    await Bun.sleep(50);
+    expect(mac.created).toHaveLength(1);
+  });
+
+  test("offline, busy, missing capability and start status unknown are told apart", async () => {
+    const { linux, mac } = await pair();
+    const seen: [string, string | undefined][] = [];
+    const snapshot = async () => {
+      const [d] = await waiting(linux);
+      seen.push([d!.state, d!.readiness?.state]);
+      return d!;
+    };
+    // Offline: the Mac sleeps.
+    await sleep(mac, linux);
+    const { body } = await create(linux, task(linux, { requirements: ["xcode"] }));
+    await snapshot();
+    // Missing capability: back, but without Xcode.
+    mac.ok = mac.ok.filter((c) => c !== "xcode");
+    await wake(mac, linux);
+    await until(
+      () => waiting(linux),
+      (l) => l[0]?.readiness?.state === "missing_capabilities",
+    );
+    await snapshot();
+    await call(linux, "DELETE", `/api/remote-dispatches/${body.id as string}`);
+    // Busy: the Mac holds the task (its capacity).
+    mac.deps.codexCapacity = async () => false;
+    const codex = { agentProvider: "codex", model: null, effort: null };
+    const held = await create(linux, { ...task(linux, codex), target: { instanceId: mac.id } });
+    expect(held.body).toMatchObject({ held: true, host: { instanceId: mac.id } });
+    expect(held.body).not.toHaveProperty("waiting");
+    const busy = await snapshot();
+    expect(busy).toMatchObject({ state: "held", heldId: held.body.id });
+    // A cancel discards it there.
+    const cancel = await call(linux, "DELETE", `/api/remote-dispatches/${busy.id}`);
+    expect(cancel.body).toMatchObject({ state: "canceled" });
+    expect(mac.deps.store.listHeldTasks()).toEqual([]);
+    // Start status unknown: the answer is lost on the way back.
+    linux.dropCreate = true;
+    const lost = await create(linux, { ...task(linux), target: { instanceId: mac.id } });
+    expect(lost.status).toBe(504);
+    await snapshot();
+
+    expect(seen).toEqual([
+      ["waiting", "offline"],
+      ["waiting", "missing_capabilities"],
+      ["held", undefined],
+      ["unknown", undefined],
+    ]);
   });
 });

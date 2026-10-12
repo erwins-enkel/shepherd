@@ -527,6 +527,21 @@ describe("sessions", () => {
       { kind: "upload_failed", host, reason: "attachment 1 of 1: the machine answered 413" },
       { kind: "canceled", host },
       { kind: "cancel_pending", host },
+      // #2775: it waits here for the machine — answered like a hold, `waiting` and the dispatch added.
+      {
+        kind: "waiting",
+        count: 1,
+        dispatch: {
+          id: "d-wait",
+          state: "waiting",
+          host,
+          summary: "remote",
+          createdAt: 1,
+          updatedAt: 1,
+          readiness: { state: "offline", status: "timeout" },
+          alternatives: [],
+        },
+      },
       { kind: "refused", code: "remote_target_unavailable", reason: "timeout" },
     ];
     const savedForge = s.stubs.resolveForge.forge;
@@ -566,7 +581,7 @@ describe("sessions", () => {
           submit: async () => outcome,
           list: () => [],
           cancel: async () => ({ kind: "not_found" }),
-        };
+        } as unknown as NonNullable<typeof s.deps.remoteDispatch>;
         const body = { prompt: "remote", target: { instanceId: host.instanceId } };
         validateRequest("POST", "/api/sessions", {
           repoPath: s.validRepo,
@@ -677,6 +692,15 @@ describe("sessions", () => {
       expect(refused).toMatchObject({
         active: true,
         refusal: { code: "no_suitable_machine", missing: ["android-sdk"] },
+      });
+      // Asleep (#2775): the task would wait for it, nothing else fits.
+      machine.status = "unreachable";
+      machine.reason = "timeout";
+      const waits = await check({ repoPath: s.validRepo, requirements: ["xcode"] }, 200);
+      expect(waits).toMatchObject({
+        active: true,
+        placement: { target: { name: "MacBook" } },
+        wait: { status: "timeout", alternatives: [] },
       });
     } finally {
       s.deps.remoteInstances = savedInstances;
@@ -969,7 +993,7 @@ describe("remote dispatches", () => {
       list: () => [],
       cancel: async () => ({ kind: "not_found" }),
       ...over,
-    };
+    } as NonNullable<typeof s.deps.remoteDispatch>;
   };
   const list = () => fetch(`${s.baseUrl}/api/remote-dispatches`, { headers: bearer(token) });
 
@@ -980,7 +1004,29 @@ describe("remote dispatches", () => {
       expect(await validateResponse("GET", "/api/remote-dispatches", empty)).toEqual({
         dispatches: [],
       });
-      const open = [dispatch("unknown"), dispatch("canceling", { id: "d-2" })];
+      const open = [
+        dispatch("unknown"),
+        dispatch("canceling", { id: "d-2" }),
+        // #2775: waiting here for its machine, and held there.
+        dispatch("waiting", {
+          id: "d-3",
+          placement: {
+            mode: "auto",
+            target: host,
+            requirements: ["xcode"],
+            basis: "requirements",
+            preferred: null,
+            by: { instanceId: "2b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d", name: "moes-tavern" },
+            decidedAt: 1,
+          },
+          readiness: {
+            state: "missing_capabilities",
+            missing: [{ capability: "xcode", reason: "license_not_accepted" }],
+          },
+          alternatives: [],
+        }),
+        dispatch("held", { id: "d-4", heldId: "h-1" }),
+      ];
       stub({ list: () => open });
       const res = await list();
       expect(res.status).toBe(200);
@@ -992,6 +1038,11 @@ describe("remote dispatches", () => {
     }
     validateEvent("remote:dispatch", dispatch("unknown"));
     validateEvent("remote:dispatch", dispatch("started", { sessionId: "s-1" }));
+    validateEvent(
+      "remote:dispatch",
+      dispatch("waiting", { readiness: { state: "offline", status: "timeout" }, alternatives: [] }),
+    );
+    validateEvent("remote:dispatch", dispatch("redirected"));
     validateEvent(
       "remote:dispatch",
       dispatch("rejected", {
@@ -1028,6 +1079,133 @@ describe("remote dispatches", () => {
       }
     } finally {
       s.deps.remoteDispatch = undefined;
+    }
+  });
+});
+
+// #2775: a waiting task run elsewhere. The dispatcher is stubbed; the store row the route reads
+// the task from is real. Both ways a redirect goes are covered end to end in
+// test/server-placement.test.ts.
+describe("redirecting a waiting task", () => {
+  const host = {
+    instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
+    name: "MacBook",
+    platform: "macos",
+  };
+  const view = (state: RemoteDispatchView["state"]): RemoteDispatchView => ({
+    id: "wait-1",
+    state,
+    host,
+    summary: "port the settings screen",
+    createdAt: 1,
+    updatedAt: 2,
+  });
+
+  test("POST /api/remote-dispatches/{id}/redirect starts (201), holds or waits (200), refuses (400/404/409/422)", async () => {
+    const machine: RemoteInstanceSummary = {
+      instanceId: host.instanceId,
+      name: host.name,
+      label: null,
+      reportedName: host.name,
+      url: "http://mac.test",
+      tokenHint: null,
+      createdAt: 1,
+      status: "connected",
+      reason: null,
+      checkedAt: 1,
+      lastSeenAt: 1,
+      info: {
+        version: "2.2.0",
+        federationApi: FEDERATION_API_VERSION,
+        platform: "macos",
+        arch: "arm64",
+      },
+      projects: ["acme/app"],
+      capabilities: null,
+      released: true,
+    };
+    s.deps.store.insertRemoteDispatch({
+      id: "wait-1",
+      clientKey: "wait-key-1",
+      instanceId: host.instanceId,
+      payloadHash: "h",
+      wireBody: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "x" }),
+      state: "waiting",
+      sessionId: null,
+      heldId: null,
+      reason: null,
+      code: null,
+      httpStatus: null,
+      createdAt: 1,
+      updatedAt: 1,
+      uploads: null,
+      project: "acme/app",
+    });
+    const created = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "elsewhere" }),
+    });
+    const session = (await created.json()) as Record<string, unknown>;
+    const savedInstances = s.deps.remoteInstances;
+    s.deps.remoteInstances = {
+      list: () => [machine],
+      get: () => machine,
+    } as unknown as RemoteInstanceService;
+    const send = (body: unknown, id = "wait-1") =>
+      fetch(`${s.baseUrl}/api/remote-dispatches/${id}/redirect`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify(body),
+      });
+    const stub = (current: RemoteDispatchView | null, outcome?: RemoteOutcome) => {
+      s.deps.remoteDispatch = {
+        get: () => current,
+        redirect: async () => (outcome ? { kind: "redirected", outcome } : { kind: "not_found" }),
+      } as unknown as NonNullable<typeof s.deps.remoteDispatch>;
+    };
+    const target = { target: { instanceId: host.instanceId } };
+    validateRequest("POST", "/api/remote-dispatches/{id}/redirect", target);
+    const cases: [RemoteDispatchView | null, RemoteOutcome | undefined, unknown, number][] = [
+      [
+        view("waiting"),
+        {
+          kind: "started",
+          session: {
+            ...session,
+            id: "remote-1",
+            host,
+            connection: { state: "connected", since: 1 },
+          },
+        },
+        target,
+        201,
+      ],
+      [view("waiting"), { kind: "held", id: "h-1", count: 1, host }, target, 200],
+      [view("waiting"), { kind: "waiting", dispatch: view("waiting"), count: 1 }, target, 200],
+      [view("waiting"), { kind: "upload_failed", host, reason: "attachment 1 of 1" }, target, 502],
+      [view("waiting"), { kind: "unknown", host, dispatchKey: "wait-key-1" }, target, 504],
+      [view("waiting"), undefined, {}, 400],
+      [null, undefined, target, 404],
+      [view("started"), undefined, target, 409],
+      [view("waiting"), undefined, { target: { instanceId: "no-such-machine" } }, 422],
+    ];
+    try {
+      for (const [current, outcome, body, status] of cases) {
+        stub(current, outcome);
+        const res = await send(body);
+        const answer = (await validateResponse(
+          "POST",
+          "/api/remote-dispatches/{id}/redirect",
+          res,
+        )) as Record<string, unknown>;
+        expect(res.status).toBe(status);
+        if (status === 409) expect(answer.code).toBe("remote_dispatch_not_redirectable");
+        if (status === 422) expect(answer.code).toBe("remote_target_unknown");
+      }
+    } finally {
+      s.deps.remoteDispatch = undefined;
+      s.deps.remoteInstances = savedInstances;
     }
   });
 });

@@ -48,8 +48,12 @@ _Avoid_: job, order, request (overloaded)
 A new task this Shepherd sends to a connected machine to run there: stored here before it is sent, delivered under its own dispatch ID, and only ever sent again to that same machine. Its attachments are uploaded to that machine just before it is sent, once. When no answer comes back its start status is unknown — not failed — until this Shepherd has asked the machine what became of it; until the machine confirms it, it can be canceled.
 _Avoid_: forward, relay, remote job
 
+**Waiting Task**:
+A remote dispatch the placement meant for a machine that is out of reach or lacks a requirement right now: stored here, nothing sent, and sent to that machine by itself once it is back and a fresh check passes. It never moves to another machine on its own; the operator can cancel it or redirect it to another machine that fits. Distinct from a task held on a machine, which that machine has already accepted.
+_Avoid_: queued task, pending dispatch
+
 **Placement**:
-Where a new task runs and why, chosen once when it is submitted: the machine — this Shepherd or a connected one — and the reason (its requirements, the platform order, the only candidate, or the operator's choice). Recorded on the session; it never moves the task afterwards and never falls back to another machine on its own.
+Where a new task runs and why, chosen once when it is submitted: the machine — this Shepherd or a connected one — and the reason (its requirements, the platform order, the only candidate, or the operator's choice). Recorded on the session; it never moves the task afterwards and never falls back to another machine on its own — a task meant for a machine out of reach waits for it.
 _Avoid_: routing, scheduling, load balancing
 
 **Requirement**:

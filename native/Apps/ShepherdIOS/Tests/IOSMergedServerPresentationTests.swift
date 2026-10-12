@@ -188,7 +188,8 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         XCTAssertEqual(merged.machines[1].connection.state.known, .disconnected)
         XCTAssertEqual(merged.groups.flatMap(\.rows).map(\.session.id), ["l1"])
         XCTAssertEqual(merged.tallies.total, 1)
-        XCTAssertEqual(merged.chips.map(\.path), ["/repos/app"])
+        XCTAssertEqual(merged.chips.map(\.name), ["app"])
+        XCTAssertEqual(merged.chips.map(\.paths), [["/repos/app"]])
     }
 
     func testOneSessionMirroredByTwoCoordinatorsOrServedUnderTwoProfilesAppearsOnce() {

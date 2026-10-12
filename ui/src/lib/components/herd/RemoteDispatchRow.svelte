@@ -105,10 +105,12 @@
      standing condition Shepherd is resolving, not a call to act: an unknown start, a task waiting
      for its machine. Blocked needs someone to fix the machine: warn. Held there and a pending
      cancel are the machine's to settle: slate. */
+  /* Wraps on a narrow screen: the actions move below rather than squeezing the summary away. */
   .dispatch-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: 10px;
+    gap: 4px 10px;
     min-width: 0;
     padding: 6px 8px;
     border-bottom: 1px dashed var(--color-line);
@@ -137,8 +139,12 @@
     font-size: var(--fs-meta);
     color: var(--color-muted);
   }
+  /* Keeps the reason apart from the task's own summary that follows it. */
+  .dispatch-detail::after {
+    content: " ·";
+  }
   .dispatch-summary {
-    flex: 1;
+    flex: 1 1 8rem;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

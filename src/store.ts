@@ -733,7 +733,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId,
-  plain`;
+  plain, operatorAssistant`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -798,6 +798,7 @@ type SessionRow = {
   terminal: number;
   terminalTabId: string | null;
   terminalPaneId: string | null;
+  operatorAssistant: number;
   createdAt: number;
   updatedAt: number;
   settledAt: number | null;
@@ -3230,6 +3231,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       terminal: Boolean(input.terminal),
       terminalTabId: strOrNull(input.terminalTabId),
       terminalPaneId: strOrNull(input.terminalPaneId),
+      operatorAssistant: Boolean(input.operatorAssistant),
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -3259,7 +3261,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -3324,6 +3326,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // archiveReason — a fresh session has not been archived
           strOrEmpty(s.codexLaunchId),
           Number(s.plain), // Number() not `? 1 : 0` — same rationale as the other kind flags
+          Number(s.operatorAssistant),
         ],
       );
       return s;
@@ -3352,6 +3355,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       )
       .get(repoPath, branch) as { epicParent: number } | null;
     return r?.epicParent ?? null;
+  }
+
+  /** The live (unarchived) Operator Assistant row, or null. Newest first, though the
+   *  `sessions_operator_assistant_singleton` index already allows at most one. Backs
+   *  `SessionService.ensureOperatorAssistant`. */
+  getLiveOperatorAssistant(): Session | null {
+    const r = this.db
+      .query(
+        `SELECT ${READ_COLS} FROM sessions
+          WHERE operatorAssistant = 1 AND archivedAt IS NULL ORDER BY createdAt DESC LIMIT 1`,
+      )
+      .get() as SessionRow | null;
+    return r ? this.hydrate(r) : null;
   }
 
   // ── Clean-terminal singleton lease ──────────────────────────────────────────
@@ -5842,6 +5858,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // socket-transport attach pane. Nullable — null on every non-terminal row.
     add("terminalTabId", `terminalTabId TEXT`);
     add("terminalPaneId", `terminalPaneId TEXT`);
+    // Operator Assistant kind (#1446): Shepherd's own diagnostic session. Default 0 for every
+    // pre-existing row.
+    add("operatorAssistant", `operatorAssistant INTEGER NOT NULL DEFAULT 0`);
     add("mergeTrainPrs", `mergeTrainPrs TEXT`);
     add("mergingPrNumber", `mergingPrNumber INTEGER`);
     // halt detection: reason + timestamp; nullable, no default (null = not halted).
@@ -5886,6 +5905,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(
       `CREATE UNIQUE INDEX IF NOT EXISTS sessions_terminal_singleton
          ON sessions (repoPath) WHERE terminal = 1 AND archivedAt IS NULL`,
+    );
+    // At most one live Operator Assistant per install (#1446), the same partial-index shape as the
+    // terminal singleton above: archiving (New conversation) frees the slot.
+    this.db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS sessions_operator_assistant_singleton
+         ON sessions (operatorAssistant) WHERE operatorAssistant = 1 AND archivedAt IS NULL`,
     );
     // Pre-spawn reservation lease for clean-terminal creates (heartbeat-renewed; see
     // claimTerminalRepo). Its own table so a reservation never surfaces as a session row.
@@ -7548,6 +7573,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       terminal: !!r.terminal,
       terminalTabId: strOrNull(r.terminalTabId),
       terminalPaneId: strOrNull(r.terminalPaneId),
+      operatorAssistant: !!r.operatorAssistant,
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
       mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),

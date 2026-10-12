@@ -34,6 +34,14 @@ const herdrUpdateLogPath =
 // so `cat ~/.shepherd/codex-update.log` is a durable post-mortem. SHEPHERD_CODEX_UPDATE_LOG overrides.
 const codexUpdateLogPath =
   process.env.SHEPHERD_CODEX_UPDATE_LOG ?? join(dirname(dbPath), "codex-update.log");
+// Shepherd's own app log: the systemd unit appends stdout/stderr here and
+// shepherd-logrotate.timer rotates it (deploy/rotate-shepherd-log.sh reads the same
+// SHEPHERD_LOG). Read by the Operator Assistant's log tool (#1446).
+const shepherdLogPath = process.env.SHEPHERD_LOG ?? join(dirname(dbPath), "shepherd.log");
+// The Operator Assistant's working dir (#1446): its claude session's cwd, created 0700 on first
+// spawn. Beside the db so it survives `bun run update`; SHEPHERD_ASSISTANT_DIR overrides.
+const operatorAssistantDir =
+  process.env.SHEPHERD_ASSISTANT_DIR ?? join(dirname(dbPath), "assistant");
 // Server-side plugin dir (issue #1124): private/out-of-repo extensions live here,
 // alongside the db, so they survive `bun run update` and can never leak into the public
 // repo. Default ~/.shepherd/plugins; SHEPHERD_PLUGINS_DIR overrides. A missing/empty dir
@@ -658,6 +666,8 @@ export const config = {
   herdrUpdateLogPath,
   codexBin: process.env.CODEX_BIN ?? "codex",
   codexUpdateLogPath,
+  shepherdLogPath,
+  operatorAssistantDir,
   // node binary for the PTY attach helper (pty-attach.mjs). Resolved so a node
   // managed by mise/nvm/fnm still works when the launcher's PATH excludes it —
   // otherwise the helper can't spawn and every session pane stays black.

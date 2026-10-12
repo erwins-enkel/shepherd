@@ -133,6 +133,12 @@ export interface Session {
   /** herdr pane running the clean-terminal shell — the socket-transport attach target
    *  (`terminal session control <pane>`); null/absent on non-terminal sessions. */
   terminalPaneId?: string | null;
+  /** True for the Operator Assistant (#1446): the one interactive `claude` session Shepherd owns to
+   *  diagnose Shepherd itself, in its own assistant dir (no repo, no worktree). Hidden from every
+   *  herd-facing read and skipped by every automation — test it with `isOperatorAssistant`.
+   *  OPTIONAL like `terminal` so existing Session fixtures stay valid — absent and false are
+   *  equivalent; the store always hydrates a real boolean. */
+  operatorAssistant?: boolean;
   /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
   autoMergeEnabled: boolean | null;
   /** Consecutive auto-rebase attempts the merge train has spent on this session

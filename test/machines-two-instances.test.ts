@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, connect as netConnect, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { SESSION_COOKIE, signCookie } from "../src/operator-auth";
+import type { Capability } from "../src/remote-instances/capabilities";
 
 // Manual assignment across two machines (#2769), the Phase-1 close of epic #2778: two Shepherd
 // servers as two OS processes — coordinator C and machine M — each with its own port, SQLite file,
@@ -16,11 +17,16 @@ import { SESSION_COOKIE, signCookie } from "../src/operator-auth";
 // or swallow the answer to one task start (a proxy error page instead of the machine's 201). M also
 // connects C directly, so both directions run at once.
 //
-// The tests are steps of ONE scenario and run in order on the same two processes.
+// The tests are steps of ONE scenario and run in order on the same two processes. The second block
+// (#2777, the acceptance of epic #2778) continues it with the automatic choice: M reports macOS
+// with Xcode, C Linux without, each from a capability file the test can change, and a stand-in for
+// the model that reads requirements from a description gives both the same fixed answers.
 
 const FIXTURE = new URL("./fixtures/machine-node.ts", import.meta.url).pathname;
 const FAKE_HERDR = new URL("./fixtures/fake-herdr-echo.mjs", import.meta.url).pathname;
 const STEP_TIMEOUT_MS = 30_000;
+const LINUX: Capability[] = ["platform:linux", "agent:claude"];
+const MAC: Capability[] = ["platform:macos", "xcode", "sdk:macos", "agent:claude"];
 
 interface Node {
   name: string;
@@ -28,6 +34,7 @@ interface Node {
   checkout: string;
   secret: string;
   herdrBin: string | null;
+  platform: "linux" | "macos";
   proc: Subprocess<"ignore", "pipe", "pipe">;
   port: number;
   token: string;
@@ -126,7 +133,7 @@ let net: Network;
 const sockets: WebSocket[] = [];
 
 function spawnNode(
-  spec: Pick<Node, "name" | "root" | "checkout" | "secret" | "herdrBin">,
+  spec: Pick<Node, "name" | "root" | "checkout" | "secret" | "herdrBin" | "platform">,
   port: number,
 ): Promise<Node> {
   const env: Record<string, string> = {
@@ -143,6 +150,7 @@ function spawnNode(
     MACHINE_NODE_ROOT: spec.root,
     MACHINE_NODE_NAME: spec.name,
     MACHINE_NODE_PORT: String(port),
+    MACHINE_NODE_PLATFORM: spec.platform,
   };
   if (spec.herdrBin) env.HERDR_BIN = spec.herdrBin;
   const proc = Bun.spawn([process.execPath, FIXTURE], {
@@ -187,11 +195,23 @@ async function stopNode(node: Node, signal: "SIGTERM" | "SIGKILL"): Promise<void
   }
 }
 
-function nodeSpec(name: string, herdrBin: string | null) {
+function nodeSpec(
+  name: string,
+  herdrBin: string | null,
+  platform: Node["platform"],
+  capabilities: Capability[],
+) {
   const root = join(base, name);
   mkdirSync(join(root, "home"), { recursive: true });
   mkdirSync(join(root, "tmp"), { recursive: true });
-  return { name, root, checkout: join(root, "app"), secret: `${name}-cookie-secret`, herdrBin };
+  const spec = { name, root, checkout: join(root, "app"), secret: `${name}-cookie-secret` };
+  setCapabilities(spec, capabilities);
+  return { ...spec, herdrBin, platform };
+}
+
+/** What `node`'s capability probe finds from now on (the fixture re-reads it on every check). */
+function setCapabilities(node: Pick<Node, "root">, capabilities: Capability[]): void {
+  writeFileSync(join(node.root, "capabilities.json"), JSON.stringify(capabilities));
 }
 
 /** An HTTP request to `node` as a client sends it: bearer by default, the operator's signed-in
@@ -246,7 +266,7 @@ function agentLog(node: Node): Json[] {
 const ops = (node: Node, op: string) => agentLog(node).filter((e) => e.op === op);
 
 /** Hand-offs from `node` that no machine has confirmed yet — what its herd shows as "start status
- *  unknown". */
+ *  unknown", and tasks waiting there for their machine. */
 async function unconfirmed(node: Node): Promise<Json[]> {
   const res = await api(node, "GET", "/api/remote-dispatches");
   expect(res.status).toBe(200);
@@ -300,8 +320,8 @@ function terminal(node: Node, id: string) {
 
 beforeAll(async () => {
   base = mkdtempSync(join(tmpdir(), "shepherd-two-machines-"));
-  m = await spawnNode(nodeSpec("mac", FAKE_HERDR), 0);
-  c = await spawnNode(nodeSpec("linux", null), 0);
+  m = await spawnNode(nodeSpec("mac", FAKE_HERDR, "macos", MAC), 0);
+  c = await spawnNode(nodeSpec("linux", null, "linux", LINUX), 0);
   net = new Network(() => m.port);
   await net.listen();
 }, STEP_TIMEOUT_MS);
@@ -603,6 +623,340 @@ describe("manual assignment across two Shepherd processes", () => {
         (l) => !l.some((s) => s.id === s1.id),
       );
       expect((await sessions(m)).some((s) => s.id === s1.id)).toBe(false);
+    },
+    STEP_TIMEOUT_MS,
+  );
+});
+
+// ── The automatic choice across the two processes (#2777) ─────────────────────────────────────────
+
+/** A New Task on Automatic — no machine named — as the web form sends it (the operator's browser)
+ *  or as the native apps do (a token, and the composer's own fields). Both key every submission. */
+function submit(
+  from: Node,
+  prompt: string,
+  client: "web" | "native",
+  key: string,
+  extra: Json = {},
+) {
+  const native = { agentProvider: "claude", research: false, epicAuthoring: false, plain: false };
+  return api(from, "POST", "/api/sessions", {
+    json: task(from, prompt, { ...(client === "native" && native), ...extra }),
+    key,
+    operator: client === "web",
+  });
+}
+
+/** What New Task shows before a submit: where the task would run, and why. */
+const preview = (on: Node, extra: Json = {}) =>
+  api(on, "POST", "/api/placement", { json: { repoPath: on.checkout, ...extra } });
+
+const derive = (on: Node, prompt: string) =>
+  api(on, "POST", "/api/requirements/derive", { json: { repoPath: on.checkout, prompt } });
+
+/** Runs `send` and answers where it started: the machines whose agent got a new task. */
+async function landedOn(send: () => Promise<{ status: number; text: string }>): Promise<string[]> {
+  const before = [c, m].map((node) => ops(node, "create").length);
+  const res = await send();
+  expect(res.status, res.text).toBe(201);
+  return [c, m].filter((node, i) => ops(node, "create").length > before[i]!).map((n) => n.name);
+}
+
+const UNCLEAR = "Passe die App an das neue Logo an";
+
+describe("automatic choice, asking back, waiting and reconnect across two Shepherd processes", () => {
+  test(
+    "automatic choice: the same task lands on the same machine from either entry, web and native alike",
+    async () => {
+      let n = 0;
+      for (const from of [c, m]) {
+        // The checkout has a Package.swift and native/: a task that asks for nothing still runs on
+        // Linux, preferred; one that needs Xcode runs on the Mac — from whichever Shepherd.
+        for (const [requirements, expected] of [
+          [[], c],
+          [["xcode"], m],
+        ] as [Capability[], Node][]) {
+          const extra = requirements.length > 0 ? { requirements } : {};
+          const shown = await preview(from, extra);
+          expect(shown.body).toMatchObject({
+            active: true,
+            placement: { target: { instanceId: expected.instanceId } },
+          });
+          for (const client of ["web", "native"] as const) {
+            const prompt = `automatic ${++n}`;
+            const where = await landedOn(() => submit(from, prompt, client, `auto-${n}`, extra));
+            expect(where, `${client} on ${from.name}`).toEqual([expected.name]);
+            // The record of the choice travels with the task: decided where it was submitted.
+            expect(ops(expected, "create").at(-1)).toMatchObject({
+              prompt,
+              placement: {
+                mode: "auto",
+                target: { instanceId: expected.instanceId },
+                requirements,
+                basis: requirements.length > 0 ? "requirements" : "preference",
+                preferred: requirements.length > 0 ? null : "linux",
+                by: { instanceId: from.instanceId },
+              },
+            });
+          }
+        }
+      }
+    },
+    STEP_TIMEOUT_MS,
+  );
+
+  test(
+    "asking back: an unclear description is asked about, and the answer decides the machine",
+    async () => {
+      for (const from of [c, m]) {
+        // Linux and the Mac differ in Xcode, so what a description calls for can change the choice.
+        expect((await preview(from)).body.deriveRequirements).toBe(true);
+        expect((await derive(from, "Erweitere die native macOS-App")).body).toEqual({
+          status: "derived",
+          requirements: ["xcode"],
+        });
+        expect((await derive(from, "Implementiere die Web-Einstellungen")).body).toEqual({
+          status: "derived",
+          requirements: [],
+        });
+        expect((await derive(from, UNCLEAR)).body).toEqual({
+          status: "unclear",
+          options: [["xcode"], []],
+        });
+        // Each Shepherd reads the description itself; nothing is asked across.
+        expect(ops(from, "derive").map((e) => e.prompt)).toEqual([
+          "Erweitere die native macOS-App",
+          "Implementiere die Web-Einstellungen",
+          UNCLEAR,
+        ]);
+      }
+
+      // The operator's answer becomes the task's requirements, and they decide where it runs.
+      let n = 0;
+      for (const from of [c, m]) {
+        for (const [answer, expected] of [
+          [["xcode"], m],
+          [[], c],
+        ] as [Capability[], Node][]) {
+          const extra = answer.length > 0 ? { requirements: answer } : {};
+          const where = await landedOn(() => submit(from, UNCLEAR, "web", `answer-${++n}`, extra));
+          expect(where).toEqual([expected.name]);
+        }
+      }
+
+      // A create never reads the description: sent unanswered, it is a task that asks for nothing.
+      const derived = ops(c, "derive").length + ops(m, "derive").length;
+      expect(await landedOn(() => submit(m, UNCLEAR, "native", "unanswered"))).toEqual([c.name]);
+      expect(ops(c, "derive").length + ops(m, "derive").length).toBe(derived);
+    },
+    STEP_TIMEOUT_MS,
+  );
+
+  test(
+    "start status unknown: an automatic hand-off whose answer is lost is retried where it went, once",
+    async () => {
+      const xcode = { requirements: ["xcode"] };
+      const creates = { c: ops(c, "create").length, m: ops(m, "create").length };
+      net.failNextCreate();
+      const lost = await submit(c, "build the iOS widget", "native", "auto-lost", xcode);
+      expect(lost.status).toBe(504);
+      expect(lost.body).toMatchObject({
+        code: "remote_dispatch_unknown",
+        dispatchId: "auto-lost",
+        host: { instanceId: m.instanceId },
+      });
+      const started = ops(m, "create").at(-1)!;
+      expect(started).toMatchObject({
+        prompt: "build the iOS widget",
+        placement: { mode: "auto", basis: "requirements" },
+      });
+      expect((await unconfirmed(c)).map((d) => [d.state, d.host.instanceId])).toEqual([
+        ["unknown", m.instanceId],
+      ]);
+
+      // Linux gains Xcode: the same task would now stay on Linux — but this one went out already.
+      setCapabilities(c, [...LINUX, "xcode"]);
+      try {
+        expect((await preview(c, xcode)).body).toMatchObject({
+          placement: { target: { instanceId: c.instanceId } },
+        });
+        const again = await submit(c, "build the iOS widget", "native", "auto-lost", xcode);
+        expect(again.status).toBe(201);
+        expect(again.body.id).toBe(started.id);
+        expect(again.body.host).toMatchObject({ instanceId: m.instanceId });
+        expect(await unconfirmed(c)).toEqual([]);
+        expect(ops(m, "create")).toHaveLength(creates.m + 1);
+        expect(ops(c, "create")).toHaveLength(creates.c);
+      } finally {
+        setCapabilities(c, LINUX);
+      }
+    },
+    STEP_TIMEOUT_MS,
+  );
+
+  test(
+    "waiting: an Xcode task for an unreachable Mac waits, outlives a crash of C and starts there once it is back",
+    async () => {
+      net.cut();
+      await until(
+        () => machine(c, m),
+        (i) => i?.status === "unreachable",
+      );
+      const xcode = { requirements: ["xcode"] };
+      // New Task says so before a submit: it waits for the Mac, and nothing else fits now.
+      expect((await preview(c, xcode)).body).toMatchObject({
+        placement: { target: { instanceId: m.instanceId } },
+        wait: { alternatives: [] },
+      });
+
+      const bytes = "\x89PNG mockup of the macOS menu";
+      const form = new FormData();
+      form.append("file", new File([bytes], "menu.png", { type: "image/png" }));
+      const staged = await api(c, "POST", "/api/uploads", { body: form });
+      expect(staged.status).toBe(200);
+      const body = { ...xcode, images: [staged.body.path as string] };
+      const creates = { c: ops(c, "create").length, m: ops(m, "create").length };
+
+      const res = await submit(c, "build the macOS menu", "web", "wait-1", body);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        held: true,
+        waiting: true,
+        host: { instanceId: m.instanceId },
+        dispatch: {
+          state: "waiting",
+          readiness: { state: "offline" },
+          placement: { requirements: ["xcode"], target: { instanceId: m.instanceId } },
+        },
+      });
+      const id = res.body.id as string;
+      expect((await submit(c, "build the macOS menu", "web", "wait-1", body)).body).toMatchObject({
+        waiting: true,
+        id,
+      });
+
+      // A machine picked by hand must fit right now: Linux lacks Xcode, the Mac is out of reach.
+      const here = await api(c, "POST", `/api/remote-dispatches/${id}/redirect`, {
+        json: { target: { instanceId: c.instanceId } },
+      });
+      expect(here.status).toBe(422);
+      expect(here.body).toMatchObject({
+        code: "missing_capabilities",
+        host: { instanceId: c.instanceId },
+        missing: [{ capability: "xcode", reason: "not_installed" }],
+      });
+      const named = await api(c, "POST", "/api/sessions", {
+        json: task(c, "build the macOS menu on Linux", {
+          ...xcode,
+          target: { instanceId: c.instanceId },
+        }),
+      });
+      // Named here, C checks itself on a fresh probe before anything starts (#2770).
+      expect(named.status).toBe(422);
+      expect(named.body).toMatchObject({
+        code: "missing_capabilities",
+        missing: [{ capability: "xcode", reason: "not_installed" }],
+      });
+      const away = await startOn(c, m, "build the macOS menu over there", "wait-named", xcode);
+      expect(away.status).toBe(409);
+      expect(away.body.code).toBe("remote_target_unavailable");
+      expect((await unconfirmed(c)).map((d) => [d.id, d.state])).toEqual([[id, "waiting"]]);
+
+      // C crashes and comes back while the Mac is still away: the task still waits.
+      await stopNode(c, "SIGKILL");
+      c = await spawnNode(c, c.port);
+      expect((await unconfirmed(c)).map((d) => [d.id, d.state, d.readiness?.state])).toEqual([
+        [id, "waiting", "offline"],
+      ]);
+      expect(ops(m, "create")).toHaveLength(creates.m);
+
+      // The Mac is back. Nobody asks: C's next probe finds it, the Mac checks Xcode right then, and
+      // the task goes out — attachment first.
+      const seen = agentLog(m).length;
+      net.restore();
+      await until(
+        () => ops(m, "create").length,
+        (count) => count === creates.m + 1,
+      );
+      const since = agentLog(m).slice(seen);
+      expect(since.map((e) => e.op)).toEqual(["probe", "verify", "create"]);
+      const ran = since.at(-1)!;
+      expect(ran).toMatchObject({
+        prompt: "build the macOS menu",
+        requirements: ["xcode"],
+        placement: { requirements: ["xcode"], target: { instanceId: m.instanceId } },
+      });
+      expect((ran.images as string[]).map((path) => readFileSync(path, "utf8"))).toEqual([bytes]);
+      expect((ran.images as string[])[0]!.startsWith(m.root)).toBe(true);
+
+      await until(
+        () => unconfirmed(c),
+        (l) => l.length === 0,
+      );
+      const replay = await submit(c, "build the macOS menu", "web", "wait-1", body);
+      expect(replay.status).toBe(201);
+      expect(replay.body.id).toBe(ran.id);
+      expect(ops(m, "create")).toHaveLength(creates.m + 1);
+      expect(ops(c, "create")).toHaveLength(creates.c);
+    },
+    STEP_TIMEOUT_MS,
+  );
+
+  test(
+    "missing Xcode is named: back without it the task is blocked and nothing is sent; with Xcode again it starts",
+    async () => {
+      net.cut();
+      await until(
+        () => machine(c, m),
+        (i) => i?.status === "unreachable",
+      );
+      const creates = ops(m, "create").length;
+      const res = await submit(c, "archive the macOS build", "native", "blocked-1", {
+        requirements: ["xcode"],
+      });
+      expect(res.body).toMatchObject({ waiting: true });
+
+      // The Mac comes back with only the Command Line Tools: Xcode is missing there now.
+      setCapabilities(
+        m,
+        MAC.filter((cap) => cap !== "xcode"),
+      );
+      net.restore();
+      const [blocked] = await until(
+        () => unconfirmed(c),
+        (l) => l[0]?.readiness?.state === "missing_capabilities",
+      );
+      expect(blocked).toMatchObject({
+        id: res.body.id,
+        state: "waiting",
+        readiness: { missing: [{ capability: "xcode", reason: "not_installed" }] },
+      });
+      // Settings → Machines on C names it too.
+      const checks = (await machine(c, m))!.capabilities.checks as Json[];
+      expect(checks.find((check) => check.id === "xcode")).toMatchObject({
+        ok: false,
+        reason: "not_installed",
+      });
+      expect(ops(m, "create")).toHaveLength(creates);
+
+      // Xcode is back; the next check of the Mac (here: Check now in Settings → Machines) sends it.
+      setCapabilities(m, MAC);
+      const check = () =>
+        api(c, "POST", `/api/remote-instances/${m.instanceId}/check`, { operator: true });
+      expect((await check()).status).toBe(200);
+      await until(
+        () => ops(m, "create").length,
+        (count) => count === creates + 1,
+      );
+      expect(ops(m, "create").at(-1)).toMatchObject({ prompt: "archive the macOS build" });
+      await until(
+        () => unconfirmed(c),
+        (l) => l.length === 0,
+      );
+      // Settled: another check sends nothing.
+      await check();
+      await Bun.sleep(100);
+      expect(ops(m, "create")).toHaveLength(creates + 1);
     },
     STEP_TIMEOUT_MS,
   );

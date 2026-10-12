@@ -123,9 +123,10 @@ struct ComposeSheetContent: View {
         }
         .task(id: RepoGuardLoad(path: model.repoPath, retry: repoConfigRetry)) { await loadRepoGuards() }
         // Where the task will run (#2776): the preview follows the repo, the chips and the pick;
-        // the requirements are read from the task a beat after the last edit.
-        .task(id: model.placementKey) { if current { await model.refreshPlacement() } }
-        .task(id: model.deriveKey) { if current { await model.deriveRequirements() } }
+        // the requirements are read from the task a beat after the last edit. Both are POSTs, which
+        // a read-only audited launch refuses, so it keeps the composer as it was.
+        .task(id: model.placementKey) { if current, app.liveRequestAudit == nil { await model.refreshPlacement() } }
+        .task(id: model.deriveKey) { if current, app.liveRequestAudit == nil { await model.deriveRequirements() } }
         .onChange(of: model.prompt) { _, prompt in
             app.updateComposeHandoverPrompt(prompt, activation: activation)
         }

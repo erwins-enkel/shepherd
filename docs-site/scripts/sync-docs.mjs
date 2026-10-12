@@ -85,7 +85,7 @@ export const PAGES = [
     dest: "machines.md",
     linkBase: GITHUB_DOCS_BASE,
     title: "Run tasks on another machine",
-    description: "Connect another Shepherd as a machine — Linux and macOS setup, the trust decision, limits and an end-to-end checklist.",
+    description: "Connect another Shepherd as a machine — Linux and macOS setup, the automatic choice and waiting tasks, the trust decision, limits and an end-to-end checklist.",
   },
   {
     srcDir: "docs",

@@ -357,6 +357,19 @@ export function runOnExplanation(): TooltipExplanation {
   };
 }
 
+/** Requirements read from the task's description (#2773): what was read, and that the chips are
+ *  the operator's to correct. */
+export function derivedRequirementsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_derive_title(),
+    summary: m.tooltip_derive_summary(),
+    sections: [
+      { label: m.tooltip_derive_reads(), text: m.tooltip_derive_reads_body() },
+      { label: m.tooltip_derive_correct(), text: m.tooltip_derive_correct_body() },
+    ],
+  };
+}
+
 /** Why a task runs where it runs (#2772): the reason, what it needed, who decided — in New Task
  *  before it starts and on its session afterwards. */
 export function placementExplanation(p: Placement): TooltipExplanation {

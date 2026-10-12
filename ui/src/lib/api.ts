@@ -93,6 +93,7 @@ import type {
   InstanceIdentity,
   RemoteDispatch,
   PlacementPreview,
+  RequirementsDerivation,
   PlacementRefusal,
   RemoteInstance,
   ApnsConfigError,
@@ -957,6 +958,22 @@ export async function previewPlacement(body: {
     body: JSON.stringify(body),
   });
   if (!r.ok) throw await failed(r, "preview placement");
+  return r.json();
+}
+
+/** Read a new task's requirements from its prompt and attached issue (#2773). `signal` aborts it
+ *  when the task text changes; the server then tears its helper down. */
+export async function deriveRequirements(
+  body: { repoPath: string; prompt: string; issue?: { title: string; body?: string } },
+  signal?: AbortSignal,
+): Promise<RequirementsDerivation> {
+  const r = await fetch("/api/requirements/derive", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!r.ok) throw await failed(r, "derive requirements");
   return r.json();
 }
 

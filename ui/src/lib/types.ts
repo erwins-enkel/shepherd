@@ -275,12 +275,25 @@ export interface PlacementWait {
 }
 
 /** `POST /api/placement` (#2772): not active (no machine could take a task), or the machine and
- *  why — with `wait` when that machine is out of reach (#2775) — or the refusal. */
+ *  why — with `wait` when that machine is out of reach (#2775) — or the refusal.
+ *  `deriveRequirements` (#2773): reading the task's requirements from its description can change
+ *  where it runs. */
 export interface PlacementPreview {
   active: boolean;
   placement?: Placement;
   wait?: PlacementWait;
   refusal?: PlacementRefusal;
+  deriveRequirements?: boolean;
+}
+
+/** `POST /api/requirements/derive` (#2773) — mirrors `RequirementsDerivation` in
+ *  src/requirements-classify-core.ts. Language-neutral: requirements, or the alternatives to ask
+ *  about, never prose. `status` is open: an unknown one reads as nothing derived. */
+export interface RequirementsDerivation {
+  status: "skipped" | "derived" | "unclear" | "failed" | (string & {});
+  requirements?: string[];
+  options?: string[][];
+  cause?: string;
 }
 
 export interface Settings {

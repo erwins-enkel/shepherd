@@ -266,6 +266,7 @@ export function sectionSearchRows(ctx: {
       [m.settings_reduced_push_title(), m.settings_reduced_push_hint()],
     ],
     access: [
+      [m.pairing_title(), m.pairing_hint(), m.pairing_show()],
       [m.settings_tab_access()],
       [m.settings_access_env_title()],
       [m.settings_access_create_title()],

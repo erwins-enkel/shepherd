@@ -173,6 +173,7 @@
   // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
   // builds along with every other __DEMO__-guarded reference below.
   import { commandBarShowcase } from "#lib/demo/showcase.js";
+  import { pairingSettingsOpen } from "./pairing-settings-open";
   import { steersSettingsOpen } from "./steers-settings-open";
   import {
     createDecommissionCommit,
@@ -309,6 +310,16 @@
   }
   let showNew = $state(false);
   let showSettings = $state(false);
+  let showPairing = $state(false);
+  onMount(() => {
+    const target = pairingSettingsOpen(window.location.href);
+    if (!target) return;
+    settingsTab = target.settingsTab;
+    settingsDeepLink = target.settingsDeepLink;
+    showPairing = target.showPairing;
+    showSettings = target.showSettings;
+    history.replaceState(history.state, "", target.cleanUrl);
+  });
   let showUsage = $state(false);
   let settingsTab = $state<SettingsSectionId>("workspace");
   // Whether the pending Settings open is a deep link (diagnostics dot, plugin
@@ -3708,12 +3719,14 @@
     showNewProject = true;
   }}
   {showSettings}
+  {showPairing}
   {settingsTab}
   {settingsMobileView}
   {focusPluginId}
   {focusSteerId}
   onsettingsclose={() => {
     showSettings = false;
+    showPairing = false;
     focusPluginId = null;
     focusSteerId = null;
     loadSettings();

@@ -859,6 +859,12 @@ export const putAutoRevive = (enabled: boolean): Promise<{ autoReviveEnabled: bo
 // Named machine bearer tokens. All three routes need the session cookie, which the browser
 // attaches automatically — a bearer is deliberately refused (403) on this surface.
 
+export async function createPairingCode(): Promise<{ code: string; expiresAt: number }> {
+  const response = await fetch("/api/pairing-codes", { method: "POST" });
+  if (!response.ok) throw await failed(response, "create pairing invitation");
+  return response.json();
+}
+
 export const listAccessTokens = (): Promise<{ tokens: AccessToken[] }> =>
   getJson("/api/access-tokens", "access tokens");
 

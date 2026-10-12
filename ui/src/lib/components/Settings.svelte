@@ -70,6 +70,7 @@
     focusPluginId = null,
     focusSteerId = null,
     connected = false,
+    showPairing = false,
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -104,6 +105,7 @@
     focusSteerId?: string | null;
     /** WS liveness for the rail footer's ● live/offline dot. */
     connected?: boolean;
+    showPairing?: boolean;
   } = $props();
 
   // initialTab/initialMobileView seed the starting route; the user then freely
@@ -568,7 +570,7 @@
         hidden={active !== "access"}
       >
         {#if active === "access" && (!isNarrow || !mobileList)}
-          <SettingsAccessPanel {payload} {query} />
+          <SettingsAccessPanel {payload} {query} {showPairing} />
         {/if}
       </div>
 

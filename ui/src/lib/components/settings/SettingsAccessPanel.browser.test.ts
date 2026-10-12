@@ -41,12 +41,18 @@ function stubApi(opts: {
   revokeStatus?: number;
   repoStatus?: number;
   patchStatus?: number;
+  pairing?: () => { code: string; expiresAt: number };
 }) {
   const calls: { url: string; method: string; body: string }[] = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     calls.push({ url, method, body: init?.body ? String(init.body) : "" });
+    if (url === "/api/pairing-codes")
+      return jsonRes(
+        opts.pairing?.() ?? { code: "shpp_" + "x".repeat(43), expiresAt: Date.now() + 300_000 },
+        201,
+      );
     if (url === "/api/repos")
       return jsonRes(
         {
@@ -102,6 +108,38 @@ afterEach(() => {
 });
 
 describe("SettingsAccessPanel", () => {
+  it("shows a QR with the reachable server and removes it on close", async () => {
+    const calls = stubApi({});
+    render(SettingsAccessPanel, { payload: { ...payload(true), previewHost: "server.ts.net" } });
+    await page.getByRole("button", { name: "Show QR code", exact: true }).click();
+    await expect
+      .element(page.getByRole("img", { name: "QR code to connect the iPhone" }))
+      .toBeVisible();
+    await expect.element(page.getByText("https://server.ts.net", { exact: true })).toBeVisible();
+    expect(calls.filter((c) => c.url === "/api/pairing-codes")).toHaveLength(1);
+    await page.getByRole("button", { name: "close", exact: true }).click();
+    await expect
+      .element(page.getByRole("img", { name: "QR code to connect the iPhone" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("deep-link entry immediately displays and renews an expired code", async () => {
+    let minted = 0;
+    const calls = stubApi({
+      pairing: () => ({
+        code: "shpp_" + String(++minted).repeat(43),
+        expiresAt: Date.now() + (minted === 1 ? 50 : 300_000),
+      }),
+    });
+    render(SettingsAccessPanel, { payload: payload(true), showPairing: true });
+    await expect
+      .poll(() => calls.filter((c) => c.url === "/api/pairing-codes").length, { timeout: 5000 })
+      .toBe(2);
+    await expect
+      .element(page.getByRole("img", { name: "QR code to connect the iPhone" }))
+      .toBeVisible();
+  });
+
   it("reports whether an env-provisioned SHEPHERD_TOKEN is active", async () => {
     stubApi({});
     render(SettingsAccessPanel, { payload: payload(true) });

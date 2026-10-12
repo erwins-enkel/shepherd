@@ -146,3 +146,17 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 - [Configuration](/reference/configuration/) — every environment variable.
 - [Concepts & glossary](/reference/glossary/) — the terms Shepherd uses.
 - [Plugins](/reference/plugins/) — extend Shepherd with server-side spawn hooks, routes, and UI.
+
+## Connect the iPhone app with a QR code
+
+In the web app, open **Settings → Access → Connect iPhone → Show QR code**.
+In Shepherd on your iPhone, choose **Connect with QR code** when adding a server
+and scan it. The system Camera app can also open the pairing link. The app connects
+with full access, without typing an address or password. On the Mac, **Connect iPhone…**
+in Access settings or the local-server panel opens this web view for you.
+
+Your iPhone must be able to reach the server, for example through Tailscale.
+A localhost address points at the phone itself; when available, the web view uses
+its Tailscale address instead. Each QR code works once and expires after five minutes;
+the open view renews it automatically. Remove a phone's token under **Settings → Access**
+to revoke its access.

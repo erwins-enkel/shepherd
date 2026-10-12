@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { theme } from "#lib/theme.svelte.js";
+  import { motionSettle } from "#lib/motion-settle.js";
   import { m } from "#lib/paraglide/messages.js";
   import { auth } from "#lib/auth.svelte.js";
   import { getMe } from "#lib/api.js";
@@ -17,12 +18,15 @@
   // keep `data-theme` in sync with OS changes when the preference is "system"
   onMount(() => {
     theme.init();
+    // Endless animations rest after a quiet spell so an idle HUD stops producing frames (#3035).
+    const stopMotionSettle = motionSettle.start();
     // Single-operator auth (issue #1079): probe /api/me before rendering the app so an
     // unauthenticated session goes straight to the login view with no flash of failing calls.
     getMe()
       .then((ok) => (auth.unauthenticated = !ok))
       .catch(() => (auth.unauthenticated = true))
       .finally(() => (auth.checked = true));
+    return stopMotionSettle;
   });
 </script>
 

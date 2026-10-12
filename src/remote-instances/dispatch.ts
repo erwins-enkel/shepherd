@@ -35,13 +35,36 @@
  * change as `remote:dispatch`, the one that resolves it included. One that never was unconfirmed
  * is never announced: nothing about a session started straight away enters this event hub.
  *
+ * Waiting (#2775): a task the automatic choice meant for a machine that is out of reach is stored
+ * as `waiting` and NOT sent — nothing goes to any machine, no attachment is uploaded. After every
+ * probe that finds that machine connected it is judged again (`readinessOf`: platform, project,
+ * requirements); a task with requirements asks the machine for a fresh capability check
+ * (`POST /api/instance/capabilities`) right before it is sent, then its project path is mapped and
+ * it goes out like any other dispatch — attachments first. Until then it can be canceled (it never
+ * goes out) or redirected: to another machine (`redirect`, same dispatch ID — it was never sent)
+ * or to this one (`claimForHere`, after which the row is gone and the client key names a local
+ * dispatch). A machine that is removed here takes its waiting tasks with it (canceled). Every
+ * write that ends a wait is conditional on the row still waiting, so a send, a redirect and a
+ * cancel never all win.
+ *
+ * Held there (#2775): a task its machine holds (its usage hold or capacity) is shown too, until
+ * the machine says it started or dropped it; a cancel discards it there (`DELETE /api/held/{id}`)
+ * and settles once the machine's dispatch record confirms it.
+ *
  * One operation per dispatch at a time: a send (`inflight`, shared with a concurrent duplicate) or
- * a check/cancel (`checks`). Each is registered in the same tick as the guard that admitted it.
+ * a check/cancel/redirect (`checks`). Each is registered in the same tick as the guard that
+ * admitted it.
  */
 import { randomUUID } from "node:crypto";
-import { extname } from "node:path";
+import { basename, extname } from "node:path";
 import type { EventHub } from "../events";
 import type { SessionStore } from "../store";
+import {
+  type Capability,
+  type CapabilitySnapshot,
+  missingRequirements,
+  parseCapabilityReport,
+} from "./capabilities";
 import {
   type FetchLike,
   type RemotePostResult,
@@ -53,7 +76,19 @@ import {
   postRemoteJson,
   requestRemote,
 } from "./client";
-import { type RemoteUnfitCode, remoteUnfit } from "./placement";
+import {
+  type MachineView,
+  type Placement,
+  type Readiness,
+  type RemoteUnfitCode,
+  PLATFORM_ORDER_SETTING,
+  fittingNow,
+  parsePlacementRecord,
+  readinessOf,
+  remoteMachineViews,
+  remoteUnfit,
+  storedPlatformOrder,
+} from "./placement";
 import type { RemoteInstanceService } from "./service";
 import { type SessionHost, hostNames } from "./sessions";
 
@@ -63,10 +98,15 @@ const REMOTE_CREATE_TIMEOUT_MS = 120_000;
 /** Per attachment: as long as the machine's own `/api/uploads` lets one take. */
 const REMOTE_UPLOAD_TIMEOUT_MS = 120_000;
 
+/** The machine's capability probe runs each check with its own 5 s timeout, one after another. */
+const REMOTE_CAPABILITY_TIMEOUT_MS = 60_000;
+
 /** `sending` = stored, no answer yet; `unknown` = sent, no answer — it may have started;
  *  `upload_failed` = an attachment did not reach the machine, so the task was never sent;
  *  `canceling` = the operator cancelled it before the machine confirmed it, and the machine has not
- *  confirmed the cancel yet; `canceled` = it never starts there (#2774). */
+ *  confirmed the cancel yet; `canceled` = it never starts there (#2774). `waiting` = stored here,
+ *  never sent, until its machine can take it (#2775); `redirected` = it left this machine's queue
+ *  to run here instead — only ever announced, no row keeps it. */
 export type RemoteDispatchState =
   | "sending"
   | "started"
@@ -75,14 +115,29 @@ export type RemoteDispatchState =
   | "unknown"
   | "upload_failed"
   | "canceling"
-  | "canceled";
+  | "canceled"
+  | "waiting"
+  | "redirected";
 
-/** Not confirmed by the machine: what a check re-asks and the herd shows. */
+/** Not confirmed by the machine: what a check re-asks. */
 const OPEN_STATES: ReadonlySet<RemoteDispatchState> = new Set(["sending", "unknown", "canceling"]);
 
-/** What dashboards show of an unconfirmed dispatch (a `sending` one is in flight, or adopted as
- *  `unknown` first). */
-const SHOWN_STATES: ReadonlySet<RemoteDispatchState> = new Set(["unknown", "canceling"]);
+/** What a cancel may still stop: not confirmed, or held there (#2775). A waiting one has its own. */
+const CANCELABLE_STATES: ReadonlySet<RemoteDispatchState> = new Set([
+  "sending",
+  "unknown",
+  "canceling",
+  "held",
+]);
+
+/** What dashboards show (a `sending` one is in flight, or adopted as `unknown` first): not
+ *  confirmed by the machine (#2774), waiting here for it or held there (#2775). */
+const SHOWN_STATES: ReadonlySet<RemoteDispatchState> = new Set([
+  "unknown",
+  "canceling",
+  "waiting",
+  "held",
+]);
 
 /** A dispatch's `summary` is a one-line label, not the task. */
 const SUMMARY_MAX = 120;
@@ -110,6 +165,8 @@ export interface RemoteDispatchRow {
   /** JSON array: the machine's path of each of `images`, index-aligned. Set once, by the first
    *  send, before it POSTs the task; null until then and for a task without attachments. */
   uploads: string | null;
+  /** Forge slug (`owner/repo`) of the project (#2775); null on rows from before it was stored. */
+  project: string | null;
 }
 
 export type RemoteDispatchOutcome = Pick<
@@ -131,6 +188,11 @@ export interface RemoteDispatchView {
   code?: string;
   createdAt: number;
   updatedAt: number;
+  /** A waiting dispatch only (#2775): the choice that meant it for `host`, how far that machine is
+   *  from taking it now, and the connected machines — this one included — it could run on now. */
+  placement?: Placement;
+  readiness?: Readiness;
+  alternatives?: SessionHost[];
 }
 
 /** What cancelling an unconfirmed dispatch came to: done, pending until its machine answers, or
@@ -138,6 +200,20 @@ export interface RemoteDispatchView {
 export type RemoteCancelResult =
   | { kind: "not_found" }
   | { kind: "canceled" | "canceling" | "not_cancelable"; dispatch: RemoteDispatchView };
+
+/** What redirecting a waiting dispatch to another machine came to (#2775): sent there (the outcome
+ *  of that send, or `waiting` when it could not go out yet), or not possible — it is not waiting
+ *  (any more), `dispatch` says what it is. */
+export type RemoteRedirectResult =
+  | { kind: "not_found" }
+  | { kind: "not_redirectable"; dispatch: RemoteDispatchView }
+  | { kind: "redirected"; outcome: RemoteOutcome };
+
+/** Taking a waiting dispatch to run it here (#2775): the row as it was, now deleted. */
+export type RemoteClaimResult =
+  | { kind: "not_found" }
+  | { kind: "not_redirectable"; dispatch: RemoteDispatchView }
+  | { kind: "claimed"; row: RemoteDispatchRow };
 
 export interface RemoteSubmit {
   /** The submitter's `Idempotency-Key`; undefined = a fresh one is generated (and reported). */
@@ -169,6 +245,7 @@ export type RemoteOutcome =
   | { kind: "upload_failed"; host: SessionHost; reason: string }
   | { kind: "canceled"; host: SessionHost }
   | { kind: "cancel_pending"; host: SessionHost }
+  | { kind: "waiting"; dispatch: RemoteDispatchView; count: number }
   | { kind: "refused"; code: RemoteRefusalCode; reason: string | null };
 
 /** Why an attachment did not reach the machine; `httpStatus` when the machine answered. */
@@ -179,6 +256,7 @@ interface UploadFailure {
 
 type Store = Pick<
   SessionStore,
+  | "getSetting"
   | "getRemoteInstance"
   | "insertRemoteDispatch"
   | "getRemoteDispatchByKey"
@@ -187,8 +265,13 @@ type Store = Pick<
   | "markRemoteDispatchCanceling"
   | "setRemoteDispatchUploads"
   | "settleRemoteDispatch"
+  | "startWaitingRemoteDispatch"
+  | "retargetWaitingRemoteDispatch"
+  | "cancelWaitingRemoteDispatch"
+  | "deleteWaitingRemoteDispatch"
+  | "settleHeldRemoteDispatch"
 >;
-type Instances = Pick<RemoteInstanceService, "get" | "list">;
+type Instances = Pick<RemoteInstanceService, "get" | "list" | "noteCapabilities">;
 
 const NO_OUTCOME = { sessionId: null, heldId: null, reason: null, code: null, httpStatus: null };
 
@@ -227,16 +310,51 @@ function summaryOf(wireBody: string): string {
 
 const dispatchPath = (id: string) => `/api/dispatches/${encodeURIComponent(id)}`;
 
+/** The choice a stored body carries (#2772), or null when it carries none. */
+function placementOf(wireBody: string): Placement | null {
+  const record = parsePlacementRecord((JSON.parse(wireBody) as Record<string, unknown>).placement);
+  return record && !("error" in record) ? record : null;
+}
+
+/** Ready, or only unconfirmed for want of a fresh report: then asking the machine is worth it. */
+function worthAsking(readiness: Readiness): boolean {
+  if (readiness.state === "ready") return true;
+  return (
+    readiness.state === "missing_capabilities" &&
+    (readiness.missing ?? []).every((m) => m.reason === "not_verified")
+  );
+}
+
+/** The staged files waiting tasks will upload once they are sent (#2775), by file name — what the
+ *  staging sweep must keep, however old they are. */
+export function waitingAttachments(
+  store: Pick<SessionStore, "listOpenRemoteDispatches">,
+): Set<string> {
+  const names = store
+    .listOpenRemoteDispatches()
+    .filter((row) => row.state === "waiting")
+    .flatMap((row) => {
+      const images = (JSON.parse(row.wireBody) as Record<string, unknown>).images;
+      return Array.isArray(images) ? images.filter((p) => typeof p === "string") : [];
+    })
+    .map((path) => basename(path));
+  return new Set(names);
+}
+
 export class RemoteDispatcher {
   /** Sends running in this process, by dispatch ID — a concurrent duplicate waits for its outcome. */
   private readonly inflight = new Map<string, Promise<RemoteOutcome>>();
-  /** Checks and cancels running in this process, by dispatch ID (#2774). */
+  /** Checks, cancels and redirects running in this process, by dispatch ID (#2774). */
   private readonly checks = new Map<string, Promise<void>>();
+  /** The last view announced of each waiting dispatch (#2775): its readiness and alternatives follow
+   *  the machines, so it is announced again whenever that changes. */
+  private readonly lastShown = new Map<string, string>();
   private readonly store: Store;
   private readonly instances: Instances;
   private readonly events: Pick<EventHub, "emit"> | undefined;
   private readonly fetch: FetchLike | undefined;
   private readonly now: () => number;
+  private readonly here: (() => MachineView | null) | undefined;
 
   constructor(deps: {
     store: Store;
@@ -244,17 +362,20 @@ export class RemoteDispatcher {
     events?: Pick<EventHub, "emit">;
     fetch?: FetchLike;
     now?: () => number;
+    /** This Shepherd as the machine choice sees it (#2775), for what a waiting task could run on. */
+    here?: () => MachineView | null;
   }) {
     this.store = deps.store;
     this.instances = deps.instances;
     this.events = deps.events;
     this.fetch = deps.fetch;
     this.now = deps.now ?? Date.now;
+    this.here = deps.here;
   }
 
-  /** Dispatches no machine has confirmed yet, of machines still registered here (connected or
-   *  not) — what the herd shows as "start status unknown". A send in flight here is left out: its
-   *  answer is coming. */
+  /** Dispatches no machine has confirmed yet, waiting here for their machine or held there, of
+   *  machines still registered here (connected or not) — what the herd shows in each machine's
+   *  group. A send in flight here is left out: its answer is coming. */
   list(): RemoteDispatchView[] {
     const machines = new Set(this.instances.list().map((m) => m.instanceId));
     return this.store
@@ -263,21 +384,127 @@ export class RemoteDispatcher {
       .map((row) => this.view(row));
   }
 
+  /** How many tasks wait here for their machine (#2775). */
+  countWaiting(): number {
+    return this.store.listOpenRemoteDispatches().filter((r) => r.state === "waiting").length;
+  }
+
   /**
-   * Ask `instanceId` what became of each dispatch it has not confirmed. Called after every probe of
-   * it (reconnect, this Shepherd's start, each round); does nothing unless it is connected. A
-   * dispatch already being sent or checked here is left to that.
+   * Follow up what `instanceId` has not settled. Called after every probe of it (reconnect, this
+   * Shepherd's start, each round) and when it is removed. Connected, it is asked about each
+   * dispatch it has not confirmed (#2774) or holds (#2775), and each task waiting for it is sent
+   * once it can take it (#2775). Removed, its waiting tasks are canceled. A dispatch already being
+   * sent or checked here is left to that. Waiting tasks whose view changed are announced again.
    */
   async reconcile(instanceId: string): Promise<void> {
     const machine = this.instances.get(instanceId);
+    if (!machine) this.dropWaiting(instanceId);
     const creds = this.store.getRemoteInstance(instanceId);
-    if (machine?.status !== "connected" || !creds) return;
-    const rows = this.store.listOpenRemoteDispatches().filter((r) => r.instanceId === instanceId);
-    await Promise.all(
-      rows
-        .filter((row) => !this.inflight.has(row.id) && !this.checks.has(row.id))
-        .map((row) => this.exclusive(row.id, () => this.check(row.id, creds))),
-    );
+    if (machine?.status === "connected" && creds) {
+      const rows = this.store.listOpenRemoteDispatches().filter((r) => r.instanceId === instanceId);
+      await Promise.all(
+        rows
+          .filter((row) => !this.inflight.has(row.id) && !this.checks.has(row.id))
+          .map((row) => this.exclusive(row.id, () => this.followUp(row.id, creds))),
+      );
+    }
+    this.refreshShown();
+  }
+
+  /** Store a task for a machine that is out of reach (#2775) without sending anything: it waits
+   *  here until the machine can take it. Same key rules as `submit` — a retry of a waiting task
+   *  answers that it waits. */
+  async wait(req: RemoteSubmit): Promise<RemoteOutcome> {
+    const clientKey = req.clientKey ?? randomUUID();
+    const existing = this.store.getRemoteDispatchByKey(clientKey);
+    if (existing) return this.retry(existing, req.payloadHash);
+    if (!this.store.getRemoteInstance(req.instanceId)) return refused("remote_target_unknown");
+    const at = this.now();
+    const row: RemoteDispatchRow = {
+      id: randomUUID(),
+      clientKey,
+      instanceId: req.instanceId,
+      payloadHash: req.payloadHash,
+      // As this Shepherd holds it: its own repo path and staged attachments. What the machine
+      // receives is only written when it is sent — its checkout's path and `target`.
+      wireBody: JSON.stringify(req.body),
+      state: "waiting",
+      ...NO_OUTCOME,
+      createdAt: at,
+      updatedAt: at,
+      uploads: null,
+      project: req.project,
+    };
+    if (!this.store.insertRemoteDispatch(row)) {
+      const winner = this.store.getRemoteDispatchByKey(clientKey);
+      return winner ? this.retry(winner, req.payloadHash) : refused("dispatch_payload_mismatch");
+    }
+    console.log(`[remote-dispatch] ${this.host(row.instanceId).name}: waiting`);
+    this.announce(row);
+    return this.waiting(row);
+  }
+
+  /**
+   * Redirect a waiting task to another machine (#2775) — one the caller has found fit. It was never
+   * sent, so it keeps its dispatch ID; `placement` is the record of that choice. It is sent there
+   * at once when that machine can take it, and otherwise waits for it.
+   */
+  async redirect(
+    id: string,
+    to: { instanceId: string; placement: Placement },
+  ): Promise<RemoteRedirectResult> {
+    const known = this.store.getRemoteDispatch(id);
+    if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
+    for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
+    const row = this.store.getRemoteDispatch(id);
+    if (!row) return { kind: "not_found" };
+    if (row.state !== "waiting" || this.inflight.has(id)) {
+      return { kind: "not_redirectable", dispatch: this.view(row) };
+    }
+    return this.exclusive(id, async () => {
+      const body = JSON.parse(row.wireBody) as Record<string, unknown>;
+      const wire = JSON.stringify({ ...body, placement: to.placement });
+      if (!this.store.retargetWaitingRemoteDispatch(id, to.instanceId, wire, this.now())) {
+        const now = this.store.getRemoteDispatch(id);
+        return now
+          ? { kind: "not_redirectable" as const, dispatch: this.view(now) }
+          : { kind: "not_found" as const };
+      }
+      const moved = this.store.getRemoteDispatch(id)!;
+      this.announce(moved);
+      const creds = this.store.getRemoteInstance(to.instanceId);
+      const sent =
+        creds && this.instances.get(to.instanceId)?.status === "connected"
+          ? await this.resume(id, creds)
+          : null;
+      return { kind: "redirected" as const, outcome: sent ?? this.waitingNow(id) };
+    });
+  }
+
+  /**
+   * Take a waiting task to run it on this machine instead (#2775): the row is deleted — only while
+   * it still waits, so it can no longer be sent — and the caller starts it here under the row's
+   * client key. `announceRedirected` tells the dashboards once it has.
+   */
+  async claimForHere(id: string): Promise<RemoteClaimResult> {
+    const known = this.store.getRemoteDispatch(id);
+    if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
+    for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
+    const row = this.store.getRemoteDispatch(id);
+    if (!row) return { kind: "not_found" };
+    if (row.state !== "waiting" || this.inflight.has(id) || this.checks.has(id)) {
+      return { kind: "not_redirectable", dispatch: this.view(row) };
+    }
+    if (!this.store.deleteWaitingRemoteDispatch(id)) {
+      const now = this.store.getRemoteDispatch(id);
+      return now ? { kind: "not_redirectable", dispatch: this.view(now) } : { kind: "not_found" };
+    }
+    return { kind: "claimed", row };
+  }
+
+  /** A claimed task now runs here (`host`): it leaves its machine's group. */
+  announceRedirected(row: RemoteDispatchRow, host: SessionHost): void {
+    this.emitView({ ...this.view({ ...row, state: "redirected", updatedAt: this.now() }), host });
   }
 
   /**
@@ -290,9 +517,15 @@ export class RemoteDispatcher {
     if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
     // A check of it is running: decide on what it learned.
     for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
-    const row = this.store.getRemoteDispatch(id)!;
+    const row = this.store.getRemoteDispatch(id);
+    // Taken to run here meanwhile (#2775).
+    if (!row) return { kind: "not_found" };
     if (row.state === "canceled") return { kind: "canceled", dispatch: this.view(row) };
-    if (this.inflight.has(id) || !OPEN_STATES.has(row.state)) {
+    // Waiting (#2775): never sent, so nothing needs to reach its machine.
+    if (row.state === "waiting" && !this.inflight.has(id)) {
+      return this.exclusive(id, async () => this.cancelWaiting(id, null));
+    }
+    if (this.inflight.has(id) || !CANCELABLE_STATES.has(row.state)) {
       return { kind: "not_cancelable", dispatch: this.view(row) };
     }
     return this.exclusive(id, async () => {
@@ -335,6 +568,7 @@ export class RemoteDispatcher {
       createdAt: at,
       updatedAt: at,
       uploads: null,
+      project: req.project,
     };
     if (!this.store.insertRemoteDispatch(row)) {
       // A concurrent submit with the same key stored its row first: this is a retry of that one.
@@ -357,6 +591,12 @@ export class RemoteDispatcher {
     return parseProjectPath(repos.body, req.project) ?? refused("remote_project_missing");
   }
 
+  /** The machine's own path for `project`, read fresh; null when it cannot say right now. */
+  private async projectPath(creds: RemoteTarget, project: string): Promise<string | null> {
+    const repos = await getRemoteJson(creds, "/api/repos", { fetch: this.fetch });
+    return repos.ok ? parseProjectPath(repos.body, project) : null;
+  }
+
   private async retry(row: RemoteDispatchRow, payloadHash: string): Promise<RemoteOutcome> {
     if (row.payloadHash !== payloadHash) return refused("dispatch_payload_mismatch");
     const sending = this.inflight.get(row.id);
@@ -375,7 +615,128 @@ export class RemoteDispatcher {
     }
     if (current.state === "canceled") return { kind: "canceled", host };
     if (current.state === "canceling") return { kind: "cancel_pending", host };
+    // Waiting (#2775): it goes out when its machine can take it, not because a client asked again.
+    if (current.state === "waiting") return this.waiting(current);
     return this.inflight.get(row.id) ?? this.track(current);
+  }
+
+  private waiting(row: RemoteDispatchRow): RemoteOutcome {
+    return { kind: "waiting", dispatch: this.view(row), count: this.countWaiting() };
+  }
+
+  /** A redirected dispatch that could not go out yet waits for its new machine. */
+  private waitingNow(id: string): RemoteOutcome {
+    const row = this.store.getRemoteDispatch(id);
+    return row ? this.waiting(row) : refused("remote_target_unknown");
+  }
+
+  /** The one follow-up of a dispatch after a probe found its machine connected. */
+  private async followUp(id: string, creds: RemoteTarget): Promise<void> {
+    const state = this.store.getRemoteDispatch(id)?.state;
+    if (state === "waiting") await this.resume(id, creds);
+    else if (state === "held") await this.checkHeld(id, creds);
+    else await this.check(id, creds);
+  }
+
+  /**
+   * Send a waiting task if its machine can take it now (#2775), and say what the send came to; null
+   * while it keeps waiting. Judged as the choice judges it, then — for a task with requirements —
+   * on a capability check the machine runs right now; then its checkout's path. Only after that is
+   * the text the machine receives written and the task sent, attachments first.
+   */
+  private async resume(id: string, creds: RemoteTarget): Promise<RemoteOutcome | null> {
+    const row = this.store.getRemoteDispatch(id);
+    const machine = row && this.instances.get(row.instanceId);
+    if (!row || row.state !== "waiting" || !machine) return null;
+    const project = row.project ?? "";
+    const requirements = placementOf(row.wireBody)?.requirements ?? [];
+    if (!worthAsking(readinessOf(machine, project, requirements))) return null;
+    if (requirements.length > 0) {
+      const fresh = await this.freshCapabilities(row.instanceId, creds);
+      if (!fresh || missingRequirements(fresh, requirements).length > 0) return null;
+    }
+    const path = await this.projectPath(creds, project);
+    if (path === null) return null;
+    const body = JSON.parse(row.wireBody) as Record<string, unknown>;
+    const wire = JSON.stringify({
+      ...body,
+      repoPath: path,
+      target: { instanceId: row.instanceId },
+    });
+    // A redirect or a cancel got there first.
+    if (!this.store.startWaitingRemoteDispatch(id, wire, this.now())) return null;
+    const outcome = await this.track(this.store.getRemoteDispatch(id)!);
+    // It was shown as waiting: say how it ended (a shown outcome announced itself already).
+    const settled = this.store.getRemoteDispatch(id)!;
+    if (!SHOWN_STATES.has(settled.state)) this.announce(settled);
+    return outcome;
+  }
+
+  /** The machine's capabilities as it checks them right now (`POST /api/instance/capabilities`),
+   *  recorded into its summary; null when no usable report came back. */
+  private async freshCapabilities(
+    instanceId: string,
+    creds: RemoteTarget,
+  ): Promise<CapabilitySnapshot | null> {
+    const res = await requestRemote(
+      creds,
+      "/api/instance/capabilities",
+      { method: "POST" },
+      { fetch: this.fetch, timeoutMs: REMOTE_CAPABILITY_TIMEOUT_MS },
+    );
+    if (!res.ok) return null;
+    const body: unknown = await res.response.json().catch(() => null);
+    if (!res.response.ok || !isRecord(body)) return null;
+    const snapshot = parseCapabilityReport(body.capabilities, this.now());
+    if (snapshot) this.instances.noteCapabilities(instanceId, snapshot);
+    return snapshot;
+  }
+
+  /** What became of a task its machine holds (#2775): started or dropped there settles it here;
+   *  still held, or no answer, leaves it for the next check. */
+  private async checkHeld(id: string, creds: RemoteTarget): Promise<void> {
+    const res = await this.ask(creds, "GET", id);
+    const outcome = res?.status === 200 ? confirmedOutcome(res.body) : null;
+    if (!outcome || outcome.state === "held") return;
+    this.store.settleHeldRemoteDispatch(id, outcome, this.now());
+    const row = this.store.getRemoteDispatch(id);
+    if (row) this.announce(row);
+  }
+
+  /** A waiting task that never goes out: canceled by the operator (`code` null) or with its
+   *  machine (`machine_removed`). */
+  private cancelWaiting(id: string, code: string | null): RemoteCancelResult {
+    const done = this.store.cancelWaitingRemoteDispatch(id, code, this.now());
+    const row = this.store.getRemoteDispatch(id);
+    if (!row) return { kind: "not_found" };
+    if (!done) {
+      return row.state === "canceled"
+        ? { kind: "canceled", dispatch: this.view(row) }
+        : { kind: "not_cancelable", dispatch: this.view(row) };
+    }
+    this.announce(row);
+    return { kind: "canceled", dispatch: this.view(row) };
+  }
+
+  /** A machine removed here takes the tasks waiting for it along. */
+  private dropWaiting(instanceId: string): void {
+    for (const row of this.store.listOpenRemoteDispatches()) {
+      if (row.state !== "waiting" || row.instanceId !== instanceId || this.checks.has(row.id)) {
+        continue;
+      }
+      this.cancelWaiting(row.id, "machine_removed");
+    }
+  }
+
+  /** Announce each waiting task whose view — its machine's readiness, the alternatives — changed. */
+  private refreshShown(): void {
+    const machines = new Set(this.instances.list().map((m) => m.instanceId));
+    for (const row of this.store.listOpenRemoteDispatches()) {
+      if (row.state !== "waiting" || !machines.has(row.instanceId)) continue;
+      if (this.inflight.has(row.id) || this.checks.has(row.id)) continue;
+      const view = this.view(row);
+      if (this.lastShown.get(row.id) !== JSON.stringify(view)) this.emitView(view);
+    }
   }
 
   /** Run `op` as the one check or cancel of dispatch `id`, registered in the same tick. */
@@ -412,12 +773,30 @@ export class RemoteDispatcher {
    *  first, and what it became there is the outcome here — still starting reads `unknown` again,
    *  for the next check to follow. Anything else leaves the cancel pending. */
   private async deliverCancel(id: string, creds: RemoteTarget): Promise<void> {
+    const heldId = this.store.getRemoteDispatch(id)?.heldId;
+    if (heldId) return this.deliverHeldCancel(id, heldId, creds);
     const res = await this.ask(creds, "DELETE", id);
     if (!res) return;
     if (res.status === 200) return this.settle(id, { ...NO_OUTCOME, state: "canceled" });
     const body = isRecord(res.body) ? res.body : {};
     if (res.status !== 409 || body.code !== "dispatch_arrived" || !isRecord(body.dispatch)) return;
     this.settle(id, confirmedOutcome(body.dispatch) ?? { ...NO_OUTCOME, state: "unknown" });
+  }
+
+  /** A held task's cancel (#2775): the machine discards it from its held queue, and its dispatch
+   *  record says what that came to — failed (discarded) is canceled, started is started. Anything
+   *  else leaves the cancel pending for the next check. */
+  private async deliverHeldCancel(id: string, heldId: string, creds: RemoteTarget): Promise<void> {
+    const path = `/api/held/${encodeURIComponent(heldId)}`;
+    const del = await requestRemote(creds, path, { method: "DELETE" }, { fetch: this.fetch });
+    if (!del.ok) return;
+    await del.response.body?.cancel().catch(() => {});
+    if (!del.response.ok && del.response.status !== 404) return;
+    const res = await this.ask(creds, "GET", id);
+    if (res?.status !== 200 || !isRecord(res.body)) return;
+    if (res.body.state === "failed") return this.settle(id, { ...NO_OUTCOME, state: "canceled" });
+    const outcome = confirmedOutcome(res.body);
+    if (outcome?.state === "started") this.settle(id, outcome);
   }
 
   /** The machine's record of dispatch `id` (#2761): its status and JSON body, or null when no
@@ -452,7 +831,13 @@ export class RemoteDispatcher {
   }
 
   private announce(row: RemoteDispatchRow): void {
-    this.events?.emit("remote:dispatch", this.view(row));
+    this.emitView(this.view(row));
+  }
+
+  private emitView(view: RemoteDispatchView): void {
+    if (view.state === "waiting") this.lastShown.set(view.id, JSON.stringify(view));
+    else this.lastShown.delete(view.id);
+    this.events?.emit("remote:dispatch", view);
   }
 
   private view(row: RemoteDispatchRow): RemoteDispatchView {
@@ -471,6 +856,29 @@ export class RemoteDispatcher {
       ...Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== null)),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      ...(row.state === "waiting" && this.waitingView(row)),
+    };
+  }
+
+  /** What a waiting task's view adds (#2775), computed now: the machine it waits for may have
+   *  come back, lost a capability, or another one may fit by now. */
+  private waitingView(row: RemoteDispatchRow): Partial<RemoteDispatchView> {
+    const placement = placementOf(row.wireBody);
+    const requirements: Capability[] = placement?.requirements ?? [];
+    const machine = this.instances.get(row.instanceId);
+    const project = row.project ?? "";
+    const here = this.here?.();
+    const machines = [
+      ...(here ? [here] : []),
+      ...remoteMachineViews(this.instances.list(), project || undefined),
+    ];
+    const order = storedPlatformOrder(this.store.getSetting(PLATFORM_ORDER_SETTING));
+    return {
+      ...(placement && { placement }),
+      readiness: machine
+        ? readinessOf(machine, project, requirements)
+        : { state: "offline", status: "removed" },
+      alternatives: fittingNow(machines, requirements, order, row.instanceId),
     };
   }
 

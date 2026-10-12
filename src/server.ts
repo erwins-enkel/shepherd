@@ -3568,14 +3568,28 @@ async function createOnMachine(
 
 /** What a client sees of a remote dispatch: the machine's session or hold annotated with `host`,
  *  its refusal with the reason, attachments that did not get there (nothing was sent), "no
- *  answer" with the key to send it again under, or that it was canceled — for good, or with the
- *  cancel still on its way to the machine. */
+ *  answer" with the key to send it again under, that it was canceled — for good, or with the
+ *  cancel still on its way to the machine — or that it waits here for its machine (#2775). A wait
+ *  answers like a hold, `waiting: true` and the dispatch added: queued, not started, wherever a
+ *  client does not know the difference yet. */
 function remoteOutcomeResponse(o: RemoteOutcome): Response {
   switch (o.kind) {
     case "started":
       return json(o.session, 201);
     case "held":
       return json({ held: true, id: o.id, count: o.count, host: o.host }, 200);
+    case "waiting":
+      return json(
+        {
+          held: true,
+          waiting: true,
+          id: o.dispatch.id,
+          count: o.count,
+          host: o.dispatch.host,
+          dispatch: o.dispatch,
+        },
+        200,
+      );
     case "rejected":
       return json(
         {

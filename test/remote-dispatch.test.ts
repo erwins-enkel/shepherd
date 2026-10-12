@@ -7,9 +7,17 @@ import type { FetchLike } from "../src/remote-instances/client";
 import {
   RemoteDispatcher,
   type RemoteDispatchRow,
+  type RemoteDispatchView,
   type RemoteSubmit,
+  waitingAttachments,
 } from "../src/remote-instances/dispatch";
 import type { RemoteInstanceSummary } from "../src/remote-instances/service";
+import {
+  CAPABILITIES,
+  type Capability,
+  type CapabilityReport,
+} from "../src/remote-instances/capabilities";
+import { localMachine } from "../src/remote-instances/placement";
 
 // The coordinator's side of a task sent to a connected machine (#2763), against a scripted fetch:
 // pre-flight and path mapping, stored before sent, the outcome vocabulary, and retries that only
@@ -112,6 +120,7 @@ function setup(
   const instances = {
     get: (id: string) => machines.find((m) => m.instanceId === id) ?? null,
     list: () => machines,
+    noteCapabilities: () => {},
   };
   const events: [string, unknown][] = [];
   const hub = { emit: (event: string, data: unknown) => void events.push([event, data]) };
@@ -306,6 +315,7 @@ describe("RemoteDispatcher", () => {
       createdAt: 1,
       updatedAt: 1,
       uploads: null,
+      project: "acme/app",
     });
     expect(await dispatcher.submit(submit())).toMatchObject({ kind: "started" });
     expect(net.posts()[0]!.headers["idempotency-key"]).toBe("d-1");
@@ -421,6 +431,7 @@ describe("RemoteDispatcher start status unknown", () => {
       createdAt: 1,
       updatedAt: 1,
       uploads: null,
+      project: "acme/app",
       ...over,
     };
     store.insertRemoteDispatch(row);
@@ -860,5 +871,507 @@ describe("RemoteDispatcher attachments", () => {
     expect(net.creates()[0]!.raw).toBe(row.wireBody);
     expect(row.uploads).toBeNull();
     expect(net.uploads()).toEqual([]);
+  });
+});
+
+// #2775: a task meant for a machine that is out of reach waits here — nothing is sent, nothing is
+// uploaded — until a probe finds the machine able to take it; it can be canceled or redirected
+// meanwhile. A task its machine holds is followed until it starts or is dropped there.
+describe("RemoteDispatcher waiting tasks", () => {
+  const MAC_HOST = { instanceId: MAC, name: "MacBook", platform: "macos" };
+  const LINUX_HOST = { instanceId: LINUX, name: "moes-tavern", platform: "linux" };
+  const HERE = "33333333-3333-4333-8333-333333333333";
+
+  function report(ok: Capability[], stale = false): CapabilityReport {
+    return {
+      vocabulary: 1,
+      probedAt: 0,
+      ageMs: stale ? 20 * 60_000 : 1_000,
+      stale,
+      checks: CAPABILITIES.map((id) =>
+        ok.includes(id)
+          ? { id, ok: true, reason: null }
+          : { id, ok: false, reason: "not_installed" },
+      ),
+    };
+  }
+
+  /** The machine's `POST /api/instance/capabilities` answer: a probe it just ran. */
+  const probed = (ok: Capability[]) =>
+    Response.json({ instanceId: MAC, capabilities: { ...report(ok), ageMs: 0 } });
+
+  const asleep = (over: Partial<RemoteInstanceSummary> = {}) =>
+    machine(MAC, { status: "unreachable", reason: "timeout", ...over });
+  const awake = (over: Partial<RemoteInstanceSummary> = {}) =>
+    machine(MAC, { capabilities: report(["platform:macos", "xcode"]), ...over });
+  const linuxBox = (over: Partial<RemoteInstanceSummary> = {}) =>
+    machine(LINUX, {
+      info: { version: "2.2.0", federationApi: 2, platform: "linux", arch: "x64" },
+      capabilities: report(["platform:linux"]),
+      ...over,
+    });
+
+  function placed(requirements: Capability[], target = MAC_HOST) {
+    return {
+      mode: "auto",
+      target,
+      requirements,
+      basis: requirements.length > 0 ? "requirements" : "only_candidate",
+      preferred: null,
+      by: { instanceId: HERE, name: "here" },
+      decidedAt: 1,
+    };
+  }
+
+  const XCODE_BODY = { ...BODY, requirements: ["xcode"], placement: placed(["xcode"]) };
+
+  /** Machines that can change between probes, this Shepherd as `here`, and every
+   *  `noteCapabilities` the dispatcher made. */
+  function world(fetch: FetchLike, initial: RemoteInstanceSummary[], store?: SessionStore) {
+    const machines = new Map(initial.map((m) => [m.instanceId, m]));
+    const db = store ?? new SessionStore(":memory:");
+    if (!store) {
+      for (const m of initial) {
+        db.insertRemoteInstance({
+          instanceId: m.instanceId,
+          url: m.url,
+          token: `token-${m.instanceId}`,
+          label: null,
+          reportedName: m.name,
+          createdAt: 1,
+        });
+      }
+    }
+    const noted: [string, Capability[]][] = [];
+    const instances = {
+      get: (id: string) => machines.get(id) ?? null,
+      list: () => [...machines.values()],
+      noteCapabilities: (id: string, snapshot: { checks: { id: Capability; ok: boolean }[] }) => {
+        noted.push([id, snapshot.checks.filter((c) => c.ok).map((c) => c.id)]);
+      },
+    };
+    const events: RemoteDispatchView[] = [];
+    const hub = {
+      emit: (_: string, data: unknown) => void events.push(data as RemoteDispatchView),
+    };
+    const here = () =>
+      localMachine(
+        { instanceId: HERE, name: "here", platform: "linux" },
+        report(["platform:linux"]),
+      );
+    const dispatcher = new RemoteDispatcher({
+      store: db,
+      instances,
+      events: hub,
+      fetch,
+      now: () => 42,
+      here,
+    });
+    const set = (m: RemoteInstanceSummary) => machines.set(m.instanceId, m);
+    return { store: db, dispatcher, events, set, noted, machines };
+  }
+
+  const waitFor = (over: Partial<RemoteSubmit> = {}) => submit({ body: XCODE_BODY, ...over });
+  const urls = (calls: { method: string; url: string }[]) =>
+    calls.map((c) => `${c.method} ${c.url}`);
+
+  test("a task for a machine out of reach is stored and nothing is sent or uploaded", async () => {
+    const net = scripted([]);
+    const { store, dispatcher, events } = world(net.fetch, [asleep()]);
+    const outcome = await dispatcher.wait(waitFor());
+    expect(outcome).toMatchObject({
+      kind: "waiting",
+      count: 1,
+      dispatch: {
+        state: "waiting",
+        host: MAC_HOST,
+        summary: "build it",
+        placement: { requirements: ["xcode"], target: MAC_HOST },
+        readiness: { state: "offline", status: "timeout" },
+        alternatives: [],
+      },
+    });
+    expect(net.calls).toEqual([]);
+    const row = store.getRemoteDispatchByKey("key-1")!;
+    expect(row).toMatchObject({ state: "waiting", instanceId: MAC, project: "acme/app" });
+    // As this Shepherd holds it: no target yet, its own repo path.
+    expect(JSON.parse(row.wireBody)).toEqual(XCODE_BODY);
+    expect(events.map((e) => e.state)).toEqual(["waiting"]);
+    expect(dispatcher.list().map((d) => d.state)).toEqual(["waiting"]);
+
+    // A retry under the key answers that it waits — and still sends nothing.
+    expect(await dispatcher.submit(waitFor())).toMatchObject({ kind: "waiting" });
+    expect(await dispatcher.wait(waitFor())).toMatchObject({ kind: "waiting" });
+    expect(await dispatcher.submit(waitFor({ payloadHash: "other" }))).toMatchObject({
+      kind: "refused",
+      code: "dispatch_payload_mismatch",
+    });
+    // Its machine still out of reach: nothing is asked.
+    await dispatcher.reconcile(MAC);
+    expect(net.calls).toEqual([]);
+  });
+
+  test("its machine back, a fresh check passes: sent once — check, repos, uploads, task", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-waiting-"));
+    try {
+      const shot = join(dir, "0b5e-shot.png");
+      writeFileSync(shot, "PNG");
+      const net = scripted([
+        probed(["platform:macos", "xcode"]),
+        Response.json({ path: "/Users/kai/dev/.shepherd-uploads-staging/m-1.png" }),
+        session("s-1"),
+      ]);
+      const { store, dispatcher, events, set, noted } = world(net.fetch, [asleep()]);
+      await dispatcher.wait(waitFor({ body: { ...XCODE_BODY, images: [shot] } }));
+      expect(waitingAttachments(store)).toEqual(new Set(["0b5e-shot.png"]));
+      set(awake());
+      await dispatcher.reconcile(MAC);
+
+      expect(urls(net.calls)).toEqual([
+        "POST http://mac.test/api/instance/capabilities",
+        "GET http://mac.test/api/repos",
+        "POST http://mac.test/api/uploads",
+        "POST http://mac.test/api/sessions",
+      ]);
+      const row = store.getRemoteDispatchByKey("key-1")!;
+      const [create] = net.creates();
+      expect(create!.headers["idempotency-key"]).toBe(row.id);
+      expect(create!.body).toMatchObject({
+        repoPath: "/Users/kai/dev/app",
+        target: { instanceId: MAC },
+        images: ["/Users/kai/dev/.shepherd-uploads-staging/m-1.png"],
+        placement: { requirements: ["xcode"] },
+      });
+      expect(row).toMatchObject({ state: "started", sessionId: "s-1" });
+      expect(noted).toEqual([[MAC, ["platform:macos", "xcode"]]]);
+      expect(events.map((e) => e.state)).toEqual(["waiting", "started"]);
+      expect(dispatcher.list()).toEqual([]);
+      expect(waitingAttachments(store)).toEqual(new Set());
+      // Nothing more on the next probe.
+      await dispatcher.reconcile(MAC);
+      expect(net.creates()).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("back without the capability it is blocked: nothing is sent, the machine is not re-probed", async () => {
+    const net = scripted([]);
+    const { dispatcher, events, set } = world(net.fetch, [asleep()]);
+    await dispatcher.wait(waitFor());
+    set(awake({ capabilities: report(["platform:macos"]) }));
+    await dispatcher.reconcile(MAC);
+    await dispatcher.reconcile(MAC);
+    expect(net.calls).toEqual([]);
+    expect(events.map((e) => [e.state, e.readiness])).toEqual([
+      ["waiting", { state: "offline", status: "timeout" }],
+      [
+        "waiting",
+        {
+          state: "missing_capabilities",
+          missing: [{ capability: "xcode", reason: "not_installed" }],
+        },
+      ],
+    ]);
+  });
+
+  test("a stale report is checked fresh, and a check that lacks the capability sends nothing", async () => {
+    const net = scripted([
+      probed(["platform:macos"]),
+      probed(["platform:macos", "xcode"]),
+      session("s-1"),
+    ]);
+    const { store, dispatcher, set, noted } = world(net.fetch, [
+      awake({ capabilities: report(["xcode"], true) }),
+    ]);
+    await dispatcher.wait(waitFor());
+    await dispatcher.reconcile(MAC);
+    expect(urls(net.calls)).toEqual(["POST http://mac.test/api/instance/capabilities"]);
+    expect(store.getRemoteDispatchByKey("key-1")!.state).toBe("waiting");
+    expect(noted).toEqual([[MAC, ["platform:macos"]]]);
+    // Still stale here (the fake does not apply the note): asked again, now it has Xcode.
+    set(awake({ capabilities: report(["xcode"], true) }));
+    await dispatcher.reconcile(MAC);
+    expect(store.getRemoteDispatchByKey("key-1")!.state).toBe("started");
+  });
+
+  test("without requirements it goes out with the next probe, no capability check", async () => {
+    const net = scripted([session("s-1")]);
+    const { store, dispatcher, set } = world(net.fetch, [asleep()]);
+    await dispatcher.wait(submit({ body: { ...BODY, placement: placed([]) } }));
+    set(awake());
+    await dispatcher.reconcile(MAC);
+    expect(urls(net.calls)).toEqual([
+      "GET http://mac.test/api/repos",
+      "POST http://mac.test/api/sessions",
+    ]);
+    expect(store.getRemoteDispatchByKey("key-1")!.state).toBe("started");
+  });
+
+  test("no checkout of the project there: it keeps waiting as project missing", async () => {
+    const net = scripted([]);
+    const { dispatcher, set } = world(net.fetch, [asleep()]);
+    await dispatcher.wait(waitFor());
+    set(awake({ projects: ["acme/other"] }));
+    await dispatcher.reconcile(MAC);
+    expect(net.calls).toEqual([]);
+    expect(dispatcher.list()[0]!.readiness).toEqual({ state: "project_missing" });
+  });
+
+  test("a restart keeps it waiting, and the next probe sends it once", async () => {
+    const before = scripted([]);
+    const first = world(before.fetch, [asleep()]);
+    await first.dispatcher.wait(waitFor());
+    // Restarted: a fresh dispatcher over the same store.
+    const after = scripted([probed(["platform:macos", "xcode"]), session("s-1")]);
+    const second = world(after.fetch, [asleep()], first.store);
+    expect(second.dispatcher.list().map((d) => [d.state, d.readiness?.state])).toEqual([
+      ["waiting", "offline"],
+    ]);
+    second.set(awake());
+    await second.dispatcher.reconcile(MAC);
+    await second.dispatcher.reconcile(MAC);
+    expect(after.creates()).toHaveLength(1);
+    expect(first.store.getRemoteDispatchByKey("key-1")!.state).toBe("started");
+  });
+
+  test("canceled while it waits, it never goes out", async () => {
+    const net = scripted([]);
+    const { store, dispatcher, events, set } = world(net.fetch, [asleep()]);
+    await dispatcher.wait(waitFor());
+    const id = store.getRemoteDispatchByKey("key-1")!.id;
+    expect(await dispatcher.cancel(id)).toMatchObject({
+      kind: "canceled",
+      dispatch: { state: "canceled" },
+    });
+    expect(await dispatcher.cancel(id)).toMatchObject({ kind: "canceled" });
+    expect(await dispatcher.submit(waitFor())).toEqual({ kind: "canceled", host: MAC_HOST });
+    set(awake());
+    await dispatcher.reconcile(MAC);
+    expect(net.calls).toEqual([]);
+    expect(events.map((e) => e.state)).toEqual(["waiting", "canceled"]);
+    expect(dispatcher.list()).toEqual([]);
+  });
+
+  test("a machine removed here takes the tasks waiting for it along", async () => {
+    const net = scripted([]);
+    const { store, dispatcher, events, machines } = world(net.fetch, [asleep()]);
+    await dispatcher.wait(waitFor());
+    machines.delete(MAC);
+    await dispatcher.reconcile(MAC);
+    expect(store.getRemoteDispatchByKey("key-1")).toMatchObject({
+      state: "canceled",
+      code: "machine_removed",
+    });
+    expect(events.map((e) => e.state)).toEqual(["waiting", "canceled"]);
+  });
+
+  test("redirected to another machine: sent there under the same dispatch ID, never to the first", async () => {
+    const net = scripted([session("s-1")]);
+    const { store, dispatcher, events } = world(net.fetch, [asleep(), linuxBox()]);
+    await dispatcher.wait(submit({ body: { ...BODY, placement: placed([]) } }));
+    const row = store.getRemoteDispatchByKey("key-1")!;
+    const manual = { ...placed([], LINUX_HOST), mode: "manual" as const, basis: "manual" as const };
+    const result = await dispatcher.redirect(row.id, { instanceId: LINUX, placement: manual });
+    expect(result).toMatchObject({ kind: "redirected", outcome: { kind: "started" } });
+    expect(urls(net.calls)).toEqual([
+      "GET http://linux.test/api/repos",
+      "POST http://linux.test/api/sessions",
+    ]);
+    expect(net.creates()[0]!.headers["idempotency-key"]).toBe(row.id);
+    expect(net.creates()[0]!.body).toMatchObject({
+      target: { instanceId: LINUX },
+      placement: { mode: "manual", target: LINUX_HOST },
+    });
+    expect(store.getRemoteDispatch(row.id)).toMatchObject({ instanceId: LINUX, state: "started" });
+    expect(events.map((e) => [e.state, e.host.instanceId])).toEqual([
+      ["waiting", MAC],
+      ["waiting", LINUX],
+      ["started", LINUX],
+    ]);
+    // It is not waiting any more.
+    expect(await dispatcher.redirect(row.id, { instanceId: MAC, placement: manual })).toMatchObject(
+      { kind: "not_redirectable", dispatch: { state: "started" } },
+    );
+  });
+
+  test("redirected to a machine that cannot take it yet, it waits for that one", async () => {
+    const net = scripted([], new TypeError("down"));
+    const { store, dispatcher } = world(net.fetch, [asleep(), linuxBox()]);
+    await dispatcher.wait(submit({ body: { ...BODY, placement: placed([]) } }));
+    const row = store.getRemoteDispatchByKey("key-1")!;
+    const result = await dispatcher.redirect(row.id, {
+      instanceId: LINUX,
+      placement: placed([], LINUX_HOST) as never,
+    });
+    expect(result).toMatchObject({
+      kind: "redirected",
+      outcome: { kind: "waiting", dispatch: { state: "waiting", host: LINUX_HOST } },
+    });
+    expect(net.creates()).toEqual([]);
+  });
+
+  test("taken to run here, the row is gone and nothing sends it any more", async () => {
+    const net = scripted([]);
+    const { store, dispatcher, events, set } = world(net.fetch, [asleep()]);
+    await dispatcher.wait(waitFor());
+    const row = store.getRemoteDispatchByKey("key-1")!;
+    const claim = await dispatcher.claimForHere(row.id);
+    expect(claim).toEqual({ kind: "claimed", row });
+    expect(store.getRemoteDispatch(row.id)).toBeNull();
+    dispatcher.announceRedirected(row, { instanceId: HERE, name: "here", platform: "linux" });
+    expect(events.at(-1)).toMatchObject({
+      id: row.id,
+      state: "redirected",
+      host: { instanceId: HERE },
+    });
+    set(awake());
+    await dispatcher.reconcile(MAC);
+    expect(net.calls).toEqual([]);
+    expect(await dispatcher.claimForHere(row.id)).toEqual({ kind: "not_found" });
+    expect(await dispatcher.cancel(row.id)).toEqual({ kind: "not_found" });
+  });
+
+  test("a send and a claim never both win", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const net = scripted([probed(["platform:macos", "xcode"]), session("s-1")]);
+    const slow: FetchLike = async (input, init) => {
+      if (input.endsWith("/api/instance/capabilities")) await gate;
+      return net.fetch(input, init);
+    };
+    const { store, dispatcher, set } = world(slow, [asleep()]);
+    await dispatcher.wait(waitFor());
+    const id = store.getRemoteDispatchByKey("key-1")!.id;
+    set(awake());
+    const probing = dispatcher.reconcile(MAC);
+    await Bun.sleep(5);
+    const claim = dispatcher.claimForHere(id);
+    const cancel = dispatcher.cancel(id);
+    release();
+    await probing;
+    expect(await claim).toMatchObject({ kind: "not_redirectable", dispatch: { state: "started" } });
+    expect(await cancel).toMatchObject({ kind: "not_cancelable" });
+    expect(net.creates()).toHaveLength(1);
+
+    // The other way round: claimed first, the probe finds nothing to send.
+    const net2 = scripted([]);
+    const second = world(net2.fetch, [asleep()]);
+    await second.dispatcher.wait(waitFor());
+    const id2 = second.store.getRemoteDispatchByKey("key-1")!.id;
+    expect((await second.dispatcher.claimForHere(id2)).kind).toBe("claimed");
+    second.set(awake());
+    await second.dispatcher.reconcile(MAC);
+    expect(net2.calls).toEqual([]);
+  });
+
+  test("what it could run on now: connected machines that fit — this one included — best first", async () => {
+    const net = scripted([]);
+    const { dispatcher, set, events } = world(net.fetch, [
+      asleep(),
+      linuxBox({ status: "unreachable" }),
+    ]);
+    await dispatcher.wait(submit({ body: { ...BODY, placement: placed([]) } }));
+    expect(dispatcher.list()[0]!.alternatives).toEqual([
+      { instanceId: HERE, name: "here", platform: "linux" },
+    ]);
+    // The other Linux comes back: announced again with it in the list, in platform/ID order.
+    set(linuxBox());
+    await dispatcher.reconcile(LINUX);
+    expect(events.at(-1)!.alternatives).toEqual([
+      LINUX_HOST,
+      { instanceId: HERE, name: "here", platform: "linux" },
+    ]);
+    const count = events.length;
+    await dispatcher.reconcile(LINUX);
+    expect(events).toHaveLength(count);
+    // Xcode: neither Linux fits.
+    await dispatcher.wait(waitFor({ clientKey: "key-2", payloadHash: "hash-2" }));
+    expect(events.at(-1)!.alternatives).toEqual([]);
+  });
+
+  describe("held there", () => {
+    const record = (fields: Record<string, unknown>) =>
+      Response.json({ id: "d-1", createdAt: 1, updatedAt: 2, ...fields });
+    const held = () => Response.json({ held: true, id: "h-1", count: 1 });
+
+    test("a task its machine holds is shown until the machine starts it", async () => {
+      const net = scripted([
+        held(),
+        record({ state: "held", heldId: "h-1" }),
+        record({ state: "started", sessionId: "s-1" }),
+      ]);
+      const { store, dispatcher, events } = world(net.fetch, [awake()]);
+      expect(await dispatcher.submit(submit())).toMatchObject({ kind: "held", id: "h-1" });
+      expect(dispatcher.list().map((d) => [d.state, d.heldId])).toEqual([["held", "h-1"]]);
+      await dispatcher.reconcile(MAC);
+      expect(dispatcher.list().map((d) => d.state)).toEqual(["held"]);
+      await dispatcher.reconcile(MAC);
+      expect(store.getRemoteDispatchByKey("key-1")).toMatchObject({
+        state: "started",
+        sessionId: "s-1",
+      });
+      expect(events.map((e) => e.state)).toEqual(["held", "started"]);
+      expect(dispatcher.list()).toEqual([]);
+    });
+
+    test("dropped there, it settles as rejected with the machine's reason", async () => {
+      const net = scripted([
+        held(),
+        record({ state: "failed", code: "held_discarded", reason: "held task discarded" }),
+      ]);
+      const { store, dispatcher } = world(net.fetch, [awake()]);
+      await dispatcher.submit(submit());
+      await dispatcher.reconcile(MAC);
+      expect(store.getRemoteDispatchByKey("key-1")).toMatchObject({
+        state: "rejected",
+        code: "held_discarded",
+      });
+    });
+
+    test("canceled, it is discarded there and settles once the machine's record says so", async () => {
+      const net = scripted([
+        held(),
+        Response.json({ ok: true }),
+        record({ state: "failed", code: "held_discarded" }),
+      ]);
+      const { store, dispatcher } = world(net.fetch, [awake()]);
+      await dispatcher.submit(submit());
+      const id = store.getRemoteDispatchByKey("key-1")!.id;
+      expect(await dispatcher.cancel(id)).toMatchObject({ kind: "canceled" });
+      expect(urls(net.calls).slice(2)).toEqual([
+        "DELETE http://mac.test/api/held/h-1",
+        `GET http://mac.test/api/dispatches/${id}`,
+      ]);
+      expect(await dispatcher.submit(submit())).toEqual({ kind: "canceled", host: MAC_HOST });
+    });
+
+    test("out of reach, the cancel waits and the next check delivers it", async () => {
+      const net = scripted([held(), Response.json({ ok: true }), record({ state: "failed" })]);
+      const { store, dispatcher, set } = world(net.fetch, [awake()]);
+      await dispatcher.submit(submit());
+      const id = store.getRemoteDispatchByKey("key-1")!.id;
+      set(asleep());
+      expect(await dispatcher.cancel(id)).toMatchObject({ kind: "canceling" });
+      expect(net.calls).toHaveLength(2);
+      set(awake());
+      await dispatcher.reconcile(MAC);
+      expect(store.getRemoteDispatch(id)!.state).toBe("canceled");
+    });
+
+    test("started there meanwhile, it is not cancelable and reads as started", async () => {
+      const net = scripted([
+        held(),
+        Response.json({ ok: true }),
+        record({ state: "started", sessionId: "s-1" }),
+      ]);
+      const { store, dispatcher } = world(net.fetch, [awake()]);
+      await dispatcher.submit(submit());
+      const id = store.getRemoteDispatchByKey("key-1")!.id;
+      expect(await dispatcher.cancel(id)).toMatchObject({
+        kind: "not_cancelable",
+        dispatch: { state: "started", sessionId: "s-1" },
+      });
+    });
   });
 });

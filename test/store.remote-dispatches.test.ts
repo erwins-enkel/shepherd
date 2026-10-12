@@ -25,6 +25,7 @@ function row(over: Partial<RemoteDispatchRow> = {}): RemoteDispatchRow {
     createdAt: 1,
     updatedAt: 1,
     uploads: null,
+    project: null,
     ...over,
   };
 }
@@ -92,6 +93,60 @@ describe("remote_dispatches", () => {
     expect(store.getRemoteDispatch("d-1")).toMatchObject({ state: "canceled", updatedAt: 7 });
   });
 
+  test("a waiting dispatch ends exactly once: sent, retargeted, canceled or taken here (#2775)", () => {
+    const store = new SessionStore(":memory:");
+    store.insertRemoteDispatch(row({ state: "waiting", project: "acme/app" }));
+    store.insertRemoteDispatch(row({ id: "d-2", clientKey: "key-2", state: "started" }));
+    expect(store.listOpenRemoteDispatches().map((r) => r.id)).toEqual(["d-1"]);
+
+    expect(store.retargetWaitingRemoteDispatch("d-1", "m-2", '{"to":"m-2"}', 5)).toBe(true);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({
+      state: "waiting",
+      instanceId: "m-2",
+      wireBody: '{"to":"m-2"}',
+      project: "acme/app",
+      updatedAt: 5,
+    });
+    expect(store.startWaitingRemoteDispatch("d-1", '{"sent":true}', 6)).toBe(true);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({
+      state: "sending",
+      wireBody: '{"sent":true}',
+    });
+    // Not waiting any more: none of them applies.
+    expect(store.startWaitingRemoteDispatch("d-1", "{}", 7)).toBe(false);
+    expect(store.retargetWaitingRemoteDispatch("d-1", "m-3", "{}", 7)).toBe(false);
+    expect(store.cancelWaitingRemoteDispatch("d-1", null, 7)).toBe(false);
+    expect(store.deleteWaitingRemoteDispatch("d-1")).toBe(false);
+    expect(store.retargetWaitingRemoteDispatch("d-2", "m-3", "{}", 7)).toBe(false);
+
+    store.insertRemoteDispatch(row({ id: "d-3", clientKey: "key-3", state: "waiting" }));
+    expect(store.cancelWaitingRemoteDispatch("d-3", "machine_removed", 8)).toBe(true);
+    expect(store.getRemoteDispatch("d-3")).toMatchObject({
+      state: "canceled",
+      code: "machine_removed",
+    });
+    store.insertRemoteDispatch(row({ id: "d-4", clientKey: "key-4", state: "waiting" }));
+    expect(store.deleteWaitingRemoteDispatch("d-4")).toBe(true);
+    expect(store.getRemoteDispatchByKey("key-4")).toBeNull();
+  });
+
+  test("a held dispatch is open, cancelable, and settles only from held (#2775)", () => {
+    const store = new SessionStore(":memory:");
+    store.insertRemoteDispatch(row({ state: "held", heldId: "h-1" }));
+    store.insertRemoteDispatch(
+      row({ id: "d-2", clientKey: "key-2", state: "held", heldId: "h-2" }),
+    );
+    expect(store.listOpenRemoteDispatches().map((r) => r.id)).toEqual(["d-1", "d-2"]);
+    // A retry that got no answer never downgrades it.
+    store.settleRemoteDispatch("d-1", { ...none, state: "unknown" }, 5);
+    expect(store.getRemoteDispatch("d-1")!.state).toBe("held");
+    store.settleHeldRemoteDispatch("d-1", { ...none, state: "started", sessionId: "s-1" }, 6);
+    store.settleHeldRemoteDispatch("d-1", { ...none, state: "rejected" }, 7);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({ state: "started", sessionId: "s-1" });
+    expect(store.markRemoteDispatchCanceling("d-2", 8)).toBe(true);
+    expect(store.getRemoteDispatch("d-2")).toMatchObject({ state: "canceling", heldId: "h-2" });
+  });
+
   test("where the attachments landed is written once and kept", () => {
     const store = new SessionStore(":memory:");
     store.insertRemoteDispatch(row());
@@ -103,7 +158,7 @@ describe("remote_dispatches", () => {
     });
   });
 
-  test("a table from before #2766 gains the uploads column", () => {
+  test("a table from before #2766 gains the uploads and project columns", () => {
     const dir = mkdtempSync(join(tmpdir(), "shepherd-remote-dispatch-"));
     try {
       const path = join(dir, "shepherd.db");
@@ -120,6 +175,7 @@ describe("remote_dispatches", () => {
       expect(store.getRemoteDispatchByKey("key-0")).toMatchObject({
         state: "started",
         uploads: null,
+        project: null,
       });
       expect(store.insertRemoteDispatch(row({ uploads: '["/mac/a.png"]' }))).toBe(true);
       expect(store.getRemoteDispatchByKey("key-1")!.uploads).toBe('["/mac/a.png"]');

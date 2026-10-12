@@ -3623,6 +3623,23 @@ function keyReusedResponse(): Response {
   return json({ error, code: "dispatch_payload_mismatch" }, status);
 }
 
+/** The record a task for a machine goes out with (#2772): the automatic choice's, none for a keyed
+ *  retry (it goes out as it was first sent), else the manual choice of the machine named in
+ *  `target` — or the response refusing it, when that machine does not fit. */
+async function machinePlacement(
+  deps: AppDeps,
+  value: CreateSessionInput,
+  req: { instanceId: string; placement?: Placement; retry: boolean; project: string },
+): Promise<Placement | undefined | Response> {
+  if (req.placement || req.retry) return req.placement;
+  const requirements = "requirements" in value ? (value.requirements ?? []) : [];
+  const { instanceId: override, project } = req;
+  const decision = await decide(deps, { requirements, project, override });
+  if (decision.ok) return decision.placement;
+  const { status, body } = placementRefusal(decision.refusal);
+  return json(body, status);
+}
+
 /**
  * POST /api/sessions for a connected machine (#2763): named in `target`, chosen automatically
  * (#2772, `placement` given) or a keyed retry of a dispatch already sent. The WHOLE session starts
@@ -3651,17 +3668,9 @@ async function createOnMachine(
   if (req.clientKey && deps.store.getDispatch(req.clientKey)) return keyReusedResponse();
   const project = repoRemoteSlug(deps.resolveForge?.(result.value.repoPath));
   if (!project) return json(PROJECT_UNKNOWN, 422);
-  const retry = req.clientKey !== undefined && deps.store.getRemoteDispatchByKey(req.clientKey);
-  let placement = req.placement;
-  if (!placement && !retry) {
-    const requirements = "requirements" in result.value ? (result.value.requirements ?? []) : [];
-    const decision = await decide(deps, { requirements, project, override: req.instanceId });
-    if (!decision.ok) {
-      const { status, body } = placementRefusal(decision.refusal);
-      return json(body, status);
-    }
-    placement = decision.placement;
-  }
+  const retry = req.clientKey !== undefined && !!deps.store.getRemoteDispatchByKey(req.clientKey);
+  const placement = await machinePlacement(deps, result.value, { ...req, retry, project });
+  if (placement instanceof Response) return placement;
   // Attachments go as the files validated above (#2766); the dispatcher uploads them there.
   const images = result.value.terminal === true ? [] : result.value.images;
   const dispatcher = remoteDispatcher(deps);

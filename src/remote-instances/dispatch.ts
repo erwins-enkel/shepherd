@@ -426,26 +426,10 @@ export class RemoteDispatcher {
     const existing = this.store.getRemoteDispatchByKey(clientKey);
     if (existing) return this.retry(existing, req.payloadHash);
     if (!this.store.getRemoteInstance(req.instanceId)) return refused("remote_target_unknown");
-    const at = this.now();
-    const row: RemoteDispatchRow = {
-      id: randomUUID(),
-      clientKey,
-      instanceId: req.instanceId,
-      payloadHash: req.payloadHash,
-      // As this Shepherd holds it: its own repo path and staged attachments. What the machine
-      // receives is only written when it is sent — its checkout's path and `target`.
-      wireBody: JSON.stringify(req.body),
-      state: "waiting",
-      ...NO_OUTCOME,
-      createdAt: at,
-      updatedAt: at,
-      uploads: null,
-      project: req.project,
-    };
-    if (!this.store.insertRemoteDispatch(row)) {
-      const winner = this.store.getRemoteDispatchByKey(clientKey);
-      return winner ? this.retry(winner, req.payloadHash) : refused("dispatch_payload_mismatch");
-    }
+    // As this Shepherd holds it: its own repo path and staged attachments. What the machine
+    // receives is only written when it is sent — its checkout's path and `target`.
+    const row = this.newRow(req, clientKey, "waiting", req.body);
+    if (!this.store.insertRemoteDispatch(row)) return this.lostRace(req, clientKey);
     console.log(`[remote-dispatch] ${this.host(row.instanceId).name}: waiting`);
     this.announce(row);
     return this.waiting(row);
@@ -460,14 +444,19 @@ export class RemoteDispatcher {
     id: string,
     to: { instanceId: string; placement: Placement },
   ): Promise<RemoteRedirectResult> {
-    const known = this.store.getRemoteDispatch(id);
-    if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
-    for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
-    const row = this.store.getRemoteDispatch(id);
-    if (!row) return { kind: "not_found" };
-    if (row.state !== "waiting" || this.inflight.has(id)) {
-      return { kind: "not_redirectable", dispatch: this.view(row) };
-    }
+    return this.afterChecks(id, (row) => {
+      if (row.state !== "waiting" || this.inflight.has(id)) {
+        return { kind: "not_redirectable" as const, dispatch: this.view(row) };
+      }
+      return this.retargetNow(id, row, to);
+    });
+  }
+
+  private retargetNow(
+    id: string,
+    row: RemoteDispatchRow,
+    to: { instanceId: string; placement: Placement },
+  ): Promise<RemoteRedirectResult> {
     return this.exclusive(id, async () => {
       const body = JSON.parse(row.wireBody) as Record<string, unknown>;
       const wire = JSON.stringify({ ...body, placement: to.placement });
@@ -493,20 +482,17 @@ export class RemoteDispatcher {
    * it still waits, so it can no longer be sent — and the caller starts it here under the row's
    * client key. `announceRedirected` tells the dashboards once it has.
    */
-  async claimForHere(id: string): Promise<RemoteClaimResult> {
-    const known = this.store.getRemoteDispatch(id);
-    if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
-    for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
-    const row = this.store.getRemoteDispatch(id);
-    if (!row) return { kind: "not_found" };
-    if (row.state !== "waiting" || this.inflight.has(id) || this.checks.has(id)) {
-      return { kind: "not_redirectable", dispatch: this.view(row) };
-    }
-    if (!this.store.deleteWaitingRemoteDispatch(id)) {
-      const now = this.store.getRemoteDispatch(id);
-      return now ? { kind: "not_redirectable", dispatch: this.view(now) } : { kind: "not_found" };
-    }
-    return { kind: "claimed", row };
+  claimForHere(id: string): Promise<RemoteClaimResult> {
+    return this.afterChecks(id, (row): RemoteClaimResult => {
+      if (row.state !== "waiting" || this.inflight.has(id)) {
+        return { kind: "not_redirectable", dispatch: this.view(row) };
+      }
+      if (!this.store.deleteWaitingRemoteDispatch(id)) {
+        const now = this.store.getRemoteDispatch(id);
+        return now ? { kind: "not_redirectable", dispatch: this.view(now) } : { kind: "not_found" };
+      }
+      return { kind: "claimed", row };
+    });
   }
 
   /** A claimed task now runs here (`host`): it leaves its machine's group. */
@@ -519,14 +505,14 @@ export class RemoteDispatcher {
    * makes sure it never starts there, even if it arrives late. Out of reach, the cancel stays
    * pending (`canceling`) and the next check delivers it; nothing re-sends the task meanwhile.
    */
-  async cancel(id: string): Promise<RemoteCancelResult> {
-    const known = this.store.getRemoteDispatch(id);
-    if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
-    // A check of it is running: decide on what it learned.
-    for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
-    const row = this.store.getRemoteDispatch(id);
-    // Taken to run here meanwhile (#2775).
-    if (!row) return { kind: "not_found" };
+  cancel(id: string): Promise<RemoteCancelResult> {
+    return this.afterChecks(id, (row) => this.cancelSettled(id, row));
+  }
+
+  private cancelSettled(
+    id: string,
+    row: RemoteDispatchRow,
+  ): Promise<RemoteCancelResult> | RemoteCancelResult {
     if (row.state === "canceled") return { kind: "canceled", dispatch: this.view(row) };
     // Waiting (#2775): never sent, so nothing needs to reach its machine.
     if (row.state === "waiting" && !this.inflight.has(id)) {
@@ -557,32 +543,42 @@ export class RemoteDispatcher {
 
     const path = await this.targetPath(req);
     if (typeof path !== "string") return path;
+    // `target` names the machine itself (#2772): it runs the task there and never places it
+    // again — so two machines connected to each other cannot hand a task back and forth.
+    const wire = { ...req.body, repoPath: path, target: { instanceId: req.instanceId } };
+    const row = this.newRow(req, clientKey, "sending", wire);
+    return this.store.insertRemoteDispatch(row) ? this.track(row) : this.lostRace(req, clientKey);
+  }
+
+  /** A dispatch about to be stored: a fresh dispatch ID, no outcome yet. */
+  private newRow(
+    req: RemoteSubmit,
+    clientKey: string,
+    state: "sending" | "waiting",
+    wire: Record<string, unknown>,
+  ): RemoteDispatchRow {
     const at = this.now();
-    const row: RemoteDispatchRow = {
+    return {
       id: randomUUID(),
       clientKey,
       instanceId: req.instanceId,
       payloadHash: req.payloadHash,
-      // `target` names the machine itself (#2772): it runs the task there and never places it
-      // again — so two machines connected to each other cannot hand a task back and forth.
-      wireBody: JSON.stringify({
-        ...req.body,
-        repoPath: path,
-        target: { instanceId: req.instanceId },
-      }),
-      state: "sending",
+      wireBody: JSON.stringify(wire),
+      state,
       ...NO_OUTCOME,
       createdAt: at,
       updatedAt: at,
       uploads: null,
       project: req.project,
     };
-    if (!this.store.insertRemoteDispatch(row)) {
-      // A concurrent submit with the same key stored its row first: this is a retry of that one.
-      const winner = this.store.getRemoteDispatchByKey(clientKey);
-      return winner ? this.retry(winner, req.payloadHash) : refused("dispatch_payload_mismatch");
-    }
-    return this.track(row);
+  }
+
+  /** A concurrent submit with the same key stored its row first: this is a retry of that one. */
+  private lostRace(req: RemoteSubmit, clientKey: string): Promise<RemoteOutcome> {
+    const winner = this.store.getRemoteDispatchByKey(clientKey);
+    return winner
+      ? this.retry(winner, req.payloadHash)
+      : Promise.resolve(refused("dispatch_payload_mismatch"));
   }
 
   /** Pre-flight: the machine's own path for the project, or why it cannot take the task. */
@@ -744,6 +740,23 @@ export class RemoteDispatcher {
       const view = this.view(row);
       if (this.lastShown.get(row.id) !== JSON.stringify(view)) this.emitView(view);
     }
+  }
+
+  /**
+   * Decide on dispatch `id` once no check of it runs here — on what that check learned. `then`
+   * runs in the same tick as the last running check ends, so what it registers (`exclusive`) is
+   * in place before anything else can start on it. Unknown here, its machine removed, or taken to
+   * run here meanwhile (#2775): not found.
+   */
+  private async afterChecks<T>(
+    id: string,
+    then: (row: RemoteDispatchRow) => T | Promise<T>,
+  ): Promise<T | { kind: "not_found" }> {
+    const known = this.store.getRemoteDispatch(id);
+    if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
+    for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
+    const row = this.store.getRemoteDispatch(id);
+    return row ? then(row) : { kind: "not_found" };
   }
 
   /** Run `op` as the one check or cancel of dispatch `id`, registered in the same tick. */

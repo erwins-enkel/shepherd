@@ -638,30 +638,32 @@ export function validateRequirementsDerive(
   if (typeof obj.prompt !== "string" || obj.prompt.length > 8000) {
     return err("prompt must be a string ≤ 8000 chars");
   }
-  let issue: TaskText["issue"] = null;
-  if (obj.issue !== undefined) {
-    const raw = obj.issue;
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-      return err("issue must be an object");
-    }
-    const fields = raw as Record<string, unknown>;
-    const stray = Object.keys(fields).find((key) => !DERIVE_ISSUE_KEYS.has(key));
-    if (stray !== undefined) return err(`unknown key: issue.${stray}`);
-    if (typeof fields.title !== "string" || fields.title.length > 500) {
-      return err("issue.title must be a string ≤ 500 chars");
-    }
-    if (
-      fields.body !== undefined &&
-      (typeof fields.body !== "string" || fields.body.length > 100000)
-    ) {
-      return err("issue.body must be a string ≤ 100000 chars");
-    }
-    issue = { title: fields.title, ...(fields.body !== undefined && { body: fields.body }) };
-  }
-  if (!obj.prompt.trim() && !issue?.title.trim()) {
+  const issue = validateDeriveIssue(obj.issue);
+  if (!issue.ok) return issue;
+  if (!obj.prompt.trim() && !issue.value?.title.trim()) {
     return err("prompt or issue.title must not be empty");
   }
-  return { ok: true, value: { repoPath: repoPath.value, task: { prompt: obj.prompt, issue } } };
+  const task = { prompt: obj.prompt, issue: issue.value };
+  return { ok: true, value: { repoPath: repoPath.value, task } };
+}
+
+/** The derive body's optional `issue`: `{ title, body? }`, bounded like a create's `issueRef`. */
+function validateDeriveIssue(raw: unknown): { ok: true; value: TaskText["issue"] } | Err {
+  if (raw === undefined) return { ok: true, value: null };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return err("issue must be an object");
+  }
+  const fields = raw as Record<string, unknown>;
+  const stray = Object.keys(fields).find((key) => !DERIVE_ISSUE_KEYS.has(key));
+  if (stray !== undefined) return err(`unknown key: issue.${stray}`);
+  if (typeof fields.title !== "string" || fields.title.length > 500) {
+    return err("issue.title must be a string ≤ 500 chars");
+  }
+  const { body } = fields;
+  if (body !== undefined && (typeof body !== "string" || body.length > 100000)) {
+    return err("issue.body must be a string ≤ 100000 chars");
+  }
+  return { ok: true, value: { title: fields.title, ...(body !== undefined && { body }) } };
 }
 
 const TERMINAL_ALLOWED_KEYS = new Set(["repoPath", "terminal"]);

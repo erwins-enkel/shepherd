@@ -68,7 +68,7 @@ export type RequirementsDerivation =
 /** What a helper's run yields — everything but `skipped`, which is the route's call. */
 export type AnsweredDerivation = Exclude<RequirementsDerivation, { status: "skipped" }>;
 
-export interface RawDerivation {
+interface RawDerivation {
   requirements?: unknown;
   unclear?: unknown;
   options?: unknown;

@@ -1177,20 +1177,10 @@ function handleMe({ req, parts, token }: Ctx): Response | null {
 // an "unknown" bucket; a reverse proxy also shares its upstream bucket deliberately.
 const pairingPeers = new WeakMap<Request, string>();
 
-async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (req.method !== "POST" || parts[0] !== "api" || parts[2]) return null;
-  if (parts[1] !== "pairing-codes" && parts[1] !== "pair") return null;
-  const svc = (deps.pairingCodes ??= new PairingCodeService());
-  if (parts[1] === "pairing-codes") {
-    const guard = requireOperatorSession(req);
-    if (guard) return guard;
-    return json(svc.mint(), 201, { "Cache-Control": "no-store" });
-  }
-  if (!svc.allowAttempt(pairingPeers.get(req) ?? "unknown")) {
-    return json({ error: "pairing_rate_limited" }, 429, { "Retry-After": "60" });
-  }
-  const ctErr = requireJsonContentType(req);
-  if (ctErr) return ctErr;
+const NO_STORE = { "Cache-Control": "no-store" };
+
+/** `/api/pair` body → the token name to mint, or the 400 to answer. */
+async function readPairBody(req: Request): Promise<{ code: unknown; name: string } | Response> {
   const body: unknown = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return json({ error: "invalid body" }, 400);
@@ -1199,13 +1189,29 @@ async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null
   if (deviceName !== undefined && (typeof deviceName !== "string" || deviceName.length > 64)) {
     return json({ error: "deviceName must be at most 64 characters" }, 400);
   }
-  if (!svc.consume(code)) return json({ error: "pairing_code_invalid" }, 401);
   const device =
-    typeof deviceName === "string"
-      ? deviceName.replace(/[\p{Cc}\p{Cf}]/gu, "").trim() || "iPhone"
-      : "iPhone";
-  const name = `Shepherd for iOS (${device})`.slice(0, ACCESS_TOKEN_NAME_MAX);
-  return json(accessTokens(deps).mint(name, null, "full"), 201, { "Cache-Control": "no-store" });
+    String(deviceName ?? "")
+      .replace(/[\p{Cc}\p{Cf}]/gu, "")
+      .trim() || "iPhone";
+  return { code, name: `Shepherd for iOS (${device})`.slice(0, ACCESS_TOKEN_NAME_MAX) };
+}
+
+async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[2]) return null;
+  if (parts[1] !== "pairing-codes" && parts[1] !== "pair") return null;
+  const svc = (deps.pairingCodes ??= new PairingCodeService());
+  if (parts[1] === "pairing-codes") {
+    return requireOperatorSession(req) ?? json(svc.mint(), 201, NO_STORE);
+  }
+  if (!svc.allowAttempt(pairingPeers.get(req) ?? "unknown")) {
+    return json({ error: "pairing_rate_limited" }, 429, { "Retry-After": "60" });
+  }
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = await readPairBody(req);
+  if (parsed instanceof Response) return parsed;
+  if (!svc.consume(parsed.code)) return json({ error: "pairing_code_invalid" }, 401);
+  return json(accessTokens(deps).mint(parsed.name, null, "full"), 201, NO_STORE);
 }
 
 // ── access tokens (issue #2082) ────────────────────────────────────────────

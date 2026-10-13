@@ -1733,7 +1733,7 @@
 "vblock_wireframe_surface_popover" = "Popover mockup";
 "viewport_decommission_title" = "stop agent + remove worktree";
 "viewport_diff_annotation_review" = "Review";
-"viewport_reconnect_sub" = "herdr is down. Tap once it's back.";
+"viewport_reconnect_sub" = "Terminal keeps dropping right after attaching — herdr may be down. Tap to retry.";
 "viewport_reconnect_title" = "Reconnect";
 "viewport_rename_aria" = "Rename task";
 "viewport_rename_branch_kept" = "Name changed; branch kept (open PR)";

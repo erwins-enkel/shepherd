@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { GaugeKey } from "../usage-gauges";
-  import type { UpdateStatus, DiagnosticState, UsageLimits } from "#lib/types.js";
+  import type { DiagnosticState, UsageLimits } from "#lib/types.js";
+  import type { UpdateBadge } from "#lib/machine-updates.js";
   import { m } from "#lib/paraglide/messages.js";
   import { theme, type ThemePref } from "#lib/theme.svelte.js";
   import ThemeIcon from "#lib/components/ThemeIcon.svelte";
@@ -41,7 +42,7 @@
     connected,
     diagnosticsOverall,
     updateAvailable,
-    update,
+    updateBadge,
     herdrUpdateAvailable,
     codexUpdateAvailable,
     whatsNew,
@@ -80,7 +81,7 @@
     connected: boolean;
     diagnosticsOverall: DiagnosticState;
     updateAvailable: boolean;
-    update: UpdateStatus | null;
+    updateBadge: UpdateBadge | null;
     herdrUpdateAvailable: boolean;
     codexUpdateAvailable: boolean;
     whatsNew: boolean;
@@ -250,7 +251,7 @@
       mobile
       {diagnosticsOverall}
       {updateAvailable}
-      {update}
+      {updateBadge}
       {herdrUpdateAvailable}
       {codexUpdateAvailable}
       {whatsNew}

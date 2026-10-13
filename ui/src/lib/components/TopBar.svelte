@@ -3,6 +3,7 @@
     Session,
     UsageLimits,
     UpdateStatus,
+    MachineUpdate,
     HerdrUpdateStatus,
     CodexUpdateStatus,
     DiagnosticState,
@@ -10,6 +11,7 @@
     ProviderFailoverStatus,
   } from "#lib/types.js";
   import { displayStatus } from "#lib/display-status.js";
+  import { updateBadge } from "#lib/machine-updates.js";
   import {
     compactUsageViews as compactUsageViewList,
     claudeDisplayGauges,
@@ -64,6 +66,7 @@
     onusage,
     onhalt,
     update = null,
+    machineUpdates = [],
     onupdate,
     herdrUpdate = null,
     onherdrupdate,
@@ -108,6 +111,8 @@
     onusage?: () => void;
     onhalt?: () => void;
     update?: UpdateStatus | null;
+    /** Connected machines' self-updates: one behind shows the badge too. */
+    machineUpdates?: MachineUpdate[];
     onupdate?: () => void;
     herdrUpdate?: HerdrUpdateStatus | null;
     onherdrupdate?: () => void;
@@ -161,7 +166,8 @@
   // tally click: toggle — clicking the active status clears the filter
   const clickStatus = (s: TallyStatus) => onstatusfilter?.(statusFilter === s ? null : s);
 
-  const updateAvailable = $derived(!!update && update.behind > 0);
+  const updateInfo = $derived(updateBadge(update, machineUpdates));
+  const updateAvailable = $derived(updateInfo !== null);
   // The herdr badge opens the update modal. Show it for a real upgrade OR the two-path sandboxed-
   // idle advisory (#1716) — that's the surface the operator reaches the opt-out downgrade through,
   // even on a supported herdr with no upgrade pending.
@@ -974,7 +980,7 @@
     {#if !mobile && !foldBadges}<TopBarBadges
         {compactBadges}
         {updateAvailable}
-        {update}
+        updateBadge={updateInfo}
         {onupdate}
         {herdrUpdateAvailable}
         {herdrUpdate}
@@ -1009,7 +1015,7 @@
       {foldBadges}
       {diagnosticsOverall}
       {updateAvailable}
-      {update}
+      updateBadge={updateInfo}
       {herdrUpdateAvailable}
       {codexUpdateAvailable}
       {whatsNew}
@@ -1063,7 +1069,7 @@
     {connected}
     {diagnosticsOverall}
     {updateAvailable}
-    {update}
+    updateBadge={updateInfo}
     {herdrUpdateAvailable}
     {codexUpdateAvailable}
     {whatsNew}

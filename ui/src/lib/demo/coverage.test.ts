@@ -212,6 +212,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/access-tokens"),
   get("/api/instance"),
   get("/api/remote-instances"),
+  get("/api/remote-instances/updates"),
   get("/api/push/apns/config"),
   get("/api/push/devices"),
 
@@ -422,6 +423,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/instance/capabilities",
     "/api/remote-instances/:p",
     "/api/remote-instances/:p/check",
+    // a machine's self-update: the demo connects none
+    "/api/remote-instances/:p/update",
+    "/api/remote-instances/:p/update/log",
+    "/api/remote-instances/:p/update/dirty",
     "/api/push/devices/:p",
     "/api/push/devices/:p/test",
     "/api/settings/verify-key",

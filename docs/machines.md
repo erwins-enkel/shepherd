@@ -235,6 +235,24 @@ so. Once the machine answers again, the same sessions come back live.
 A client only needs to connect to the coordinator. If a client connects to several Shepherds, as
 the iOS app can, it still shows each session once.
 
+## Update its Shepherd
+
+When a connected machine's Shepherd is behind its branch, the update badge in the top bar lights up
+for it too. With other machines involved the badge counts machines instead of commits; hover it to
+see which machine needs how many commits. Its window lists every machine: this one, each machine
+that is behind with the commits it would get, and the ones that are up to date or out of reach.
+
+- **One machine:** **Update** in its row. The coordinator follows the machine's deploy until its new
+  version is live.
+- **All at once:** **Update all** starts every machine that is behind together. This machine goes
+  last, because its update restarts Shepherd and reloads the page.
+- **Local changes on a machine:** when uncommitted changes in the machine's checkout block the pull,
+  its row lists them. Discard them and update, or skip the machine and commit them there yourself.
+  This machine waits for that choice.
+
+A machine updates itself the way its own window would, so the same rules apply there. A Shepherd run
+by the Mac app updates through the app: its row reports that the update could not start.
+
 ## The trust decision
 
 Connecting a machine hands the coordinator a Full token for it. Decide that as you would hand

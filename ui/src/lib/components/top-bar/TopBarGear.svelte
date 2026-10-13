@@ -3,7 +3,8 @@
   import { m } from "#lib/paraglide/messages.js";
   import { DOCS_URL, MAC_APP_DOWNLOAD_URL } from "#lib/build-info.js";
   import type { FeedbackKind } from "#lib/feedback-link.js";
-  import type { UsageLimits, UpdateStatus, DiagnosticState } from "#lib/types.js";
+  import type { UsageLimits, DiagnosticState } from "#lib/types.js";
+  import type { UpdateBadge } from "#lib/machine-updates.js";
   import { isMacPlatform, isMacOSPlatform } from "#lib/platform.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { settingsChordHint } from "../herd-keynav";
@@ -22,7 +23,7 @@
     foldBadges,
     diagnosticsOverall,
     updateAvailable,
-    update,
+    updateBadge,
     herdrUpdateAvailable,
     codexUpdateAvailable,
     whatsNew,
@@ -72,7 +73,7 @@
     foldBadges: boolean;
     diagnosticsOverall: DiagnosticState;
     updateAvailable: boolean;
-    update: UpdateStatus | null;
+    updateBadge: UpdateBadge | null;
     herdrUpdateAvailable: boolean;
     codexUpdateAvailable: boolean;
     whatsNew: boolean;
@@ -201,7 +202,7 @@
         <GearAttentionRows
           {diagnosticsOverall}
           {updateAvailable}
-          {update}
+          {updateBadge}
           {herdrUpdateAvailable}
           {codexUpdateAvailable}
           {whatsNew}

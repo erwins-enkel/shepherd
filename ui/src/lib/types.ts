@@ -215,6 +215,17 @@ export interface CapabilityReport {
 export type RemoteInstanceStatus =
   "checking" | "connected" | "unreachable" | "unauthorized" | "incompatible" | "identity_mismatch";
 
+/** A connected machine as the update window lists it — mirrors MachineUpdate in
+ *  src/remote-instances/service.ts. `update` is the machine's own GET /api/update as of its last
+ *  answered probe; null until one answered. */
+export interface MachineUpdate {
+  instanceId: string;
+  name: string;
+  platform: string | null;
+  status: RemoteInstanceStatus;
+  update: UpdateStatus | null;
+}
+
 /** A connected machine as the server reports it (#2759) — never the token itself. */
 export interface RemoteInstance {
   instanceId: string;
@@ -2859,6 +2870,8 @@ export type WsEvent =
   | { event: "remote:sessions"; data: { instanceId: string; sessions: Session[] } }
   /** A task sent to a machine that no machine had confirmed changed state (#2774). */
   | { event: "remote:dispatch"; data: RemoteDispatch }
+  /** Every connected machine's self-update, sent whenever the list changes. */
+  | { event: "remote:updates"; data: { machines: MachineUpdate[] } }
   | {
       event: "session:experiment";
       data: { id: string; experimentId: string | null; experimentRole: ExperimentRole | null };

@@ -98,6 +98,7 @@ import type {
   RequirementsDerivation,
   PlacementRefusal,
   RemoteInstance,
+  MachineUpdate,
   ApnsConfigError,
   ApnsField,
   ApnsStatus,
@@ -963,6 +964,18 @@ export async function checkInstanceCapabilities(): Promise<InstanceIdentity> {
 
 export const listRemoteInstances = (): Promise<{ instances: RemoteInstance[] }> =>
   getJson("/api/remote-instances", "machines");
+
+/** Every connected machine's self-update, for the update window. */
+export const listMachineUpdates = (): Promise<{ machines: MachineUpdate[] }> =>
+  getJson("/api/remote-instances/updates", "machine updates");
+
+/** A connected machine's deploy, as its own GET /api/update/log reports it. */
+export const getMachineUpdateLog = (id: string): Promise<DeployState> =>
+  getJson(`/api/remote-instances/${encodeURIComponent(id)}/update/log`, "machine update log");
+
+/** A connected machine's dirty tree, fresh — what discarding before its update would reset. */
+export const getMachineUpdateDirty = (id: string): Promise<DirtyStatus> =>
+  getJson(`/api/remote-instances/${encodeURIComponent(id)}/update/dirty`, "machine dirty status");
 
 /** Where a new task would run and why (#2772) — the same choice the create makes for the same
  *  inputs. `active: false` while no connected machine could take a task. */
@@ -2428,8 +2441,17 @@ export async function triggerRestart(opts: {
  *  is the signature of the dirty state the operator confirmed. On a 409 `stale`
  *  response (tree drifted since confirmation) throws {@link StaleDirtyError} with
  *  the fresh dirty status so the modal can re-render + re-confirm. */
-export async function applyUpdate(discard = false, sig?: string): Promise<void> {
-  const r = await fetch("/api/update", {
+export function applyUpdate(discard = false, sig?: string): Promise<void> {
+  return postUpdate("/api/update", discard, sig);
+}
+
+/** Start a connected machine's self-update; it answers like {@link applyUpdate}. */
+export function applyMachineUpdate(id: string, discard = false, sig?: string): Promise<void> {
+  return postUpdate(`/api/remote-instances/${encodeURIComponent(id)}/update`, discard, sig);
+}
+
+async function postUpdate(url: string, discard: boolean, sig?: string): Promise<void> {
+  const r = await fetch(url, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(discard ? { discard, sig } : {}),

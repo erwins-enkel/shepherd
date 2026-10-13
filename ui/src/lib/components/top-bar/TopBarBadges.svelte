@@ -1,17 +1,14 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
-  import type {
-    UpdateStatus,
-    HerdrUpdateStatus,
-    CodexUpdateStatus,
-    DiagnosticState,
-  } from "#lib/types.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import type { UpdateBadge } from "#lib/machine-updates.js";
+  import type { HerdrUpdateStatus, CodexUpdateStatus, DiagnosticState } from "#lib/types.js";
 
   let {
     compactBadges,
     updateAvailable,
-    update,
+    updateBadge,
     onupdate,
     herdrUpdateAvailable,
     herdrUpdate,
@@ -26,7 +23,7 @@
   }: {
     compactBadges: boolean;
     updateAvailable: boolean;
-    update: UpdateStatus | null;
+    updateBadge: UpdateBadge | null;
     onupdate: (() => void) | undefined;
     herdrUpdateAvailable: boolean;
     herdrUpdate: HerdrUpdateStatus | null;
@@ -41,29 +38,57 @@
   } = $props();
 </script>
 
-{#if updateAvailable}
-  <button
-    class="update-badge"
-    onclick={() => onupdate?.()}
-    title="{update!.behind} {update!.behind === 1
-      ? m.updatemodal_commits_one()
-      : m.updatemodal_commits_other()}"
+{#snippet updateBadgeBody(badge: UpdateBadge)}
+  <svg
+    class="up-glyph"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
   >
-    <svg
-      class="up-glyph"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
+    <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+  </svg>
+  {#if !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
+  <span class="up-n">
+    {#if badge.machines}
+      <!-- counts machines, not commits: a screen glyph tells the two apart -->
+      <svg
+        class="up-machine"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="3" y="4" width="18" height="12" rx="1" />
+        <path d="M8 20h8M12 16v4" />
+      </svg>
+    {/if}
+    {badge.count}
+  </span>
+{/snippet}
+
+{#if updateAvailable && updateBadge}
+  {#if updateBadge.explanation}
+    <!-- other machines are behind too: the tip names each and what it needs -->
+    <button
+      class="update-badge"
+      onclick={() => onupdate?.()}
+      aria-label={updateBadge.label}
+      use:statusTip={{ text: updateBadge.explanation, navigates: true }}
     >
-      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
-    </svg>
-    {#if !compactBadges}<span class="up-label">{m.topbar_update_badge()}</span>{/if}
-    <span class="up-n">{update!.behind}</span>
-  </button>
+      {@render updateBadgeBody(updateBadge)}
+    </button>
+  {:else}
+    <button class="update-badge" onclick={() => onupdate?.()} title={updateBadge.label}>
+      {@render updateBadgeBody(updateBadge)}
+    </button>
+  {/if}
 {/if}
 <!-- Desktop keeps the inline HERDR badge; on a phone it folds into the gear
      bottom sheet to free a slot in the single-row control cluster. The
@@ -202,8 +227,17 @@
     flex-shrink: 0;
   }
   .update-badge .up-n {
+    display: flex;
+    align-items: center;
+    gap: 3px;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
+  }
+  .update-badge .up-machine {
+    width: 1em;
+    height: 1em;
+    display: block;
+    flex-shrink: 0;
   }
   /* herdr badge: informational (operator updates manually), so it reads as calm
      blue — the informational accent — and doesn't pulse like the actionable

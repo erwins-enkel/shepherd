@@ -97,6 +97,8 @@ interface FakeShepherd {
   me: unknown;
   instance: unknown;
   repos: unknown;
+  /** The machine's `GET /api/update`; absent = the route 404s. */
+  update?: unknown;
   /** Per-path status override (non-2xx answers carry `{error}`). */
   status: Record<string, number>;
 }
@@ -141,6 +143,7 @@ function stubFetch(remote: FakeShepherd | (() => Promise<Response>)) {
     if (path === "/api/me") return jsonRes(remote.me);
     if (path === "/api/instance") return jsonRes(remote.instance);
     if (path === "/api/repos") return jsonRes(remote.repos);
+    if (path === "/api/update" && remote.update !== undefined) return jsonRes(remote.update);
     return jsonRes({ error: "not found" }, 404);
   };
   return Object.assign(fn, { calls });
@@ -506,7 +509,77 @@ describe("RemoteInstanceService", () => {
     await svc.connect(connectReq);
     fetch.calls.length = 0;
     await Promise.all([svc.check(REMOTE_ID), svc.check(REMOTE_ID), svc.probeAll()]);
-    expect(fetch.calls.length).toBe(3);
+    // The three probe requests, then the answering machine's self-update.
+    expect(fetch.calls.length).toBe(4);
+  });
+
+  test("a machine that answers reports its self-update; one out of reach keeps the last", async () => {
+    const update = {
+      behind: 2,
+      current: "aaaaaaa",
+      latest: "bbbbbbb",
+      commits: [{ sha: "bbbbbbb", subject: "fix: two" }],
+      checkedAt: 7,
+    };
+    const remote = fakeShepherd({
+      update: { ...update, commits: [...update.commits, { sha: "not a sha", subject: "dropped" }] },
+    });
+    const { svc } = setup(remote);
+    expect(svc.updates()).toEqual([]);
+    await svc.connect(connectReq);
+    expect(svc.updates()).toEqual([
+      { instanceId: REMOTE_ID, name: "MacBook", platform: "macos", status: "connected", update },
+    ]);
+
+    remote.status["/api/me"] = 500;
+    await svc.check(REMOTE_ID);
+    expect(svc.updates()[0]).toMatchObject({ status: "unreachable", update });
+
+    // Incompatible still answered: exactly the machine an update would bring back.
+    delete remote.status["/api/me"];
+    remote.instance = { ...(remote.instance as object), federationApi: FEDERATION_API_VERSION + 1 };
+    remote.update = { ...update, behind: 5 };
+    await svc.check(REMOTE_ID);
+    expect(svc.updates()[0]).toMatchObject({ status: "incompatible", update: { behind: 5 } });
+
+    // A machine that does not say reads as unknown, never as up to date.
+    remote.instance = { ...(remote.instance as object), federationApi: FEDERATION_API_VERSION };
+    remote.update = { behind: -1, checkedAt: 7 };
+    await svc.check(REMOTE_ID);
+    expect(svc.updates()[0]).toMatchObject({ status: "connected", update: null });
+  });
+
+  test("relayed self-update requests carry the machine's answer, never a lost token as one", async () => {
+    const remote = fakeShepherd();
+    const { svc, fetch } = setup(remote);
+    await svc.connect(connectReq);
+
+    remote.status["/api/update"] = 409;
+    expect(await svc.relaySelfUpdate(REMOTE_ID, { kind: "apply", discard: false })).toEqual({
+      ok: true,
+      status: 409,
+      body: { error: "nope" },
+    });
+    const sent = fetch.calls.at(-1)!;
+    expect([sent.url, sent.init.method, sent.init.body]).toEqual([
+      `${TARGET.url}/api/update`,
+      "POST",
+      "{}",
+    ]);
+    expect((sent.init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    remote.status["/api/update"] = 403;
+    expect(
+      await svc.relaySelfUpdate(REMOTE_ID, { kind: "apply", discard: true, sig: "s1" }),
+    ).toEqual({ ok: false, failure: { status: "unauthorized", reason: "token_scope" } });
+    expect(fetch.calls.at(-1)!.init.body).toBe(JSON.stringify({ discard: true, sig: "s1" }));
+
+    remote.status["/api/update/log"] = 500;
+    expect(await svc.relaySelfUpdate(REMOTE_ID, { kind: "log" })).toEqual({
+      ok: false,
+      failure: { status: "unreachable", reason: "bad_response" },
+    });
+    expect(await svc.relaySelfUpdate("nope", { kind: "dirty" })).toBeNull();
   });
 
   test("a machine removed while its probe is in flight stays removed", async () => {

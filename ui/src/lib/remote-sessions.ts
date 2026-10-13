@@ -1,4 +1,4 @@
-import type { RemoteInstance, Session, SessionConnection, SessionHost } from "./types";
+import type { RemoteInstance, RepoEntry, Session, SessionConnection, SessionHost } from "./types";
 import { m } from "#lib/paraglide/messages.js";
 
 /**
@@ -65,6 +65,28 @@ export function byMachine<T extends { host?: SessionHost }>(
   if (filter === "all") return [...items];
   if (filter === "local") return items.filter((x) => !x.host);
   return items.filter((x) => x.host?.instanceId === filter);
+}
+
+/**
+ * The mirrored sessions a repo filter keeps: those whose project (`remoteSlug`, as their machine's
+ * repo index names it) is the project of a selected repo. The filter names this Shepherd's
+ * checkouts by path, which a session on another machine never shares, so the match is by slug,
+ * ignoring case. Every session while no repo is selected.
+ */
+export function inRepoFilter(
+  remote: readonly Session[],
+  repoFilter: ReadonlySet<string>,
+  repos: readonly Pick<RepoEntry, "path" | "realPath" | "remoteSlug">[],
+): Session[] {
+  if (repoFilter.size === 0) return [...remote];
+  const slugs = new Set(
+    repos.flatMap((r) =>
+      r.remoteSlug && (repoFilter.has(r.path) || repoFilter.has(r.realPath))
+        ? [r.remoteSlug.toLowerCase()]
+        : [],
+    ),
+  );
+  return remote.filter((s) => !!s.remoteSlug && slugs.has(s.remoteSlug.toLowerCase()));
 }
 
 /**

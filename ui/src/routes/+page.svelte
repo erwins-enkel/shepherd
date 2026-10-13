@@ -91,7 +91,12 @@
     TaskRunSeed,
   } from "#lib/types.js";
   import { sortBlocked } from "#lib/triage.js";
-  import { byMachine, mirroredNeedsYou, type MachineFilter } from "#lib/remote-sessions.js";
+  import {
+    byMachine,
+    inRepoFilter,
+    mirroredNeedsYou,
+    type MachineFilter,
+  } from "#lib/remote-sessions.js";
   import { machines } from "#lib/machines.svelte.js";
   import { displayStatus } from "#lib/display-status.js";
   import { steers } from "#lib/steers.svelte.js";
@@ -538,14 +543,11 @@
       : byRepo;
   });
   // Mirrored sessions (#2762) follow the status filter; a repo filter names local checkouts, so
-  // it hides them.
-  const herdRemoteSessions = $derived(
-    repoFilter.size
-      ? []
-      : statusFilter
-        ? store.remoteSessions.filter((s) => displayStatus(s, {}, {}) === statusFilter)
-        : store.remoteSessions,
-  );
+  // it keeps those of the same project by slug.
+  const herdRemoteSessions = $derived.by(() => {
+    const byRepo = inRepoFilter(store.remoteSessions, repoFilter, repos.entries);
+    return statusFilter ? byRepo.filter((s) => displayStatus(s, {}, {}) === statusFilter) : byRepo;
+  });
   // Tasks whose start on a machine is unknown (#2774) are no sessions: they show only unfiltered.
   const herdRemoteDispatches = $derived(
     repoFilter.size || statusFilter ? [] : store.remoteDispatches,

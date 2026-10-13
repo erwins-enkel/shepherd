@@ -489,7 +489,29 @@
     action?: { class: string; title: string; label: string; onclick: () => void } | null;
     withPreview?: boolean;
   };
-  let epicsBandCollapsed = $state<boolean | null>(null);
+  // null = auto (open while an epic waits on the operator); an explicit toggle is persisted
+  // globally so it survives Herd remounting when a session opens, and page reloads.
+  const EPICS_BAND_KEY = "shepherd:epics-band-collapsed";
+  let epicsBandCollapsed = $state<boolean | null>(
+    typeof localStorage === "undefined"
+      ? null
+      : (() => {
+          try {
+            const stored = localStorage.getItem(EPICS_BAND_KEY);
+            return stored === null ? null : stored === "1";
+          } catch {
+            return null;
+          }
+        })(),
+  );
+  $effect(() => {
+    if (epicsBandCollapsed === null) return;
+    try {
+      localStorage.setItem(EPICS_BAND_KEY, epicsBandCollapsed ? "1" : "0");
+    } catch {
+      /* localStorage unavailable (private mode) — choice stays in-memory only */
+    }
+  });
   const epicNeedsOperator = $derived(
     completedEpics.some((epic) => deriveIntegratedEpicStatus(epic).needsOperator),
   );

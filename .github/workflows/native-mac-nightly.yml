@@ -1,0 +1,61 @@
+name: Publish macOS nightly
+
+# Nightly at 04:30 UTC: ship main to Mac testers through the shared Sparkle feed,
+# but only when the app or what it is built from changed since the feed's newest
+# build. Versions stay on the last release line (e.g. 2.1.0-nightly.2193); Sparkle
+# orders updates by build number (main's first-parent count), so no release tag
+# or version bump is needed. Manual dispatch skips the change check.
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Changed since the feed's newest build?
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.diff.outputs.build }}
+      sha: ${{ steps.diff.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head=$(git rev-list --first-parent --count HEAD)
+          last=$(gh api "repos/$GITHUB_REPOSITORY/contents/appcast.xml?ref=macos-update-feed" --jq .content \
+            | base64 -d | grep -o '<sparkle:version>[0-9]*</sparkle:version>' | grep -o '[0-9]*' | sort -n | tail -n 1)
+          # Build N is the N-th commit of main's first-parent history.
+          last_sha=$(git rev-list --first-parent --reverse HEAD | sed -n "${last}p")
+          build=true
+          if (( head <= last )); then
+            build=false
+          elif [[ "$GITHUB_EVENT_NAME" != workflow_dispatch && -n "$last_sha" ]] \
+            && git diff --quiet "$last_sha" HEAD -- native contracts \
+              .github/workflows/native-release.yml .github/workflows/native-mac-nightly.yml; then
+            build=false
+          fi
+          echo "Feed build: $last (${last_sha:-unknown}); main: $head ($(git rev-parse HEAD)); build: $build" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: changes
+    if: needs.changes.outputs.build == 'true' && vars.SPARKLE_PUBLIC_KEY != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/native-release.yml
+    with:
+      tag: ${{ needs.changes.outputs.sha }}
+      nightly: true
+    secrets: inherit

@@ -8,6 +8,11 @@ on:
       tag:
         required: true
         type: string
+      # Nightly builds package a main commit (tag = its SHA) without a source
+      # release: version <last v* tag>-nightly.<build>, Mac tag macos-nightly-<build>.
+      nightly:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       tag:
@@ -32,6 +37,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag }}
+      NIGHTLY: ${{ inputs.nightly == true }}
       UPDATE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       RELEASE_APP: release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
@@ -61,20 +67,32 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
+          if [[ "$NIGHTLY" != true ]]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
+          fi
           test -n "$UPDATE_PUBLIC_KEY" || { echo '::error::Set SPARKLE_PUBLIC_KEY repository variable'; exit 1; }
           for name in MACOS_DEVELOPER_ID_P12 MACOS_DEVELOPER_ID_P12_PASSWORD ASC_API_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID SPARKLE_PRIVATE_KEY; do
             test -n "${!name}" || { echo "::error::Set $name repository secret"; exit 1; }
           done
           test -n "$APPLE_TEAM_ID" || { echo '::error::Set APPLE_TEAM_ID repository variable'; exit 1; }
           git merge-base --is-ancestor HEAD origin/main
-          gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' | grep -qx false
           # Main's first-parent count increases for each merged change; independent
           # of workflow run numbers, retries and marketing version/prerelease labels.
-          echo "BUILD_NUMBER=$(git rev-list --first-parent --count HEAD)" >> "$GITHUB_ENV"
-          echo "APP_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
-          echo "MAC_TAG=macos-$RELEASE_TAG" >> "$GITHUB_ENV"
+          BUILD_NUMBER="$(git rev-list --first-parent --count HEAD)"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          if [[ "$NIGHTLY" == true ]]; then
+            # Stay on the last release's version line; Sparkle compares the build number.
+            BASE_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)"
+            echo "APP_VERSION=${BASE_TAG#v}-nightly.$BUILD_NUMBER" >> "$GITHUB_ENV"
+            echo "MAC_TAG=macos-nightly-$BUILD_NUMBER" >> "$GITHUB_ENV"
+            echo "SOURCE_NOTE=Nightly build of main at $(git rev-parse --short HEAD), after $BASE_TAG." >> "$GITHUB_ENV"
+          else
+            gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' | grep -qx false
+            echo "APP_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+            echo "MAC_TAG=macos-$RELEASE_TAG" >> "$GITHUB_ENV"
+            echo "SOURCE_NOTE=Source release: $RELEASE_TAG." >> "$GITHUB_ENV"
+          fi
       - name: Reuse an already published Mac package on retry
         id: existing
         if: inputs.dry_run != true
@@ -226,7 +244,7 @@ jobs:
           if ! python3 -c 'import json,os,sys; sys.exit(not any(r["tag_name"] == os.environ["MAC_TAG"] for page in json.load(open(sys.argv[1])) for r in page))' "$RUNNER_TEMP/releases.json"; then
             gh release create "$MAC_TAG" --draft --prerelease --latest=false --target "$SOURCE_SHA" \
               --title "Shepherd for Mac $APP_VERSION" \
-              --notes "Native Mac tester release. Requires macOS 15+. Download Shepherd-$BUILD_NUMBER.dmg, open it and drag Shepherd.app into Applications. Direct launch also offers installation for all users or your account. Future updates arrive automatically. Signed with Developer ID and notarized by Apple. Source release: $RELEASE_TAG."
+              --notes "Native Mac tester release. Requires macOS 15+. Download Shepherd-$BUILD_NUMBER.dmg, open it and drag Shepherd.app into Applications. Direct launch also offers installation for all users or your account. Future updates arrive automatically. Signed with Developer ID and notarized by Apple. $SOURCE_NOTE"
           fi
           gh release view "$MAC_TAG" --json isDraft --jq '.isDraft' | grep -qx true
           gh release upload "$MAC_TAG" "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.zip" \

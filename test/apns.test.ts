@@ -70,15 +70,30 @@ test("the provider token is an ES256 JWT that verifies against the key", () => {
 
 test("the body carries the alert, the session thread and what the app needs to open it", () => {
   const body = JSON.parse(
-    apnsBody({ title: "T", body: "B", sessionId: "s1", kind: "blocked", tag: "s1" }),
+    apnsBody({
+      title: "T",
+      body: "B",
+      sessionId: "s1",
+      kind: "blocked",
+      tag: "s1",
+      instanceId: "i",
+    }),
   );
   expect(body).toEqual({
     aps: { alert: { title: "T", body: "B" }, sound: "default", "thread-id": "s1" },
     sessionId: "s1",
     kind: "blocked",
+    instanceId: "i",
   });
   const host = JSON.parse(
-    apnsBody({ title: "T", body: "B", sessionId: "", kind: "usage_limit", tag: "u" }),
+    apnsBody({
+      title: "T",
+      body: "B",
+      sessionId: "",
+      kind: "usage_limit",
+      tag: "u",
+      instanceId: "i",
+    }),
   );
   expect(host.aps["thread-id"]).toBe("host");
 });
@@ -115,6 +130,7 @@ const payload = () => ({
   sessionId: "s1",
   kind: "done" as const,
   tag: "s1",
+  instanceId: "",
 });
 
 test("the sender picks the host by environment and sets the APNs headers", async () => {
@@ -260,4 +276,15 @@ test("POST /api/push/apns rejects malformed bodies and answers 503 when APNs is 
   expect((await register(app, { token: TOKEN, environment: "staging" })).status).toBe(400);
   const off = appWith(null);
   expect((await register(off.app, { token: TOKEN, environment: "production" })).status).toBe(503);
+});
+
+test("POST /api/push/apns stores the relay fields and rejects malformed ones (#3058)", async () => {
+  const { app, store } = appWith(new ApnsSender(cfg(), recording().transport));
+  const device = { token: TOKEN, environment: "production" };
+  expect((await register(app, { ...device, relayRemote: false })).status).toBe(200);
+  expect(store.listPushSubs()[0]).toMatchObject({ relayRemote: false, coveredInstances: [] });
+  expect((await register(app, { ...device, coveredInstances: ["b"] })).status).toBe(200);
+  expect(store.listPushSubs()[0]).toMatchObject({ relayRemote: true, coveredInstances: ["b"] });
+  expect((await register(app, { ...device, coveredInstances: [7] })).status).toBe(400);
+  expect((await register(app, { ...device, relayRemote: 1 })).status).toBe(400);
 });

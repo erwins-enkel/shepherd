@@ -232,6 +232,14 @@ export class RemoteSessionMirror {
     return this.linkOf(sessionId) !== undefined;
   }
 
+  /** The held reference for `sessionId`, annotated like `list()`; undefined for one no machine
+   *  has reported. */
+  session(sessionId: string): MirroredSession | undefined {
+    const link = this.linkOf(sessionId);
+    const row = link?.sessions.get(sessionId);
+    return link?.connection && row ? this.annotate(link, row) : undefined;
+  }
+
   /**
    * Where an action on a mirrored session goes (#2765): its machine, and the machine's address and
    * token while the link is live. `target` is null while the machine is disconnected — nothing is

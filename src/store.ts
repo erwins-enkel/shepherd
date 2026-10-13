@@ -625,6 +625,16 @@ export interface PushSubInput {
   endpoint: string;
   keys: { p256dh: string; auth: string };
   locale?: string;
+  /** Notifications this server relays for its connected machines' sessions (#3058). Absent for a
+   *  client that sent neither field: such a device gets none of them. */
+  relay?: PushRelayPrefs;
+}
+
+/** Which relayed notifications a device wants: none when `relayRemote` is off, otherwise those
+ *  of every connected machine except the ones it is registered with itself (`coveredInstances`). */
+export interface PushRelayPrefs {
+  coveredInstances: string[];
+  relayRemote: boolean;
 }
 export interface StoredPushSub {
   endpoint: string;
@@ -636,6 +646,8 @@ export interface StoredPushSub {
   /** Last time the device (re-)registered; iOS does so on every launch. */
   registeredAt: number;
   cats: PushPrefs;
+  relayRemote: boolean;
+  coveredInstances: string[];
 }
 
 /** Which notification categories a device wants (per-subscription, all-on by default). */
@@ -1945,6 +1957,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       catCi: "INTEGER NOT NULL DEFAULT 1",
       // last (re-)registration, for the settings device list (#2696); NULL reads as createdAt
       registeredAt: "INTEGER",
+      // relayed notifications of connected machines' sessions (#3058); off until a device asks
+      relayRemote: "INTEGER NOT NULL DEFAULT 0",
+      coveredInstances: "TEXT NOT NULL DEFAULT '[]'",
     });
     // Named machine bearer tokens minted from the HUD (#2082). Only the SHA-256 of the plaintext
     // is stored — `hint` is the last 4 plaintext chars so the list can render `shp_…a9Fz`.
@@ -2494,15 +2509,29 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   // ── web push subscriptions ────────────────────────────────────────────────
+  /** Upsert by endpoint. Categories survive a re-registration; the relay preferences do not — the
+   *  latest registration says what the device knows now. */
   putPushSub(sub: PushSubInput, ua: string): void {
     const now = Date.now();
     this.db.run(
-      `INSERT INTO push_subscriptions (endpoint, p256dh, auth, ua, locale, createdAt, registeredAt)
-       VALUES (?,?,?,?,?,?,?)
+      `INSERT INTO push_subscriptions
+         (endpoint, p256dh, auth, ua, locale, createdAt, registeredAt, relayRemote, coveredInstances)
+       VALUES (?,?,?,?,?,?,?,?,?)
        ON CONFLICT(endpoint) DO UPDATE SET
          p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua, locale = excluded.locale,
-         registeredAt = excluded.registeredAt`,
-      [sub.endpoint, sub.keys.p256dh, sub.keys.auth, ua, sub.locale ?? "en", now, now],
+         registeredAt = excluded.registeredAt, relayRemote = excluded.relayRemote,
+         coveredInstances = excluded.coveredInstances`,
+      [
+        sub.endpoint,
+        sub.keys.p256dh,
+        sub.keys.auth,
+        ua,
+        sub.locale ?? "en",
+        now,
+        now,
+        sub.relay?.relayRemote ? 1 : 0,
+        JSON.stringify(sub.relay?.coveredInstances ?? []),
+      ],
     );
   }
 
@@ -2514,17 +2543,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const rows = this.db
       .query(
         `SELECT endpoint, p256dh, auth, ua, locale, catAgent, catReviews, catCi, createdAt,
-           COALESCE(registeredAt, createdAt) AS registeredAt
+           COALESCE(registeredAt, createdAt) AS registeredAt, relayRemote, coveredInstances
          FROM push_subscriptions`,
       )
-      .all() as (Omit<StoredPushSub, "cats"> & {
+      .all() as (Omit<StoredPushSub, "cats" | "relayRemote" | "coveredInstances"> & {
       catAgent: number;
       catReviews: number;
       catCi: number;
+      relayRemote: number;
+      coveredInstances: string;
     })[];
-    return rows.map(({ catAgent, catReviews, catCi, ...rest }) => ({
+    return rows.map(({ catAgent, catReviews, catCi, relayRemote, coveredInstances, ...rest }) => ({
       ...rest,
       cats: { agent: !!catAgent, reviews: !!catReviews, ci: !!catCi },
+      relayRemote: !!relayRemote,
+      coveredInstances: JSON.parse(coveredInstances) as string[],
     }));
   }
 

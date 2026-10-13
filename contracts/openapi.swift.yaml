@@ -82,6 +82,9 @@ components:
         arch:
           type: string
           description: CPU architecture as the server runtime reports it (x64, arm64, ...).
+        pushRelay:
+          type: boolean
+          description: True when this server relays notifications for its connected machines' sessions and takes coveredInstances and relayRemote on a push registration. Absent on servers older than this field; a client sends those fields only where it is true.
         capabilities:
           description: The last capability probe; null until the first one finished. Absent on servers older than this field.
           $ref: "#/components/schemas/InstanceCapabilities"
@@ -7491,6 +7494,18 @@ components:
         locale:
           type: string
           description: Notification language for this device (en or de; anything else reads as en).
+        coveredInstances:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          description: Instance IDs (GET /api/instance there) of the other servers this device is registered with for push itself. This server skips the notifications it would relay for those servers' sessions, since the device hears them from the server directly. Send it, and relayRemote, only to a server whose GET /api/instance reports pushRelay.
+        relayRemote:
+          type: boolean
+          default: true
+          description: Whether this server relays notifications for the sessions of its connected machines to this device. Defaults to true once either relay field is sent; a registration with neither field gets no relayed notifications, as before.
     ApnsRegistrationResult:
       type: object
       additionalProperties: true
@@ -11877,7 +11892,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApnsRegistrationResult"
         "400":
-          description: Malformed token or environment.
+          description: Malformed token, environment or relay fields.
           content:
             application/json:
               schema:

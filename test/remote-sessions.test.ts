@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { PushService, type SendFn } from "../src/push";
 import type { FetchLike } from "../src/remote-instances/client";
+import { attachMirrorPush } from "../src/remote-instances/push-relay";
 import type { RemoteInstanceRow, RemoteInstanceSummary } from "../src/remote-instances/service";
 import { type OpenSocket, RemoteSessionMirror, hostNames } from "../src/remote-instances/sessions";
 import type { OpenTerminalSocket } from "../src/remote-instances/terminal";
+import { SessionStore } from "../src/store";
 
 const B = "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d";
 const C = "1c7f3d2f-8d2e-4f64-8e2b-4d2f3f5c6b7e";
@@ -499,6 +502,106 @@ describe("routes of mirrored sessions (#2765)", () => {
     t.mirror.sync(B);
     expect(t.mirror.route(S1)).toBeNull();
     expect(t.mirror.machines()).toEqual([]);
+  });
+});
+
+describe("notifications of mirrored sessions (#3058)", () => {
+  /** The coordinator's push service, relaying `t.mirror`, with three devices: one registered here
+   *  only, one registered with the MacBook too, and an older client that sent no relay fields. */
+  function relayed(t: ReturnType<typeof setup>) {
+    const store = new SessionStore(":memory:");
+    const sent: { endpoint: string; payload: Record<string, unknown> }[] = [];
+    const deliver: SendFn = async (sub, payload) => {
+      sent.push({ endpoint: sub.endpoint, payload: JSON.parse(payload) });
+      return {};
+    };
+    const push = new PushService(store, deliver, () => ({ publicKey: "P", privateKey: "Q" }));
+    const keys = { p256dh: "p", auth: "a" };
+    store.putPushSub(
+      { endpoint: "here-only", keys, relay: { coveredInstances: [], relayRemote: true } },
+      "",
+    );
+    store.putPushSub(
+      { endpoint: "both", keys, relay: { coveredInstances: [B], relayRemote: true } },
+      "",
+    );
+    store.putPushSub({ endpoint: "older-client", keys }, "");
+    attachMirrorPush(t.mirror, push);
+    return sent;
+  }
+
+  const menu = { shape: "menu", options: [], tail: [] };
+
+  test("a blocked session reaches the device registered here only, exactly once", async () => {
+    const t = setup();
+    const sent = relayed(t);
+    const socket = await t.live();
+    send(socket, "session:block", { id: S1, block: menu });
+    await flush();
+    expect(sent).toEqual([
+      {
+        endpoint: "here-only",
+        payload: {
+          title: "MacBook · login — needs you",
+          body: "Waiting on a menu choice.",
+          sessionId: S1,
+          kind: "blocked",
+          tag: S1,
+          instanceId: B,
+        },
+      },
+    ]);
+  });
+
+  test("finished, review and login frames relay like their local counterparts; others do not", async () => {
+    const t = setup();
+    const sent = relayed(t);
+    const socket = await t.live();
+    send(socket, "session:status", { id: S2, status: "done" });
+    send(socket, "session:status", { id: S1, status: "idle" });
+    send(socket, "session:review", { id: S1, review: { decision: "changes_requested" } });
+    send(socket, "session:review", { id: S2, review: { decision: "commented", dismissed: true } });
+    send(socket, "session:review", { id: S2, review: { decision: "approved" } });
+    send(socket, "session:login-request", {
+      id: S2,
+      request: { id: "r1", url: "https://github.com/login", reason: "push the branch" },
+    });
+    send(socket, "session:block", { id: S1, block: null });
+    send(socket, "session:git", { id: S1, git: { checks: "failure" } });
+    send(socket, "session:block", { id: LATE, block: menu });
+    await flush();
+    expect(sent.map(({ endpoint, payload }) => [endpoint, payload.kind, payload.title])).toEqual([
+      ["here-only", "done", "MacBook · docs — waiting"],
+      ["here-only", "review", "MacBook · login — review"],
+      ["here-only", "login_request", "MacBook · docs — log in for it"],
+    ]);
+    expect(sent[2]!.payload.body).toBe(
+      "Log in at github.com in the Shared Browser: push the branch",
+    );
+  });
+
+  test("a reconnect snapshot announces nothing; a frame during it is announced once", async () => {
+    const t = setup();
+    const sent = relayed(t);
+    (await t.live()).on.close();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    t.state.snapshot = async () => {
+      await gate;
+      return Response.json([
+        { ...s1, status: "done" },
+        { ...s2, status: "done" },
+      ]);
+    };
+    t.mirror.sync(B);
+    const socket = t.sockets.at(-1)!;
+    socket.on.open();
+    send(socket, "session:block", { id: S2, block: menu });
+    release();
+    await flush();
+    await flush();
+    expect(t.mirror.list().map(({ status }) => status)).toEqual(["done", "done"]);
+    expect(sent.map(({ payload }) => [payload.kind, payload.sessionId])).toEqual([["blocked", S2]]);
   });
 });
 

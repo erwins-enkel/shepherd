@@ -336,6 +336,10 @@ test("native iOS registration: 503 without an APNs key, 400 on a bad token, 200 
     );
     const ok = (await request("POST", "/api/push/apns", 200, device)) as { endpoint: string };
     expect(ok.endpoint).toBe(`apns:production:${device.token}`);
+    // The relay fields of #3058: a device registered with another server too.
+    const covered = { ...device, coveredInstances: ["0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d"] };
+    await request("POST", "/api/push/apns", 200, { ...covered, relayRemote: true });
+    await request("POST", "/api/push/apns", 400, { ...device, coveredInstances: [""] });
   } finally {
     s.deps.push = saved;
   }

@@ -2,7 +2,7 @@ import { PairingCodeService } from "./pairing-codes";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
 import { localHealthIdentity } from "./local-health";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
-import type { RepoConfig, SessionStore, StoredPushSub } from "./store";
+import type { PushRelayPrefs, RepoConfig, SessionStore, StoredPushSub } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
@@ -1483,6 +1483,8 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
 function instanceBody(deps: AppDeps) {
   return {
     ...instanceIdentity(deps.store, hostPlatform(deps)),
+    // Push registrations here take coveredInstances/relayRemote (#3058).
+    pushRelay: true,
     capabilities: capabilities(deps).report(),
   };
 }
@@ -3062,6 +3064,35 @@ async function handleLearningStatus(
   return json(updated);
 }
 
+/** Upper bounds for `coveredInstances`: one entry per server a device is registered with. */
+const COVERED_INSTANCES_MAX = 64;
+const INSTANCE_ID_MAX = 64;
+
+/**
+ * The relay fields of a push registration (#3058): `undefined` when the client sent neither — an
+ * older client, which gets no relayed notifications — else the device's preferences, `relayRemote`
+ * defaulting to true. `"invalid"` when a field is present but malformed.
+ */
+function parsePushRelay(body: {
+  coveredInstances?: unknown;
+  relayRemote?: unknown;
+}): PushRelayPrefs | undefined | "invalid" {
+  const { coveredInstances: covered, relayRemote: relay } = body;
+  if (covered === undefined && relay === undefined) return undefined;
+  if (relay !== undefined && typeof relay !== "boolean") return "invalid";
+  if (
+    covered !== undefined &&
+    !(
+      Array.isArray(covered) &&
+      covered.length <= COVERED_INSTANCES_MAX &&
+      covered.every((id) => typeof id === "string" && id.length > 0 && id.length <= INSTANCE_ID_MAX)
+    )
+  ) {
+    return "invalid";
+  }
+  return { coveredInstances: (covered as string[] | undefined) ?? [], relayRemote: relay ?? true };
+}
+
 async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
@@ -3069,12 +3100,16 @@ async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
     endpoint?: unknown;
     keys?: { p256dh?: unknown; auth?: unknown };
     locale?: unknown;
+    coveredInstances?: unknown;
+    relayRemote?: unknown;
   } | null;
+  const relay = body ? parsePushRelay(body) : "invalid";
   if (
     !body ||
     typeof body.endpoint !== "string" ||
     typeof body.keys?.p256dh !== "string" ||
-    typeof body.keys?.auth !== "string"
+    typeof body.keys?.auth !== "string" ||
+    relay === "invalid"
   ) {
     return json({ error: "body must be a PushSubscription" }, 400);
   }
@@ -3083,14 +3118,16 @@ async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
       endpoint: body.endpoint,
       keys: { p256dh: body.keys.p256dh, auth: body.keys.auth },
       locale: typeof body.locale === "string" ? body.locale : undefined,
+      relay,
     },
     req.headers.get("User-Agent") ?? "",
   );
   return json({ ok: true });
 }
 
-/** POST /api/push/apns {token, environment, locale?} — register a native iOS device. Stored as a
- *  push subscription with an `apns:` endpoint, so prefs/unsubscribe take that endpoint too. */
+/** POST /api/push/apns {token, environment, locale?, coveredInstances?, relayRemote?} — register a
+ *  native iOS device. Stored as a push subscription with an `apns:` endpoint, so prefs/unsubscribe
+ *  take that endpoint too. */
 async function pushApnsRegister(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
@@ -3098,15 +3135,23 @@ async function pushApnsRegister(req: Request, deps: AppDeps): Promise<Response> 
     token?: unknown;
     environment?: unknown;
     locale?: unknown;
+    coveredInstances?: unknown;
+    relayRemote?: unknown;
   } | null;
+  const relay = body ? parsePushRelay(body) : "invalid";
   if (
     !body ||
     typeof body.token !== "string" ||
     !isApnsToken(body.token) ||
-    (body.environment !== "sandbox" && body.environment !== "production")
+    (body.environment !== "sandbox" && body.environment !== "production") ||
+    relay === "invalid"
   ) {
     return json(
-      { error: "body must be {token: hex device token, environment: sandbox|production}" },
+      {
+        error:
+          "body must be {token: hex device token, environment: sandbox|production, " +
+          "coveredInstances?: instance IDs, relayRemote?: boolean}",
+      },
       400,
     );
   }
@@ -3117,6 +3162,7 @@ async function pushApnsRegister(req: Request, deps: AppDeps): Promise<Response> 
       endpoint,
       keys: { p256dh: "", auth: "" },
       locale: typeof body.locale === "string" ? body.locale : undefined,
+      relay,
     },
     req.headers.get("User-Agent") ?? "",
   );

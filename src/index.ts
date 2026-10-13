@@ -59,6 +59,7 @@ import { AccessTokenService } from "./access-tokens";
 import { CapabilityService } from "./remote-instances/capability-probe";
 import { RemoteInstanceService } from "./remote-instances/service";
 import { RemoteSessionMirror } from "./remote-instances/sessions";
+import { attachMirrorPush } from "./remote-instances/push-relay";
 import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
 import { instanceIdentity } from "./remote-instances/identity";
 import { localMachine } from "./remote-instances/placement";
@@ -1663,6 +1664,8 @@ const push = new PushService(
   apnsSender,
 );
 attachPush(events, store, push);
+// Connected machines' sessions: their frames bypass `events`, so they get their own bridge (#3058).
+attachMirrorPush(remoteSessions, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
 // the list overview badges stay current without opening each session's detail.

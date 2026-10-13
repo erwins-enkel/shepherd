@@ -8,6 +8,7 @@ import type { ChecksState, GitState } from "./forge/types";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isDeadToken, parseApnsEndpoint, type ApnsSender } from "./apns";
+import { instanceId } from "./remote-instances/identity";
 
 export interface PushPayload {
   title: string;
@@ -36,6 +37,10 @@ export interface PushPayload {
     // Settings → Notifications "send test message" (#2696); never produced by notify().
     | "test";
   tag: string;
+  /** The server whose session this is (`GET /api/instance` there): this one's own for a local
+   *  session, a connected machine's for one relayed from it (#3058). The app opens the session in
+   *  that server's connection. */
+  instanceId: string;
 }
 
 /** User-facing notification categories — coarser than the internal kinds. */
@@ -135,8 +140,15 @@ export interface NotifyInput {
   /** For kind "login_request": host of the page to log in on, and the agent's one-line reason. */
   loginHost?: string;
   loginReason?: string;
-  /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
+  /** Overrides the cooldown key (default `${kind}:${sessionId}`, or `${kind}:${instanceId}:${sessionId}`
+   *  for a relayed session). */
   cooldownKey?: string;
+  /** Set when the session belongs to a connected machine (#3058): that machine's instance ID. Such
+   *  a notification only reaches devices that want relayed ones and are not registered with that
+   *  machine themselves. Absent for this server's own notifications. */
+  instanceId?: string;
+  /** The connected machine's display name, put in front of the session name in the title. */
+  hostName?: string;
 }
 
 export type SendResult = { statusCode?: number };
@@ -228,6 +240,7 @@ const NOTIFY_TEXT = {
         : `Log in in the Shared Browser: ${reason}`,
     testTitle: "Shepherd test message",
     testBody: "Push notifications reach this device.",
+    onHost: (host: string, name: string) => `${host} · ${name}`,
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -299,6 +312,7 @@ const NOTIFY_TEXT = {
         : `Melde dich im Shared Browser an: ${reason}`,
     testTitle: "Shepherd-Testnachricht",
     testBody: "Push-Benachrichtigungen erreichen dieses Gerät.",
+    onHost: (host: string, name: string) => `${host} · ${name}`,
   },
 } as const;
 
@@ -424,10 +438,18 @@ const PARTS_BY_KIND: Partial<
   }),
 };
 
-/** Build the device-facing payload for a notification in the subscriber's locale. */
+/** Build the device-facing payload for a notification in the subscriber's locale. `instanceId` is
+ *  the input's; {@link PushService.notify} always sets it before delivery. */
 export function buildPayload(input: NotifyInput, locale: string): PushPayload {
   const t = NOTIFY_TEXT[asLocale(locale)];
-  const base = { sessionId: input.sessionId, kind: input.kind, tag: input.tag };
+  // A connected machine's session (#3058) is named with its machine, as the herd shows it.
+  if (input.hostName) input = { ...input, name: t.onHost(input.hostName, input.name) };
+  const base = {
+    sessionId: input.sessionId,
+    kind: input.kind,
+    tag: input.tag,
+    instanceId: input.instanceId ?? "",
+  };
   const parts = PARTS_BY_KIND[input.kind];
   if (parts) return { ...base, ...parts(t, input) };
   switch (input.kind) {
@@ -509,9 +531,36 @@ export function pushDeviceId(endpoint: string): string {
   return createHash("sha256").update(endpoint).digest("hex").slice(0, 16);
 }
 
+/** The cooldown key of a notification: the caller's, else per kind and session — and, for a
+ *  connected machine's session (#3058), per machine too. */
+function cooldownKey(input: NotifyInput & { instanceId: string }, relayed: boolean): string {
+  if (input.cooldownKey) return input.cooldownKey;
+  return relayed
+    ? `${input.kind}:${input.instanceId}:${input.sessionId}`
+    : `${input.kind}:${input.sessionId}`;
+}
+
+/** Whether a device receives this notification. */
+function wantsPush(
+  row: StoredPushSub,
+  input: NotifyInput & { instanceId: string },
+  relayed: boolean,
+): boolean {
+  // A connected machine's session (#3058): only devices that want relayed notifications and
+  // are not registered with that machine themselves — those hear it from the machine.
+  if (relayed && (!row.relayRemote || row.coveredInstances.includes(input.instanceId))) {
+    return false;
+  }
+  // Honor the device's category selection: a sub that muted this category
+  // never receives the push (filtered server-side so it works app-closed).
+  // Exception: "ready" bypasses the category filter unconditionally — it must
+  // reach all devices regardless of their agent/reviews/ci selection.
+  return input.kind === "ready" || row.cats[KIND_CATEGORY[input.kind]];
+}
+
 export class PushService {
   private pub: string;
-  /** Last *successful-send* timestamp per `${kind}:${sessionId}`, for cooldown debouncing. */
+  /** Last *successful-send* timestamp per cooldown key, for cooldown debouncing. */
   private lastNotified = new Map<string, number>();
 
   constructor(
@@ -575,19 +624,17 @@ export class PushService {
     // don't touch the cooldown clock here: nothing was sent.
     if (this.isActive()) return false;
     if (config.reducedPushMode && !REDUCED_ALLOWED.has(input.kind)) return false;
+    const own = instanceId(this.store);
+    const resolved = { ...input, instanceId: input.instanceId ?? own };
+    const relayed = resolved.instanceId !== own;
     const cooldownMs = config.pushCooldownMs;
-    const key = input.cooldownKey ?? `${input.kind}:${input.sessionId}`;
+    const key = cooldownKey(resolved, relayed);
     const t = this.now();
     if (this.withinCooldown(key, t, cooldownMs)) return false;
-    const category = KIND_CATEGORY[input.kind];
     let sent = false;
     for (const row of this.store.listPushSubs()) {
-      // Honor the device's category selection: a sub that muted this category
-      // never receives the push (filtered server-side so it works app-closed).
-      // Exception: "ready" bypasses the category filter unconditionally — it must
-      // reach all devices regardless of their agent/reviews/ci selection.
-      if (input.kind !== "ready" && !row.cats[category]) continue;
-      if (await this.deliver(row, input)) sent = true;
+      if (!wantsPush(row, resolved, relayed)) continue;
+      if (await this.deliver(row, resolved)) sent = true;
     }
     if (sent && cooldownMs > 0) this.lastNotified.set(key, t);
     return sent;
@@ -660,6 +707,7 @@ export class PushService {
       sessionId: "",
       kind: "test",
       tag: "test",
+      instanceId: instanceId(this.store),
     };
     const apnsTarget = parseApnsEndpoint(row.endpoint);
     if (apnsTarget) {
@@ -747,7 +795,7 @@ export function notifySessionDone(
 }
 
 /** Push bodies get truncated by the OS anyway; keep the agent's reason to one line's worth. */
-const LOGIN_REASON_PUSH_CHARS = 160;
+export const LOGIN_REASON_PUSH_CHARS = 160;
 
 /** Bridge F3 state events to push notifications. Both events are already edge-triggered. The
  *  Operator Assistant never pushes: the operator is talking to it in its panel (#1446). */

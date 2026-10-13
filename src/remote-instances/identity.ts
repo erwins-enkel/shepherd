@@ -52,7 +52,7 @@ export function defaultInstanceName(host: string = hostname()): string {
 }
 
 /** The persisted instance ID, created on first read. */
-function instanceId(store: Store): string {
+export function instanceId(store: Pick<Store, "getSetting" | "setSetting">): string {
   const existing = store.getSetting(ID_KEY);
   if (existing) return existing;
   const id = randomUUID();

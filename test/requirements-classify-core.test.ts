@@ -3,6 +3,7 @@ import {
   type AnsweredDerivation,
   DERIVABLE_CAPABILITIES,
   REQUIREMENTS_FILE,
+  derivationFromJudge,
   normalizeDerivation,
   requirementsPrompt,
   withImplied,
@@ -164,5 +165,42 @@ describe("requirementsPrompt", () => {
     expect(prompt).not.toContain("UNTRUSTED:task");
     expect(prompt).toContain("the issue below is the task");
     expect(prompt).toContain("Android: Push fehlt");
+  });
+});
+
+describe("derivationFromJudge", () => {
+  const zero = (...sets: string[]) => Object.fromEntries(sets.map((set) => [set, 0]));
+  const rest = zero("ios-simulator", "android", "ios-and-android");
+
+  test("a clear winner is derived, with what it implies", () => {
+    expect(derivationFromJudge({ none: 0.1, ios: 0.85, macos: 0.05, ...rest })).toEqual({
+      status: "derived",
+      requirements: ["sdk:ios", "xcode"],
+    });
+    // Not clear on its own, but nothing else is likely enough to ask about.
+    expect(
+      derivationFromJudge({ none: 0.55, macos: 0.15, ios: 0.15, ...rest, android: 0.15 }),
+    ).toEqual({ status: "derived", requirements: [] });
+  });
+
+  test("a close call asks between every likely set, most likely first", () => {
+    expect(derivationFromJudge({ none: 0.45, macos: 0.35, ios: 0.2, ...rest })).toEqual({
+      status: "unclear",
+      options: [[], ["xcode"], ["sdk:ios", "xcode"]],
+    });
+  });
+
+  test("iOS and Android together is one set", () => {
+    expect(
+      derivationFromJudge({ ...rest, "ios-and-android": 0.9, none: 0.1, ...zero("macos", "ios") }),
+    ).toEqual({ status: "derived", requirements: ["android-sdk", "sdk:ios", "xcode"] });
+  });
+
+  test("a malformed distribution is no answer, so the helper reads instead", () => {
+    expect(derivationFromJudge({})).toBeNull();
+    expect(derivationFromJudge({ bogus: 1 })).toBeNull();
+    expect(derivationFromJudge({ none: 0.9, ios: 0.1 })).toBeNull(); // sets missing
+    expect(derivationFromJudge({ none: 0, macos: 0, ios: 0, ...rest })).toBeNull(); // all zero
+    expect(derivationFromJudge({ none: 1.4, macos: -0.4, ios: 0, ...rest })).toBeNull();
   });
 });

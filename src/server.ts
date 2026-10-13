@@ -3601,7 +3601,8 @@ async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
   const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
   const machines = await runOnMachines(deps, project);
   if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN, machines });
-  // Only Automatic reads requirements from the task (#2773): a named machine is the operator's pick.
+  // Whether the task's requirements can change the choice (#2773) — New Task waits on the read only
+  // then. A named machine is the operator's pick.
   const deriveRequirements = target.instanceId === null && (await derivationMatters(deps, project));
   const decision = await decide(deps, { requirements, project, override: target.instanceId });
   if (decision.ok) {
@@ -3630,9 +3631,9 @@ async function runOnMachines(deps: AppDeps, project: string | undefined): Promis
 // ── POST /api/requirements/derive — what a task calls for, read from its description (#2773) ──
 //
 // New Task asks this while the operator is still writing, so the helper's seconds pass before the
-// task is submitted. It runs only when it can matter: with no machine connected, or while every
-// machine that could take the task verifies the same of what a description can call for, the
-// answer is `skipped` and nothing is spawned. The answer is data from the capability vocabulary —
+// task is submitted. It reads whenever a machine is connected — even while every machine verifies
+// the same, so the chips always say what the task needs; with none connected the answer is
+// `skipped` and nothing is spawned. The answer is data from the capability vocabulary —
 // or the alternatives to ask the operator about — never model prose; a failure derives nothing.
 // `POST /api/sessions` never derives: explicit requirements win, and a create never waits on this.
 async function handleRequirementsDerive(ctx: Ctx): Promise<Response | null> {
@@ -3650,8 +3651,6 @@ async function handleRequirementsDerive(ctx: Ctx): Promise<Response | null> {
   if (repoErr) return repoErr;
   const skipped: RequirementsDerivation = { status: "skipped" };
   if (!placementActive(remoteInstances(deps).list())) return json(skipped);
-  const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
-  if (!(await derivationMatters(deps, project))) return json(skipped);
   if (!deps.deriveTaskRequirements) return json({ status: "failed", cause: "unavailable" });
   return json(await deps.deriveTaskRequirements(task, req.signal));
 }

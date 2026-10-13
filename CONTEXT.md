@@ -57,7 +57,7 @@ Where a new task runs and why, chosen once when it is submitted: the machine —
 _Avoid_: routing, scheduling, load balancing
 
 **Requirement**:
-A capability a task needs from the machine it runs on (Xcode, an SDK, an agent CLI, a sandbox profile, a platform); the placement only picks a machine whose verified capabilities include every one. Given by the operator, or read from the task's prompt and issue (never the repository) while the machines differ in it.
+A capability a task needs from the machine it runs on (Xcode, an SDK, an agent CLI, a sandbox profile, a platform); the placement only picks a machine whose verified capabilities include every one. Given by the operator, or read from the task's prompt, issue and screenshots (never the repository) while other machines are connected.
 _Avoid_: constraint, tag, label
 
 **Base Commit**:

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
-import { type RequirementsAgentDeps, deriveRequirementsViaAgent } from "../src/requirements-llm";
+import {
+  type RequirementsAgentDeps,
+  deriveRequirementsViaAgent,
+  deriveRequirementsViaJudge,
+} from "../src/requirements-llm";
+import type { Judge } from "../src/judge";
+import type { JudgeSpendLedger } from "../src/judge-spend";
 import { REQUIREMENTS_FILE } from "../src/requirements-classify-core";
 import { REQUIREMENTS_FIXTURES } from "../scripts/eval-fixtures/requirements";
 
@@ -213,5 +219,97 @@ describe("deriveRequirementsViaAgent", () => {
     const { deps, calls } = harness(() => null, { signal: controller.signal });
     await deriveRequirementsViaAgent({ prompt: "x" }, deps, "requirements t");
     expect(calls.started).toBeNull();
+  });
+
+  test("screenshots are copied into the temp dir and read there, never the repository", async () => {
+    const staged: { images: readonly string[]; cwd: string }[] = [];
+    const { deps, calls } = harness(
+      () => JSON.stringify({ requirements: ["ios-simulator"], unclear: false, options: [] }),
+      {
+        stageScreenshots: (images, cwd) => {
+          staged.push({ images, cwd });
+          return ["screenshot-1.png"];
+        },
+      },
+    );
+    const result = await deriveRequirementsViaAgent(
+      { prompt: "Fix das", images: ["/stage/a.png", "/stage/b.mp4"] },
+      deps,
+      "requirements s",
+    );
+    expect(result).toEqual({
+      status: "derived",
+      requirements: ["ios-simulator", "sdk:ios", "xcode"],
+    });
+    expect(staged).toEqual([
+      { images: ["/stage/a.png", "/stage/b.mp4"], cwd: "/tmp/requirements-xyz" },
+    ]);
+    const { argv } = calls.started!;
+    expect(argv).not.toContain("--add-dir");
+    expect(argv.join(" ")).toContain("Read");
+    expect(argv.at(-1)).toContain("screenshot-1.png");
+  });
+
+  test("no screenshot to show: the Write-only helper as before", async () => {
+    const { deps, calls } = harness(
+      () => JSON.stringify({ requirements: [], unclear: false, options: [] }),
+      { stageScreenshots: () => [] },
+    );
+    await deriveRequirementsViaAgent({ prompt: "x", images: ["/stage/a.pdf"] }, deps, "r");
+    const allowed = calls.started!.argv[calls.started!.argv.indexOf("--allowedTools") + 1];
+    expect(allowed).toBe("Write");
+    expect(calls.started!.argv.at(-1)).not.toContain("screenshot");
+  });
+});
+
+describe("deriveRequirementsViaJudge", () => {
+  const judgeAnswering = (probabilities: Record<string, number>, asked: unknown[] = []): Judge => ({
+    ask: (async (state: unknown, questions: unknown) => {
+      asked.push({ state, questions });
+      return {
+        answers: {
+          requirements: { type: "choice", choice: "none", probabilities, vendorConfidence: 1 },
+        },
+        model: "jev-test",
+        usage: { inputTokens: 100, outputTokens: 0 },
+        costUsd: 0.001,
+      };
+    }) as Judge["ask"],
+  });
+  const ledger = (allow = true) => {
+    const booked: number[] = [];
+    const spend = { allow: () => allow, record: (usd: number) => booked.push(usd) };
+    return { spend: spend as unknown as JudgeSpendLedger, booked };
+  };
+  const quiet = () => {};
+
+  test("a clear pick is derived, the call booked", async () => {
+    const asked: unknown[] = [];
+    const { spend, booked } = ledger();
+    const judge = judgeAnswering(
+      { none: 0.05, "ios-simulator": 0.9, ios: 0.05, macos: 0, android: 0, "ios-and-android": 0 },
+      asked,
+    );
+    expect(
+      await deriveRequirementsViaJudge({ prompt: "UI-Test im Simulator" }, judge, spend, quiet),
+    ).toEqual({
+      status: "derived",
+      requirements: ["ios-simulator", "sdk:ios", "xcode"],
+    });
+    expect(booked).toEqual([0.001]);
+    expect(JSON.stringify(asked)).toContain("UI-Test im Simulator");
+  });
+
+  test("over the daily ceiling or failing: null, so the helper answers", async () => {
+    const judge = judgeAnswering({ none: 1 });
+    expect(
+      await deriveRequirementsViaJudge({ prompt: "x" }, judge, ledger(false).spend, quiet),
+    ).toBeNull();
+    const broken: Judge = {
+      ask: (async () => {
+        throw new Error("judge: 503");
+      }) as Judge["ask"],
+    };
+    expect(await deriveRequirementsViaJudge({ prompt: "x" }, broken, null, quiet)).toBeNull();
   });
 });

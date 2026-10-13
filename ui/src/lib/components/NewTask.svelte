@@ -588,15 +588,14 @@
           if (seq !== previewSeq) return;
           preview = { key, value };
           previewFailed = false;
-          // Only Automatic says whether the task's description can matter; a pick says false.
-          if (pick === null) deriveFor = { repo, value: value.deriveRequirements === true };
+          // Only Automatic says whether the task's requirements can matter; a pick says false.
+          if (pick === null) deriveMatters = { repo, value: value.deriveRequirements === true };
         })
         .catch(() => {
           if (seq !== previewSeq) return;
           previewFailed = true;
-          // Unknown whether it matters: ask the derive route, which checks again itself and
-          // answers `skipped` when it does not — the start never waits forever, nor goes unread.
-          if (pick === null) deriveFor = { repo, value: true };
+          // Unknown whether it matters: the start waits on the read, so it never goes unread.
+          if (pick === null) deriveMatters = { repo, value: true };
         });
     }, 200);
     return () => clearTimeout(timer);
@@ -607,51 +606,53 @@
   const activeIssue = $derived(issueRef && repoPath === attachedRepoPath ? issueRef : null);
 
   // ── Requirements read from the task (#2773) ─────────────────────────────────
-  // While the machines that could take the task differ in what a description can call for (the
-  // Automatic preview says so), the server reads the requirements from the prompt and the attached
-  // issue a second after the last edit — so its seconds pass while the operator is still writing.
-  // The answer becomes the chips, correctable; an unclear description asks first, and nothing
-  // starts before the answer. Once the operator sets the chips or answers, theirs win.
-  /** The operator set the requirements (a chip, or the question answered): nothing is read any more. */
+  // Under Automatic the server reads the requirements from the prompt, the attached issue and the
+  // screenshots a second after the last edit — so its seconds pass while the operator is still
+  // writing. The answer becomes the chips, correctable. While it can change where the task runs
+  // (the Automatic preview says so), an unclear description asks first and nothing starts before
+  // the answer. Once the operator sets the chips or answers, theirs win: the task is still read as
+  // it changes, but an answer that differs is only offered.
+  /** The attachments the server shows the reader — images; a video or a PDF it leaves out. */
+  const SCREENSHOT_RE = /\.(png|jpe?g|gif|webp)$/i;
+  /** The operator set the requirements (a chip, or the question answered). */
   let requirementsTouched = $state(false);
-  /** Whether reading them can change where the task runs, for this repo — from its last Automatic
+  /** Whether the answer can change where the task runs, for this repo — from its last Automatic
    *  preview. */
-  let deriveFor = $state<{ repo: string; value: boolean } | null>(null);
-  /** The last answer, with the task text it answers (`key`). */
+  let deriveMatters = $state<{ repo: string; value: boolean } | null>(null);
+  /** The last answer, with the task it answers (`key`). */
   let derivation = $state<{ key: string; value: Derivation } | null>(null);
-  const deriveApplies = $derived(
-    runOnAvailable &&
-      pickedId === null &&
-      !requirementsTouched &&
-      deriveFor?.repo === repoPath.trim() &&
-      deriveFor.value,
-  );
-  /** The task as the create sends it: the prompt and the attached issue. */
-  const deriveTask = $derived({
-    prompt: prompt.trim(),
-    ...(activeIssue && {
-      issue: { title: activeIssue.title, ...(activeIssue.body && { body: activeIssue.body }) },
-    }),
+  const deriveApplies = $derived(runOnAvailable && pickedId === null);
+  /** The task as the create sends it: the prompt, the attached issue and its screenshots. */
+  const deriveTask = $derived.by(() => {
+    const shots = images.map((x) => x.path).filter((path) => SCREENSHOT_RE.test(path));
+    return {
+      prompt: prompt.trim(),
+      ...(activeIssue && {
+        issue: { title: activeIssue.title, ...(activeIssue.body && { body: activeIssue.body }) },
+      }),
+      ...(shots.length > 0 && { images: shots }),
+    };
   });
   const deriveKey = $derived(JSON.stringify([repoPath.trim(), deriveTask]));
-  const deriveHasText = $derived(!!deriveTask.prompt || !!deriveTask.issue?.title.trim());
+  const deriveHasTask = $derived(
+    !!deriveTask.prompt || !!deriveTask.issue?.title.trim() || !!deriveTask.images,
+  );
   /** The answer for the task as it is now; null while that one is still being read. */
   const currentDerivation = $derived(derivation?.key === deriveKey ? derivation.value : null);
-  /** No Automatic preview has answered for this repo yet, so whether reading the requirements
-   *  matters is not known: the task does not start before it is (the preview may wait on a
-   *  capability refresh, and a repo switch asks again). */
-  const deriveUnknown = $derived(
-    runOnAvailable &&
-      pickedId === null &&
+  /** The start waits on the answer while it can change where the task runs — or while no Automatic
+   *  preview has said yet for this repo (a repo switch asks again) — and only for untouched chips:
+   *  the operator's own never wait. */
+  const deriveBinding = $derived(
+    deriveApplies &&
       !requirementsTouched &&
-      deriveFor?.repo !== repoPath.trim(),
+      (deriveMatters?.repo !== repoPath.trim() || deriveMatters.value),
   );
   const requirementsPending = $derived(
-    deriveHasText && ((deriveApplies && currentDerivation === null) || deriveUnknown),
+    deriveHasTask && deriveBinding && currentDerivation === null,
   );
-  const requirementsUnclear = $derived(deriveApplies && currentDerivation?.status === "unclear");
+  const requirementsUnclear = $derived(deriveBinding && currentDerivation?.status === "unclear");
 
-  /** An answer for the current text: it replaces untouched chips — what was derived, else none, so
+  /** An answer for the current task: it replaces untouched chips — what was derived, else none, so
    *  a chip read from an older text never stays (nothing is guessed). */
   function applyDerivation(key: string, value: Derivation) {
     derivation = { key, value };
@@ -665,6 +666,12 @@
     requirementsTouched = true;
   }
 
+  /** The offered answer taken over: the chips follow the task again. */
+  function adoptDerivation(next: string[]) {
+    requirements = [...next].sort();
+    requirementsTouched = false;
+  }
+
   // One read per settled text: a change aborts the read in flight (the server tears its helper
   // down) and a stale answer is dropped (`deriveSeq`).
   let deriveSeq = 0;
@@ -672,7 +679,7 @@
     const key = deriveKey;
     const repo = repoPath.trim();
     const task = deriveTask;
-    if (!deriveApplies || !deriveHasText) return;
+    if (!deriveApplies || !deriveHasTask) return;
     if (untrack(() => derivation?.key) === key) return;
     const seq = ++deriveSeq;
     const controller = new AbortController();
@@ -2421,9 +2428,12 @@
               <RequirementChips {requirements} onchange={setRequirements} />
               {#if deriveApplies}
                 <RequirementsDerivation
-                  pending={requirementsPending}
+                  pending={deriveHasTask && currentDerivation === null}
                   derivation={currentDerivation}
+                  touched={requirementsTouched}
+                  {requirements}
                   onanswer={setRequirements}
+                  onadopt={adoptDerivation}
                 />
               {/if}
               <PlacementLine preview={currentPreview} failed={previewFailed} />

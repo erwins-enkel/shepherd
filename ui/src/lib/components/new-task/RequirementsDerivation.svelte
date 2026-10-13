@@ -5,36 +5,56 @@
   import { derivedRequirementsExplanation } from "#lib/tooltips/explanations.js";
   import type { RequirementsDerivation } from "#lib/types.js";
 
-  // What the server read from the task's description (#2773), under the requirement chips: while it
-  // reads, what it found (the chips above hold it, correctable), the question when the description
-  // was unclear — nothing starts before it is answered — or that nothing could be read. Nothing is
-  // rendered while the requirements are the operator's own or reading them does not matter.
+  // What the server read from the task (#2773), under the requirement chips: while it reads, what
+  // it found (the chips above hold it, correctable), the question when the task was unclear —
+  // nothing starts before it is answered — or that nothing could be read. Once the chips are the
+  // operator's own (`touched`), an answer that differs from them is only offered, to take over.
   let {
     pending,
     derivation,
+    touched = false,
+    requirements = [],
     onanswer,
+    onadopt,
   }: {
     pending: boolean;
     derivation: RequirementsDerivation | null;
+    touched?: boolean;
+    requirements?: readonly string[];
     onanswer: (requirements: string[]) => void;
+    onadopt?: (requirements: string[]) => void;
   } = $props();
 
   const found = $derived(derivation?.requirements ?? []);
+  const foundText = $derived(
+    found.length > 0
+      ? m.newtask_derive_found({ list: capabilityList(found) })
+      : m.newtask_derive_none(),
+  );
+  /** The operator's chips differ from what the task calls for now. */
+  const differs = $derived(
+    touched && [...found].sort().join(",") !== [...requirements].sort().join(","),
+  );
   const label = (option: readonly string[]) =>
     option.length > 0 ? capabilityList(option) : m.newtask_derive_option_none();
 </script>
 
 {#if pending}
   <span class="nt-derive" role="status">{m.newtask_derive_pending()}</span>
+{:else if derivation?.status === "derived" && differs}
+  <div class="nt-derive-ask" role="group" aria-label={foundText}>
+    <span class="nt-derive">{foundText}</span>
+    <button type="button" class="gbtn" onclick={() => onadopt?.([...found])}>
+      {m.newtask_derive_adopt()}
+    </button>
+  </div>
 {:else if derivation?.status === "derived"}
   <button
     type="button"
     class="nt-derive"
     use:statusTip={{ text: derivedRequirementsExplanation(), wide: true }}
   >
-    {found.length > 0
-      ? m.newtask_derive_found({ list: capabilityList(found) })
-      : m.newtask_derive_none()}
+    {foundText}
   </button>
 {:else if derivation?.status === "unclear"}
   <div class="nt-derive-ask" role="group" aria-label={m.newtask_derive_question()}>

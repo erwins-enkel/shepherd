@@ -172,16 +172,19 @@ The reason is shown before you start and on the session afterwards: "Needs macOS
   the task waits for it ([Waiting tasks](#waiting-tasks)). New Task says so before you start, for
   example "Waits for MacBook — Needs Xcode", and names the machines that would fit now. It never
   falls back to another machine on its own. Pick one under **Run on** to start it there instead.
-- **Read from the task.** While the machines that could take a task differ in Xcode, the iOS SDK,
-  the iOS simulator or the Android SDK, New Task reads what the task needs from its prompt and
-  attached issue, a second after you stop typing. The repository is never read, so a `native/`
-  folder or a `Package.swift` alone never sends a task to the Mac, and mentioning a Mac in passing
-  doesn't either. What it reads shows up as chips you can correct; once you change them they're
-  yours. If the description is unclear ("the app" in a repo with a website and a native app), New
-  Task asks which it is, and the task can't start before you answer. If nothing can be read in
-  time, it says so and adds nothing. A task named for a machine, or one whose chips you set
-  yourself, is never read. The reading runs on the autopilot classifier's CLI and model and takes a
-  few seconds.
+- **Read from the task.** Under **Automatic**, New Task reads whether a task needs Xcode, the iOS
+  SDK, the iOS simulator or the Android SDK from its prompt, attached issue and attached
+  screenshots, a second after you stop typing. The repository is never read, so a `native/` folder
+  or a `Package.swift` alone never sends a task to the Mac, and mentioning a Mac in passing doesn't
+  either. What it reads shows up as chips you can correct; once you change them they're yours:
+  New Task keeps reading as you type, but a different answer only appears as a suggestion with
+  **Use this**. While the machines that could take the task differ in those tools, the task waits
+  for the answer; if the description is unclear ("the app" in a repo with a website and a native
+  app), New Task asks which it is, and the task can't start before you answer — unless the chips
+  are already yours. If nothing can be read in time, it says so and adds nothing. A task named for
+  a machine is never read. With the decision model (JEV) switched on, a task without screenshots is
+  read in one request, in about a second; otherwise, and with screenshots, a helper on the
+  autopilot classifier's CLI and model reads it in a few seconds.
 
 ### Platform order
 

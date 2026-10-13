@@ -6305,13 +6305,13 @@
   "newtask_derive_question": "Unklar, was diese Aufgabe braucht – was davon?",
   "newtask_derive_option_none": "Nichts Besonderes (z. B. Web)",
   "tooltip_derive_title": "Aus der Aufgabe gelesene Anforderungen",
-  "tooltip_derive_summary": "Shepherd hat aus Prompt und verknüpftem Issue gelesen, was diese Aufgabe braucht, weil sich die verbundenen Rechner darin unterscheiden.",
+  "tooltip_derive_summary": "Shepherd hat aus Prompt, verknüpftem Issue und Screenshots gelesen, was diese Aufgabe braucht, damit „Automatisch“ einen Rechner wählt, der es hat.",
   "tooltip_derive_reads": "Was gelesen wird",
-  "tooltip_derive_reads_body": "Nur Prompt und Issue – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon.",
+  "tooltip_derive_reads_body": "Nur Prompt, Issue und angehängte Screenshots – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon.",
   "tooltip_derive_correct": "Korrigieren",
-  "tooltip_derive_correct_body": "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine, und Shepherd überschreibt sie nicht mehr.",
+  "tooltip_derive_correct_body": "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine: Shepherd liest beim Tippen weiter, bietet eine abweichende Antwort aber nur zum Übernehmen an.",
   "feat_derived_requirements_title": "„Neue Aufgabe“ liest, was eine Aufgabe braucht",
-  "feat_derived_requirements_body": "Sind Rechner mit unterschiedlichen Werkzeugen verbunden, liest „Neue Aufgabe“ schon beim Schreiben aus Prompt und Issue, was eine Aufgabe braucht – Xcode für eine Mac- oder iOS-App, das Android SDK für Android – und zeigt es als Chips, die du korrigieren kannst. Ist die Beschreibung unklar, fragt sie vor dem Start nach; kann sie es nicht erkennen, sagt sie das und rät nichts.",
+  "feat_derived_requirements_body": "Sind weitere Rechner verbunden, liest „Neue Aufgabe“ schon beim Schreiben aus Prompt und Issue, was eine Aufgabe braucht – Xcode für eine Mac- oder iOS-App, das Android SDK für Android – und zeigt es als Chips, die du korrigieren kannst. Ist die Beschreibung unklar, fragt sie vor dem Start nach; kann sie es nicht erkennen, sagt sie das und rät nichts.",
   "native_local_start_on_launch": "Lokalen Server beim Öffnen der App starten",
   "updatemodal_this_machine": "Dieser Rechner",
   "updatemodal_machines_summary_one": "von {total} Rechnern braucht ein Update",
@@ -6386,5 +6386,8 @@
   "roles_automerge_failed": "Auto-Merge konnte für diesen PR nicht aktiviert werden — bitte selbst mergen.",
   "roles_automerge_enable": "Auto-Merge auf GitHub einschalten",
   "roles_automerge_admin_needed": "Ein Repo-Admin muss Auto-Merge in den Repository-Einstellungen einschalten.",
-  "roles_automerge_enable_failed": "Auto-Merge konnte nicht eingeschaltet werden."
+  "roles_automerge_enable_failed": "Auto-Merge konnte nicht eingeschaltet werden.",
+  "newtask_derive_adopt": "Übernehmen",
+  "feat_requirements_screenshots_title": "Anforderungen auch aus Screenshots",
+  "feat_requirements_screenshots_body": "„Neue Aufgabe“ schaut beim Lesen, was eine Aufgabe braucht, jetzt auch auf angehängte Screenshots und liest beim Tippen weiter, auch nachdem du die Chips geändert hast – eine abweichende Antwort erscheint dann als Vorschlag, den du mit einem Klick übernimmst. Mit eingeschaltetem Entscheidungsmodell (JEV) ist eine Aufgabe ohne Screenshots in etwa einer Sekunde gelesen."
 }

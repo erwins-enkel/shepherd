@@ -9764,13 +9764,16 @@ function mergeEpicRunPatch(
 
 /** The patched run, or why it is refused: 400 for an invalid patch, 409 for lifting the usage
  *  ceiling on a run that is not running — the override lives on the run row and is cleared whenever
- *  the run leaves running, so lifting it for a paused, idle or queued epic would be a silent no-op. */
+ *  the run leaves running, so lifting it for a paused, idle or queued epic would be a silent no-op.
+ *  A patch that moves a lifted run off running (a pause) clears the override here too, so the
+ *  answer and `epic:update` match what the store keeps. */
 function patchedEpicRun(base: EpicRun, patch: EpicRunPatch): EpicRun | Response {
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
-  if (patch.ignoreUsageCeiling === true && merged.status !== "running")
+  const running = merged.status === "running";
+  if (patch.ignoreUsageCeiling === true && !running)
     return json({ error: "epic not running" }, 409);
-  return merged;
+  return { ...merged, ignoreUsageCeiling: running && merged.ignoreUsageCeiling === true };
 }
 
 // GET /api/epics?repo= — list epic parent issues for a repo.

@@ -2634,10 +2634,16 @@ describe("PUT /api/epic ignoreUsageCeiling", () => {
   });
 
   test("pausing clears it, and resuming does not bring it back", async () => {
-    const { app, store } = harness();
+    const { app, store, emitted } = harness();
     lead(store);
     await app.fetch(put(100, { ignoreUsageCeiling: true }));
-    expect((await app.fetch(put(100, { status: "paused" }))).status).toBe(200);
+    const paused = await app.fetch(put(100, { status: "paused" }));
+    expect(paused.status).toBe(200);
+    expect(((await paused.json()) as Epic).run).toMatchObject({
+      status: "paused",
+      ignoreUsageCeiling: false,
+    });
+    expect((emitted.at(-1) as Epic).run.ignoreUsageCeiling).toBe(false);
     expect(store.getEpicRun(repoDir)!.ignoreUsageCeiling).toBe(false);
     await app.fetch(put(100, { status: "running" }));
     expect(store.getEpicRun(repoDir)).toMatchObject({

@@ -993,11 +993,13 @@
         {diagnosticsOverall}
         {ondiagnose}
       />{/if}
-    {#if onassistant && !mobile}
+    {#if onassistant}
+      <!-- Icon-only on a phone: the label would crowd the wrapping bar. -->
       <TopBarAssist
         {assistant}
         open={assistantOpen}
-        compact={compactBadges}
+        compact={compactBadges || mobile}
+        {mobile}
         {workingBlocked}
         {backgroundBusy}
         onclick={onassistant}

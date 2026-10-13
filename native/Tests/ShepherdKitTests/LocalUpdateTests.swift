@@ -254,6 +254,41 @@ import Testing
   }
 
 
+  @Test func promotionIgnoresBackendGitBookkeepingButRefusesOperatorWork() throws {
+    for change in ["bookkeeping", "tracked", "untracked", "commit"] {
+      let (_, environment) = try script("exit 0")
+      defer { try? FileManager.default.removeItem(at: environment.homeDirectory) }
+      let app = environment.appDirectory
+      let git = app.appendingPathComponent(".git")
+      for directory in ["objects/ab", "refs/heads", "refs/remotes/origin", "logs"] {
+        try FileManager.default.createDirectory(at: git.appendingPathComponent(directory), withIntermediateDirectories: true)
+      }
+      for (file, content) in ["HEAD": "ref: refs/heads/main", "refs/heads/main": "abc", "index": "v1",
+                              "FETCH_HEAD": "abc", "packed-refs": "", "tracked": "working"] {
+        let url = file == "tracked" ? app.appendingPathComponent(file) : git.appendingPathComponent(file)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+      }
+      var deployment = try LocalUpdateDeployment(environment: environment)
+      defer { deployment.finish() }
+      // What the running backend's periodic `git fetch` / `git status` write while the build runs.
+      for file in ["index", "FETCH_HEAD", "objects/ab/cdef", "refs/remotes/origin/main", "logs/HEAD", "packed-refs"] {
+        try "changed by backend".write(to: git.appendingPathComponent(file), atomically: true, encoding: .utf8)
+      }
+      switch change {
+      case "tracked": try "edited".write(to: app.appendingPathComponent("tracked"), atomically: true, encoding: .utf8)
+      case "untracked": try "new".write(to: app.appendingPathComponent("untracked"), atomically: true, encoding: .utf8)
+      case "commit": try "def".write(to: git.appendingPathComponent("refs/heads/main"), atomically: true, encoding: .utf8)
+      default: break
+      }
+      if change == "bookkeeping" {
+        try deployment.promote()
+        try deployment.rollback()
+      } else {
+        #expect(throws: LocalServerFailure.self) { try deployment.promote() }
+      }
+    }
+  }
+
   @Test func stagingRefusesLinksThatCouldMutateFilesOutsideTheCopy() throws {
     let (_, environment) = try script("exit 0")
     defer { try? FileManager.default.removeItem(at: environment.homeDirectory) }

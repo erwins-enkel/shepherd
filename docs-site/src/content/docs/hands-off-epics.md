@@ -77,7 +77,9 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 - **A plan under adversarial review.** The plan reviewer iterates with the planning agent (up to 5
   rounds) before anything executes.
 - **Usage ceiling.** New spawns pause when 5-hour / weekly usage reaches the repo's ceiling (default
-  80%), then resume as usage drops.
+  80%), then resume as usage drops. To keep going anyway, lift the ceiling for this run — **Ignore
+  usage ceiling** in the epic's run control, or **Ignore for epic #N** next to the pause banner. It
+  lasts until the run is paused or stopped; the credit ceiling still applies.
 - **Concurrency cap.** Only *N* auto-sessions run at once (default 1); the rest queue.
 
 **Terminal (needs you):**

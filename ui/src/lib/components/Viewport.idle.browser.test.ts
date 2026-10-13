@@ -128,6 +128,14 @@ describe("terminal stream while the window is hidden", () => {
     expect(pty.poke).toHaveBeenCalledTimes(1);
   });
 
+  it("pauses a terminal that attached while the window was already hidden", async () => {
+    visibility = "hidden"; // e.g. a session switch from a notification
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await mount();
+    vi.advanceTimersByTime(PTY_HIDDEN_PAUSE_MS);
+    expect(pty.pause).toHaveBeenCalledTimes(1);
+  });
+
   it("does not pause on a quick app switch", async () => {
     await mount();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

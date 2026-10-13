@@ -2083,6 +2083,9 @@
         pauseTimer = setTimeout(() => c.pause(), PTY_HIDDEN_PAUSE_MS);
     };
     document.addEventListener("visibilitychange", onHidden);
+    // attached while already hidden (e.g. a session switch from a notification): no edge will
+    // come to arm the pause, so arm it now
+    onHidden();
 
     // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
     let dragged = false;

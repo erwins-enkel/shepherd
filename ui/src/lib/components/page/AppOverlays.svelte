@@ -466,6 +466,13 @@
   function backlogIssueSession(repoPath: string, issue: number): Session | null {
     return store.sessions.find((s) => s.repoPath === repoPath && s.issueNumber === issue) ?? null;
   }
+
+  // The update window: alone it shows only while this Shepherd is behind; with machines connected
+  // it stays open until closed, so a machine that just finished (and now reads up to date) keeps
+  // its row.
+  const updateOpen = $derived(
+    showUpdate && ((store.update?.behind ?? 0) > 0 || store.machineUpdates.length > 0),
+  );
 </script>
 
 {#if showLearnings}
@@ -536,9 +543,7 @@
   />
 {/if}
 
-<!-- With machines connected it stays open until closed, so a machine that just finished (and now
-     reads up to date) keeps its row; alone, it shows only while this Shepherd is behind. -->
-{#if showUpdate && ((store.update?.behind ?? 0) > 0 || store.machineUpdates.length > 0)}
+{#if updateOpen}
   <UpdateModal
     update={store.update}
     machines={store.machineUpdates}

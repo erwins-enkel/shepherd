@@ -11,6 +11,7 @@
   import { machineStatusLabel } from "#lib/machines.js";
   import { machineReachable, type MachinePhase } from "#lib/machine-updates.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { lastLogLine } from "./local-update.svelte.js";
   import UpdateRow from "./UpdateRow.svelte";
   import UpdateDirty from "./UpdateDirty.svelte";
 
@@ -57,14 +58,6 @@
         ? m.updatemodal_row_at({ sha: update.current })
         : null,
   );
-
-  const lastLine = (log: string): string | null =>
-    log
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .at(-1)
-      ?.slice(0, 160) ?? null;
 
   /** Start (or retry) the update; `discard` resets the confirmed dirty tree first. */
   export async function start(discard = false, sig?: string) {
@@ -118,7 +111,7 @@
           await settle(st);
           return;
         }
-        progress = st.log ? lastLine(st.log) : null;
+        progress = st.log ? lastLogLine(st.log) : null;
       } catch {
         // expected while the machine restarts — keep asking, but not forever
         if (Date.now() - lastAnswer > GONE_MS) {
@@ -179,7 +172,7 @@
   {:else if update.behind > 0}
     <button
       type="button"
-      class="run"
+      class="run small"
       aria-label={m.updatemodal_update_named({ name: machine.name })}
       onclick={() => start()}>{m.updatemodal_row_update()}</button
     >
@@ -199,20 +192,24 @@
     {arming}
   >
     {#snippet actions()}
-      <button type="button" class="later" onclick={() => (arming ? (arming = false) : skip())}>
+      <button
+        type="button"
+        class="later small"
+        onclick={() => (arming ? (arming = false) : skip())}
+      >
         {arming ? m.common_cancel() : m.updatemodal_skip()}
       </button>
       {#if dirty?.sig != null}
         {#if arming}
           <button
             type="button"
-            class="run danger"
+            class="run small danger"
             onclick={() => start(true, dirty?.sig ?? undefined)}
           >
             {m.updatemodal_discard_confirm_yes()}
           </button>
         {:else}
-          <button type="button" class="run danger" onclick={() => (arming = true)}>
+          <button type="button" class="run small danger" onclick={() => (arming = true)}>
             {m.updatemodal_discard_and_update()}
           </button>
         {/if}
@@ -226,8 +223,10 @@
     <div class="err">{failure}</div>
     {#if failLog}<pre class="log">{failLog}</pre>{/if}
     <div class="row-actions">
-      <button type="button" class="later" onclick={skip}>{m.updatemodal_skip()}</button>
-      <button type="button" class="run" onclick={() => start()}>{m.updatemodal_retry()}</button>
+      <button type="button" class="later small" onclick={skip}>{m.updatemodal_skip()}</button>
+      <button type="button" class="run small" onclick={() => start()}
+        >{m.updatemodal_retry()}</button
+      >
     </div>
   </div>
 {/snippet}
@@ -246,16 +245,6 @@
 />
 
 <style>
-  .mark {
-    width: 13px;
-    height: 13px;
-    flex: none;
-    fill: none;
-    stroke: var(--color-muted);
-    stroke-width: 2.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
   .mark.warn {
     stroke: var(--color-warn);
     stroke-width: 2.2;
@@ -263,89 +252,12 @@
   .warn {
     color: var(--color-warn);
   }
-  .muted {
-    color: var(--color-muted);
-  }
   .done {
     color: var(--status-done);
-  }
-  .amber {
-    color: var(--color-amber);
-  }
-  .err {
-    color: var(--color-red);
-  }
-  .spin {
-    width: 11px;
-    height: 11px;
-    flex: none;
-    border: 2px solid var(--color-amber);
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.9s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .spin {
-      animation: none;
-    }
   }
   .failure {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: var(--fs-base);
-  }
-  .log {
-    margin: 0;
-    max-height: 160px;
-    overflow: auto;
-    padding: 8px 10px;
-    border: 1px solid var(--color-line);
-    background: var(--color-inset);
-    color: var(--color-ink-bright);
-    font-size: var(--fs-meta);
-    line-height: 1.45;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .row-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-  }
-  .later,
-  .run {
-    background: transparent;
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-    padding: 6px 12px;
-    cursor: pointer;
-  }
-  .later {
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-muted);
-  }
-  .run {
-    border: 1px solid var(--color-amber);
-    color: var(--color-amber);
-    font-weight: 600;
-    box-shadow: inset 0 0 18px -10px var(--color-amber);
-  }
-  .run.danger {
-    border-color: var(--color-red);
-    color: var(--color-red);
-    box-shadow: inset 0 0 18px -10px var(--color-red);
-  }
-  @media (pointer: coarse) {
-    .later,
-    .run {
-      min-height: 44px;
-    }
   }
 </style>

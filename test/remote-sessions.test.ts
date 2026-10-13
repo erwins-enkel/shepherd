@@ -79,6 +79,8 @@ function setup(
     rows: new Map([[B, row()]]),
     snapshot: opts.snapshot ?? (() => [s1, s2]),
     git: opts.git ?? (() => ({})),
+    /** What each machine's last probe said its checkout paths belong to. */
+    repoSlugs: new Map<string, Map<string, string>>(),
   };
   const sockets: FakeSocket[] = [];
   const terminals: { url: string; headers: Record<string, string>; closed: boolean }[] = [];
@@ -110,6 +112,7 @@ function setup(
         checks.push(id);
         return null;
       },
+      repoSlugs: (id) => state.repoSlugs.get(id) ?? new Map(),
     },
     self: opts.self,
     fetch,
@@ -228,6 +231,28 @@ describe("session mirror", () => {
       ["session:renamed", { id: S2, name: "docs v2", branch: "b", host, connection }],
       ["session:archived", { id: S3, host, connection }],
       ["session:git", { id: S1, git: { state: "open" }, host, connection }],
+    ]);
+  });
+
+  test("a session names its project when the machine's repo index knows its checkout", async () => {
+    const t = setup({
+      snapshot: () => [
+        { ...s1, repoPath: "/Users/k/shepherd" },
+        { ...s2, repoPath: "/Users/k/scratch" },
+      ],
+    });
+    t.state.repoSlugs.set(B, new Map([["/Users/k/shepherd", "erwins-enkel/shepherd"]]));
+    const socket = await t.live();
+    const [known, unknown] = t.mirror.list();
+    expect(known).toMatchObject({ id: S1, remoteSlug: "erwins-enkel/shepherd" });
+    expect(unknown).not.toHaveProperty("remoteSlug");
+    expect(t.mirror.session(S1)?.remoteSlug).toBe("erwins-enkel/shepherd");
+    t.events.length = 0;
+    const s3 = { id: S3, desig: "TASK-09", name: "new", status: "running" };
+    send(socket, "session:new", { ...s3, repoPath: "/Users/k/shepherd" });
+    expect(t.events[0]).toEqual([
+      "session:new",
+      expect.objectContaining({ id: S3, remoteSlug: "erwins-enkel/shepherd" }),
     ]);
   });
 

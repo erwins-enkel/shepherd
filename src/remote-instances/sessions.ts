@@ -11,7 +11,9 @@
  * `GET /api/sessions?host=local` and replay the frames that arrived while it was in flight.
  * Its PR state (#3055) comes the same way: `GET /api/git` alongside the snapshot, `session:git`
  * frames after it. Each reference carries its own as `git`, so the herd can place it in the
- * lifecycle group it belongs to; it never enters this server's PR cache.
+ * lifecycle group it belongs to; it never enters this server's PR cache. Its project comes from the
+ * machine's probe (`RemoteInstanceService.repoSlugs`): a reference whose checkout the machine's repo
+ * index knows carries that slug as `remoteSlug`, so a repo filter here can match it by project.
  * `host=local` asks the machine for its OWN sessions only — never the references it mirrors from
  * elsewhere — so two machines connected to each other neither loop nor duplicate; anything that
  * still carries a `host` is dropped here as well.
@@ -65,11 +67,13 @@ export interface SessionConnection {
 /** A session's PR state exactly as its machine reported it (that machine's own GitState JSON). */
 type RemoteGit = Record<string, unknown>;
 
-/** `git` is present when the machine reported PR state for the session. */
+/** `git` is present when the machine reported PR state for the session, `remoteSlug` when its
+ *  repo index names the project of the session's checkout. */
 export type MirroredSession = RemoteRow & {
   host: SessionHost;
   connection: SessionConnection;
   git?: RemoteGit;
+  remoteSlug?: string;
 };
 
 /** Who holds a session's terminal on its machine, as that machine reports it. */
@@ -103,7 +107,7 @@ export type OpenSocket = (
 ) => { close(): void };
 
 type Store = Pick<SessionStore, "getRemoteInstance">;
-type Instances = Pick<RemoteInstanceService, "list" | "check">;
+type Instances = Pick<RemoteInstanceService, "list" | "check" | "repoSlugs">;
 
 interface Link {
   instanceId: string;
@@ -111,6 +115,8 @@ interface Link {
   sessions: Map<string, RemoteRow>;
   /** The machine's PR state per session ID, from its `GET /api/git` and `session:git` frames. */
   git: Map<string, RemoteGit>;
+  /** The machine's checkout paths → project slug, from its last successful probe. */
+  repoSlugs: ReadonlyMap<string, string>;
   /** null until the socket first opened — a machine never synced has no references to show. */
   connection: SessionConnection | null;
   /** Identifies the current socket; callbacks from an older one are ignored. */
@@ -323,6 +329,7 @@ export class RemoteSessionMirror {
         host: { instanceId: machine.instanceId, name, platform: "unknown" },
         sessions: new Map(),
         git: new Map(),
+        repoSlugs: new Map(),
         connection: null,
         socketToken: null,
         socket: null,
@@ -340,6 +347,7 @@ export class RemoteSessionMirror {
       name,
       platform: machine.info?.platform ?? link.host.platform,
     };
+    link.repoSlugs = this.instances.repoSlugs(machine.instanceId);
     return link;
   }
 
@@ -524,10 +532,19 @@ export class RemoteSessionMirror {
   }
 
   /** A row the machine sent with its own `git` (a `session:git` frame) keeps it; any other gets
-   *  the held one, so every reference and relayed frame says where its PR stands. */
+   *  the held one, so every reference and relayed frame says where its PR stands. A row whose
+   *  checkout the machine's repo index knows names its project as `remoteSlug`. */
   private annotate(link: Link, row: RemoteRow): MirroredSession {
     const git = link.git.get(row.id);
-    return { ...(git ? { git } : {}), ...row, host: link.host, connection: link.connection! };
+    const remoteSlug =
+      typeof row.repoPath === "string" ? link.repoSlugs.get(row.repoPath) : undefined;
+    return {
+      ...(git ? { git } : {}),
+      ...row,
+      ...(remoteSlug ? { remoteSlug } : {}),
+      host: link.host,
+      connection: link.connection!,
+    };
   }
 
   private emit(event: string, data: unknown): void {

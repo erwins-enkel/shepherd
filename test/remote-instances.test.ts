@@ -119,9 +119,19 @@ function fakeShepherd(over: Partial<FakeShepherd> = {}): FakeShepherd {
     },
     repos: {
       repos: [
-        { name: "shepherd", remoteSlug: "erwins-enkel/shepherd" },
-        { name: "scratch" },
-        { name: "shepherd-fork", remoteSlug: "erwins-enkel/shepherd" },
+        {
+          name: "shepherd",
+          path: "/Users/k/repos/shepherd",
+          realPath: "/Users/k/repos/shepherd",
+          remoteSlug: "erwins-enkel/shepherd",
+        },
+        { name: "scratch", path: "/Users/k/repos/scratch", realPath: "/Users/k/repos/scratch" },
+        {
+          name: "shepherd-fork",
+          path: "/Users/k/repos/shepherd-fork",
+          realPath: "/Volumes/work/shepherd-fork",
+          remoteSlug: "erwins-enkel/shepherd",
+        },
         { name: "app", remoteSlug: "acme/app" },
       ],
       recentWindowDays: 3,
@@ -164,6 +174,11 @@ describe("probeRemote", () => {
         arch: "arm64",
       },
       projects: ["acme/app", "erwins-enkel/shepherd"],
+      repoSlugs: new Map([
+        ["/Users/k/repos/shepherd", "erwins-enkel/shepherd"],
+        ["/Users/k/repos/shepherd-fork", "erwins-enkel/shepherd"],
+        ["/Volumes/work/shepherd-fork", "erwins-enkel/shepherd"],
+      ]),
       capabilities: null,
     });
     expect(fetch.calls.map((c) => c.url)).toEqual([
@@ -407,6 +422,19 @@ describe("RemoteInstanceService", () => {
       info: { version: "2.1.0" },
       projects: ["acme/app", "erwins-enkel/shepherd"],
     });
+    expect(svc.repoSlugs(REMOTE_ID).get("/Users/k/repos/shepherd")).toBe("erwins-enkel/shepherd");
+  });
+
+  test("each checkout path names its project; unknown before a probe, absent from the summary", async () => {
+    const { svc } = setup();
+    expect(svc.repoSlugs(REMOTE_ID).size).toBe(0);
+    const { instance } = (await svc.connect(connectReq)) as { instance: object };
+    expect([...svc.repoSlugs(REMOTE_ID)]).toEqual([
+      ["/Users/k/repos/shepherd", "erwins-enkel/shepherd"],
+      ["/Users/k/repos/shepherd-fork", "erwins-enkel/shepherd"],
+      ["/Volumes/work/shepherd-fork", "erwins-enkel/shepherd"],
+    ]);
+    expect(instance).not.toHaveProperty("repoSlugs");
   });
 
   // ── capabilities and platform release (#2770) ──

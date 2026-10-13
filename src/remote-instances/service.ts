@@ -47,6 +47,8 @@ const TOKEN_RE = /^\S{1,1024}$/;
 /** Below this length a 4-character hint gives away too much of an operator-chosen env token. */
 const TOKEN_HINT_MIN_LENGTH = 20;
 
+const NO_REPO_SLUGS: ReadonlyMap<string, string> = new Map();
+
 /** A row as it sits in SQLite. `label` null = show the name the machine reports. */
 export interface RemoteInstanceRow {
   instanceId: string;
@@ -111,6 +113,7 @@ interface ProbeState {
   lastSeenAt: number | null;
   info: MachineInfo | null;
   projects: string[] | null;
+  repoSlugs: ReadonlyMap<string, string> | null;
   capabilities: CapabilitySnapshot | null;
   update: MachineSelfUpdate | null;
 }
@@ -184,6 +187,19 @@ export function parseLabelPatch(body: unknown): { label: string | null } | { err
   return label === undefined ? { error: "invalid_label" } : { label };
 }
 
+/** What a failed probe keeps from the last successful one ("last seen"). */
+function lastSeen(
+  prev: ProbeState | undefined,
+): Pick<ProbeState, "lastSeenAt" | "info" | "projects" | "repoSlugs" | "capabilities"> {
+  return {
+    lastSeenAt: prev?.lastSeenAt ?? null,
+    info: prev?.info ?? null,
+    projects: prev?.projects ?? null,
+    repoSlugs: prev?.repoSlugs ?? null,
+    capabilities: prev?.capabilities ?? null,
+  };
+}
+
 function machineInfo({ version, federationApi, platform, arch }: InstanceIdentity): MachineInfo {
   return { version, federationApi, platform, arch };
 }
@@ -210,6 +226,13 @@ export class RemoteInstanceService {
   get(instanceId: string): RemoteInstanceSummary | null {
     const row = this.store.getRemoteInstance(instanceId);
     return row ? this.summary(row) : null;
+  }
+
+  /** Which project (slug) each of the machine's checkout paths belongs to, as of its last
+   *  successful probe; empty until one answered. Kept out of the summary: the session mirror tags
+   *  the machine's sessions with it, so a repo filter here can match them by project. */
+  repoSlugs(instanceId: string): ReadonlyMap<string, string> {
+    return this.states.get(instanceId)?.repoSlugs ?? NO_REPO_SLUGS;
   }
 
   /** Called with the machine's ID after every probe result, rename and removal — the session
@@ -401,6 +424,7 @@ export class RemoteInstanceService {
             lastSeenAt: at,
             info: machineInfo(outcome.info),
             projects: outcome.projects,
+            repoSlugs: outcome.repoSlugs,
             capabilities: outcome.capabilities,
             update: knownUpdate,
           }
@@ -408,10 +432,7 @@ export class RemoteInstanceService {
             status: outcome.status,
             reason: "reason" in outcome ? outcome.reason : null,
             checkedAt: at,
-            lastSeenAt: prev?.lastSeenAt ?? null,
-            info: prev?.info ?? null,
-            projects: prev?.projects ?? null,
-            capabilities: prev?.capabilities ?? null,
+            ...lastSeen(prev),
             update: knownUpdate,
           };
     this.states.set(row.instanceId, next);

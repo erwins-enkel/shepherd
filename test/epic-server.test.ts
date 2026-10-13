@@ -67,6 +67,18 @@ describe("validateEpicRunPatch", () => {
     expect(validateEpicRunPatch({ unexpected: true })).toBeNull();
   });
 
+  test("ignoreUsageCeiling accepts a boolean and rejects anything else", () => {
+    expect(validateEpicRunPatch({ ignoreUsageCeiling: true })).toEqual({
+      ignoreUsageCeiling: true,
+    });
+    expect(validateEpicRunPatch({ ignoreUsageCeiling: false })).toEqual({
+      ignoreUsageCeiling: false,
+    });
+    expect(validateEpicRunPatch({ ignoreUsageCeiling: "yes" })).toBeNull();
+    expect(validateEpicRunPatch({ ignoreUsageCeiling: 1 })).toBeNull();
+    expect(validateEpicRunPatch({ ignoreUsageCeiling: null })).toBeNull();
+  });
+
   test("invalid {status:'bogus'} → null", () => {
     expect(validateEpicRunPatch({ status: "bogus" })).toBeNull();
   });
@@ -2538,5 +2550,107 @@ describe("PUT /api/epic for an epic that does not lead", () => {
       agentProvider: "codex",
       model: "gpt-5.5",
     });
+  });
+});
+
+describe("PUT /api/epic ignoreUsageCeiling", () => {
+  const put = (parent: number, body: unknown) =>
+    new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=${parent}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const lead = (store: SessionStore, status: "running" | "paused" = "running") =>
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 100, mode: "auto", status });
+
+  test("lifts the ceiling for the running leader and kicks the drain", async () => {
+    let ticks = 0;
+    const { app, store, emitted } = harness({
+      drainOverrides: {
+        tick: async () => {
+          ticks++;
+        },
+      },
+    });
+    lead(store);
+    const res = await app.fetch(put(100, { ignoreUsageCeiling: true }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Epic).run.ignoreUsageCeiling).toBe(true);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      status: "running",
+      ignoreUsageCeiling: true,
+    });
+    expect(ticks).toBe(1);
+    expect(emitted).toHaveLength(1);
+  });
+
+  test("false restores the ceiling", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(100, { ignoreUsageCeiling: true }));
+    expect((await app.fetch(put(100, { ignoreUsageCeiling: false }))).status).toBe(200);
+    expect(store.getEpicRun(repoDir)!.ignoreUsageCeiling).toBe(false);
+  });
+
+  test("a start may lift it in the same request", async () => {
+    const { app, store } = harness();
+    const res = await app.fetch(put(100, { status: "running", ignoreUsageCeiling: true }));
+    expect(res.status).toBe(200);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      status: "running",
+      ignoreUsageCeiling: true,
+    });
+  });
+
+  test("409 for a paused leader", async () => {
+    const { app, store } = harness();
+    lead(store, "paused");
+    const res = await app.fetch(put(100, { ignoreUsageCeiling: true }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "epic not running" });
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      status: "paused",
+      ignoreUsageCeiling: false,
+    });
+  });
+
+  test("409 for an epic that is not running and writes nothing", async () => {
+    const { app, store } = harness();
+    const res = await app.fetch(put(100, { ignoreUsageCeiling: true }));
+    expect(res.status).toBe(409);
+    expect(store.getEpicRun(repoDir)).toBeNull();
+    expect(store.getEpicSettings(repoDir, 100)).toBeNull();
+  });
+
+  test("409 for an epic that does not lead; the leader is left alone", async () => {
+    const { app, store } = harness();
+    lead(store);
+    const res = await app.fetch(put(200, { ignoreUsageCeiling: true }));
+    expect(res.status).toBe(409);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      parentIssueNumber: 100,
+      ignoreUsageCeiling: false,
+    });
+  });
+
+  test("pausing clears it, and resuming does not bring it back", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(100, { ignoreUsageCeiling: true }));
+    expect((await app.fetch(put(100, { status: "paused" }))).status).toBe(200);
+    expect(store.getEpicRun(repoDir)!.ignoreUsageCeiling).toBe(false);
+    await app.fetch(put(100, { status: "running" }));
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      status: "running",
+      ignoreUsageCeiling: false,
+    });
+  });
+
+  test("a mode change keeps it", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(100, { ignoreUsageCeiling: true }));
+    await app.fetch(put(100, { mode: "attended" }));
+    expect(store.getEpicRun(repoDir)).toMatchObject({ mode: "attended", ignoreUsageCeiling: true });
   });
 });

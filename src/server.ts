@@ -9755,8 +9755,17 @@ function mergeEpicRunPatch(
     ...base,
     ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
     ...(patch.status !== undefined ? { status: patch.status } : {}),
+    ...(patch.ignoreUsageCeiling !== undefined
+      ? { ignoreUsageCeiling: patch.ignoreUsageCeiling }
+      : {}),
     ...providerSettings,
   };
+}
+
+/** Only a running run may lift the usage ceiling: it lives on the run row and is cleared whenever
+ *  the run leaves running, so lifting it for a paused, idle or queued epic would be a silent no-op. */
+function liftsCeilingWhileNotRunning(patch: EpicRunPatch, merged: EpicRun): boolean {
+  return patch.ignoreUsageCeiling === true && merged.status !== "running";
 }
 
 // GET /api/epics?repo= — list epic parent issues for a repo.
@@ -10254,6 +10263,7 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
     );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
+  if (liftsCeilingWhileNotRunning(patch, merged)) return json({ error: "epic not running" }, 409);
   const leader = leadingRun(deps.store, dir);
   const via = requestTokenName(deps.store, token);
   const saved = saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via);

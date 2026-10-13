@@ -1427,9 +1427,17 @@ export type EpicRunPatch = {
   agentProvider?: AgentProvider | null;
   model?: string | null;
   effort?: string | null;
+  ignoreUsageCeiling?: boolean;
 };
 
-const EPIC_RUN_PATCH_KEYS = ["mode", "status", "agentProvider", "model", "effort"] as const;
+const EPIC_RUN_PATCH_KEYS = [
+  "mode",
+  "status",
+  "agentProvider",
+  "model",
+  "effort",
+  "ignoreUsageCeiling",
+] as const;
 const EPIC_RUN_PATCH_KEY_SET = new Set(EPIC_RUN_PATCH_KEYS);
 type EpicRunPatchKey = (typeof EPIC_RUN_PATCH_KEYS)[number];
 type EpicRunPatchFieldValidator = (value: unknown, out: EpicRunPatch) => boolean;
@@ -1476,6 +1484,11 @@ const EPIC_RUN_PATCH_FIELD_VALIDATORS: Record<EpicRunPatchKey, EpicRunPatchField
     const effort = validateEffort(value);
     if (!effort.ok) return false;
     out.effort = effort.value;
+    return true;
+  },
+  ignoreUsageCeiling(value, out) {
+    if (typeof value !== "boolean") return false;
+    out.ignoreUsageCeiling = value;
     return true;
   },
 };

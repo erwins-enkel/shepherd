@@ -44,6 +44,9 @@ export interface EpicRun {
   agentProvider?: AgentProvider | null;
   model?: string | null;
   effort?: string | null;
+  /** The operator lifted the repo's usage ceiling for this run. Persisted only while `running`:
+   *  every write that leaves running (pause, stop, completion, supersession) clears it. */
+  ignoreUsageCeiling?: boolean;
 }
 /** An epic's run settings without a status. They live in exactly one place: the repo's `epic_run`
  *  row while the epic holds it, its `epic_queue` row while queued, else its `epic_settings` row

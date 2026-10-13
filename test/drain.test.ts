@@ -1928,6 +1928,7 @@ describe("drain epic mode", () => {
       agentProvider: "claude",
       model: "opus",
       effort: "high",
+      ignoreUsageCeiling: false,
     });
     expect(h.store.listEpicQueue(REPO).map((e) => e.parentIssueNumber)).toEqual([600]);
     // The leader's completion is still recorded, and the status already names the new leader.
@@ -2004,6 +2005,7 @@ describe("drain epic mode", () => {
       agentProvider: "claude",
       model: "opus",
       effort: "high",
+      ignoreUsageCeiling: false,
     });
     expect(h.store.listEpicQueue(REPO)).toEqual([]);
     await h.drain.pump(REPO);

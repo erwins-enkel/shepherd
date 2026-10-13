@@ -116,6 +116,7 @@ import { StarPromptService } from "./star-prompt";
 import {
   PushService,
   attachPush,
+  attachBadgePush,
   attachReviewPush,
   attachGitPush,
   attachMergePush,
@@ -1670,6 +1671,7 @@ const push = new PushService(
 attachPush(events, store, push);
 // Connected machines' sessions: their frames bypass `events`, so they get their own bridge (#3058).
 attachMirrorPush(remoteSessions, push);
+attachBadgePush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so
 // the list overview badges stay current without opening each session's detail.

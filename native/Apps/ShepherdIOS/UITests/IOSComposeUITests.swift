@@ -118,7 +118,7 @@ final class IOSComposeUITests: XCTestCase {
         wait(for: [armed], timeout: 5)
         XCTAssertTrue(app.staticTexts["compose.fixture.created"].waitForExistence(timeout: 20))
     }
-    func testAttachMenuPhotosPresentsLibrary() { assertAttachItemCoversCompose("Fotos") }
+    func testAttachMenuPhotosPresentsLibrary() { assertAttachItemCoversCompose("Fotos & Videos") }
     func testAttachMenuFilesPresentsImporter() { assertAttachItemCoversCompose("Dateien") }
     func testAttachMenuPasteWithoutImageShowsNotice() {
         UIPasteboard.general.items = []

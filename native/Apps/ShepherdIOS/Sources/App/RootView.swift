@@ -7,6 +7,8 @@ struct RootView: View {
     @Environment(IOSServerHub.self) private var hub
     private var app: AppModel { hub.focused }
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var phase
+    @State private var badge = IOSAppBadge()
     @State private var path: [IOSSessionIdentity] = []
     @State private var cleanupState = "pending"
 
@@ -80,6 +82,19 @@ struct RootView: View {
             if sizeClass != .regular, path.isEmpty { app.selectedSessionID = nil }
         }
         .onChange(of: sizeClass) { _, _ in path = hub.selection.map { [$0] } ?? [] }
+        .onChange(of: badgeCount, initial: true) { _, count in
+            Task { await badge.update(count, enabled: !launch.configuration.isIsolated) }
+        }
+        .onChange(of: phase) { _, phase in
+            if phase == .active || phase == .background {
+                Task { await badge.update(badgeCount, enabled: !launch.configuration.isIsolated,
+                    background: phase == .background) }
+            }
+        }
+    }
+
+    private var badgeCount: Int {
+        IOSAppBadge.sum(hub.connected.compactMap { $0.store?.sessions })
     }
 
     private var composeFixtureEnabled: Bool {

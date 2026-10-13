@@ -62,7 +62,12 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** A mirror wired to fakes: `machines` is what the probe service reports, `snapshot` what
  *  `GET /api/sessions?host=local` answers (a function to defer or fail it). */
-function setup(opts: { snapshot?: () => unknown | Promise<Response> } = {}) {
+function setup(
+  opts: {
+    snapshot?: () => unknown | Promise<Response>;
+    self?: () => { instanceId: string; name: string };
+  } = {},
+) {
   let now = 1_000;
   const state = {
     machines: [machine()],
@@ -100,6 +105,7 @@ function setup(opts: { snapshot?: () => unknown | Promise<Response> } = {}) {
         return null;
       },
     },
+    self: opts.self,
     fetch,
     openSocket,
     openTerminalSocket: ((url, headers) => {
@@ -163,6 +169,23 @@ describe("session mirror", () => {
       { ...s2, host, connection },
     ]);
     expect(t.events).toEqual([["remote:sessions", { instanceId: B, sessions: t.mirror.list() }]]);
+  });
+
+  test("the mirror names itself on the socket and the snapshot, the name percent-encoded", async () => {
+    const t = setup({ self: () => ({ instanceId: C, name: "Müllers Mac 🍎" }) });
+    const socket = await t.live();
+    const identity = {
+      "x-shepherd-instance-id": C,
+      "x-shepherd-instance-name": "M%C3%BCllers%20Mac%20%F0%9F%8D%8E",
+    };
+    expect(socket.headers).toEqual({ ...identity, authorization: `Bearer ${TOKEN}` });
+    const sent = new Headers(t.requests[0]!.init.headers);
+    expect(Object.fromEntries(sent)).toEqual({
+      ...identity,
+      authorization: `Bearer ${TOKEN}`,
+      accept: "application/json",
+    });
+    expect(decodeURIComponent(sent.get("x-shepherd-instance-name")!)).toBe("Müllers Mac 🍎");
   });
 
   test("an https machine is reached over wss", () => {

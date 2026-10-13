@@ -41,6 +41,8 @@ interface Node {
   instanceId: string;
   /** Everything the process wrote to stderr — shown when it fails to come up. */
   stderr: string[];
+  /** Everything it wrote to stdout, its log lines included. */
+  stdout: string[];
 }
 
 type Json = Record<string, any>;
@@ -160,6 +162,7 @@ function spawnNode(
     stderr: "pipe",
   });
   const stderr: string[] = [];
+  const stdout: string[] = [];
   void (async () => {
     for await (const chunk of proc.stderr) stderr.push(new TextDecoder().decode(chunk));
   })();
@@ -173,13 +176,15 @@ function spawnNode(
       let out = "";
       let ready = false;
       for await (const chunk of proc.stdout) {
-        out += new TextDecoder().decode(chunk);
+        const text = new TextDecoder().decode(chunk);
+        stdout.push(text);
+        out += text;
         const line = /MACHINE-NODE-READY (\{.*\})/.exec(out);
         if (line && !ready) {
           ready = true;
           clearTimeout(timer);
           const info = JSON.parse(line[1]!) as Pick<Node, "port" | "token" | "instanceId">;
-          resolve({ ...spec, proc, stderr, ...info });
+          resolve({ ...spec, proc, stderr, stdout, ...info });
         }
       }
     })();
@@ -251,6 +256,13 @@ async function sessions(node: Node): Promise<Json[]> {
 async function machine(on: Node, of: Node): Promise<Json | undefined> {
   const res = await api(on, "GET", "/api/remote-instances", { operator: true });
   return (res.body.instances as Json[]).find((i) => i.instanceId === of.instanceId);
+}
+
+/** The Shepherds mirroring `node` right now, as Settings → Machines lists them (#3056). */
+async function incoming(node: Node): Promise<Json[]> {
+  const res = await api(node, "GET", "/api/remote-instances", { operator: true });
+  expect(res.status).toBe(200);
+  return res.body.incoming as Json[];
 }
 
 /** What the agent stub on `node` was asked to do, in order. */
@@ -361,6 +373,23 @@ describe("manual assignment across two Shepherd processes", () => {
       // The token stays on C's server: never in an answer.
       const listed = await api(c, "GET", "/api/remote-instances", { operator: true });
       expect(res.text + listed.text).not.toContain(m.token);
+
+      // Who mirrors whom (#3056): only C connected M, so M lists C as mirroring it in one
+      // direction, under the name C gives and the name of M's token it uses.
+      const onM = await until(
+        () => incoming(m),
+        (l) => l.length > 0,
+      );
+      expect(onM).toEqual([
+        {
+          instanceId: c.instanceId,
+          name: "linux",
+          tokenName: "machines-test",
+          since: expect.any(Number),
+          direction: "one",
+        },
+      ]);
+      expect(await incoming(c)).toEqual([]);
     },
     STEP_TIMEOUT_MS,
   );
@@ -386,6 +415,17 @@ describe("manual assignment across two Shepherd processes", () => {
         json: { url: `http://127.0.0.1:${c.port}`, token: c.token },
       });
       expect(back.status).toBe(201);
+      // Now both directions (#3056), each side confirming the other's ID with its own probe.
+      for (const [self, other, name] of [
+        [m, c, "linux"],
+        [c, m, "mac"],
+      ] as const) {
+        const [entry] = await until(
+          () => incoming(self),
+          (l) => l.length === 1 && l[0]!.direction === "both",
+        );
+        expect(entry).toMatchObject({ instanceId: other.instanceId, name, direction: "both" });
+      }
       const reverse = await startOn(m, c, "built on linux", "reverse-1");
       expect(reverse.status).toBe(201);
       expect(reverse.body.host).toMatchObject({ instanceId: c.instanceId });
@@ -404,6 +444,16 @@ describe("manual assignment across two Shepherd processes", () => {
         expect(new Set(ids).size).toBe(ids.length);
         expect(list.filter((s) => s.host?.instanceId === self.instanceId)).toEqual([]);
         expect(list.find((s) => s.id === id)!.host.instanceId).toBe(other.instanceId);
+      }
+      // Neither side logs a token, whatever its peers claim about themselves. (The fixture's own
+      // ready line hands this test its token; it is no log line.)
+      for (const node of [c, m]) {
+        const log = (node.stdout.join("") + node.stderr.join(""))
+          .split("\n")
+          .filter((line) => !line.startsWith("MACHINE-NODE-READY"))
+          .join("\n");
+        expect(log).not.toContain(c.token);
+        expect(log).not.toContain(m.token);
       }
     },
     STEP_TIMEOUT_MS,

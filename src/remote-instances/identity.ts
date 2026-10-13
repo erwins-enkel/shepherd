@@ -94,6 +94,26 @@ export function parseOptionalName(raw: unknown): string | null | undefined {
   return name.length <= INSTANCE_NAME_MAX ? name : undefined;
 }
 
+/**
+ * Who is mirroring (#3056): a Shepherd that mirrors this one sends its own ID and name with its
+ * `/events?host=local` socket and its snapshot request, so the mirrored side can show who watches
+ * it. Additive, so `FEDERATION_API_VERSION` stays: an older peer simply sends neither. The name is
+ * percent-encoded — a header value must be Latin-1, and a name may hold any character.
+ */
+export const MIRROR_ID_HEADER = "x-shepherd-instance-id";
+export const MIRROR_NAME_HEADER = "x-shepherd-instance-name";
+
+/** The headers a mirror sends about itself; the mirrored side reads them in `incoming.ts`. */
+export function mirrorIdentityHeaders(self: {
+  instanceId: string;
+  name: string;
+}): Record<string, string> {
+  return {
+    [MIRROR_ID_HEADER]: self.instanceId,
+    [MIRROR_NAME_HEADER]: encodeURIComponent(self.name),
+  };
+}
+
 /** True for a plain object whose ONLY key is `key` — the house shape for single-field PATCHes. */
 export function isSingleKeyBody<K extends string>(
   body: unknown,

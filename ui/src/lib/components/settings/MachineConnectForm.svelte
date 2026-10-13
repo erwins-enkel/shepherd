@@ -12,15 +12,20 @@
   let {
     onconnected,
     oncancel,
+    name = "",
   }: {
     onconnected: (instance: RemoteInstance) => void;
     oncancel: () => void;
+    /** The name to start from: "Connect <name> here" for a Shepherd that mirrors this one (#3056). */
+    name?: string;
   } = $props();
 
   let urlInput = $state<HTMLInputElement>();
   let url = $state("");
   let token = $state("");
-  let label = $state("");
+  // Read once: the form starts from it, then it is the operator's to change.
+  // svelte-ignore state_referenced_locally
+  let label = $state(name);
   let connecting = $state(false);
   let error = $state("");
 

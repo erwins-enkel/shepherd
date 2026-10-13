@@ -13,16 +13,23 @@
 
   // One connected machine (#2759): who it is, whether this Shepherd can reach it right now, and —
   // when it can't — what to do about it. Identity and projects survive a failed check as "last
-  // seen" values, so a flapping network does not blank the row.
+  // seen" values, so a flapping network does not blank the row. Its chips (#3056) say what it means
+  // here: its sessions in the herd, whether it takes tasks, and whether it mirrors this one back.
   let {
     machine,
     now,
+    sessionCount,
+    mirrorsBack,
     onchange,
     onremove,
   }: {
     machine: RemoteInstance;
     /** When the parent last loaded the list; ages are measured against it. */
     now: number;
+    /** Its sessions in this Shepherd's herd. */
+    sessionCount: number;
+    /** It mirrors this Shepherd too, confirmed by this Shepherd's own check of its ID. */
+    mirrorsBack: boolean;
     onchange: (instance: RemoteInstance) => void;
     onremove: (instanceId: string) => void;
   } = $props();
@@ -35,6 +42,13 @@
   let error = $state("");
 
   const tone = $derived(machineStatusTone(machine.status));
+  const sessions = $derived(
+    sessionCount === 0
+      ? m.settings_machines_sessions_none()
+      : sessionCount === 1
+        ? m.settings_machines_sessions_one()
+        : m.settings_machines_sessions({ count: sessionCount }),
+  );
   const hint = $derived(machineHint(machine.status, machine.reason));
   const seen = $derived.by(() => {
     if (machine.status === "checking") return "";
@@ -111,6 +125,15 @@
       </p>
     {/if}
     {#if hint}<p class="mch-hint" class:mch-err={tone === "bad"}>{hint}</p>{/if}
+    <ul class="mch-chips">
+      <li class="mch-chip">{sessions}</li>
+      {#if machine.status === "connected" && machine.released}
+        <li class="mch-chip">{m.settings_machines_takes_tasks()}</li>
+      {/if}
+      <li class="mch-chip" class:mch-off={!mirrorsBack} data-mirrors-back={mirrorsBack}>
+        {mirrorsBack ? m.settings_machines_mirrors_back() : m.settings_machines_mirrors_back_not()}
+      </li>
+    </ul>
     {#if machine.info}<MachineCapabilities report={machine.capabilities} />{/if}
     <span class="mch-meta">
       {seen}{#if machine.tokenHint}{seen ? " · " : ""}<span class="mch-mono"

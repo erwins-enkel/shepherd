@@ -11,7 +11,8 @@ import { signCookie, hashPassword, SESSION_COOKIE } from "../src/operator-auth";
 import type { FetchLike } from "../src/remote-instances/client";
 import { RemoteInstanceService } from "../src/remote-instances/service";
 import { CapabilityService } from "../src/remote-instances/capability-probe";
-import { FEDERATION_API_VERSION } from "../src/remote-instances/identity";
+import { FEDERATION_API_VERSION, mirrorIdentityHeaders } from "../src/remote-instances/identity";
+import { IncomingMirrors } from "../src/remote-instances/incoming";
 
 // Connected machines (#2759) through the real routes: two Shepherds in one process, each with its
 // own store, reach each other through `makeApp` — so the target's real auth seam, `/api/me`,
@@ -189,6 +190,36 @@ describe("connected machines", () => {
     expect((listed.body.instances as { instanceId: string }[]).map((i) => i.instanceId)).toEqual([
       bId as string,
     ]);
+    // No mirror socket is open in this app-only setup (#3056).
+    expect(listed.body.incoming).toEqual([]);
+  });
+
+  test("lists who mirrors it: both directions only once its own probe confirms the ID (#3056)", async () => {
+    const a = makeInstance("a.test");
+    const b = makeInstance("b.test");
+    const bId = (await call(b, "GET", "/api/instance")).body.instanceId as string;
+    // B mirrors A with a token minted on A; its socket (the `serve` side) is stood in for here.
+    const mirrorToken = await mint(a);
+    const incoming = (a.deps.incomingMirrors = new IncomingMirrors());
+    incoming.open({}, { instanceId: bId, name: "b", tokenId: mirrorToken.id, since: 5 });
+    const listed = async () => (await call(a, "GET", "/api/remote-instances")).body.incoming;
+    expect(await listed()).toEqual([
+      { instanceId: bId, name: "b", tokenName: "machine", since: 5, direction: "one" },
+    ]);
+
+    // Its snapshot request carries the name it goes by now.
+    const snapshot = await call(a, "GET", "/api/sessions?host=local", undefined, {
+      authorization: `Bearer ${mirrorToken.token}`,
+      ...mirrorIdentityHeaders({ instanceId: bId, name: "build-box" }),
+    });
+    expect(snapshot.status).toBe(200);
+    expect(await listed()).toMatchObject([{ name: "build-box", direction: "one" }]);
+
+    expect((await connect(a, "http://b.test", (await mint(b)).token)).status).toBe(201);
+    expect(await listed()).toMatchObject([{ instanceId: bId, direction: "both" }]);
+    // Removing it here leaves one direction again.
+    await call(a, "DELETE", `/api/remote-instances/${bId}`);
+    expect(await listed()).toMatchObject([{ instanceId: bId, direction: "one" }]);
   });
 
   test("a machine's verified capabilities reach the coordinator through the real routes", async () => {

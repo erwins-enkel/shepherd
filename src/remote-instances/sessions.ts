@@ -26,10 +26,13 @@
  * parked client here names the device that took the terminal over, wherever it is.
  *
  * The token goes into the `Authorization` header of the socket upgrades and the snapshot request,
- * and nowhere else: not into a URL, a frame or a log line.
+ * and nowhere else: not into a URL, a frame or a log line. Next to it both carry this Shepherd's own
+ * ID and name (#3056), so the machine can show who mirrors it; it never takes them as proof of
+ * anything (`incoming.ts`).
  */
 import type { SessionStore } from "../store";
 import { type FetchLike, getRemoteJson, isRecord, type RemoteTarget, UUID_RE } from "./client";
+import { mirrorIdentityHeaders } from "./identity";
 import type { RemoteInstanceService, RemoteInstanceSummary } from "./service";
 import {
   type OpenTerminalSocket,
@@ -188,10 +191,14 @@ export class RemoteSessionMirror {
   private readonly openTerminalSocket: OpenTerminalSocket | undefined;
   private readonly now: () => number;
   private readonly recheckDelays: number[];
+  private readonly self: (() => { instanceId: string; name: string }) | undefined;
 
   constructor(deps: {
     store: Store;
     instances: Instances;
+    /** This Shepherd's own ID and name, sent to each machine it mirrors (#3056). Absent: nothing
+     *  is sent, as from a Shepherd that predates it. */
+    self?: () => { instanceId: string; name: string };
     fetch?: FetchLike;
     openSocket?: OpenSocket;
     openTerminalSocket?: OpenTerminalSocket;
@@ -200,6 +207,7 @@ export class RemoteSessionMirror {
   }) {
     this.store = deps.store;
     this.instances = deps.instances;
+    this.self = deps.self;
     this.fetch = deps.fetch;
     this.openSocket = deps.openSocket ?? openWebSocket;
     this.openTerminalSocket = deps.openTerminalSocket;
@@ -316,7 +324,7 @@ export class RemoteSessionMirror {
     const current = () => link.socketToken === token;
     link.socket = this.openSocket(
       `${row.url.replace(/^http/, "ws")}/events?host=local`,
-      { authorization: `Bearer ${row.token}` },
+      { ...this.identityHeaders(), authorization: `Bearer ${row.token}` },
       {
         open: () => {
           if (!current()) return;
@@ -343,7 +351,10 @@ export class RemoteSessionMirror {
     if (link.buffer || !row) return;
     const token = link.socketToken;
     link.buffer = [];
-    const res = await getRemoteJson(row, "/api/sessions?host=local", { fetch: this.fetch });
+    const res = await getRemoteJson(row, "/api/sessions?host=local", {
+      fetch: this.fetch,
+      headers: this.identityHeaders(),
+    });
     const buffered = link.buffer;
     link.buffer = null;
     if (this.links.get(link.instanceId) !== link) return;
@@ -437,6 +448,10 @@ export class RemoteSessionMirror {
     socket?.close();
     this.endTerminals(link, announce);
     if (announce) this.emit("remote:sessions", { instanceId, sessions: [] });
+  }
+
+  private identityHeaders(): Record<string, string> {
+    return this.self ? mirrorIdentityHeaders(this.self()) : {};
   }
 
   private linkOf(sessionId: string): Link | undefined {

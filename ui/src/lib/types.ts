@@ -252,6 +252,19 @@ export interface RemoteInstance {
   released: boolean;
 }
 
+/** A Shepherd mirroring this one right now (#3056), as `GET /api/remote-instances` lists it under
+ *  `incoming`. Its `instanceId` and `name` are what it claims: unverified, for display only. */
+export interface IncomingMirror {
+  instanceId: string | null;
+  name: string | null;
+  /** The access token it uses here; null for `SHEPHERD_TOKEN`. */
+  tokenName: string | null;
+  since: number;
+  /** `both` only when a machine connected here has that ID, confirmed by its latest check;
+   *  `unknown` when it sends no ID (an older release). */
+  direction: "both" | "one" | "unknown";
+}
+
 /** Where a task was placed and why (#2772) — mirrors `Placement` in
  *  src/remote-instances/placement.ts. Language-neutral; `#lib/placement.ts` puts it into words. */
 export interface Placement {

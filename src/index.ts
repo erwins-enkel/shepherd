@@ -1082,7 +1082,12 @@ const remoteInstances = new RemoteInstanceService({ store });
 deferredStarts.push(() => remoteInstances.start());
 // Their sessions (#2762) follow each machine's probe: a connected probe opens (or re-snapshots) the
 // mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
-const remoteSessions = new RemoteSessionMirror({ store, instances: remoteInstances });
+// Each mirror names this Shepherd to its machine, which lists who mirrors it (#3056).
+const remoteSessions = new RemoteSessionMirror({
+  store,
+  instances: remoteInstances,
+  self: () => instanceIdentity(store),
+});
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
 // Their self-updates: the update window lists every machine behind its branch beside this one.
 // Sent only when the list changes, so a probe round that found nothing new wakes no client.

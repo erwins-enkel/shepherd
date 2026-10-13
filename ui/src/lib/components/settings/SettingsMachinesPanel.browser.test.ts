@@ -3,7 +3,13 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import SettingsMachinesPanel from "./SettingsMachinesPanel.svelte";
-import type { CapabilityReport, InstanceIdentity, RemoteInstance } from "#lib/types.js";
+import type {
+  CapabilityReport,
+  IncomingMirror,
+  InstanceIdentity,
+  RemoteInstance,
+  Session,
+} from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
 const SELF: InstanceIdentity = {
@@ -63,6 +69,7 @@ const jsonRes = (body: unknown, status = 200) =>
 function stubApi(opts: {
   self?: InstanceIdentity;
   machines?: RemoteInstance[];
+  incoming?: IncomingMirror[];
   connect?: (body: Record<string, unknown>) => { payload: unknown; status: number };
   order?: string[];
 }) {
@@ -83,9 +90,13 @@ function stubApi(opts: {
     }
     if (url === "/api/remote-instances" && method === "POST") {
       const { payload, status } = opts.connect!(JSON.parse(body));
+      // Listed from then on, as the server does.
+      const added = (payload as { instance?: RemoteInstance }).instance;
+      if (status === 201 && added) machines = [...machines, added];
       return jsonRes(payload, status);
     }
-    if (url === "/api/remote-instances") return jsonRes({ instances: machines });
+    if (url === "/api/remote-instances")
+      return jsonRes({ instances: machines, incoming: opts.incoming ?? [] });
     if (url === "/api/settings" && opts.order) {
       if (method === "PUT") return jsonRes(JSON.parse(body));
       return jsonRes({ machinePlatformOrder: opts.order });
@@ -117,6 +128,7 @@ describe("SettingsMachinesPanel", () => {
     await expect.element(page.getByText("moes-tavern")).toBeVisible();
     await expect.element(page.getByText(SELF.instanceId)).toBeVisible();
     await expect.element(page.getByText(m.settings_machines_empty())).toBeVisible();
+    await expect.element(page.getByText(m.settings_machines_incoming_empty())).toBeVisible();
     // The connect form stays folded behind the list header's toggle until asked for.
     await expect.element(connectToggle()).toHaveAttribute("aria-expanded", "false");
     await expect.element(page.getByText(m.settings_machines_trust())).not.toBeInTheDocument();
@@ -341,5 +353,135 @@ describe("SettingsMachinesPanel", () => {
         ),
       )
       .toBeVisible();
+  });
+
+  describe("both directions (#3056)", () => {
+    const MAC = "cccccccc-0000-4000-8000-000000000001";
+    const OFF = "cccccccc-0000-4000-8000-000000000002";
+    const PI = "cccccccc-0000-4000-8000-000000000003";
+    const since = Date.now() - 60_000;
+    const mirror = (over: Partial<IncomingMirror>): IncomingMirror => ({
+      instanceId: null,
+      name: null,
+      tokenName: null,
+      since,
+      direction: "one",
+      ...over,
+    });
+    const machines = () => [
+      machine({ instanceId: MAC, name: "MacBook" }),
+      machine({ instanceId: OFF, name: "build-box", status: "unreachable", reason: "timeout" }),
+    ];
+    const incoming = [
+      mirror({ instanceId: MAC, name: "Kais-MBP", tokenName: "macbook", direction: "both" }),
+      mirror({ instanceId: PI, name: "pi-lab", tokenName: "pi" }),
+      mirror({ instanceId: OFF, name: "build-box", tokenName: "build" }),
+      mirror({ tokenName: "old", direction: "unknown" }),
+    ];
+    const incomingRow = (id: string) => document.querySelector(`[data-incoming="${id}"]`);
+    const connectHere = (name: string) =>
+      page.getByRole("button", { name: m.settings_machines_connect_here({ name }) });
+
+    it("lists who mirrors it and names the cause of each one-way link", async () => {
+      stubApi({ machines: machines(), incoming });
+      render(SettingsMachinesPanel);
+      await expect.element(page.getByText(m.settings_machines_incoming_title())).toBeVisible();
+      await expect.element(page.getByText(m.settings_machines_list_title())).toBeVisible();
+      await expect.element(connectHere("pi-lab")).toBeVisible();
+
+      // Both directions: under the name this Shepherd checked itself, not the claimed one.
+      expect(incomingRow(MAC)?.querySelector(".mch-name")?.textContent).toBe("MacBook");
+      expect(incomingRow(MAC)?.querySelector("[data-direction]")?.textContent?.trim()).toBe(
+        m.settings_machines_direction_both(),
+      );
+      expect(incomingRow(MAC)?.textContent).toContain(
+        m.settings_machines_incoming_token({ name: "macbook" }),
+      );
+      // Not connected here: says so, and offers to connect it.
+      await expect
+        .element(page.getByText(m.settings_machines_incoming_one_hint({ name: "pi-lab" })))
+        .toBeVisible();
+      // Connected here, but its check fails: no second connect, the status instead.
+      await expect
+        .element(
+          page.getByText(
+            m.settings_machines_incoming_offline_hint({
+              status: m.settings_machines_status_unreachable(),
+            }),
+          ),
+        )
+        .toBeVisible();
+      // An older Shepherd sends no ID: it goes by its token, the direction is unknown.
+      expect(incomingRow("")?.querySelector(".mch-name")?.textContent).toBe("old");
+      await expect
+        .element(page.getByText(m.settings_machines_incoming_unknown_hint()))
+        .toBeVisible();
+      // Only the one Shepherd nothing here carries is offered for connecting.
+      expect(document.querySelectorAll("[data-incoming] button")).toHaveLength(1);
+    });
+
+    it("Connect <name> here opens the connect form with that name", async () => {
+      stubApi({ machines: machines(), incoming });
+      render(SettingsMachinesPanel);
+      await connectHere("pi-lab").click();
+      await expect.element(connectToggle()).toHaveAttribute("aria-expanded", "true");
+      await expect.element(page.getByLabelText(m.settings_machines_url_label())).toHaveFocus();
+      await expect
+        .element(page.getByLabelText(m.settings_machines_label_label()))
+        .toHaveValue("pi-lab");
+      // Opened from the list header instead, the form starts empty.
+      await connectToggle().click();
+      await connectToggle().click();
+      await expect.element(page.getByLabelText(m.settings_machines_label_label())).toHaveValue("");
+    });
+
+    it("shows both directions as soon as the other direction is connected", async () => {
+      const list = [mirror({ instanceId: PI, name: "pi-lab", tokenName: "pi" })];
+      const pi = machine({ instanceId: PI, name: "pi-lab" });
+      stubApi({
+        incoming: list,
+        connect: () => {
+          // The server now confirms the peer's ID with its own check.
+          list[0] = { ...list[0]!, direction: "both" };
+          return { payload: { instance: pi }, status: 201 };
+        },
+      });
+      render(SettingsMachinesPanel);
+      await connectHere("pi-lab").click();
+      await page.getByLabelText(m.settings_machines_url_label()).fill("https://pi.example.ts.net");
+      await page.getByLabelText(m.settings_machines_token_label()).fill("shp_secret");
+      await connectButton().click();
+      await expect
+        .poll(() =>
+          incomingRow(PI)?.querySelector("[data-direction]")?.getAttribute("data-direction"),
+        )
+        .toBe("both");
+      expect(
+        document.querySelector(`[data-machine="${PI}"] [data-mirrors-back="true"]`),
+      ).not.toBeNull();
+    });
+
+    it("each machine row counts its sessions, says it takes tasks and whether it mirrors back", async () => {
+      const host = { instanceId: MAC, name: "MacBook", platform: "macos" };
+      const remoteSessions = ["s1", "s2"].map(
+        (id) => ({ id, host, connection: { state: "connected", since } }) as unknown as Session,
+      );
+      stubApi({ machines: machines(), incoming });
+      render(SettingsMachinesPanel, { remoteSessions });
+      await expect
+        .element(page.getByText(m.settings_machines_sessions({ count: 2 })))
+        .toBeVisible();
+      const row = (id: string) => document.querySelector(`[data-machine="${id}"]`)!;
+      expect(row(MAC).textContent).toContain(m.settings_machines_takes_tasks());
+      expect(row(MAC).querySelector("[data-mirrors-back]")?.textContent?.trim()).toBe(
+        m.settings_machines_mirrors_back(),
+      );
+      // Unreachable and not confirmed: no sessions, no tasks, and it doesn't see yours.
+      expect(row(OFF).textContent).toContain(m.settings_machines_sessions_none());
+      expect(row(OFF).textContent).not.toContain(m.settings_machines_takes_tasks());
+      expect(row(OFF).querySelector('[data-mirrors-back="false"]')?.textContent?.trim()).toBe(
+        m.settings_machines_mirrors_back_not(),
+      );
+    });
   });
 });

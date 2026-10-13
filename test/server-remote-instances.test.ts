@@ -303,6 +303,88 @@ describe("connected machines", () => {
     expect((await call(a, "GET", "/api/remote-instances")).body.instances).toEqual([]);
   });
 
+  test("a machine's self-update is listed, started and followed through the coordinator", async () => {
+    const a = makeInstance("a.test");
+    const b = makeInstance("b.test");
+    const applied: unknown[] = [];
+    b.deps.updates = {
+      current: () => ({
+        behind: 2,
+        current: "aaaaaaa",
+        latest: "bbbbbbb",
+        commits: [
+          { sha: "bbbbbbb", subject: "fix: two" },
+          { sha: "ccccccc", subject: "fix: one" },
+        ],
+        checkedAt: 5,
+      }),
+      apply: (opts?: unknown) => {
+        applied.push(opts ?? null);
+        return { started: true };
+      },
+      applyState: () => ({ phase: "running", exitCode: null, log: "bun install" }),
+      dirtyStatus: async () => ({
+        dirty: true,
+        dirtyFiles: [" M a.ts"],
+        dirtyCount: 1,
+        sig: "s1",
+        pathspecAll: Buffer.from("a.ts\0"),
+        pathspecWorktree: Buffer.from("a.ts\0"),
+      }),
+    } as AppDeps["updates"];
+    const added = await connect(a, "http://b.test", (await mint(b)).token);
+    const id = (added.body.instance as { instanceId: string }).instanceId;
+
+    const listed = await call(a, "GET", "/api/remote-instances/updates");
+    expect(listed.body.machines).toEqual([
+      {
+        instanceId: id,
+        name: expect.any(String),
+        platform: expect.any(String),
+        status: "connected",
+        update: {
+          behind: 2,
+          current: "aaaaaaa",
+          latest: "bbbbbbb",
+          commits: [
+            { sha: "bbbbbbb", subject: "fix: two" },
+            { sha: "ccccccc", subject: "fix: one" },
+          ],
+          checkedAt: 5,
+        },
+      },
+    ]);
+
+    const started = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
+    expect([started.status, started.body]).toEqual([202, { ok: true }]);
+    expect(applied).toEqual([null]);
+    const log = await call(a, "GET", `/api/remote-instances/${id}/update/log`);
+    expect(log.body).toEqual({ phase: "running", exitCode: null, log: "bun install" });
+    const dirty = await call(a, "GET", `/api/remote-instances/${id}/update/dirty`);
+    expect(dirty.body).toEqual({ dirty: true, dirtyFiles: [" M a.ts"], dirtyCount: 1, sig: "s1" });
+
+    // The machine's own refusal passes through as its answer: here a discard confirmed against a
+    // tree that has changed since.
+    const stale = await call(a, "POST", `/api/remote-instances/${id}/update`, {
+      discard: true,
+      sig: "old",
+    });
+    expect([stale.status, stale.body.error]).toEqual([409, "stale"]);
+    expect(applied).toHaveLength(1);
+
+    const badBody = { discard: "yes" };
+    expect((await call(a, "POST", `/api/remote-instances/${id}/update`, badBody)).status).toBe(400);
+    expect((await call(a, "POST", "/api/remote-instances/nope/update", {})).status).toBe(404);
+    expect((await call(a, "GET", "/api/remote-instances/nope/update/log")).status).toBe(404);
+
+    instances.delete("b.test");
+    const offline = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
+    expect([offline.status, offline.body]).toEqual([
+      502,
+      { error: "remote_unreachable", reason: "network" },
+    ]);
+  });
+
   test("a bearer token cannot reach the machine routes", async () => {
     const a = makeInstance("a.test");
     const bearer = {
@@ -315,6 +397,10 @@ describe("connected machines", () => {
       ["PATCH", "/api/remote-instances/x"],
       ["DELETE", "/api/remote-instances/x"],
       ["POST", "/api/remote-instances/x/check"],
+      ["GET", "/api/remote-instances/updates"],
+      ["POST", "/api/remote-instances/x/update"],
+      ["GET", "/api/remote-instances/x/update/log"],
+      ["GET", "/api/remote-instances/x/update/dirty"],
     ] as const) {
       const res = await call(a, method, path, method === "GET" ? undefined : {}, bearer);
       expect([method, path, res.status]).toEqual([method, path, 403]);

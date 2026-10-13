@@ -23,9 +23,23 @@ import {
   capabilityReport,
   platformReleased,
 } from "./capabilities";
-import { type FetchLike, type ProbeOutcome, isRecord, probeRemote } from "./client";
+import {
+  type FetchLike,
+  type ProbeFailure,
+  type ProbeOutcome,
+  getRemoteJson,
+  isRecord,
+  lostReach,
+  postRemoteJson,
+  probeRemote,
+} from "./client";
+import { type MachineSelfUpdate, parseSelfUpdate } from "./self-update";
 
 const REMOTE_PROBE_INTERVAL_MS = 60_000;
+
+/** A relayed self-update request: starting it may first fingerprint the machine's dirty tree, and
+ *  so may reading that tree — both take seconds where a status read takes milliseconds. */
+const SELF_UPDATE_TIMEOUT_MS = 30_000;
 
 const TOKEN_RE = /^\S{1,1024}$/;
 
@@ -71,6 +85,24 @@ export interface RemoteInstanceSummary {
   released: boolean;
 }
 
+/** One machine as the update window lists it: its own self-update as of its last answered probe
+ *  (null until one answered), beside what tells the operator whether it can be updated now. */
+export interface MachineUpdate {
+  instanceId: string;
+  name: string;
+  /** `linux` | `macos` | `windows` | raw; null until the machine identified itself. */
+  platform: string | null;
+  status: RemoteInstanceStatus;
+  update: MachineSelfUpdate | null;
+}
+
+/** A request to a machine's self-update routes, and what came back. */
+export type SelfUpdateCall =
+  { kind: "apply"; discard: boolean; sig?: string } | { kind: "log" } | { kind: "dirty" };
+
+export type SelfUpdateRelay =
+  { ok: true; status: number; body: unknown } | { ok: false; failure: ProbeFailure };
+
 interface ProbeState {
   status: Exclude<RemoteInstanceStatus, "checking">;
   reason: string | null;
@@ -79,6 +111,7 @@ interface ProbeState {
   info: MachineInfo | null;
   projects: string[] | null;
   capabilities: CapabilitySnapshot | null;
+  update: MachineSelfUpdate | null;
 }
 
 export interface ConnectRequest {
@@ -205,7 +238,7 @@ export class RemoteInstanceService {
       createdAt: this.now(),
     };
     this.store.insertRemoteInstance(row);
-    this.apply(row, outcome);
+    this.apply(row, outcome, await this.readSelfUpdate(row));
     return { ok: true, instance: this.summary(row) };
   }
 
@@ -238,6 +271,47 @@ export class RemoteInstanceService {
     const state = this.states.get(instanceId);
     if (state?.status === "connected")
       this.states.set(instanceId, { ...state, capabilities: snapshot });
+  }
+
+  /** Every machine's self-update, for the update window. */
+  updates(): MachineUpdate[] {
+    return this.store.listRemoteInstances().map((row) => {
+      const state = this.states.get(row.instanceId);
+      return {
+        instanceId: row.instanceId,
+        name: row.label ?? row.reportedName,
+        platform: state?.info?.platform ?? null,
+        status: state?.status ?? "checking",
+        update: state?.update ?? null,
+      };
+    });
+  }
+
+  /**
+   * Hand one self-update request to a machine and return its answer as it came: starting the
+   * update (`POST /api/update`, the discard of a dirty tree included), its deploy log or its dirty
+   * tree. The body sent is rebuilt from the validated call, never copied. Null when the machine is
+   * not connected here. Not gated on the machine's status: a machine that answered as incompatible
+   * may need exactly this update, and one out of reach just fails the request.
+   */
+  async relaySelfUpdate(instanceId: string, call: SelfUpdateCall): Promise<SelfUpdateRelay | null> {
+    const row = this.store.getRemoteInstance(instanceId);
+    if (!row) return null;
+    const opts = { fetch: this.fetch, timeoutMs: SELF_UPDATE_TIMEOUT_MS };
+    if (call.kind !== "apply") {
+      const path = call.kind === "log" ? "/api/update/log" : "/api/update/dirty";
+      const res = await getRemoteJson(row, path, opts);
+      return res.ok
+        ? { ok: true, status: 200, body: res.body }
+        : { ok: false, failure: res.failure };
+    }
+    const body = JSON.stringify(call.discard ? { discard: true, sig: call.sig } : {});
+    const res = await postRemoteJson(row, "/api/update", body, opts);
+    if (res.kind === "no_answer") {
+      return { ok: false, failure: { status: "unreachable", reason: res.reason } };
+    }
+    const failure = lostReach(res.status);
+    return failure ? { ok: false, failure } : { ok: true, status: res.status, body: res.body };
   }
 
   /** One round over every machine. No rows ⇒ no request. */
@@ -276,25 +350,40 @@ export class RemoteInstanceService {
 
   private async runProbe(row: RemoteInstanceRow): Promise<void> {
     const outcome = await probeRemote(row, { fetch: this.fetch, now: this.now });
+    // A machine that answered — compatible or not — says how far behind it is.
+    const answered = outcome.status === "connected" || outcome.status === "incompatible";
+    const update = answered ? await this.readSelfUpdate(row) : undefined;
     // Removed (or re-added) while the probe was out: its result belongs to nobody.
     const current = this.store.getRemoteInstance(row.instanceId);
     if (!current || current.createdAt !== row.createdAt) return;
     if (outcome.status === "connected" && outcome.info.instanceId !== current.instanceId) {
-      this.apply(current, { status: "identity_mismatch" });
+      this.apply(current, { status: "identity_mismatch" }, null);
       return;
     }
     if (outcome.status === "connected" && outcome.info.name !== current.reportedName) {
       this.store.updateRemoteInstanceReportedName(current.instanceId, outcome.info.name);
       current.reportedName = outcome.info.name;
     }
-    this.apply(current, outcome);
+    this.apply(current, outcome, update);
+  }
+
+  /** The machine's self-update, or null when it does not say (a failed read never fails a probe). */
+  private async readSelfUpdate(row: RemoteInstanceRow): Promise<MachineSelfUpdate | null> {
+    const res = await getRemoteJson(row, "/api/update", { fetch: this.fetch });
+    return res.ok ? parseSelfUpdate(res.body) : null;
   }
 
   /** Record a probe result. A failure keeps the last successful info/projects/capabilities
-   *  ("last seen"); the capabilities keep ageing, so a machine out of reach turns stale. */
-  private apply(row: RemoteInstanceRow, outcome: ProbeOutcome | { status: "identity_mismatch" }) {
+   *  ("last seen"); the capabilities keep ageing, so a machine out of reach turns stale. `update`
+   *  undefined = the machine did not answer, so its last known self-update stays. */
+  private apply(
+    row: RemoteInstanceRow,
+    outcome: ProbeOutcome | { status: "identity_mismatch" },
+    update?: MachineSelfUpdate | null,
+  ) {
     const prev = this.states.get(row.instanceId);
     const at = this.now();
+    const knownUpdate = update === undefined ? (prev?.update ?? null) : update;
     const next: ProbeState =
       outcome.status === "connected"
         ? {
@@ -305,6 +394,7 @@ export class RemoteInstanceService {
             info: machineInfo(outcome.info),
             projects: outcome.projects,
             capabilities: outcome.capabilities,
+            update: knownUpdate,
           }
         : {
             status: outcome.status,
@@ -314,6 +404,7 @@ export class RemoteInstanceService {
             info: prev?.info ?? null,
             projects: prev?.projects ?? null,
             capabilities: prev?.capabilities ?? null,
+            update: knownUpdate,
           };
     this.states.set(row.instanceId, next);
     this.notify(row.instanceId);

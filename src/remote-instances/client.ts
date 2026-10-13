@@ -71,6 +71,14 @@ function statusFailure(status: number): ProbeFailure {
   return BAD_RESPONSE;
 }
 
+/** A redirect, 401 or 403 answering a POST: this server's token lost its reach on the machine.
+ *  Never handed on as the machine's answer — to the caller it would read as its own refusal. */
+export function lostReach(status: number): ProbeFailure | null {
+  return (status >= 300 && status < 400) || status === 401 || status === 403
+    ? statusFailure(status)
+    : null;
+}
+
 /** Authenticated GET of `path` on a machine, parsed as JSON. Never throws. Shared by the probe
  *  below and the session mirror (#2762). */
 export async function getRemoteJson(

@@ -1084,6 +1084,16 @@ deferredStarts.push(() => remoteInstances.start());
 // mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
 const remoteSessions = new RemoteSessionMirror({ store, instances: remoteInstances });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
+// Their self-updates: the update window lists every machine behind its branch beside this one.
+// Sent only when the list changes, so a probe round that found nothing new wakes no client.
+let machineUpdates = "";
+remoteInstances.onChange(() => {
+  const machines = remoteInstances.updates();
+  const next = JSON.stringify(machines);
+  if (next === machineUpdates) return;
+  machineUpdates = next;
+  events.emit("remote:updates", { machines });
+});
 // Tasks sent to them (#2763). A dispatch whose start is unknown (#2774) is reconciled after every
 // probe that finds its machine connected — on reconnect, after this restart, and each round; a task
 // waiting for its machine (#2775) is sent then, and one held there is followed up. `here` is this

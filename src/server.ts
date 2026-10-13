@@ -148,6 +148,7 @@ import {
   parseConnectRequest,
   parseLabelPatch,
   type ConnectError,
+  type SelfUpdateCall,
 } from "./remote-instances/service";
 import {
   type MachineRoute,
@@ -1539,21 +1540,36 @@ async function patchRemoteInstance(
   return instanceOr404(svc.rename(id, parsed.label));
 }
 
-type RemoteInstanceRoute = "list" | "connect" | "patch" | "delete" | "check";
+type RemoteInstanceRoute =
+  | "list"
+  | "connect"
+  | "patch"
+  | "delete"
+  | "check"
+  | "updates"
+  | "update"
+  | "update-log"
+  | "update-dirty";
 
 /** `METHOD shape` → route; anything else falls through to the dispatch tail's 404 rather than
  *  answering 403 here, which would advertise the route group to an unauthenticated caller. */
 const REMOTE_INSTANCE_ROUTES: Record<string, RemoteInstanceRoute> = {
   "GET ": "list",
   "POST ": "connect",
+  "GET updates": "updates",
   "PATCH :id": "patch",
   "DELETE :id": "delete",
   "POST :id/check": "check",
+  "POST :id/update": "update",
+  "GET :id/update/log": "update-log",
+  "GET :id/update/dirty": "update-dirty",
 };
 
 function remoteInstanceRoute(method: string, parts: string[]): RemoteInstanceRoute | null {
-  if (parts[0] !== "api" || parts[1] !== "remote-instances" || parts[4]) return null;
-  const shape = parts[2] ? (parts[3] ? `:id/${parts[3]}` : ":id") : "";
+  if (parts[0] !== "api" || parts[1] !== "remote-instances" || parts[5]) return null;
+  // Instance IDs are UUIDs, so the one literal segment cannot shadow a machine.
+  const head = parts[2] === "updates" ? "updates" : ":id";
+  const shape = parts[2] ? [head, ...parts.slice(3)].join("/") : "";
   return REMOTE_INSTANCE_ROUTES[`${method} ${shape}`] ?? null;
 }
 
@@ -1575,7 +1591,54 @@ async function handleRemoteInstances({ req, parts, deps }: Ctx): Promise<Respons
       return svc.remove(id) ? json({ ok: true }) : json({ error: "not found" }, 404);
     case "check":
       return instanceOr404(await svc.check(id));
+    case "updates":
+      return json({ machines: svc.updates() });
+    case "update":
+      return applyMachineUpdate(req, svc, id);
+    case "update-log":
+      return relayMachineUpdate(svc, id, { kind: "log" });
+    case "update-dirty":
+      return relayMachineUpdate(svc, id, { kind: "dirty" });
   }
+}
+
+/** A machine's self-update, started from here: the same body `POST /api/update` takes locally,
+ *  validated here and rebuilt for the machine, which answers for itself — 202, a 409 with its
+ *  reason (nothing to update, a deploy already running, a stale discard) or a 503. */
+async function applyMachineUpdate(
+  req: Request,
+  svc: RemoteInstanceService,
+  id: string,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { discard?: unknown; sig?: unknown } | null;
+  if (!isRecord(body)) return json({ error: "invalid_body" }, 400);
+  if (body.discard !== undefined && typeof body.discard !== "boolean")
+    return json({ error: "body.discard must be a boolean" }, 400);
+  if (body.sig !== undefined && typeof body.sig !== "string")
+    return json({ error: "body.sig must be a string" }, 400);
+  return relayMachineUpdate(svc, id, {
+    kind: "apply",
+    discard: body.discard === true,
+    sig: body.sig as string | undefined,
+  });
+}
+
+/** The machine's answer served from here, or why there was none: 404 for a machine not connected
+ *  here, 502 `remote_<status>` with its reason for one that gave no usable answer. */
+async function relayMachineUpdate(
+  svc: RemoteInstanceService,
+  id: string,
+  call: SelfUpdateCall,
+): Promise<Response> {
+  const res = await svc.relaySelfUpdate(id, call);
+  if (!res) return json({ error: "not found" }, 404);
+  if (!res.ok)
+    return json({ error: `remote_${res.failure.status}`, reason: res.failure.reason }, 502);
+  return isRecord(res.body)
+    ? json(res.body, res.status)
+    : json({ error: "remote_unreachable", reason: "bad_response" }, 502);
 }
 
 function handleGitSnapshot({ req, parts, deps, token }: Ctx): Response | null {

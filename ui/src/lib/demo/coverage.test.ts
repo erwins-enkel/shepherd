@@ -150,6 +150,7 @@ const INVENTORY: readonly Entry[] = [
   // bootstrap
   get("/api/me"),
   get("/api/sessions"),
+  get("/api/remote-dispatches"),
   get("/api/sessions/done"),
   get("/api/sessions/clear-merged"),
   get("/api/repos"),
@@ -209,6 +210,8 @@ const INVENTORY: readonly Entry[] = [
   // Settings dialog (#1821)
   get("/api/fs/dirs", "/api/fs/dirs?path=/demo/acme"),
   get("/api/access-tokens"),
+  get("/api/instance"),
+  get("/api/remote-instances"),
   get("/api/push/apns/config"),
   get("/api/push/devices"),
 
@@ -331,7 +334,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   ],
 
   // Session reads behind a tab or affordance no seeded session opens: no session carries
-  // an amendment, an epic draft, a diff annotation or a downloadable file.
+  // an amendment, an epic draft, a diff annotation or a downloadable file, and the demo
+  // connects no machines, so no session opens a remote preview (#2767).
   "session reads with no seeded subject": [
     "/api/sessions/:p/amendments",
     "/api/sessions/:p/amendments/:p",
@@ -341,6 +345,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/sessions/:p/scratchpad/download",
     "/api/sessions/:p/scratchpad/upload",
     "/api/sessions/:p/worktree/download",
+    "/api/sessions/:p/preview",
   ],
 
   // Learnings mutations. The lens itself IS seeded and reads fine; approving, dismissing
@@ -398,6 +403,14 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/repo-browser/open",
     // Answering a Login Request: no seeded session raises one, so the banner never renders.
     "/api/sessions/:p/login-request",
+    // Canceling a task whose start on a machine is unknown (#2774), or redirecting one that
+    // waits for its machine (#2775): the demo connects no machines, so no such row renders.
+    "/api/remote-dispatches/:p",
+    "/api/remote-dispatches/:p/redirect",
+    // The machine choice preview (#2772) and the requirements read from a task (#2773): asked only
+    // while a machine is connected, and the demo connects none.
+    "/api/placement",
+    "/api/requirements/derive",
   ],
 
   // Settings/plugin/update WRITES and the probes behind them. Every corresponding read is
@@ -406,6 +419,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   "Device pairing": ["/api/pairing-codes"],
   "settings, plugin + update actions": [
     "/api/access-tokens/:p",
+    "/api/instance/capabilities",
+    "/api/remote-instances/:p",
+    "/api/remote-instances/:p/check",
     "/api/push/devices/:p",
     "/api/push/devices/:p/test",
     "/api/settings/verify-key",

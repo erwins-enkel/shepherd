@@ -3,6 +3,7 @@
   import type { AgentProvider, Session } from "#lib/types.js";
   import TaskIdMenu from "./TaskIdMenu.svelte";
   import RecommendDialog from "./RecommendDialog.svelte";
+  import { qualifiedDesig } from "#lib/remote-sessions.js";
 
   // The task designation rendered as a button. Clicking it opens a small menu:
   // copy the id, or run a next-prompt recommendation (Opus / GPT-5.5) that analyzes
@@ -65,20 +66,26 @@
   }
 </script>
 
-<button
-  bind:this={btnEl}
-  {id}
-  type="button"
-  class="desig-btn"
-  class:open={!!menu}
-  title={m.taskid_button_title({ desig: session.desig })}
-  aria-label={m.taskid_button_title({ desig: session.desig })}
-  aria-haspopup="menu"
-  aria-expanded={!!menu}
-  onclick={toggleMenu}
->
-  {session.desig}
-</button>
+{#if session.host}
+  <!-- A session mirrored from another machine (#2762): its qualified label, read-only — copying
+       its local paths or analysing its terminal would act on a machine this one cannot reach. -->
+  <span {id} class="desig-remote">{qualifiedDesig(session)}</span>
+{:else}
+  <button
+    bind:this={btnEl}
+    {id}
+    type="button"
+    class="desig-btn"
+    class:open={!!menu}
+    title={m.taskid_button_title({ desig: session.desig })}
+    aria-label={m.taskid_button_title({ desig: session.desig })}
+    aria-haspopup="menu"
+    aria-expanded={!!menu}
+    onclick={toggleMenu}
+  >
+    {session.desig}
+  </button>
+{/if}
 {#if copied}
   <span class="sr-only" role="status" aria-live="polite">{m.taskid_copied()}</span>
 {/if}
@@ -128,6 +135,15 @@
   .desig-btn.open {
     color: var(--color-ink-bright);
     background: var(--color-hover);
+  }
+  /* Same quiet meta typography, but plain text: it sits under the card's hit overlay, so a
+     click on it selects the row like anywhere else on the card. */
+  .desig-remote {
+    padding: 1px 3px;
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
   }
   .desig-btn:focus-visible {
     outline: none;

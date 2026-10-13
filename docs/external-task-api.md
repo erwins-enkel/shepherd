@@ -93,6 +93,8 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      nothing at the parent. **Submit** adds
      handing work in — `POST /api/sessions`, `GET /api/held`,
      `POST /api/held/:id/spawn`, `PATCH`/`DELETE /api/held/:id`,
+     `GET`/`DELETE /api/dispatches/:id` (the outcome of a keyed submission, see
+     [Idempotent submission](#idempotent-submission-idempotency-key)),
      `POST /api/uploads`, `POST /api/issues`. Everything else — steering a live
      session (`/reply`, `/interrupt`, `/relaunch`), archiving, the `/pty/:id`
      terminal, and every per-session read — needs **Full**. The policy is an
@@ -185,17 +187,19 @@ permissions or remove host/Git credentials it already possesses. Keep
 `POST /api/sessions`, `Content-Type: application/json`. Validated by
 `validateCreate` (`src/validate.ts`); unknown keys are rejected.
 
-| Field           | Type                                                                                                                                                                                                                                                                                                                   | Required | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repoPath`      | string                                                                                                                                                                                                                                                                                                                 | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `baseBranch`    | string                                                                                                                                                                                                                                                                                                                 | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `prompt`        | string                                                                                                                                                                                                                                                                                                                 | ✅       | The task instructions; 1–8000 chars                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `agentProvider` | `"claude" \| "codex" \| null`                                                                                                                                                                                                                                                                                          | —        | Which agent CLI runs the task. Omit/`null` uses the server's configured default provider (`claude` out of the box)                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `model`         | a Claude alias (`"fable" \| "claude-fable-5-1" \| "opus" \| "opus[1m]" \| "claude-opus-5-5" \| "claude-opus-5-5[1m]" \| "claude-opus-5" \| "claude-opus-5[1m]" \| "sonnet" \| "sonnet[1m]" \| "claude-sonnet-5-5" \| "claude-sonnet-5-5[1m]" \| "haiku"`), a Codex model id (with `agentProvider: "codex"`), or `null` | —        | Validated against the selected provider. Omit/`null`/`"default"` = that provider's default model; `[1m]` selects the 1M-context Claude variant. Bare aliases (`"opus"`, `"fable"`) track the latest model of that tier; the full model name (`"claude-opus-5-5"`, `"claude-fable-5-1"`) pins an exact version. A pinned name only spawns on a Claude Code new enough to carry it — `claude-opus-5-5` needs 2.1.280 or newer, and an older CLI rejects it with a `400`; `claude-sonnet-5-5` needs 2.1.284, and an older CLI runs it with the context capped at 200k tokens |
-| `effort`        | `"low" \| "medium" \| "high" \| "xhigh" \| "max" \| "ultra"`, `"default"`, or `null`                                                                                                                                                                                                                                   | —        | Reasoning-effort tier. Omit/`null`/`"default"` = the provider CLI's own default (no effort flag). Explicit tiers pass through unchanged as `--effort <tier>` for Claude or `-c model_reasoning_effort=<tier>` for Codex. The CLI decides whether the selected model supports the tier.                                                                                                                                                                                                                                                                                    |
-| `images`        | `string[]`                                                                                                                                                                                                                                                                                                             | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `force`         | boolean                                                                                                                                                                                                                                                                                                                | —        | `true` bypasses the usage-aware hold gate so the task spawns even at high usage (transport-only; not stored on the session)                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `terminal`      | `true`                                                                                                                                                                                                                                                                                                                 | —        | Selects the **clean-terminal** arm of the create union (see below). Present-but-not-`true` is a `400`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Field           | Type                                                                                                                                                                                                                                                                                                                   | Required | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repoPath`      | string                                                                                                                                                                                                                                                                                                                 | ✅       | Absolute or `~`-expanded; must resolve inside `SHEPHERD_REPO_ROOT`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `baseBranch`    | string                                                                                                                                                                                                                                                                                                                 | ✅       | Git branch; `^(?!-)[A-Za-z0-9._/-]{1,200}$`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `baseCommit`    | string \| `null`                                                                                                                                                                                                                                                                                                       | —        | Create the worktree at exactly this commit — a full lowercase hex id (`^(?:[0-9a-f]{40}\|[0-9a-f]{64})$`). It is used as-is and **never** freshened to `baseBranch`'s upstream tip; a commit the repo doesn't have is fetched from `origin`, and one that still can't be used answers `422`. `baseBranch` stays the PR target. Omit/`null` = resolve the base from `baseBranch` as usual                                                                                                                                                                                                                                                                                                                                            |
+| `prompt`        | string                                                                                                                                                                                                                                                                                                                 | ✅       | The task instructions; 1–8000 chars                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `agentProvider` | `"claude" \| "codex" \| null`                                                                                                                                                                                                                                                                                          | —        | Which agent CLI runs the task. Omit/`null` uses the server's configured default provider (`claude` out of the box)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `model`         | a Claude alias (`"fable" \| "claude-fable-5-1" \| "opus" \| "opus[1m]" \| "claude-opus-5-5" \| "claude-opus-5-5[1m]" \| "claude-opus-5" \| "claude-opus-5[1m]" \| "sonnet" \| "sonnet[1m]" \| "claude-sonnet-5-5" \| "claude-sonnet-5-5[1m]" \| "haiku"`), a Codex model id (with `agentProvider: "codex"`), or `null` | —        | Validated against the selected provider. Omit/`null`/`"default"` = that provider's default model; `[1m]` selects the 1M-context Claude variant. Bare aliases (`"opus"`, `"fable"`) track the latest model of that tier; the full model name (`"claude-opus-5-5"`, `"claude-fable-5-1"`) pins an exact version. A pinned name only spawns on a Claude Code new enough to carry it — `claude-opus-5-5` needs 2.1.280 or newer, and an older CLI rejects it with a `400`; `claude-sonnet-5-5` needs 2.1.284, and an older CLI runs it with the context capped at 200k tokens                                                                                                                                                           |
+| `effort`        | `"low" \| "medium" \| "high" \| "xhigh" \| "max" \| "ultra"`, `"default"`, or `null`                                                                                                                                                                                                                                   | —        | Reasoning-effort tier. Omit/`null`/`"default"` = the provider CLI's own default (no effort flag). Explicit tiers pass through unchanged as `--effort <tier>` for Claude or `-c model_reasoning_effort=<tier>` for Codex. The CLI decides whether the selected model supports the tier.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `images`        | `string[]`                                                                                                                                                                                                                                                                                                             | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `force`         | boolean                                                                                                                                                                                                                                                                                                                | —        | `true` bypasses the usage-aware hold gate so the task spawns even at high usage (transport-only; not stored on the session)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `requirements`  | `string[]`                                                                                                                                                                                                                                                                                                             | —        | Capabilities this Shepherd must have, from its fixed vocabulary (`platform:linux`, `platform:macos`, `platform:windows`, `xcode`, `sdk:macos`, `sdk:ios`, `ios-simulator`, `android-sdk`, `agent:claude`, `agent:codex`, `sandbox:trusted`, `sandbox:standard`, `sandbox:autonomous`; an unknown one is a `400`). They are what the machine that runs the task must have: with machines connected, the automatic choice only picks one whose report has them all (see below). The machine that runs it checks them against a **fresh** probe when it accepts the request — never against an older report — and a missing one answers `422` with nothing started. `GET /api/instance` shows the current report. Omit/`[]` = no check |
+| `terminal`      | `true`                                                                                                                                                                                                                                                                                                                 | —        | Selects the **clean-terminal** arm of the create union (see below). Present-but-not-`true` is a `400`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 The body is a **discriminated union** on `terminal`. Omitting it (or the whole
 field) creates an ordinary agent task, exactly as documented above. Sending
@@ -222,7 +226,7 @@ Shepherd also archives the session on its own once the shell has exited.
 | Status | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below)                                                                                                                                                                                                                                                                                                                                                            |
-| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                                                                                                                                                                                                                                                                                                                                                                                |
+| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …), including `baseCommit`: the commit its worktree was actually created from                                                                                                                                                                                                                                                                                                                     |
 | `400`  | Validation failed — body `{ error }`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `401`  | No valid session cookie **and** no valid bearer token — the server is gated by default. Also what a **revoked or expired** minted token gets, on its very next request                                                                                                                                                                                                                                                                                                           |
 | `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`. Also `{ "error": "insufficient_scope" }` when the bearer is a valid minted token whose scope doesn't reach this route — the credential is fine, so retrying won't help; mint one with a wider scope                                                                                                                                                                                                                   |
@@ -231,6 +235,8 @@ Shepherd also archives the session on its own once the shell has exited.
 | `409`  | The installed herdr and the running herdr daemon disagree on the socket protocol — `{ error: "herdr_restart_required", code: "herdr_restart_required" }`. A herdr update was installed but its server was never restarted, so no task can spawn until the daemon is restarted (the HUD offers the recovery from Settings → Diagnose)                                                                                                                                             |
 | `409`  | The spawn was cancelled while in flight — `{ error: "spawn canceled", code: "spawn_canceled" }`. Reachable only for a caller that supplied `X-Shepherd-Spawn-Id` and then called the cancel route below; the worktree is already rolled back, so this is a cancellation, not a failure                                                                                                                                                                                           |
 | `409`  | The worktree path this task's name resolves to is already checked out by another session — `{ error: "worktree path <path> is already checked out by another session" }`. Name selection normally steps around an occupied path, so this is the backstop for a race between choosing the name and adding the worktree; Shepherd refuses rather than reclaiming (the reclaim is an `rm -rf` of a live checkout). **Retry** — a retry re-runs name selection and picks a free path |
+| `409`  | A keyed submission that will not start — `dispatch_payload_mismatch`, `dispatch_canceled` or `dispatch_interrupted`; see [Idempotent submission](#idempotent-submission-idempotency-key)                                                                                                                                                                                                                                                                                         |
+| `422`  | The base branch (or `baseCommit`) does not resolve to a commit — or a `requirements` entry is not met: `{ error, code: "missing_capabilities", missing: [{ capability, reason }] }`, e.g. `reason: "not_logged_in"` for `agent:codex`. Nothing is held or started; with an `Idempotency-Key` the refusal is final for that key like any failed start, and its replay carries `error` (which still names each capability and reason) and `code`, but no `missing`                 |
 | `415`  | Missing/incorrect `Content-Type`                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### Watching and cancelling a slow start
@@ -250,6 +256,264 @@ completion). A cancelled create unwinds the worktree and answers the `409`
 `spawn_canceled` above. Without the header the spawn is still measured and still
 logs its phase line; it just can't be watched or cancelled
 (`src/spawn-progress.ts`, `src/server.ts`).
+
+### Idempotent submission (`Idempotency-Key`)
+
+A lost answer to `POST /api/sessions` leaves a client unsure whether the task
+started. Sending it again blindly can start the same task twice. To make retries
+safe, name the submission with an **`Idempotency-Key`** header — a client-chosen id
+matching `^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$` (a `crypto.randomUUID()` is ideal),
+bare or double-quoted as an HTTP structured-field string; anything else is a `400`.
+Without the header nothing changes.
+
+Shepherd reserves the key in its database **before** the hold gate or the spawn
+(after the body is validated and the repository grant checked), and keeps it across
+restarts. What a later request with the same key gets:
+
+| Situation                                      | Answer                                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Same body, the first request is still starting | Waits for it, then the same outcome                                                                                 |
+| Same body, it started                          | `201` with the session (its current state) — no second spawn                                                        |
+| Same body, it was held                         | `200 { held: true, id, count }` with the same held id; once that hold is released, `201` with the session it became |
+| Same body, it failed                           | The same failure, with the original status — a failure is **final** for its key; use a new key to try again         |
+| A **different** body                           | `409 { code: "dispatch_payload_mismatch" }` — nothing runs                                                          |
+
+"The same body" means the same JSON after sorting object keys; the
+`X-Shepherd-Spawn-Id` header is not part of it. A replayed answer carries the
+response header `Idempotent-Replayed: true`.
+
+`GET /api/dispatches/:id` (the key as `:id`) reports the outcome:
+`{ id, state, sessionId?, heldId?, reason?, code?, createdAt, updatedAt }` with
+`state` one of `pending` (still starting), `started` (`sessionId`), `held`
+(`heldId`; it turns `started` when the hold is released, or `failed` with
+`held_discarded` when it is discarded) and `failed` (`reason`, `code`). **`404`
+means the key never arrived** — the one case where sending it again is how to
+recover. If Shepherd restarts while a start is still running, that key reads as
+`failed` with `code: "dispatch_interrupted"` and is never started again: an
+interrupted spawn may have left an agent behind, and a second one is exactly what
+the key exists to prevent.
+
+`DELETE /api/dispatches/:id` withdraws a key that has not arrived. An unknown key
+is reserved as cancelled (`failed`, `dispatch_canceled`), so if the submission does
+show up later it is refused `409` instead of started; an already-failed key stays as
+it is. Either way the answer is `200` with the dispatch. Once the key has arrived (`pending`,
+`started` or `held`) the answer is `409 { code: "dispatch_arrived", dispatch }` —
+archive the session or discard the held task instead. Both routes need the
+**Submit** scope, and a repository-limited token sees a dispatch only in its
+granted repositories (`src/dispatch.ts`, `src/server.ts`).
+
+### Running on a connected machine (`target`)
+
+A Shepherd with connected machines (**Settings → Machines**) can start a task on
+one of them instead of here. Without `target` it **chooses the machine itself**
+(see [Automatic choice](#automatic-choice)); to name one, add
+`"target": { "instanceId": "<machine id>" }` to the body (the ID from
+`GET /api/remote-instances`). The **whole** session then runs on that machine —
+worktree, agent, builds and tests — and nothing starts here; it shows up in this
+Shepherd's `GET /api/sessions` with `host` set, through the machine's mirror.
+Naming this instance's own ID runs the task here. Without any connected machine
+nothing changes: no `target` means here, as it always did.
+
+- `repoPath` still names **this** Shepherd's checkout, but only to identify the
+  project by its forge slug (`owner/repo`). The machine must be connected and have
+  that project checked out; it runs the task in its own checkout, from the base
+  branch as pushed to origin — unpushed local changes are not there.
+- Every other field travels unchanged (prompt, mode, plan gate, autopilot,
+  sandbox, issue, base branch and commit, `force`). The machine checks paths, its
+  own usage hold and its sandbox; a missing sandbox there shows on the session as
+  `sandboxDegraded`.
+- Attachments (`images`, staged here through `POST /api/uploads`) travel with the
+  task: see below. A clean terminal (`terminal: true`) cannot take a target.
+- It needs the same scope and repository grant as starting the task here.
+
+Shepherd stores the task **before** it sends it and sends it under a dispatch ID
+of its own as the machine's `Idempotency-Key`, so the machine starts it at most
+once. Name your submission with an `Idempotency-Key` as above: a retry with the same
+key and body goes out again to the **same** machine — never to another one — and
+a different body under that key is `409 dispatch_payload_mismatch`.
+
+| Outcome                                   | Answer                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Started there                             | `201` with the machine's session, plus `host` and `connection`                                         |
+| Held there (its usage hold)               | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                             |
+| The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`                |
+| Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — start status unknown, see below          |
+| Canceled before the machine confirmed it  | `409 { code: "remote_dispatch_canceled", host }` — it never starts under that key                      |
+| Canceled, cancel not yet confirmed        | `409 { code: "remote_dispatch_cancel_pending", host }` — not sent again, but may run there             |
+| An attachment did not reach the machine   | `502 { code: "remote_upload_failed", error: <which and why>, host }` — nothing was sent                |
+| Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                                    |
+| No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug)      |
+| Platform not released (Windows)           | `422 { code: "remote_target_unreleased", reason: <platform> }` — listed in Settings, never sent a task |
+| Its report lacks a requirement            | `422 { code: "missing_capabilities", missing: [{ capability, reason }], host }` — nothing was sent     |
+
+A named machine must fit the task before anything is sent: connected, released,
+the project checked out, and every `requirement` verified by its last capability
+report (`reason` `not_verified` when no fresh report confirms one). The machine
+still checks the requirements against a fresh probe when the task arrives.
+
+`504` means the task **may be running** on the machine: its start status is
+_unknown_, not failed. This Shepherd follows it up by itself. After every check
+that finds the machine connected — when it reconnects, after either Shepherd
+restarts, and about once a minute — it asks the machine
+`GET /api/dispatches/{dispatch ID}`: started, held or failed there settles it here,
+and "never arrived" (`404`) sends the same task again, under the same dispatch ID,
+to the same machine. Still starting there, or no answer, leaves it unknown for the
+next check. It never starts twice and never moves to another machine
+(`src/remote-instances/dispatch.ts`). Sending it again yourself with the same key
+is safe too: the machine replays what became of it.
+
+`GET /api/remote-dispatches` lists the tasks for machines that are not settled —
+`{ dispatches: [{ id, state, host, summary, … }] }` with `state` `unknown`,
+`canceling` for a cancel on its way, `waiting` for a task waiting here for its
+machine, or `held` for one the machine holds ([Waiting for a machine](#waiting-for-a-machine))
+— and the `remote:dispatch` event announces each change of one, including the one
+that resolves it (`started` with `sessionId`, `rejected` with `reason`/`code`,
+`canceled`, `redirected`). The herd shows them in the machine's group.
+`DELETE /api/remote-dispatches/{id}` cancels one: the machine's
+`DELETE /api/dispatches/{id}` makes sure it never starts there, even if it arrives
+late (`200`). A machine out of reach gets the cancel as soon as it answers (`202`,
+`canceling`), and nothing sends the task again meanwhile. Once the machine has it
+(or while it is being sent), the answer is `409 remote_dispatch_not_cancelable`
+with the current `dispatch`. The routes need `full` scope.
+
+Attachments are uploaded to the machine's own `POST /api/uploads` **right before**
+the task is sent, and the task then names the machine's staged copies — never a
+path of this Shepherd. The machine puts them into the session's worktree
+(`.shepherd-uploads/`) and lists them in the prompt, exactly as for a task started
+there; `attachmentNames` travel unchanged. The machine's paths are stored with the
+dispatch, so a retry with the same key uploads nothing again and sends the very
+same body. If an attachment does not get there — the machine refuses it, does not
+answer, or it is no longer staged here — the task is not sent at all (`502
+remote_upload_failed`), and it is never sent under that key; submit it again under
+a new key to upload afresh.
+
+### Automatic choice
+
+While a machine is connected, a create **without** `target` is placed by this
+Shepherd. The rules are the same for the web UI, the native apps and the API, and
+do not depend on which Shepherd the task is submitted to:
+
+1. **Candidates** are this Shepherd and every connected machine whose platform is
+   released (Linux, macOS), that has the project checked out (by forge slug) and
+   whose capability report — not older than 15 minutes — has every `requirement`.
+2. **Ranking:** by platform, Linux before macOS by default (Linux has the full
+   sandbox and runs all the time), then by instance ID. Each Shepherd keeps its own
+   order (`machinePlatformOrder` in `PATCH /api/settings`, **Settings → Machines**); a
+   task lands on the same machine wherever it is submitted only while every
+   connected Shepherd uses the same order.
+3. **The top machine** gets the task: here (a local create, as ever) or sent there
+   exactly as with `target`. It then runs there and is never placed again.
+
+| Outcome                                     | Answer                                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Placed here or on a machine                 | as without machines, or as with `target` (above)                                                |
+| No machine fits                             | `422 { code: "no_suitable_machine", missing, together, elsewhere }` — nothing starts            |
+| The machine it is meant for is out of reach | `200 { held: true, waiting: true, id, count, host, dispatch }` — it waits here for that machine |
+
+`missing` lists the capabilities no connected machine with the project has
+(all of them, with `together: true`, when each is on some machine but none has
+them together); `elsewhere` the connected machines that would fit but have no
+checkout of the project. A machine out of reach is judged on what it last
+reported, so a task meant for it waits for it rather than silently starting on the
+next machine ([Waiting for a machine](#waiting-for-a-machine)).
+
+The decision is recorded on the session as `launchMetadata.placement`
+(`{ mode, target, requirements, basis, preferred, by, decidedAt }`) — on the
+machine that runs it as well, so every Shepherd shows why it runs where it runs.
+`basis` is `requirements` (only one platform fits), `preference` (the order
+decided, `preferred` names the platform), `only_candidate` or `manual` (named in
+`target`). A keyed retry (same `Idempotency-Key`) goes where its first submission
+went, whatever the choice would say now.
+
+`POST /api/placement` with `{ repoPath, requirements?, target? }` answers what a
+create with that body would do, without storing or sending anything:
+`{ active: false }` while no connected machine could take a task, else
+`{ active: true, placement }` or `{ active: true, refusal: { code, error, … } }`
+with the refusal's fields as above. `{ active: true, placement, wait: { status,
+alternatives } }` means the machine in `placement` is out of reach and the task
+would wait for it; `alternatives` are the connected machines that fit too. New Task
+shows it before you submit. Every `active` answer also lists `machines`: what `target`
+may name for this repo right now — this Shepherd first, then each connected machine
+whose platform is released and that has the project checked out. The native apps
+offer these under **Run on**, since `GET /api/remote-instances` needs a signed-in
+operator and their token is not one.
+
+### Waiting for a machine
+
+A create the automatic choice meant for a machine that is out of reach is not
+refused and not started elsewhere: it is stored here and answered
+`200 { held: true, waiting: true, id, count, host, dispatch }` — `id` is its
+dispatch ID, `host` the machine it waits for, `count` the tasks waiting here, and
+`dispatch` the waiting task as `GET /api/remote-dispatches` lists it. A client that
+does not know `waiting` reads it as a hold: queued, not started. Nothing is sent and
+no attachment is uploaded yet. A retry under the same `Idempotency-Key` answers the
+same wait. A machine named in `target` is never waited for: out of reach, it is
+`409 remote_target_unavailable` as above.
+
+A waiting dispatch carries `placement` (why it is meant for that machine),
+`readiness` and `alternatives`:
+
+| `readiness.state`      | Meaning                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `offline`              | Not connected; `status` says why (`timeout`, `network`, `unauthorized`, …)                                   |
+| `missing_capabilities` | Connected, but its report lacks a requirement: `missing: [{ capability, reason }]` (`not_verified` if stale) |
+| `project_missing`      | Connected, but no checkout of the project                                                                    |
+| `unreleased`           | Its platform is not released for tasks                                                                       |
+| `ready`                | It fits: the task goes out with the next check                                                               |
+
+After every check that finds the machine connected — on reconnect, after this
+Shepherd restarts, and about once a minute — a ready waiting task is sent: for a
+task with requirements the machine first runs a fresh capability check
+(`POST /api/instance/capabilities`), then its checkout is looked up, the
+attachments are uploaded and the task goes out under its dispatch ID like any task
+for a machine. A check that lacks a requirement leaves it waiting. The staged
+attachments of a waiting task are kept until it is sent. Waiting tasks are stored,
+so they survive restarts; removing the machine cancels them
+(`canceled`, `code: "machine_removed"`).
+
+`DELETE /api/remote-dispatches/{id}` cancels a waiting task at once (`200`) — it
+was never sent. `POST /api/remote-dispatches/{id}/redirect` with
+`{ target: { instanceId } }` runs it on another machine now, or on this Shepherd
+(its own instance ID). The machine must fit as a named `target` must; otherwise the
+refusal is answered (`422 missing_capabilities` with `host`, `remote_target_*`,
+`remote_project_missing`; `409 remote_target_unavailable`) and the task keeps
+waiting. On another machine it goes out under the same dispatch ID and is answered
+like a create with `target` (`201`, `200` held, `502`, `504`, or `200` with
+`waiting` if that machine cannot take it yet). On this Shepherd it starts under the
+task's own `Idempotency-Key`, so retrying the original create replays this start.
+A task that is not waiting is `409 remote_dispatch_not_redirectable` with the
+current `dispatch`; an unknown one `404`. The choice is recorded as `manual`.
+
+A task the machine holds (its usage hold or capacity) is listed as `held` until the
+machine starts it or drops it there; this Shepherd asks the machine after every
+check. `DELETE /api/remote-dispatches/{id}` discards it there
+(`DELETE /api/held/{heldId}` on the machine) and settles once the machine's
+dispatch record confirms it — `canceling` (`202`) while the machine is out of
+reach, `409 remote_dispatch_not_cancelable` if it started first. A held task is not
+redirected: cancel it and submit it again.
+
+### Requirements from the task
+
+A create never reads its own requirements: what `requirements` says (or its
+absence) is what the choice uses. To read them from the task, as New Task does,
+ask `POST /api/requirements/derive` first with
+`{ repoPath, prompt, issue?: { title, body? } }` (the prompt ≤ 8000 chars, either
+it or the issue title not empty). A helper on the autopilot classifier's CLI and
+model reads the prompt and the issue — never the repository — within 30 seconds,
+and only when it can matter: the placement preview says so with
+`deriveRequirements: true` (no `target`, and the machines that could take the
+task differ in Xcode, the iOS SDK, the iOS simulator or the Android SDK). The
+answer is data, never prose:
+
+| `status`  | Meaning                                                                                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `skipped` | Reading them cannot change where the task runs; nothing ran                                                                                                  |
+| `derived` | `requirements` (possibly `[]`) from `xcode`, `sdk:ios`, `ios-simulator`, `android-sdk`, with what each implies — send them as the create's `requirements`    |
+| `unclear` | The description could mean different things or contradicts itself: `options` holds 2–3 requirement sets (`[]` = nothing special) — ask, then send the choice |
+| `failed`  | Nothing was read — `cause` is `timeout`, `error` (also an answer outside the vocabulary) or `unavailable`; nothing is guessed                                |
+
+`400` for a malformed body, `403 repository_not_allowed` for a token restricted
+to other repositories.
 
 ## Usage-aware hold gate
 

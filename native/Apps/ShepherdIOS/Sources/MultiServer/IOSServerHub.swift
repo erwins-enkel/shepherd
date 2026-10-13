@@ -246,7 +246,9 @@ final class IOSServerHub {
         if focusedID != identity.profileID { focused.selectedSessionID = nil }
         focusedID = identity.profileID
         model.selectedSessionID = identity.sessionID
-        model.extension(DetailModel.self)?.retainSession(identity.sessionID)
+        // A session mirrored from a connected machine has none of this server's detail reads.
+        let mirrored = model.store?.remoteSession(id: identity.sessionID) != nil
+        model.extension(DetailModel.self)?.retainSession(mirrored ? nil : identity.sessionID)
         let session = model.store?.session(id: identity.sessionID)
         model.extension(IOSPlanController.self)?.select(session, model: model.extension(PlanModel.self))
         if let session, let plan = model.extension(PlanModel.self), IOSPlanPresentation.opensPlan(session: session, model: plan) {

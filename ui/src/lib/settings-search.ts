@@ -9,6 +9,7 @@ export const SETTINGS_SECTION_IDS = [
   "notifications",
   "device",
   "access",
+  "machines",
   "diagnose",
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -27,6 +28,8 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   // macOS and Windows don't ship — it would render as tofu, or from a different family than its
   // siblings. ◈ has the same font coverage as ▦/◫, so the rail stays one typeface.
   access: "◈",
+  // U+25A3, same Geometric Shapes block as ▦/◫/◈ — a framed square reads as a screen.
+  machines: "▣",
   diagnose: "⚠",
 };
 
@@ -276,6 +279,12 @@ export function sectionSearchRows(ctx: {
       [m.settings_access_list_title()],
       [m.settings_access_repos_label(), m.settings_access_repos_edit()],
       [m.settings_access_instructions_copy(), m.settings_access_server_hint()],
+    ],
+    machines: [
+      [m.settings_tab_machines(), m.settings_machines_intro()],
+      [m.settings_machines_self_title(), m.settings_machines_self_hint()],
+      [m.settings_machines_list_title()],
+      [m.settings_machines_connect_title(), m.settings_machines_connect_hint()],
     ],
     diagnose: [[m.settings_tab_diagnose()], [m.diagnostics_title(), m.diagnostics_subtitle()]],
   };

@@ -48,6 +48,10 @@ import type {
   StandardCreateInput,
   DirListing,
   AccessToken,
+  InstanceIdentity,
+  RemoteInstance,
+  ClearMergedPreview,
+  ClearMergedResult,
   ApnsStatus,
   PushDevice,
   PluginUpdatesStatus,
@@ -355,6 +359,42 @@ export const demoState = {
    *  zero. `{ tokens: [] }`, never `{}`: SettingsAccessPanel reads `tokens.length`. */
   accessTokens: (): { tokens: AccessToken[] } => ({ tokens: [] }),
 
+  /** GET /api/instance — Settings → Machines' "This Shepherd" block. A fixed demo identity. */
+  instance: (): InstanceIdentity => ({
+    instanceId: "00000000-0000-4000-8000-000000000000",
+    name: "demo",
+    version: "0.0.0-demo",
+    federationApi: 1,
+    platform: "linux",
+    arch: "x64",
+    // A plausible Linux host's capability report (#2770), checked two minutes ago.
+    capabilities: {
+      vocabulary: 1,
+      probedAt: Date.now() - 120_000,
+      ageMs: 120_000,
+      stale: false,
+      checks: [
+        { id: "platform:linux", ok: true, reason: null },
+        { id: "platform:macos", ok: false, reason: "other_platform" },
+        { id: "platform:windows", ok: false, reason: "other_platform" },
+        { id: "xcode", ok: false, reason: "other_platform" },
+        { id: "sdk:macos", ok: false, reason: "other_platform" },
+        { id: "sdk:ios", ok: false, reason: "other_platform" },
+        { id: "ios-simulator", ok: false, reason: "other_platform" },
+        { id: "android-sdk", ok: false, reason: "sdk_not_found" },
+        { id: "agent:claude", ok: true, reason: null },
+        { id: "agent:codex", ok: true, reason: null },
+        { id: "sandbox:trusted", ok: true, reason: null },
+        { id: "sandbox:standard", ok: true, reason: null },
+        { id: "sandbox:autonomous", ok: false, reason: "no_egress" },
+      ],
+    },
+  }),
+
+  /** GET /api/remote-instances — the demo connects no machines. `{ instances: [] }`, never `{}`:
+   *  SettingsMachinesPanel reads `instances`. */
+  remoteInstances: (): { instances: RemoteInstance[] } => ({ instances: [] }),
+
   /** GET /api/push/apns/config — the demo server has no APNs key, so iOS push reads as not set
    *  up; the key itself is never part of this shape anyway. */
   apnsConfig: (): ApnsStatus => ({
@@ -605,12 +645,8 @@ export const demoState = {
    *  Matches `getMergedClearable()`'s `{ids, leftovers, leftoversById, probesUnavailable}` in
    *  api.ts exactly; the demo has no real leftover subprocesses, so every count is 0 — and no
    *  probes to be broken, so that 0 is trustworthy. */
-  mergedClearable: (): {
-    ids: string[];
-    leftovers: number;
-    leftoversById: Record<string, number>;
-    probesUnavailable: boolean;
-  } => {
+  // The demo connects no machines (see remoteInstances), so `machines` is always empty.
+  mergedClearable: (): ClearMergedPreview => {
     const ids = world.sessions
       .filter((s) => world.gitStates[s.id]?.state === "merged")
       .map((s) => s.id);
@@ -619,6 +655,7 @@ export const demoState = {
       leftovers: 0,
       leftoversById: Object.fromEntries(ids.map((id) => [id, 0])),
       probesUnavailable: false,
+      machines: [],
     };
   },
 
@@ -994,7 +1031,7 @@ export const demoState = {
   /** Archive every given id that's still merged (the server re-validates, same as
    *  the real API) — clears the herd's "Merged" group. Matches `clearMerged()`'s
    *  `{cleared, leftovers}` in api.ts; each archive emits its own `session:archived`. */
-  clearMerged(ids: string[]): { cleared: string[]; leftovers: number } {
+  clearMerged(ids: string[]): ClearMergedResult {
     const cleared: string[] = [];
     for (const id of ids) {
       if (world.gitStates[id]?.state === "merged" && find(id)) {
@@ -1002,6 +1039,6 @@ export const demoState = {
         cleared.push(id);
       }
     }
-    return { cleared, leftovers: 0 };
+    return { cleared, leftovers: 0, partial: false, machines: [] };
   },
 };

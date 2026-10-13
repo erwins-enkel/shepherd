@@ -59,6 +59,7 @@ function makeDeps(
         if (i !== -1) rows.splice(i, 1);
       },
       countHeldTasks: () => rows.length,
+      markHeldDispatchStarted: () => {},
     },
     service: {
       async create(input: StandardCreateInput): Promise<Session> {

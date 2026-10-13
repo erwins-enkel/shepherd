@@ -75,6 +75,35 @@ it("preserves the herdr recovery code from a failed task creation", async () => 
   }
 });
 
+it("names a send to another machine with its Idempotency-Key and sends no spawn id (#2763)", async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () =>
+    Response.json({ id: "s1" }, { status: 201 }),
+  );
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  try {
+    await createSession(
+      {
+        repoPath: "/repo",
+        baseBranch: "main",
+        model: null,
+        prompt: "p",
+        target: { instanceId: "m1" },
+      },
+      undefined,
+      "key-1",
+    );
+    const init = fetchMock.mock.calls[0]![1];
+    expect(init.headers).toEqual({
+      "content-type": "application/json",
+      "Idempotency-Key": "key-1",
+    });
+    expect(JSON.parse(init.body as string).target).toEqual({ instanceId: "m1" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 describe("getBuildQueues", () => {
   const originalFetch = globalThis.fetch;
 

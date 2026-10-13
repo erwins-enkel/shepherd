@@ -23,6 +23,9 @@ import { modelCompatibleWithProvider } from "./default-model";
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
+import { type Capability, parseRequirements } from "./remote-instances/capabilities";
+import { type Placement, parsePlacementRecord } from "./remote-instances/placement";
+import type { TaskText } from "./requirements-classify-core";
 import { normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
@@ -58,6 +61,9 @@ const ALLOWED_KEYS = new Set([
   "epicAuthoring",
   "plain",
   "mergeTrainPrs",
+  "baseCommit",
+  "requirements",
+  "placement",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
 
@@ -193,14 +199,22 @@ export function validateReplaceAgentChoice(body: unknown):
   };
 }
 
-/** repoPath — required non-empty string, confined to repoRoot, existing directory. */
-function validateRepoPath(value: unknown, root: string): Field<string> {
+/** repoPath resolved and confined to the repoRoot — without touching the filesystem. */
+function confineRepoPath(value: unknown, root: string): Field<string> {
   if (typeof value !== "string" || value.length === 0) {
     return err("repoPath must be a non-empty string");
   }
   const resolved = resolve(expandHome(value));
   const inside = resolved === root || resolved.startsWith(root + sep);
   if (!inside) return err("repoPath must be inside the configured repoRoot");
+  return field(resolved);
+}
+
+/** repoPath — required non-empty string, confined to repoRoot, existing directory. */
+function validateRepoPath(value: unknown, root: string): Field<string> {
+  const confined = confineRepoPath(value, root);
+  if (!confined.ok) return confined;
+  const resolved = confined.value;
   try {
     if (!statSync(resolved).isDirectory()) return err("repoPath must be a directory");
   } catch {
@@ -522,7 +536,11 @@ export function validateForkTarget(value: unknown): Field<{ repo: string; name: 
 }
 
 /** Pure validator — no side-effects beyond fs.statSync for the repoPath check. */
-export function validateCreate(body: unknown, repoRoot: string): Result {
+export function validateCreate(
+  body: unknown,
+  repoRoot: string,
+  opts: { remote?: boolean } = {},
+): Result {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return err("body must be a non-null object");
   }
@@ -531,10 +549,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   // Clean-terminal union arm (TerminalCreateInput): branch BEFORE the standard allowlist —
   // the terminal payload has its own, stricter key set, and the standard arm keeps its
   // required prompt/baseBranch untouched (no weakening of ordinary creates).
-  if (obj.terminal !== undefined) {
-    if (obj.terminal !== true) return err("terminal must be true when present");
-    return validateTerminalCreate(obj, repoRoot);
-  }
+  if (obj.terminal !== undefined) return validateTerminalCreate(obj, repoRoot, opts.remote);
   for (const key of Object.keys(obj)) {
     if (!ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
   }
@@ -555,7 +570,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   if (!effort.ok) return effort;
 
   const root = resolve(expandHome(repoRoot));
-  const launch = validateCreateLaunchFields(obj, root);
+  const launch = validateCreateLaunchFields(obj, root, opts.remote === true);
   if (!launch.ok) return launch;
 
   const options = validateOptions(obj);
@@ -581,12 +596,88 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   };
 }
 
+const PLACEMENT_PREVIEW_KEYS = new Set(["repoPath", "requirements"]);
+
+/** A `POST /api/placement` body (#2772), its `target` already split off: one of this machine's
+ *  repos and the task's optional requirements — the two inputs the machine choice reads. */
+export function validatePlacementPreview(
+  body: unknown,
+  repoRoot: string,
+): { ok: true; value: { repoPath: string; requirements: Capability[] } } | Err {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return err("body must be a non-null object");
+  }
+  const obj = body as Record<string, unknown>;
+  const unknown = Object.keys(obj).find((key) => !PLACEMENT_PREVIEW_KEYS.has(key));
+  if (unknown !== undefined) return err(`unknown key: ${unknown}`);
+  const repoPath = validateRepoPath(obj.repoPath, resolve(expandHome(repoRoot)));
+  if (!repoPath.ok) return repoPath;
+  const requirements = parseRequirements(obj.requirements);
+  if (requirements && "error" in requirements) return err(requirements.error);
+  return { ok: true, value: { repoPath: repoPath.value, requirements: requirements ?? [] } };
+}
+
+const DERIVE_KEYS = new Set(["repoPath", "prompt", "issue"]);
+const DERIVE_ISSUE_KEYS = new Set(["title", "body"]);
+
+/** A `POST /api/requirements/derive` body (#2773): one of this machine's repos and the task text
+ *  as New Task would send it — the prompt and the attached issue's title and body, bounded like a
+ *  create's. Either the prompt or the issue title must say something. */
+export function validateRequirementsDerive(
+  body: unknown,
+  repoRoot: string,
+): { ok: true; value: { repoPath: string; task: TaskText } } | Err {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return err("body must be a non-null object");
+  }
+  const obj = body as Record<string, unknown>;
+  const unknown = Object.keys(obj).find((key) => !DERIVE_KEYS.has(key));
+  if (unknown !== undefined) return err(`unknown key: ${unknown}`);
+  const repoPath = validateRepoPath(obj.repoPath, resolve(expandHome(repoRoot)));
+  if (!repoPath.ok) return repoPath;
+  if (typeof obj.prompt !== "string" || obj.prompt.length > 8000) {
+    return err("prompt must be a string ≤ 8000 chars");
+  }
+  const issue = validateDeriveIssue(obj.issue);
+  if (!issue.ok) return issue;
+  if (!obj.prompt.trim() && !issue.value?.title.trim()) {
+    return err("prompt or issue.title must not be empty");
+  }
+  const task = { prompt: obj.prompt, issue: issue.value };
+  return { ok: true, value: { repoPath: repoPath.value, task } };
+}
+
+/** The derive body's optional `issue`: `{ title, body? }`, bounded like a create's `issueRef`. */
+function validateDeriveIssue(raw: unknown): { ok: true; value: TaskText["issue"] } | Err {
+  if (raw === undefined) return { ok: true, value: null };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return err("issue must be an object");
+  }
+  const fields = raw as Record<string, unknown>;
+  const stray = Object.keys(fields).find((key) => !DERIVE_ISSUE_KEYS.has(key));
+  if (stray !== undefined) return err(`unknown key: issue.${stray}`);
+  if (typeof fields.title !== "string" || fields.title.length > 500) {
+    return err("issue.title must be a string ≤ 500 chars");
+  }
+  const { body } = fields;
+  if (body !== undefined && (typeof body !== "string" || body.length > 100000)) {
+    return err("issue.body must be a string ≤ 100000 chars");
+  }
+  return { ok: true, value: { title: fields.title, ...(body !== undefined && { body }) } };
+}
+
 const TERMINAL_ALLOWED_KEYS = new Set(["repoPath", "terminal"]);
 
 /** The clean-terminal arm of the create union: exactly `{ repoPath, terminal: true }` — a stray
  *  `prompt`/`baseBranch`/anything else is an unknown-key rejection, never a silently-ignored
  *  field (the arm has no such members to carry it in). */
-function validateTerminalCreate(obj: Record<string, unknown>, repoRoot: string): Result {
+function validateTerminalCreate(
+  obj: Record<string, unknown>,
+  repoRoot: string,
+  remote = false,
+): Result {
+  if (obj.terminal !== true) return err("terminal must be true when present");
+  if (remote) return err("a clean terminal runs on this machine only");
   for (const key of Object.keys(obj)) {
     if (!TERMINAL_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
   }
@@ -595,9 +686,16 @@ function validateTerminalCreate(obj: Record<string, unknown>, repoRoot: string):
   return { ok: true, value: { terminal: true, repoPath: repoPath.value } };
 }
 
+/**
+ * `remote` (#2763): the task runs on a connected machine, which checks paths itself. `repoPath`
+ * then names THIS machine's checkout only to identify the project, so it is confined to repoRoot
+ * but not required to exist. Attachments are THIS machine's staged files, checked like any create's
+ * (#2766): the dispatcher uploads them to the machine right before it sends the task.
+ */
 function validateCreateLaunchFields(
   obj: Record<string, unknown>,
   root: string,
+  remote: boolean,
 ): Field<{
   repoPath: string;
   images: string[];
@@ -605,7 +703,9 @@ function validateCreateLaunchFields(
   issueRef: IssueRef | undefined;
   launchUiState: LaunchUiState | undefined;
 }> {
-  const repoPath = validateRepoPath(obj.repoPath, root);
+  const repoPath = remote
+    ? confineRepoPath(obj.repoPath, root)
+    : validateRepoPath(obj.repoPath, root);
   if (!repoPath.ok) return repoPath;
 
   const images = validateImages(obj.images, root);
@@ -640,6 +740,9 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   epicAuthoring: boolean;
   plain: boolean;
   mergeTrainPrs: number[] | undefined;
+  baseCommit: string | undefined;
+  requirements: Capability[] | undefined;
+  placement: Placement | undefined;
 }> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
@@ -662,6 +765,13 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
   if (!mergeTrainPrs.ok) return mergeTrainPrs;
 
+  const baseCommit = validateBaseCommit(obj.baseCommit);
+  if (!baseCommit.ok) return baseCommit;
+  const requirements = parseRequirements(obj.requirements);
+  if (requirements && "error" in requirements) return err(requirements.error);
+  const placement = parsePlacementRecord(obj.placement);
+  if (placement && "error" in placement) return err(placement.error);
+
   return field({
     planGateEnabled: planGateEnabled.value,
     autopilotEnabled: autopilotEnabled.value,
@@ -670,7 +780,21 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     epicAuthoring: epicAuthoring.value,
     plain: plain.value,
     mergeTrainPrs: mergeTrainPrs.value,
+    baseCommit: baseCommit.value,
+    requirements,
+    placement,
   });
+}
+
+/** A full SHA-1 or SHA-256 object id, lowercase — abbreviations are ambiguous by design. */
+const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** baseCommit — optional explicit base commit (#2761); absent/null → resolved from baseBranch. */
+function validateBaseCommit(value: unknown): Field<string | undefined> {
+  if (value == null) return field(undefined);
+  if (typeof value !== "string" || !COMMIT_RE.test(value))
+    return err("baseCommit must be a full lowercase hex commit id");
+  return field(value);
 }
 
 /** planGateEnabled — optional per-task override; absent/null → inherit the repo default. */

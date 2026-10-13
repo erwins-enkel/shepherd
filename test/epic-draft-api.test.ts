@@ -228,6 +228,8 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
 
   expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve")).toBe(255); // Bun's ceiling
   expect(sec("POST", "/api/usage/refresh")).toBe(60); // pre-existing budget, unchanged
+  // #2773: the requirements helper answers within its own 30 s deadline.
+  expect(sec("POST", "/api/requirements/derive")).toBe(60);
 
   // Screen-recording-sized uploads from phones can stall past 10s (network switch,
   // backgrounded app) — both upload routes get the 120s idle budget.
@@ -249,7 +251,10 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
   expect(sec("POST", "/api/sessions/abc-123/scratchpad/upload/extra")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/epic-draft")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve/extra")).toBeNull();
-  expect(sec("POST", "/api/sessions")).toBeNull();
+  // #2763: a create — above all one sent to a connected machine — waits for a whole spawn, and
+  // (#2766) first for its attachments' upload to that machine.
+  expect(sec("POST", "/api/sessions")).toBe(255);
+  expect(sec("GET", "/api/sessions")).toBeNull();
   expect(sec("GET", "/api/prs/merge")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/merge")).toBeNull(); // the real path carries /git/
 });

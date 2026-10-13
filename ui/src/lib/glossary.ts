@@ -290,6 +290,37 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_operator_assistant_term",
     bodyKey: "gloss_operator_assistant_def",
   },
+  {
+    // Internal: a connected Shepherd instance (#2759), not a host in the generic sense.
+    id: "machine",
+    kind: "internal",
+    termKey: "gloss_machine_term",
+    bodyKey: "gloss_machine_def",
+  },
+  {
+    // Internal: a capability a Shepherd verified under its own service user (#2770), the
+    // vocabulary its machine choice is built on — not a capability in the generic sense.
+    id: "capability",
+    kind: "internal",
+    termKey: "gloss_capability_term",
+    bodyKey: "gloss_capability_def",
+  },
+  {
+    // Internal: a capability a task needs from the machine it runs on (#2772) — what the
+    // automatic machine choice matches against each machine's verified capabilities.
+    id: "requirement",
+    kind: "internal",
+    termKey: "gloss_requirement_term",
+    bodyKey: "gloss_requirement_def",
+  },
+  {
+    // Internal: a task kept for the machine it is meant for while that machine is out of reach or
+    // lacks a capability (#2775) — sent once the machine is back and checked, never elsewhere.
+    id: "waiting-task",
+    kind: "internal",
+    termKey: "gloss_waiting_task_term",
+    bodyKey: "gloss_waiting_task_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

@@ -1,5 +1,7 @@
 import type {
   Session,
+  ClearMergedPreview,
+  ClearMergedResult,
   CreateInput,
   HouseRuleRelevanceMode,
   HeldTask,
@@ -90,12 +92,19 @@ import type {
   UpNextSnapshot,
   UpNextItem,
   AccessToken,
+  InstanceIdentity,
+  RemoteDispatch,
+  PlacementPreview,
+  RequirementsDerivation,
+  PlacementRefusal,
+  RemoteInstance,
   ApnsConfigError,
   ApnsField,
   ApnsStatus,
   PushDevice,
   PushTestResult,
   TokenScope,
+  PreviewReach,
 } from "./types";
 import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -210,6 +219,31 @@ export class MergeRefusedError extends ApiError {
   }
 }
 
+/** A create the machine choice refused (#2772): no machine fits, or the named machine lacks a
+ *  requirement. Carries the refusal so the dialog can say what is missing in words. Nothing was
+ *  stored, sent or started. (A machine out of reach is waited for, #2775 — no refusal.) */
+export class PlacementRefusedError extends ApiError {
+  constructor(
+    base: ApiError,
+    readonly refusal: PlacementRefusal,
+  ) {
+    super(base.status, base.message, base.code, base.serverAuthored);
+  }
+}
+
+const PLACEMENT_REFUSALS = new Set(["no_suitable_machine", "missing_capabilities"]);
+
+/** The error for a failed create: a {@link PlacementRefusedError} for the machine choice's own
+ *  refusals, otherwise what {@link failed} builds. */
+async function createRefusal(r: Response): Promise<Error> {
+  const body = (await r.json().catch(() => null)) as (PlacementRefusal & { code?: string }) | null;
+  const base = apiError(r.status, body, `create failed: ${r.status}`);
+  if (base instanceof ApiError && body && PLACEMENT_REFUSALS.has(base.code ?? "")) {
+    return new PlacementRefusedError(base, body);
+  }
+  return base;
+}
+
 /** Build the error for a failed merge response. Returns a {@link MergeRefusedError} for the two
  *  confirmation refusals and an ordinary {@link ApiError} (code preserved) for everything else. */
 async function mergeRefusal(r: Response): Promise<Error> {
@@ -315,14 +349,20 @@ const SPAWN_ID_HEADER = "X-Shepherd-Spawn-Id";
 export async function createSession(
   input: CreateInput & { force?: boolean },
   spawnId?: string,
+  /** Names this submission so a retry never starts it twice (#2761) — the composer sends one for a
+   *  task it runs on a connected machine (#2763), and reuses it to retry an unanswered send. */
+  idempotencyKey?: string,
 ): Promise<Session | HeldResult> {
+  const headers: Record<string, string> = { ...JSON_HEADERS };
+  if (spawnId) headers[SPAWN_ID_HEADER] = spawnId;
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const r = await fetch("/api/sessions", {
     method: "POST",
-    headers: spawnId ? { ...JSON_HEADERS, [SPAWN_ID_HEADER]: spawnId } : JSON_HEADERS,
+    headers,
     body: JSON.stringify(input),
   });
   if (!r.ok) {
-    throw await failed(r, "create");
+    throw await createRefusal(r);
   }
   return r.json();
 }
@@ -617,24 +657,18 @@ export async function archiveSession(id: string, reap?: string[]): Promise<void>
 }
 
 /** Merged-branch session ids + aggregate leftover count, for the clear-all confirm modal.
- *  `probesUnavailable` ⇒ that count is "unknown", not "zero" (see `getLeftovers`). */
-export async function getMergedClearable(): Promise<{
-  ids: string[];
-  leftovers: number;
-  /** Leftover count per merged id, so the modal can total just the subset it clears. */
-  leftoversById: Record<string, number>;
-  probesUnavailable: boolean;
-}> {
+ *  `probesUnavailable` ⇒ that count is "unknown", not "zero" (see `getLeftovers`). The ids include
+ *  connected machines' merged sessions; `machines` says which machines answered (#2765). */
+export async function getMergedClearable(): Promise<ClearMergedPreview> {
   const r = await fetch("/api/sessions/clear-merged");
   if (!r.ok) throw await failed(r, "merged clearable");
   return r.json();
 }
 
 /** Archive every merged-branch session (the given ids), terminating their leftover
- *  subprocesses. The server re-validates each id is merged before archiving. */
-export async function clearMerged(
-  ids: string[],
-): Promise<{ cleared: string[]; leftovers: number }> {
+ *  subprocesses. The server re-validates each id is merged before archiving; ids of sessions on a
+ *  connected machine are cleared there, with one outcome per machine (#2765). */
+export async function clearMerged(ids: string[]): Promise<ClearMergedResult> {
   const r = await fetch("/api/sessions/clear-merged", {
     method: "POST",
     headers: JSON_HEADERS,
@@ -903,6 +937,149 @@ export async function updateAccessTokenRepositories(
 export async function revokeAccessToken(id: string): Promise<void> {
   const r = await fetch(`/api/access-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!r.ok) throw await failed(r, "revoke access token");
+}
+
+// ── machines (#2759) ───────────────────────────────────────────────────────
+// Settings → Machines. Every route but `GET /api/instance` needs the session cookie.
+
+export const getInstance = (): Promise<InstanceIdentity> => getJson("/api/instance", "instance");
+
+export async function renameInstance(name: string | null): Promise<InstanceIdentity> {
+  const r = await fetch("/api/instance", {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) throw await failed(r, "rename instance");
+  return r.json();
+}
+
+/** Re-probe this Shepherd's capabilities now (#2770); answers the identity with the fresh report. */
+export async function checkInstanceCapabilities(): Promise<InstanceIdentity> {
+  const r = await fetch("/api/instance/capabilities", { method: "POST" });
+  if (!r.ok) throw await failed(r, "check capabilities");
+  return r.json();
+}
+
+export const listRemoteInstances = (): Promise<{ instances: RemoteInstance[] }> =>
+  getJson("/api/remote-instances", "machines");
+
+/** Where a new task would run and why (#2772) — the same choice the create makes for the same
+ *  inputs. `active: false` while no connected machine could take a task. */
+export async function previewPlacement(body: {
+  repoPath: string;
+  requirements?: string[];
+  target?: { instanceId: string };
+}): Promise<PlacementPreview> {
+  const r = await fetch("/api/placement", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw await failed(r, "preview placement");
+  return r.json();
+}
+
+/** Read a new task's requirements from its prompt and attached issue (#2773). `signal` aborts it
+ *  when the task text changes; the server then tears its helper down. */
+export async function deriveRequirements(
+  body: { repoPath: string; prompt: string; issue?: { title: string; body?: string } },
+  signal?: AbortSignal,
+): Promise<RequirementsDerivation> {
+  const r = await fetch("/api/requirements/derive", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!r.ok) throw await failed(r, "derive requirements");
+  return r.json();
+}
+
+/** This instance's platform order for the machine choice (#2772). */
+export const putMachinePlatformOrder = (
+  order: string[],
+): Promise<{ machinePlatformOrder: string[] }> => patchSettings({ machinePlatformOrder: order });
+
+/** A refused connection keeps the server's machine codes so the form can say what to fix. */
+export type ConnectMachineResult =
+  { ok: true; instance: RemoteInstance } | { ok: false; error: string; reason: string | null };
+
+export async function connectRemoteInstance(body: {
+  url: string;
+  token: string;
+  label?: string;
+}): Promise<ConnectMachineResult> {
+  const r = await fetch("/api/remote-instances", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  const data = (await r.json().catch(() => null)) as {
+    instance?: RemoteInstance;
+    error?: string;
+    reason?: string | null;
+  } | null;
+  if (r.ok && data?.instance) return { ok: true, instance: data.instance };
+  return { ok: false, error: data?.error ?? `http_${r.status}`, reason: data?.reason ?? null };
+}
+
+export async function renameRemoteInstance(
+  id: string,
+  label: string | null,
+): Promise<RemoteInstance> {
+  const r = await fetch(`/api/remote-instances/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ label }),
+  });
+  if (!r.ok) throw await failed(r, "rename machine");
+  return ((await r.json()) as { instance: RemoteInstance }).instance;
+}
+
+export async function checkRemoteInstance(id: string): Promise<RemoteInstance> {
+  const r = await fetch(`/api/remote-instances/${encodeURIComponent(id)}/check`, {
+    method: "POST",
+  });
+  if (!r.ok) throw await failed(r, "check machine");
+  return ((await r.json()) as { instance: RemoteInstance }).instance;
+}
+
+export async function removeRemoteInstance(id: string): Promise<void> {
+  const r = await fetch(`/api/remote-instances/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "remove machine");
+}
+
+/** Tasks for connected machines that are not settled: unconfirmed (#2774), waiting here for their
+ *  machine or held there (#2775). */
+export const listRemoteDispatches = async (): Promise<RemoteDispatch[]> =>
+  (await getJson<{ dispatches: RemoteDispatch[] }>("/api/remote-dispatches", "remote dispatches"))
+    .dispatches;
+
+/** Cancel an unconfirmed task: `canceled` once its machine confirms, `canceling` while the cancel
+ *  waits for the machine to answer. A dispatch that can no longer be canceled throws an ApiError
+ *  (`remote_dispatch_not_cancelable`). */
+export async function cancelRemoteDispatch(id: string): Promise<RemoteDispatch> {
+  const r = await fetch(`/api/remote-dispatches/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "cancel task");
+  return r.json();
+}
+
+/** Run a task that waits for its machine on another one now (#2775) — a connected machine or this
+ *  one. Answered like a create: the session, a hold, or a wait for the new machine. A machine that
+ *  does not fit throws like a refused create ({@link PlacementRefusedError} for a missing
+ *  capability, an ApiError with its code otherwise). */
+export async function redirectRemoteDispatch(
+  id: string,
+  instanceId: string,
+): Promise<Session | HeldResult> {
+  const r = await fetch(`/api/remote-dispatches/${encodeURIComponent(id)}/redirect`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ target: { instanceId } }),
+  });
+  if (!r.ok) throw await createRefusal(r);
+  return r.json();
 }
 
 // ── push administration (#2696) ────────────────────────────────────────────
@@ -1881,6 +2058,15 @@ export async function resolveLoginRequest(
 export async function subagentStates(): Promise<Record<string, SubagentEntry[]>> {
   const r = await fetch("/api/subagents");
   if (!r.ok) throw await failed(r, "subagent states");
+  return r.json();
+}
+
+/** Where a session's preview opens (#2767). For a session on a connected machine the server
+ *  forwards this to the machine, which answers with a URL on its OWN host and slot; a failure
+ *  carries the server's `code` (`machine_unreachable`, …) for `remoteActionMessage`. */
+export async function getPreviewReach(id: string): Promise<PreviewReach> {
+  const r = await fetch(`/api/sessions/${id}/preview`);
+  if (!r.ok) throw await failed(r, "preview");
   return r.json();
 }
 

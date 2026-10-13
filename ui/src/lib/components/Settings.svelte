@@ -32,6 +32,7 @@
   import SettingsDevicePanel from "#lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsNotificationsPanel from "#lib/components/settings/SettingsNotificationsPanel.svelte";
   import SettingsAccessPanel from "#lib/components/settings/SettingsAccessPanel.svelte";
+  import SettingsMachinesPanel from "#lib/components/settings/SettingsMachinesPanel.svelte";
   import SettingsDiagnosePanel from "#lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "#lib/components/settings/SettingsPluginsPanel.svelte";
   import SteersEditor from "#lib/components/SteersEditor.svelte";
@@ -345,6 +346,8 @@
         return m.settings_tab_device();
       case "access":
         return m.settings_tab_access();
+      case "machines":
+        return m.settings_tab_machines();
       case "diagnose":
         return m.settings_tab_diagnose();
     }
@@ -571,6 +574,19 @@
       >
         {#if active === "access" && (!isNarrow || !mobileList)}
           <SettingsAccessPanel {payload} {query} {showPairing} />
+        {/if}
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-machines"
+        aria-label={m.settings_tab_machines()}
+        hidden={active !== "machines"}
+      >
+        <!-- Mounted only while shown: the panel polls machine state, which nobody needs elsewhere. -->
+        {#if active === "machines" && (!isNarrow || !mobileList)}
+          <SettingsMachinesPanel {query} />
         {/if}
       </div>
 

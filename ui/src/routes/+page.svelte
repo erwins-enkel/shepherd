@@ -15,6 +15,7 @@
   import { tabTicker } from "#lib/tab-ticker.svelte.js";
   import {
     listSessions,
+    listRemoteDispatches,
     createSession,
     archiveSession,
     closePr,
@@ -70,6 +71,7 @@
   import type {
     AgentProvider,
     CompletedEpic,
+    CreateInput,
     DeployState,
     BacklogPayload,
     HeldTask,
@@ -134,6 +136,8 @@
   import OperatorAssistantPanel from "#lib/components/OperatorAssistantPanel.svelte";
   import { AssistantLifecycle } from "#lib/operator-assistant.svelte.js";
   import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
+  import RemoteSessionDetail from "#lib/components/RemoteSessionDetail.svelte";
+  import { summarizeClearMerged } from "#lib/clear-merged-result.js";
   import UpNextPreview from "#lib/components/UpNextPreview.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
@@ -530,6 +534,19 @@
         )
       : byRepo;
   });
+  // Mirrored sessions (#2762) follow the status filter; a repo filter names local checkouts, so
+  // it hides them.
+  const herdRemoteSessions = $derived(
+    repoFilter.size
+      ? []
+      : statusFilter
+        ? store.remoteSessions.filter((s) => displayStatus(s, {}, {}) === statusFilter)
+        : store.remoteSessions,
+  );
+  // Tasks whose start on a machine is unknown (#2774) are no sessions: they show only unfiltered.
+  const herdRemoteDispatches = $derived(
+    repoFilter.size || statusFilter ? [] : store.remoteDispatches,
+  );
   // Display name of the active filter for the herd's empty-state copy: null when unfiltered,
   // the basename for a single repo, "N repos" for a multi-selection.
   const repoFilterName = $derived(
@@ -846,6 +863,11 @@
   });
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+  // A session mirrored from a connected machine (#2762): it opens its read-only detail, never the
+  // Viewport — `selected` stays null for it, so nothing keyed off the local selection acts on it.
+  const selectedRemote = $derived(
+    selected ? null : (store.remoteSessions.find((s) => s.id === selectedId) ?? null),
+  );
   // Pending MCP OAuth authorize URL for the selected session's awaiting-input block, if any.
   const selectedAuthUrl = $derived(
     selected ? (store.blocks[selected.id]?.reason.authUrl ?? null) : null,
@@ -955,6 +977,14 @@
       .catch(() => {});
   }
 
+  /** Tasks whose start on a machine is unknown (#2774): `remote:dispatch` is push-on-change only,
+   *  so a change while the socket was down is only seen by re-reading the list. */
+  function refreshRemoteDispatches() {
+    listRemoteDispatches()
+      .then((list) => store.setRemoteDispatches(list))
+      .catch(() => {});
+  }
+
   function refreshBuildQueues() {
     bootstrapBuildQueues({
       getBuildQueues,
@@ -980,6 +1010,7 @@
       .then((list) => store.setAll(list))
       .catch(() => {});
     loadOperatorAssistant();
+    refreshRemoteDispatches();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -2003,10 +2034,12 @@
       .then((list) => {
         store.setAll(list);
         if (deepLink && list.some((s) => s.id === deepLink)) selectedId = deepLink;
-        else if (!selectedId && list[0]) selectedId = list[0].id;
+        // First LOCAL session: a mirrored one (#2762) is never picked for you.
+        else if (!selectedId && store.sessions[0]) selectedId = store.sessions[0].id;
       })
       .catch(() => {});
     loadOperatorAssistant();
+    refreshRemoteDispatches();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -2421,6 +2454,9 @@
     epicAuthoring: boolean;
     force?: boolean;
     spawnId?: string;
+    target?: { instanceId: string };
+    requirements?: string[];
+    dispatchKey?: string;
   }) {
     // The spawn id is TRANSPORT, not task data: it rides a header on create and must never reach
     // a request body. Stripped here, above the branches, because every one of them serializes
@@ -2428,11 +2464,14 @@
     // update PATCH) rejects an unknown key outright. Hence also why it isn't a body field to
     // begin with: the create body is what a usage-hold persists as a held task, and a replayed
     // id would address a spawn that is long gone.
-    const { spawnId, ...taskInput } = input;
+    // The dispatch key is transport too: it rides the Idempotency-Key header (#2763).
+    const { spawnId, dispatchKey, ...taskInput } = input;
     // Edit-held path persists the new input back onto the still-held task; relaunch-elsewhere
     // branches to submitRelaunch; otherwise the normal New Task create.
     if (editHeldId !== null) return submitEditHeld(editHeldId, taskInput);
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, taskInput);
+    // Keyed while machines are connected (#2772): the server may run it elsewhere.
+    if (taskInput.target || dispatchKey) return submitPlaced(taskInput, spawnId, dispatchKey);
     // With a spawn id the WS completion frame can settle this before a slow 201 arrives.
     const request = createSession(taskInput, spawnId);
     const r = spawnId
@@ -2447,6 +2486,46 @@
       return;
     }
     selectNewSession(r.id, input.repoPath);
+    showNew = false;
+    resetCompose();
+  }
+
+  /** A task named for a machine (#2763) or placed by the server while machines are connected
+   *  (#2772). Started elsewhere, that machine reports no spawn phases here, so this waits for the
+   *  answer itself: a hold waits in THAT machine's queue, a task for a machine out of reach waits
+   *  here for it (#2775); a started session is shown right away,
+   *  before the mirror relays the machine's own frame — and since its repo is that machine's
+   *  checkout, the repo filter does not follow it. Started here, it is a local session as ever. */
+  async function submitPlaced(
+    taskInput: CreateInput,
+    spawnId: string | undefined,
+    dispatchKey: string | undefined,
+  ) {
+    // Sent, but no answer (#2774): this Shepherd follows it up, and the herd shows it as "start
+    // status unknown" in that machine's group — the dialog has nothing left to do. A network error
+    // on the way HERE stays with the dialog's Retry: the task may never have reached this Shepherd.
+    // Started here, the WS completion frame can settle it before a slow 201 arrives.
+    const request = createSession(taskInput, spawnId, dispatchKey);
+    const raced = spawnId
+      ? raceSpawnCompletion(request, spawnId, () => store.spawnProgress)
+      : request;
+    const r = await raced.catch((err: unknown) => {
+      if (err instanceof ApiError && err.code === "remote_dispatch_unknown") return null;
+      throw err;
+    });
+    if (r === null) {
+      toasts.info(m.toast_dispatch_unknown());
+    } else if ("held" in r && r.waiting && r.host) {
+      // The machine it is meant for is out of reach (#2775): it waits in that machine's group.
+      toasts.info(m.toast_task_waiting_for({ machine: r.host.name }));
+    } else if ("held" in r) {
+      toasts.info(r.host ? m.toast_task_held_on({ machine: r.host.name }) : m.toast_task_held());
+    } else if ("host" in r && r.host) {
+      store.apply({ event: "session:new", data: r });
+      selectedId = r.id;
+    } else {
+      selectNewSession(r.id, taskInput.repoPath);
+    }
     showNew = false;
     resetCompose();
   }
@@ -2588,7 +2667,7 @@
       key: id,
       onUndo: () => {
         // restore focus only if the row is still around (it never left the store)
-        if (store.sessions.some((s) => s.id === id)) selectedId = id;
+        if (store.sessions.some((s) => s.id === id) || remoteSession(id)) selectedId = id;
       },
       onCommit: async () => {
         // server stops the agent, removes the worktree, emits session:archived
@@ -2641,7 +2720,8 @@
   }
 
   function onarchive(id: string, reap?: string[]) {
-    const name = store.sessions.find((s) => s.id === id)?.name ?? id;
+    // A session on a connected machine (#2765) has no git state here, so it archives as "keep".
+    const name = (store.sessions.find((s) => s.id === id) ?? remoteSession(id))?.name ?? id;
     const git = store.git[id];
     if (git?.state === "open") {
       decommissionPr = { id, name, git, reap };
@@ -2828,17 +2908,32 @@
     }
   }
 
+  // A session mirrored from a connected machine (#2762), by id.
+  function remoteSession(id: string): Session | undefined {
+    return store.remoteSessions.find((s) => s.id === id);
+  }
+
   // Open the "clear all merged" confirm modal. The server is the source of truth
   // for which sessions are merged (same prCache the list partitions on) and for the
   // leftover count, so we ask it rather than trust the local snapshot.
   async function onclearmerged() {
     try {
-      const { ids, leftoversById, probesUnavailable } = await getMergedClearable();
-      // store.sessions mirrors every active session, so each merged id resolves to a
-      // row here — `targets` matches the server's `ids`. (Were a merged id somehow
-      // absent, we'd list and clear only the rows we can show.)
+      const { ids, leftoversById, probesUnavailable, machines } = await getMergedClearable();
+      // The ids include the merged sessions of the connected machines that answered (#2765);
+      // one that did not is named, since its merged sessions are missing from the list.
+      const unchecked = (machines ?? [])
+        .filter((machine) => !machine.ok)
+        .map((machine) => machine.name);
+      if (unchecked.length > 0) {
+        toasts.info(m.toast_clear_merged_unchecked({ machines: unchecked.join(", ") }), {
+          key: "clear-merged-unchecked",
+        });
+      }
+      // store.sessions mirrors every active session (store.remoteSessions every mirrored
+      // one), so each merged id resolves to a row here — `targets` matches the server's
+      // `ids`. (Were a merged id somehow absent, we'd list and clear only the rows we can show.)
       const targets = ids
-        .map((id) => store.sessions.find((s) => s.id === id))
+        .map((id) => store.sessions.find((s) => s.id === id) ?? remoteSession(id))
         .filter((s): s is Session => s != null);
       if (targets.length === 0) return; // nothing merged (or already cleared) → no modal
       clearMergedLeftovers = leftoversById;
@@ -2857,12 +2952,27 @@
   // since nothing was actually cleared.
   async function runClearMerged(ids: string[]) {
     try {
-      const { cleared } = await clearMerged(ids);
-      const gone = new Set(cleared);
+      const result = await clearMerged(ids);
+      const { count, failedMachines, retryIds } = summarizeClearMerged(result);
+      const gone = new Set(result.cleared);
       if (selectedId && gone.has(selectedId)) {
         selectedId = store.sessions.find((s) => !gone.has(s.id))?.id ?? null;
       }
-      toasts.info(m.toast_cleared_merged({ count: cleared.length }));
+      if (failedMachines.length === 0) {
+        toasts.info(m.toast_cleared_merged({ count }));
+        return;
+      }
+      // A machine that gave no usable answer (#2765): a partial result, never a claimed success.
+      // Retry re-sends only what went to those machines.
+      toasts.info(m.toast_cleared_merged_partial({ count, machines: failedMachines.join(", ") }), {
+        sticky: true,
+        alert: true,
+        key: "clear-merged-fail",
+        action:
+          retryIds.length > 0
+            ? { label: m.common_retry(), run: () => void runClearMerged(retryIds) }
+            : undefined,
+      });
     } catch {
       toasts.info(m.toast_clear_merged_failed(), {
         sticky: true,
@@ -3249,6 +3359,7 @@
         <div class="col">
           <Herd
             sessions={herdSessions}
+            remoteSessions={herdRemoteSessions}
             filteredRepo={repoFilterName}
             {repoFilter}
             onrepofilter={applyRepoFilter}
@@ -3291,6 +3402,7 @@
               showSettings = true;
             }}
             flow={true}
+            remoteDispatches={herdRemoteDispatches}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
             backgroundBusy={store.backgroundBusy}
@@ -3369,6 +3481,18 @@
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}
         </div>
+      {:else if selectedRemote}
+        <div class="col">
+          <RemoteSessionDetail
+            session={selectedRemote}
+            {nowMs}
+            terminalOwners={store.terminalOwners}
+            previewTick={store.remotePreviewTick[selectedRemote.id]}
+            onback={() => (mobileScreen = "list")}
+            ondecommission={onarchive}
+            onedit={openSteersEditor}
+          />
+        </div>
       {:else if selected}
         <div class="col">
           <Viewport
@@ -3433,6 +3557,7 @@
             {@render repoRail(canCollapse)}
             <Herd
               sessions={herdSessions}
+              remoteSessions={herdRemoteSessions}
               filteredRepo={repoFilterName}
               {repoFilter}
               onrepofilter={applyRepoFilter}
@@ -3485,6 +3610,7 @@
               collapsedStageKeys={collapsedStages}
               onstagecollapsetoggle={toggleStageCollapse}
               touch={touch.current}
+              remoteDispatches={herdRemoteDispatches}
               completedEpics={completedEpicsShown}
               ondismissepic={onDismissEpic}
               onlandepic={onLandEpic}
@@ -3538,6 +3664,15 @@
           {:else}
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}
+        {:else if selectedRemote}
+          <RemoteSessionDetail
+            session={selectedRemote}
+            {nowMs}
+            terminalOwners={store.terminalOwners}
+            previewTick={store.remotePreviewTick[selectedRemote.id]}
+            ondecommission={onarchive}
+            onedit={openSteersEditor}
+          />
         {:else if store.sessions.length === 0}
           <BacklogView
             payload={backlog}

@@ -2000,3 +2000,117 @@ describe("UnitRow cold-resume chip", () => {
     expect(renderRow(coldSession({ status: "blocked" }))).not.toBeNull();
   });
 });
+
+describe("UnitRow mirrored session (#2762)", () => {
+  const host = { instanceId: "m1", name: "MacBook", platform: "macos" };
+  const remote = (over: Partial<Session> = {}) =>
+    session({
+      id: "r1",
+      name: "remote one",
+      desig: "TASK-07",
+      status: "running",
+      host,
+      connection: { state: "connected", since: Date.now() },
+      ...over,
+    });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const contextMenu = () =>
+    page
+      .getByRole("button", { name: m.unit_open_aria({ name: "remote one" }) })
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+
+  it("names its machine and qualifies its label without reading this machine", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(UnitRow, { session: remote(), selected: false, nowMs: Date.now(), onselect: () => {} });
+
+    await expect
+      .element(page.getByRole("img", { name: m.remote_runs_on({ machine: "MacBook" }) }))
+      .toBeInTheDocument();
+    await expect.element(page.getByText("MacBook · TASK-07")).toBeInTheDocument();
+    // The designation is plain text: no copy/recommend menu that would read this machine.
+    await expect
+      .element(page.getByRole("button", { name: m.taskid_button_title({ desig: "TASK-07" }) }))
+      .not.toBeInTheDocument();
+    // Nothing about it is read from this machine.
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/sessions/r1"))).toBe(
+      false,
+    );
+  });
+
+  it("offers only what its machine is sent — Stop and Decommission — while connected (#2765)", async () => {
+    const ondecommission = vi.fn();
+    render(UnitRow, {
+      session: remote({ claudeSessionId: "c1" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      ondecommission,
+      // Callbacks a machine group never passes; even if one did, the remote menu ignores them.
+      onrename: () => {},
+      onamend: () => {},
+    });
+
+    contextMenu();
+    await expect.element(page.getByRole("menu")).toBeInTheDocument();
+    const items = page
+      .getByRole("menuitem")
+      .elements()
+      .map((el) => el.textContent?.trim());
+    expect(items).toEqual([`⎋${m.cardmenu_stop()}`, `✕${m.cardmenu_decommission()}`]);
+    await page.getByRole("menuitem", { name: m.cardmenu_stop() }).click();
+    expect(interruptSession).toHaveBeenCalledWith("r1");
+
+    // The ✕ arms, then archives through the page's decommission. Native clicks: the ✕ is only
+    // revealed on hover, which the activity strip's cells sit over in this bare render.
+    const decom = page.getByRole("button", { name: m.viewport_decommission_aria() });
+    await expect.element(decom).not.toHaveAttribute("aria-disabled");
+    (decom.element() as HTMLElement).click();
+    const confirm = page.getByRole("button", { name: m.viewport_confirm_decommission() });
+    await expect.element(confirm).toBeInTheDocument();
+    (confirm.element() as HTMLElement).click();
+    expect(ondecommission).toHaveBeenCalledWith("r1");
+  });
+
+  it("offers no action while its machine is disconnected, and says why", async () => {
+    const onselect = vi.fn();
+    render(UnitRow, {
+      session: remote({ connection: { state: "disconnected", since: Date.now() } }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect,
+    });
+
+    contextMenu();
+    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+
+    // The ✕ is there but disabled, with the reason in its tooltip; a click does nothing.
+    const decom = page.getByRole("button", { name: m.viewport_decommission_aria() });
+    await expect.element(decom).toHaveAttribute("aria-disabled", "true");
+    expect(decom.element().getAttribute("aria-description")).toContain(
+      m.tooltip_remote_forwarded_body({ machine: "MacBook" }),
+    );
+    // A native click: Playwright (rightly) refuses to click an aria-disabled control.
+    (decom.element() as HTMLElement).click();
+    expect(onselect).not.toHaveBeenCalled();
+  });
+
+  it("says when its machine is unreachable, with the last known time", async () => {
+    const since = new Date(2026, 9, 11, 14, 32).getTime();
+    render(UnitRow, {
+      session: remote({ connection: { state: "disconnected", since } }),
+      selected: false,
+      nowMs: since + 60_000,
+      onselect: () => {},
+    });
+    const time = new Date(since).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    await expect.element(page.getByText(m.remote_disconnected_line({ time }))).toBeInTheDocument();
+  });
+});

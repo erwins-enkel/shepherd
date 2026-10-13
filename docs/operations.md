@@ -23,6 +23,9 @@ single-operator password and stores browser access in a signed session cookie. S
 `SHEPHERD_PASSWORD` in `~/.shepherd/env`, or use the first-boot generated password from the server
 log; machine clients can use `SHEPHERD_TOKEN` as a bearer alternative.
 
+To start tasks on another Shepherd, for example a MacBook with Xcode, connect it as a machine:
+[Run tasks on another machine](machines.md).
+
 ### herdr server lifecycle & "Update Herd"
 
 Shepherd drives herdr but **does not own the herdr server's lifecycle** — the daemon is

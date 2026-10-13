@@ -52,6 +52,119 @@ components:
           type: string
         instanceID:
           type: string
+    InstanceIdentity:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - version
+        - federationApi
+        - platform
+        - arch
+      description: This Shepherd as another Shepherd sees it when connecting it as a machine.
+      properties:
+        instanceId:
+          type: string
+          description: Generated once and persisted, so it is stable across restarts. Not the per-launch localInstall.instanceID marker of /api/health.
+        name:
+          type: string
+          description: Operator-chosen display name; defaults to the host name.
+        version:
+          type: string
+          description: Root package.json version of the running server.
+        federationApi:
+          type: integer
+          minimum: 1
+          description: Federation API level. Two Shepherds are compatible as machines only when both report the same value.
+        platform:
+          $ref: "#/components/schemas/InstancePlatform"
+        arch:
+          type: string
+          description: CPU architecture as the server runtime reports it (x64, arm64, ...).
+        capabilities:
+          description: The last capability probe; null until the first one finished. Absent on servers older than this field.
+          $ref: "#/components/schemas/InstanceCapabilities"
+    InstancePlatform:
+      anyOf:
+        - $ref: "#/components/schemas/InstancePlatformKnown"
+        - type: string
+    InstancePlatformKnown:
+      type: string
+      enum:
+        - linux
+        - macos
+        - windows
+    InstanceCapabilities:
+      type: object
+      additionalProperties: true
+      required:
+        - vocabulary
+        - probedAt
+        - ageMs
+        - stale
+        - checks
+      description: What this instance verified it can run, probed under its own service user. Re-probed every 5 minutes, on demand and for every create that carries requirements.
+      properties:
+        vocabulary:
+          type: integer
+          minimum: 1
+          description: Version of the capability vocabulary the checks use.
+        probedAt:
+          type: integer
+          description: Epoch milliseconds when the probe finished, on this instance's clock.
+        ageMs:
+          type: integer
+          minimum: 0
+          description: Milliseconds since probedAt when this response was built. A caller on another machine adds it to its own clock instead of trusting probedAt across clocks.
+        stale:
+          type: boolean
+          description: True when the probe is older than 15 minutes.
+        checks:
+          type: array
+          description: One verdict per vocabulary entry.
+          items:
+            $ref: "#/components/schemas/CapabilityCheck"
+    CapabilityCheck:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - ok
+        - reason
+      properties:
+        id:
+          $ref: "#/components/schemas/Capability"
+        ok:
+          type: boolean
+        reason:
+          type:
+            - string
+            - "null"
+          description: Why the capability is unavailable (not_installed, not_logged_in, timeout, probe_failed, other_platform, not_probed, sdk_not_found, sdk_incomplete, no_backend, no_egress, license_not_accepted, command_line_tools_only, no_simulator); null when ok.
+        detail:
+          type: string
+          description: Language-neutral data about what the probe found, absent when there is none — the macOS version on platform:macos ("15.5 (24F74)"), the Xcode version on xcode ("16.4 (16F6)"), the SDK versions on sdk:macos and sdk:ios, and the iOS runtime versions with an available simulator device on ios-simulator ("18.5, 26.0").
+    Capability:
+      anyOf:
+        - $ref: "#/components/schemas/CapabilityKnown"
+        - type: string
+    CapabilityKnown:
+      type: string
+      enum:
+        - platform:linux
+        - platform:macos
+        - platform:windows
+        - xcode
+        - sdk:macos
+        - sdk:ios
+        - ios-simulator
+        - android-sdk
+        - agent:claude
+        - agent:codex
+        - sandbox:trusted
+        - sandbox:standard
+        - sandbox:autonomous
     Error:
       type: object
       additionalProperties: true
@@ -582,6 +695,11 @@ components:
           type: string
         baseBranch:
           type: string
+        baseCommit:
+          type:
+            - string
+            - "null"
+          description: "The commit the session's worktree was actually created from — its HEAD right after the worktree was added. null for a non-git repo, a clean terminal, or a session that predates the field; absent from servers older than #2761."
         branch:
           type:
             - string
@@ -734,10 +852,82 @@ components:
           $ref: "#/components/schemas/ExperimentRole"
         hasScratchpadFiles:
           type: boolean
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        connection:
+          $ref: "#/components/schemas/SessionConnection"
+        launchMetadata:
+          $ref: "#/components/schemas/SessionLaunchMetadata"
+    SessionLaunchMetadata:
+      type: object
+      additionalProperties: true
+      description: What the session was launched with, recorded when it was created; null on sessions older than the record. Only `placement` is described for clients; the other members are this server's own launch record and may change.
+      properties:
+        placement:
+          $ref: "#/components/schemas/Placement"
     SessionList:
       type: array
       items:
         $ref: "#/components/schemas/Session"
+    SessionHost:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - platform
+      description: "Set only on a session mirrored from a connected machine. Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine when they are on the forwarded list (reply, interrupt, archive and its leftovers, go, answer-plan-questions, rename, amendments, autopilot, automerge, ready, diff and its annotations, messages, activity, usage, worktree and scratchpad listings, downloads and upload, and the preview: its start, stop and where it opens, a URL on the machine's own host); any other route answers 409 `remote_unsupported`, an id more than one machine reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502 `machine_unreachable`, `machine_timeout` or `machine_unauthorized`."
+      properties:
+        instanceId:
+          type: string
+          description: The machine's persisted instance ID (GET /api/instance there).
+        name:
+          type: string
+          description: The machine's display name here, unique among the connected machines.
+        platform:
+          $ref: "#/components/schemas/InstancePlatform"
+    SessionConnection:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+        - since
+      description: The link to the machine a mirrored session runs on. `disconnected` keeps the session with its last known state; it is not an end.
+      properties:
+        state:
+          anyOf:
+            - type: string
+              enum:
+                - connected
+                - disconnected
+            - type: string
+        since:
+          type: integer
+          description: When this state began (ms). For `disconnected`, when the shown data was last current.
+    RemoteSessionsEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - sessions
+      description: The whole current set of sessions mirrored from one connected machine. Sent on every snapshot of that machine, every change of its connection and its removal (then with an empty list). A client replaces that machine's sessions with `sessions`.
+      properties:
+        instanceId:
+          type: string
+          description: The machine's instance ID, as in each session's `host.instanceId`.
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+    TaskTarget:
+      type: object
+      additionalProperties: false
+      required:
+        - instanceId
+      description: "The machine a new task runs on, by the instance ID GET /api/remote-instances lists — an override of the automatic choice. Absent while a machine is connected, this instance places the task itself (see POST /api/placement). A named machine must fit: connected, released, the project checked out, the requirements verified by its last report — otherwise it is refused with the reason and nothing is sent. The WHOLE session starts there; nothing starts here. This instance's own ID means here. repoPath then names this instance's checkout only to identify the project (its forge slug); the machine must be connected and have that project checked out, and runs the task in its own checkout. The task is stored before it is sent, and a retry (same Idempotency-Key) only ever goes to the same machine. Attachments (images, staged here) are uploaded to the machine right before the task is sent and travel as its own staged copies; a retry reuses those uploads."
+      properties:
+        instanceId:
+          type: string
     CreateSessionRequest:
       type: object
       additionalProperties: false
@@ -748,8 +938,16 @@ components:
       properties:
         repoPath:
           type: string
+        target:
+          $ref: "#/components/schemas/TaskTarget"
         baseBranch:
           type: string
+        baseCommit:
+          type:
+            - string
+            - "null"
+          pattern: ^(?:[0-9a-f]{40}|[0-9a-f]{64})$
+          description: Create the worktree at exactly this commit (full lowercase hex id) instead of freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when it cannot be used. baseBranch stays the PR target. null or absent = resolve from baseBranch.
         prompt:
           type: string
           minLength: 1
@@ -801,6 +999,14 @@ components:
           description: Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).
         launchUiState:
           $ref: "#/components/schemas/LaunchUiState"
+        requirements:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/Capability"
+          description: Capabilities the machine that runs the task must have. While machines are connected the automatic choice only picks a machine whose report has them all. The machine that runs it verifies them by a fresh probe when it accepts the task; a missing one answers 422 with code missing_capabilities and nothing starts.
+        placement:
+          $ref: "#/components/schemas/Placement"
     ArchiveSessionRequest:
       type: object
       additionalProperties: false
@@ -813,7 +1019,7 @@ components:
     HeldTask:
       type: object
       additionalProperties: true
-      description: The usage hold tripped — the task was queued instead of spawned.
+      description: "The usage hold tripped — the task was queued instead of spawned. With `host` it was held on that connected machine (`id` and `count` are that machine's). With `waiting` (#2775) it waits HERE for `host`, the machine it is meant for, which is out of reach: nothing was sent, it starts there once that machine can take it — `id` is the dispatch ID, `count` the tasks waiting here, `dispatch` the waiting RemoteDispatch (cancel or redirect it via /api/remote-dispatches)."
       required:
         - held
         - id
@@ -825,6 +1031,351 @@ components:
           type: string
         count:
           type: integer
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        waiting:
+          type: boolean
+        dispatch:
+          $ref: "#/components/schemas/RemoteDispatch"
+    DispatchState:
+      anyOf:
+        - $ref: "#/components/schemas/DispatchStateKnown"
+        - type: string
+    DispatchStateKnown:
+      type: string
+      enum:
+        - pending
+        - started
+        - held
+        - failed
+    Dispatch:
+      type: object
+      additionalProperties: true
+      description: The outcome of a POST /api/sessions submitted with an Idempotency-Key. pending = the start is still running; started = sessionId spawned; held = parked as held task heldId (it turns started when the hold is released); failed = it will never start (reason, code).
+      required:
+        - id
+        - state
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        state:
+          $ref: "#/components/schemas/DispatchState"
+        sessionId:
+          type: string
+        heldId:
+          type: string
+        reason:
+          type: string
+        code:
+          type: string
+          description: Machine-readable failure code when there is one — dispatch_canceled (withdrawn before it arrived), dispatch_interrupted (a restart cut the start off), held_discarded, or the create's own code (e.g. spawn_canceled).
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+    RemoteDispatchState:
+      anyOf:
+        - $ref: "#/components/schemas/RemoteDispatchStateKnown"
+        - type: string
+    RemoteDispatchStateKnown:
+      type: string
+      enum:
+        - sending
+        - unknown
+        - canceling
+        - started
+        - held
+        - rejected
+        - upload_failed
+        - canceled
+        - waiting
+        - redirected
+    RemoteDispatch:
+      type: object
+      additionalProperties: true
+      description: "A task this instance sent — or keeps to send — to a connected machine (POST /api/sessions with a target, or placed there automatically), as GET /api/remote-dispatches lists it and remote:dispatch announces it. unknown = it was sent but no answer came back, so it may be running there (start status unknown); this instance asks the machine after every check that finds it connected and settles it, or sends the same task again to the same machine if it never arrived. canceling = canceled here, the cancel reaches the machine as soon as it answers. waiting (#2775) = the machine it is meant for is out of reach or cannot take it yet: nothing was sent; it is sent after a check that finds the machine connected, the project checked out and — on a capability check the machine runs right then — every requirement met (`readiness` says what is missing now, `placement` why it is meant for that machine, `alternatives` the connected machines that could run it now). held = the machine holds it (its usage hold or capacity; heldId on that machine) and starts it when it can. started (sessionId), rejected (reason, code — e.g. dispatch_interrupted: the machine restarted mid-start; held_discarded: dropped from its held queue), canceled (it never starts there; code machine_removed when its machine was removed here), upload_failed (an attachment did not get there; never sent). sending = being sent right now. redirected = it left the machine's queue to run on this instance — only announced, never listed."
+      required:
+        - id
+        - state
+        - host
+        - summary
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: The dispatch ID — what the machine received as its Idempotency-Key.
+        state:
+          $ref: "#/components/schemas/RemoteDispatchState"
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        summary:
+          type: string
+          description: The task's issue title, else the first line of its prompt (at most 120 characters).
+        sessionId:
+          type: string
+          description: The session on the machine, once started.
+        heldId:
+          type: string
+          description: The held task on the machine, once held.
+        reason:
+          type: string
+        code:
+          type: string
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+        placement:
+          $ref: "#/components/schemas/Placement"
+        readiness:
+          $ref: "#/components/schemas/DispatchReadiness"
+        alternatives:
+          type: array
+          description: "Waiting only: the connected machines — this instance included — that fit the task now, best first. A redirect to one of them is accepted; nothing goes there on its own."
+          items:
+            $ref: "#/components/schemas/SessionHost"
+    DispatchReadiness:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+      description: "How far the machine a waiting task is meant for is from taking it (#2775), judged as the automatic choice judges it. offline: not connected (`status` says why — unreachable, unauthorized, …); unreleased: its platform runs no tasks; project_missing: no checkout of the project; missing_capabilities: its capability report lacks a requirement (`missing`; reason not_verified while no fresh report confirms one); ready: it fits — the task goes out with the next check."
+      properties:
+        state:
+          anyOf:
+            - type: string
+              enum:
+                - offline
+                - unreleased
+                - project_missing
+                - missing_capabilities
+                - ready
+            - type: string
+        status:
+          type: string
+        missing:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required:
+              - capability
+              - reason
+            properties:
+              capability:
+                type: string
+              reason:
+                type: string
+    RedirectRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - target
+      properties:
+        target:
+          $ref: "#/components/schemas/TaskTarget"
+    RemoteDispatchList:
+      type: object
+      additionalProperties: true
+      required:
+        - dispatches
+      properties:
+        dispatches:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteDispatch"
+    Placement:
+      type: object
+      additionalProperties: true
+      required:
+        - mode
+        - target
+        - requirements
+        - basis
+        - preferred
+        - by
+        - decidedAt
+      description: "Where a task was placed and why: the record of the Shepherd that chose the machine. It is language-neutral; clients put it into words. A session placed while machines were connected carries it as `launchMetadata.placement`, on the machine that runs it as well, and a held task keeps it in its stored input. It is a record only and never decides where a task runs. In a create body (CreateSessionRequest.placement) it is what a coordinator Shepherd sends along with a task it placed on another instance: that instance keeps it only when the body's `target` names that instance itself and the record names it as its `target`; otherwise the instance records its own choice instead. Clients do not send it."
+      properties:
+        mode:
+          description: auto = chosen by the rules; manual = the machine named in `target`.
+          anyOf:
+            - type: string
+              enum:
+                - auto
+                - manual
+            - type: string
+        target:
+          $ref: "#/components/schemas/SessionHost"
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+        basis:
+          description: "What decided: the operator (manual), the requirements — only one platform fits (requirements), the platform order among several fitting machines (preference, with `preferred`), or that only one machine can run the task at all (only_candidate)."
+          anyOf:
+            - type: string
+              enum:
+                - manual
+                - requirements
+                - preference
+                - only_candidate
+            - type: string
+        preferred:
+          type:
+            - string
+            - "null"
+          description: The platform the order preferred among several that fit; null when the order did not decide.
+        by:
+          type: object
+          additionalProperties: true
+          required:
+            - instanceId
+            - name
+          description: The Shepherd that decided.
+          properties:
+            instanceId:
+              type: string
+            name:
+              type: string
+        decidedAt:
+          type: integer
+    PlacementRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repoPath
+      properties:
+        repoPath:
+          type: string
+        requirements:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/Capability"
+        target:
+          $ref: "#/components/schemas/TaskTarget"
+    PlacementRefusal:
+      type: object
+      additionalProperties: true
+      required:
+        - code
+        - error
+      description: "Why POST /api/sessions would refuse the task, as it would answer it. no_suitable_machine (422): no machine fits — `missing` lists the capabilities no connected machine with the project has (all of them with `together` when none has them together), `elsewhere` the connected machines that would fit but have no checkout of the project. missing_capabilities (422): the named machine lacks requirements — `host` and `missing` as {capability, reason}; reason not_verified when no fresh report confirms one. remote_target_unknown, remote_target_unavailable, remote_target_unreleased, remote_project_missing, remote_project_unknown: the named machine cannot take a task (see POST /api/sessions)."
+      properties:
+        code:
+          type: string
+        error:
+          type: string
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        reason:
+          type: string
+        together:
+          type: boolean
+        elsewhere:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionHost"
+    PlacementPreview:
+      type: object
+      additionalProperties: true
+      required:
+        - active
+      properties:
+        active:
+          type: boolean
+          description: "false: no connected machine could take a task, so a create runs here exactly as it always did and the form shows no machine choice."
+        placement:
+          $ref: "#/components/schemas/Placement"
+        wait:
+          $ref: "#/components/schemas/PlacementWait"
+        refusal:
+          $ref: "#/components/schemas/PlacementRefusal"
+        deriveRequirements:
+          type: boolean
+          description: "Present while `active`. true: reading the task's requirements from its description can change where it runs — no target was named, and the machines that could take it differ in what a description can call for (Xcode, the iOS SDK, the iOS simulator, the Android SDK). A client then asks POST /api/requirements/derive before submitting, as New Task does. false: it cannot, and nothing needs to be derived."
+        machines:
+          type: array
+          description: "Present while `active` (#2776): the machines a create may name in `target` for this repo right now — this instance first, then every connected machine whose platform is released for tasks and that has the project checked out (by forge slug). A client that cannot list the connected machines itself (GET /api/remote-instances needs an operator session, which a native app's token is not) offers these under Run on. Whether one fits the requirements is what a preview with it as `target` answers."
+          items:
+            $ref: "#/components/schemas/SessionHost"
+    PlacementWait:
+      type: object
+      additionalProperties: true
+      required:
+        - status
+        - alternatives
+      description: "The machine in `placement` is out of reach (#2775): POST /api/sessions stores the task to wait for it (a HeldTask with `waiting`) and sends it there once it can take it — it never falls back to another machine on its own. `status` says why it is out of reach; `alternatives` are the connected machines, this instance included, that fit too — a manual choice away."
+      properties:
+        status:
+          type: string
+        alternatives:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionHost"
+    RequirementsDeriveRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repoPath
+        - prompt
+      description: "The task as it would be submitted: the prompt and the attached issue's title and body. Either the prompt or the issue title must not be empty. The repository is never read."
+      properties:
+        repoPath:
+          type: string
+        prompt:
+          type: string
+          maxLength: 8000
+        issue:
+          type: object
+          additionalProperties: false
+          required:
+            - title
+          properties:
+            title:
+              type: string
+              maxLength: 500
+            body:
+              type: string
+              maxLength: 100000
+    RequirementsDerivation:
+      type: object
+      additionalProperties: true
+      required:
+        - status
+      description: "What the task's description calls for, as data from the capability vocabulary — never prose; clients put it into words. skipped: reading it cannot change where the task runs (no machine connected, or the machines that could take it verify the same), and nothing ran. derived: `requirements` (possibly empty) — what the description calls for, with what each implies (the iOS simulator needs the iOS SDK, which needs Xcode). unclear: the description could mean different things or contradicts itself; `options` holds 2–3 requirement sets (an empty one = nothing special) for the operator to choose from before the task starts. failed: nothing was derived — `cause` is timeout, error (including an answer outside the vocabulary) or unavailable (no helper could run); nothing is guessed."
+      properties:
+        status:
+          anyOf:
+            - type: string
+              enum:
+                - skipped
+                - derived
+                - unclear
+                - failed
+            - type: string
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+        options:
+          type: array
+          items:
+            type: array
+            items:
+              $ref: "#/components/schemas/Capability"
+        cause:
+          anyOf:
+            - type: string
+              enum:
+                - timeout
+                - error
+                - unavailable
+            - type: string
     Repo:
       type: object
       additionalProperties: true
@@ -4196,6 +4747,11 @@ components:
             type: integer
         probesUnavailable:
           type: boolean
+        machines:
+          description: One entry per connected machine asked; `ids` above include the merged sessions of those that answered.
+          type: array
+          items:
+            $ref: "#/components/schemas/ClearMergedMachinePreview"
     ClearMergedRequest:
       type: object
       additionalProperties: false
@@ -4219,6 +4775,66 @@ components:
             type: string
         leftovers:
           type: integer
+        partial:
+          description: True when a connected machine gave no usable answer; its requested sessions are not covered by `cleared`.
+          type: boolean
+        machines:
+          description: One outcome per connected machine asked; empty without machines.
+          type: array
+          items:
+            $ref: "#/components/schemas/ClearMergedMachineResult"
+    ClearMergedMachinePreview:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - ok
+        - ids
+      description: A connected machine's merged sessions, as the preview asked it.
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        ok:
+          type: boolean
+        reason:
+          description: Why the machine gave no usable answer (`disconnected`, `timeout`, `network`, `token_rejected`, …).
+          type: string
+        ids:
+          type: array
+          items:
+            type: string
+    ClearMergedMachineResult:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - ok
+        - requested
+        - cleared
+      description: What clearing did on one connected machine.
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        ok:
+          type: boolean
+        reason:
+          description: Why the machine gave no usable answer (`disconnected`, `timeout`, `network`, `token_rejected`, …).
+          type: string
+        requested:
+          description: The ids sent to the machine; empty when the request named none (its whole merged set).
+          type: array
+          items:
+            type: string
+        cleared:
+          type: array
+          items:
+            type: string
     SessionAutomergeEvent:
       type: object
       additionalProperties: true
@@ -4396,6 +5012,12 @@ components:
           type: string
         baseBranch:
           type: string
+        baseCommit:
+          type:
+            - string
+            - "null"
+          pattern: ^(?:[0-9a-f]{40}|[0-9a-f]{64})$
+          description: Create the worktree at exactly this commit (full lowercase hex id) instead of freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when it cannot be used. baseBranch stays the PR target. null or absent = resolve from baseBranch.
         prompt:
           type: string
           minLength: 1
@@ -4447,6 +5069,14 @@ components:
           description: Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).
         launchUiState:
           $ref: "#/components/schemas/LaunchUiState"
+        requirements:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/Capability"
+          description: Capabilities the machine that runs the task must have. While machines are connected the automatic choice only picks a machine whose report has them all. The machine that runs it verifies them by a fresh probe when it accepts the task; a missing one answers 422 with code missing_capabilities and nothing starts.
+        placement:
+          $ref: "#/components/schemas/Placement"
         auto:
           type: boolean
       description: Stored StandardCreateInput. Mirrors the core create request fields, but also carries server-owned fields such as auto from Up Next. The core request is closed and cannot validate this stored response. PATCH still accepts the core CreateSessionRequest.
@@ -7226,6 +7856,19 @@ paths:
                 $ref: "#/components/schemas/AuthenticatedIdentity"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/instance:
+    get:
+      operationId: getInstance
+      description: This instance's identity and verified capabilities for machine connections. Needs a full-scope credential without a repository restriction.
+      responses:
+        "200":
+          description: Instance identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceIdentity"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/access-tokens:
     get:
       operationId: listAccessTokens
@@ -7423,12 +8066,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     post:
       operationId: createSession
-      description: Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold).
+      description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. The choice is recorded on the session as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. When the chosen machine is out of reach (#2775) the task waits here for it: 200 with `waiting` (a HeldTask); nothing is sent or uploaded until that machine can take it, and nothing falls back to another machine. A keyed retry goes where its first submission went."
       parameters:
         - name: X-Shepherd-Spawn-Id
           in: header
           required: false
           description: Client-chosen correlation id for this create. With a valid one the caller receives live `spawn:progress` frames and may cancel through POST /api/spawns/{id}/cancel; without one the spawn still runs and is still measured. Deliberately a header and not a body field (src/server.ts:2400-2404) — a usage hold persists the BODY, so a spawn id there would be replayed stale when the held task is finally spawned. Header names are case-insensitive; the server compares lowercase.
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: "Client-chosen id that makes this submission run at most once (#2761). Reserved before the hold gate and the spawn, and kept across restarts: a retry or a concurrent duplicate with the same key and the same body gets the first outcome replayed (marked `Idempotent-Replayed: true`) — the session (201) or the held task (200) — without a second spawn, and a failed outcome is final for its key. The same key with a different body is 409. Matches ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$, optionally double-quoted (structured-field string); anything else is 400. Outcome: GET /api/dispatches/{id}."
           schema:
             type: string
       requestBody:
@@ -7439,7 +8088,7 @@ paths:
               $ref: "#/components/schemas/CreateSessionRequest"
       responses:
         "200":
-          description: Usage hold tripped — queued as a held task instead of spawned.
+          description: "Usage hold tripped — queued as a held task instead of spawned (with `host`: held on that machine). With `waiting`: chosen automatically for a machine that is out of reach, the task waits here for it (#2775)."
           content:
             application/json:
               schema:
@@ -7459,19 +8108,25 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: First run pending, name taken, worktree occupied, or herdr restart required (see code).
+          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled), or it was canceled here but the machine has not confirmed the cancel yet — the task may have reached it first and be running there; it is not sent again (remote_dispatch_cancel_pending)."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: The base branch does not resolve to a ref in the repo.
+          description: "The base branch (or the requested baseCommit) does not resolve to a commit in the repo, or this instance does not meet a requirement (code `missing_capabilities`; `error` names each unmet capability and its reason, and `missing` lists them as `{capability, reason}`). A keyed retry (Idempotency-Key) replays the refusal from the dispatch record with `error` and `code` only, without `missing`. With a target also: the machine refused the task (remote_rejected — `error` is its reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected machine has that ID (remote_target_unknown), the machine's platform is not released for tasks (remote_target_unreleased — `reason` is the platform, e.g. windows), the machine has no checkout of the project (remote_project_missing), the repo has no forge identity (remote_project_unknown), or the machine's report lacks a requirement (missing_capabilities with `host`; reason not_verified when no fresh report confirms it). Chosen automatically also: no machine fits (no_suitable_machine — `missing` lists the capabilities no connected machine with the project has)."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "502":
-          description: Create failed downstream (git or the agent runner).
+          description: "Create failed downstream (git or the agent runner). With a target also: an attachment did not reach the machine, so the task was not sent and nothing started (remote_upload_failed — `error` says which and why, `host` the machine); it is never sent under that Idempotency-Key."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: "With a target: the task was sent but no answer came back, so it may have started on the machine (remote_dispatch_unknown — start status unknown). This instance keeps asking the machine and settles it (GET /api/remote-dispatches, remote:dispatch). Sending it again with the Idempotency-Key in `dispatchId` is safe too — it goes to the same machine and never starts twice."
           content:
             application/json:
               schema:
@@ -7655,6 +8310,243 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OperatorAssistantUnavailable"
+  /api/dispatches/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Idempotency-Key a POST /api/sessions was (or will be) sent with.
+        schema:
+          type: string
+    get:
+      operationId: getDispatch
+      description: What became of a keyed submission. A key still pending with no start running (the server restarted mid-start) reads as failed with code dispatch_interrupted; it is never re-spawned.
+      responses:
+        "200":
+          description: The dispatch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+        "400":
+          description: Malformed id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The key never arrived — sending it again (same key, same body) is safe.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: cancelDispatch
+      description: Make sure the key never starts a session. An unknown key is reserved as withdrawn (failed, dispatch_canceled), so a late arrival with it is refused instead of started; an already-failed key stays failed. Idempotent.
+      responses:
+        "200":
+          description: The key can no longer start; the dispatch is returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+        "400":
+          description: Malformed id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The key already arrived (pending, started or held) — code dispatch_arrived, with the current dispatch under `dispatch`. Archive the session or discard the held task instead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/remote-dispatches:
+    get:
+      operationId: listRemoteDispatches
+      description: "Tasks for connected machines that are not settled: sent but not confirmed by the machine (start status unknown, or a cancel on its way), waiting here for their machine, or held there (#2775). Oldest first; only machines still registered here (connected or not). remote:dispatch announces every change of one, including the one that resolves it, and a waiting one again whenever its readiness or alternatives change."
+      responses:
+        "200":
+          description: The unconfirmed dispatches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDispatchList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/remote-dispatches/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The dispatch ID, as GET /api/remote-dispatches lists it.
+        schema:
+          type: string
+    delete:
+      operationId: cancelRemoteDispatch
+      description: "Cancel a task no machine has confirmed: the machine's DELETE /api/dispatches/{id} makes sure it never starts there, even if the task arrives late. Until the cancel reaches the machine nothing sends the task again, and a retry under its Idempotency-Key is refused (remote_dispatch_cancel_pending while the cancel is on its way, remote_dispatch_canceled once the machine confirmed it). A waiting task (#2775) was never sent: it is canceled at once. A task its machine holds is discarded there (DELETE /api/held/{heldId}) and canceled once the machine's dispatch record confirms it; if it started first, it is not cancelable. Idempotent."
+      responses:
+        "200":
+          description: Canceled — it never starts on the machine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDispatch"
+        "202":
+          description: "The machine is out of reach: the cancel (state canceling) is delivered as soon as it answers."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDispatch"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such dispatch, or its machine was removed here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Not cancelable (remote_dispatch_not_cancelable): it is being sent right now, or the machine already has it — `dispatch` (a RemoteDispatch) says what it is now."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/remote-dispatches/{id}/redirect:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The dispatch ID of a waiting task, as GET /api/remote-dispatches lists it.
+        schema:
+          type: string
+    post:
+      operationId: redirectRemoteDispatch
+      description: Run a task that waits for its machine (#2775) on another one now — a connected machine or this instance. It must fit as a machine named in `target` must fit (connected, released, the project checked out, every requirement verified); otherwise the refusal is answered and the task keeps waiting. On another machine it is sent under the same dispatch ID (it was never sent) and answered as POST /api/sessions answers a task for a machine; if that machine cannot take it yet, it waits for that one instead (200 with `waiting`). On this instance it starts under the task's own Idempotency-Key, so a retry of the original create replays this start. The choice is recorded as manual. `full` scope only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedirectRequest"
+      responses:
+        "200":
+          description: Held on the machine it went to, held here by the usage hold, or (`waiting`) waiting for the new machine, which could not take it yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeldTask"
+        "201":
+          description: Started there (the session, with `host` on another machine) or here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: "The body was not {target: {instanceId}}, or the stored task no longer validates here (e.g. its attachments are gone)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such dispatch, or its machine was removed here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Not waiting (remote_dispatch_not_redirectable — `dispatch` says what it is now), the machine is not reachable right now (remote_target_unavailable), or a create conflict here (see POST /api/sessions).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The machine does not fit (missing_capabilities with `host` and `missing`, remote_target_unknown, remote_target_unreleased, remote_project_missing), or it refused the task (remote_rejected).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: An attachment did not reach the machine (remote_upload_failed), or the create here failed downstream.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Sent, but no answer came back (remote_dispatch_unknown — start status unknown); this instance keeps asking the machine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/placement:
+    post:
+      operationId: previewPlacement
+      description: Where a new task would run and why — decided exactly as POST /api/sessions decides it for the same repoPath, requirements and target with the same readiness, so a form can show it before submitting. Nothing is stored or sent. While no connected machine could take a task `active` is false. Otherwise the answer has either `placement` (the target and the reason) or `refusal` (what POST /api/sessions would answer). With `wait` beside `placement`, that machine is out of reach and the task would wait for it (#2775).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlacementRequest"
+      responses:
+        "200":
+          description: The machine and the reason, the refusal, or that the choice is not active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlacementPreview"
+        "400":
+          description: Invalid input (see error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The token is restricted to other repositories (repository_not_allowed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/requirements/derive:
+    post:
+      operationId: deriveRequirements
+      description: "Read a new task's requirements from its prompt and attached issue, before it is submitted (New Task does this while the operator is still writing). Runs only when it can change where the task runs — see PlacementPreview.deriveRequirements; otherwise answers `skipped`. A transient helper reads the task text only, never the repository, within 30 seconds. POST /api/sessions never derives: send what this answers (or what the operator made of it) as `requirements`."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequirementsDeriveRequest"
+      responses:
+        "200":
+          description: The derived requirements, the alternatives to ask about, or why there are none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequirementsDerivation"
+        "400":
+          description: Invalid input (see error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The token is restricted to other repositories (repository_not_allowed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/reply:
     parameters:
       - name: id
@@ -11303,6 +12195,14 @@ x-shepherd-events:
     description: The Operator Assistant's row was created, resumed or replaced. Deliberately not session:new, so the row never joins the herd; its status changes still arrive as session:status.
     schema:
       $ref: "#/components/schemas/OperatorAssistantSession"
+  remote:sessions:
+    description: Replaces the sessions mirrored from one connected machine (every one carries `host` and `connection`). Not sent on a `host=local` socket.
+    schema:
+      $ref: "#/components/schemas/RemoteSessionsEvent"
+  remote:dispatch:
+    description: "A task for a connected machine that is not settled changed: it became unknown (no answer), a cancel was requested, it started waiting here for its machine or its readiness or alternatives changed while it waits, its machine holds it, or it resolved (started, rejected, canceled, upload_failed, or redirected — it runs on this instance now). The whole current RemoteDispatch; a client shows it while its state is unknown, canceling, waiting or held and drops it otherwise. Not sent for a task the machine started right away."
+    schema:
+      $ref: "#/components/schemas/RemoteDispatch"
   terminal:owners:
     description: Full current PTY owners by session id. Sent on events connect, ownership changes and active presence reports. An absent id has no owner; unknown metadata still denotes a connected owner. Clients discard freshness when disconnected.
     schema:
@@ -11423,7 +12323,7 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/DiagnosticsSnapshot"
 x-shepherd-pty:
-  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
+  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. closeCodes.machineUnreachable means the session runs on a connected machine this server cannot reach right now; clients do not retry until that session's connection reports connected again. Any other close is transient; clients retry with backoff.
   path: /pty/{id}
   query:
     - cols
@@ -11434,3 +12334,4 @@ x-shepherd-pty:
   closeCodes:
     superseded: 4000
     gone: 4001
+    machineUnreachable: 4002

@@ -25,6 +25,15 @@ import {
   registerSpawn,
   releaseSpawn,
 } from "./spawn-progress";
+import {
+  IDEMPOTENCY_KEY_HEADER,
+  cancelDispatch,
+  dispatchView,
+  isValidDispatchId,
+  payloadHash,
+  readDispatchKey,
+  runDispatch,
+} from "./dispatch";
 import { LearningsService } from "./learnings-service";
 import { isRelevanceMode } from "./house-rules-relevance";
 import { RepoConfigService } from "./repo-config-service";
@@ -32,6 +41,7 @@ import {
   BLOCK_JUDGE_MODES,
   EFFORTS,
   isBlockJudgeMode,
+  type CreateSessionInput,
   type MaintainBlock,
   type StandardCreateInput,
   type UsageJudgeSpend,
@@ -57,6 +67,8 @@ import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { resolveAptabaseHost } from "./telemetry";
 import {
   validateCreate,
+  validatePlacementPreview,
+  validateRequirementsDerive,
   validateRelaunchOverrides,
   validateModelChoice,
   validateReplaceAgentChoice,
@@ -93,6 +105,7 @@ import {
   repositoryAllows,
   repositoryRoutePolicy,
   filterRepositoryEvent,
+  type RepositoryRoute,
 } from "./token-repositories";
 import {
   AccessTokenService,
@@ -100,6 +113,62 @@ import {
   parseMintRequest,
   type VerifiedToken,
 } from "./access-tokens";
+import {
+  instanceIdentity,
+  instancePlatform,
+  parseInstanceNamePatch,
+  setInstanceName,
+} from "./remote-instances/identity";
+import { type Capability, describeMissing } from "./remote-instances/capabilities";
+import {
+  type MachineView,
+  type Placement,
+  type PlacementDecision,
+  type PlacementRefusal,
+  PLATFORM_ORDER_SETTING,
+  choiceDependsOn,
+  decidePlacement,
+  describeRefusal,
+  localMachine,
+  parsePlatformOrder,
+  placementActive,
+  placementRecord,
+  remoteMachineViews,
+  storedPlatformOrder,
+} from "./remote-instances/placement";
+import { CapabilityService } from "./remote-instances/capability-probe";
+import {
+  DERIVABLE_CAPABILITIES,
+  type AnsweredDerivation,
+  type RequirementsDerivation,
+  type TaskText,
+} from "./requirements-classify-core";
+import {
+  RemoteInstanceService,
+  parseConnectRequest,
+  parseLabelPatch,
+  type ConnectError,
+} from "./remote-instances/service";
+import {
+  type MachineRoute,
+  type RemoteSessionMirror,
+  type RemoteTerminal,
+  type SessionHost,
+} from "./remote-instances/sessions";
+import {
+  RemoteDispatcher,
+  type RemoteDispatchRow,
+  type RemoteDispatchView,
+  type RemoteOutcome,
+  type RemoteRefusalCode,
+  placementOf,
+} from "./remote-instances/dispatch";
+import { isRecord } from "./remote-instances/client";
+import {
+  clearMergedAcross,
+  clearMergedSummaryAcross,
+  forwardSessionRequest,
+} from "./remote-instances/forward";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -153,7 +222,7 @@ import { buildUsageBreakdown } from "./usage-breakdown";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
-import { detectDevCommand } from "./preview";
+import { detectDevCommand, previewReach } from "./preview";
 import { SharedBrowserError } from "./shared-browser";
 import { gateBrowserView, openBrowserView, type BrowserViewSession } from "./browser-view";
 import {
@@ -389,6 +458,30 @@ export interface AppDeps {
    *  instance no matter which dispatch entry point the request arrived through. */
   accessTokens?: AccessTokenService;
   pairingCodes?: PairingCodeService;
+  /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
+   *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
+   *  injects the started singleton that runs the periodic probe. */
+  remoteInstances?: RemoteInstanceService;
+  /** Sessions mirrored from connected machines (#2762) — read-only references held apart from
+   *  `store` — their terminals, bridged to the machine at `/pty/:id` (#2764), and the routes their
+   *  forwarded actions take (#2765). Absent ⇒ `GET /api/sessions`, `/events`, `/pty/:id` and the
+   *  session routes carry local sessions only. */
+  remoteSessions?: Pick<
+    RemoteSessionMirror,
+    "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal" | "route" | "machines"
+  >;
+  /** Sends new tasks to connected machines (#2763), lists the ones no machine has confirmed and
+   *  cancels them (#2774), keeps the ones waiting for their machine and redirects them (#2775).
+   *  Same memo-slot contract as `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily
+   *  builds one over it; `index.ts` injects the one its probe reconciles. */
+  remoteDispatch?: RemoteDispatchPort;
+  /** This instance's verified capabilities (#2770). Same memo-slot contract: the
+   *  `capabilities(deps)` accessor lazily builds an unstarted one (no probe until asked);
+   *  `index.ts` injects the started singleton that re-probes every 5 minutes. */
+  capabilities?: CapabilityService;
+  /** This host's platform as `GET /api/instance` reports it and the machine choice (#2772) ranks
+   *  it. Absent ⇒ the real one; tests stand in for another platform. */
+  hostPlatform?: string;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -511,8 +604,9 @@ export interface AppDeps {
     startScript(scriptPath: string, worktreePath: string): Promise<void>;
   };
   /** Tailscale serve registration status per session slot; absent when auto-serve is
-   *  disabled or tailscale is unavailable. Merged into /api/preview responses. */
-  previewServe?: { snapshot(): Record<string, "ok" | "failed"> };
+   *  disabled or tailscale is unavailable. Merged into /api/preview responses. `permissionDenied`
+   *  is the serve service's refused-serve-config latch, read by `GET /api/sessions/:id/preview`. */
+  previewServe?: { snapshot(): Record<string, "ok" | "failed">; permissionDenied?(): boolean };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe" | "apnsEnabled" | "testSend">;
   /** APNs credentials behind Settings → Notifications (#2696); absent in tests that skip them. */
@@ -758,6 +852,10 @@ export interface AppDeps {
     /** `null` = inherit the spawn default (the New Task picker's "default" arrives as null). */
     model: string | null,
   ) => Promise<import("./task-shape").ShapeResult>;
+  /** Read a task's requirements with a transient helper (#2773); never throws. Wired to
+   *  deriveRequirementsViaAgent in index.ts; absent in tests that don't exercise it → `failed`
+   *  (`unavailable`). `signal` aborts when the client goes away. */
+  deriveTaskRequirements?: (task: TaskText, signal: AbortSignal) => Promise<AnsweredDerivation>;
 }
 
 /** Wire DTO for GET /api/sessions/:id/usage (mirrored by ui/src/lib/types.ts SessionUsage —
@@ -873,6 +971,29 @@ function codexTranscripts(deps: AppDeps): CodexTranscriptLocator {
 }
 function accessTokens(deps: AppDeps): AccessTokenService {
   return (deps.accessTokens ??= new AccessTokenService(deps.store));
+}
+function remoteInstances(deps: AppDeps): RemoteInstanceService {
+  return (deps.remoteInstances ??= new RemoteInstanceService({ store: deps.store }));
+}
+type RemoteDispatchPort = Pick<
+  RemoteDispatcher,
+  "submit" | "wait" | "list" | "get" | "cancel" | "redirect" | "claimForHere" | "announceRedirected"
+>;
+
+function remoteDispatcher(deps: AppDeps): RemoteDispatchPort {
+  return (deps.remoteDispatch ??= new RemoteDispatcher({
+    store: deps.store,
+    instances: remoteInstances(deps),
+    events: deps.events,
+    here: () =>
+      localMachine(instanceIdentity(deps.store, hostPlatform(deps)), capabilities(deps).report()),
+  }));
+}
+function capabilities(deps: AppDeps): CapabilityService {
+  return (deps.capabilities ??= new CapabilityService());
+}
+function hostPlatform(deps: AppDeps): string {
+  return deps.hostPlatform ?? instancePlatform();
 }
 
 /**
@@ -1053,7 +1174,15 @@ function requireJsonContentType(req: Request): Response | null {
 // return `null` (not a 404) for sub-routes it doesn't own so a later handler
 // can claim them.
 
-type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps; token?: VerifiedToken | null };
+type Ctx = {
+  req: Request;
+  parts: string[];
+  url: URL;
+  deps: AppDeps;
+  token?: VerifiedToken | null;
+  /** The request came through the loopback agent ingress (`makeAgentIngressApp`), not the gate. */
+  agentIngress?: boolean;
+};
 
 /** A token cannot promote a path, body or an unrelated id into repository authority. */
 function tokenRepoAllowed(token: VerifiedToken | null | undefined, path: string): boolean {
@@ -1090,11 +1219,25 @@ function repositoryRequestError({ req, url, deps, token }: Ctx): Response | null
       : json({ error: "repository_not_allowed" }, 403);
   if (policy.kind === "upload")
     return token.repoPaths.length ? null : json({ error: "repository_not_allowed" }, 403);
-  let path: string | undefined;
+  return resourceRepositoryError(token, deps, policy);
+}
+
+/** An id-addressed resource must live in a granted repo, or it reads as absent (404). */
+function resourceRepositoryError(
+  token: VerifiedToken,
+  deps: AppDeps,
+  policy: RepositoryRoute,
+): Response | null {
+  let path: string | null | undefined;
   if (policy.kind === "session") path = deps.store.get(policy.id)?.repoPath;
   else if (policy.kind === "held") path = deps.store.getHeldTask(policy.id)?.input.repoPath;
   else if (policy.kind === "task") path = sessionByTaskKey(policy.id, deps)?.repoPath;
-  else return null;
+  else if (policy.kind === "dispatch") {
+    // A dispatch that never arrived (unknown, or cancelled before it did) carries no repository —
+    // GET answers 404 on its own and DELETE only reserves the key — so it needs no authority.
+    path = deps.store.getDispatch(policy.id)?.repoPath;
+    if (!path) return null;
+  } else return null;
   return path && tokenRepoAllowed(token, path) ? null : json({ error: "not found" }, 404);
 }
 
@@ -1322,6 +1465,118 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
   return null; // unreachable given `matched`, but keeps the handler total
 }
 
+// ── instance identity (issue #2759) ────────────────────────────────────────
+// GET is what a coordinator reads when it connects this Shepherd as a machine; the token-scope
+// policy leaves it `full`-only (deny-by-default). Renaming this instance is operator-only.
+// It carries the last capability report (#2770): null before the first probe, and
+// `POST /api/instance/capabilities` re-probes on demand (also `full`-only by default).
+
+function instanceBody(deps: AppDeps) {
+  return {
+    ...instanceIdentity(deps.store, hostPlatform(deps)),
+    capabilities: capabilities(deps).report(),
+  };
+}
+
+async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "instance") return null;
+  if (req.method === "POST" && parts[2] === "capabilities" && !parts[3]) {
+    await capabilities(deps).refresh();
+    return json(instanceBody(deps));
+  }
+  if (parts[2]) return null;
+  if (req.method === "GET") return json(instanceBody(deps));
+  if (req.method !== "PATCH") return null;
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = parseInstanceNamePatch(await req.json().catch(() => null));
+  if ("error" in parsed) return json(parsed, 400);
+  setInstanceName(deps.store, parsed.name);
+  return json(instanceBody(deps));
+}
+
+// ── connected machines (issue #2759) ───────────────────────────────────────
+// Every route needs an INTERACTIVE operator session, like token management: a bearer can neither
+// plant a credential for another machine here nor read which machines this one trusts. Responses
+// never carry the stored token (RemoteInstanceService builds them field by field).
+
+const CONNECT_ERROR_STATUS: Record<ConnectError, number> = {
+  remote_unreachable: 502,
+  remote_unauthorized: 422,
+  remote_incompatible: 422,
+  self_connection: 409,
+  already_connected: 409,
+};
+
+const instanceOr404 = (instance: unknown) =>
+  instance ? json({ instance }) : json({ error: "not found" }, 404);
+
+async function connectRemoteInstance(req: Request, svc: RemoteInstanceService): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = parseConnectRequest(await req.json().catch(() => null));
+  if ("error" in parsed) return json(parsed, 400);
+  const result = await svc.connect(parsed);
+  if (result.ok) return json({ instance: result.instance }, 201);
+  return json(
+    { error: result.error, reason: result.reason ?? null },
+    CONNECT_ERROR_STATUS[result.error],
+  );
+}
+
+async function patchRemoteInstance(
+  req: Request,
+  svc: RemoteInstanceService,
+  id: string,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = parseLabelPatch(await req.json().catch(() => null));
+  if ("error" in parsed) return json(parsed, 400);
+  return instanceOr404(svc.rename(id, parsed.label));
+}
+
+type RemoteInstanceRoute = "list" | "connect" | "patch" | "delete" | "check";
+
+/** `METHOD shape` → route; anything else falls through to the dispatch tail's 404 rather than
+ *  answering 403 here, which would advertise the route group to an unauthenticated caller. */
+const REMOTE_INSTANCE_ROUTES: Record<string, RemoteInstanceRoute> = {
+  "GET ": "list",
+  "POST ": "connect",
+  "PATCH :id": "patch",
+  "DELETE :id": "delete",
+  "POST :id/check": "check",
+};
+
+function remoteInstanceRoute(method: string, parts: string[]): RemoteInstanceRoute | null {
+  if (parts[0] !== "api" || parts[1] !== "remote-instances" || parts[4]) return null;
+  const shape = parts[2] ? (parts[3] ? `:id/${parts[3]}` : ":id") : "";
+  return REMOTE_INSTANCE_ROUTES[`${method} ${shape}`] ?? null;
+}
+
+async function handleRemoteInstances({ req, parts, deps }: Ctx): Promise<Response | null> {
+  const route = remoteInstanceRoute(req.method, parts);
+  if (!route) return null;
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
+  const svc = remoteInstances(deps);
+  const id = parts[2] ?? "";
+  switch (route) {
+    case "list":
+      return json({ instances: svc.list() });
+    case "connect":
+      return connectRemoteInstance(req, svc);
+    case "patch":
+      return patchRemoteInstance(req, svc, id);
+    case "delete":
+      return svc.remove(id) ? json({ ok: true }) : json({ error: "not found" }, 404);
+    case "check":
+      return instanceOr404(await svc.check(id));
+  }
+}
+
 function handleGitSnapshot({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
     return json(tokenMap(token, deps, deps.prCache?.snapshot() ?? {}));
@@ -1366,6 +1621,38 @@ function handleBackgroundBusySnapshot({ req, parts, deps }: Ctx): Response | nul
     return json(deps.backgroundBusy?.snapshot() ?? {});
   }
   return null;
+}
+
+/**
+ * `/api/sessions/:id…` for a session mirrored from a connected machine (#2765): forwarded to that
+ * machine (allowlisted routes) or refused with an explanation (all others) — never run here. Reached
+ * only past `checkAuth` (scope) and `requestBoundaryError` (origin, repository boundary), so the
+ * caller's reach is exactly what it is for a local session. A local session with the same id wins.
+ */
+async function handleRemoteSessionRoute({
+  req,
+  parts,
+  url,
+  deps,
+  token,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "sessions") return null;
+  // Session IDs only: a literal segment (`clear-merged`, `done`, `archived`) is this server's own
+  // route, whatever a machine reports (the mirror holds UUIDs alone; this is the second fence).
+  const id = parts[2] ?? "";
+  if (!SESSION_ID_RE.test(id) || !deps.remoteSessions?.has(id) || deps.store.get(id)) return null;
+  // An agent acts on its own session, which is never another machine's; and a repository grant
+  // names local paths only, so a restricted token reaches no mirrored session (as in its listing).
+  if (agentIngress || (token && token.repoPaths !== null)) return json({ error: "not found" }, 404);
+  const route = deps.remoteSessions.route(id);
+  if (!route) {
+    return json(
+      { error: "more than one connected machine reports this session", code: "remote_ambiguous" },
+      409,
+    );
+  }
+  return forwardSessionRequest(req, url, parts, route);
 }
 
 // POST /api/revive-stranded → operator-initiated "revive all": force-resume every currently-stranded
@@ -1647,6 +1934,136 @@ function parseUpNextStartPayload(body: unknown): UpNextStartPayload | Response {
     items: items as UpNextStartItem[],
     choice,
   };
+}
+
+// ── /api/dispatches/:id — outcome of a keyed POST /api/sessions (#2761, src/dispatch.ts) ──
+//   GET    → the dispatch (pending | started | held | failed); 404 = the key never arrived
+//   DELETE → make sure the key can never start: 200 when that holds, 409 once it has arrived
+async function handleDispatches({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "dispatches" || !parts[2] || parts[3]) return null;
+  if (req.method !== "GET" && req.method !== "DELETE") return null;
+  if (!isValidDispatchId(parts[2])) return json({ error: "invalid dispatch id" }, 400);
+  if (req.method === "GET") {
+    const view = dispatchView(deps.store, parts[2]);
+    return view ? json(view) : json({ error: "not found" }, 404);
+  }
+  const { canceled, dispatch } = cancelDispatch(deps.store, parts[2]);
+  if (canceled) return json(dispatch);
+  return json({ error: "dispatch already arrived", code: "dispatch_arrived", dispatch }, 409);
+}
+
+// ── /api/remote-dispatches — tasks for connected machines that are not settled (#2774, #2775) ──
+//   GET                  → {dispatches}: start status unknown, a cancel on its way, waiting here
+//                          for its machine, or held there
+//   DELETE /{id}         → cancel one: 200 done, 202 delivered once its machine answers, 409 not
+//                          possible
+//   POST /{id}/redirect  → run a waiting one on another fitting machine, or this one (#2775)
+// `full` scope only, and not classified for repository-restricted tokens (deny by default there).
+async function handleRemoteDispatches(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "remote-dispatches") return null;
+  if (req.method === "POST" && parts[2] && parts[3] === "redirect" && !parts[4]) {
+    return redirectWaitingTask(ctx, parts[2]);
+  }
+  if (parts[3]) return null;
+  if (req.method === "GET" && !parts[2]) return json({ dispatches: remoteDispatcher(deps).list() });
+  if (req.method !== "DELETE" || !parts[2]) return null;
+  const result = await remoteDispatcher(deps).cancel(parts[2]);
+  if (result.kind === "not_found") return json({ error: "not found" }, 404);
+  if (result.kind === "canceled") return json(result.dispatch);
+  if (result.kind === "canceling") return json(result.dispatch, 202);
+  return json(
+    {
+      error: `this task can no longer be canceled: its state on ${result.dispatch.host.name} is ${result.dispatch.state}`,
+      code: "remote_dispatch_not_cancelable",
+      dispatch: result.dispatch,
+    },
+    409,
+  );
+}
+
+function notRedirectable(dispatch: RemoteDispatchView): Response {
+  return json(
+    {
+      error: `only a task that waits for its machine can be redirected; its state on ${dispatch.host.name} is ${dispatch.state}`,
+      code: "remote_dispatch_not_redirectable",
+      dispatch,
+    },
+    409,
+  );
+}
+
+/** A redirect body: exactly `{target: {instanceId}}`. */
+function parseRedirectTarget(body: unknown): string | null {
+  if (!isRecord(body) || Object.keys(body).length !== 1 || !isRecord(body.target)) return null;
+  const { target } = body;
+  const id = target.instanceId;
+  return Object.keys(target).length === 1 && typeof id === "string" && id ? id : null;
+}
+
+/**
+ * POST /api/remote-dispatches/{id}/redirect (#2775): run a task that waits for its machine on
+ * another one now. The machine must fit as a manual choice does — connected, released, with the
+ * project and every requirement verified — or the refusal is answered and the task keeps waiting.
+ * Another machine gets it under the same dispatch ID (it was never sent) and answers like a
+ * create; this machine starts it under the task's own client key, so a retry of the original
+ * create replays this start.
+ */
+async function redirectWaitingTask(ctx: Ctx, id: string): Promise<Response> {
+  const { req, deps } = ctx;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const instanceId = parseRedirectTarget(await req.json().catch(() => null));
+  if (!instanceId) return json({ error: "body must be {target: {instanceId: string}}" }, 400);
+  const current = remoteDispatcher(deps).get(id);
+  if (!current) return json({ error: "not found" }, 404);
+  if (current.state !== "waiting") return notRedirectable(current);
+  const row = deps.store.getRemoteDispatch(id)!;
+  const requirements = placementOf(row.wireBody)?.requirements ?? [];
+  const decision = await decide(deps, {
+    requirements,
+    project: row.project ?? undefined,
+    override: instanceId,
+  });
+  if (!decision.ok) {
+    const { status, body } = placementRefusal(decision.refusal);
+    return json(body, status);
+  }
+  const { placement } = decision;
+  if (placement.target.instanceId === instanceIdentity(deps.store).instanceId) {
+    return redirectHere(ctx, row, placement);
+  }
+  const result = await remoteDispatcher(deps).redirect(id, { instanceId, placement });
+  if (result.kind === "not_found") return json({ error: "not found" }, 404);
+  if (result.kind === "not_redirectable") return notRedirectable(result.dispatch);
+  return remoteOutcomeResponse(result.outcome);
+}
+
+/** A waiting task redirected to this machine: checked here as a create is — its input and, on a
+ *  fresh probe, its requirements — BEFORE it leaves its machine's queue, then started under its
+ *  own client key. */
+async function redirectHere(
+  { req, deps }: Ctx,
+  row: RemoteDispatchRow,
+  placement: Placement,
+): Promise<Response> {
+  const body = JSON.parse(row.wireBody) as Record<string, unknown>;
+  const result = validateCreate(body, config.repoRoot);
+  if (!result.ok) return json({ error: result.error }, 400);
+  // Never stored as waiting: a clean terminal is never placed (#2772).
+  if (result.value.terminal === true) return json({ error: "not a task" }, 400);
+  // The record of this choice replaces the one that meant it for its machine.
+  const value: CreateSessionInput = { ...result.value, placement };
+  const refused = await refuseMissingCapabilities(value, deps);
+  if (refused) return refused;
+  const claim = await remoteDispatcher(deps).claimForHere(row.id);
+  if (claim.kind === "not_found") return json({ error: "not found" }, 404);
+  if (claim.kind === "not_redirectable") return notRedirectable(claim.dispatch);
+  const create = () => createValidatedSession(req, body, value, deps);
+  const claimKey = { id: row.clientKey, payloadHash: row.payloadHash, repoPath: value.repoPath };
+  const res = await runDispatch(deps.store, claimKey, create);
+  remoteDispatcher(deps).announceRedirected(claim.row, placement.target);
+  return res;
 }
 
 async function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): Promise<boolean> {
@@ -2947,6 +3364,85 @@ function spawnTrackerFor(req: Request, deps: AppDeps): SpawnPhaseTracker {
   });
 }
 
+// ── POST /api/placement — where a task would run and why (#2772) ──
+//
+// The form shows this before a task is submitted. It decides through the same `decide` as the
+// create, so with the same readiness the create lands where the preview said. Nothing is stored or
+// sent. `{active:false}` while no machine could take a task: then the form stays as it always was.
+async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps, token } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "placement" || parts[2] || req.method !== "POST") {
+    return null;
+  }
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const target = splitTarget(await req.json().catch(() => null), deps.store);
+  if ("error" in target) return json({ error: target.error }, 400);
+  const parsed = validatePlacementPreview(target.body, config.repoRoot);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const { repoPath, requirements } = parsed.value;
+  const repoErr = repositoryInputError(token, { repoPath });
+  if (repoErr) return repoErr;
+  const named = target.instanceId !== null && !target.self;
+  if (!named && !placementActive(remoteInstances(deps).list())) return json({ active: false });
+  const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
+  const machines = await runOnMachines(deps, project);
+  if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN, machines });
+  // Only Automatic reads requirements from the task (#2773): a named machine is the operator's pick.
+  const deriveRequirements = target.instanceId === null && (await derivationMatters(deps, project));
+  const decision = await decide(deps, { requirements, project, override: target.instanceId });
+  if (decision.ok) {
+    const { placement, wait } = decision;
+    return json({ active: true, placement, ...(wait && { wait }), deriveRequirements, machines });
+  }
+  return json({
+    active: true,
+    refusal: placementRefusal(decision.refusal).body,
+    deriveRequirements,
+    machines,
+  });
+}
+
+/** The machines a create may name for this project (#2776): this instance first, then every
+ *  connected machine whose platform is released and that has the project checked out — what the
+ *  web form lists from GET /api/remote-instances, which a native app's token cannot read. */
+async function runOnMachines(deps: AppDeps, project: string | undefined): Promise<SessionHost[]> {
+  const local = await localMachineView(deps, false);
+  const remote = remoteMachineViews(remoteInstances(deps).list(), project).filter(
+    (m) => m.connected && m.released && m.hasProject,
+  );
+  return [local.host, ...remote.map((m) => m.host)];
+}
+
+// ── POST /api/requirements/derive — what a task calls for, read from its description (#2773) ──
+//
+// New Task asks this while the operator is still writing, so the helper's seconds pass before the
+// task is submitted. It runs only when it can matter: with no machine connected, or while every
+// machine that could take the task verifies the same of what a description can call for, the
+// answer is `skipped` and nothing is spawned. The answer is data from the capability vocabulary —
+// or the alternatives to ask the operator about — never model prose; a failure derives nothing.
+// `POST /api/sessions` never derives: explicit requirements win, and a create never waits on this.
+async function handleRequirementsDerive(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps, token } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "requirements" || parts[2] !== "derive" || parts[3]) {
+    return null;
+  }
+  if (req.method !== "POST") return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = validateRequirementsDerive(await req.json().catch(() => null), config.repoRoot);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const { repoPath, task } = parsed.value;
+  const repoErr = repositoryInputError(token, { repoPath });
+  if (repoErr) return repoErr;
+  const skipped: RequirementsDerivation = { status: "skipped" };
+  if (!placementActive(remoteInstances(deps).list())) return json(skipped);
+  const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
+  if (!(await derivationMatters(deps, project))) return json(skipped);
+  if (!deps.deriveTaskRequirements) return json({ status: "failed", cause: "unavailable" });
+  return json(await deps.deriveTaskRequirements(task, req.signal));
+}
+
 // ── cancel an in-flight spawn: POST /api/spawns/:spawnId/cancel ──
 //
 // Separate from the create request on purpose — that request is the thing being cancelled, and it
@@ -2961,25 +3457,446 @@ async function handleSpawnCancel({ req, parts }: Ctx): Promise<Response | null> 
   return json({ canceled: outcome === "canceled" });
 }
 
+/** Readiness at acceptance (#2770): a create that names requirements is checked against a fresh
+ *  probe of this instance. Any unmet one is refused by name (422) — nothing is held or started. */
+async function refuseMissingCapabilities(
+  value: CreateSessionInput,
+  deps: AppDeps,
+): Promise<Response | null> {
+  const requirements = "requirements" in value ? value.requirements : undefined;
+  if (!requirements) return null;
+  const missing = await capabilities(deps).verify(requirements);
+  if (missing.length === 0) return null;
+  return json({ error: describeMissing(missing), code: "missing_capabilities", missing }, 422);
+}
+
 // POST /api/sessions — create a session.
-async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Response | null> {
+async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
   if (!(req.method === "POST" && !parts[2])) return null;
   const b = firstRunBlock();
   if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
+  const dispatchId = readDispatchKey(req.headers.get(IDEMPOTENCY_KEY_HEADER));
+  if (dispatchId === null) return json({ error: "invalid Idempotency-Key" }, 400);
+  const raw: unknown = await req.json().catch(() => null);
+  // The machine is chosen BEFORE any local check (#2763): a task for a connected machine never
+  // reaches this machine's path validation, hold gate or spawn.
+  const target = splitTarget(raw, deps.store);
+  if ("error" in target) return json({ error: target.error }, 400);
+  return onePerKey(deps.store, dispatchId, () => routeCreate(ctx, raw, target, dispatchId));
+}
+
+/** Keyed creates running in this process, per store and Idempotency-Key (#2772). The next one
+ *  under the same key waits for it and then follows it wherever it went, so a machine choice that
+ *  changes in between can never send one key here AND to a machine. */
+const keyedCreates = new WeakMap<object, Map<string, Promise<unknown>>>();
+
+async function onePerKey<T>(
+  store: object,
+  key: string | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (key === undefined) return run();
+  let running = keyedCreates.get(store);
+  if (!running) keyedCreates.set(store, (running = new Map()));
+  const mine = (running.get(key) ?? Promise.resolve()).then(run, run);
+  running.set(key, mine);
+  try {
+    return await mine;
+  } finally {
+    if (running.get(key) === mine) running.delete(key);
+  }
+}
+
+/** A parsed create, from here on: a keyed retry follows its first submission, a named machine gets
+ *  it, anything else is validated here and placed (#2772). */
+async function routeCreate(
+  ctx: Ctx,
+  raw: unknown,
+  target: CreateTarget,
+  dispatchId: string | undefined,
+): Promise<Response> {
+  const { req, deps, token } = ctx;
+  // A keyed retry goes where its first submission went (#2772) — whatever a choice would say now.
+  const sentTo = dispatchId && deps.store.getRemoteDispatchByKey(dispatchId)?.instanceId;
+  const named = target.instanceId !== null && !target.self ? target.instanceId : null;
+  if (sentTo || named) {
+    const instanceId = (sentTo || named)!;
+    return createOnMachine(ctx, {
+      body: target.body as Record<string, unknown>,
+      instanceId,
+      raw,
+      clientKey: dispatchId,
+    });
+  }
+  const body = target.body;
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
   const repoErr = repositoryInputError(token, result.value);
   if (repoErr) return repoErr;
+  const placed = await placeCreate(ctx, result.value, { self: target.self, raw, dispatchId });
+  if (placed instanceof Response) return placed;
+  const create = () => createValidatedSession(req, body, placed, deps);
+  if (dispatchId === undefined) return create();
+  // Keyed (#2761): reserved now — after validation and the repo grant, before the hold gate and
+  // the spawn — so a retry or a concurrent duplicate replays this outcome instead of running again.
+  const claim = { id: dispatchId, payloadHash: payloadHash(raw), repoPath: result.value.repoPath };
+  return runDispatch(deps.store, claim, create);
+}
+
+type CreateTarget =
+  | { body: unknown; instanceId: null; self: false }
+  | { body: Record<string, unknown>; instanceId: string; self: boolean };
+
+/** A create body's `target` (#2763): the machine the submitter named — this instance (`self`) or a
+ *  connected one — or none (`instanceId` null): then the task is placed automatically (#2772). The
+ *  body comes back without it, so `target` never reaches the local validator, a held task or the
+ *  spawn. */
+function splitTarget(raw: unknown, store: AppDeps["store"]): CreateTarget | { error: string } {
+  if (!isRecord(raw) || !("target" in raw)) return { body: raw, instanceId: null, self: false };
+  const { target, ...body } = raw;
+  if (
+    !isRecord(target) ||
+    Object.keys(target).length !== 1 ||
+    typeof target.instanceId !== "string" ||
+    !target.instanceId
+  ) {
+    return { error: "target must be {instanceId: string}" };
+  }
+  const self = target.instanceId === instanceIdentity(store).instanceId;
+  return { body, instanceId: target.instanceId, self };
+}
+
+// ── automatic machine choice (#2772) ───────────────────────────────────────
+// The create route and `POST /api/placement` decide through the same `decide`, so the form's
+// preview and the create agree on the same readiness. See `remote-instances/placement.ts`.
+
+/** This Shepherd as the choice sees it. Its capability report is refreshed first only when it is
+ *  asked about requirements and the last report is missing or stale. */
+async function localMachineView(deps: AppDeps, refresh: boolean): Promise<MachineView> {
+  const last = capabilities(deps).report();
+  if (refresh && (!last || last.stale)) await capabilities(deps).refresh();
+  return localMachine(
+    instanceIdentity(deps.store, hostPlatform(deps)),
+    capabilities(deps).report(),
+  );
+}
+
+interface PlaceInput {
+  requirements: Capability[];
+  /** Forge slug of the project; undefined = no other machine can match it. */
+  project: string | undefined;
+  /** null = automatic; else the named machine (this one's own ID included). */
+  override: string | null;
+}
+
+/** Whether reading a task's requirements can change where it runs (#2773), over the same views the
+ *  choice decides over. */
+async function derivationMatters(deps: AppDeps, project: string | undefined): Promise<boolean> {
+  const local = await localMachineView(deps, true);
+  const machines = remoteMachineViews(remoteInstances(deps).list(), project);
+  return choiceDependsOn([local, ...machines], DERIVABLE_CAPABILITIES);
+}
+
+async function decide(deps: AppDeps, input: PlaceInput): Promise<PlacementDecision> {
+  const self = instanceIdentity(deps.store).instanceId;
+  const judgesHere = input.override === null || input.override === self;
+  const local = await localMachineView(deps, judgesHere && input.requirements.length > 0);
+  const machines = remoteMachineViews(remoteInstances(deps).list(), input.project);
+  return decidePlacement([local, ...machines], {
+    requirements: input.requirements,
+    override: input.override,
+    order: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
+    by: { instanceId: local.host.instanceId, name: local.host.name },
+    now: Date.now(),
+  });
+}
+
+const REMOTE_UNFIT_CODES = new Set<string>([
+  "remote_target_unknown",
+  "remote_target_unavailable",
+  "remote_target_unreleased",
+  "remote_project_missing",
+]);
+
+/** A refused choice as the create answers it and the preview shows it: status and body. The codes
+ *  the dispatcher shares keep its wording; the others name what is missing or out of reach. */
+function placementRefusal(refusal: PlacementRefusal): {
+  status: number;
+  body: Record<string, unknown>;
+} {
+  if (REMOTE_UNFIT_CODES.has(refusal.code)) {
+    const r = refusal as Extract<PlacementRefusal, { reason: string | null }>;
+    const { status, error } = REMOTE_REFUSAL[r.code];
+    return {
+      status,
+      body: {
+        error,
+        code: r.code,
+        ...(r.reason && { reason: r.reason }),
+        ...(r.host && { host: r.host }),
+      },
+    };
+  }
+  const own = refusal as Exclude<PlacementRefusal, { reason: string | null }>;
+  return { status: 422, body: { error: describeRefusal(own), ...own } };
+}
+
+const PROJECT_UNKNOWN = {
+  error: "this project has no forge identity another machine could match it by",
+  code: "remote_project_unknown",
+};
+
+/**
+ * Where a validated local create runs (#2772). Unplaced — exactly as before — for a clean terminal,
+ * a keyed submission already made here, or while no machine could take a task. Named this machine:
+ * runs here, keeping a coordinator's record of the choice (or recording the operator's). Otherwise
+ * placed: here (the input then carries its record), on a connected machine (sent there, the
+ * outcome answered), or refused with the reason.
+ */
+async function placeCreate(
+  ctx: Ctx,
+  value: CreateSessionInput,
+  req: { self: boolean; raw: unknown; dispatchId: string | undefined },
+): Promise<CreateSessionInput | Response> {
+  const { deps } = ctx;
+  if (value.terminal === true) return value;
+  const { placement: sent, ...input } = value;
+  if (req.dispatchId && deps.store.getDispatch(req.dispatchId)) return input;
+  const active = placementActive(remoteInstances(deps).list());
+  if (req.self) {
+    // A coordinator's record names this machine as its target; anything else is not one.
+    const own = instanceIdentity(deps.store).instanceId;
+    const record = sent?.target.instanceId === own ? sent : undefined;
+    return record || active
+      ? { ...input, placement: record ?? (await manualHere(deps, input)) }
+      : input;
+  }
+  if (!active) return input;
+  const project = repoRemoteSlug(deps.resolveForge?.(input.repoPath));
+  const decision = await decide(deps, {
+    requirements: input.requirements ?? [],
+    project,
+    override: null,
+  });
+  if (!decision.ok) {
+    const { status, body } = placementRefusal(decision.refusal);
+    return json(body, status);
+  }
+  const { placement, wait } = decision;
+  if (placement.target.instanceId === instanceIdentity(deps.store).instanceId) {
+    return { ...input, placement };
+  }
+  // Out of reach (#2775): stored here, sent once that machine can take it — never elsewhere.
+  return createOnMachine(ctx, {
+    body: isRecord(req.raw) ? req.raw : {},
+    instanceId: placement.target.instanceId,
+    raw: req.raw,
+    clientKey: req.dispatchId,
+    placement,
+    wait: wait !== undefined,
+  });
+}
+
+/** The record of the operator naming this machine. */
+async function manualHere(
+  deps: AppDeps,
+  input: { requirements?: Capability[] },
+): Promise<Placement> {
+  const here = await localMachineView(deps, false);
+  return placementRecord(
+    here,
+    {
+      requirements: input.requirements ?? [],
+      by: { instanceId: here.host.instanceId, name: here.host.name },
+      now: Date.now(),
+    },
+    { mode: "manual", basis: "manual", preferred: null },
+  );
+}
+
+/** A repo's identity across machines: its forge slug — for a fork the clone origin, since a fork's
+ *  `slug` is its upstream. */
+function repoRemoteSlug(forge: GitForge | null | undefined): string | undefined {
+  return forge?.originSlug ?? forge?.slug ?? undefined;
+}
+
+const REMOTE_REFUSAL: Record<RemoteRefusalCode, { status: number; error: string }> = {
+  remote_target_unknown: { status: 422, error: "no connected machine has this instance ID" },
+  remote_target_unavailable: {
+    status: 409,
+    error: "the machine is not reachable right now; nothing was started",
+  },
+  remote_target_unreleased: {
+    status: 422,
+    error: "the machine's platform is not released for tasks yet; nothing was started",
+  },
+  remote_project_missing: { status: 422, error: "the machine has no checkout of this project" },
+  dispatch_payload_mismatch: {
+    status: 409,
+    error: "this Idempotency-Key was already used with a different request body",
+  },
+};
+
+function keyReusedResponse(): Response {
+  const { status, error } = REMOTE_REFUSAL.dispatch_payload_mismatch;
+  return json({ error, code: "dispatch_payload_mismatch" }, status);
+}
+
+/** The record a task for a machine goes out with (#2772): the automatic choice's, none for a keyed
+ *  retry (it goes out as it was first sent), else the manual choice of the machine named in
+ *  `target` — or the response refusing it, when that machine does not fit. */
+async function machinePlacement(
+  deps: AppDeps,
+  value: CreateSessionInput,
+  req: { instanceId: string; placement?: Placement; retry: boolean; project: string },
+): Promise<Placement | undefined | Response> {
+  if (req.placement || req.retry) return req.placement;
+  const requirements = "requirements" in value ? (value.requirements ?? []) : [];
+  const { instanceId: override, project } = req;
+  const decision = await decide(deps, { requirements, project, override });
+  if (decision.ok) return decision.placement;
+  const { status, body } = placementRefusal(decision.refusal);
+  return json(body, status);
+}
+
+/**
+ * POST /api/sessions for a connected machine (#2763): named in `target`, chosen automatically
+ * (#2772, `placement` given) or a keyed retry of a dispatch already sent. The WHOLE session starts
+ * there. General inputs are validated here exactly like a local create and need the same grant; a
+ * named machine must fit (#2772) — connected, released, the project checked out, the requirements
+ * verified — and paths, holds and the sandbox are the machine's to check. Nothing starts here and
+ * no local event is emitted — the session reaches this Shepherd's herd through the machine's mirror
+ * (#2762).
+ */
+async function createOnMachine(
+  { deps, token }: Ctx,
+  req: {
+    raw: unknown;
+    body: Record<string, unknown>;
+    instanceId: string;
+    clientKey: string | undefined;
+    placement?: Placement;
+    /** The machine is out of reach (#2775): store the task to wait for it, send nothing. */
+    wait?: boolean;
+  },
+): Promise<Response> {
+  const result = validateCreate(req.body, config.repoRoot, { remote: true });
+  if (!result.ok) return json({ error: result.error }, 400);
+  const repoErr = repositoryInputError(token, result.value);
+  if (repoErr) return repoErr;
+  if (req.clientKey && deps.store.getDispatch(req.clientKey)) return keyReusedResponse();
+  const project = repoRemoteSlug(deps.resolveForge?.(result.value.repoPath));
+  if (!project) return json(PROJECT_UNKNOWN, 422);
+  const retry = req.clientKey !== undefined && !!deps.store.getRemoteDispatchByKey(req.clientKey);
+  const placement = await machinePlacement(deps, result.value, { ...req, retry, project });
+  if (placement instanceof Response) return placement;
+  // Attachments go as the files validated above (#2766); the dispatcher uploads them there.
+  const images = result.value.terminal === true ? [] : result.value.images;
+  const dispatcher = remoteDispatcher(deps);
+  const outcome = await (req.wait ? dispatcher.wait : dispatcher.submit).call(dispatcher, {
+    clientKey: req.clientKey,
+    instanceId: req.instanceId,
+    project,
+    // This Shepherd's record of the choice replaces anything the submitter sent as one.
+    body: { ...req.body, ...(images.length > 0 && { images }), placement },
+    payloadHash: payloadHash(req.raw),
+  });
+  return remoteOutcomeResponse(outcome);
+}
+
+/** What a client sees of a remote dispatch: the machine's session or hold annotated with `host`,
+ *  its refusal with the reason, attachments that did not get there (nothing was sent), "no
+ *  answer" with the key to send it again under, that it was canceled — for good, or with the
+ *  cancel still on its way to the machine — or that it waits here for its machine (#2775). A wait
+ *  answers like a hold, `waiting: true` and the dispatch added: queued, not started, wherever a
+ *  client does not know the difference yet. */
+function remoteOutcomeResponse(o: RemoteOutcome): Response {
+  switch (o.kind) {
+    case "started":
+      return json(o.session, 201);
+    case "held":
+      return json({ held: true, id: o.id, count: o.count, host: o.host }, 200);
+    case "waiting":
+      return json(
+        {
+          held: true,
+          waiting: true,
+          id: o.dispatch.id,
+          count: o.count,
+          host: o.dispatch.host,
+          dispatch: o.dispatch,
+        },
+        200,
+      );
+    case "rejected":
+      return json(
+        {
+          error: o.reason,
+          code: "remote_rejected",
+          remoteStatus: o.remoteStatus,
+          ...(o.remoteCode && { remoteCode: o.remoteCode }),
+          host: o.host,
+        },
+        422,
+      );
+    case "unknown":
+      return json(
+        {
+          error: `no answer from ${o.host.name} after sending; the task may have started there. This Shepherd keeps asking ${o.host.name} and shows the outcome; sending it again with the same Idempotency-Key is safe — it never starts twice.`,
+          code: "remote_dispatch_unknown",
+          dispatchId: o.dispatchKey,
+          host: o.host,
+        },
+        504,
+      );
+    case "upload_failed":
+      return json({ error: o.reason, code: "remote_upload_failed", host: o.host }, 502);
+    case "canceled":
+      return json(
+        {
+          error: `this task was canceled before ${o.host.name} confirmed it; it never starts under this Idempotency-Key`,
+          code: "remote_dispatch_canceled",
+          host: o.host,
+        },
+        409,
+      );
+    case "cancel_pending":
+      return json(
+        {
+          error: `this task was canceled here, but ${o.host.name} has not confirmed the cancel yet: if the task reached it first, it may be running there. It is not sent again; GET /api/remote-dispatches shows how it ends`,
+          code: "remote_dispatch_cancel_pending",
+          host: o.host,
+        },
+        409,
+      );
+    case "refused": {
+      const { status, error } = REMOTE_REFUSAL[o.code];
+      return json({ error, code: o.code, ...(o.reason && { reason: o.reason }) }, status);
+    }
+  }
+}
+
+/** The create itself, once the request is validated and authorized: terminal, held or spawned. */
+async function createValidatedSession(
+  req: Request,
+  body: unknown,
+  value: CreateSessionInput,
+  deps: AppDeps,
+): Promise<Response> {
+  // Readiness (#2770) first, inside a keyed dispatch: a refusal settles the key like any failed
+  // start, so a retry replays it (error and code intact) rather than re-checking a used key.
+  const refused = await refuseMissingCapabilities(value, deps);
+  if (refused) return refused;
 
   // Clean-terminal union arm: no usage-hold gate (a bare shell spends no agent budget) and no
   // issue claim — straight to create. Singleton/preflight conflicts map to 409 in
   // createErrorResponse (terminal_exists carries existingId so the UI can focus it).
-  if (result.value.terminal === true) {
+  if (value.terminal === true) {
     try {
-      const t = await deps.service.create(result.value);
+      const t = await deps.service.create(value);
       deps.events.emit("session:new", t);
       return json(t, 201);
     } catch (e) {
@@ -2988,18 +3905,18 @@ async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Re
   }
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
-  const held = await tryHoldNewTask(body, result.value, deps);
+  const held = await tryHoldNewTask(body, value, deps);
   if (held) return held;
 
   const tracker = spawnTrackerFor(req, deps);
   registerSpawn(tracker);
   let s;
   try {
-    s = await deps.service.create(result.value, tracker);
+    s = await deps.service.create(value, tracker);
   } catch (e) {
     // Plugin-refused create: park in held_tasks as a capacity hold for retry.
     if (e instanceof SandboxAutoRefused && e.cause instanceof PluginSpawnAborted) {
-      return persistHeldTask(result.value, deps, "capacity");
+      return persistHeldTask(value, deps, "capacity");
     }
     // create shells out to herdr (and git); surface the real reason instead of a
     // bare 500 so the New Task dialog can show it.
@@ -3013,8 +3930,8 @@ async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Re
   // worked and the drain won't double-spawn it. Deferred (macrotask) + best-effort:
   // addIssueLabel shells out synchronously via execFileSync, so merely not awaiting
   // would still block this tick — setTimeout(0) lets json(s, 201) flush first.
-  if (result.value.issueRef) {
-    const { repoPath, issueRef } = result.value;
+  if (value.issueRef) {
+    const { repoPath, issueRef } = value;
     setTimeout(
       () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
       0,
@@ -3180,19 +4097,39 @@ async function handleSessionSteerLog({ req, parts, deps }: Ctx): Promise<Respons
   return json(steerLog(deps.store.listSessionSteers(parts[2]!)));
 }
 
-async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
-  if (req.method !== "GET") return null;
-  if (!parts[2])
-    return json(
-      await withScratchpadFlags(
-        deps.store
-          .list({ activeOnly: true })
-          // The Operator Assistant is not herd work: its own route serves it (#1446).
-          .filter(
-            (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
-          ),
+/**
+ * Sessions of connected machines (#2762), appended after the local ones. Left out for
+ * `?host=local` — another Shepherd mirroring this one asks for its own sessions only, so two
+ * machines connected to each other never pass references back and forth — and for a token
+ * restricted to repositories, whose grants name local paths only.
+ */
+function mirroredSessions(url: URL, deps: AppDeps, token: VerifiedToken | null | undefined) {
+  return reachesMachines(url, token) ? (deps.remoteSessions?.list() ?? []) : [];
+}
+
+/** Whether a request reaches the sessions of connected machines — see `mirroredSessions`. */
+function reachesMachines(url: URL, token: VerifiedToken | null | undefined): boolean {
+  return url.searchParams.get("host") !== "local" && (!token || token.repoPaths === null);
+}
+
+/** `GET /api/sessions`: the active local sessions the caller may see, then mirrored ones. */
+async function sessionListRead({ url, deps, token }: Ctx): Promise<Response> {
+  const local = await withScratchpadFlags(
+    deps.store
+      .list({ activeOnly: true })
+      // The Operator Assistant is not herd work: its own route serves it (#1446).
+      .filter(
+        (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
       ),
-    );
+  );
+  const remote = mirroredSessions(url, deps, token);
+  return json(remote.length > 0 ? [...local, ...remote] : local);
+}
+
+async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, deps } = ctx;
+  if (req.method !== "GET") return null;
+  if (!parts[2]) return sessionListRead(ctx);
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
   const list = parts[3] ? undefined : SESSION_LISTS.get(parts[2]);
   if (list) return json(list(deps));
@@ -3403,34 +4340,70 @@ function mergedSessionIds(deps: AppDeps): string[] {
 //     before the generic :id handlers so the literal "clear-merged" segment is never
 //     mistaken for a session id — including a 405 on DELETE/PUT so it can't fall
 //     through to handleSessionDelete and emit a spurious archived event.
-async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Response | null> {
+// Across machines (#2765): both verbs also ask every connected machine for its own part
+// (`?host=local` there, so mutually connected machines never loop) and answer `machines` — one
+// outcome per machine. GET's ids include the reachable machines' merged sessions; POST hands each
+// machine the requested ids that are its sessions (all of its merged set when `ids` is absent),
+// and `partial` is true when a machine gave no usable answer.
+async function handleSessionsClearMerged({
+  req,
+  parts,
+  url,
+  deps,
+  token,
+}: Ctx): Promise<Response | null> {
   if (parts[2] !== "clear-merged" || parts[3]) return null;
   const merged = new Set(mergedSessionIds(deps));
+  const machines = reachesMachines(url, token) ? (deps.remoteSessions?.machines() ?? []) : [];
   if (req.method === "GET") {
     const ids = [...merged];
     const leftoversById = Object.fromEntries(
       ids.map((id) => [id, deps.service.leftovers(id).length]),
     );
     const leftovers = ids.reduce((n, id) => n + leftoversById[id]!, 0);
-    return json({
-      ids,
-      leftovers,
-      leftoversById,
-      probesUnavailable: deps.service.leftoverProbesUnavailable(),
-    });
+    const probesUnavailable = deps.service.leftoverProbesUnavailable();
+    return json(
+      await clearMergedSummaryAcross(
+        { ids, leftovers, leftoversById, probesUnavailable },
+        machines,
+      ),
+    );
   }
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   const body = (await req.json().catch(() => null)) as { ids?: unknown } | null;
-  const requested = Array.isArray(body?.ids)
+  const explicit = Array.isArray(body?.ids)
     ? (body!.ids as unknown[]).filter((x): x is string => typeof x === "string")
-    : [...merged];
+    : null;
+  const requested = explicit ?? [...merged];
   const target = requested.filter((id) => merged.has(id)); // merged-only, no matter what was sent
   const { cleared, leftovers } = await deps.service.archiveMany(target, "merged");
   for (const id of cleared) {
     deps.prCache?.drop(id);
     deps.events.emit("session:archived", { id });
   }
-  return json({ cleared, leftovers });
+  // `machines` is empty when this request may not reach them (`?host=local`, a restricted token):
+  // then no id is handed to a machine either.
+  const groups =
+    explicit === null
+      ? machines.map((route) => ({ route, ids: null }))
+      : machines.length > 0
+        ? idsByMachine(explicit, deps)
+        : [];
+  return json(await clearMergedAcross({ cleared, leftovers }, groups));
+}
+
+/** The ids that name a session mirrored from a machine, grouped per machine. A local session
+ *  with the same id wins, as on every session route. */
+function idsByMachine(ids: string[], deps: AppDeps): { route: MachineRoute; ids: string[] }[] {
+  const groups = new Map<string, { route: MachineRoute; ids: string[] }>();
+  for (const id of ids) {
+    const route = deps.store.get(id) ? null : deps.remoteSessions?.route(id);
+    if (!route) continue;
+    const group = groups.get(route.host.instanceId);
+    if (group) group.ids.push(id);
+    else groups.set(route.host.instanceId, { route, ids: [id] });
+  }
+  return [...groups.values()];
 }
 
 // DELETE /api/sessions/:id — archive. An optional `{reap: string[]}` body lists the
@@ -3835,6 +4808,27 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
   // 5. Legacy fallback: if local script setup is not possible (for example no git
   // common dir), steer the agent exactly like previous versions did.
   return sendLegacyPreviewStart(id, s, deps, detectedCommand, probesUnavailable);
+}
+
+// GET /api/sessions/:id/preview — where this session's preview opens from another device, or why
+// it does not (#2767): `PreviewReach`, built from THIS instance's tailnet host and slot. A
+// coordinator forwards it for a session mirrored from a connected machine, so a machine's slot only
+// ever reaches another Shepherd's client inside a URL naming that machine.
+//   unknown id → 404 { error: "not found" }
+function handlePreviewReach({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "GET" && parts[2] && parts[3] === "preview" && parts[4] === undefined))
+    return null;
+  const id = parts[2];
+  if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+  return json(
+    previewReach({
+      previewPort: deps.preview?.snapshot()[id]?.previewPort ?? null,
+      host: config.previewHost,
+      autoServe: config.previewAutoServe,
+      serve: deps.previewServe?.snapshot()[id],
+      denied: deps.previewServe?.permissionDenied?.() ?? false,
+    }),
+  );
 }
 
 // POST /api/sessions/:id/preview/stop — force-stop the previewed dev server.
@@ -4924,6 +5918,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionRecapRegenerate,
     handlePreviewStart,
     handlePreviewStop,
+    handlePreviewReach,
     handleSessionRename,
     handleSessionResume,
     handleSessionReady,
@@ -6242,7 +7237,7 @@ async function handleRepos({ req, parts, deps, token }: Ctx): Promise<Response |
           isFork: forge?.isFork ?? false,
           // A fork's `slug` is its upstream; use the clone origin so callers identify
           // the account that owns the fork. Undefined fields are omitted from JSON.
-          remoteSlug: forge?.originSlug ?? forge?.slug ?? undefined,
+          remoteSlug: repoRemoteSlug(forge),
           // A fork's upstream, so a pasted upstream link still resolves to this clone.
           upstreamSlug: forge?.isFork ? forge.slug : undefined,
           hidden: hiddenSet.has(r.path),
@@ -6392,6 +7387,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // Without it the Access panel's empty token list would read as "no machine access at all",
       // even on a deployment where SHEPHERD_TOKEN has been driving Hermes all along.
       envTokenActive: config.token !== null,
+      // The platform order the machine choice ranks fitting machines by (#2772); Linux first.
+      machinePlatformOrder: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
       reducedPushMode: config.reducedPushMode,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
       autoReviveEnabled: config.autoReviveEnabled,
@@ -6590,7 +7587,18 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
+  ["machinePlatformOrder", putMachinePlatformOrder],
 ];
+
+/** The platform order of the machine choice (#2772): this instance's own. A task lands on the same
+ *  machine wherever it is submitted only while every connected Shepherd uses the same order. */
+function putMachinePlatformOrder(value: unknown, deps: Ctx["deps"]): Response {
+  const order = parsePlatformOrder(value);
+  if (!order)
+    return json({ error: "machinePlatformOrder must list linux and macos, each once" }, 400);
+  deps.store.setSetting(PLATFORM_ORDER_SETTING, JSON.stringify(order));
+  return json({ machinePlatformOrder: order });
+}
 
 function putRemoteControl(value: unknown, deps: Ctx["deps"]): Response {
   if (typeof value !== "boolean") {
@@ -7115,6 +8123,7 @@ async function heldSpawn(id: string, deps: AppDeps, body: unknown = null): Promi
     return createErrorResponse(e);
   }
   deps.store.removeHeldTask(h.id);
+  deps.store.markHeldDispatchStarted(h.id, s.id);
   // service.create does not emit session:new (see finalizeRelaunch) — emit it here so the
   // new session appears in the Herd live, then decrement the held badge.
   deps.events.emit("session:new", s);
@@ -7135,6 +8144,7 @@ async function heldSpawn(id: string, deps: AppDeps, body: unknown = null): Promi
 
 function heldDiscard(id: string, deps: AppDeps): Response {
   deps.store.removeHeldTask(id);
+  deps.store.markHeldDispatchDiscarded(id);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json({ ok: true });
 }
@@ -7164,6 +8174,11 @@ async function heldUpdate(
   const value = existing.input.mergeTrainPrs?.length
     ? { ...result.value, mergeTrainPrs: existing.input.mergeTrainPrs }
     : result.value;
+  // Same for an explicit base commit (#2761): the composer has no field for it, and an edit must
+  // never silently re-base a task that was pinned to a revision. An edit that names one wins.
+  value.baseCommit ??= existing.input.baseCommit;
+  // The record of the machine choice (#2772) is the placer's, never an edit's: carried forward.
+  value.placement = existing.input.placement;
   deps.store.updateHeldTask(id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json(deps.store.getHeldTask(id), 200);
@@ -8409,7 +9424,7 @@ function handleHealth({ req, parts }: Ctx): Response | null {
     : json({
         ok: true,
         version: SHEPHERD_VERSION,
-        ...localHealthIdentity(config),
+        ...localHealthIdentity(config, req.headers),
       });
 }
 
@@ -9633,6 +10648,11 @@ const ROUTE_HANDLERS = [
   handleMe,
   handleAccessTokens,
   handlePairing,
+  handleInstance,
+  handleRemoteInstances,
+  // Before every handler that matches `/api/sessions/:id…`: a mirrored session's id must never
+  // reach a local handler, which would act on a session this instance does not have (#2765).
+  handleRemoteSessionRoute,
   handlePing,
   handleHealth,
   handleTerminalTransport,
@@ -9725,6 +10745,10 @@ const ROUTE_HANDLERS = [
   handleProjectIcons,
   handleBroadcast,
   handleHeld,
+  handleDispatches,
+  handleRemoteDispatches,
+  handlePlacementPreview,
+  handleRequirementsDerive,
   handleRetry,
   handleHalt,
   handleFsDirs,
@@ -9770,7 +10794,7 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
 
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean); // ["api","sessions",":id"]
-      const ctx: Ctx = { req, parts, url, deps, token };
+      const ctx: Ctx = { req, parts, url, deps, token, agentIngress: !!opts.skipAuth };
       const boundaryErr = requestBoundaryError(ctx);
       if (boundaryErr) return boundaryErr;
 
@@ -9952,7 +10976,14 @@ function parseTerminalClient(params: URLSearchParams) {
 }
 
 type WsData = (
-  | { kind: "events"; unsub?: () => void }
+  | {
+      kind: "events";
+      /** Opened with `?host=local` by another Shepherd that mirrors this one (#2762): it gets this
+       *  instance's own frames only, and it is not a dashboard (no presence). */
+      localOnly: boolean;
+      unsub?: () => void;
+      unsubRemote?: () => void;
+    }
   | { kind: "browser-view"; id: string; repoPath: string; view?: BrowserViewSession }
   | {
       kind: "pty";
@@ -9964,6 +10995,16 @@ type WsData = (
       bridge?: PtyBridge | SocketPtyBridge;
       pendingInput?: string[];
       awaitingFirstFrame?: boolean;
+    }
+  | {
+      /** The terminal of a session mirrored from a connected machine (#2764), bridged there. The
+       *  machine owns attach and takeover, so none of the local terminal maps ever see it. */
+      kind: "remote-pty";
+      client: ReturnType<typeof parseTerminalClient>;
+      id: string;
+      cols: number;
+      rows: number;
+      terminal?: RemoteTerminal;
     }
 ) & {
   tokenId?: string;
@@ -10117,6 +11158,14 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   // 10s default Bun severs the socket mid-round and the New Task card reports a failure for a round
   // still running — the same bogus failure described for epic approve above.
   if (url.pathname === "/api/shape") return 255;
+  // The requirements helper (#2773) answers within its own 30 s deadline; on the 10s default Bun
+  // would cut a derivation that is still running.
+  if (url.pathname === "/api/requirements/derive") return 60;
+  // A create waits for the worktree and the agent's boot — and one sent to a connected machine
+  // (#2763) for the upload of its attachments (#2766) and that machine's whole create, up to
+  // REMOTE_CREATE_TIMEOUT_MS. Cut at 10s, the answer would be lost for a start that is still
+  // running. Bun's maximum: a longer hand-off loses only the answer, never the dispatch.
+  if (/^\/api\/sessions\/?$/.test(url.pathname)) return 255;
   if (url.pathname === "/api/uploads") return 120;
   if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
   if (url.pathname === "/api/prs/merge") return MERGE_ROUTE_TIMEOUT_SEC;
@@ -10139,14 +11188,20 @@ export function serve(deps: AppDeps, port: number) {
       ),
     ),
   });
+  // A dashboard also sees who holds the terminals of mirrored sessions, as their machines report
+  // it (#2764). A peer's `?host=local` socket gets this instance's own owners only, so two machines
+  // connected to each other never pass owners back and forth; `tokenMap` drops the remote ids for a
+  // repository-restricted token, since they name no local session.
   const sendTerminalOwners = (ws: ServerWebSocket<WsData>) => {
     if (!socketAuthorized(ws)) return;
     const token = ws.data.tokenId ? accessTokens(deps).current(ws.data.tokenId) : null;
+    const remote =
+      ws.data.kind === "events" && !ws.data.localOnly ? deps.remoteSessions?.terminalOwners() : {};
     ws.send(
       JSON.stringify({
         event: "terminal:owners",
         data: {
-          owners: tokenMap(token, deps, terminalOwners().owners),
+          owners: tokenMap(token, deps, { ...remote, ...terminalOwners().owners }),
         },
       }),
     );
@@ -10164,7 +11219,12 @@ export function serve(deps: AppDeps, port: number) {
     const allowed =
       token &&
       scopeAllows(token.scope, "GET", wsAuthPath(ws.data)) &&
-      (ws.data.kind === "events" || tokenSessionAllowed(token, deps, ws.data.id));
+      (ws.data.kind === "events" ||
+        // A mirrored session has no local repository to grant: like its listing, its terminal is
+        // for unrestricted tokens only.
+        (ws.data.kind === "remote-pty"
+          ? token.repoPaths === null
+          : tokenSessionAllowed(token, deps, ws.data.id)));
     if (!allowed) closeTokenSocket(ws);
     return !!allowed;
   }
@@ -10182,6 +11242,8 @@ export function serve(deps: AppDeps, port: number) {
   }
 
   function sendTokenEvent(ws: ServerWebSocket<WsData>, event: string, data: unknown): void {
+    // Local or a machine's (#2764): each socket gets the merged map its token and kind may see.
+    if (event === "terminal:owners") return sendTerminalOwners(ws);
     if (!socketAuthorized(ws)) return;
     const token = ws.data.tokenId ? accessTokens(deps).current(ws.data.tokenId) : null;
     if (token && token.repoPaths !== null) {
@@ -10190,10 +11252,7 @@ export function serve(deps: AppDeps, port: number) {
           count: deps.store.listHeldTasks().filter((h) => tokenRepoAllowed(token, h.input.repoPath))
             .length,
         };
-      else if (event === "terminal:owners") {
-        sendTerminalOwners(ws);
-        return;
-      } else if (!filterRepositoryEvent(event, data, (id) => tokenSessionAllowed(token, deps, id)))
+      else if (!filterRepositoryEvent(event, data, (id) => tokenSessionAllowed(token, deps, id)))
         return;
     }
     ws.send(JSON.stringify({ event, data }));
@@ -10219,7 +11278,6 @@ export function serve(deps: AppDeps, port: number) {
     id: string,
   ): Response | undefined {
     const s = deps.store.get(id);
-    if (!s) return new Response("no session", { status: 404 });
     // attach at the client's actual terminal size so the very first paint
     // matches; otherwise herdr renders the pane at the default 100×30 and the
     // view stays mis-sized until a follow-up resize forces a TUI repaint.
@@ -10227,6 +11285,13 @@ export function serve(deps: AppDeps, port: number) {
       url.searchParams.get("cols"),
       url.searchParams.get("rows"),
     );
+    // A session mirrored from a connected machine (#2764): its terminal is bridged there once the
+    // socket opens. Reached only past checkAuth's `full` scope gate and the repository boundary.
+    if (!s && deps.remoteSessions?.has(id)) {
+      const client = parseTerminalClient(url.searchParams);
+      return upgradeWith(req, server, { kind: "remote-pty", tokenId, id, cols, rows, client });
+    }
+    if (!s) return new Response("no session", { status: 404 });
     return upgradeWith(req, server, {
       kind: "pty",
       tokenId,
@@ -10260,7 +11325,11 @@ export function serve(deps: AppDeps, port: number) {
     if (refused) return refused;
     if (pty) return upgradePty(req, url, server, tokenId, pty[1]!);
     if (view) return upgradeBrowserView(req, server, tokenId, view[1]!);
-    return upgradeWith(req, server, { kind: "events", tokenId });
+    return upgradeWith(req, server, {
+      kind: "events",
+      tokenId,
+      localOnly: url.searchParams.get("host") === "local",
+    });
   }
   // Browser View (#2881): one CdpPipe client per operator socket, attached to the repo's browser.
   function openBrowserViewSocket(ws: ServerWebSocket<WsData & { kind: "browser-view" }>): void {
@@ -10393,6 +11462,20 @@ export function serve(deps: AppDeps, port: number) {
       sb.open(data.cols, data.rows);
     }
   }
+  // A mirrored session's terminal (#2764): bridged to its machine, which attaches it, enforces the
+  // single owner and reports gone — its close codes reach this socket unchanged. An unreachable
+  // machine closes it with PTY_MACHINE_UNREACHABLE_CODE; nothing is ever attached locally instead.
+  function openRemotePtySocket(ws: ServerWebSocket<WsData & { kind: "remote-pty" }>): void {
+    const { id, cols, rows, client } = ws.data;
+    const sink = {
+      send: (data: string | Uint8Array) => {
+        if (socketAuthorized(ws)) ws.send(data);
+      },
+      close: (code?: number, reason?: string) => ws.close(code, reason),
+    };
+    const attach = { cols, rows, clientKind: client.kind, clientPlatform: client.platform };
+    ws.data.terminal = deps.remoteSessions?.openTerminal(id, sink, attach);
+  }
   // Presence frame: the page reports focus+visibility so push delivery
   // can suppress OS banners while a window is actively in use.
   function onEventsMessage(ws: ServerWebSocket<WsData>, msg: string | Buffer): void {
@@ -10455,11 +11538,20 @@ export function serve(deps: AppDeps, port: number) {
           const unsub = deps.events.subscribe((event, data) => sendTokenEvent(ws, event, data));
           ws.data.unsub = unsub;
           sendTerminalOwners(ws);
-          // A live /events socket = a dashboard is open (regardless of focus), so
-          // background pollers should run warm. `close` drops it again.
-          deps.presence?.connect(ws);
+          if (!ws.data.localOnly) {
+            // Mirrored sessions travel on their own channel, never through `deps.events`, so no
+            // server-side listener ever acts on them; only dashboards receive them.
+            ws.data.unsubRemote = deps.remoteSessions?.subscribe((event, data) =>
+              sendTokenEvent(ws, event, data),
+            );
+            // A live /events socket = a dashboard is open (regardless of focus), so
+            // background pollers should run warm. `close` drops it again.
+            deps.presence?.connect(ws);
+          }
         } else if (ws.data.kind === "browser-view") {
           openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
+        } else if (ws.data.kind === "remote-pty") {
+          openRemotePtySocket(ws as ServerWebSocket<WsData & { kind: "remote-pty" }>);
         } else {
           openPtySocket(ws as ServerWebSocket<WsData & { kind: "pty" }>);
         }
@@ -10472,6 +11564,8 @@ export function serve(deps: AppDeps, port: number) {
             ws as ServerWebSocket<WsData & { kind: "browser-view" }>,
             msg,
           );
+        // Verbatim, text or binary: the machine's own pty handler reads the frame.
+        if (ws.data.kind === "remote-pty") return ws.data.terminal?.write(msg);
         markPtyEvent("in");
         const frame = typeof msg === "string" ? msg : msg.toString();
         // Stamp the operator-activity seam only for genuine keystrokes — the same
@@ -10486,11 +11580,14 @@ export function serve(deps: AppDeps, port: number) {
         if (ws.data.expiryTimer) clearTimeout(ws.data.expiryTimer);
         if (ws.data.kind === "events") {
           ws.data.unsub?.();
+          ws.data.unsubRemote?.();
           deps.presence?.drop(ws);
         } else if (ws.data.kind === "browser-view") {
           // only drop ownership if still the owner (a newer view may have taken over)
           if (browserViewOwners.get(ws.data.id) === ws) browserViewOwners.delete(ws.data.id);
           ws.data.view?.close();
+        } else if (ws.data.kind === "remote-pty") {
+          ws.data.terminal?.close();
         } else {
           // only drop ownership if we're still the owner (a newer client may have
           // already claimed this terminal before our close fired)

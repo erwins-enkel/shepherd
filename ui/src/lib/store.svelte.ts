@@ -34,6 +34,7 @@ import type {
   LoginRequest,
   OperatorAssistantState,
   OperatorAssistantUnavailableReason,
+  RemoteDispatch,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -49,6 +50,8 @@ import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
+import { mirroredPreviewChange, reduceRemoteSessions } from "./remote-sessions";
+import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
  *  (or other-scheme) value would be an open-redirect / script-execution vector
@@ -72,6 +75,13 @@ export class HerdStore {
   assistantAvailable = $state<boolean | null>(null);
   /** Why it can't run (`assistantAvailable === false`); null otherwise. */
   assistantUnavailableReason = $state<OperatorAssistantUnavailableReason | null>(null);
+  /** Sessions mirrored from connected machines (#2762), held apart from `sessions` so nothing
+   *  that acts on a local session — or keys a side map by its id — ever sees one. Only the herd's
+   *  machine groups and the remote detail read them. */
+  remoteSessions = $state<Session[]>([]);
+  /** Tasks sent to connected machines whose start no machine has confirmed (#2774); bootstrapped
+   *  via GET /api/remote-dispatches, kept live by `remote:dispatch`. Shown in the machine groups. */
+  remoteDispatches = $state<RemoteDispatch[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
   terminalOwners = $state<Record<string, TerminalClientInfo> | null>(null);
@@ -150,6 +160,10 @@ export class HerdStore {
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
   preview = $state<Record<string, number | null>>({});
+  /** Bumped per mirrored session whenever its machine reports a preview change (#2767); the remote
+   *  detail re-reads where the preview opens. Holds no port: a machine's slot is never this
+   *  server's, so it stays out of `preview`. */
+  remotePreviewTick = $state<Record<string, number>>({});
   /** Live per-session tailscale-serve registration status (sessionId → "ok"|"failed"),
    *  pushed by the server's `session:preview-serve` event and merged from the
    *  /api/preview bootstrap. "failed" → the preview is reachable on loopback only
@@ -196,7 +210,8 @@ export class HerdStore {
   private draftReconcileToastIds = new SvelteMap<string, number>();
 
   setAll(list: Session[]) {
-    this.sessions = list;
+    this.sessions = list.filter((s) => !s.host);
+    this.remoteSessions = list.filter((s) => s.host);
   }
   /** Seed (or replace) the assistant's availability + row after the bootstrap GET. */
   seedAssistant(state: OperatorAssistantState) {
@@ -502,7 +517,35 @@ export class HerdStore {
     if (!this.byId(s.id)) this.sessions = [...this.sessions, s];
   }
 
+  setRemoteDispatches(list: RemoteDispatch[]) {
+    this.remoteDispatches = list;
+  }
+
+  /** A shown task that resolved leaves the herd — its session, if it started, is in the machine's
+   *  group already — and a toast says how it ended. */
+  private applyRemoteDispatch(d: RemoteDispatch) {
+    const { list, resolved } = reduceRemoteDispatches(this.remoteDispatches, d);
+    this.remoteDispatches = list;
+    const message = resolved && resolvedMessage(resolved);
+    if (message) toasts.info(message.text, { alert: message.alert });
+  }
+
   apply(ev: WsEvent) {
+    if (ev.event === "remote:dispatch") return this.applyRemoteDispatch(ev.data);
+    const remote = reduceRemoteSessions(this.remoteSessions, ev);
+    if (!remote) return this.applyLocal(ev);
+    this.remoteSessions = remote;
+    const previewed = mirroredPreviewChange(ev);
+    if (previewed) {
+      this.remotePreviewTick = setKey(
+        this.remotePreviewTick,
+        previewed,
+        (this.remotePreviewTick[previewed] ?? 0) + 1,
+      );
+    }
+  }
+
+  private applyLocal(ev: WsEvent) {
     switch (ev.event) {
       case "terminal:owners":
         this.terminalOwners = ev.data.owners;

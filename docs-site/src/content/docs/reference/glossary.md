@@ -275,6 +275,78 @@ reads, explains and tells you what to do, but changes nothing itself — every
 shell command waits for your approval. See
 [Operator Assistant](/operating/#operator-assistant).
 
+### Machine
+
+Another Shepherd instance this one is connected to, set up in **Settings →
+Machines** with its address and an [access token](#access-token) with scope
+**Full** and access to all repositories, minted on that machine. Shepherd checks
+each machine once a minute and shows its name, version, platform and projects
+(the forge slugs of its checkouts), or why it can't reach it: unreachable, not
+authorized, or an incompatible version. Two Shepherds can connect each other; a
+Shepherd cannot connect itself. Each machine keeps running its own sessions, and
+they appear live in this Shepherd's herd, grouped under the machine they run on
+and labelled with it (for example `MacBook · TASK-07`). A session's terminal opens
+here as well and works as it does locally — this Shepherd passes it through to the
+machine with the machine's token, and only callers with full access reach it.
+Steering, stopping and archiving a session, and reading its activity, diff and
+files (including uploads to its scratchpad), work the same way: this Shepherd
+checks the caller's access as for a local session, sends the request to the
+machine, and the machine runs it. The preview does too: the machine starts and
+stops the dev server, and the preview opens from the machine's own address in
+your tailnet (its `tailscale serve` slot) — never from a port of this Shepherd. A
+machine that can't publish previews into the tailnet (no Tailscale name, or serve
+permission refused) says so instead of offering a link. Its other actions —
+merging, relaunching, resuming, reviews — are not offered here yet and are
+refused, never run on this machine instead. Clearing merged sessions covers the connected machines
+too and names any machine that did not answer. If a machine becomes unreachable,
+its sessions stay with their last known state and are marked disconnected, nothing
+is sent to it, and an open terminal says so and reopens once the machine is back;
+a session disappears only once its machine no longer reports it. A new task can be
+started on a machine that has its project checked out — **Run on** in the New Task
+dialog, where **Automatic** lets Shepherd pick the machine by the task's
+[requirements](#requirement) — and then the whole session runs there, from the
+branch as pushed to origin.
+
+### Capability
+
+Something a Shepherd has verified it can run, checked as the user it runs as
+rather than inferred from its platform: its platform (`platform:linux`,
+`platform:macos`, `platform:windows`), Xcode and its SDKs and simulator, the
+Android SDK, the agent CLIs it has installed **and** logged in (`agent:claude`,
+`agent:codex`) and the sandbox profiles it can enforce (`sandbox:trusted`,
+`sandbox:standard`, `sandbox:autonomous`). Each Shepherd checks every 5 minutes
+and on demand, and serves the result with its age on `GET /api/instance`;
+**Settings → Machines** shows it per [machine](#machine) and marks a check older
+than 15 minutes as stale. A task created with `requirements` is checked again by
+the receiving Shepherd when it accepts the task, and refused with each missing
+capability named — stale information never starts a task. Windows machines are
+listed but not released for tasks until platform compatibility is proven.
+
+### Requirement
+
+A [capability](#capability) a task needs from the machine it runs on — for
+example `xcode`, `sdk:ios` or `android-sdk`. In New Task they are chips under the
+prompt; through the API, `requirements`. With **Run on: Automatic**, Shepherd starts
+the task on a connected [machine](#machine) — or this one — that has every
+requirement verified, preferring Linux over macOS, and shows which and why before
+it starts. If none has them, nothing starts and the missing capability is named; if
+the machine a task is meant for is offline, the task becomes a
+[waiting task](#waiting-task) — nothing starts elsewhere on its own. The machine
+checks the requirements again when it accepts the task.
+
+### Waiting task
+
+A task Shepherd keeps for the [machine](#machine) it is meant for while that
+machine is asleep, out of reach or missing a [requirement](#requirement). It shows
+at the top of that machine's group in the herd — **Waiting** while the machine is
+away, **Blocked** while it is back but lacks a requirement or the project's
+checkout — and nothing is sent until the machine is back and a fresh check of its
+capabilities and project passes; then it starts there by itself, attachments
+included. It never moves to another machine on its own: cancel it, or run it on
+another machine that fits now (**Run here**, **Run on …**). It survives a restart of
+this Shepherd. A task a busy machine has already accepted and holds shows as
+**Busy** instead.
+
 ## Industry terms
 
 ### PR

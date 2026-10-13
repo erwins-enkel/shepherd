@@ -12,8 +12,10 @@
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
   import PlanGateBadge from "../PlanGateBadge.svelte";
   import AutopilotBadge from "../AutopilotBadge.svelte";
+  import MachineBadge from "../MachineBadge.svelte";
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { remoteSessionExplanation } from "#lib/tooltips/explanations.js";
   import { checksCleared } from "#lib/checks-cleared.js";
 
   let {
@@ -66,6 +68,17 @@
     queueStepLive?: boolean;
     elapsedEl?: HTMLSpanElement;
   } = $props();
+
+  // A session mirrored from another machine (#2762): its badges open nothing (their panels would
+  // act on this machine). Its ✕ archives it on the machine while that is connected (#2765 — the
+  // row then has `ondecommission`); otherwise it stays visible but disabled, with the reason in
+  // its tooltip.
+  const badgesInteractive = $derived(!coarsePointer && !session.host);
+  const remoteTip = $derived(
+    session.host && session.connection
+      ? remoteSessionExplanation(session.host, session.connection, nowMs)
+      : null,
+  );
 
   let previewWrapEl = $state<HTMLElement | null>(null);
   const previewOpenMode = $derived(repoConfig.previewOpenModeForLoaded(session.repoPath));
@@ -140,6 +153,14 @@
     >
       {decom === "armed" ? "✕?" : "✕"}
     </button>
+  {:else if remoteTip && !coarsePointer}
+    <button
+      class="row-decom"
+      type="button"
+      aria-disabled="true"
+      aria-label={m.viewport_decommission_aria()}
+      use:statusTip={{ text: remoteTip }}>✕</button
+    >
   {/if}
   <!-- D4 (docs/design/mobile-herd): on a coarse pointer every badge below that has a click of its
        own is a READ-ONLY readout. Six ~15px tap targets stacked in one card cannot meet iOS HIG
@@ -149,6 +170,7 @@
        BuildQueuePanel / the preview tab carry the same controls at a conformant size, and the
        issue chip's own href is reachable from the session's issue link there. -->
   <div class="u-badges">
+    <MachineBadge {session} {nowMs} />
     {#if previewPort != null}
       <!-- Live preview available (server reports a bound listener). Selecting +
            opening the pane is an action distinct from the row's own select, so
@@ -205,9 +227,13 @@
          what came out of it — reading them left-to-right follows that order. `git` carries
          the forge-derived issue URL, which is what the chip opens on rows whose launch
          metadata predates the field. -->
-    <IssueBadge {session} {git} interactive={!coarsePointer} />
-    {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} interactive={!coarsePointer} />{/if}
-    <CriticBadge sessionId={session.id} tip interactive={!coarsePointer} prUrl={git?.url} />
+    <IssueBadge {session} {git} interactive={badgesInteractive} />
+    {#if !stepperTerminal}<PrBadge
+        {git}
+        sessionId={session.id}
+        interactive={badgesInteractive}
+      />{/if}
+    <CriticBadge sessionId={session.id} tip interactive={badgesInteractive} prUrl={git?.url} />
     <BuildQueueBadge
       sessionId={session.id}
       planPhase={session.planPhase}
@@ -215,7 +241,7 @@
       {selected}
       {onselect}
       tip
-      interactive={!coarsePointer}
+      interactive={badgesInteractive}
       hideWhenStepLive={queueStepLive}
     />
     <PlanGateBadge
@@ -226,7 +252,7 @@
       fallbackTitle={quotaKind === "plan" ? m.unitrow_quota_title() : null}
       {openPanelTick}
       tip
-      interactive={!coarsePointer}
+      interactive={badgesInteractive}
     />
     {#if quotaKind && quotaKind !== "plan"}
       <span
@@ -338,6 +364,7 @@
       .u-badges
         > :global(
           :is(
+            .machine-badge,
             .cli-badge,
             .research-badge,
             .terminal-badge,
@@ -379,6 +406,7 @@
     .u-badges
     > :global(
       :is(
+        .machine-badge,
         .cli-badge,
         .research-badge,
         .terminal-badge,
@@ -460,6 +488,15 @@
   .row-decom:hover,
   .row-decom:focus-visible {
     color: var(--color-red);
+  }
+  /* A mirrored session's ✕ (#2762): revealed like the real one, but it does nothing — no red
+     hover, and its tooltip says why. */
+  .row-decom[aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+  .row-decom[aria-disabled="true"]:hover,
+  .row-decom[aria-disabled="true"]:focus-visible {
+    color: var(--color-faint);
   }
   .row-decom.armed {
     opacity: 1;

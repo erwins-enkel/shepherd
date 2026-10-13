@@ -37,3 +37,29 @@ _Avoid_: sandboxed browser, restricted attach
 **Browser View**:
 The operator's live, interactive picture of the Shared Browser inside the HUD.
 _Avoid_: screencast, remote desktop, VNC
+
+### Task submission
+
+**Dispatch**:
+One task submission sent with an `Idempotency-Key`, accepted at most once; its outcome (pending, started, held, failed) survives restarts and is read back by that key.
+_Avoid_: job, order, request (overloaded)
+
+**Remote Dispatch**:
+A new task this Shepherd sends to a connected machine to run there: stored here before it is sent, delivered under its own dispatch ID, and only ever sent again to that same machine. Its attachments are uploaded to that machine just before it is sent, once. When no answer comes back its start status is unknown — not failed — until this Shepherd has asked the machine what became of it; until the machine confirms it, it can be canceled.
+_Avoid_: forward, relay, remote job
+
+**Waiting Task**:
+A remote dispatch the placement meant for a machine that is out of reach or lacks a requirement right now: stored here, nothing sent, and sent to that machine by itself once it is back and a fresh check passes. It never moves to another machine on its own; the operator can cancel it or redirect it to another machine that fits. Distinct from a task held on a machine, which that machine has already accepted.
+_Avoid_: queued task, pending dispatch
+
+**Placement**:
+Where a new task runs and why, chosen once when it is submitted: the machine — this Shepherd or a connected one — and the reason (its requirements, the platform order, the only candidate, or the operator's choice). Recorded on the session; it never moves the task afterwards and never falls back to another machine on its own — a task meant for a machine out of reach waits for it.
+_Avoid_: routing, scheduling, load balancing
+
+**Requirement**:
+A capability a task needs from the machine it runs on (Xcode, an SDK, an agent CLI, a sandbox profile, a platform); the placement only picks a machine whose verified capabilities include every one. Given by the operator, or read from the task's prompt and issue (never the repository) while the machines differ in it.
+_Avoid_: constraint, tag, label
+
+**Base Commit**:
+The commit a session's worktree was actually created from; an explicitly requested one is used as-is, never freshened to the branch tip.
+_Avoid_: base sha, start commit

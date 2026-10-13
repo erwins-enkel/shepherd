@@ -66,6 +66,8 @@
   import { sessionPulse } from "#lib/session-pulse.js";
   import { buildQueues } from "#lib/buildQueues.svelte.js";
   import { steerLogs } from "#lib/steerLogs.svelte.js";
+  import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
+  import { remoteActionMessage } from "#lib/remote-sessions.js";
   import { rowHold } from "#lib/hold-row.js";
   import { holdAwaitsOperator } from "#lib/hold.js";
   import { checksCleared } from "#lib/checks-cleared.js";
@@ -580,9 +582,10 @@
   const queueStepLive = $derived(!!linePulse?.step);
   // The steer log has no push: re-read it whenever a steer is likely to have just happened —
   // the session's status, its CI rollup or its PR head moved. Keyed on a primitive so a fresh
-  // session object with the same values doesn't refetch. Finished sessions need none.
+  // session object with the same values doesn't refetch. Finished sessions need none, and a
+  // mirrored one (#2762) has its log on its own machine.
   const steerLogKey = $derived(
-    session.status === "done" || session.status === "archived"
+    session.host || session.status === "done" || session.status === "archived"
       ? null
       : `${session.id}|${session.status}|${git?.checks ?? ""}|${git?.headSha ?? ""}`,
   );
@@ -634,7 +637,8 @@
   // header): the menu only opens on an explicit gesture, so it doesn't add bar
   // noise — and it stays the force-resume escape hatch should the /proc sweep
   // ever misreport a session as alive.
-  const resumable = $derived(canResume(session));
+  // Never for a session mirrored from another machine: resume is not forwarded to it (#2765).
+  const resumable = $derived(!session.host && canResume(session));
   // Stranded (herdr-restored husk): a daemon restart left this session's pane a bare shell (#1630).
   // Gets a distinct inline "agent died — revive" affordance instead of the quiet CardMenu Resume.
   const stranded = $derived(isStrandedLiveness(liveness));
@@ -772,19 +776,50 @@
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
+  // A session mirrored from another machine (#2762) offers only what this server forwards to its
+  // machine and the card has an item for (#2765): Stop, and Decommission while the machine is
+  // connected (the machine group passes `ondecommission` only then). `menuActions` drops every
+  // other item whatever a parent wired, and Resume is off in `resumable`. A disconnected machine's
+  // row gets no menu at all.
+  const remote = $derived(!!session.host);
   const hasMenu = $derived(
-    mergeable ||
-      stoppable ||
-      resumable ||
-      !!ondecommission ||
-      !!onrename ||
-      !!onamend ||
-      relaunchable ||
-      relaunchElsewhereAble ||
-      variantable ||
-      replaceable ||
-      cleanTerminalAble ||
-      askable,
+    remote
+      ? session.connection?.state === "connected" && (stoppable || !!ondecommission)
+      : mergeable ||
+          stoppable ||
+          resumable ||
+          !!ondecommission ||
+          !!onrename ||
+          !!onamend ||
+          relaunchable ||
+          relaunchElsewhereAble ||
+          variantable ||
+          replaceable ||
+          cleanTerminalAble ||
+          askable,
+  );
+  // The menu's items, resolved here rather than as ternaries in the <CardMenu> tag (template cap,
+  // #855). undefined is what hides an item.
+  const menuActions = $derived(
+    remote
+      ? {
+          onstop: onStop,
+          ondecommission: ondecommission ? decommissionFromMenu : undefined,
+        }
+      : {
+          onmergepr: mergeable ? mergeFromMenu : undefined,
+          onstop: onStop,
+          onresume: resumeFromMenu,
+          onaskassistant: onAskAssistant,
+          onrename: onrename ? renameFromMenu : undefined,
+          onamend: onamend ? amendFromMenu : undefined,
+          onrelaunch: relaunchable ? relaunchFromMenu : undefined,
+          onrelaunchElsewhere: relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined,
+          onvariant: variantable ? variantFromMenu : undefined,
+          onreplace: replaceable ? replaceFromMenu : undefined,
+          oncleanTerminal: onCleanTerminal,
+          ondecommission: ondecommission ? decommissionFromMenu : undefined,
+        },
   );
   function openMenuAt(x: number, y: number): boolean {
     if (menu || !hasMenu) return false;
@@ -858,8 +893,10 @@
       toasts.info(m.cardmenu_stop_toast({ name: session.name }), {
         key: `session-interrupt:${session.id}`,
       });
-    } catch {
-      toasts.info(m.cardmenu_stop_failed({ name: session.name }), {
+    } catch (err) {
+      // A session on another machine (#2765): say so when the stop never reached it.
+      const remoteText = session.host ? remoteActionMessage(err, session.host.name) : null;
+      toasts.info(remoteText ?? m.cardmenu_stop_failed({ name: session.name }), {
         alert: true,
         key: `session-interrupt:${session.id}`,
       });
@@ -921,6 +958,7 @@
   let overClock = false; // pointer currently within the cached clock bounds
   let clockRect: DOMRect | null = null; // wall-clock bounds, cached on card-enter
   function tipShow(delay = 450) {
+    if (remote) return; // its breakdown would read this machine's steer log (#2762)
     clearTimeout(tipTimer);
     tipTimer = setTimeout(() => (tipRect = elapsedEl?.getBoundingClientRect() ?? null), delay);
   }
@@ -1072,6 +1110,7 @@
         {/if}
       </div>
       <PulseLine pulse={linePulse} id="u-pulse-{session.id}" />
+      <RemoteConnectionNote {session} {nowMs} />
       {@render holdSubline()}
     </div>
 
@@ -1203,18 +1242,7 @@
     y={menu.y}
     {resumable}
     opener={menu.opener}
-    onmergepr={mergeable ? mergeFromMenu : undefined}
-    onstop={onStop}
-    onresume={resumeFromMenu}
-    onaskassistant={onAskAssistant}
-    onrename={onrename ? renameFromMenu : undefined}
-    onamend={onamend ? amendFromMenu : undefined}
-    onrelaunch={relaunchable ? relaunchFromMenu : undefined}
-    onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
-    onvariant={variantable ? variantFromMenu : undefined}
-    onreplace={replaceable ? replaceFromMenu : undefined}
-    oncleanTerminal={onCleanTerminal}
-    ondecommission={ondecommission ? decommissionFromMenu : undefined}
+    {...menuActions}
     onclose={() => (menu = null)}
   />
 {/if}

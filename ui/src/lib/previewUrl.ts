@@ -42,3 +42,21 @@ export function buildPreviewUrl(
   // Branch 3: fallback — single-host deployment where HUD host == agent node.
   return `${loc.protocol}//${loc.hostname}:${port}/`;
 }
+
+/**
+ * The URL a connected machine gave for its preview (#2767), or null when it is not one this HUD
+ * may open. Only plain `https:` passes — the machine's `tailscale serve` slot is HTTPS-only — so a
+ * machine can never put a `javascript:` (or any other scheme), or credentials, into a link or a
+ * frame on this origin.
+ */
+export function remotePreviewUrl(url: string | null): string | null {
+  if (!url) return null;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" || u.username || u.password) return null;
+  return u.href;
+}

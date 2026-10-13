@@ -38,7 +38,7 @@ export function repositoryAllows(
 
 export type RepositoryRoute =
   | { kind: "collection" | "body" | "bootstrap" | "upload" }
-  | { kind: "session" | "held" | "task"; id: string }
+  | { kind: "session" | "held" | "task" | "dispatch"; id: string }
   | { kind: "repo"; path: string };
 
 const COLLECTION_READS = new Set([
@@ -111,7 +111,16 @@ function collectionRoutePolicy(
     return { kind: "bootstrap" };
   if (method === "GET" && COLLECTION_READS.has(path)) return { kind: "collection" };
   if (key === "GET /api/branches") return { kind: "repo", path: params.get("repo") ?? "" };
-  if (["POST /api/sessions", "POST /api/issues"].includes(key)) return { kind: "body" };
+  if (
+    [
+      "POST /api/sessions",
+      "POST /api/issues",
+      "POST /api/placement",
+      "POST /api/requirements/derive",
+    ].includes(key)
+  ) {
+    return { kind: "body" };
+  }
   if (key === "POST /api/uploads") {
     const id = params.get("session");
     return id ? { kind: "session", id } : { kind: "upload" };
@@ -149,6 +158,8 @@ function resourceRoutePolicy(method: string, parts: string[]): RepositoryRoute |
       return ["PATCH ", "DELETE ", "POST spawn"].includes(`${method} ${leaf}`)
         ? { kind: "held", id }
         : null;
+    case "dispatches":
+      return ["GET ", "DELETE "].includes(`${method} ${leaf}`) ? { kind: "dispatch", id } : null;
     case "sessions":
       return sessionRoutePolicy(method, id, leaf);
     default:

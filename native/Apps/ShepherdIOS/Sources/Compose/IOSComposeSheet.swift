@@ -24,7 +24,8 @@ struct IOSComposeContent: View {
     let store: SessionStore
     let activation: Int
     private let fixtureCurrent: (() -> Bool)?
-    private let serverPicker: AnyView?
+    /// The multi-server composer's servers (#2776): Run on can move the task to another one.
+    private let servers: IOSRunOnServers?
     private let repoCatalogue: IOSComposeRepoCatalogue?
     private let closeSheet: (() -> Void)?
     private let onCreated: ((String) -> Void)?
@@ -35,6 +36,7 @@ struct IOSComposeContent: View {
     @State private var submission = ComposeSubmission()
     @State private var autoStart = ComposeAutoStart(keepAlive: { IOSBackgroundGrace.begin("shepherd.compose.autostart") })
     @State private var options: Options?
+    @State private var explanation: IOSExplanation?
     @State private var files = false
     @State private var photos = false
     @State private var photo: PhotosPickerItem?
@@ -46,9 +48,9 @@ struct IOSComposeContent: View {
     @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .body) private var promptHeight = 230
     enum Options: String, Identifiable { case branch, engine, issues, commands; var id: String { rawValue } }
-    init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil, serverPicker: AnyView? = nil, repoCatalogue: IOSComposeRepoCatalogue? = nil, close: (() -> Void)? = nil, onCreated: ((String) -> Void)? = nil, initialPrompt: String = "", initialRepoPath: String = "", promptChanged: ((String) -> Void)? = nil) {
+    init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil, servers: IOSRunOnServers? = nil, repoCatalogue: IOSComposeRepoCatalogue? = nil, close: (() -> Void)? = nil, onCreated: ((String) -> Void)? = nil, initialPrompt: String = "", initialRepoPath: String = "", initialRunOn: IOSRunOnCarry? = nil, promptChanged: ((String) -> Void)? = nil) {
         self.app = app; self.store = store; self.activation = activation; self.fixtureCurrent = fixtureCurrent
-        self.serverPicker = serverPicker; self.repoCatalogue = repoCatalogue; self.closeSheet = close; self.onCreated = onCreated; self.promptChanged = promptChanged
+        self.servers = servers; self.repoCatalogue = repoCatalogue; self.closeSheet = close; self.onCreated = onCreated; self.promptChanged = promptChanged
         let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults,
             runDefaults: ComposeRunConfig.defaults(from: store.settings),
             initialProvider: store.settings.map { settings in
@@ -58,6 +60,9 @@ struct IOSComposeContent: View {
             })
         if !initialPrompt.isEmpty { model.prompt = initialPrompt }
         if !initialRepoPath.isEmpty { model.repoPath = initialRepoPath }
+        if let initialRunOn {
+            model.runOn.restore(pick: initialRunOn.pick, requirements: initialRunOn.requirements, touched: initialRunOn.touched)
+        }
         model.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil
         model.attachments.keepAlive = { IOSBackgroundGrace.begin("shepherd.compose.upload") }
         _model = State(initialValue: model)
@@ -115,6 +120,7 @@ struct IOSComposeContent: View {
             .interactiveDismissDisabled(voice.active || submission.busy || autoStart.armed)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("compose.sheet")
+            .sheet(item: $explanation) { item in IOSExplanationSheet(explanation: item.explanation) { explanation = nil } }
             .sheet(item: $options) { option in
                 NavigationStack {
                     Group {
@@ -146,6 +152,10 @@ struct IOSComposeContent: View {
                 if trigger.query.isEmpty { options = trigger.symbol == "#" ? .issues : .commands }
             }
             .onChange(of: store.settings) { _, settings in model.runDefaults = ComposeRunConfig.defaults(from: settings) }
+            // Where the task will run (#2776): the preview follows the repo, the chips and the pick;
+            // the requirements are read from the task a beat after the last edit.
+            .task(id: model.placementKey) { if current { await model.refreshPlacement() } }
+            .task(id: model.deriveKey) { if current { await model.deriveRequirements() } }
             .onChange(of: store.repos) { _, _ in seedRepo() }
             .onChange(of: model.repoPath, initial: true) { _, path in repoCatalogue?.repoChanged(path) }
             .onChange(of: model.attachments.inFlight) { _, inFlight in if inFlight { autoStart.clearAborted() } }
@@ -158,8 +168,11 @@ struct IOSComposeContent: View {
     }
     private var formContent: some View {
                 VStack(alignment: .leading, spacing: 12) {
-                    if let serverPicker { serverPicker.disabled(voice.active || submission.busy || autoStart.armed) }
+                    IOSRunOnPicker(runOn: model.runOn, servers: servers)
+                        .disabled(voice.active || submission.busy || autoStart.armed)
                     context.opacity(voice.active || autoStart.armed ? 0.4 : 1).disabled(voice.active || submission.busy || autoStart.armed)
+                    IOSRunOnNotices(model: model, explain: { explanation = IOSExplanation(explanation: $0) })
+                        .disabled(voice.active || submission.busy || autoStart.armed)
                     prompt
                     attachments
                     if voice.capturing || voice.state == .finalizing { TranscriptPreview(voice: voice, audioEngine: audioEngine) }
@@ -171,7 +184,11 @@ struct IOSComposeContent: View {
                     }
                     if audioEngine?.preparing == true, voice.state == .arming || voice.capturing { Text(verbatim: L.t("native_compose_voice_preparing")).font(.system(.caption, design: .monospaced)) }
                     notices
-                    if let message = submission.message { Text(verbatim: message).foregroundStyle(ComposePalette.red) }
+                    if let message = submission.message {
+                        // A task that waits for its machine or is held there is not a failure (#2776).
+                        Text(verbatim: message).foregroundStyle(submission.heldOn == nil ? ComposePalette.red : ComposePalette.amber)
+                            .accessibilityIdentifier("compose.message")
+                    }
                     if let failure = submission.recoveryFailure { Text(verbatim: BackendRecovery.summary(failure)) }
                 }.padding(.horizontal, 16).padding(.top, 12)
     }
@@ -406,7 +423,8 @@ struct IOSComposeContent: View {
     private var spawnFooter: some View {
         VStack(spacing: 8) {
             ProgressView()
-            Text(verbatim: submission.progress.map { ComposeSubmission.phaseCopy($0.phase) } ?? L.t("newtask_spawning"))
+            Text(verbatim: submission.progress.map { ComposeSubmission.phaseCopy($0.phase) }
+                ?? submission.sendingTo.map { L.t("newtask_runon_starting", $0.name) } ?? L.t("newtask_spawning"))
             if submission.slow { Text(verbatim: L.t("newtask_spawn_slow")).font(.system(.caption, design: .monospaced)) }
             Text(verbatim: L.t("native_compose_keep_app_open")).font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted)
                 .multilineTextAlignment(.center)
@@ -417,7 +435,7 @@ struct IOSComposeContent: View {
     }
     private func dismiss() { if let closeSheet { closeSheet() } else { app.sheet = nil } }
     private func seedRepo() {
-        if model.repoPath.isEmpty || (serverPicker != nil && repo == nil),
+        if model.repoPath.isEmpty || (servers != nil && repo == nil),
            let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path }
     }
     private func submit(force: Bool) {
@@ -435,9 +453,15 @@ struct IOSComposeContent: View {
         let release = IOSBackgroundGrace.begin("shepherd.compose.create")
         defer { release() }
         let session = await submission.submit(model: model, repoResolved: repo != nil, holdLikely: holdLikely, force: force,
-            events: store.events(), recovery: app.extension(BackendRecoveryModel.self), create: { try await store.client.createSession($0, spawnID: $1) }, onHeld: { dismiss() }, isCurrent: { current })
+            events: store.events(), recovery: app.extension(BackendRecoveryModel.self),
+            send: { try await store.client.createSession($0, spawnID: $1.spawnID, idempotencyKey: $1.idempotencyKey) },
+            // A task that waits for its machine or is held there stays visible here: this herd
+            // does not list tasks for machines yet (#2776). A usage hold here closes as before.
+            onHeld: { if submission.heldOn == nil { dismiss() } }, isCurrent: { current })
         if let session, current {
-            store.apply(.sessionNew(session))
+            // Started on another machine (#2776): it belongs to the mirrored sessions.
+            if let host = session.host { store.apply(.mirrored(host: host, event: .sessionNew(session))) }
+            else { store.apply(.sessionNew(session)) }
             if let onCreated { onCreated(session.id) }
             else { app.selectedSessionID = session.id; dismiss() }
         }

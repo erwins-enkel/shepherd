@@ -10,18 +10,29 @@ function canonicalPath(path: string): string {
   }
 }
 
+/** Headers a reverse proxy adds. `tailscale serve` always sets `X-Forwarded-Host` (and overwrites
+ * any client copy), so a request it fronts can never pass as a direct loopback caller. */
+const FORWARDED_HEADERS = ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"];
+
 /** Public health stays path-free unless this process explicitly opts in on loopback.
- * Use the actual working directory and database config, never a claimed install path. */
-export function localHealthIdentity(config: {
-  host: string;
-  dbPath: string;
-  localSupervision: boolean;
-  localInstanceID: string;
-}) {
+ * A loopback bind is not proof the caller is local: a proxy in front of it (the Mac app's opt-in
+ * `tailscale serve`) delivers every tailnet request over loopback too, so forwarded requests
+ * never see the identity. Use the actual working directory and database config, never a claimed
+ * install path. */
+export function localHealthIdentity(
+  config: {
+    host: string;
+    dbPath: string;
+    localSupervision: boolean;
+    localInstanceID: string;
+  },
+  headers: Headers,
+) {
   if (
     !config.localSupervision ||
     !config.localInstanceID ||
-    !["127.0.0.1", "::1", "localhost"].includes(config.host)
+    !["127.0.0.1", "::1", "localhost"].includes(config.host) ||
+    FORWARDED_HEADERS.some((name) => headers.has(name))
   ) {
     return {};
   }

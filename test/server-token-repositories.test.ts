@@ -374,6 +374,23 @@ test("repo boundary: submit creates work in each granted repo and gates held mov
   expect(deps.store.getHeldTask("held-a")).toBeNull();
 });
 
+test("repo boundary: a dispatch is visible only in its own repository (#2761)", async () => {
+  for (const [id, repoPath] of [
+    ["k-a", a],
+    ["k-b", b],
+  ])
+    deps.store.reserveDispatch({ id: id!, payloadHash: "h", repoPath: repoPath!, now: 1 });
+  const { token } = mint("submit", [a]);
+  // pending with nothing running it in this process → read as interrupted; what matters is reach
+  expect((await request(token, "/api/dispatches/k-a")).status).toBe(200);
+  expect((await request(token, "/api/dispatches/k-b")).status).toBe(404);
+  expect((await request(token, "/api/dispatches/k-b", "DELETE")).status).toBe(404);
+  // An unknown key carries no repository: it 404s on its own, and withdrawing it only reserves it.
+  expect((await request(token, "/api/dispatches/k-unknown")).status).toBe(404);
+  expect((await request(token, "/api/dispatches/k-unknown", "DELETE")).status).toBe(200);
+  expect((await request(token, "/api/dispatches/k-unknown")).status).toBe(200);
+});
+
 test("repo boundary: leading duplicate separators cannot bypass authentication or repository checks", async () => {
   const { token } = mint();
   expect((await request(token, `//api//sessions/${sessions[1]!.id}`)).status).toBe(404);

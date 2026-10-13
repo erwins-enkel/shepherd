@@ -47,6 +47,57 @@ beforeEach(() => {
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
+// #2766: attachments for a connected machine are THIS machine's staged files, checked like any
+// create's — the dispatcher uploads them to the machine.
+test("remote mode checks attachments against this machine's staging", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const shot = join(staging, "a1b2.png");
+  writeFileSync(shot, "png");
+  const base = { repoPath: join(root, "only-on-the-mac"), baseBranch: "main", prompt: "go" };
+  const r = validateCreate({ ...base, images: [shot], attachmentNames: ["shot.png"] }, root, {
+    remote: true,
+  });
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) {
+    expect(r.value.images).toEqual([shot]);
+    expect(r.value.attachmentNames).toEqual(["shot.png"]);
+  }
+  const outside = join(root, "elsewhere.png");
+  writeFileSync(outside, "png");
+  expect(validateCreate({ ...base, images: [outside] }, root, { remote: true })).toEqual({
+    ok: false,
+    error: "attachment must be inside the staging dir",
+  });
+});
+
+// #2763: a task for a connected machine is validated like any create, but the machine checks the
+// paths itself — repoPath only names this machine's checkout of the project.
+test("remote mode confines repoPath without requiring it to exist here", () => {
+  const body = { repoPath: join(root, "only-on-the-mac"), baseBranch: "main", prompt: "go" };
+  expect(validateCreate(body, root)).toEqual({ ok: false, error: "repoPath does not exist" });
+  const r = validateCreate(body, root, { remote: true });
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.repoPath).toBe(body.repoPath);
+  expect(validateCreate({ ...body, repoPath: "/etc" }, root, { remote: true })).toEqual({
+    ok: false,
+    error: "repoPath must be inside the configured repoRoot",
+  });
+});
+
+test("remote mode refuses the clean terminal, and still checks the rest", () => {
+  const base = { repoPath: validRepo, baseBranch: "main", prompt: "go" };
+  expect(validateCreate({ ...base, images: [] }, root, { remote: true }).ok).toBe(true);
+  expect(validateCreate({ repoPath: validRepo, terminal: true }, root, { remote: true }).ok).toBe(
+    false,
+  );
+  expect(validateCreate({ ...base, effort: "huge" }, root, { remote: true }).ok).toBe(false);
+  expect(validateCreate({ ...base, target: { instanceId: "x" } }, root, { remote: true })).toEqual({
+    ok: false,
+    error: "unknown key: target",
+  });
+});
+
 test("valid input returns ok with value", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "do the thing" },
@@ -59,6 +110,29 @@ test("valid input returns ok with value", () => {
     expect(r.value.prompt).toBe("do the thing");
     expect(r.value.model).toBeNull(); // model omitted → null (claude default)
   }
+});
+
+test("validateCreate accepts an explicit full base commit and rejects anything else (#2761)", () => {
+  const ok = (baseCommit: unknown) =>
+    validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go", baseCommit }, root);
+  for (const sha of ["a".repeat(40), "0123456789abcdef".repeat(4)]) {
+    const r = ok(sha);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.value.terminal !== true) expect(r.value.baseCommit).toBe(sha);
+  }
+  // absent / null → unset, so the base is resolved from baseBranch as before
+  const none = ok(null);
+  expect(none.ok && none.value.terminal !== true && none.value.baseCommit).toBeUndefined();
+  for (const bad of ["abc1234", "A".repeat(40), "g".repeat(40), "a".repeat(41), "main", 7]) {
+    expect(ok(bad)).toEqual({
+      ok: false,
+      error: "baseCommit must be a full lowercase hex commit id",
+    });
+  }
+  // the clean-terminal arm has no base at all
+  expect(
+    validateCreate({ repoPath: validRepo, terminal: true, baseCommit: "a".repeat(40) }, root),
+  ).toEqual({ ok: false, error: "unknown key: baseCommit" });
 });
 
 test("validateCreate accepts index-aligned attachment names and visible launch checkbox state", () => {

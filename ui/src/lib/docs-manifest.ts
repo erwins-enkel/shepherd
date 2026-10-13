@@ -30,10 +30,16 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       'the automation-pane settings that let an epic drain end-to-end without operator intervention, and the blockers that will still legitimately stop it. recommended settings plan gate is hands-off-safe — keep it on sign-off authority — leave it on "human" what still stops a hands-off epic starting the epic queueing the next epic how long will this epic take? the epic clock agent time and waiting time how the forecast is built range and confidence why the first estimate is wide the "faster with n slots" hint when the landing pr\'s ci is red',
   },
   {
+    title: "Run tasks on another machine",
+    path: "/machines/",
+    keywords:
+      "connect another shepherd as a machine — linux and macos setup, the automatic choice and waiting tasks, the trust decision, limits and an end-to-end checklist. how it works prepare each machine make it reachable in your tailnet create a token on the machine connect it start a task on a machine automatic choice platform order waiting tasks when nothing starts work with its sessions the trust decision limits windows: modeled, not released test a branch on two machines check a two-machine setup end to end xcode missing on purpose lose an answer on purpose",
+  },
+  {
     title: "Operating Shepherd",
     path: "/operating/",
     keywords:
-      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service restart from the ui if the hud freezes expose it over the network deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit operator assistant open it what it reads the approval model when herdr is down new conversation",
+      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service restart from the ui if the hud freezes expose it over the network connect another machine deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit operator assistant open it what it reads the approval model when herdr is down new conversation",
   },
   {
     title: "CI Watch",
@@ -81,13 +87,13 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "External Task API",
     path: "/reference/external-task-api/",
     keywords:
-      "submit tasks to shepherd from external agents over plain http. tl;dr why no new endpoint is needed cors / csrf does not block programmatic clients what actually gates access recommended setup for a remote agent copy instructions for another agent repository grants and changes request schema responses watching and cancelling a slow start usage-aware hold gate steering and ending a task exporting a whole session by task-id gaps are marked, never silent",
+      "submit tasks to shepherd from external agents over plain http. tl;dr why no new endpoint is needed cors / csrf does not block programmatic clients what actually gates access recommended setup for a remote agent copy instructions for another agent repository grants and changes request schema responses watching and cancelling a slow start idempotent submission (idempotency-key) running on a connected machine (target) automatic choice waiting for a machine requirements from the task usage-aware hold gate steering and ending a task exporting a whole session by task-id gaps are marked, never silent",
   },
   {
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",

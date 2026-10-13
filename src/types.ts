@@ -4,6 +4,8 @@ import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
 import type { TaskAmendment } from "./task-amendments";
+import type { Capability } from "./remote-instances/capabilities";
+import type { Placement } from "./remote-instances/placement";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -37,6 +39,10 @@ export interface Session {
   prompt: string;
   repoPath: string;
   baseBranch: string;
+  /** The commit the session's worktree was actually created from (#2761) — its HEAD right after
+   *  `git worktree add`, before the agent commits anything. null for a non-git repo, a clean
+   *  terminal, or a row that predates the column. Optional so pre-existing fixtures need no change. */
+  baseCommit?: string | null;
   branch: string | null; // null when cwd fallback
   worktreePath: string;
   isolated: boolean;
@@ -308,6 +314,8 @@ export interface SessionLaunchMetadata {
     egressDegraded: boolean;
   };
   agent: { provider: AgentProvider; model: string | null; effort: string | null };
+  /** #2772: where the task was placed and why; absent when no machine choice was made. */
+  placement?: Placement;
 }
 
 /**
@@ -330,6 +338,10 @@ export interface StandardCreateInput {
   terminal?: false;
   repoPath: string;
   baseBranch: string;
+  /** An explicitly requested base commit (full hex sha, #2761). When set the worktree is created
+   *  at exactly this commit — never freshened to `baseBranch`'s upstream tip; `baseBranch` stays
+   *  the PR target. Absent → the base is resolved from `baseBranch` as usual. */
+  baseCommit?: string;
   prompt: string;
   agentProvider?: AgentProvider;
   model: string | null; // null = provider default (no --model flag)
@@ -363,6 +375,13 @@ export interface StandardCreateInput {
   plain?: boolean;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
+  /** #2770: capabilities this instance must have — sorted, deduplicated, never empty. Checked by a
+   *  fresh probe when POST /api/sessions accepts the request; the spawn itself ignores them. */
+  requirements?: Capability[];
+  /** #2772: where this task was placed and why — the record of the Shepherd that chose the machine
+   *  (this one, or a coordinator that sent it here). Display only: it never decides where a task
+   *  runs. Absent while no machine is connected. Lands in `launchMetadata.placement`. */
+  placement?: Placement;
   /** #2225: standing operator task amendments CARRIED from a session this spawn continues
    *  (relaunch / provider replace). ARGV-ONLY — folded into the spawn prompt by
    *  `composePromptArg` and never persisted: the rows are copied separately, and baking them into
@@ -1429,6 +1448,25 @@ export interface SessionPreviewState {
   serve?: "ok" | "failed";
 }
 
+/** Why a session's preview is not reachable from other devices (#2767). `not_served`: this
+ *  instance has no tailnet name, so its previews stay on loopback; `serve_denied`: tailscale
+ *  refused it the serve configuration; `serve_failed`: this slot's mapping failed; `serve_pending`:
+ *  the mapping has not settled yet. */
+export type PreviewUnavailable = "not_served" | "serve_denied" | "serve_failed" | "serve_pending";
+
+/**
+ * Where a session's preview can be opened, as the instance RUNNING the session sees it (#2767) —
+ * `GET /api/sessions/:id/preview`, which a coordinator forwards for a session mirrored from a
+ * connected machine. The instance builds `url` from its own tailnet host and its own slot, so no
+ * other Shepherd ever has to interpret its port. `unavailable` may be set while nothing is bound:
+ * an instance that cannot publish previews at all says so before one is started.
+ */
+export interface PreviewReach {
+  bound: boolean;
+  url: string | null;
+  unavailable: PreviewUnavailable | null;
+}
+
 /** Emitted by TailscaleServeService when a slot's `tailscale serve` mapping
  *  settles. Distinct from SessionPreviewEvent to avoid a register/emit feedback
  *  loop. serve: "ok"|"failed" after register, null after release. */
@@ -1579,6 +1617,35 @@ export interface HeldTask {
   /** Hold reason: `'usage'` = usage-gate hold; `'capacity'` = plugin-refused (no account). */
   reason: "usage" | "capacity";
 }
+
+/** Outcome states of a keyed submission (#2761, `src/dispatch.ts`). */
+export const DISPATCH_STATES = ["pending", "started", "held", "failed"] as const;
+export type DispatchState = (typeof DISPATCH_STATES)[number];
+
+/** One `Idempotency-Key` submission of `POST /api/sessions`, persisted before anything runs. */
+export interface DispatchRecord {
+  id: string;
+  state: DispatchState;
+  /** sha256 of the canonical request body; null for an id cancelled before it ever arrived. */
+  payloadHash: string | null;
+  repoPath: string | null;
+  sessionId: string | null;
+  heldId: string | null;
+  /** Why a `failed` dispatch failed (the create's error text). */
+  reason: string | null;
+  /** Machine-readable failure code, when there is one. */
+  code: string | null;
+  /** HTTP status the failed create answered, replayed to a retry. */
+  httpStatus: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** How a settled dispatch ended — the fields `settleDispatch` writes over a `pending` row. */
+export type DispatchOutcome = Pick<
+  DispatchRecord,
+  "state" | "sessionId" | "heldId" | "reason" | "code" | "httpStatus"
+>;
 
 // ── per-session usage snapshot ────────────────────────────────────────────────
 

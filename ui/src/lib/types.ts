@@ -177,6 +177,127 @@ export interface AccessToken {
  *  Duplicated by hand because `ui/` cannot import from the server package. */
 export type TokenScope = "read" | "submit" | "full";
 
+/** This Shepherd's identity as other machines see it (`GET /api/instance`, #2759). Mirrors
+ *  `InstanceIdentity` in src/remote-instances/identity.ts. `platform` is linux | macos | windows,
+ *  or the raw host platform for anything else. */
+export interface InstanceIdentity {
+  instanceId: string;
+  name: string;
+  version: string;
+  federationApi: number;
+  platform: string;
+  arch: string;
+  /** Last capability probe (#2770); null before the first one, absent from older servers. */
+  capabilities?: CapabilityReport | null;
+}
+
+/** Mirrors CapabilityCheck in src/remote-instances/capabilities.ts (#2770). `id` is a vocabulary
+ *  entry (`agent:claude`, `android-sdk`, …); `reason` a machine code, null when `ok`; `detail` the
+ *  language-neutral version the machine found (`16.4 (16F6)` for Xcode, #2771), if any. */
+export interface CapabilityCheck {
+  id: string;
+  ok: boolean;
+  reason: string | null;
+  detail?: string | null;
+}
+
+/** What a Shepherd verified it can run: one check per vocabulary entry, with the probe's age and
+ *  the server's stale verdict at response time. */
+export interface CapabilityReport {
+  vocabulary: number;
+  probedAt: number;
+  ageMs: number;
+  stale: boolean;
+  checks: CapabilityCheck[];
+}
+
+/** Mirrors RemoteInstanceStatus in src/remote-instances/service.ts. */
+export type RemoteInstanceStatus =
+  "checking" | "connected" | "unreachable" | "unauthorized" | "incompatible" | "identity_mismatch";
+
+/** A connected machine as the server reports it (#2759) — never the token itself. */
+export interface RemoteInstance {
+  instanceId: string;
+  /** `label` when set, else `reportedName`. */
+  name: string;
+  label: string | null;
+  reportedName: string;
+  url: string;
+  /** Last 4 token characters, matching the target's access-token list; null for short tokens. */
+  tokenHint: string | null;
+  createdAt: number;
+  status: RemoteInstanceStatus;
+  /** Machine code refining a non-connected status (timeout, token_restricted, api_version, …). */
+  reason: string | null;
+  checkedAt: number | null;
+  /** Last successful check; `info` and `projects` come from it. */
+  lastSeenAt: number | null;
+  info: { version: string; federationApi: number; platform: string; arch: string } | null;
+  /** Forge slugs (`owner/repo`) of the machine's checkouts. */
+  projects: string[] | null;
+  /** The machine's verified capabilities from the last successful check; null if none reported. */
+  capabilities: CapabilityReport | null;
+  /** False for platforms not cleared to run tasks (Windows) and while the platform is unknown. */
+  released: boolean;
+}
+
+/** Where a task was placed and why (#2772) — mirrors `Placement` in
+ *  src/remote-instances/placement.ts. Language-neutral; `#lib/placement.ts` puts it into words. */
+export interface Placement {
+  mode: "auto" | "manual";
+  target: SessionHost;
+  requirements: string[];
+  /** What decided: the operator, the requirements (one platform fits), the platform order (several
+   *  fit, `preferred` set) or that only one machine can run the task. */
+  basis: "manual" | "requirements" | "preference" | "only_candidate";
+  preferred: string | null;
+  /** The Shepherd that decided. */
+  by: { instanceId: string; name: string };
+  decidedAt: number;
+}
+
+/** Why the create would refuse a task (#2772): its `code` and `error`, plus the fields that code
+ *  carries — `missing` (capabilities, or `{capability, reason}` for a named machine), `together`,
+ *  `elsewhere`, `host`, `reason`. */
+export interface PlacementRefusal {
+  code: string;
+  error: string;
+  host?: SessionHost;
+  missing?: (string | { capability: string; reason: string })[];
+  together?: boolean;
+  elsewhere?: SessionHost[];
+  reason?: string;
+}
+
+/** The machine a task is meant for is out of reach (#2775): the task would wait for it. `status`
+ *  says why; `alternatives` fit too and are a manual choice away. */
+export interface PlacementWait {
+  status: string;
+  alternatives: SessionHost[];
+}
+
+/** `POST /api/placement` (#2772): not active (no machine could take a task), or the machine and
+ *  why — with `wait` when that machine is out of reach (#2775) — or the refusal.
+ *  `deriveRequirements` (#2773): reading the task's requirements from its description can change
+ *  where it runs. */
+export interface PlacementPreview {
+  active: boolean;
+  placement?: Placement;
+  wait?: PlacementWait;
+  refusal?: PlacementRefusal;
+  deriveRequirements?: boolean;
+}
+
+/** `POST /api/requirements/derive` (#2773) — mirrors `RequirementsDerivation` in
+ *  src/requirements-classify-core.ts. Language-neutral: requirements, or the alternatives to ask
+ *  about, never prose. `status` is open: an unknown one reads as nothing derived. */
+export interface RequirementsDerivation {
+  status: "skipped" | "derived" | "unclear" | "failed" | (string & {});
+  requirements?: string[];
+  options?: string[][];
+  cause?: string;
+}
+
 export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;
@@ -194,6 +315,9 @@ export interface Settings {
   /** Auto-revive stranded default-account sessions after a herdr daemon restart (#1630); opt-in
    *  (default off). */
   autoReviveEnabled: boolean;
+  /** The platform order the machine choice ranks fitting machines by (#2772), Linux first by
+   *  default; this instance's own. Absent from older servers. */
+  machinePlatformOrder?: string[];
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
@@ -1572,6 +1696,104 @@ export interface Session {
    *  Gates the Files tab. Not persisted — folded into the /api/sessions payload + session:status
    *  (idle/done) push; absent (undefined) on partial pushes that don't recompute it. */
   hasScratchpadFiles?: boolean;
+  /** Set only on a session mirrored from a connected machine (#2762) — a read-only reference
+   *  whose actions are not offered here. Absent on this instance's own sessions. */
+  host?: SessionHost;
+  /** The link to `host`; present exactly when `host` is. */
+  connection?: SessionConnection;
+  /** The commit the worktree was actually created on (#2761); absent on rows that predate it. */
+  baseCommit?: string | null;
+}
+
+/** The connected machine a mirrored session runs on (#2762). `name` is unique among machines. */
+export interface SessionHost {
+  instanceId: string;
+  name: string;
+  platform: string;
+}
+
+/** `disconnected` keeps the session with its last known state; `since` is when the state began
+ *  (for `disconnected`: when the shown data was last current). */
+export interface SessionConnection {
+  state: "connected" | "disconnected";
+  since: number;
+}
+
+/** `GET /api/sessions/:id/preview` (#2767): where a session's preview opens, as the instance
+ *  running it answers — for a mirrored session, the machine, through this server. `url` names that
+ *  instance's own tailnet host and slot; `unavailable` says why there is none (also while nothing
+ *  is bound, when the instance cannot publish previews at all). */
+export interface PreviewReach {
+  bound: boolean;
+  url: string | null;
+  unavailable: "not_served" | "serve_denied" | "serve_failed" | "serve_pending" | null;
+}
+
+/** One connected machine's part of a collective action (#2765). `ok: false` = it gave no usable
+ *  answer (`reason` says why), so its sessions are not covered by the result. */
+export interface MachineOutcome {
+  instanceId: string;
+  name: string;
+  ok: boolean;
+  reason?: string;
+}
+
+/** `GET /api/sessions/clear-merged`: the merged sessions here and on every machine that answered. */
+export interface ClearMergedPreview {
+  ids: string[];
+  leftovers: number;
+  /** Leftover count per merged id, so the modal can total just the subset it clears. */
+  leftoversById: Record<string, number>;
+  probesUnavailable: boolean;
+  machines: (MachineOutcome & { ids: string[] })[];
+}
+
+/** `POST /api/sessions/clear-merged`. `partial` = a machine gave no usable answer. */
+export interface ClearMergedResult {
+  cleared: string[];
+  leftovers: number;
+  partial: boolean;
+  machines: (MachineOutcome & { requested: string[]; cleared: string[] })[];
+}
+
+/** A task sent to a connected machine (#2774), mirrors RemoteDispatchView in
+ *  src/remote-instances/dispatch.ts. The herd shows it while `unknown` (no answer came back, it may
+ *  be running there) or `canceling`; every other state means it was settled. */
+export interface RemoteDispatch {
+  id: string;
+  state:
+    | "sending"
+    | "unknown"
+    | "canceling"
+    | "started"
+    | "held"
+    | "rejected"
+    | "upload_failed"
+    | "canceled"
+    | "waiting"
+    | "redirected";
+  host: SessionHost;
+  /** The issue title, else the prompt's first line. */
+  summary: string;
+  sessionId?: string;
+  heldId?: string;
+  reason?: string;
+  code?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Waiting only (#2775): why it is meant for `host`, how far `host` is from taking it now, and
+   *  the connected machines — this one included — it could run on now. */
+  placement?: Placement;
+  readiness?: DispatchReadiness;
+  alternatives?: SessionHost[];
+}
+
+/** How far the machine a waiting task is meant for is from taking it (#2775). */
+export interface DispatchReadiness {
+  state: "offline" | "unreleased" | "project_missing" | "missing_capabilities" | "ready";
+  /** offline: why — a connection status or an unreachable reason code. */
+  status?: string;
+  missing?: { capability: string; reason: string }[];
 }
 
 /** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
@@ -2632,6 +2854,11 @@ export type WsEvent =
       };
     }
   | { event: "session:archived"; data: { id: string } }
+  /** Replaces every session mirrored from one machine (#2762): after each snapshot, on a
+   *  connection change, and with `[]` when the machine is removed. */
+  | { event: "remote:sessions"; data: { instanceId: string; sessions: Session[] } }
+  /** A task sent to a machine that no machine had confirmed changed state (#2774). */
+  | { event: "remote:dispatch"; data: RemoteDispatch }
   | {
       event: "session:experiment";
       data: { id: string; experimentId: string | null; experimentRole: ExperimentRole | null };
@@ -2806,6 +3033,8 @@ export interface SessionLaunchMetadata {
     egressDegraded: boolean;
   };
   agent: { provider: AgentProvider; model: string | null; effort: string | null };
+  /** Where the task was placed and why (#2772); absent when no machine choice was made. */
+  placement?: Placement;
 }
 
 /** Create input mirrors the server's discriminated union (src/types.ts): the terminal arm has
@@ -2838,6 +3067,11 @@ export interface StandardCreateInput {
   epicAuthoring?: boolean; // epic-authoring task kind; absent → false (guided EPIC-draft shaping)
   plain?: boolean; // plain task kind; absent → false (agent without guards)
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
+  /** The machine to run on (#2763), overriding the automatic choice (#2772); absent → chosen by
+   *  the server while a machine is connected, else this machine. */
+  target?: { instanceId: string };
+  /** Capabilities the machine that runs it must have (#2770); the choice honours them (#2772). */
+  requirements?: string[];
 }
 
 /** A task that was held (not immediately spawned) because usage was too high.
@@ -2854,6 +3088,11 @@ export interface HeldResult {
   held: true;
   id: string;
   count: number;
+  /** Set when the task was held on a connected machine (#2763) — `id`/`count` are that machine's. */
+  host?: SessionHost;
+  /** The task waits here for `host`, which is out of reach (#2775); `dispatch` is that wait. */
+  waiting?: true;
+  dispatch?: RemoteDispatch;
 }
 
 /** Selectable Claude model aliases; null = Claude's own default.

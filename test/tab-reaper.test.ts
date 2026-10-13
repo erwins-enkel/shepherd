@@ -856,6 +856,8 @@ describe("isShepherdHelperLabel", () => {
     ["recommend TASK-09", "prompt recommender"],
     // #2158: New Task shaping round — no session yet, so the label carries a random suffix
     ["shape a1b2c3d4", "New Task shaping round"],
+    // #2773: New Task requirements reader — no session yet either
+    ["requirements a1b2c3d4", "New Task requirements reader"],
     // #2157: maintain-loop diagnosis — same class; unregistered, a restart mid-diagnosis left an
     // unattended agent in a tab no reaper could reach.
     [MAINTAIN_AGENT_LABEL, "maintain diagnosis bare prefix (underscore marker)"],

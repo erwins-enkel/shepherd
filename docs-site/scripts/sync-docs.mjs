@@ -79,6 +79,15 @@ export const PAGES = [
     description: "Submit tasks to Shepherd from external agents over plain HTTP.",
   },
   {
+    // A guide, not a reference page: listed under Guides next to "Operating Shepherd".
+    srcDir: "docs",
+    src: "machines.md",
+    dest: "machines.md",
+    linkBase: GITHUB_DOCS_BASE,
+    title: "Run tasks on another machine",
+    description: "Connect another Shepherd as a machine — Linux and macOS setup, the automatic choice and waiting tasks, the trust decision, limits and an end-to-end checklist.",
+  },
+  {
     srcDir: "docs",
     src: "cli.md",
     dest: "reference/shepherd-cli.md",

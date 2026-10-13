@@ -33,9 +33,19 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
   /// into the generated schema — without adding a case to `EventName` and the
   /// exhaustive switch below, which every stream would then have to edit.
   case unknown(name: String, payload: Data?)
+  /// A `session:*` frame about a session mirrored from a connected machine (#2762): the
+  /// coordinator relays that machine's own frame with `host` and `connection` added. `event` is
+  /// the frame decoded exactly as any other. `SessionStore` applies it to `remoteSessions` and
+  /// hands it to no tap, so nothing that acts on this server's own sessions sees a remote id.
+  indirect case mirrored(host: SessionHost, event: ServerEvent)
 
   private enum CodingKeys: String, CodingKey {
     case event, data
+  }
+
+  /// Only what tells a mirrored frame apart — the frame's own schema still decodes it.
+  private struct MirrorMark: Decodable {
+    let host: SessionHost
   }
 
   public init(from decoder: any Decoder) throws {
@@ -88,6 +98,11 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
         ?? .unknown(name: name.rawValue, payload: rawPayload())
     case nil:
       self = .unknown(name: name.rawValue, payload: rawPayload())
+    }
+
+    if name.rawValue.hasPrefix("session:"),
+       let mark = try? container.decode(MirrorMark.self, forKey: .data) {
+      self = .mirrored(host: mark.host, event: self)
     }
   }
 }

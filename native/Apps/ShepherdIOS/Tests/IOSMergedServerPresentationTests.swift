@@ -137,4 +137,87 @@ final class IOSMergedServerPresentationTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Sessions mirrored from connected machines (#2768)
+
+    private func mirrored(_ id: String, machine: String = "mac-id", name: String = "MacBook",
+                          repo: String = "/repos/app", connected: Bool = true) -> Session {
+        var copy = session(id, created: 5, repo: repo)
+        copy.host = SessionHost(instanceId: machine, name: name, platform: InstancePlatform(known: .macos))
+        copy.connection = SessionConnection(state: .init(known: connected ? .connected : .disconnected), since: 1)
+        return copy
+    }
+    private func shownIDs(_ merged: IOSMergedSessionPresentation.Snapshot) -> [String] {
+        (merged.epicGroups.flatMap(\.rows) + merged.groups.flatMap(\.rows) + merged.machines.flatMap(\.rows))
+            .map(\.session.id)
+    }
+
+    func testAMacSessionAppearsOnceWhenTheCoordinatorAndTheMacBookAreBothConnected() {
+        let linux = profile("coordinator"), mac = profile("macbook")
+        var coordinator = source(linux, sessions: [session("l1", created: 10)])
+        coordinator.instanceID = "linux-id"
+        coordinator.remote = [mirrored("m1")]
+        var macbook = source(mac, sessions: [session("m1", created: 20)])
+        macbook.instanceID = "mac-id"
+        for order in [[coordinator, macbook], [macbook, coordinator]] {
+            let merged = IOSMergedSessionPresentation.merge(order, selectedRepos: [])
+            XCTAssertEqual(shownIDs(merged).filter { $0 == "m1" }.count, 1)
+            // Shown through its owner's own connection, not the coordinator's mirror.
+            XCTAssertEqual(merged.groups.flatMap(\.rows).first { $0.session.id == "m1" }?.profile.id, mac.id)
+            XCTAssertTrue(merged.machines.isEmpty)
+            XCTAssertEqual(merged.tallies.total, 2)
+        }
+        // Before the MacBook's /api/instance answers, its own copy still stands in for the mirror.
+        macbook.instanceID = nil
+        let early = IOSMergedSessionPresentation.merge([coordinator, macbook], selectedRepos: [])
+        XCTAssertEqual(shownIDs(early).filter { $0 == "m1" }.count, 1)
+        XCTAssertTrue(early.machines.isEmpty)
+    }
+
+    func testTheCoordinatorAloneShowsTheMacSessionInItsMachineGroup() {
+        let linux = profile("coordinator")
+        var coordinator = source(linux, sessions: [session("l1", created: 10, repo: "/repos/app")])
+        coordinator.instanceID = "linux-id"
+        coordinator.remote = [mirrored("m1", repo: "/Users/me/app"),
+            mirrored("b1", machine: "box-id", name: "Box", connected: false)]
+        // The repo filter names this server's checkouts; it never hides another machine's work.
+        let merged = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: ["/repos/app"])
+        XCTAssertEqual(merged.machines.map(\.id), ["mac-id", "box-id"])
+        XCTAssertEqual(merged.machines[0].rows.map(\.session.id), ["m1"])
+        XCTAssertEqual(merged.machines[0].rows.first?.profile.id, linux.id)
+        XCTAssertEqual(merged.machines[1].connection.state.known, .disconnected)
+        XCTAssertEqual(merged.groups.flatMap(\.rows).map(\.session.id), ["l1"])
+        XCTAssertEqual(merged.tallies.total, 1)
+        XCTAssertEqual(merged.chips.map(\.name), ["app"])
+        XCTAssertEqual(merged.chips.map(\.paths), [["/repos/app"]])
+    }
+
+    func testOneSessionMirroredByTwoCoordinatorsOrServedUnderTwoProfilesAppearsOnce() {
+        var a = source(profile("a"), sessions: [])
+        a.instanceID = "a-id"
+        a.remote = [mirrored("m1")]
+        var b = source(profile("b"), sessions: [])
+        b.instanceID = "b-id"
+        b.remote = [mirrored("m1")]
+        XCTAssertEqual(shownIDs(IOSMergedSessionPresentation.merge([a, b], selectedRepos: [])), ["m1"])
+
+        let first = profile("tailnet"), second = profile("lan")
+        var viaTailnet = source(first, sessions: [session("s1", created: 1)])
+        viaTailnet.instanceID = "same-id"
+        var viaLAN = source(second, sessions: [session("s1", created: 1)])
+        viaLAN.instanceID = "same-id"
+        let merged = IOSMergedSessionPresentation.merge([viaTailnet, viaLAN], selectedRepos: [])
+        XCTAssertEqual(shownIDs(merged), ["s1"])
+        XCTAssertEqual(merged.groups.first?.rows.first?.profile.id, first.id)
+        XCTAssertEqual(merged.tallies.total, 1)
+    }
+
+    func testAMirroredCardNamesItsMachineAndTheLostLink() {
+        let card = IOSSessionListPresentation.card(mirrored("m1", connected: false),
+            displayed: mirrored("m1", connected: false), now: 1_800_000_000_000)
+        XCTAssertTrue(card.metadata.hasPrefix("MacBook · TASK-m1"))
+        XCTAssertEqual(card.badges.first?.id, "machine")
+        XCTAssertEqual(card.badges.first?.text, "⚠ MacBook")
+        XCTAssertEqual(card.summary, RemoteSessionCopy.disconnectedLine(mirrored("m1", connected: false), now: 1_800_000_000_000))
+    }
 }

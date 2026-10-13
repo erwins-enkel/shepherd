@@ -16,7 +16,10 @@ struct SessionDetailView: View {
         // `model.store` is non-nil for every render inside `MainWindow`, which is
         // mounted only while a store exists; the nil branch is the same "nothing
         // selected" state as before.
-        if let session, let store = model.store {
+        if let session, let store = model.store, RemoteSessionCopy.isMirrored(session) {
+            // A session on a connected machine: none of the tabs' per-session reads exist for it.
+            RemoteSessionDetailView(session: session, store: store)
+        } else if let session, let store = model.store {
             VStack(alignment: .leading, spacing: 16) {
                 header(session)
                 tabs(session, store)
@@ -82,6 +85,10 @@ struct SessionDetailView: View {
             Text(verbatim: session.desig).font(.title3.monospaced().weight(.semibold))
             Text(verbatim: session.name).font(.title3)
                 .lineLimit(1)
+            // Why it runs here (#2776): only when a machine choice was made.
+            if let placement = session.launchMetadata?.placement {
+                PlacementReason(placement: placement).font(.caption)
+            }
             Spacer()
             if let plan = model.extension(PlanModel.self) {
                 PlanGateBadgeView(session: session, model: plan)

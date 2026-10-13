@@ -67,7 +67,7 @@ struct SessionListView: View {
         }
         .onChange(of: selectionIDs) { _, _ in
             for owner in hub?.connected ?? [app] {
-                owner.reconcileSelection(against: (owner.store?.sessions.map(\.id) ?? []) + (owner.extension(QueuesModel.self)?.finishedSessions.map(\.id) ?? []))
+                owner.reconcileSelection(against: Self.listedSessions(of: owner).map(\.id))
             }
         }
     }
@@ -86,7 +86,8 @@ struct SessionListView: View {
         let profile = app.activeProfile ?? ServerProfile(id: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, name: "", baseURL: URL(string: "https://fixture.invalid")!, mode: .remote, credentialKey: "fixture")
         return IOSMergedSessionPresentation.merge([.init(profile: profile, groups: model.groups,
             sessions: app.store?.sessions ?? model.sessions, rendered: (app.store?.sessions ?? model.sessions).map(model.rendered),
-            git: herd?.git ?? [:], finished: queues?.finishedSessions ?? [], owed: merge?.snapshot.owed ?? [])], selectedRepos: model.activeRepos)
+            git: herd?.git ?? [:], finished: queues?.finishedSessions ?? [], owed: merge?.snapshot.owed ?? [],
+            remote: app.store?.remoteSessions ?? [])], selectedRepos: model.activeRepos)
     }
     private func setLens(_ value: HerdLens) { if let hub { hub.setLens(value) } else { model.lens = value } }
     private func toggleRepo(_ paths: Set<String>) {
@@ -102,9 +103,18 @@ struct SessionListView: View {
     }
     private var owed: [PostMergeSteps] { presentation.owed.map(\.record) }
     private var selectionIDs: [String] {
-        (hub?.connected ?? [app]).flatMap { owner in
-            (owner.store?.sessions.map { "\(ObjectIdentifier(owner))-\($0.id)" } ?? []) + (owner.extension(QueuesModel.self)?.finishedSessions.map { "\(ObjectIdentifier(owner))-\($0.id)" } ?? [])
+        (hub?.connected ?? [app]).flatMap { owner -> [String] in
+            let prefix = "\(ObjectIdentifier(owner))-"
+            return Self.listedSessions(of: owner).map { prefix + $0.id }
         }
+    }
+    /// Every session a server lists: its own, those it mirrors from connected machines (#2768)
+    /// and its finished ones.
+    private static func listedSessions(of owner: AppModel) -> [Session] {
+        var sessions: [Session] = owner.store?.sessions ?? []
+        sessions += owner.store?.remoteSessions ?? []
+        sessions += owner.extension(QueuesModel.self)?.finishedSessions ?? []
+        return sessions
     }
 
     private func content(now: Int) -> some View {
@@ -141,7 +151,8 @@ struct SessionListView: View {
                 }
                 switch lens {
                 case .all, .ready:
-                    if groups.isEmpty, snapshot.epicGroups.isEmpty, hub?.hasLoadedList ?? (app.store?.connection == .live) {
+                    if groups.isEmpty, snapshot.epicGroups.isEmpty, lens != .all || snapshot.machines.isEmpty,
+                       hub?.hasLoadedList ?? (app.store?.connection == .live) {
                         empty(SidebarCopy.empty(lens: lens, repos: activeRepos))
                     }
                     ForEach(snapshot.epicGroups) { group in
@@ -160,6 +171,13 @@ struct SessionListView: View {
                         }
                         if group.stage == .active || !collapsedStages.contains(group.stage) {
                             ForEach(group.rows) { row in card(row, showCli: showCli, now: now) }
+                        }
+                    }
+                    // Sessions of connected machines, after the servers' own (All lens, #2768).
+                    if lens == .all {
+                        ForEach(snapshot.machines) { machine in
+                            machineHeader(machine)
+                            ForEach(machine.rows) { row in mirroredCard(row, now: now) }
                         }
                     }
                 case .done:
@@ -444,6 +462,39 @@ struct SessionListView: View {
                 refreshError = "\(L.t("toast_clear_merged_failed")): \(ShepherdErrorCopy.message(error))"
             }
         }
+    }
+
+    /// One connected machine: its name, platform and the state of the link.
+    private func machineHeader(_ machine: IOSMergedSessionPresentation.MachineGroup) -> some View {
+        let offline = RemoteSessionCopy.isDisconnected(machine.connection)
+        return HStack(spacing: 10) {
+            Text(verbatim: machine.host.name).foregroundStyle(SessionListStyle.ink)
+            Text(verbatim: RemoteSessionCopy.platformName(machine.host.platform).uppercased())
+                .foregroundStyle(SessionListStyle.slate)
+            Spacer(minLength: 0)
+            Text(verbatim: RemoteSessionCopy.stateLabel(machine.connection).uppercased())
+                .foregroundStyle(offline ? SessionListStyle.amber : SessionListStyle.slate)
+        }
+        .sessionFont(label: true, weight: .semibold)
+        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel(L.t("remote_group_aria", machine.host.name))
+        .accessibilityIdentifier("herd-machine-\(machine.host.instanceId)")
+        .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
+    }
+
+    /// A session mirrored from a connected machine: read-only, so no swipe actions and none of
+    /// this server's per-session signals.
+    private func mirroredCard(_ row: IOSMergedSessionPresentation.Row, now: Int) -> some View {
+        let app = hub?.models[row.profile.id] ?? app
+        return SessionCardView(card: IOSSessionListPresentation.card(row.session, displayed: row.session, now: now),
+            selected: app.selectedSessionID == row.session.id,
+            serverName: IOSMergedSessionPresentation.serverHint(row.profile, connectedCount: hub?.connected.count ?? 1),
+            rowID: (hub?.connected.count ?? 1) > 1 ? "\(row.profile.id)-\(row.session.id)" : nil) { selectRow(row.id) }
+            .environment(app)
+            .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
+            .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
     }
 
     private func empty(_ text: String) -> some View {

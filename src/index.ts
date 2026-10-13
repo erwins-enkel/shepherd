@@ -56,6 +56,12 @@ import { SessionService } from "./service";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import { AccessTokenService } from "./access-tokens";
+import { CapabilityService } from "./remote-instances/capability-probe";
+import { RemoteInstanceService } from "./remote-instances/service";
+import { RemoteSessionMirror } from "./remote-instances/sessions";
+import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
+import { instanceIdentity } from "./remote-instances/identity";
+import { localMachine } from "./remote-instances/placement";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
@@ -143,6 +149,7 @@ import { isRelevanceMode } from "./house-rules-relevance";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
+import { deriveRequirementsViaAgent, REQUIREMENTS_LABEL } from "./requirements-llm";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
@@ -676,9 +683,10 @@ function startBackground(): void {
   for (const start of deferredStarts) start();
 }
 
-// drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL
+// drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL — not
+// the attachments of a task still waiting for its machine (#2775), uploaded only once it is sent
 deferredStarts.push(() => {
-  sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
+  sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now(), waitingAttachments(store));
 });
 const herdr: IHerdrDriver = await selectHerdrDriver();
 const herdrSocketActive = herdr instanceof SocketHerdrDriver;
@@ -1068,6 +1076,38 @@ const repoConfigSvc = new RepoConfigService(store);
 // SQLite BEFORE the first request reaches checkAuth, and so the auth gate and the management
 // routes share one instance — a revocation through the routes must invalidate the gate's map.
 const accessTokenSvc = new AccessTokenService(store);
+// Connected machines (#2759): the periodic probe is a background subsystem, so it waits for the
+// first-run gate like the others. No machine connected ⇒ every round is a no-op without a request.
+const remoteInstances = new RemoteInstanceService({ store });
+deferredStarts.push(() => remoteInstances.start());
+// Their sessions (#2762) follow each machine's probe: a connected probe opens (or re-snapshots) the
+// mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
+const remoteSessions = new RemoteSessionMirror({ store, instances: remoteInstances });
+remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
+// Tasks sent to them (#2763). A dispatch whose start is unknown (#2774) is reconciled after every
+// probe that finds its machine connected — on reconnect, after this restart, and each round; a task
+// waiting for its machine (#2775) is sent then, and one held there is followed up. `here` is this
+// Shepherd as the machine choice sees it: what a waiting task could run on instead.
+const remoteDispatch = new RemoteDispatcher({
+  store,
+  instances: remoteInstances,
+  events,
+  here: () => localMachine(instanceIdentity(store), capabilities.report()),
+});
+remoteInstances.onChange((instanceId) => {
+  remoteDispatch
+    .reconcile(instanceId)
+    .catch((err: unknown) =>
+      console.warn(
+        "[remote-dispatch] reconcile failed:",
+        err instanceof Error ? err.message : String(err),
+      ),
+    );
+});
+// Verified capabilities (#2770): local probes only (no outbound connection), every 5 minutes once
+// the first-run gate opens. GET /api/instance serves the result; creates with requirements re-probe.
+const capabilities = new CapabilityService();
+deferredStarts.push(() => capabilities.start());
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -3027,6 +3067,7 @@ deferredStarts.push(() => {
   void reapTransientByLabel(herdr, VERIFY_KEY_LABEL, new Set(), "[verify-key]");
   void reapTransientByLabel(herdr, RECOMMEND_LABEL, new Set(), "[recommend]");
   void reapTransientByLabel(herdr, SHAPE_LABEL, new Set(), "[shape]");
+  void reapTransientByLabel(herdr, REQUIREMENTS_LABEL, new Set(), "[requirements]");
 });
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
@@ -3950,6 +3991,10 @@ const appDeps: AppDeps = {
   learnings: learningsSvc,
   repoConfig: repoConfigSvc,
   accessTokens: accessTokenSvc,
+  remoteInstances,
+  remoteSessions,
+  remoteDispatch,
+  capabilities,
   events,
   pluginRegistry,
   pluginsDir: config.pluginsDir,
@@ -3994,7 +4039,10 @@ const appDeps: AppDeps = {
     snapshot: () => previewService.snapshot(),
     devPortFor: (id) => previewService.devPortFor(id),
   },
-  previewServe: { snapshot: () => tailscaleServe.snapshot() },
+  previewServe: {
+    snapshot: () => tailscaleServe.snapshot(),
+    permissionDenied: () => tailscaleServe.permissionDenied(),
+  },
   push,
   apnsSettings,
   presence,
@@ -4145,6 +4193,17 @@ const appDeps: AppDeps = {
       },
       { herdr },
     ),
+  // New Task reads a task's requirements from its description (#2773) on the autopilot
+  // classifier's role CLI and model — the seam it reuses. No session exists yet, so the label
+  // carries a random suffix (the tab reaper knows the prefix).
+  deriveTaskRequirements: (task, signal) => {
+    const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
+    return deriveRequirementsViaAgent(
+      task,
+      { herdr, provider: env.provider, model: env.model, effort: env.effort, signal },
+      `${REQUIREMENTS_LABEL}${randomUUID().slice(0, 8)}`,
+    );
+  },
 };
 
 // Load server-side plugins ONCE, now that every core service exists — and before the

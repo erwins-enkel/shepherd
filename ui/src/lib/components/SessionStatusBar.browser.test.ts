@@ -87,6 +87,33 @@ describe("SessionStatusBar", () => {
     await expect.element(page.getByText("0m")).toBeInTheDocument(); // createdAt = now, minute floor
   });
 
+  it("says why the task runs on this machine, only when a machine choice was made (#2772)", async () => {
+    const placement = {
+      mode: "auto" as const,
+      target: { instanceId: "l1", name: "moes-tavern", platform: "linux" },
+      requirements: [],
+      basis: "preference" as const,
+      preferred: "linux",
+      by: { instanceId: "m1", name: "MacBook" },
+      decidedAt: 1,
+    };
+    const reason = m.placement_basis_preference_none({ platform: "Linux" });
+    render(SessionStatusBar, {
+      session: session({
+        id: "p",
+        agentProvider: "claude",
+        effort: null,
+        launchMetadata: { placement } as unknown as Session["launchMetadata"],
+      }),
+      usage: usage(),
+    });
+    await expect.element(page.getByRole("button", { name: reason })).toBeInTheDocument();
+    document.body.innerHTML = "";
+    render(SessionStatusBar, { session: session({ id: "q" }), usage: usage() });
+    await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();
+    expect(document.querySelector(".ssb-placement")).toBeNull();
+  });
+
   it("falls back to the localized default for a null model and effort", async () => {
     render(SessionStatusBar, { session: session({ id: "b" }), usage: usage() });
     await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();

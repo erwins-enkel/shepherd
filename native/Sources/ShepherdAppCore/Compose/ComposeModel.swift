@@ -8,9 +8,12 @@ public final class ComposeModel {
     public let shaping: ShapeRoundModel
     public let attachments: AttachmentModel
     public let repoBranches: RepoBranchModel
+    /// Run on, the requirements and the keyed send (#2776).
+    public let runOn: RunOnModel
     public var repoPath = "" {
         didSet {
             guard oldValue != repoPath else { return }
+            runOn.repo = repoPath.trimmingCharacters(in: .whitespacesAndNewlines)
             shaping.discard()
             repoGuardDefaults = nil
             repoBranches.selectRepo(repoPath)
@@ -111,7 +114,8 @@ public final class ComposeModel {
         self.init(defaults: defaults, repoBranches: RepoBranchModel(client: client), loadIssues: { try await client.issues(repoPath: $0) },
                   loadCommands: { try await client.commands(repoPath: $0, provider: $1) },
                   loadEpics: { try await client.epics(repoPath: $0) }, attachments: AttachmentModel(client: client), shaping: ShapeRoundModel(client: client),
-                  runDefaults: runDefaults, initialModel: initialModel, initialEffort: initialEffort, initialProvider: initialProvider)
+                  runDefaults: runDefaults, initialModel: initialModel, initialEffort: initialEffort, initialProvider: initialProvider,
+                  runOn: RunOnModel(client: client))
     }
 
     init(defaults: UserDefaults, repoBranches: RepoBranchModel, loadIssues: @escaping (String) async throws -> IssueListing,
@@ -119,9 +123,10 @@ public final class ComposeModel {
          loadEpics: @escaping (String) async throws -> EpicListing, attachments: AttachmentModel? = nil,
          shaping: ShapeRoundModel? = nil,
          runDefaults: ComposeRunConfig.Defaults = .init(), initialModel: String? = nil, initialEffort: String? = nil,
-         initialProvider: AgentProvider? = nil) {
+         initialProvider: AgentProvider? = nil, runOn: RunOnModel? = nil) {
         self.shaping = shaping ?? ShapeRoundModel(shape: { _ in throw ShepherdError.cancelled },
                                                  brief: { _ in throw ShepherdError.cancelled })
+        self.runOn = runOn ?? RunOnModel(reads: .inactive)
         self.runDefaults = runDefaults
         self.attachments = attachments ?? AttachmentModel(upload: { _, _ in throw ShepherdError.cancelled })
         self.repoBranches = repoBranches
@@ -465,6 +470,40 @@ public final class ComposeModel {
         if let issue = activeIssue {
             request.issueRef = .init(number: issue.number, url: issue.url, title: issue.title, body: issue.body)
         }
+        // Automatic sends no machine (#2776): the server places the task by the same rules
+        // wherever it is submitted. Only an override names one.
+        if runOn.available {
+            if let id = runOn.pickedID { request.target = .init(instanceId: id) }
+            if !runOn.requirements.isEmpty { request.requirements = runOn.requirements.map(Capability.init(id:)) }
+        }
         return request
     }
+
+    // MARK: - Run on (#2776)
+
+    /// The task as its requirements are read from it: the prompt and the attached issue.
+    public var deriveText: RunOnModel.DeriveText {
+        RunOnModel.DeriveText(prompt: prompt, issueTitle: activeIssue?.title, issueBody: activeIssue?.body)
+    }
+
+    /// `.task(id:)` key of the placement preview: the repo, the chips and the pick.
+    public var placementKey: RunOnModel.PreviewKey { runOn.previewKey }
+
+    /// `.task(id:)` key of reading the requirements: the repo, the task text and whether reading
+    /// applies — the preview may say so only after the last edit.
+    public var deriveKey: RunOnModel.DeriveTrigger {
+        RunOnModel.DeriveTrigger(key: runOn.deriveKey(deriveText), applies: runOn.deriveApplies)
+    }
+
+    public func refreshPlacement() async { await runOn.refreshPreview() }
+
+    public func deriveRequirements() async { await runOn.derive(deriveText) }
+
+    /// What was read from the task as it is now, while it is the server's to read.
+    public var derivation: RequirementsDerivation? {
+        runOn.deriveApplies ? runOn.derivation(for: deriveText) : nil
+    }
+
+    /// The requirements are still being read: nothing starts before the answer.
+    public var requirementsPending: Bool { runOn.requirementsPending(deriveText) }
 }

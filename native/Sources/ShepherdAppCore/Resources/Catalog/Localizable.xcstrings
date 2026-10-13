@@ -13432,6 +13432,24 @@
         }
       }
     },
+    "native_ios_remote_actions_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese App zeigt die Session so, wie %1$@ sie meldet. Terminal, Steuern, Stoppen, Archivieren und Mergen gibt es hier noch nicht, und nichts davon wird stellvertretend auf diesem Server ausgeführt – öffne dafür den Shepherd auf %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app shows the session as %1$@ reports it. Its terminal, steering, stopping, archiving and merging are not offered here yet, and nothing is run on this server in their place — open the Shepherd on %1$@ for those."
+          }
+        }
+      }
+    },
     "native_ios_remove_body": {
       "extractionState": "manual",
       "localizations": {
@@ -15117,6 +15135,366 @@
         }
       }
     },
+    "native_local_tailnet_checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale wird geprüft …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Tailscale…"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_cli_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ist auf diesem Mac nicht installiert, deshalb ist diese Option aus. Installiere Tailscale, melde dich an und wähle dann „Erneut prüfen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale isn't installed on this Mac, so this option is off. Install Tailscale and sign in, then choose Recheck."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy URL"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_failed": {
+      "comment": "%1$@ = code",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale konnte die Zuordnung nicht ändern (Exit-Status %1$@). Das Protokoll unten zeigt die Ausgabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale couldn't change the mapping (exit status %1$@). The log below shows its output."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_https_disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Tailnet stellt für diesen Mac kein HTTPS-Zertifikat aus, deshalb ist diese Option aus. Schalte MagicDNS und HTTPS-Zertifikate auf der DNS-Seite der Tailscale-Adminkonsole ein und wähle dann „Erneut prüfen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your tailnet doesn't issue an HTTPS certificate for this Mac, so this option is off. Turn on MagicDNS and HTTPS Certificates on the DNS page of the Tailscale admin console, then choose Recheck."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_not_applied": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ist fertig, hat die Änderung aber nicht übernommen. Vermutlich wartet es darauf, dass du eine Funktion in der Adminkonsole einschaltest. Das Protokoll unten zeigt die Ausgabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale finished without applying the change. It may be waiting for you to turn on a feature in the admin console. The log below shows its output."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_not_connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ist nicht verbunden, deshalb ist diese Option aus. Melde dich bei Tailscale an, verbinde dich und wähle dann „Erneut prüfen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale isn't connected, so this option is off. Sign in to Tailscale and connect, then choose Recheck."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_other_fronts": {
+      "comment": "%1$@ = fronts",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Außerdem über Tailscale-Zuordnungen erreichbar, die außerhalb dieser App eingerichtet wurden: %1$@. Dieser Schalter entfernt sie nie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also reachable through Tailscale mappings set up outside this app: %1$@. This switch never removes them."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_port_taken": {
+      "comment": "%1$@ = port",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$@ unter dem Tailnet-Namen dieses Macs ist bereits durch eine andere Tailscale-Serve-Zuordnung belegt, und die App überschreibt sie nicht. Entferne diese Zuordnung oder ändere SHEPHERD_PORT und wähle dann „Erneut prüfen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$@ on this Mac's tailnet name is already used by another Tailscale serve mapping, and the app won't overwrite it. Remove that mapping or change SHEPHERD_PORT, then choose Recheck."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmäßig aus. Eingeschaltet stellt Tailscale diesen Server per HTTPS unter dem Tailnet-Namen deines Macs bereit und leitet jede Anfrage an 127.0.0.1 weiter. Der Server lauscht weiterhin nur auf diesem Mac, und jede Anfrage braucht weiterhin das Passwort oder ein Zugriffstoken."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default. When on, Tailscale serves this server over HTTPS at your Mac's tailnet name and forwards each request to 127.0.0.1. The server still listens only on this Mac, and every request still needs the password or an access token."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Tailnet erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reachable in your tailnet"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_token_create": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriffstoken erstellen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create access token…"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_token_steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der andere Shepherd braucht außerdem ein Zugriffstoken dieses Servers. Erstelle unter Einstellungen → Zugriff ein Token mit Vollzugriff für alle Repositories. Es wird nur einmal angezeigt; trage es im anderen Shepherd neben der URL ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Shepherd also needs an access token from this server. Under Settings → Access, create a token with Full access for all repositories. It is shown only once; enter it next to the URL on the other Shepherd."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_trust_allows_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles, was du hier kannst: Agents starten, Sitzungen samt Live-Terminal steuern und diesen Shepherd verwalten, über alle Repositories. Verbinde nur einen Shepherd, den du selbst kontrollierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything you can do here: start agents, steer sessions and their live terminals, and administer this Shepherd, across every repository. Only connect a Shepherd you control."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_trust_allows_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was ein Token mit Vollzugriff erlaubt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What a Full access token allows"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_trust_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was es bedeutet, einen anderen Shepherd zu verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What connecting another Shepherd means"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_trust_reach_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräte, die deine Tailscale-Zugriffsregeln zu diesem Mac durchlassen. Über die Erreichbarkeitsprüfung hinaus brauchen sie weiterhin das Passwort oder ein Token. Ausschalten entfernt die Zuordnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devices your Tailscale access rules let through to this Mac. Beyond the health check they still need the password or a token. Turning this off removes the mapping."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_trust_reach_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wer die URL erreicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Who can reach the URL"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_trust_storage_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der andere Shepherd bewahrt es auf seinem Server auf und gibt es nicht an seine Browser oder Apps weiter. Widerrufe es hier unter Einstellungen → Zugriff, um die Verbindung sofort zu trennen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Shepherd keeps it on its server and does not hand it to its browsers or apps. Revoke it here under Settings → Access to cut the connection at once."
+          }
+        }
+      }
+    },
+    "native_local_tailnet_trust_storage_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo das Token liegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the token is kept"
+          }
+        }
+      }
+    },
+    "native_local_tailnet_url_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL für Einstellungen → Rechner im anderen Shepherd"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL for Settings → Machines on the other Shepherd"
+          }
+        }
+      }
+    },
     "native_local_update_apply": {
       "extractionState": "manual",
       "localizations": {
@@ -16726,6 +17104,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connection needs checking"
+          }
+        }
+      }
+    },
+    "native_remote_terminal_ended_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Session auf %1$@ hat keinen laufenden Agenten mehr. Ihre Ausgabe ist eingefroren; setze sie im Shepherd auf %1$@ fort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session on %1$@ no longer has a running agent. Its output is frozen; resume it in the Shepherd on %1$@."
+          }
+        }
+      }
+    },
+    "native_remote_terminal_lost_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist nicht erreichbar. Das Terminal öffnet sich von selbst wieder, sobald der Rechner zurück ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ can't be reached. The terminal reopens by itself once the machine is back."
+          }
+        }
+      }
+    },
+    "native_remote_terminal_lost_title": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is unreachable"
           }
         }
       }
@@ -21200,6 +21632,109 @@
         }
       }
     },
+    "newtask_derive_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anforderungen ließen sich nicht aus der Aufgabe lesen – füge nötige selbst hinzu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the requirements from the task — add any it needs."
+          }
+        }
+      }
+    },
+    "newtask_derive_found": {
+      "comment": "%1$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus der Aufgabe gelesen: braucht %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read from the task: needs %1$@"
+          }
+        }
+      }
+    },
+    "newtask_derive_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus der Aufgabe gelesen: nichts Besonderes nötig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read from the task: nothing special needed"
+          }
+        }
+      }
+    },
+    "newtask_derive_option_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts Besonderes (z. B. Web)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing special (e.g. web)"
+          }
+        }
+      }
+    },
+    "newtask_derive_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anforderungen werden aus der Aufgabe gelesen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading the requirements from the task…"
+          }
+        }
+      }
+    },
+    "newtask_derive_question": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unklar, was diese Aufgabe braucht – was davon?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unclear what this task needs — which is it?"
+          }
+        }
+      }
+    },
     "newtask_edit_held_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -21940,6 +22475,40 @@
         }
       }
     },
+    "newtask_readiness_requirements_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anforderungen werden aus der Aufgabe gelesen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reading the requirements from the task…"
+          }
+        }
+      }
+    },
+    "newtask_readiness_requirements_unclear": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "beantworte zuerst die Frage zu den Anforderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "answer the question about the requirements first"
+          }
+        }
+      }
+    },
     "newtask_readiness_upload_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -21991,6 +22560,92 @@
         }
       }
     },
+    "newtask_requirements_add": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Add"
+          }
+        }
+      }
+    },
+    "newtask_requirements_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anforderungen dieser Aufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requirements of this task"
+          }
+        }
+      }
+    },
+    "newtask_requirements_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[requirement|Anforderungen]]:"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[requirement|Requirements]]:"
+          }
+        }
+      }
+    },
+    "newtask_requirements_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "none"
+          }
+        }
+      }
+    },
+    "newtask_requirements_remove": {
+      "comment": "%1$@ = capability",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %1$@"
+          }
+        }
+      }
+    },
     "newtask_research_sandbox_note": {
       "extractionState": "manual",
       "localizations": {
@@ -22004,6 +22659,254 @@
           "stringUnit": {
             "state": "translated",
             "value": "Research can't use the autonomous profile — web search needs open network access."
+          }
+        }
+      }
+    },
+    "newtask_runon_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        }
+      }
+    },
+    "newtask_runon_gone": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist nicht mehr verbunden – es wurde nichts gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is no longer connected — nothing was started."
+          }
+        }
+      }
+    },
+    "newtask_runon_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführen auf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run on"
+          }
+        }
+      }
+    },
+    "newtask_runon_machine": {
+      "comment": "%1$@ = machine, %2$@ = platform",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "newtask_runon_notice": {
+      "comment": "%1$@ = machine, %2$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet auf %1$@ ab %2$@, wie es auf origin liegt – nicht gepushte lokale Änderungen fehlen dort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts on %1$@ from %2$@ as pushed to origin — local changes that aren't pushed are not there."
+          }
+        }
+      }
+    },
+    "newtask_runon_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "auf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "on"
+          }
+        }
+      }
+    },
+    "newtask_runon_project_missing": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat dieses Projekt nicht ausgecheckt – es wurde nichts gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no checkout of this project — nothing was started."
+          }
+        }
+      }
+    },
+    "newtask_runon_project_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Projekt hat keine Forge-Identität, deshalb kann es kein anderer Rechner ausführen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This project has no forge identity, so no other machine can run it."
+          }
+        }
+      }
+    },
+    "newtask_runon_rejected": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat die Aufgabe abgelehnt: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ declined the task: %2$@"
+          }
+        }
+      }
+    },
+    "newtask_runon_starting": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting on %1$@"
+          }
+        }
+      }
+    },
+    "newtask_runon_unavailable": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist gerade nicht erreichbar – es wurde nichts gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ isn't reachable right now — nothing was started."
+          }
+        }
+      }
+    },
+    "newtask_runon_unknown": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Antwort von %1$@ – die Aufgabe läuft dort womöglich schon. Erneut versuchen schickt dieselbe Aufgabe noch einmal an %1$@; sie startet nie doppelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No answer from %1$@ — the task may have started there. Retry sends the same task to %1$@ again; it never starts twice."
+          }
+        }
+      }
+    },
+    "newtask_runon_unreleased": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ läuft auf einer Plattform, die für Aufgaben noch nicht freigegeben ist – es wurde nichts gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ runs on a platform that isn't released for tasks yet — nothing was started."
+          }
+        }
+      }
+    },
+    "newtask_runon_upload_failed": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anhänge sind nicht bei %1$@ angekommen, deshalb wurde nichts gestartet: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The attachments didn't reach %1$@, so nothing was started: %2$@"
           }
         }
       }
@@ -22846,6 +23749,360 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connect iPhone"
+          }
+        }
+      }
+    },
+    "placement_basis_manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell gewählt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chosen manually"
+          }
+        }
+      }
+    },
+    "placement_basis_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einziger Rechner mit diesem Projekt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only machine with this project"
+          }
+        }
+      }
+    },
+    "placement_basis_preference": {
+      "comment": "%1$@ = list, %2$@ = platform",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benötigt %1$@ – bevorzugt: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %1$@ – preferred: %2$@"
+          }
+        }
+      }
+    },
+    "placement_basis_preference_none": {
+      "comment": "%1$@ = platform",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine besonderen Anforderungen – bevorzugt: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No special requirements – preferred: %1$@"
+          }
+        }
+      }
+    },
+    "placement_basis_requirements": {
+      "comment": "%1$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benötigt %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %1$@"
+          }
+        }
+      }
+    },
+    "placement_choosing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechner wird gewählt …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choosing a machine…"
+          }
+        }
+      }
+    },
+    "placement_preview_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konnte nicht prüfen, wo die Aufgabe laufen würde – Shepherd entscheidet beim Start."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't check where it would run — Shepherd decides when you start it."
+          }
+        }
+      }
+    },
+    "placement_refusal_alternatives": {
+      "comment": "%1$@ = machines",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um sie woanders auszuführen, wähle %1$@ unter „Ausführen auf“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To run it elsewhere, pick %1$@ under Run on."
+          }
+        }
+      }
+    },
+    "placement_refusal_elsewhere": {
+      "comment": "%1$@ = machines",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hätte es, hat aber keinen Checkout dieses Projekts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ would, but has no checkout of this project."
+          }
+        }
+      }
+    },
+    "placement_refusal_missing": {
+      "comment": "%1$@ = machine, %2$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ fehlt %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is missing %2$@."
+          }
+        }
+      }
+    },
+    "placement_refusal_missing_here": {
+      "comment": "%1$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesem Rechner fehlt %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is missing %1$@."
+          }
+        }
+      }
+    },
+    "placement_refusal_none": {
+      "comment": "%1$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein verbundener Rechner hat %1$@ – es startet nichts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connected machine has %1$@ — nothing will start."
+          }
+        }
+      }
+    },
+    "placement_refusal_none_any": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein verbundener Rechner kann diese Aufgabe ausführen – es startet nichts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connected machine can run this task — nothing will start."
+          }
+        }
+      }
+    },
+    "placement_refusal_none_together": {
+      "comment": "%1$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein verbundener Rechner hat %1$@ zusammen – es startet nichts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connected machine has %1$@ together — nothing will start."
+          }
+        }
+      }
+    },
+    "placement_refusal_project_missing": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat keinen Checkout dieses Projekts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no checkout of this project."
+          }
+        }
+      }
+    },
+    "placement_refusal_unavailable": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist gerade nicht erreichbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ isn't reachable right now."
+          }
+        }
+      }
+    },
+    "placement_refusal_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Rechner ist nicht mehr verbunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That machine is no longer connected."
+          }
+        }
+      }
+    },
+    "placement_refusal_unreleased": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ läuft auf einer Plattform, die noch nicht für Aufgaben freigegeben ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ runs on a platform that isn't released for tasks yet."
+          }
+        }
+      }
+    },
+    "placement_runs_on": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft auf %1$@ – %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on %1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "placement_waits_for": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf %1$@ – %2$@. Er ist gerade nicht erreichbar; die Aufgabe startet dort, sobald er wieder da ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waits for %1$@ — %2$@. It can't be reached right now; the task starts there once it is back."
           }
         }
       }
@@ -25634,6 +26891,542 @@
         }
       }
     },
+    "remote_detail_actions_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen – für Sessions auf anderen Rechnern hier nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions — not available here for sessions on other machines"
+          }
+        }
+      }
+    },
+    "remote_detail_archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive"
+          }
+        }
+      }
+    },
+    "remote_detail_base": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base"
+          }
+        }
+      }
+    },
+    "remote_detail_branch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch"
+          }
+        }
+      }
+    },
+    "remote_detail_placement": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerwahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placement"
+          }
+        }
+      }
+    },
+    "remote_detail_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        }
+      }
+    },
+    "remote_detail_sandbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        }
+      }
+    },
+    "remote_detail_status": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        }
+      }
+    },
+    "remote_detail_steer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer"
+          }
+        }
+      }
+    },
+    "remote_detail_stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        }
+      }
+    },
+    "remote_detail_task": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task"
+          }
+        }
+      }
+    },
+    "remote_disconnected_line": {
+      "comment": "%1$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung getrennt – letzter Stand %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected – last known %1$@"
+          }
+        }
+      }
+    },
+    "remote_dispatch_blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blockiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked"
+          }
+        }
+      }
+    },
+    "remote_dispatch_cancel_aria": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufgabe für %1$@ abbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel the task for %1$@"
+          }
+        }
+      }
+    },
+    "remote_dispatch_canceling": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbruch ausstehend"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel pending"
+          }
+        }
+      }
+    },
+    "remote_dispatch_held": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgelastet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Busy"
+          }
+        }
+      }
+    },
+    "remote_dispatch_held_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dort gehalten, bis Platz frei ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "held there until it has room"
+          }
+        }
+      }
+    },
+    "remote_dispatch_missing_detail": {
+      "comment": "%1$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fehlt: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "missing %1$@"
+          }
+        }
+      }
+    },
+    "remote_dispatch_project_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dort kein Checkout dieses Projekts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no checkout of this project there"
+          }
+        }
+      }
+    },
+    "remote_dispatch_ready_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wieder da – startet gleich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "back — starting it shortly"
+          }
+        }
+      }
+    },
+    "remote_dispatch_redirect_aria": {
+      "comment": "%1$@ = machine, %2$@ = target",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die für %1$@ bestimmte Aufgabe stattdessen auf %2$@ starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run the task meant for %1$@ on %2$@ instead"
+          }
+        }
+      }
+    },
+    "remote_dispatch_row_aria": {
+      "comment": "%1$@ = machine, %2$@ = state",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe für %1$@: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task for %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "remote_dispatch_run_on": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf %1$@ starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run on %1$@"
+          }
+        }
+      }
+    },
+    "remote_dispatch_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startstatus unbekannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start status unknown"
+          }
+        }
+      }
+    },
+    "remote_dispatch_unreleased_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plattform nicht für Aufgaben freigegeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "platform not released for tasks"
+          }
+        }
+      }
+    },
+    "remote_dispatch_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        }
+      }
+    },
+    "remote_group_aria": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions on %1$@"
+          }
+        }
+      }
+    },
+    "remote_runs_on": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on %1$@"
+          }
+        }
+      }
+    },
+    "remote_state_connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "verbunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connected"
+          }
+        }
+      }
+    },
+    "remote_state_disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "getrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disconnected"
+          }
+        }
+      }
+    },
+    "remote_terminal_aria": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal on %1$@"
+          }
+        }
+      }
+    },
     "repo_filter_active_aria": {
       "comment": "%1$@ = repo",
       "extractionState": "manual",
@@ -26223,6 +28016,23 @@
         }
       }
     },
+    "session_sandbox_degraded_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angeforderte Sandbox nicht verfügbar — dieser Agent läuft ohne Einschränkung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requested sandbox unavailable — this agent is running unconfined."
+          }
+        }
+      }
+    },
     "session_sandbox_egress_degraded_label": {
       "extractionState": "manual",
       "localizations": {
@@ -26494,6 +28304,533 @@
           "stringUnit": {
             "state": "translated",
             "value": "Subscription (OAuth)"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_agent_claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_agent_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_android_sdk": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Android-SDK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Android SDK"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_ios_simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS-Simulator"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS Simulator"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_command_line_tools_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nur die Command Line Tools ausgewählt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only the Command Line Tools are selected"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_license_not_accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lizenz nicht akzeptiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "license not accepted"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_no_backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein Sandbox-Backend"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no sandbox backend"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_no_egress": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine Netzwerk-Firewall"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no network firewall"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_no_simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein Simulator-Gerät"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no simulator device"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_not_installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nicht installiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not installed"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_not_logged_in": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nicht angemeldet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not logged in"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_not_probed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noch nicht geprüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not checked yet"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_not_verified": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nicht kürzlich geprüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not verified recently"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_probe_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "check failed"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_sdk_incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unvollständig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "incomplete"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_sdk_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not found"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_reason_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung abgelaufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "check timed out"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_sandbox_autonomous": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Autonom"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Autonomous"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_sandbox_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Standard"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_sandbox_trusted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Sandbox (vertraut)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sandbox (trusted)"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_sdk_ios": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS-SDK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS SDK"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_sdk_macos": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS-SDK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS SDK"
+          }
+        }
+      }
+    },
+    "settings_machines_cap_xcode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xcode"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xcode"
+          }
+        }
+      }
+    },
+    "settings_machines_platform_linux": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linux"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linux"
+          }
+        }
+      }
+    },
+    "settings_machines_platform_macos": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS"
+          }
+        }
+      }
+    },
+    "settings_machines_platform_windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows"
+          }
+        }
+      }
+    },
+    "settings_machines_status_checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird geprüft …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking…"
+          }
+        }
+      }
+    },
+    "settings_machines_status_identity_mismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere Instanz"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Different instance"
+          }
+        }
+      }
+    },
+    "settings_machines_status_incompatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inkompatibel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incompatible"
+          }
+        }
+      }
+    },
+    "settings_machines_status_unauthorized": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht autorisiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not authorized"
+          }
+        }
+      }
+    },
+    "settings_machines_status_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unreachable"
           }
         }
       }
@@ -27680,6 +30017,130 @@
         }
       }
     },
+    "toast_dispatch_cancel_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufgabe konnte nicht abgebrochen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't cancel the task."
+          }
+        }
+      }
+    },
+    "toast_dispatch_cancel_pending": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist nicht erreichbar – der Abbruch wird zugestellt, sobald es antwortet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ can't be reached — the cancel is delivered as soon as it answers."
+          }
+        }
+      }
+    },
+    "toast_dispatch_canceled_on": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgebrochen – die Aufgabe startet nicht auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canceled — the task won't start on %1$@"
+          }
+        }
+      }
+    },
+    "toast_dispatch_declined_on": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat die Aufgabe nicht gestartet: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ did not start the task: %2$@"
+          }
+        }
+      }
+    },
+    "toast_dispatch_not_cancelable": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat diese Aufgabe bereits – sie lässt sich nicht mehr abbrechen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ already has this task — it can't be canceled anymore."
+          }
+        }
+      }
+    },
+    "toast_dispatch_redirect_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufgabe konnte nicht woanders gestartet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't run the task elsewhere."
+          }
+        }
+      }
+    },
+    "toast_dispatch_started_on": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe auf %1$@ gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task started on %1$@"
+          }
+        }
+      }
+    },
     "toast_held_edit_saved": {
       "extractionState": "manual",
       "localizations": {
@@ -27803,6 +30264,42 @@
         }
       }
     },
+    "toast_task_held_on": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe auf %1$@ zurückgehalten – sie startet dort, sobald dessen Limits es erlauben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task held on %1$@ — it starts there once that machine's limits allow."
+          }
+        }
+      }
+    },
+    "toast_task_waiting_for": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf %1$@ – die Aufgabe startet dort, sobald er wieder da ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for %1$@ — the task starts there once it is back."
+          }
+        }
+      }
+    },
     "toast_terminal_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -27833,6 +30330,497 @@
           "stringUnit": {
             "state": "translated",
             "value": "Clean terminals need a newer herdr — update herdr and retry"
+          }
+        }
+      }
+    },
+    "tooltip_blocked_missing_summary": {
+      "comment": "%1$@ = machine, %2$@ = list",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist wieder da, aber seiner Fähigkeitsprüfung fehlt %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is back, but its capability check lacks %2$@."
+          }
+        }
+      }
+    },
+    "tooltip_blocked_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächster Schritt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next step"
+          }
+        }
+      }
+    },
+    "tooltip_blocked_next_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behebe es auf %1$@: Die Aufgabe startet von selbst, sobald eine Prüfung besteht. Oder führe sie auf einem anderen Rechner aus, oder brich sie ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix it on %1$@: the task starts by itself once a check passes. Or run it on another machine, or cancel it."
+          }
+        }
+      }
+    },
+    "tooltip_blocked_project_summary": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist wieder da, hat aber keinen Checkout dieses Projekts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is back, but has no checkout of this project."
+          }
+        }
+      }
+    },
+    "tooltip_blocked_title": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blockiert auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked on %1$@"
+          }
+        }
+      }
+    },
+    "tooltip_blocked_unreleased_summary": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Plattform von %1$@ ist nicht für Aufgaben freigegeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@'s platform is not released for tasks."
+          }
+        }
+      }
+    },
+    "tooltip_derive_correct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korrigieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correct it"
+          }
+        }
+      }
+    },
+    "tooltip_derive_correct_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine, und Shepherd überschreibt sie nicht mehr."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove or add chips before you start. Once you change them they're yours, and Shepherd no longer overwrites them."
+          }
+        }
+      }
+    },
+    "tooltip_derive_reads": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was gelesen wird"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What it reads"
+          }
+        }
+      }
+    },
+    "tooltip_derive_reads_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Prompt und Issue – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the prompt and the issue — never the repository. Mentioning Package.swift or a Mac in passing doesn't count; building, running or testing a native app does."
+          }
+        }
+      }
+    },
+    "tooltip_derive_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat aus Prompt und verknüpftem Issue gelesen, was diese Aufgabe braucht, weil sich die verbundenen Rechner darin unterscheiden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd read what this task needs from its prompt and attached issue, because the connected machines differ in it."
+          }
+        }
+      }
+    },
+    "tooltip_derive_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus der Aufgabe gelesene Anforderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requirements read from the task"
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_cancel_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stellt sicher, dass sie auf %1$@ nie startet, auch wenn sie verspätet ankommt. Nicht mehr möglich, sobald %1$@ sie hat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makes sure it never starts on %1$@, even if it arrives late. Not possible once %1$@ has it."
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_canceling_summary": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du hast diese Aufgabe abgebrochen, aber %1$@ ist gerade nicht erreichbar. Der Abbruch wird zugestellt, sobald es antwortet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You canceled this task, but %1$@ can't be reached right now. The cancel is delivered as soon as it answers."
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_check": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie es weitergeht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What happens next"
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_check_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd fragt bei %1$@ nach, sobald es erreichbar ist, und danach etwa einmal pro Minute. Gestartet, zurückgehalten oder abgelehnt erscheint hier. Ist die Aufgabe nie angekommen, schickt Shepherd dieselbe Aufgabe noch einmal an %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd asks %1$@ as soon as it can be reached, and then about once a minute. Started, held or declined shows up here. If the task never arrived, Shepherd sends the same task to %1$@ again."
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_once": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie doppelt, nie woanders"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never twice, never elsewhere"
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_once_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aufgabe läuft höchstens einmal und nur auf %1$@. Sie wandert nie von selbst auf einen anderen Rechner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task runs at most once, and only on %1$@. It never moves to another machine on its own."
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_unknown_summary": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe wurde an %1$@ gesendet, aber es kam keine Antwort zurück. Sie läuft dort womöglich schon."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task was sent to %1$@, but no answer came back. It may already be running there."
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_until": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bis dahin"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Until then"
+          }
+        }
+      }
+    },
+    "tooltip_dispatch_until_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd schickt die Aufgabe nicht erneut. Hat sie %1$@ vor dem Abbruch erreicht, erscheint sie hier als gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd doesn't send the task again. If it reached %1$@ before the cancel, it shows up here as started."
+          }
+        }
+      }
+    },
+    "tooltip_held_cancel_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwirft sie auf %1$@. Ist sie dort inzwischen gestartet, läuft sie weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discards it on %1$@. If it started there in the meantime, it keeps running."
+          }
+        }
+      }
+    },
+    "tooltip_held_elsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anderer Rechner"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another machine"
+          }
+        }
+      }
+    },
+    "tooltip_held_elsewhere_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine gehaltene Aufgabe wird nicht verschoben: Um sie auf einem anderen Rechner auszuführen, brich sie ab und starte sie neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A held task is not moved: to run it on another machine, cancel it and start it again."
+          }
+        }
+      }
+    },
+    "tooltip_held_start_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ startet sie von selbst, sobald Platz frei ist; die Session erscheint dann hier."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ starts it by itself once it has room; the session then shows up here."
+          }
+        }
+      }
+    },
+    "tooltip_held_summary": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat die Aufgabe angenommen, hält sie aber zurück: Er ist an seinem Nutzungslimit oder ausgelastet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ accepted the task but holds it: it is at its usage limit or at capacity."
+          }
+        }
+      }
+    },
+    "tooltip_held_title": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgelastet: auf %1$@ gehalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Busy: held on %1$@"
           }
         }
       }
@@ -28139,6 +31127,577 @@
           "stringUnit": {
             "state": "translated",
             "value": "Research mode"
+          }
+        }
+      }
+    },
+    "tooltip_placement_by": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entschieden von"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decided by"
+          }
+        }
+      }
+    },
+    "tooltip_placement_how": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie gewählt wurde"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How it was chosen"
+          }
+        }
+      }
+    },
+    "tooltip_placement_how_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch: Unter den passenden Rechnern entscheidet die Plattform-Reihenfolge (standardmäßig Linux vor macOS), danach die Rechner-ID."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically: among the machines that fit, the platform order (Linux before macOS by default) and then the machine ID decide."
+          }
+        }
+      }
+    },
+    "tooltip_placement_how_manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unter „Ausführen auf“ gewählt. Der Rechner passte: verbunden, Projekt ausgecheckt und jede Anforderung geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picked under Run on. It fit: connected, the project checked out and every requirement verified."
+          }
+        }
+      }
+    },
+    "tooltip_placement_needs": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anforderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requirements"
+          }
+        }
+      }
+    },
+    "tooltip_placement_needs_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine – jeder verbundene Rechner mit dem Projekt passt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None — any connected machine with the project fits."
+          }
+        }
+      }
+    },
+    "tooltip_placement_title": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warum %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why %1$@"
+          }
+        }
+      }
+    },
+    "tooltip_remote_actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions"
+          }
+        }
+      }
+    },
+    "tooltip_remote_actions_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal funktioniert wie lokal: Was du tippst, erreicht den Agenten auf %1$@. Steuern, Stoppen, Archivieren und Mergen gibt es hier noch nicht, und nichts davon wird stellvertretend auf diesem Rechner ausgeführt – öffne dafür den Shepherd auf %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal works as it does locally: what you type reaches the agent on %1$@. Steering, stopping, archiving and merging are not offered here yet, and nothing is ever run on this machine in their place — open the Shepherd on %1$@ for those."
+          }
+        }
+      }
+    },
+    "tooltip_remote_connected_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden – Statusänderungen kommen live an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected — status changes arrive live."
+          }
+        }
+      }
+    },
+    "tooltip_remote_connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        }
+      }
+    },
+    "tooltip_remote_disconnected_body": {
+      "comment": "%1$@ = time, %2$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getrennt seit %1$@. Der gezeigte Status ist der letzte bekannte: Ein Verbindungsabbruch ist kein Ende, die Session aktualisiert sich, sobald %2$@ wieder erreichbar ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected since %1$@. The status shown is the last one known: a lost connection is not an end, and the session updates once %2$@ is reachable again."
+          }
+        }
+      }
+    },
+    "tooltip_remote_summary": {
+      "comment": "%1$@ = machine, %2$@ = platform",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Session läuft auf %1$@ (%2$@), einem verbundenen Shepherd. Sie wird hier so gezeigt, wie dieser Rechner sie meldet; auf diesem Rechner läuft davon nichts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session runs on %1$@ (%2$@), a connected Shepherd. It is shown here as that machine reports it; nothing of it runs on this one."
+          }
+        }
+      }
+    },
+    "tooltip_runon_attachments": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhänge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachments"
+          }
+        }
+      }
+    },
+    "tooltip_runon_attachments_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Werden direkt vor dem Senden der Aufgabe auf den Rechner hochgeladen und liegen dort im Worktree der Session. Lässt sich einer nicht senden, startet die Aufgabe nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploaded to the machine right before the task is sent, so they are in the session's worktree there. If one can't be sent, the task doesn't start."
+          }
+        }
+      }
+    },
+    "tooltip_runon_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        }
+      }
+    },
+    "tooltip_runon_auto_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd wählt einen verbundenen Rechner, der dieses Projekt und jede Anforderung geprüft hat, Linux vor macOS, und startet sofort – egal wo du einreichst, solange jeder Shepherd dieselbe Reihenfolge nutzt. Wähle einen Rechner, um das zu übersteuern; ist der vorgesehene Rechner offline, startet nichts von selbst woanders."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd picks a connected machine that has this project and every requirement verified, Linux before macOS, and starts right away — wherever you submit, as long as every Shepherd uses the same order. Pick a machine to override it; if the machine meant for the task is offline, nothing starts elsewhere on its own."
+          }
+        }
+      }
+    },
+    "tooltip_runon_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        }
+      }
+    },
+    "tooltip_runon_code_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Rechner startet vom Basisbranch, wie er auf origin liegt. Commits und Änderungen, die du nicht gepusht hast, fehlen dort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine starts from the base branch as it is on origin. Commits and changes you haven't pushed are not there."
+          }
+        }
+      }
+    },
+    "tooltip_runon_failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn sie nicht startet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If it can't start"
+          }
+        }
+      }
+    },
+    "tooltip_runon_failure_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts wandert je von selbst auf einen anderen Rechner. Eine Ablehnung oder ein Zurückhalten dort wird mit Grund angezeigt; kommt keine Antwort, steht die Aufgabe als „Startstatus unbekannt“ in der Herde, bis Shepherd von diesem Rechner hört."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing ever moves to another machine on its own. A refusal or a hold there is shown with its reason; if no answer comes back, the task shows as “Start status unknown” in the herd until Shepherd hears from that machine."
+          }
+        }
+      }
+    },
+    "tooltip_runon_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd wählt den Rechner für jede Aufgabe – die ganze Session, Worktree, Agent, Builds und Tests, startet dort; dieser Rechner zeigt sie in der Herde. Wähle einen verbundenen Rechner, um selbst zu entscheiden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd picks the machine for each task — the whole session, worktree, agent, builds and tests, starts there; this machine shows it in the herd. Pick a connected machine to choose yourself."
+          }
+        }
+      }
+    },
+    "tooltip_runon_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo die Aufgabe läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the task runs"
+          }
+        }
+      }
+    },
+    "tooltip_waiting_cancel_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernt die Aufgabe. An %1$@ wurde nichts gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes the task. Nothing was sent to %1$@."
+          }
+        }
+      }
+    },
+    "tooltip_waiting_connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        }
+      }
+    },
+    "tooltip_waiting_fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Ausweichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fallback"
+          }
+        }
+      }
+    },
+    "tooltip_waiting_fallback_body": {
+      "comment": "%1$@ = machines",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie startet nie von selbst auf einem anderen Rechner. %1$@ könnte sie jetzt ausführen – die Schaltfläche daneben startet sie dort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It never starts on another machine by itself. %1$@ could run it now — the Run button next to it starts it there."
+          }
+        }
+      }
+    },
+    "tooltip_waiting_fallback_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie startet nie von selbst auf einem anderen Rechner, und gerade passt kein anderer verbundener Rechner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It never starts on another machine by itself, and no other connected machine fits it right now."
+          }
+        }
+      }
+    },
+    "tooltip_waiting_offline_summary": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist der Rechner für diese Aufgabe (%2$@), aber gerade nicht erreichbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is the machine for this task (%2$@), but it can't be reached right now."
+          }
+        }
+      }
+    },
+    "tooltip_waiting_ready_summary": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist wieder da und passt: Die Aufgabe geht mit der nächsten Prüfung raus, etwa einmal pro Minute."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is back and fits: the task is sent with its next check, about once a minute."
+          }
+        }
+      }
+    },
+    "tooltip_waiting_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wann sie startet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When it starts"
+          }
+        }
+      }
+    },
+    "tooltip_waiting_start_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von selbst, sobald %1$@ wieder antwortet und eine frische Prüfung seiner Fähigkeiten und des Projekt-Checkouts besteht. Erst dann werden ihre Anhänge übertragen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By itself, once %1$@ answers again and a fresh check of its capabilities and of the project checkout passes. Its attachments are uploaded only then."
+          }
+        }
+      }
+    },
+    "tooltip_waiting_title": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for %1$@"
           }
         }
       }

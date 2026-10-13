@@ -1,7 +1,9 @@
 import { execFileSync } from "./instrument";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { GitState, PrReviewBlock, PrReviewerState, PrStatus } from "./forge/types";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { evaluateMergeGate, mergeResponsibility, reviewBlockFor } from "./merge-gate";
@@ -142,12 +144,15 @@ function inferredForkHandoff(
     : { handoff: "reviewer", handoffWho: null, inferred: true };
 }
 
-const git = (repoPath: string, args: string[], input?: string): string =>
+/** Sync git for the LOCAL read path only (`git show` of a ref, a symref lookup) — fast and
+ *  network-free. Anything that talks to the remote goes through {@link gitAsync}. */
+const git = (repoPath: string, args: string[]): string =>
   execFileSync("git", ["-C", repoPath, ...args], {
     encoding: "utf8",
-    stdio: input === undefined ? ["ignore", "pipe", "ignore"] : ["pipe", "pipe", "ignore"],
-    ...(input === undefined ? {} : { input }),
+    stdio: ["ignore", "pipe", "ignore"],
   });
+
+const execFileAsync = promisify(execFile);
 
 const defBranchCache = new Map<string, string>();
 /** The repo's default branch name, resolved from the local `origin/HEAD` symref
@@ -284,6 +289,87 @@ export function annotateHandoff(
   return handoffWho ? { ...base, handoff, handoffWho } : { ...base, handoff };
 }
 
+const LOCAL_GIT_TIMEOUT_MS = 10_000;
+const FETCH_TIMEOUT_MS = 20_000;
+const PUSH_TIMEOUT_MS = 30_000;
+
+/** Async git for the write path. Off the event loop: a push is network I/O, and before this
+ *  ran as a blocking `execFileSync` a push in a repo with a heavy `pre-push` hook froze the
+ *  whole server until the systemd watchdog killed it. Never prompts for credentials (an
+ *  unattended server has no one to answer), and runs in the C locale so a push rejection
+ *  reads the same on every machine. */
+async function gitAsync(
+  repoPath: string,
+  args: string[],
+  o: { timeout?: number; env?: Record<string, string> } = {},
+): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", repoPath, ...args], {
+    encoding: "utf8",
+    timeout: o.timeout ?? LOCAL_GIT_TIMEOUT_MS,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", ...o.env },
+  });
+  return stdout.trim();
+}
+
+/** Build the roles commit on top of the CURRENT remote default tip via plumbing on a temp
+ *  index, so the operator's checkout (usually on a feature branch) is never touched. */
+async function buildRolesCommit(
+  repoPath: string,
+  roles: RepoRoles,
+  defaultBranch: string,
+): Promise<string> {
+  // Refresh the remote-tracking ref so we base off the *current* remote tip — else
+  // an advanced default branch yields a spurious non-fast-forward rejection on push.
+  // Best-effort: offline just falls back to the local ref below.
+  try {
+    await gitAsync(repoPath, ["fetch", "origin", defaultBranch], { timeout: FETCH_TIMEOUT_MS });
+  } catch {
+    /* offline / no remote — base off whatever local ref we have */
+  }
+  let base = "";
+  for (const ref of [`origin/${defaultBranch}`, defaultBranch]) {
+    try {
+      base = await gitAsync(repoPath, ["rev-parse", "--verify", `${ref}^{commit}`]);
+      break;
+    } catch {
+      /* try next */
+    }
+  }
+  if (!base) throw new Error(`cannot resolve default branch '${defaultBranch}'`);
+  const tmp = mkdtempSync(join(tmpdir(), "shepherd-roles-"));
+  const env = { GIT_INDEX_FILE: join(tmp, "index") };
+  try {
+    const content = join(tmp, "roles.json");
+    writeFileSync(content, `${JSON.stringify(roles, null, 2)}\n`);
+    const blob = await gitAsync(repoPath, ["hash-object", "-w", "--no-filters", content]);
+    await gitAsync(repoPath, ["read-tree", base], { env });
+    await gitAsync(
+      repoPath,
+      ["update-index", "--add", "--cacheinfo", `100644,${blob},${ROLES_PATH}`],
+      { env },
+    );
+    const tree = await gitAsync(repoPath, ["write-tree"], { env });
+    return await gitAsync(repoPath, [
+      "commit-tree",
+      tree,
+      "-p",
+      base,
+      "-m",
+      "chore(shepherd): set repo roles",
+    ]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/** Push a server-built commit. `--no-verify`: this is a single-file plumbing commit, so the
+ *  checkout's own hooks (e.g. a CI-equivalent `pre-push` gate testing whatever the working tree
+ *  holds) have nothing to check — the remote's rules still apply. */
+async function pushCommit(repoPath: string, commit: string, ref: string, force = false) {
+  const args = ["push", "--no-verify", ...(force ? ["--force"] : []), "origin"];
+  await gitAsync(repoPath, [...args, `${commit}:${ref}`], { timeout: PUSH_TIMEOUT_MS });
+}
+
 /** Write `.shepherd/roles.json` and push it to the repo's default branch WITHOUT
  *  touching the working tree (the checkout usually sits on a feature branch). The
  *  commit is built via plumbing on a temp index and pushed straight to the remote
@@ -291,55 +377,12 @@ export function annotateHandoff(
  *  push rejection (protected branch / non-fast-forward / no auth) — the caller
  *  surfaces that to the dialog. On success the cache is set so the new value is
  *  read back immediately. */
-export function writeRepoRoles(repoPath: string, roles: RepoRoles, defaultBranch: string): void {
-  const content = `${JSON.stringify(roles, null, 2)}\n`;
-  // Refresh the remote-tracking ref so we base off the *current* remote tip — else
-  // an advanced default branch yields a spurious non-fast-forward rejection on push.
-  // Best-effort: offline just falls back to the local ref below.
-  try {
-    git(repoPath, ["fetch", "origin", defaultBranch]);
-  } catch {
-    /* offline / no remote — base off whatever local ref we have */
-  }
-  let base = "";
-  for (const ref of [`origin/${defaultBranch}`, defaultBranch]) {
-    try {
-      base = git(repoPath, ["rev-parse", ref]).trim();
-      break;
-    } catch {
-      /* try next */
-    }
-  }
-  if (!base) throw new Error(`cannot resolve default branch '${defaultBranch}'`);
-  const blob = git(repoPath, ["hash-object", "-w", "--stdin"], content).trim();
-  const tmpIndex = join(tmpdir(), `shepherd-roles-${process.pid}-${Date.now()}.index`);
-  const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
-  try {
-    execFileSync("git", ["-C", repoPath, "read-tree", base], { env, stdio: "ignore" });
-    execFileSync(
-      "git",
-      ["-C", repoPath, "update-index", "--add", "--cacheinfo", `100644,${blob},${ROLES_PATH}`],
-      { env, stdio: "ignore" },
-    );
-    const tree = execFileSync("git", ["-C", repoPath, "write-tree"], {
-      env,
-      encoding: "utf8",
-    }).trim();
-    const commit = git(repoPath, [
-      "commit-tree",
-      tree,
-      "-p",
-      base,
-      "-m",
-      "chore(shepherd): set repo roles",
-    ]).trim();
-    git(repoPath, ["push", "origin", `${commit}:refs/heads/${defaultBranch}`]);
-  } finally {
-    try {
-      rmSync(tmpIndex, { force: true });
-    } catch {
-      /* best-effort temp cleanup */
-    }
-  }
+export async function writeRepoRoles(
+  repoPath: string,
+  roles: RepoRoles,
+  defaultBranch: string,
+): Promise<void> {
+  const commit = await buildRolesCommit(repoPath, roles, defaultBranch);
+  await pushCommit(repoPath, commit, `refs/heads/${defaultBranch}`);
   setRolesCache(repoPath, roles);
 }

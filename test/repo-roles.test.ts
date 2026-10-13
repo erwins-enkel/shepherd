@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { annotateHandoff, computeHandoff, parseRoles, normalizeLogin } from "../src/repo-roles";
+import {
+  annotateHandoff,
+  computeHandoff,
+  parseRoles,
+  normalizeLogin,
+  writeRepoRoles,
+} from "../src/repo-roles";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import { makeApp, type AppDeps } from "../src/server";
 import { config } from "../src/config";
@@ -421,4 +427,66 @@ test("mergeGate is replaced, not merged, when the roles are reassigned", () => {
 
   const reassigned = annotateHandoff(annotated, danaRepo, "kai");
   expect(reassigned.mergeGate).toEqual({ handoff: "merger", handoffWho: "dana" });
+});
+
+// ── write path: off the event loop, without the checkout's local hooks ─────────────────────
+//
+// A bare "remote" plus a clone that points at it. Both live in tmpdir() and are dropped by the
+// shared afterEach.
+
+function writeHook(dir: string, name: string, body: string): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+}
+
+function remoteWithClone(): { remote: string; clone: string } {
+  const root = mkdtempSync(join(tmpdir(), "shepherd-roles-remote-"));
+  fixtureRepos.push(root);
+  const remote = join(root, "remote.git");
+  const clone = join(root, "clone");
+  const g = (...args: string[]) => execFileSync("git", args, { stdio: "ignore" });
+  g("init", "--bare", "-b", "main", remote);
+  g("init", "-b", "main", clone);
+  g("-C", clone, "config", "user.email", "test@example.com");
+  g("-C", clone, "config", "user.name", "Test");
+  g("-C", clone, "remote", "add", "origin", remote);
+  g("-C", clone, "commit", "--allow-empty", "-m", "init");
+  g("-C", clone, "push", "origin", "main");
+  return { remote, clone };
+}
+
+const remoteRoles = (remote: string, ref = "main") =>
+  parseRoles(
+    execFileSync("git", ["-C", remote, "show", `${ref}:.shepherd/roles.json`], {
+      encoding: "utf8",
+    }),
+  );
+
+test("writeRepoRoles pushes past a failing local pre-push hook (it never runs it)", async () => {
+  // The hang: the operator's checkout carried a CI-equivalent pre-push gate, and pushing the
+  // roles commit ran it. A hook that refuses outright proves the server push skips local hooks.
+  const { remote, clone } = remoteWithClone();
+  const hooks = join(clone, ".test-hooks");
+  writeHook(hooks, "pre-push", "exit 1");
+  execFileSync("git", ["-C", clone, "config", "core.hooksPath", hooks], { stdio: "ignore" });
+
+  await writeRepoRoles(clone, { reviewer: "kai", merger: null }, "main");
+
+  expect(remoteRoles(remote)).toEqual({ reviewer: "kai", merger: null });
+});
+
+test("writeRepoRoles keeps the event loop turning during a slow push", async () => {
+  const { remote, clone } = remoteWithClone();
+  writeHook(join(remote, "hooks"), "pre-receive", "sleep 1");
+  let fired = false;
+  const timer = setTimeout(() => (fired = true), 50);
+  try {
+    await writeRepoRoles(clone, { reviewer: null, merger: "scoop" }, "main");
+  } finally {
+    clearTimeout(timer);
+  }
+  // A blocking push would hold the loop for the full second, so the 50 ms timer could only
+  // run after the write had already resolved.
+  expect(fired).toBe(true);
+  expect(remoteRoles(remote)).toEqual({ reviewer: null, merger: "scoop" });
 });

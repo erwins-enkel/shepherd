@@ -2745,7 +2745,7 @@ async function setRepoRoles(
   }
   try {
     if (!forge) throw new Error("no forge configured for repo");
-    writeRepoRoles(dir, next, await forge.defaultBranch());
+    await writeRepoRoles(dir, next, await forge.defaultBranch());
   } catch (e) {
     // Push rejected (protected branch / no-ff / auth) or no forge. Log the detail
     // server-side; return a generic, non-error-derived message so raw error/stack text

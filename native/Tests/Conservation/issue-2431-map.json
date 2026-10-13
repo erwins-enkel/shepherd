@@ -12711,6 +12711,24 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"dispatchesAreListedCanceledAndRedirected() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"machineRefusalsKeepTheirFieldsAndOtherFailuresStayAsTheyWere() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"previewDecodesTheChoiceAndTheMachinesAndAnOldServerIsNotFound() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.RunOnModelTests\",\"theReadStartsWhenThePreviewSaysItMattersAfterTheLastEdit() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.RunOnModelTests\",\"theReadStartsWhenThePreviewSaysItMattersAfterTheLastEdit() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift\",\"LocalRunnerStartTests\",\"detachedRunnerWritesAfterItsParentExitsWithPrivateRotatedLog() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift\",\"LocalRunnerStartTests\",\"missingRunnerFailsWithoutLaunching() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"adoptedServerEnsuresRunnerOnlyForLocalProfileWithoutRestart(mode: ServerProfile.Mode) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"automaticRunnerRepairLeavesStopAvailable() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"externalAndMissingInstallationsNeverAutoStart(external: Bool) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"failedLaunchRecoveryNeverStartsRunnerOrServer() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"failedServerDoesNotAutoStart() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"isolatedLaunchNeverStartsRunnerOrServer() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"launchAutoStartReadsTheBoundProfile(mode: ServerProfile.Mode) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"launchPreferenceDefaultsOnAndPersists() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"launchStartsStoppedInstallationOnlyWithPreferenceOn(enabled: Bool) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"listenerAppearingDuringLaunchRunnerWaitPreventsSpawn(owned: Bool) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"runnerFailureStillStartsServerAndCanBeCleared(failure: LocalServerFailure) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"startAndRestartEnsureRunnerBeforeLaunchingServer() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopDuringFinalLaunchDiscoveryPreventsSpawn() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopDuringLaunchDiscoveryPreventsAutomaticStartup() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopOrRemoteSelectionDuringLaunchRunnerWaitPreventsSpawn(stop: Bool) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"supersededLaunchDiscoveryWaitsUntilExternalServerIsResolved() async throws\"]"
   ]
 }

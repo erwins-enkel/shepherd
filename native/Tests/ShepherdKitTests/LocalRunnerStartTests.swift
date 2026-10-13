@@ -111,6 +111,69 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("runner.sock.ready").path))
   }
 
+  @Test func missingRunnerFailsWithoutLaunching() async throws {
+    let home = try makeTempHome(); defer { try? FileManager.default.removeItem(at: home) }
+    let runner = LocalRunnerStart(environment: LocalServerEnvironment(home: home, processEnvironment: [
+      "HERDR_BIN": home.appendingPathComponent("missing").path,
+    ]), log: LogRing(), start: { _, _ in Issue.record("must not launch") })
+    guard case .failure(let failure) = await runner.run() else { Issue.record("must fail"); return }
+    #expect(failure == .runnerMissing)
+  }
+
+  @Test func detachedRunnerWritesAfterItsParentExitsWithPrivateRotatedLog() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let binary = home.appendingPathComponent("fake runner")
+    try """
+    #!/bin/bash
+    if [ "$1" = agent ]; then test -f "$HOME/runner.pid"; exit $?; fi
+    echo $$ > "$HOME/runner.pid"
+    while [ ! -f "$HOME/write-now" ]; do sleep 0.02; done
+    echo 'stdout after parent exit'
+    echo 'stderr after parent exit' >&2
+    touch "$HOME/wrote"
+    while :; do sleep 0.1; done
+    """.write(to: binary, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+    let directory = home.appendingPathComponent(".shepherd/run")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let log = directory.appendingPathComponent("herdr-runner.log")
+    try Data(repeating: UInt8(ascii: "x"), count: Int(LocalServerLogTail.maxFileBytes) + 1).write(to: log)
+    let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent().deletingLastPathComponent()
+    let helperBinary = try #require([".build/out/Products/Debug", ".build/debug"].map {
+      package.appendingPathComponent($0 + "/LocalServerLifecycleHelper")
+    }.first { FileManager.default.isExecutableFile(atPath: $0.path) })
+    let helper = Process()
+    helper.executableURL = helperBinary
+    helper.arguments = [home.path, "runner"]
+    helper.standardInput = FileHandle.nullDevice
+    helper.standardOutput = FileHandle.nullDevice
+    helper.standardError = FileHandle.nullDevice
+    try helper.run()
+    helper.waitUntilExit()
+    #expect(helper.terminationStatus == 0)
+    let text = try String(contentsOf: home.appendingPathComponent("runner.pid"), encoding: .utf8)
+    let pid = try #require(Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+    let identity = try #require(KernelProcessIdentity.read(pid))
+    defer { if KernelProcessIdentity.read(pid) == identity { killpg(pid, SIGKILL) } }
+    #expect(getpgid(pid) == pid)
+    #expect(getpgid(pid) != getpgid(0))
+    #expect(getpgid(pid) != getpgid(helper.processIdentifier))
+    killpg(pid, SIGHUP)
+    try Data().write(to: home.appendingPathComponent("write-now"))
+    let deadline = ContinuousClock.now + .seconds(5)
+    while !FileManager.default.fileExists(atPath: home.appendingPathComponent("wrote").path),
+          ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(KernelProcessIdentity.read(pid) == identity)
+    #expect(try String(contentsOf: log, encoding: .utf8) == "stdout after parent exit\nstderr after parent exit\n")
+    let permissions = try FileManager.default.attributesOfItem(atPath: log.path)
+    #expect((permissions[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    let previous = try FileManager.default.attributesOfItem(atPath: log.path + ".1")
+    #expect((previous[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    #expect((previous[.size] as? NSNumber)?.uint64Value == LocalServerLogTail.maxFileBytes)
+  }
+
   @Test func startupFailureTimesOutWithoutDeletingExternalState() async throws {
     let (home, env) = try fixture(online: false, starts: false)
     defer { try? FileManager.default.removeItem(at: home) }

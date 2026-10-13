@@ -874,6 +874,7 @@
 "native_local_recheck" = "Recheck";
 "native_local_restart" = "Restart";
 "native_local_start" = "Start server";
+"native_local_start_on_launch" = "Start local server when the app opens";
 "native_local_state_external" = "A server is already answering locally. Review it before connecting.";
 "native_local_state_installing" = "Installing…";
 "native_local_state_not_installed" = "Shepherd is not installed here yet. Download the official installer to set it up.";

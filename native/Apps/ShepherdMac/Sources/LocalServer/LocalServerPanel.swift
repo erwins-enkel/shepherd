@@ -102,6 +102,10 @@ struct LocalServerPanel: View {
             if panel.showsUpdate { updateNotice }
             if panel.showsUpdateCheck { updateCheckControls }
             controls
+            Toggle(L.t("native_local_start_on_launch"), isOn: Binding(
+                get: { model.startOnLaunch }, set: { model.startOnLaunch = $0 }
+            ))
+                .accessibilityIdentifier("local-start-on-launch")
             if panel.showsTailnet { tailnetSection }
             logDisclosure
         }

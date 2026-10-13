@@ -6311,5 +6311,6 @@
   "tooltip_derive_correct": "Korrigieren",
   "tooltip_derive_correct_body": "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine, und Shepherd überschreibt sie nicht mehr.",
   "feat_derived_requirements_title": "„Neue Aufgabe“ liest, was eine Aufgabe braucht",
-  "feat_derived_requirements_body": "Sind Rechner mit unterschiedlichen Werkzeugen verbunden, liest „Neue Aufgabe“ schon beim Schreiben aus Prompt und Issue, was eine Aufgabe braucht – Xcode für eine Mac- oder iOS-App, das Android SDK für Android – und zeigt es als Chips, die du korrigieren kannst. Ist die Beschreibung unklar, fragt sie vor dem Start nach; kann sie es nicht erkennen, sagt sie das und rät nichts."
+  "feat_derived_requirements_body": "Sind Rechner mit unterschiedlichen Werkzeugen verbunden, liest „Neue Aufgabe“ schon beim Schreiben aus Prompt und Issue, was eine Aufgabe braucht – Xcode für eine Mac- oder iOS-App, das Android SDK für Android – und zeigt es als Chips, die du korrigieren kannst. Ist die Beschreibung unklar, fragt sie vor dem Start nach; kann sie es nicht erkennen, sagt sie das und rät nichts.",
+  "native_local_start_on_launch": "Lokalen Server beim Öffnen der App starten"
 }

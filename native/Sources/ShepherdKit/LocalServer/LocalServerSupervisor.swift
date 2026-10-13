@@ -82,7 +82,7 @@ public actor LocalServerSupervisor {
   /// every `withLock` read, so the 100 ms exit watcher overflowed the stack.
   private struct IdentityProbe: Sendable { let read: @Sendable (Int32) -> KernelProcessIdentity? }
   private let identityProbe = Mutex(IdentityProbe(read: { KernelProcessIdentity.read($0) }))
-  private let runner: LocalRunnerStart
+  private let runnerStart: @Sendable () async -> Result<Void, LocalServerFailure>
   private var launchIdentity: LocalServerIdentity?
   private let clock: any SupervisorClock
   private let makeLaunch: @Sendable () -> LocalServerLaunch?
@@ -206,6 +206,7 @@ public actor LocalServerSupervisor {
     policy: RestartPolicy = RestartPolicy(),
     bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
     runDirectory: URL? = nil,
+    runnerStart: (@Sendable () async -> Result<Void, LocalServerFailure>)? = nil,
     launch: @escaping @Sendable () -> LocalServerLaunch?
   ) {
     self.environment = environment
@@ -219,7 +220,8 @@ public actor LocalServerSupervisor {
       let actual = LocalServerIdentity(metadata)
       return expected.matches(actual) ? actual : nil
     }
-    self.runner = LocalRunnerStart(environment: environment, log: log)
+    let runner = LocalRunnerStart(environment: environment, log: log)
+    self.runnerStart = runnerStart ?? { await runner.run() }
     self.clock = clock
     self.policy = policy
     self.makeLaunch = launch
@@ -400,7 +402,7 @@ public actor LocalServerSupervisor {
   }
 
   /// Starts only an offline runner; an answering daemon is left untouched.
-  public func startRunner() async -> Result<Void, LocalServerFailure> { await runner.run() }
+  public func startRunner() async -> Result<Void, LocalServerFailure> { await runnerStart() }
 
   public func logLines() async -> [String] { await log.lines }
   public func clearCapturedPassword() { capturedPassword = nil }

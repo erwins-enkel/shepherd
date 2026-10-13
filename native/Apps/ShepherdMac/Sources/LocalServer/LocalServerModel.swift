@@ -92,6 +92,13 @@ final class LocalServerModel {
     private(set) var externalIdentity: LocalServerIdentity?
     private(set) var externalAcknowledged = false
     private(set) var runnerFailure: LocalServerFailure?
+    var startOnLaunch: Bool {
+        didSet { defaults?.set(startOnLaunch, forKey: Self.startOnLaunchKey) }
+    }
+    private static let startOnLaunchKey = "native.localServer.startOnLaunch"
+    private let defaults: UserDefaults?
+    private let automaticStartAllowed: Bool
+    private var launchRefreshStarted = false
     private var externalVersion: String?
     /// In memory only, offered once, then dropped (D4): persisting the server's
     /// master password would make this app a second, weaker home for it.
@@ -131,6 +138,7 @@ final class LocalServerModel {
     private var automaticUpdatesAllowed = true
     private var automaticProfileSource: (() -> ServerProfile?)?
     private var automaticCheckInFlight = false
+    private var automaticRunnerRepairInFlight = false
     private var quittingUpdates = false
     /// The in-flight `install()`, held so the quit path can cancel it — see
     /// `beginInstall()` / `cancelInstallForQuit()`.
@@ -172,11 +180,13 @@ final class LocalServerModel {
     init(
         environment: LocalServerEnvironment = LocalServerEnvironment(),
         isolated: Bool = LaunchEnvironment.configuration().isIsolated,
+        defaults: UserDefaults? = nil,
         allowTemporaryUpdates: Bool = false,
         probeExternal: (@Sendable () async -> Bool)? = nil,
         discoverExternal: (@Sendable () async -> Components.Schemas.Health?)? = nil,
         health: (@Sendable () async -> Bool)? = nil,
         launch: (@Sendable () -> LocalServerLaunch?)? = nil,
+        runnerStart: (@Sendable () async -> Result<Void, LocalServerFailure>)? = nil,
         installer: (
             @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
         )? = nil,
@@ -190,6 +200,9 @@ final class LocalServerModel {
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
         self.environment = environment
+        self.defaults = defaults ?? (isolated ? nil : .standard)
+        self.startOnLaunch = self.defaults?.object(forKey: Self.startOnLaunchKey) as? Bool ?? true
+        self.automaticStartAllowed = !isolated
         let isolatedLaunch = isolated || LaunchEnvironment.configuration().isIsolated
         self.updatesAllowed = !isolatedLaunch
             || (allowTemporaryUpdates && environment.isTemporaryUpdateEnvironment)
@@ -222,6 +235,7 @@ final class LocalServerModel {
             environment: environment, log: ring,
             health: health,
             clock: clock, bunVersion: bunVersion,
+            runnerStart: runnerStart,
             launch: launch ?? LocalServerSupervisor.defaultLaunch(environment))
     }
 
@@ -296,40 +310,75 @@ final class LocalServerModel {
     /// `install()`) starts with `busy` already `true` and would otherwise run
     /// to completion and stomp `.installing` back down to whatever the
     /// checkout/probe say with nothing in flight.
-    func refresh() async {
-        guard !busy else { return }
-        guard await ensureLaunchRecovery(), !busy else { await pullLog(); return }
-        if recoveryFailed { await pullLog(); return }
-        await resolveState()
+    func refresh() async { _ = await refreshResolvedState() }
+
+    private func refreshResolvedState() async -> Bool {
+        guard !busy else { return false }
+        guard await ensureLaunchRecovery(), !busy else { await pullLog(); return false }
+        if recoveryFailed { await pullLog(); return false }
+        let resolved = await resolveState()
         await checkForUpdate(force: false)
+        return resolved
+    }
+
+    /// Only launch may start a stopped server. A lifecycle action during
+    /// discovery wins, including an operator's deliberate Stop.
+    func refreshAtLaunch() async {
+        guard !launchRefreshStarted else { return }
+        launchRefreshStarted = true
+        let expected = lifecycleGeneration
+        // A panel refresh can supersede launch discovery. Retry before using
+        // the initial stopped state, which has not yet ruled out a foreign server.
+        while !(await refreshResolvedState()) {
+            guard !busy, !recoveryFailed, !quittingUpdates,
+                  lifecycleGeneration == expected else { return }
+        }
+        guard automaticStartAllowed, automaticChecksAllowed, startOnLaunch, !busy, !recoveryFailed,
+              !quittingUpdates, lifecycleGeneration == expected else { return }
+        if state.isRunning { await repairRunnerAutomatically() }
+        else if state == .stopped {
+            await repairRunnerAutomatically()
+            guard !busy, !quittingUpdates, lifecycleGeneration == expected,
+                  automaticChecksAllowed, startOnLaunch else { return }
+            // Discovery before the update/runner waits can already be stale.
+            // Adopt a newly healthy owned server, or leave a foreign one alone.
+            guard await resolveState(), state == .stopped else { return }
+            await act(ifLifecycleGeneration: expected) {
+                guard self.state == .stopped, self.automaticChecksAllowed, self.startOnLaunch,
+                      !self.quittingUpdates else { return }
+                self.state = .starting
+                await self.supervisor.start()
+            }
+        }
     }
 
     /// `refresh()` without the `busy` guard, for the one caller that is itself
     /// the reason `busy` is set. The `generation` re-checks stay: they are what
     /// keeps a stale answer from landing on a newer state, and they are a
     /// different protection from M-1's.
-    private func resolveState() async {
+    @discardableResult
+    private func resolveState() async -> Bool {
         generation += 1
         let expected = generation
         let supervised = await supervisor.state
-        guard generation == expected else { return }
+        guard generation == expected else { return false }
         if supervised.isRunning || supervised == .starting {
             clearExternalObservation()
             state = supervised
             await pullLog()
-            return
+            return true
         }
         let external = await discoverExternal()
-        guard generation == expected else { return }
+        guard generation == expected else { return false }
         let identity = external?.localInstall.map(LocalServerIdentity.init)
         let adopted = await supervisor.adopt(healthyIdentity: identity)
-        guard generation == expected else { return }
+        guard generation == expected else { return false }
         if adopted {
             clearExternalObservation()
             state = await supervisor.state
-            guard generation == expected else { return }
+            guard generation == expected else { return false }
             await pullLog()
-            return
+            return true
         }
         if let external {
             if externalIdentity != identity || externalVersion != external.version {
@@ -338,7 +387,7 @@ final class LocalServerModel {
             externalIdentity = identity
             externalVersion = external.version
             state = .externallyManaged
-            return
+            return true
         }
         clearExternalObservation()
         switch state {
@@ -349,6 +398,7 @@ final class LocalServerModel {
             else { state = environment.isShepherdCheckout() ? .stopped : .notInstalled }
         }
         await pullLog()
+        return true
     }
 
     func install() async {
@@ -456,6 +506,8 @@ final class LocalServerModel {
     func automaticRefresh() async {
         guard updatesAllowed, automaticChecksAllowed else { return }
         await refresh()
+        // Wake/monitor checks can repair an offline runner, but never undo Stop.
+        if state.isRunning { await repairRunnerAutomatically() }
     }
 
     func bindAutomaticProfile(_ source: @escaping () -> ServerProfile?) {
@@ -687,21 +739,45 @@ final class LocalServerModel {
         guard await ensureLaunchRecovery() else { return }
         guard !busy, !recoveryFailed else { return }
         busy = true
-        runnerFailure = nil
         let progress = sampleProgress()
         defer { progress.cancel(); busy = false }
-        if case .failure(let failure) = await supervisor.startRunner() { runnerFailure = failure }
+        await ensureRunner()
         await pullLog()
+    }
+
+    /// Background repair has its own admission gate and leaves server controls
+    /// available. LocalRunnerStart.run() coalesces with explicit runner starts.
+    private func repairRunnerAutomatically() async {
+        guard automaticStartAllowed, automaticChecksAllowed, !busy,
+              !recoveryFailed, !quittingUpdates, !automaticRunnerRepairInFlight else { return }
+        automaticRunnerRepairInFlight = true
+        let progress = sampleProgress()
+        defer { progress.cancel(); automaticRunnerRepairInFlight = false }
+        await ensureRunner()
+        await pullLog()
+    }
+
+    /// Shared by explicit lifecycle turns and background repair; failure leaves
+    /// the server available for diagnostics and is shown separately in the panel.
+    private func ensureRunner() async {
+        runnerFailure = nil
+        if case .failure(let failure) = await supervisor.startRunner() { runnerFailure = failure }
     }
 
     func start() async {
         await act {
             self.state = .starting
+            await self.ensureRunner()
             await self.supervisor.start()
         }
     }
     func stop() async { await act { await self.supervisor.stop() } }
-    func restart() async { await act { await self.supervisor.restart() } }
+    func restart() async {
+        await act {
+            await self.ensureRunner()
+            await self.supervisor.restart()
+        }
+    }
 
     /// Reuses a saved token, retaining the one-time password only for a needed login.
     func connect(_ app: AppModel) async {
@@ -748,9 +824,10 @@ final class LocalServerModel {
     /// Synchronous because `applicationWillTerminate` gets no await.
     nonisolated func terminateForQuit() { supervisor.terminateForQuit() }
 
-    private func act(_ body: @MainActor () async -> Void) async {
+    private func act(ifLifecycleGeneration expected: Int? = nil, _ body: @MainActor () async -> Void) async {
         guard await ensureLaunchRecovery() else { return }
-        guard !busy, !recoveryFailed else { return }
+        guard !busy, !recoveryFailed,
+              expected == nil || lifecycleGeneration == expected else { return }
         busy = true
         generation += 1
         lifecycleGeneration += 1

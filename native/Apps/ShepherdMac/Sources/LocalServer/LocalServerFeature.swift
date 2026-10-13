@@ -25,11 +25,13 @@ enum LocalServerFeature {
         SettingsPaneRegistry.register(LocalServerSettingsPane())
         guard !installed else { return }
         installed = true
+        // Bind before launch work so every automatic decision reads the current
+        // profile, even before its observation callback has run.
+        LocalServerModel.shared.bindAutomaticProfile { [weak app] in app?.activeProfile }
         // Ownership recovery/adoption also runs with a remote active profile.
-        Task { await LocalServerModel.shared.refresh() }
+        Task { await LocalServerModel.shared.refreshAtLaunch() }
         // Automated launches must never fetch or mutate the operator's checkout.
         if !LaunchEnvironment.configuration().isIsolated {
-            LocalServerModel.shared.bindAutomaticProfile { [weak app] in app?.activeProfile }
             observeProfile(app)
             LocalServerModel.shared.startUpdateMonitoring()
             NSWorkspace.shared.notificationCenter.addObserver(

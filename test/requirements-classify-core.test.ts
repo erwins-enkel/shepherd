@@ -3,6 +3,7 @@ import {
   type AnsweredDerivation,
   DERIVABLE_CAPABILITIES,
   REQUIREMENTS_FILE,
+  derivationFromJudge,
   normalizeDerivation,
   requirementsPrompt,
   withImplied,
@@ -164,5 +165,30 @@ describe("requirementsPrompt", () => {
     expect(prompt).not.toContain("UNTRUSTED:task");
     expect(prompt).toContain("the issue below is the task");
     expect(prompt).toContain("Android: Push fehlt");
+  });
+});
+
+describe("derivationFromJudge", () => {
+  test("a clear winner is derived, with what it implies", () => {
+    expect(derivationFromJudge({ none: 0.1, ios: 0.85, macos: 0.05 })).toEqual({
+      status: "derived",
+      requirements: ["sdk:ios", "xcode"],
+    });
+    expect(derivationFromJudge({ none: 0.55, android: 0.1 })).toEqual({
+      status: "derived",
+      requirements: [],
+    });
+  });
+
+  test("a close call asks between every likely set, most likely first", () => {
+    expect(derivationFromJudge({ none: 0.45, macos: 0.35, ios: 0.2, android: 0 })).toEqual({
+      status: "unclear",
+      options: [[], ["xcode"], ["sdk:ios", "xcode"]],
+    });
+  });
+
+  test("no usable probability: nothing", () => {
+    expect(derivationFromJudge({})).toBeNull();
+    expect(derivationFromJudge({ bogus: 1 })).toBeNull();
   });
 });

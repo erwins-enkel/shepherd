@@ -150,7 +150,11 @@ import { isRelevanceMode } from "./house-rules-relevance";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
-import { deriveRequirementsViaAgent, REQUIREMENTS_LABEL } from "./requirements-llm";
+import {
+  deriveRequirementsViaAgent,
+  deriveRequirementsViaJudge,
+  REQUIREMENTS_LABEL,
+} from "./requirements-llm";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
@@ -4214,10 +4218,17 @@ const appDeps: AppDeps = {
       },
       { herdr },
     ),
-  // New Task reads a task's requirements from its description (#2773) on the autopilot
-  // classifier's role CLI and model — the seam it reuses. No session exists yet, so the label
-  // carries a random suffix (the tab reaper knows the prefix).
-  deriveTaskRequirements: (task, signal) => {
+  // New Task reads a task's requirements from its description (#2773): the judge (JEV) first when
+  // it is armed and the task has no screenshots — one HTTP request — else, and on any judge failure,
+  // a helper on the autopilot classifier's role CLI and model. No session exists yet, so the
+  // helper's label carries a random suffix (the tab reaper knows the prefix).
+  deriveTaskRequirements: async (task, signal) => {
+    const judge = armedJudge();
+    if (judge && !task.images?.length) {
+      const viaJudge = await deriveRequirementsViaJudge(task, judge, judgeSpend);
+      if (viaJudge) return viaJudge;
+    }
+    if (signal.aborted) return { status: "failed", cause: "error" };
     const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
     return deriveRequirementsViaAgent(
       task,

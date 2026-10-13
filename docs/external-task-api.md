@@ -497,17 +497,20 @@ redirected: cancel it and submit it again.
 A create never reads its own requirements: what `requirements` says (or its
 absence) is what the choice uses. To read them from the task, as New Task does,
 ask `POST /api/requirements/derive` first with
-`{ repoPath, prompt, issue?: { title, body? } }` (the prompt ≤ 8000 chars, either
-it or the issue title not empty). A helper on the autopilot classifier's CLI and
-model reads the prompt and the issue — never the repository — within 30 seconds,
-and only when it can matter: the placement preview says so with
-`deriveRequirements: true` (no `target`, and the machines that could take the
-task differ in Xcode, the iOS SDK, the iOS simulator or the Android SDK). The
-answer is data, never prose:
+`{ repoPath, prompt, issue?: { title, body? }, images? }` (the prompt ≤ 8000
+chars; it, the issue title or `images` not empty; `images` are staged paths from
+`POST /api/upload`, and only the images among them are looked at). The decision
+model (judge), when armed, answers a task without screenshots in one request;
+otherwise, and on any judge failure, a helper on the autopilot classifier's CLI
+and model reads the prompt, the issue and the screenshots — never the repository
+— within 30 seconds. The placement preview says `deriveRequirements: true` when
+the answer can change where the task runs (no `target`, and the machines that
+could take it differ in Xcode, the iOS SDK, the iOS simulator or the Android
+SDK); then wait for it before creating. The answer is data, never prose:
 
 | `status`  | Meaning                                                                                                                                                      |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `skipped` | Reading them cannot change where the task runs; nothing ran                                                                                                  |
+| `skipped` | No machine is connected, so reading them cannot change where the task runs; nothing ran                                                                      |
 | `derived` | `requirements` (possibly `[]`) from `xcode`, `sdk:ios`, `ios-simulator`, `android-sdk`, with what each implies — send them as the create's `requirements`    |
 | `unclear` | The description could mean different things or contradicts itself: `options` holds 2–3 requirement sets (`[]` = nothing special) — ask, then send the choice |
 | `failed`  | Nothing was read — `cause` is `timeout`, `error` (also an answer outside the vocabulary) or `unavailable`; nothing is guessed                                |

@@ -1002,7 +1002,13 @@ export async function previewPlacement(body: {
 /** Read a new task's requirements from its prompt and attached issue (#2773). `signal` aborts it
  *  when the task text changes; the server then tears its helper down. */
 export async function deriveRequirements(
-  body: { repoPath: string; prompt: string; issue?: { title: string; body?: string } },
+  body: {
+    repoPath: string;
+    prompt: string;
+    issue?: { title: string; body?: string };
+    /** Staged upload paths; the server looks at the images among them. */
+    images?: string[];
+  },
   signal?: AbortSignal,
 ): Promise<RequirementsDerivation> {
   const r = await fetch("/api/requirements/derive", {

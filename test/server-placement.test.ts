@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -633,14 +633,31 @@ describe("requirements read from the task", () => {
     ).toBe(false);
   });
 
-  test("machines that verify the same: skipped, the helper never runs", async () => {
+  test("machines that verify the same: still read, so the chips say what the task needs", async () => {
     const a = startNode("app", "linux", ["platform:linux", "agent:claude"]);
     const b = startNode("app-b", "linux", ["platform:linux", "agent:claude"]);
     await connect(a, b);
     const seen = stubHelper(a, () => ({ status: "derived", requirements: ["xcode"] }));
+    // It cannot change the choice, so New Task need not wait on it — but it still reads.
     expect((await preview(a)).body).toMatchObject({ active: true, deriveRequirements: false });
-    expect(await derive(a)).toEqual({ status: 200, body: { status: "skipped" } });
-    expect(seen).toEqual([]);
+    expect(await derive(a)).toEqual({
+      status: 200,
+      body: { status: "derived", requirements: ["xcode"] },
+    });
+    expect(seen).toHaveLength(1);
+  });
+
+  test("the task's staged screenshots reach the helper; a screenshot alone is a task", async () => {
+    const { linux } = await pair();
+    const staged = join(root, ".shepherd-uploads-staging");
+    mkdirSync(staged, { recursive: true });
+    const shot = join(staged, "a1b2.png");
+    writeFileSync(shot, "png");
+    const seen = stubHelper(linux, () => ({ status: "derived", requirements: [] }));
+    expect((await derive(linux, { prompt: "", images: [shot] })).status).toBe(200);
+    expect(seen).toEqual([{ prompt: "", issue: null, images: [realpathSync(shot)] }]);
+    // Outside the staging dir: refused like a create's attachment.
+    expect((await derive(linux, { images: [join(linux.checkout, "x.png")] })).status).toBe(400);
   });
 });
 

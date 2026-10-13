@@ -617,7 +617,7 @@ export function validatePlacementPreview(
   return { ok: true, value: { repoPath: repoPath.value, requirements: requirements ?? [] } };
 }
 
-const DERIVE_KEYS = new Set(["repoPath", "prompt", "issue"]);
+const DERIVE_KEYS = new Set(["repoPath", "prompt", "issue", "images"]);
 const DERIVE_ISSUE_KEYS = new Set(["title", "body"]);
 
 /** A `POST /api/requirements/derive` body (#2773): one of this machine's repos and the task text
@@ -633,17 +633,25 @@ export function validateRequirementsDerive(
   const obj = body as Record<string, unknown>;
   const unknown = Object.keys(obj).find((key) => !DERIVE_KEYS.has(key));
   if (unknown !== undefined) return err(`unknown key: ${unknown}`);
-  const repoPath = validateRepoPath(obj.repoPath, resolve(expandHome(repoRoot)));
+  const root = resolve(expandHome(repoRoot));
+  const repoPath = validateRepoPath(obj.repoPath, root);
   if (!repoPath.ok) return repoPath;
   if (typeof obj.prompt !== "string" || obj.prompt.length > 8000) {
     return err("prompt must be a string ≤ 8000 chars");
   }
   const issue = validateDeriveIssue(obj.issue);
   if (!issue.ok) return issue;
-  if (!obj.prompt.trim() && !issue.value?.title.trim()) {
-    return err("prompt or issue.title must not be empty");
+  // The task's staged attachments, confined to the staging dir like a create's.
+  const images = validateImages(obj.images, root);
+  if (!images.ok) return images;
+  if (!obj.prompt.trim() && !issue.value?.title.trim() && images.value.length === 0) {
+    return err("prompt, issue.title or images must not be empty");
   }
-  const task = { prompt: obj.prompt, issue: issue.value };
+  const task = {
+    prompt: obj.prompt,
+    issue: issue.value,
+    ...(images.value.length > 0 && { images: images.value }),
+  };
   return { ok: true, value: { repoPath: repoPath.value, task } };
 }
 

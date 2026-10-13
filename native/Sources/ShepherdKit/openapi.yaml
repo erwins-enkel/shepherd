@@ -1303,7 +1303,7 @@ components:
           $ref: "#/components/schemas/PlacementRefusal"
         deriveRequirements:
           type: boolean
-          description: "Present while `active`. true: reading the task's requirements from its description can change where it runs — no target was named, and the machines that could take it differ in what a description can call for (Xcode, the iOS SDK, the iOS simulator, the Android SDK). A client then asks POST /api/requirements/derive before submitting, as New Task does. false: it cannot, and nothing needs to be derived."
+          description: "Present while `active`. true: reading the task's requirements can change where it runs — no target was named, and the machines that could take it differ in what a task can call for (Xcode, the iOS SDK, the iOS simulator, the Android SDK). A client then waits for POST /api/requirements/derive before submitting, as New Task does. false: it cannot; a client may still read them to show what the task needs (New Task does under Automatic), but need not wait."
         machines:
           type: array
           description: "Present while `active` (#2776): the machines a create may name in `target` for this repo right now — this instance first, then every connected machine whose platform is released for tasks and that has the project checked out (by forge slug). A client that cannot list the connected machines itself (GET /api/remote-instances needs an operator session, which a native app's token is not) offers these under Run on. Whether one fits the requirements is what a preview with it as `target` answers."
@@ -1329,7 +1329,7 @@ components:
       required:
         - repoPath
         - prompt
-      description: "The task as it would be submitted: the prompt and the attached issue's title and body. Either the prompt or the issue title must not be empty. The repository is never read."
+      description: "The task as it would be submitted: the prompt, the attached issue's title and body, and the staged attachments (`images`, paths from POST /api/upload — only images are looked at). The prompt, the issue title or the attachments must not be empty. The repository is never read."
       properties:
         repoPath:
           type: string
@@ -1348,12 +1348,16 @@ components:
             body:
               type: string
               maxLength: 100000
+        images:
+          type: array
+          items:
+            type: string
     RequirementsDerivation:
       type: object
       additionalProperties: true
       required:
         - status
-      description: "What the task's description calls for, as data from the capability vocabulary — never prose; clients put it into words. skipped: reading it cannot change where the task runs (no machine connected, or the machines that could take it verify the same), and nothing ran. derived: `requirements` (possibly empty) — what the description calls for, with what each implies (the iOS simulator needs the iOS SDK, which needs Xcode). unclear: the description could mean different things or contradicts itself; `options` holds 2–3 requirement sets (an empty one = nothing special) for the operator to choose from before the task starts. failed: nothing was derived — `cause` is timeout, error (including an answer outside the vocabulary) or unavailable (no helper could run); nothing is guessed."
+      description: "What the task's description calls for, as data from the capability vocabulary — never prose; clients put it into words. skipped: no machine is connected, so it cannot change where the task runs, and nothing ran. derived: `requirements` (possibly empty) — what the description calls for, with what each implies (the iOS simulator needs the iOS SDK, which needs Xcode). unclear: the description could mean different things or contradicts itself; `options` holds 2–3 requirement sets (an empty one = nothing special) for the operator to choose from before the task starts. failed: nothing was derived — `cause` is timeout, error (including an answer outside the vocabulary) or unavailable (no helper could run); nothing is guessed."
       properties:
         status:
           anyOf:
@@ -8592,7 +8596,7 @@ paths:
   /api/requirements/derive:
     post:
       operationId: deriveRequirements
-      description: "Read a new task's requirements from its prompt and attached issue, before it is submitted (New Task does this while the operator is still writing). Runs only when it can change where the task runs — see PlacementPreview.deriveRequirements; otherwise answers `skipped`. A transient helper reads the task text only, never the repository, within 30 seconds. POST /api/sessions never derives: send what this answers (or what the operator made of it) as `requirements`."
+      description: "Read a new task's requirements from its prompt, attached issue and staged screenshots, before it is submitted (New Task does this while the operator is still writing). Answers `skipped` only while no machine is connected. The decision model (judge), when armed, answers a task without screenshots in one request; otherwise, and whenever it fails, a transient helper reads the task and its screenshots, never the repository, within 30 seconds. POST /api/sessions never derives: send what this answers (or what the operator made of it) as `requirements`."
       requestBody:
         required: true
         content:

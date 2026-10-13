@@ -27,12 +27,13 @@ import {
   listRemoteInstances,
   branchStatus,
   getCommands,
+  uploadFile,
 } from "#lib/api.js";
 
-// Requirements read from the task (#2773): while the machines that could take it differ (the
-// Automatic preview says `deriveRequirements`), New Task asks the server a second after the last
-// edit. What it reads becomes correctable chips; an unclear description asks first and nothing
-// starts before the answer; a failed read derives nothing and says so. The operator's own chips win.
+// Requirements read from the task (#2773): under Automatic, New Task asks the server a second after
+// the last edit — prompt, issue and screenshots. What it reads becomes correctable chips; an unclear
+// description asks first and nothing starts before the answer; a failed read derives nothing and
+// says so. The operator's own chips win: a different answer is then only offered to take over.
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -51,6 +52,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     deriveRequirements: vi.fn(),
     branchStatus: vi.fn(),
     getCommands: vi.fn(),
+    uploadFile: vi.fn(),
   };
 });
 
@@ -156,6 +158,7 @@ beforeEach(async () => {
   vi.mocked(deriveRequirements).mockReset();
   vi.mocked(branchStatus).mockResolvedValue({ ahead: 0, behind: 0, diverged: false } as never);
   vi.mocked(getCommands).mockResolvedValue({ commands: [] });
+  vi.mocked(uploadFile).mockImplementation(async (file: File) => `/staged/${file.name}`);
 });
 
 afterEach(() => {
@@ -226,13 +229,14 @@ describe("requirements read from the task (#2773)", () => {
     await expect.element(removeChip(["sdk:ios"])).toBeVisible();
     await expect.element(removeChip(["xcode"])).toBeVisible();
 
-    // The operator corrects them: theirs win from here on.
+    // The operator corrects them: theirs win from here on, and the next read is only offered.
     await removeChip(["sdk:ios"]).click();
     await addRequirement("android-sdk");
     await typePrompt("Implementiere die Ansicht in der iOS-App, mit Tests");
-    await settle();
-    expect(deriveRequirements).toHaveBeenCalledTimes(1);
-    expect(document.querySelector(".nt-derive")).toBeNull();
+    const adopt = page.getByRole("button", { name: m.newtask_derive_adopt() });
+    await expect.element(adopt, READ).toBeVisible();
+    expect(deriveRequirements).toHaveBeenCalledTimes(2);
+    expect(chips()).toEqual([capabilityList(["android-sdk"]), capabilityList(["xcode"])]);
 
     await submit();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -315,27 +319,7 @@ describe("requirements read from the task (#2773)", () => {
     expect(chips()).toEqual([]);
   });
 
-  it("does not start before the Automatic preview says whether reading can matter", async () => {
-    let answer: (value: PlacementPreview) => void = () => {};
-    vi.mocked(previewPlacement).mockImplementation(
-      () => new Promise((resolve) => (answer = resolve)),
-    );
-    const onsubmit = open();
-    await typePrompt("Erweitere die native macOS-App");
-    await expect.poll(() => vi.mocked(previewPlacement).mock.calls.length, READ).toBeGreaterThan(0);
-    expect(runButton().disabled).toBe(true);
-    expect(readinessText()).toContain(m.newtask_readiness_requirements_pending());
-    runButton().click();
-    await settle(300);
-    expect(onsubmit).not.toHaveBeenCalled();
-
-    answer({ active: true, placement: placedHere, deriveRequirements: false });
-    await submit();
-    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
-    expect(deriveRequirements).not.toHaveBeenCalled();
-  });
-
-  it("a failed preview still reads the task: the server checks whether it matters", async () => {
+  it("a failed preview still reads the task", async () => {
     vi.mocked(previewPlacement).mockRejectedValue(new TypeError("network down"));
     vi.mocked(deriveRequirements).mockResolvedValue({ status: "derived", requirements: ["xcode"] });
     const onsubmit = open();
@@ -346,26 +330,70 @@ describe("requirements read from the task (#2773)", () => {
     expect(onsubmit.mock.calls[0]![0].requirements).toEqual(["xcode"]);
   });
 
-  it("reads nothing while the machines do not differ, and the task starts right away", async () => {
+  it("does not start before the Automatic preview says whether reading can matter", async () => {
+    let answer: (value: PlacementPreview) => void = () => {};
+    vi.mocked(previewPlacement).mockImplementation(
+      () => new Promise((resolve) => (answer = resolve)),
+    );
+    vi.mocked(deriveRequirements).mockImplementation(() => new Promise(() => {}));
+    const onsubmit = open();
+    await typePrompt("Erweitere die native macOS-App");
+    await expect.poll(() => vi.mocked(previewPlacement).mock.calls.length, READ).toBeGreaterThan(0);
+    expect(runButton().disabled).toBe(true);
+    expect(readinessText()).toContain(m.newtask_readiness_requirements_pending());
+
+    // It cannot matter: the task starts while the read is still out.
+    answer({ active: true, placement: placedHere, deriveRequirements: false });
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+  });
+
+  it("reads even while the machines do not differ, so the chips say what the task needs", async () => {
     vi.mocked(previewPlacement).mockResolvedValue({
       active: true,
       placement: placedHere,
       deriveRequirements: false,
     });
-    const onsubmit = open();
+    vi.mocked(deriveRequirements).mockResolvedValue({ status: "derived", requirements: ["xcode"] });
+    open();
     await typePrompt("Baue die macOS-App");
-    await submit();
-    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
-    await settle();
-    expect(deriveRequirements).not.toHaveBeenCalled();
+    await expect.poll(() => runButton().disabled).toBe(false);
+    await expect.element(removeChip(["xcode"]), READ).toBeVisible();
   });
 
-  it("reads nothing once the operator set the chips", async () => {
-    open();
-    await addRequirement("xcode");
+  it("the operator's own chips do not wait; a different answer is offered and can be taken over", async () => {
+    let answer: (value: RequirementsDerivation) => void = () => {};
+    vi.mocked(deriveRequirements).mockImplementation(
+      () => new Promise((resolve) => (answer = resolve)),
+    );
+    const onsubmit = open();
+    await addRequirement("android-sdk");
     await typePrompt("Baue die macOS-App");
-    await settle();
-    expect(deriveRequirements).not.toHaveBeenCalled();
-    expect(document.querySelector(".nt-derive")).toBeNull();
+    await expect.poll(() => vi.mocked(deriveRequirements).mock.calls.length, READ).toBe(1);
+    // Still reading, but the chips are the operator's: the task can start.
+    await expect.poll(() => runButton().disabled).toBe(false);
+    answer({ status: "derived", requirements: ["xcode"] });
+    await page.getByRole("button", { name: m.newtask_derive_adopt() }).click();
+    await expect.element(removeChip(["xcode"])).toBeVisible();
+    expect(chips()).toEqual([capabilityList(["xcode"])]);
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0].requirements).toEqual(["xcode"]);
+  });
+
+  it("sends the task's screenshots along, but not its other attachments", async () => {
+    vi.mocked(deriveRequirements).mockResolvedValue({ status: "derived", requirements: [] });
+    open();
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const files = [
+      new File(["png"], "sim.png", { type: "image/png" }),
+      new File(["pdf"], "spec.pdf", { type: "application/pdf" }),
+    ];
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await typePrompt("Fix das");
+    await expect
+      .poll(() => vi.mocked(deriveRequirements).mock.calls.at(-1)?.[0], READ)
+      .toEqual({ repoPath: repo.path, prompt: "Fix das", images: ["/staged/sim.png"] });
   });
 });

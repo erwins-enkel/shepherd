@@ -355,11 +355,14 @@ describe("mirrored sessions", () => {
     store.update(remote.id, { status: "idle" });
     startNode(port, store);
     await a.deps.remoteInstances.check(bId);
+    // The link reads connected once the socket opens; the fresh snapshot (sessions and their PR
+    // state, #3055) lands just after it — so wait for the news, not only the link.
     const back = await until(
       () => get(a, "/api/sessions"),
-      (l) =>
-        (l.find((s) => s.id === remote.id) as Record<string, any> | undefined)?.connection
-          ?.state === "connected",
+      (l) => {
+        const ref = l.find((s) => s.id === remote.id) as Record<string, any> | undefined;
+        return ref?.connection?.state === "connected" && ref.status === "idle";
+      },
     );
     expect(back.find((s) => s.id === remote.id)!.status).toBe("idle");
   });

@@ -28,6 +28,7 @@ schema and deliberately absent from this page.
 | --- | --- | --- |
 | `SHEPHERD_PORT` | `7330` | HTTP/WS listen port |
 | `SHEPHERD_HOST` | `127.0.0.1` | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs) |
+| `SHEPHERD_APP_UPDATE_DIR` | unset | Native app-injected private fleet-update handoff directory; contains `update-request` and `shepherd-update.log`. |
 | `SHEPHERD_LOCAL_SUPERVISION` | unset | Native supervisor opt-in (`1`) for local install metadata on `/api/health`; only honored on loopback. |
 | `SHEPHERD_LOCAL_INSTANCE_ID` | unset | Ephemeral per-launch marker supplied by the native supervisor; never persist it. Consistency evidence, not an authentication credential. |
 | `SHEPHERD_LOCAL_PASSWORD_FILE` | _(unset)_ | Private one-shot generated-password channel injected by the Mac app. Suppresses the stdout credential banner; the app reads and deletes the file. Do not set manually. |

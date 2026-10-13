@@ -27,6 +27,7 @@ import {
 } from "../src/server";
 import { WorktreeMgr, WorktreeOccupiedError } from "../src/worktree";
 import type { GitForge } from "../src/forge/types";
+import { UpdateService } from "../src/update";
 import { config, USAGE_HISTORY_RETENTION_MS } from "../src/config";
 import { ACTIVE_LABEL } from "../src/drain-core";
 import { dashify } from "../src/usage";
@@ -1964,6 +1965,27 @@ test("discard cleans up the private dir when the launch fails", async () => {
   expect(res.status).toBe(409);
   expect(capturedDir).toBeTruthy();
   expect(existsSync(capturedDir!)).toBe(false); // dir removed, no orphaned pathspec
+});
+
+test("app-managed discard refusal still cleans the server's private pathspec dir", async () => {
+  const dir = join(tmpRoot, "app-update");
+  mkdirSync(dir);
+  const updates = new UpdateService({ appUpdateDir: dir });
+  let capturedDir: string | undefined;
+  const app = harnessWithUpdates({
+    current: () => BEHIND,
+    dirtyStatus: async () => dirtyFixture("S"),
+    apply: (opts) => {
+      capturedDir = opts?.dir;
+      return updates.apply(opts);
+    },
+  });
+  const res = await postUpdate(app, { discard: true, sig: "S" });
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain("discarding local changes is not supported");
+  expect(capturedDir).toBeTruthy();
+  expect(existsSync(capturedDir!)).toBe(false);
+  expect(existsSync(join(dir, "update-request"))).toBe(false);
 });
 
 test("GET /api/update/log with no updater → idle", async () => {

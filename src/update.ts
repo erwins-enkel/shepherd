@@ -1,9 +1,20 @@
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, type Hash } from "node:crypto";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { config } from "./config";
 import { timedAsync } from "./instrument";
+import { systemdRun } from "./restart";
 import { shepherdRuntimeDir } from "./runtime-dir";
 
 const execFileAsync = promisify(execFile);
@@ -77,6 +88,7 @@ const EXIT_MARKER = "__SHEPHERD_UPDATE_EXIT__";
 /** A deploy with no exit marker whose log hasn't been touched for this long is
  *  treated as dead (crashed/killed) so a stuck launch can't block retries. */
 const DEPLOY_STALE_MS = 15 * 60_000;
+const APP_PICKUP_TIMEOUT_MS = 60_000;
 
 // ESC[…m colour codes; built from the ESC char so no control literal sits in source
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
@@ -226,6 +238,10 @@ export interface DiscardLaunch {
 }
 
 export interface UpdateDeps {
+  /** App-owned update handoff directory; empty disables the handoff. */
+  appUpdateDir?: string;
+  /** Platform seam for the unmanaged Mac error. */
+  platform?: NodeJS.Platform;
   /** repo to check; defaults to the service working dir (the live deployment) */
   repoDir?: string;
   /** branch to track on origin; defaults to "main" */
@@ -260,6 +276,8 @@ export interface UpdateDeps {
  * surfaces individual new commits on main — no version tags required.
  */
 export class UpdateService {
+  private appUpdateDir: string;
+  private platform: NodeJS.Platform;
   private repoDir: string;
   private branch: string;
   private scriptPath: string;
@@ -275,10 +293,16 @@ export class UpdateService {
   private applying = false;
 
   constructor(deps: UpdateDeps = {}) {
+    this.appUpdateDir = deps.appUpdateDir ?? config.appUpdateDir;
+    this.platform = deps.platform ?? process.platform;
     this.repoDir = deps.repoDir ?? process.cwd();
     this.branch = deps.branch ?? "main";
     this.scriptPath = deps.scriptPath ?? join(this.repoDir, "deploy", "update.sh");
-    this.logPath = deps.logPath ?? shepherdRuntimeDir("shepherd-update.log");
+    this.logPath =
+      deps.logPath ??
+      (this.appUpdateDir
+        ? join(this.appUpdateDir, "shepherd-update.log")
+        : shepherdRuntimeDir("shepherd-update.log"));
     this.limit = deps.limit ?? 20;
     this.sigMaxBytes = deps.sigMaxBytes ?? 64 * 1024 * 1024;
     this.sigTimeoutMs = deps.sigTimeoutMs ?? 10_000;
@@ -354,6 +378,31 @@ export class UpdateService {
    *  be read back and shown to the operator instead of vanishing. Throws if the
    *  unit can't even be registered (e.g. systemd-run missing). */
   private defaultLaunch(discard?: DiscardLaunch): void {
+    if (this.appUpdateDir) {
+      const requestPath = join(this.appUpdateDir, "update-request");
+      const temporaryPath = `${requestPath}.${process.pid}.tmp`;
+      writeFileSync(this.logPath, "▸ handing the update to the Shepherd app on this Mac…\n", {
+        mode: 0o600,
+      });
+      try {
+        writeFileSync(temporaryPath, JSON.stringify({ requestedAt: Date.now() }), {
+          flag: "wx",
+          mode: 0o600,
+        });
+        renameSync(temporaryPath, requestPath);
+      } catch (error) {
+        rmSync(this.logPath, { force: true });
+        throw error;
+      } finally {
+        rmSync(temporaryPath, { force: true });
+      }
+      return;
+    }
+    if (this.platform === "darwin") {
+      throw new Error(
+        "this Mac's Shepherd server is not managed by the Shepherd app — update it with deploy/update.sh",
+      );
+    }
     // The runtime dir ($XDG_RUNTIME_DIR/shepherd or the ~/.shepherd/run fallback) may not
     // exist yet — /tmp always did. Create it before the write, or the deploy never launches.
     mkdirSync(dirname(this.logPath), { recursive: true });
@@ -377,15 +426,7 @@ export class UpdateService {
       `bash ${shq(this.scriptPath)} --pull${discard ? " --discard" : ""}; ` +
       `echo "${EXIT_MARKER}:$?"`;
     args.push("bash", "-c", inner);
-    const r = spawnSync("systemd-run", args, {
-      cwd: this.repoDir,
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-    if (r.error) throw new Error(`could not launch the deploy: ${r.error.message}`);
-    if (typeof r.status === "number" && r.status !== 0) {
-      const stderr = r.stderr?.toString().trim();
-      throw new Error(`deploy launcher exited ${r.status}${stderr ? `: ${stderr}` : ""}`);
-    }
+    systemdRun(args, "deploy", this.repoDir);
   }
 
   /** Read the detached deploy's captured output to classify its state. Fail-safe:
@@ -397,7 +438,9 @@ export class UpdateService {
     try {
       raw = readFileSync(this.logPath, "utf8");
     } catch {
-      return { phase: "idle", exitCode: null, log: "" };
+      // A pending app request still needs pickup/timeout handling if its log disappeared.
+      if (!this.appRequestPending()) return { phase: "idle", exitCode: null, log: "" };
+      raw = "";
     }
     const clean = stripAnsi(raw);
     const m = clean.match(new RegExp(`${EXIT_MARKER}:(\\d+)`));
@@ -409,6 +452,7 @@ export class UpdateService {
       const reason = classifyDeployReason(exitCode, log);
       return { phase: exitCode === 0 ? "done" : "failed", exitCode, log, reason };
     }
+    if (this.expireStaleAppRequest()) return this.applyState();
     let mtimeMs = 0;
     try {
       mtimeMs = statSync(this.logPath).mtimeMs;
@@ -423,6 +467,39 @@ export class UpdateService {
       };
     }
     return { phase: "running", exitCode: null, log: tail(clean) };
+  }
+
+  /** True while an app-handoff request is waiting for the Shepherd app to claim it. */
+  private appRequestPending(): boolean {
+    if (!this.appUpdateDir) return false;
+    try {
+      statSync(join(this.appUpdateDir, "update-request"));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Fail an app-handoff request the app never claimed within the pickup timeout.
+   *  True when it was expired (the log then carries a failure exit marker). */
+  private expireStaleAppRequest(): boolean {
+    if (!this.appUpdateDir) return false;
+    const requestPath = join(this.appUpdateDir, "update-request");
+    try {
+      if (Date.now() - statSync(requestPath).mtimeMs <= APP_PICKUP_TIMEOUT_MS) return false;
+      // Unlink claims the stale request; if the app already claimed it, leave its run alone.
+      unlinkSync(requestPath);
+      appendFileSync(
+        this.logPath,
+        "Shepherd app did not pick up the update — open the app on this Mac and retry.\n" +
+          `${EXIT_MARKER}:1\n`,
+        { mode: 0o600 },
+      );
+      return true;
+    } catch {
+      // The app has claimed the request, or it has not been written yet.
+      return false;
+    }
   }
 
   /** Last computed status, or null before the first check. */
@@ -531,6 +608,13 @@ export class UpdateService {
     started: boolean;
     error?: string;
   } {
+    if (this.appUpdateDir && opts?.discard) {
+      return {
+        started: false,
+        error:
+          "discarding local changes is not supported on an app-managed Mac — update it from the Shepherd app",
+      };
+    }
     // reconcile the in-process latch with the real deploy result: a terminal
     // deploy (done/failed) means we're free to launch again.
     const phase = this.applyState().phase;

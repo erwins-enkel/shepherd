@@ -1,5 +1,14 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createHash, type Hash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -340,4 +349,129 @@ test("apply() without discard opts launches plainly (no discard forwarded)", () 
   expect(svc.apply().started).toBe(true);
   expect(discardLaunches).toEqual([]);
   expect(plain).toBe(1);
+});
+
+test("app-managed Mac hands off atomically without launching a deploy", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-app-update-"));
+  try {
+    const svc = new UpdateService({
+      appUpdateDir: dir,
+      platform: "darwin",
+      scriptPath: "/does-not-exist",
+    });
+    writeFileSync(join(dir, "shepherd-update.log"), "old result\n__SHEPHERD_UPDATE_EXIT__:1\n");
+    const before = Date.now();
+    expect(svc.apply()).toEqual({ started: true });
+    const request = JSON.parse(readFileSync(join(dir, "update-request"), "utf8"));
+    expect(request.requestedAt).toBeGreaterThanOrEqual(before);
+    expect(request.requestedAt).toBeLessThanOrEqual(Date.now());
+    expect(readFileSync(join(dir, "shepherd-update.log"), "utf8")).toBe(
+      "▸ handing the update to the Shepherd app on this Mac…\n",
+    );
+    expect(readdirSync(dir).sort()).toEqual(["shepherd-update.log", "update-request"]);
+    expect(svc.applyState().phase).toBe("running");
+    expect(svc.apply().started).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("app handoff rejects discard even without complete discard tokens", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-app-update-"));
+  try {
+    let launches = 0;
+    const svc = new UpdateService({ appUpdateDir: dir, launch: () => launches++ });
+    const result = svc.apply({ discard: true });
+    expect(result.started).toBe(false);
+    expect(result.error).toContain(
+      "discarding local changes is not supported on an app-managed Mac",
+    );
+    expect(launches).toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("stale app request fails durably, removes the request and permits retry", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-app-update-"));
+  try {
+    const svc = new UpdateService({ appUpdateDir: dir });
+    expect(svc.apply().started).toBe(true);
+    const request = join(dir, "update-request");
+    expect(svc.applyState().phase).toBe("running");
+    const stale = new Date(Date.now() - 61_000);
+    utimesSync(request, stale, stale);
+    const result = svc.applyState();
+    expect(result.phase).toBe("failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.log).toContain("open the app on this Mac and retry");
+    expect(existsSync(request)).toBe(false);
+    expect(new UpdateService({ appUpdateDir: dir }).applyState()).toEqual(result);
+    expect(svc.apply().started).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("stale app request is retired even if its log disappeared", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-app-update-"));
+  try {
+    const svc = new UpdateService({ appUpdateDir: dir });
+    expect(svc.apply().started).toBe(true);
+    unlinkSync(join(dir, "shepherd-update.log"));
+    const stale = new Date(Date.now() - 61_000);
+    utimesSync(join(dir, "update-request"), stale, stale);
+    expect(svc.applyState().phase).toBe("failed");
+    expect(existsSync(join(dir, "update-request"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("claimed app request stays running and app markers survive server restart", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-app-update-"));
+  try {
+    const svc = new UpdateService({ appUpdateDir: dir });
+    expect(svc.apply().started).toBe(true);
+    unlinkSync(join(dir, "update-request"));
+    expect(svc.applyState().phase).toBe("running");
+    for (const code of [0, 7]) {
+      writeFileSync(
+        join(dir, "shepherd-update.log"),
+        `app progress\n__SHEPHERD_UPDATE_EXIT__:${code}\n`,
+      );
+      const result = new UpdateService({ appUpdateDir: dir }).applyState();
+      expect(result.phase).toBe(code === 0 ? "done" : "failed");
+      expect(result.exitCode).toBe(code);
+      expect(result.log).toBe("app progress");
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("unmanaged Mac explains the manual update path without launching systemd", () => {
+  const logPath = freshLog();
+  const svc = new UpdateService({ appUpdateDir: "", platform: "darwin", logPath });
+  expect(svc.apply()).toEqual({
+    started: false,
+    error:
+      "this Mac's Shepherd server is not managed by the Shepherd app — update it with deploy/update.sh",
+  });
+  expect(existsSync(logPath)).toBe(false);
+});
+
+test("failed app request publication does not leave a running log blocking retry", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-app-update-"));
+  try {
+    const svc = new UpdateService({ appUpdateDir: dir });
+    const temporary = join(dir, `update-request.${process.pid}.tmp`);
+    writeFileSync(temporary, "occupied");
+    expect(svc.apply().started).toBe(false);
+    expect(svc.applyState().phase).toBe("idle");
+    expect(svc.apply().started).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

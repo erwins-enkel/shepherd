@@ -12730,6 +12730,11 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopDuringLaunchDiscoveryPreventsAutomaticStartup() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopOrRemoteSelectionDuringLaunchRunnerWaitPreventsSpawn(stop: Bool) async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"supersededLaunchDiscoveryWaitsUntilExternalServerIsResolved() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"promotionIgnoresBackendGitBookkeepingButRefusesOperatorWork() throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"promotionIgnoresBackendGitBookkeepingButRefusesOperatorWork() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"appHandoffClaimsRequestsOnceInAPrivateDirectory() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"appHandoffMirrorsEveryRedactedLineAndExactlyOneExitMarker() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"fleetRequestUsesTheExistingUpdateFlowAndMirrorsSuccess() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"fleetRequestMirrorsFailureAndCannotStartReason() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"supervisorInjectsTheAppOwnedUpdateDirectory() async throws\"]"
   ]
 }

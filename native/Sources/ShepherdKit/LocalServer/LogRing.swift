@@ -12,14 +12,29 @@ public actor LogRing {
   private var buffer: [String] = []
   private var secrets: [String] = []
   private let capacity: Int
+  private var mirror: FileHandle?
 
   public init(capacity: Int = 500) { self.capacity = max(1, capacity) }
 
   public var lines: [String] { buffer }
 
   public func append(_ line: String) {
-    buffer.append(scrub(line))
+    let clean = scrub(line)
+    buffer.append(clean)
+    try? mirror?.write(contentsOf: Data((clean + "\n").utf8))
     if buffer.count > capacity { buffer.removeFirst(buffer.count - capacity) }
+  }
+
+  /// Mirror new, redacted lines directly rather than sampling the bounded ring.
+  public func beginMirroring(to url: URL) throws {
+    let fd = open(url.path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600)
+    guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+    mirror = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+  }
+
+  public func endMirroring() {
+    try? mirror?.close()
+    mirror = nil
   }
 
   public func clear() { buffer.removeAll(keepingCapacity: true) }

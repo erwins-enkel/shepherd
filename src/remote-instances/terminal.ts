@@ -37,6 +37,9 @@ export interface TerminalAttach {
   rows: number;
   clientKind: string;
   clientPlatform: string;
+  /** The caller resumes a stream it paused (#3035): the machine attaches only if nobody holds
+   *  the terminal there, otherwise it parks the caller with 4000 instead of taking over. */
+  resume?: boolean;
 }
 
 interface UpstreamHandlers {
@@ -106,6 +109,7 @@ export class RemoteTerminalBridge {
       clientKind: this.attach.clientKind,
       clientPlatform: this.attach.clientPlatform,
     });
+    if (this.attach.resume) query.set("resume", "1");
     const url = `${this.target.url.replace(/^http/, "ws")}/pty/${encodeURIComponent(this.sessionId)}?${query}`;
     this.timer = setTimeout(
       () => this.finish([PTY_MACHINE_UNREACHABLE_CODE, UNREACHABLE_REASON]),

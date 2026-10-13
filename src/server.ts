@@ -11007,6 +11007,8 @@ type WsData = (
       id: string;
       cols: number;
       rows: number;
+      /** `?resume=1`, forwarded so the machine applies the same yield as a local attach. */
+      resume: boolean;
       terminal?: RemoteTerminal;
     }
 ) & {
@@ -11288,11 +11290,20 @@ export function serve(deps: AppDeps, port: number) {
       url.searchParams.get("cols"),
       url.searchParams.get("rows"),
     );
+    const resume = url.searchParams.get("resume") === "1";
     // A session mirrored from a connected machine (#2764): its terminal is bridged there once the
     // socket opens. Reached only past checkAuth's `full` scope gate and the repository boundary.
     if (!s && deps.remoteSessions?.has(id)) {
       const client = parseTerminalClient(url.searchParams);
-      return upgradeWith(req, server, { kind: "remote-pty", tokenId, id, cols, rows, client });
+      return upgradeWith(req, server, {
+        kind: "remote-pty",
+        tokenId,
+        id,
+        cols,
+        rows,
+        resume,
+        client,
+      });
     }
     if (!s) return new Response("no session", { status: 404 });
     return upgradeWith(req, server, {
@@ -11302,7 +11313,7 @@ export function serve(deps: AppDeps, port: number) {
       terminalId: s.herdrAgentId,
       cols,
       rows,
-      resume: url.searchParams.get("resume") === "1",
+      resume,
       client: parseTerminalClient(url.searchParams),
     });
   }
@@ -11477,14 +11488,14 @@ export function serve(deps: AppDeps, port: number) {
   // single owner and reports gone — its close codes reach this socket unchanged. An unreachable
   // machine closes it with PTY_MACHINE_UNREACHABLE_CODE; nothing is ever attached locally instead.
   function openRemotePtySocket(ws: ServerWebSocket<WsData & { kind: "remote-pty" }>): void {
-    const { id, cols, rows, client } = ws.data;
+    const { id, cols, rows, resume, client } = ws.data;
     const sink = {
       send: (data: string | Uint8Array) => {
         if (socketAuthorized(ws)) ws.send(data);
       },
       close: (code?: number, reason?: string) => ws.close(code, reason),
     };
-    const attach = { cols, rows, clientKind: client.kind, clientPlatform: client.platform };
+    const attach = { cols, rows, clientKind: client.kind, clientPlatform: client.platform, resume };
     ws.data.terminal = deps.remoteSessions?.openTerminal(id, sink, attach);
   }
   // Presence frame: the page reports focus+visibility so push delivery

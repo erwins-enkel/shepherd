@@ -785,6 +785,8 @@
 "native_ios_push_failed" = "Registration failed: %1$@";
 "native_ios_push_pending" = "Registering with this server…";
 "native_ios_push_registered" = "Active for this server";
+"native_ios_push_relay_hint" = "Notifications for machines this server mirrors. Machines you saved here directly notify you themselves, never twice.";
+"native_ios_push_relay_toggle" = "Mirrored machines via %1$@";
 "native_ios_push_title" = "Notifications";
 "native_ios_push_unavailable" = "Not set up on this server — set it up on the server under Settings → Notifications";
 "native_ios_remote_actions_body" = "This app shows the session as %1$@ reports it. Its terminal, steering, stopping, archiving and merging are not offered here yet, and nothing is run on this server in their place — open the Shepherd on %1$@ for those.";

@@ -538,7 +538,7 @@ final class IOSServerHubTests: XCTestCase {
         let storeA = try XCTUnwrap(hub.models[a.id]?.store)
         let storeB = try XCTUnwrap(hub.models[b.id]?.store)
         let registration = IOSPushRegistration()
-        registration.registerDevice = { store, _ in
+        registration.registerDevice = { store, _, _ in
             store === storeA ? .registered(endpoint: "fixture") : .unavailable
         }
         registration.attach(hub, enabled: true)
@@ -559,7 +559,7 @@ final class IOSServerHubTests: XCTestCase {
         let registration = IOSPushRegistration()
         var targets: [String] = []
         var receivedTokens: [String] = []
-        registration.registerDevice = { store, token in
+        registration.registerDevice = { store, token, _ in
             receivedTokens.append(token)
             targets.append(store.client.profile.baseURL.absoluteString)
             return .registered(endpoint: "fixture")
@@ -832,6 +832,88 @@ final class IOSServerHubTests: XCTestCase {
         registration.attach(hub, enabled: false)
         registration.open("healthy")
         XCTAssertEqual(hub.selection, .init(profileID: a.id, sessionID: "healthy"))
+    }
+
+
+    private func identities(_ hub: IOSServerHub, _ ids: [UUID]) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ids.contains(where: { hub.models[$0]?.extension(IOSInstanceIdentity.self)?.settled != true }),
+              ContinuousClock.now < deadline { await Task.yield() }
+    }
+
+    /// #3059: a relaying coordinator hears which other saved servers already reach this phone,
+    /// and the per-server switch; a server without the capability gets the plain registration.
+    func testRelayingServerLearnsCoverageAndSwitchWhileOlderServerGetsThePlainBody() async throws {
+        let (launch, hub, a, b) = try fixture()
+        defer { stop(hub) }
+        IOSMultiServerFixtureTransport.setInstance(#"{"instanceId":"coord","name":"moes-tavern","version":"2.2.0","federationApi":1,"platform":"linux","arch":"x64","pushRelay":true}"#, for: a.baseURL)
+        IOSMultiServerFixtureTransport.setInstance(#"{"instanceId":"mac","name":"MacBook","version":"2.1.0","federationApi":1,"platform":"macos","arch":"arm64"}"#, for: b.baseURL)
+        await hub.connect(a); await hub.connect(b)
+        await identities(hub, [a.id, b.id])
+        let storeA = try XCTUnwrap(hub.models[a.id]?.store)
+        let registration = IOSPushRegistration()
+        registration.defaults = launch.defaults
+        var sent: [(coordinator: Bool, relay: ApnsRelay?)] = []
+        registration.registerDevice = { store, _, relay in
+            sent.append((store === storeA, relay))
+            return .registered(endpoint: "fixture")
+        }
+        registration.attach(hub, enabled: true)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        let covered = ApnsRelay(coveredInstances: ["mac"], relayRemote: true)
+        while sent.last(where: \.coordinator)?.relay != covered, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertEqual(sent.last(where: \.coordinator)?.relay, covered)
+        XCTAssertFalse(sent.filter { !$0.coordinator }.isEmpty)
+        XCTAssertTrue(sent.filter { !$0.coordinator }.allSatisfy { $0.relay == nil })
+
+        registration.setRelaysMirrored(false, for: a.id)
+        let off = ApnsRelay(coveredInstances: ["mac"], relayRemote: false)
+        while sent.last?.relay != off, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertEqual(sent.last?.relay, off)
+        XCTAssertFalse(registration.relaysMirrored(a.id))
+
+        // A parked server still notifies this phone, so it stays covered; a removed one does not.
+        let count = sent.count
+        hub.disconnect(b.id)
+        registration.storeChanged()
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertEqual(sent.count, count)
+        await hub.remove(b)
+        registration.storeChanged()
+        let uncovered = ApnsRelay(coveredInstances: [], relayRemote: false)
+        while sent.last?.relay != uncovered, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertEqual(sent.last?.relay, uncovered)
+    }
+
+    /// #3059: a tapped notification naming the machine opens the session on that machine's own
+    /// connection when it is saved here, otherwise on the coordinator that mirrors it.
+    func testTappedNotificationOpensTheOwnerElseTheMirror() async throws {
+        let (_, hub, a, b) = try fixture()
+        defer { stop(hub) }
+        IOSMultiServerFixtureTransport.setInstance(#"{"instanceId":"coord","name":"moes-tavern","version":"2.2.0","federationApi":1,"platform":"linux","arch":"x64","pushRelay":true}"#, for: a.baseURL)
+        IOSMultiServerFixtureTransport.setInstance(#"{"instanceId":"mac","name":"MacBook","version":"2.2.0","federationApi":1,"platform":"macos","arch":"arm64","pushRelay":true}"#, for: b.baseURL)
+        let own = PreviewData.session(id: "m1", desig: "TASK-1", status: .init(known: .blocked))
+        var mirrored = own
+        mirrored.host = SessionHost(instanceId: "mac", name: "MacBook", platform: InstancePlatform(known: .macos))
+        mirrored.connection = SessionConnection(state: .init(known: .connected), since: 1)
+        IOSMultiServerFixtureTransport.set([mirrored], for: a.baseURL)
+        IOSMultiServerFixtureTransport.set([own], for: b.baseURL)
+        await hub.connect(a); await hub.connect(b)
+        let first = try XCTUnwrap(hub.models[a.id]?.store), second = try XCTUnwrap(hub.models[b.id]?.store)
+        try await first.refresh(); try await second.refresh()
+        await identities(hub, [a.id, b.id])
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while (first.remoteSession(id: "m1") == nil || second.session(id: "m1") == nil), ContinuousClock.now < deadline { await Task.yield() }
+        let registration = IOSPushRegistration()
+        registration.attach(hub, enabled: false)
+        registration.open("m1", instance: "mac")
+        XCTAssertEqual(hub.selection, .init(profileID: b.id, sessionID: "m1"))
+        XCTAssertTrue(registration.notificationChoices.isEmpty)
+
+        hub.disconnect(b.id)
+        registration.open("m1", instance: "mac")
+        XCTAssertEqual(hub.selection, .init(profileID: a.id, sessionID: "m1"))
     }
 
 }

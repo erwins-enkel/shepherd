@@ -52,6 +52,7 @@ struct ServerListView: View {
                     ForEach(mirrored[profile.id] ?? []) { machine in mirroredRow(machine, via: profile) }
                 }
             }
+            if let hub { IOSPushRelaySection(hub: hub) }
             if let warning = app.signOutWarning { Text(verbatim: warning).foregroundStyle(.orange) }
         }
         .navigationTitle(L.t("native_welcome_title"))

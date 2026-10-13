@@ -21,7 +21,18 @@ struct IOSServerRuntimeView: View {
             .onChange(of: app.store?.connection) { _, _ in IOSPushRegistration.shared.storeChanged() }
             .onChange(of: app.extension(QueuesModel.self)?.finishedSessions.map(\.id)) { _, _ in IOSPushRegistration.shared.routePendingNotification() }
             .onChange(of: app.store?.sessions.map(\.id)) { _, _ in IOSPushRegistration.shared.routePendingNotification() }
-            .onDisappear { runtime?.teardown(); runtime = nil }
+            .onChange(of: app.store?.remoteSessions.map(\.id)) { _, _ in IOSPushRegistration.shared.routePendingNotification() }
+            // Instance ID and relay support decide what this server's registration carries (#3059).
+            .onChange(of: identitySignature) { _, _ in IOSPushRegistration.shared.storeChanged() }
+            .onDisappear {
+                runtime?.teardown(); runtime = nil
+                // A server leaving changes the coverage the others are told about.
+                IOSPushRegistration.shared.storeChanged()
+            }
+    }
+    private var identitySignature: [String] {
+        let identity = app.extension(IOSInstanceIdentity.self)
+        return [identity?.instanceID ?? "", identity?.pushRelay == true ? "relay" : "", identity?.settled == true ? "settled" : ""]
     }
     private var mappedPhase: IOSScenePhase {
         switch phase { case .active: .active; case .background: .background; default: .inactive }

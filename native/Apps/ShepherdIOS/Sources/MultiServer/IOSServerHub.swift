@@ -364,6 +364,17 @@ final class IOSServerHub {
         }
     }
 
+    /// A reachable server whose instance ID is still being read: it may be the one that runs
+    /// a tapped session.
+    func awaitsInstanceIdentity(_ app: AppModel) -> Bool {
+        guard let store = app.store, let identity = app.extension(IOSInstanceIdentity.self), !identity.settled,
+              !isUnavailable(app) else { return false }
+        switch store.connection {
+        case .offline, .needsLogin, .firstRunPending: return false
+        default: return true
+        }
+    }
+
     func focus(_ profileID: UUID) {
         guard models[profileID] != nil else { return }
         focusedID = profileID
@@ -407,8 +418,9 @@ final class IOSServerHub {
     func dismissSheet() { routedSheet?.model.sheet = nil }
 
     /// Older servers send only a session ID. A collision must ask the operator to choose,
-    /// never silently open the same ID on an unrelated server.
-    func notificationTargets(sessionID: String, server: String?) -> [IOSSessionIdentity] {
+    /// never silently open the same ID on an unrelated server. `instance` names the machine that
+    /// runs the session (#3058): its own connection opens it, else one that mirrors it.
+    func notificationTargets(sessionID: String, server: String?, instance: String? = nil) -> [IOSSessionIdentity] {
         guard !sessionID.isEmpty else { return [] }
         if let server, !server.isEmpty {
             return connectedIDs.compactMap { id in
@@ -417,7 +429,20 @@ final class IOSServerHub {
                 return .init(profileID: id, sessionID: sessionID)
             }
         }
+        let instanceOf = { (id: UUID) in self.models[id]?.extension(IOSInstanceIdentity.self)?.instanceID }
+        if let instance, !instance.isEmpty {
+            if let owner = connectedIDs.first(where: { instanceOf($0) == instance }) {
+                return [.init(profileID: owner, sessionID: sessionID)]
+            }
+            // Every mirror shows the same session; prefer the focused one.
+            let mirrors = connectedIDs.filter { models[$0]?.store?.remoteSession(id: sessionID)?.host?.instanceId == instance }
+            if let mirror = mirrors.first(where: { $0 == focusedID }) ?? mirrors.first {
+                return [.init(profileID: mirror, sessionID: sessionID)]
+            }
+        }
         return connectedIDs.compactMap { id in
+            // A server known to be another machine does not run this session.
+            if let instance, !instance.isEmpty, let known = instanceOf(id), known != instance { return nil }
             guard let model = models[id], model.store?.session(id: sessionID) != nil ||
                 model.extension(QueuesModel.self)?.finishedSessions.contains(where: { $0.id == sessionID }) == true else { return nil }
             return .init(profileID: id, sessionID: sessionID)

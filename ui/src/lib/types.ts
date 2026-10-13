@@ -1570,6 +1570,31 @@ export interface RepoRoles {
   merger: string | null;
 }
 
+/** A roles change waiting in an open PR, because the default branch refused the direct push.
+ *  `roles` is what the PR will commit; until it merges the committed roles still apply. */
+export interface RepoRolesPending {
+  number: number;
+  url: string | null;
+  roles: RepoRoles;
+  /** Set only by the request that armed (or tried to arm) host auto-merge. */
+  autoMerge?: "enabled" | "disallowed" | "failed" | "unsupported";
+}
+
+/** How the repo's default branch takes changes (GitHub only). */
+export interface RepoMergeSettings {
+  requiresPr: boolean;
+  /** null when the host did not say. */
+  autoMergeAllowed: boolean | null;
+  canAdminister: boolean;
+}
+
+export interface RepoRolesResult {
+  roles: RepoRoles;
+  me: string | null;
+  pending?: RepoRolesPending;
+  mergeSettings?: RepoMergeSettings;
+}
+
 export interface SessionActivity {
   /** ms epoch of the newest transcript record — the heartbeat. 0 if none yet. */
   lastActivityTs: number;

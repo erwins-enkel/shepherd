@@ -132,7 +132,7 @@
   "automation_group_behavior": "Agent behavior",
   "automation_group_queue": "Work queue",
   "automation_group_roles": "Responsibilities",
-  "automation_roles_hint": "Saving commits & pushes .shepherd/roles.json to the default branch.",
+  "automation_roles_hint": "Saving commits & pushes .shepherd/roles.json to the default branch — as a pull request when that branch is protected.",
   "roles_reviewer_label": "Reviewer",
   "roles_merger_label": "Merged by",
   "roles_unset_option": "anyone / me",
@@ -6375,5 +6375,16 @@
   "herd_machine_this": "This Shepherd",
   "herd_machine_empty": "No sessions on {machine} in this view",
   "feat_herd_machines_title": "Sessions on your machines, right in the herd",
-  "feat_herd_machines_body": "Sessions running on your connected machines now sit in the herd's groups beside this Shepherd's own: a MacBook session that waits on you shows up under “Your turn”, with a label in its machine's color. The machine bar under the lenses narrows the herd to one machine, and lists every connected machine, even one with no sessions."
+  "feat_herd_machines_body": "Sessions running on your connected machines now sit in the herd's groups beside this Shepherd's own: a MacBook session that waits on you shows up under “Your turn”, with a label in its machine's color. The machine bar under the lenses narrows the herd to one machine, and lists every connected machine, even one with no sessions.",
+  "feat_repo_roles_pr_title": "Roles on protected branches",
+  "feat_repo_roles_pr_body": "Saving responsibilities on a repo whose default branch only takes pull requests now opens a PR for .shepherd/roles.json and arms auto-merge where the repo allows it. The panel shows the waiting PR and whether auto-merge is on.",
+  "roles_pending_pr": "Waiting for PR #{number} to merge — until then the previous roles still apply (reviewer: {reviewer}, merged by: {merger}).",
+  "roles_pending_pr_open": "Open PR ↗",
+  "roles_branch_protected": "The default branch is protected — changes go through a pull request.",
+  "roles_automerge_on": "Auto-merge: on — the PR lands by itself once CI is green.",
+  "roles_automerge_off": "Auto-merge: off — you have to merge the PR yourself.",
+  "roles_automerge_failed": "Auto-merge could not be armed on this PR — merge it yourself.",
+  "roles_automerge_enable": "Turn on auto-merge on GitHub",
+  "roles_automerge_admin_needed": "A repository admin has to turn auto-merge on in the repository settings.",
+  "roles_automerge_enable_failed": "Auto-merge could not be turned on."
 }

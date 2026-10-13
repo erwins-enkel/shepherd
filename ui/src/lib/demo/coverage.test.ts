@@ -402,6 +402,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     // "Open shared browser" launches Chromium on the host; no seeded repo enables the Shared
     // Browser, so the button never renders in the demo.
     "/api/repo-browser/open",
+    // Turning a repo's GitHub auto-merge on for a roles PR: the demo's repo-roles answer
+    // carries no merge settings, so the button never renders.
+    "/api/repo-roles/auto-merge",
     // Answering a Login Request: no seeded session raises one, so the banner never renders.
     "/api/sessions/:p/login-request",
     // Canceling a task whose start on a machine is unknown (#2774), or redirecting one that

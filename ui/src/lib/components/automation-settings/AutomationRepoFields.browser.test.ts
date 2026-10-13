@@ -3,7 +3,13 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import { repoConfig } from "#lib/reviews.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
-import { getRepoCollaborators, getRepoRoles, putRepoRoles } from "#lib/api.js";
+import {
+  enableRepoRolesAutoMerge,
+  getRepoCollaborators,
+  getRepoRoles,
+  putRepoRoles,
+} from "#lib/api.js";
+import type { RepoMergeSettings } from "#lib/types.js";
 import "../../../app.css";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -13,6 +19,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getRepoCollaborators: vi.fn(),
     getRepoRoles: vi.fn(),
     putRepoRoles: vi.fn(),
+    enableRepoRolesAutoMerge: vi.fn(),
   };
 });
 
@@ -20,6 +27,7 @@ const { default: AutomationRepoFields } = await import("./AutomationRepoFields.s
 const mockCollaborators = vi.mocked(getRepoCollaborators);
 const mockRoles = vi.mocked(getRepoRoles);
 const mockPutRoles = vi.mocked(putRepoRoles);
+const mockEnableAutoMerge = vi.mocked(enableRepoRolesAutoMerge);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -52,6 +60,7 @@ beforeEach(() => {
   mockRoles.mockReset();
   mockCollaborators.mockReset();
   mockPutRoles.mockReset();
+  mockEnableAutoMerge.mockReset();
   mockRoles.mockResolvedValue(roleResult(null, null));
   mockCollaborators.mockResolvedValue(peopleResult([]));
   mockPutRoles.mockResolvedValue(roleResult(null, null));
@@ -207,6 +216,108 @@ describe("AutomationRepoFields repository roles", () => {
       .toBeInTheDocument();
     await expect.element(page.getByText("upstream/project", { exact: false })).toBeVisible();
     await expect.element(page.getByText(m.roles_assignees_hint())).toBeVisible();
+  });
+});
+
+describe("AutomationRepoFields roles on a protected default branch", () => {
+  const settings = (over: Partial<RepoMergeSettings> = {}): RepoMergeSettings => ({
+    requiresPr: true,
+    autoMergeAllowed: false,
+    canAdminister: true,
+    ...over,
+  });
+  const pendingPr = (reviewer: string | null, merger: string | null) => ({
+    number: 3061,
+    url: "https://github.com/team/repo/pull/3061",
+    roles: { reviewer, merger },
+  });
+  const pendingNote = () =>
+    m.roles_pending_pr({ number: 3061, reviewer: "@scoop", merger: "@scoop" });
+
+  it("shows the pending PR's value with a note naming the roles still in effect", async () => {
+    mockRoles.mockResolvedValue({
+      ...roleResult("scoop", "scoop"),
+      pending: pendingPr("Owner", "scoop"),
+      mergeSettings: settings({ autoMergeAllowed: true }),
+    });
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await expect.element(reviewer()).toHaveValue("Owner");
+    await expect.element(merger()).toHaveValue("scoop");
+    await expect.element(page.getByText(pendingNote())).toBeVisible();
+    await expect
+      .element(page.getByRole("link", { name: m.roles_pending_pr_open() }))
+      .toHaveAttribute("href", "https://github.com/team/repo/pull/3061");
+    await expect.element(page.getByText(m.roles_branch_protected())).toBeVisible();
+    await expect.element(page.getByText(m.roles_automerge_on())).toBeVisible();
+  });
+
+  it("switches to the pending value when a save opens a roles PR", async () => {
+    mockRoles.mockResolvedValue({ ...roleResult("scoop", "scoop"), mergeSettings: settings() });
+    mockPutRoles.mockResolvedValue({
+      ...roleResult("scoop", "scoop"),
+      pending: { ...pendingPr("Owner", "scoop"), autoMerge: "disallowed" },
+      mergeSettings: settings(),
+    });
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await expect.element(reviewer()).toHaveValue("scoop");
+    await reviewer().selectOptions("Owner");
+
+    await expect.element(page.getByText(pendingNote())).toBeVisible();
+    await expect.element(reviewer()).toHaveValue("Owner");
+    await expect.element(page.getByText(m.roles_automerge_off())).toBeVisible();
+  });
+
+  it("lets an admin turn auto-merge on and then reports it as on", async () => {
+    mockRoles.mockResolvedValue({
+      ...roleResult("scoop", "scoop"),
+      pending: pendingPr("Owner", "scoop"),
+      mergeSettings: settings(),
+    });
+    mockEnableAutoMerge.mockResolvedValue({
+      mergeSettings: settings({ autoMergeAllowed: true }),
+      pending: { ...pendingPr("Owner", "scoop"), autoMerge: "enabled" },
+    });
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await expect.element(page.getByText(m.roles_automerge_off())).toBeVisible();
+    await page.getByRole("button", { name: m.roles_automerge_enable() }).click();
+
+    expect(mockEnableAutoMerge).toHaveBeenCalledWith("/repo/a");
+    await expect.element(page.getByText(m.roles_automerge_on())).toBeVisible();
+    expect(page.getByRole("button", { name: m.roles_automerge_enable() }).query()).toBeNull();
+  });
+
+  it("tells a non-admin who has to turn auto-merge on, without a button", async () => {
+    mockRoles.mockResolvedValue({
+      ...roleResult("scoop", "scoop"),
+      mergeSettings: settings({ canAdminister: false }),
+    });
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await expect.element(page.getByText(m.roles_automerge_admin_needed())).toBeVisible();
+    expect(page.getByRole("button", { name: m.roles_automerge_enable() }).query()).toBeNull();
+  });
+
+  it("surfaces a refused auto-merge switch inline", async () => {
+    mockRoles.mockResolvedValue({ ...roleResult("scoop", "scoop"), mergeSettings: settings() });
+    mockEnableAutoMerge.mockRejectedValue(new Error("auto_merge_enable_failed"));
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await page.getByRole("button", { name: m.roles_automerge_enable() }).click();
+    await expect.element(page.getByText(m.roles_automerge_enable_failed())).toBeVisible();
+  });
+
+  it("stays quiet on a repo that takes direct pushes", async () => {
+    mockRoles.mockResolvedValue({
+      ...roleResult("scoop", "scoop"),
+      mergeSettings: settings({ requiresPr: false }),
+    });
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await expect.element(reviewer()).toHaveValue("scoop");
+    expect(page.getByText(m.roles_branch_protected()).query()).toBeNull();
   });
 });
 

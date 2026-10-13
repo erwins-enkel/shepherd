@@ -22,7 +22,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { PushService, pushDeviceId } from "../../src/push";
 import { ApnsSender, apnsEndpoint } from "../../src/apns";
 import { ApnsSettings } from "../../src/apns-settings";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 let s: ContractServer, token: string, cookie: string;
 const OPS = operationsForStream("settings"),
@@ -93,6 +93,76 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
     expect(failed.pushError).toBe("push rejected");
   } finally {
     s.stubs.resolveForge.forge = saved;
+  }
+});
+test("repo roles: a pending roles PR, merge settings and turning auto-merge on", async () => {
+  // A repo carrying the roles-PR marker ref, so GET finds the open PR again (`pending`).
+  const repo = join(config.repoRoot, "roles-pending");
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args]);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  mkdirSync(join(repo, ".shepherd"));
+  writeFileSync(join(repo, ".shepherd/roles.json"), '{"reviewer":"operator","merger":null}\n');
+  git("add", ".shepherd/roles.json");
+  git("-c", "user.name=Fixture", "-c", "user.email=f@example.com", "commit", "-q", "-m", "roles");
+  git("update-ref", "refs/remotes/origin/shepherd/repo-roles", "HEAD");
+  const settings = { requiresPr: true, autoMergeAllowed: false, canAdminister: true };
+  const forge = {
+    mergeMethod: "squash",
+    currentUser: async () => "operator",
+    defaultBranch: async () => "main",
+    prStatus: async () => ({ state: "open", number: 9, url: "https://host/pr/9", checks: "none" }),
+    repoMergeSettings: async () => ({ ...settings }),
+    enableRepoAutoMerge: async () => {
+      settings.autoMergeAllowed = true;
+    },
+    enableAutoMerge: async () => {},
+  };
+  const q = `?repo=${encodeURIComponent(repo)}`;
+  const saved = s.stubs.resolveForge.forge;
+  try {
+    s.stubs.resolveForge.forge = forge;
+    const read = (await request(
+      "GET",
+      "/api/repo-roles",
+      200,
+      undefined,
+      "/api/repo-roles" + q,
+    )) as {
+      pending: unknown;
+      mergeSettings: unknown;
+    };
+    expect(read.pending).toEqual({
+      number: 9,
+      url: "https://host/pr/9",
+      roles: { reviewer: "operator", merger: null },
+    });
+    expect(read.mergeSettings).toEqual({ ...settings });
+
+    const path = "/api/repo-roles/auto-merge";
+    const enabled = (await request("POST", path, 200, undefined, path + q)) as {
+      pending: { autoMerge: string };
+      mergeSettings: { autoMergeAllowed: boolean };
+    };
+    expect(enabled.pending.autoMerge).toBe("enabled");
+    expect(enabled.mergeSettings.autoMergeAllowed).toBe(true);
+
+    s.stubs.resolveForge.forge = {
+      ...forge,
+      enableRepoAutoMerge: async () => {
+        throw new Error("HTTP 403");
+      },
+    };
+    const refused = (await request("POST", path, 502, undefined, path + q)) as { error: string };
+    expect(refused.error).toBe("auto_merge_enable_failed");
+    s.stubs.resolveForge.forge = null;
+    const unsupported = (await request("POST", path, 409, undefined, path + q)) as {
+      error: string;
+    };
+    expect(unsupported.error).toBe("unsupported");
+    await request("POST", path, 400, undefined, path + "?repo=/outside");
+  } finally {
+    s.stubs.resolveForge.forge = saved;
+    rmSync(repo, { recursive: true, force: true });
   }
 });
 test("repo browser open: refusals, launch failure and success", async () => {

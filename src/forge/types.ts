@@ -418,6 +418,16 @@ export class EmptyDiffError extends Error {
   }
 }
 
+/** See {@link GitForge.repoMergeSettings}. */
+export interface RepoMergeSettings {
+  /** The default branch only takes changes through a PR (a host rule refuses direct pushes). */
+  requiresPr: boolean;
+  /** The repo permits host auto-merge; null when the host did not say. */
+  autoMergeAllowed: boolean | null;
+  /** The operator may change repo settings (e.g. turn auto-merge on). */
+  canAdminister: boolean;
+}
+
 export interface MergeInput {
   method: MergeMethod;
   deleteBranch: boolean;
@@ -672,6 +682,15 @@ export interface GitForge {
   convertToDraft?(prNumber: number): Promise<void>;
   /** Close an open PR without merging it. Optional: hosts without a PR-close API omit it. */
   closePr?(prNumber: number): Promise<void>;
+  /** How the default branch takes changes, for the roles panel: whether it requires a PR and
+   *  whether the repo allows host auto-merge. Optional: hosts without these APIs omit it. */
+  repoMergeSettings?(): Promise<RepoMergeSettings>;
+  /** Arm the host's auto-merge on a PR so it lands once its required checks pass
+   *  (`gh pr merge --auto`). Optional: hosts without auto-merge omit it. */
+  enableAutoMerge?(prNumber: number, method: MergeMethod): Promise<void>;
+  /** Turn on the repo setting that permits auto-merge at all (needs admin). Optional,
+   *  same host gating as {@link enableAutoMerge}. */
+  enableRepoAutoMerge?(): Promise<void>;
   redeploy(o: RedeployInput): Promise<void>;
   /** Post a critic review (request-changes / comment) on a PR. Returns the
    *  review's URL when the host provides one. */

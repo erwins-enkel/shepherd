@@ -75,6 +75,7 @@ import type {
   PullRequest,
   RedeployInput,
   RepoCounts,
+  RepoMergeSettings,
   RollupEntry,
   StackInfo,
   SubIssueRef,
@@ -2421,6 +2422,48 @@ export class GithubForge implements GitForge {
     await this.run(["pr", "close", String(prNumber), "--repo", this.slug]).finally(() =>
       this.invalidatePrs(),
     );
+  }
+
+  async repoMergeSettings(): Promise<RepoMergeSettings> {
+    const repo = JSON.parse((await this.run(["api", `repos/${this.slug}`])) || "{}") as {
+      allow_auto_merge?: unknown;
+      default_branch?: string;
+      permissions?: { admin?: boolean };
+    };
+    const branch = repo.default_branch || (await this.defaultBranch());
+    // Active rulesets that apply to the branch. A `pull_request` rule refuses direct pushes.
+    const rules = JSON.parse(
+      (await this.run(["api", `repos/${this.slug}/rules/branches/${branch}?per_page=100`])) || "[]",
+    ) as { type?: string }[];
+    return {
+      requiresPr: rules.some((r) => r.type === "pull_request"),
+      // Only returned to callers with push access; absent ⇒ unknown, not "off".
+      autoMergeAllowed: typeof repo.allow_auto_merge === "boolean" ? repo.allow_auto_merge : null,
+      canAdminister: repo.permissions?.admin === true,
+    };
+  }
+
+  async enableAutoMerge(prNumber: number, method: MergeMethod): Promise<void> {
+    await this.run([
+      "pr",
+      "merge",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--auto",
+      `--${method}`,
+    ]).finally(() => this.invalidatePrs());
+  }
+
+  async enableRepoAutoMerge(): Promise<void> {
+    await this.run([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${this.slug}`,
+      "-F",
+      "allow_auto_merge=true",
+    ]);
   }
 
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {

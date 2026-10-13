@@ -1,12 +1,17 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
-  import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "#lib/api.js";
+  import {
+    enableRepoRolesAutoMerge,
+    getRepoRoles,
+    getRepoCollaborators,
+    putRepoRoles,
+  } from "#lib/api.js";
   import { MODELS, EFFORTS } from "#lib/types.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
   import { effortLabel } from "#lib/effort-guidance.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
-  import type { RepoConfig, RepoRoles } from "#lib/types.js";
+  import type { RepoConfig, RepoMergeSettings, RepoRoles, RepoRolesPending } from "#lib/types.js";
   import "./automation-fields.css";
 
   let {
@@ -21,6 +26,12 @@
   // lazily when the panel mounts / the repo changes — the herd reads the computed
   // handoff off the cached git state, so this fetch is panel-only.
   let roles = $state<RepoRoles>({ reviewer: null, merger: null });
+  // A default branch that refuses the direct push takes the change as a PR: until it merges,
+  // `roles` (committed) still applies and `pending` carries the value the PR will commit.
+  let pending = $state<RepoRolesPending | null>(null);
+  let mergeSettings = $state<RepoMergeSettings | null>(null);
+  let enablingAutoMerge = $state(false);
+  let autoMergeEnableFailed = $state(false);
   let rolesMe = $state<string | null>(null);
   let collaboratorsMe = $state<string | null>(null);
   let collaborators = $state<string[]>([]);
@@ -36,6 +47,18 @@
   let saving = $state(false);
   let generation = 0;
   const me = $derived(rolesMe ?? collaboratorsMe);
+  /** What the selects show: the open roles PR's value wins over the committed one. */
+  const shownRoles = $derived(pending?.roles ?? roles);
+  // How a change reaches the default branch — shown whenever it does not take direct pushes.
+  const showMergePath = $derived(!!pending || !!mergeSettings?.requiresPr);
+  const autoMerge = $derived.by((): "on" | "off" | "failed" | null => {
+    if (pending?.autoMerge === "failed") return "failed";
+    if (pending?.autoMerge === "enabled") return "on";
+    if (pending?.autoMerge === "disallowed") return "off";
+    if (mergeSettings?.autoMergeAllowed === true) return "on";
+    if (mergeSettings?.autoMergeAllowed === false) return "off";
+    return null;
+  });
 
   async function loadRoles(repo: string, token: number) {
     rolesLoading = true;
@@ -44,6 +67,8 @@
       const result = await getRepoRoles(repo);
       if (token !== generation) return;
       roles = result.roles;
+      pending = result.pending ?? null;
+      mergeSettings = result.mergeSettings ?? null;
       rolesMe = result.me;
     } catch {
       if (token !== generation) return;
@@ -79,6 +104,10 @@
     const repo = repoPath;
     const token = ++generation;
     roles = { reviewer: null, merger: null };
+    pending = null;
+    mergeSettings = null;
+    enablingAutoMerge = false;
+    autoMergeEnableFailed = false;
     rolesMe = null;
     collaboratorsMe = null;
     collaborators = [];
@@ -123,28 +152,59 @@
   async function setRole(role: "reviewer" | "merger", value: string | null) {
     const token = generation;
     const repo = repoPath;
-    const prev = { ...roles };
-    roles = { ...roles, [role]: value }; // optimistic
+    const prev = { roles: { ...roles }, pending };
+    // Optimistic, on whichever value the select shows.
+    if (pending) pending = { ...pending, roles: { ...pending.roles, [role]: value } };
+    else roles = { ...roles, [role]: value };
     rolesSaveError = null;
     saving = true;
+    const revert = () => {
+      roles = prev.roles;
+      pending = prev.pending;
+    };
     try {
       const res = await putRepoRoles(repo, { [role]: value });
       if (token !== generation) return;
       if (res.pushError) {
-        roles = prev; // push rejected (protected branch / auth) → revert + surface
+        revert(); // push failed (auth / offline / PR fallback failed) → revert + surface
         rolesSaveError = res.pushError;
         return;
       }
       roles = res.roles;
+      pending = res.pending ?? null;
+      if (res.mergeSettings) mergeSettings = res.mergeSettings;
       rolesMe = res.me;
     } catch (e) {
       if (token !== generation) return;
-      roles = prev;
+      revert();
       rolesSaveError = String((e as Error)?.message ?? e);
     } finally {
       if (token === generation) saving = false;
     }
   }
+
+  async function enableAutoMerge() {
+    const token = generation;
+    const repo = repoPath;
+    enablingAutoMerge = true;
+    autoMergeEnableFailed = false;
+    try {
+      const res = await enableRepoRolesAutoMerge(repo);
+      if (token !== generation) return;
+      // The setting is on even when the follow-up read came back empty.
+      mergeSettings =
+        res.mergeSettings ?? (mergeSettings && { ...mergeSettings, autoMergeAllowed: true });
+      if (res.pending) pending = res.pending;
+    } catch {
+      if (token !== generation) return;
+      autoMergeEnableFailed = true;
+    } finally {
+      if (token === generation) enablingAutoMerge = false;
+    }
+  }
+
+  /** A role as the pending note names it: "@login", or the unset option's label. */
+  const roleLabel = (login: string | null) => (login ? `@${login}` : m.roles_unset_option());
 
   const defaultModel = $derived(repoConfig.defaultModelFor(repoPath));
   const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
@@ -244,8 +304,52 @@
     </select>
   </div>
 {/snippet}
-{@render roleRow(m.roles_reviewer_label(), "reviewer", roles.reviewer)}
-{@render roleRow(m.roles_merger_label(), "merger", roles.merger)}
+{@render roleRow(m.roles_reviewer_label(), "reviewer", shownRoles.reviewer)}
+{@render roleRow(m.roles_merger_label(), "merger", shownRoles.merger)}
+{#if pending}
+  <div class="roles-note roles-pending" role="status">
+    {m.roles_pending_pr({
+      number: pending.number,
+      reviewer: roleLabel(roles.reviewer),
+      merger: roleLabel(roles.merger),
+    })}
+    {#if pending.url}
+      <!-- eslint-disable svelte/no-navigation-without-resolve -- external PR URL -->
+      <a class="roles-link" href={pending.url} target="_blank" rel="noopener noreferrer">
+        {m.roles_pending_pr_open()}
+      </a>
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
+    {/if}
+  </div>
+{/if}
+{#if showMergePath}
+  <div class="roles-merge-path">
+    <span>{m.roles_branch_protected()}</span>
+    {#if autoMerge === "on"}
+      <span>{m.roles_automerge_on()}</span>
+    {:else if autoMerge === "failed"}
+      <span>{m.roles_automerge_failed()}</span>
+    {:else if autoMerge === "off"}
+      <span>{m.roles_automerge_off()}</span>
+      {#if mergeSettings?.canAdminister}
+        <button
+          class="gbtn"
+          type="button"
+          disabled={enablingAutoMerge}
+          aria-busy={enablingAutoMerge}
+          onclick={enableAutoMerge}
+        >
+          {m.roles_automerge_enable()}
+        </button>
+      {:else}
+        <span>{m.roles_automerge_admin_needed()}</span>
+      {/if}
+      {#if autoMergeEnableFailed}
+        <span class="roles-err" role="alert">{m.roles_automerge_enable_failed()}</span>
+      {/if}
+    {/if}
+  </div>
+{/if}
 <div class="roles-note">
   {#if rolesSaveError}
     <span class="roles-err">{m.roles_push_failed()}: {rolesSaveError}</span>
@@ -323,6 +427,27 @@
   }
   .roles-err {
     color: var(--color-red);
+  }
+  .roles-pending {
+    color: var(--color-ink);
+    padding-bottom: 0;
+  }
+  .roles-link {
+    color: var(--color-blue);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .roles-link:hover {
+    text-decoration: underline;
+  }
+  .roles-merge-path {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 6px 12px 0;
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
   }
   .roles-load-status {
     display: flex;

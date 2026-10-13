@@ -51,7 +51,10 @@ import type {
   ReviewerEnv,
   RepoConfig,
   PostMergeSteps,
+  RepoMergeSettings,
   RepoRoles,
+  RepoRolesPending,
+  RepoRolesResult,
   ReadinessReport,
   DrainStatus,
   AutoMergeStatus,
@@ -2916,34 +2919,46 @@ export async function requestPrReview(
   return data;
 }
 
-export async function getRepoRoles(
-  repoPath: string,
-): Promise<{ roles: RepoRoles; me: string | null }> {
+export async function getRepoRoles(repoPath: string): Promise<RepoRolesResult> {
   return getJson(`/api/repo-roles?repo=${encodeURIComponent(repoPath)}`, "repo-roles");
 }
 
+/** A default branch that refuses the direct push answers 200 with `pending` (the roles PR). */
 export async function putRepoRoles(
   repoPath: string,
   patch: Partial<RepoRoles>,
-): Promise<{ roles: RepoRoles; me: string | null; pushError?: string }> {
+): Promise<RepoRolesResult & { pushError?: string }> {
   const r = await fetch(`/api/repo-roles?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",
     headers: JSON_HEADERS,
     body: JSON.stringify(patch),
   });
-  const data = (await r.json().catch(() => ({}))) as {
-    roles?: RepoRoles;
-    me?: string | null;
+  const data = (await r.json().catch(() => ({}))) as Partial<RepoRolesResult> & {
     pushError?: string;
   };
-  // 502 carries a pushError (protected branch / no auth) — return it so the dialog
-  // can surface the failure rather than throwing an opaque error.
+  // 502 carries a pushError (no auth / offline / the PR fallback failed) — return it so the
+  // dialog can surface the failure rather than throwing an opaque error.
   if (!r.ok && !data.pushError) throw new Error(`repo-roles put failed: ${r.status}`);
   return {
     roles: data.roles ?? { reviewer: null, merger: null },
     me: data.me ?? null,
+    pending: data.pending,
+    mergeSettings: data.mergeSettings,
     pushError: data.pushError,
   };
+}
+
+/** Turn the repo's host auto-merge setting on (repo admin) and arm it on the open roles PR. */
+export async function enableRepoRolesAutoMerge(
+  repoPath: string,
+): Promise<{ mergeSettings?: RepoMergeSettings; pending?: RepoRolesPending }> {
+  const r = await fetch(`/api/repo-roles/auto-merge?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+  });
+  flagIfUnauthorized(r.status);
+  const data = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(data?.error ?? `repo-roles auto-merge failed: ${r.status}`);
+  return data ?? {};
 }
 
 export async function getRepoCollaborators(repoPath: string): Promise<{

@@ -80,16 +80,20 @@ export function lostReach(status: number): ProbeFailure | null {
 }
 
 /** Authenticated GET of `path` on a machine, parsed as JSON. Never throws. Shared by the probe
- *  below and the session mirror (#2762). */
+ *  below and the session mirror (#2762), which adds its identity headers (#3056). */
 export async function getRemoteJson(
   target: RemoteTarget,
   path: string,
-  opts: RemoteRequestOptions = {},
+  opts: RemoteRequestOptions & { headers?: Record<string, string> } = {},
 ): Promise<RemoteGetResult> {
   let res: Response;
   try {
     res = await (opts.fetch ?? defaultFetch)(`${target.url}${path}`, {
-      headers: { authorization: `Bearer ${target.token}`, accept: "application/json" },
+      headers: {
+        ...opts.headers,
+        authorization: `Bearer ${target.token}`,
+        accept: "application/json",
+      },
       redirect: "manual",
       signal: AbortSignal.timeout(opts.timeoutMs ?? REMOTE_REQUEST_TIMEOUT_MS),
     });

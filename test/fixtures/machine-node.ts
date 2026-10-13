@@ -195,6 +195,7 @@ const remoteInstances = new RemoteInstanceService({ store });
 const remoteSessions = new RemoteSessionMirror({
   store,
   instances: remoteInstances,
+  self: () => instanceIdentity(store, platform),
   recheckDelaysMs: Array<number>(200).fill(100),
 });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));

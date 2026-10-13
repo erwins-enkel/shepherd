@@ -572,7 +572,7 @@ test("saveRepoRoles routes a refused default branch through one PR with auto-mer
   expect(calls.autoMerge).toEqual([[41, "squash"]]);
 });
 
-test("saveRepoRoles reports auto-merge as off instead of trying it where the repo forbids it", async () => {
+test("saveRepoRoles reports auto-merge as disallowed instead of trying it where the repo forbids it", async () => {
   const { remote, clone } = remoteWithClone();
   protectMain(remote);
   const { forge, calls } = fakeRolesForge();
@@ -580,7 +580,7 @@ test("saveRepoRoles reports auto-merge as off instead of trying it where the rep
     pending: null,
     settings: { ...SETTINGS_ON, autoMergeAllowed: false },
   });
-  expect(saved.kind === "pr" && saved.pending.autoMerge).toBe("off");
+  expect(saved.kind === "pr" && saved.pending.autoMerge).toBe("disallowed");
   expect(calls.autoMerge).toEqual([]);
 });
 
@@ -741,7 +741,7 @@ test("POST /api/repo-roles/auto-merge turns the setting on and arms the open rol
   });
   const call = rolesApp(forge);
   const put = await (await call("PUT", clone, { reviewer: "kai" })).json();
-  expect(put.pending.autoMerge).toBe("off");
+  expect(put.pending.autoMerge).toBe("disallowed");
 
   const res = await call("POST", clone, undefined, "/api/repo-roles/auto-merge");
   expect(res.status).toBe(200);

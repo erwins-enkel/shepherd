@@ -7244,6 +7244,61 @@ components:
             - "null"
         pushError:
           type: string
+        pending:
+          $ref: "#/components/schemas/RepoRolesPending"
+        mergeSettings:
+          $ref: "#/components/schemas/RepoMergeSettings"
+    RepoRolesPending:
+      description: A roles change waiting in an open PR, because the default branch refused the direct push. `roles` is the value the PR will commit; the response's `roles` stays the committed one until it merges.
+      type: object
+      additionalProperties: true
+      required:
+        - number
+        - url
+        - roles
+      properties:
+        number:
+          type: integer
+        url:
+          type:
+            - string
+            - "null"
+        roles:
+          $ref: "#/components/schemas/RepoRoles"
+        autoMerge:
+          description: Set only by the request that armed (or tried to arm) host auto-merge.
+          anyOf:
+            - type: string
+              enum:
+                - enabled
+                - disallowed
+                - failed
+                - unsupported
+            - type: string
+    RepoMergeSettings:
+      type: object
+      additionalProperties: true
+      required:
+        - requiresPr
+        - autoMergeAllowed
+        - canAdminister
+      properties:
+        requiresPr:
+          type: boolean
+        autoMergeAllowed:
+          type:
+            - boolean
+            - "null"
+        canAdminister:
+          type: boolean
+    RepoRolesAutoMergeResult:
+      type: object
+      additionalProperties: true
+      properties:
+        mergeSettings:
+          $ref: "#/components/schemas/RepoMergeSettings"
+        pending:
+          $ref: "#/components/schemas/RepoRolesPending"
     RepoBrowserOpenRequest:
       type: object
       additionalProperties: false
@@ -11637,6 +11692,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RepoRolesResult"
+  /api/repo-roles/auto-merge:
+    post:
+      operationId: enableRepoRolesAutoMerge
+      description: Turns the host's auto-merge setting on for the repo (needs repo admin) and arms it on the open roles PR, if any.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRolesAutoMergeResult"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The repo's host has no auto-merge setting (no forge, a fork, or unsupported).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The host refused to change the setting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/repo-collaborators:
     get:
       operationId: getRepoCollaborators

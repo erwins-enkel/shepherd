@@ -419,9 +419,9 @@ const ROLES_PR_BODY = [
   "the roles from the default branch, so they take effect once this PR is merged.",
 ].join("\n");
 
-/** Whether the save armed host auto-merge on the roles PR. `off`: the repo does not allow
+/** Whether the save armed host auto-merge on the roles PR. `disallowed`: the repo does not allow
  *  auto-merge; `unsupported`: the host has no auto-merge; `failed`: the host refused. */
-export type RolesAutoMerge = "enabled" | "off" | "failed" | "unsupported";
+export type RolesAutoMerge = "enabled" | "disallowed" | "failed" | "unsupported";
 
 /** A roles change waiting in an open PR. `roles` is the value the PR will commit. */
 export interface PendingRoles {
@@ -496,7 +496,7 @@ async function armAutoMerge(
   settings: RepoMergeSettings | null,
 ): Promise<RolesAutoMerge> {
   if (!forge.enableAutoMerge) return "unsupported";
-  if (settings?.autoMergeAllowed === false) return "off";
+  if (settings?.autoMergeAllowed === false) return "disallowed";
   try {
     await forge.enableAutoMerge(prNumber, forge.mergeMethod);
     return "enabled";

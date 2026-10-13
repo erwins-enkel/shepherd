@@ -2,21 +2,28 @@ import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { WorktreeMgr } from "./worktree";
 import { execFileSync } from "./instrument";
 
 const execFileAsync = promisify(execFile);
 
+const UNION_ATTRS = ["merge=union", "merge=i18n-union"] as const;
+/** Only the custom driver needs `merge.i18n-union.driver` config; built-in `union` doesn't. */
+const I18N_UNION_ATTRS = ["merge=i18n-union"] as const;
+
 /**
- * Fast, local-only probe: returns true when `merge.i18n-union.driver` is set in the
- * repo's shared git config. Used by the drain driver-pause fast-path to re-probe
+ * Fast, local-only probe: returns true when the repo needs no custom merge driver (no
+ * `merge=i18n-union` entries in `.gitattributes`; git's built-in `merge=union` needs no
+ * config) or `merge.i18n-union.driver` is set in its shared git config. Used by the drain driver-pause fast-path to re-probe
  * cheaply without spawning a full rebase attempt.
  *
  * ASYNC: reached from the drain tick (single Bun event loop) — a sync child-process
  * here would freeze the web terminal. No forge call; purely local `git config --get`.
  */
-export async function isUnionDriverRegistered(repoPath: string): Promise<boolean> {
+export async function isUnionDriverReady(repoPath: string): Promise<boolean> {
+  if ((await parseUnionGlobs(repoPath, I18N_UNION_ATTRS)).length === 0) return true;
   try {
     const { stdout } = await execFileAsync("git", ["config", "--get", "merge.i18n-union.driver"], {
       cwd: repoPath,
@@ -32,7 +39,7 @@ export type LandingRebaseResult =
   | { kind: "rebased"; headSha: string } // replayed onto origin/<default>, force-pushed
   | { kind: "current" } // branch already contains origin/<default>; nothing to do
   | { kind: "conflict" } // genuine clash (non-union path, OR union path + self-test PASSED)
-  | { kind: "driver-absent" } // merge.i18n-union.driver unregisterable
+  | { kind: "driver-absent" } // repo has union globs but merge.i18n-union.driver unregisterable
   | { kind: "driver-broken" } // union-only conflict + driver self-test FAILED
   | { kind: "transient" }; // fetch/worktree/push (e.g. stale lease) error
 
@@ -81,14 +88,17 @@ async function driverSelfTest(repoPath: string): Promise<boolean> {
 }
 
 /**
- * Parse .gitattributes and return the set of globs that use the union or i18n-union merge driver.
- * These are the paths that the union merge driver handles.
+ * Parse .gitattributes and return the set of globs whose `merge=` attribute is in `attrs`
+ * (default: union or i18n-union — the paths a union merge driver handles).
  */
-function parseUnionGlobs(repoPath: string): string[] {
+async function parseUnionGlobs(
+  repoPath: string,
+  attrs: readonly string[] = UNION_ATTRS,
+): Promise<string[]> {
   const attrPath = join(repoPath, ".gitattributes");
   let content: string;
   try {
-    content = readFileSync(attrPath, "utf8");
+    content = await readFile(attrPath, "utf8");
   } catch {
     return [];
   }
@@ -99,9 +109,7 @@ function parseUnionGlobs(repoPath: string): string[] {
     const parts = trimmed.split(/\s+/);
     if (parts.length < 2) continue;
     const glob = parts[0]!;
-    const hasUnionDriver = parts
-      .slice(1)
-      .some((attr) => attr === "merge=union" || attr === "merge=i18n-union");
+    const hasUnionDriver = parts.slice(1).some((attr) => attrs.includes(attr));
     if (hasUnionDriver) globs.push(glob);
   }
   return globs;
@@ -278,14 +286,22 @@ async function classifyRebaseConflict(
     return { kind: "conflict" };
   }
 
-  const unionGlobs = parseUnionGlobs(repoPath);
+  const unionGlobs = await parseUnionGlobs(repoPath);
   const hasNonUnionConflict = conflictedPaths.some((p) => !isUnionManaged(p, unionGlobs));
   if (hasNonUnionConflict) {
     await abortRebase();
     return { kind: "conflict" };
   }
 
-  // All conflicted paths are union-managed — run driver self-test
+  // All conflicted paths are union-managed. Built-in `union` has no script to self-test:
+  // a conflict there is genuine unless an i18n-union path could implicate our driver.
+  const i18nGlobs = await parseUnionGlobs(repoPath, I18N_UNION_ATTRS);
+  if (!conflictedPaths.some((p) => isUnionManaged(p, i18nGlobs))) {
+    await abortRebase();
+    return { kind: "conflict" };
+  }
+
+  // An i18n-union path conflicted — run driver self-test
   const selfTestPassed = await driverSelfTest(repoPath);
   await abortRebase();
   return selfTestPassed ? { kind: "conflict" } : { kind: "driver-broken" };
@@ -328,9 +344,12 @@ export async function rebaseLandingBranch(
     worktrees = new Mgr();
   }
 
-  // 1. Driver precondition
-  const driverOk = await ensureDriverRegistered(repoPath, git, registerDriver);
-  if (!driverOk) return { kind: "driver-absent" };
+  // 1. Driver precondition — only repos whose .gitattributes route paths through the
+  //    custom i18n-union driver need it; any other repo rebases with git's own drivers.
+  if ((await parseUnionGlobs(repoPath, I18N_UNION_ATTRS)).length > 0) {
+    const driverOk = await ensureDriverRegistered(repoPath, git, registerDriver);
+    if (!driverOk) return { kind: "driver-absent" };
+  }
 
   // 2+3. Fetch + ancestor check → get leaseSha or short-circuit
   const fetchResult = await fetchAndClassifyAncestor(

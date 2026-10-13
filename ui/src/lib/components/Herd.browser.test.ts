@@ -1299,6 +1299,20 @@ describe("Herd epics to land", () => {
   };
   afterEach(() => {
     document.body.innerHTML = "";
+    localStorage.removeItem("shepherd:epics-band-collapsed");
+  });
+  it("remembers the collapse choice across a Herd remount", async () => {
+    const props = { ...p, completedEpics: [completed({ landingState: "none" })] };
+    const first = await render(Herd, props);
+    await page.getByRole("button", { name: "Epics to land (1)", exact: true }).click();
+    first.unmount();
+    await render(Herd, props);
+    expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("restores an explicit expand over the auto-collapse", async () => {
+    localStorage.setItem("shepherd:epics-band-collapsed", "0");
+    await render(Herd, { ...p, completedEpics: [completed()] });
+    expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("true");
   });
   it("positions actionable epics before partitions and preserves collapse while moving", async () => {
     const { rerender } = await render(Herd, {

@@ -214,6 +214,8 @@ test("GET /api/drain returns array from drain.snapshot()", async () => {
     inFlight: 1,
     max: 3,
     epicParent: null,
+    usageCeilingPct: 80,
+    usageCeilingIgnored: false,
   };
   const { app } = harness({ snapshot: async () => [status], queue: async () => [] });
   const res = await app.fetch(new Request("http://x/api/drain"));
@@ -232,6 +234,8 @@ test("GET /api/drain passes runSummary through unchanged", async () => {
     inFlight: 1,
     max: 1,
     epicParent: 200,
+    usageCeilingPct: 80,
+    usageCeilingIgnored: false,
     runSummary: {
       leadingEpic: 200,
       windingDown: [{ epic: 100, inFlight: [101] }],

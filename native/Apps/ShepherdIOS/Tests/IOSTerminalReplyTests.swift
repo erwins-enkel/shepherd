@@ -493,12 +493,16 @@ final class IOSTerminalReplyTests: XCTestCase {
     func testRenderTerminalReplyStates() async throws {
         let directory = URL(fileURLWithPath: "/private/tmp/claude-501/-Users-kai-osthoff-githubrepos-shepherd/36c6a6cb-46a0-4781-99da-a39e745b0a43/scratchpad/ios-reply")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        for name in ["ended-resume", "idle", "recording", "locked", "transcript", "finalizing", "sending", "error", "large-type"] {
+        for name in ["ended-resume", "superseded", "idle", "recording", "locked", "transcript", "finalizing", "sending", "error", "large-type"] {
             let f = ReplyFixture()
             defer { f.teardown() }
             if name == "finalizing" { f.finalizer = ReplyFinalizer() }
             await f.live()
             if name == "ended-resume" { await f.end(.gone) }
+            if name == "superseded" {
+                f.pty.emit(.closed(.superseded))
+                await settle { f.core.phase == .superseded }
+            }
             let writing = ["transcript", "sending", "error", "large-type"].contains(name)
             if writing { f.model.openWriting(focus: false) }
             if name == "transcript" { f.core.promptText = "Prüfe die Tests und ergänze die deutsche Beschriftung." }

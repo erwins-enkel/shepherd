@@ -87,11 +87,14 @@ struct IOSTerminalPane<Surface: View>: View {
                 }
             }
         case .superseded:
-            statusCard(title: L.t("native_terminal_superseded_title"),
-                message: L.t("native_ios_terminal_superseded_body")) {
-                if allowsInput {
-                    Button(L.t("native_terminal_superseded_action")) { model.session.takeOver() }
-                        .frame(minHeight: 44).accessibilityIdentifier("terminal-take-over")
+            ZStack {
+                Color.black.opacity(0.55).ignoresSafeArea()
+                statusCard(title: L.t("native_terminal_superseded_title"),
+                    message: L.t("native_ios_terminal_superseded_body"), emphasized: true) {
+                    if allowsInput {
+                        Button(L.t("native_terminal_superseded_action")) { model.session.takeOver() }
+                            .frame(minHeight: 44).accessibilityIdentifier("terminal-take-over")
+                    }
                 }
             }
         case .ended(let closure):
@@ -121,7 +124,7 @@ struct IOSTerminalPane<Surface: View>: View {
         }
     }
 
-    private func statusCard<Actions: View>(title: String, message: String?,
+    private func statusCard<Actions: View>(title: String, message: String?, emphasized: Bool = false,
                                          @ViewBuilder actions: () -> Actions) -> some View {
         Group {
             if rendersStaticFixture { statusContent(title: title, message: message, actions: actions) }
@@ -129,7 +132,9 @@ struct IOSTerminalPane<Surface: View>: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .background(IOSTerminalStyle.panel)
-        .overlay(Rectangle().stroke(IOSTerminalStyle.line))
+        .overlay(Rectangle().stroke(emphasized ? IOSTerminalStyle.amber.opacity(0.8) : IOSTerminalStyle.line,
+            lineWidth: emphasized ? 2 : 1))
+        .shadow(color: emphasized ? Color.black.opacity(0.65) : .clear, radius: 16, y: 8)
         .padding(20)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("terminal-state-overlay")

@@ -51,7 +51,8 @@ export function apnsJwt(keyId: string, teamId: string, key: KeyObject, issuedAt:
   return `${head}.${claims}.${b64url(signature)}`;
 }
 
-/** The JSON body for one alert. `sessionId`/`kind` let the app open the right session on tap. */
+/** The JSON body for one alert. `sessionId`/`kind`/`instanceId` let the app open the right session,
+ *  in the right server's connection, on tap. */
 export function apnsBody(payload: PushPayload): string {
   return JSON.stringify({
     aps: {
@@ -62,6 +63,7 @@ export function apnsBody(payload: PushPayload): string {
     },
     sessionId: payload.sessionId,
     kind: payload.kind,
+    instanceId: payload.instanceId,
   });
 }
 

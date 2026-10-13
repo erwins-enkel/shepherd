@@ -1407,3 +1407,98 @@ test("buildPayload localizes the login request push", () => {
     "Melde dich im Shared Browser bei app.example.com an: staging",
   );
 });
+
+// ── relayed notifications of connected machines' sessions (#3058) ──────────────
+
+const MACBOOK = "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d";
+const relay = (endpoint: string, coveredInstances: string[], relayRemote = true) => ({
+  ...sub(endpoint),
+  relay: { coveredInstances, relayRemote },
+});
+
+/** Records each send as endpoint → parsed payload. */
+function recordingSend() {
+  const sent: { endpoint: string; payload: Record<string, unknown> }[] = [];
+  const send: SendFn = async (s, payload) => {
+    sent.push({ endpoint: s.endpoint, payload: JSON.parse(payload) as Record<string, unknown> });
+    return {};
+  };
+  return { sent, send };
+}
+
+/** One device of every relay kind: an older client, one that wants relays, one registered with
+ *  the MacBook itself, one that switched relays off, one registered with some other server. */
+function devices(store: SessionStore) {
+  store.putPushSub(sub("legacy"), "");
+  store.putPushSub(relay("coordinator-only", []), "");
+  store.putPushSub(relay("covers-macbook", [MACBOOK]), "");
+  store.putPushSub(relay("relay-off", [], false), "");
+  store.putPushSub(relay("covers-other", ["another-instance"]), "");
+}
+
+const blockedOnMacbook: NotifyInput = {
+  kind: "blocked",
+  sessionId: "s1",
+  tag: "s1",
+  name: "login",
+  instanceId: MACBOOK,
+  hostName: "MacBook",
+};
+
+test("a relayed notification skips older clients, opted-out devices and the machine's own", async () => {
+  const { sent, send } = recordingSend();
+  const { store, push } = svc(send);
+  devices(store);
+  expect(await push.notify(blockedOnMacbook)).toBe(true);
+  expect(sent.map((s) => s.endpoint)).toEqual(["coordinator-only", "covers-other"]);
+  expect(sent[0]!.payload).toMatchObject({
+    title: "MacBook · login — needs you",
+    sessionId: "s1",
+    kind: "blocked",
+    instanceId: MACBOOK,
+  });
+});
+
+test("a local notification still reaches every device, carrying this server's instance ID", async () => {
+  const { sent, send } = recordingSend();
+  const { store, push } = svc(send);
+  devices(store);
+  await push.notify({ kind: "blocked", sessionId: "s1", tag: "s1", name: "login" });
+  expect(sent).toHaveLength(5);
+  const own = store.getSetting("instanceId");
+  expect(own).toBeTruthy();
+  for (const { payload } of sent) {
+    expect(payload).toMatchObject({ title: "login — needs you", instanceId: own });
+  }
+});
+
+test("a relayed notification names its machine in the device's language", () => {
+  expect(buildPayload(blockedOnMacbook, "de")).toMatchObject({
+    title: "MacBook · login — braucht dich",
+    instanceId: MACBOOK,
+  });
+  expect(buildPayload({ ...blockedOnMacbook, kind: "done" }, "en").title).toBe(
+    "MacBook · login — waiting",
+  );
+});
+
+test("a relayed notification keys its cooldown by its machine", async () => {
+  const { sent, send } = recordingSend();
+  let t = 0;
+  const { store, push } = svcAt(send, () => t);
+  store.putPushSub(relay("coordinator-only", []), "");
+  const local: NotifyInput = { kind: "done", sessionId: "s1", tag: "s1", name: "login" };
+  const relayed: NotifyInput = { ...local, instanceId: MACBOOK, hostName: "MacBook" };
+  await push.notify(local);
+  await push.notify(relayed); // own key, not the local one's
+  await push.notify(relayed); // inside its cooldown
+  await push.notify({ ...relayed, instanceId: "another-instance" });
+  expect(sent.map((s) => [s.endpoint, s.payload.instanceId])).toEqual([
+    ["e1", store.getSetting("instanceId")],
+    ["coordinator-only", store.getSetting("instanceId")],
+    ["coordinator-only", MACBOOK],
+    ["coordinator-only", "another-instance"],
+  ]);
+  t += config.pushCooldownMs + 1;
+  expect(await push.notify(relayed)).toBe(true);
+});

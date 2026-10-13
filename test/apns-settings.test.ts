@@ -78,6 +78,7 @@ test("saving a valid key turns the sender on without a restart and never echoes 
     sessionId: "",
     kind: "test",
     tag: "t",
+    instanceId: "",
   });
   expect(sent[0]!["apns-topic"]).toBe("run.shepherd.ios");
 });
@@ -194,7 +195,14 @@ test("an APNs refusal after the last delivery reads as an error until the next d
   const settings = new ApnsSettings(join(dir, "apns.json"), NO_ENV, sender);
   settings.load();
   await settings.save(complete());
-  const payload = { title: "T", body: "B", sessionId: "", kind: "test" as const, tag: "t" };
+  const payload = {
+    title: "T",
+    body: "B",
+    sessionId: "",
+    kind: "test" as const,
+    tag: "t",
+    instanceId: "",
+  };
 
   await sender.send("production", TOKEN, payload);
   expect(settings.status()).toMatchObject({ state: "configured", lastDeliveredAt: 100_000 });

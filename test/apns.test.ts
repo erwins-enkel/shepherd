@@ -70,15 +70,30 @@ test("the provider token is an ES256 JWT that verifies against the key", () => {
 
 test("the body carries the alert, the session thread and what the app needs to open it", () => {
   const body = JSON.parse(
-    apnsBody({ title: "T", body: "B", sessionId: "s1", kind: "blocked", tag: "s1" }),
+    apnsBody({
+      title: "T",
+      body: "B",
+      sessionId: "s1",
+      kind: "blocked",
+      tag: "s1",
+      instanceId: "i",
+    }),
   );
   expect(body).toEqual({
     aps: { alert: { title: "T", body: "B" }, sound: "default", "thread-id": "s1" },
     sessionId: "s1",
     kind: "blocked",
+    instanceId: "i",
   });
   const host = JSON.parse(
-    apnsBody({ title: "T", body: "B", sessionId: "", kind: "usage_limit", tag: "u" }),
+    apnsBody({
+      title: "T",
+      body: "B",
+      sessionId: "",
+      kind: "usage_limit",
+      tag: "u",
+      instanceId: "i",
+    }),
   );
   expect(host.aps["thread-id"]).toBe("host");
 });
@@ -115,6 +130,7 @@ const payload = () => ({
   sessionId: "s1",
   kind: "done" as const,
   tag: "s1",
+  instanceId: "",
 });
 
 test("the sender picks the host by environment and sets the APNs headers", async () => {

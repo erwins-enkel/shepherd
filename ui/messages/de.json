@@ -132,7 +132,7 @@
   "automation_group_behavior": "Agent-Verhalten",
   "automation_group_queue": "Arbeitswarteschlange",
   "automation_group_roles": "Zuständigkeiten",
-  "automation_roles_hint": "Speichern committet & pusht .shepherd/roles.json auf den Default-Branch.",
+  "automation_roles_hint": "Speichern committet & pusht .shepherd/roles.json auf den Default-Branch — ist der geschützt, als Pull Request.",
   "roles_reviewer_label": "Reviewer",
   "roles_merger_label": "Merge durch",
   "roles_unset_option": "egal / ich",
@@ -6375,5 +6375,16 @@
   "herd_machine_this": "Dieser Shepherd",
   "herd_machine_empty": "In dieser Ansicht keine Sessions auf {machine}",
   "feat_herd_machines_title": "Sessions deiner Rechner direkt in der Herde",
-  "feat_herd_machines_body": "Sessions auf deinen verbundenen Rechnern stehen jetzt in den Gruppen der Herde neben den eigenen: Eine MacBook-Session, die auf dich wartet, steht unter „Du bist dran“, mit einem Etikett in der Farbe ihres Rechners. Die Rechner-Leiste unter den Ansichten filtert die Herde auf einen Rechner und zeigt jeden verbundenen Rechner, auch einen ohne Sessions."
+  "feat_herd_machines_body": "Sessions auf deinen verbundenen Rechnern stehen jetzt in den Gruppen der Herde neben den eigenen: Eine MacBook-Session, die auf dich wartet, steht unter „Du bist dran“, mit einem Etikett in der Farbe ihres Rechners. Die Rechner-Leiste unter den Ansichten filtert die Herde auf einen Rechner und zeigt jeden verbundenen Rechner, auch einen ohne Sessions.",
+  "feat_repo_roles_pr_title": "Zuständigkeiten bei geschützten Branches",
+  "feat_repo_roles_pr_body": "Speicherst du Zuständigkeiten in einem Repo, dessen Default-Branch nur Pull Requests annimmt, öffnet Shepherd jetzt einen PR für .shepherd/roles.json und aktiviert Auto-Merge, wo das Repo es erlaubt. Das Panel zeigt den wartenden PR und ob Auto-Merge an ist.",
+  "roles_pending_pr": "Wartet in PR #{number} auf den Merge — bis dahin gilt noch der bisherige Stand (Reviewer: {reviewer}, Merge durch: {merger}).",
+  "roles_pending_pr_open": "PR öffnen ↗",
+  "roles_branch_protected": "Der Default-Branch ist geschützt — Änderungen gehen als Pull Request.",
+  "roles_automerge_on": "Auto-Merge: AN — der PR landet nach grüner CI von selbst.",
+  "roles_automerge_off": "Auto-Merge: AUS — du musst den PR selbst mergen.",
+  "roles_automerge_failed": "Auto-Merge konnte für diesen PR nicht aktiviert werden — bitte selbst mergen.",
+  "roles_automerge_enable": "Auto-Merge auf GitHub einschalten",
+  "roles_automerge_admin_needed": "Ein Repo-Admin muss Auto-Merge in den Repository-Einstellungen einschalten.",
+  "roles_automerge_enable_failed": "Auto-Merge konnte nicht eingeschaltet werden."
 }

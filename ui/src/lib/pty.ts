@@ -83,6 +83,9 @@ export function connectPty(
   let parked = false;
   // closed on purpose by pause(); the next poke() resumes
   let paused = false;
+  // a resume that no socket has carried to the server yet: retries (e.g. the network still
+  // waking up) keep asking with resume=1, or they would take the terminal over after all
+  let resuming = false;
   let everOpened = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
   // track the latest fitted size so a reconnect attaches at the right dimensions
@@ -114,9 +117,10 @@ export function connectPty(
   // the measured RTT is approximate.
   let _pendingSendTime = 0;
 
-  const open = (resume = false) => {
+  const open = (resume = resuming) => {
     parked = false;
     paused = false;
+    resuming = resume;
     openedAt = 0;
     if (retry) {
       clearTimeout(retry);
@@ -139,6 +143,7 @@ export function connectPty(
     };
     ws.onopen = () => {
       openedAt = Date.now();
+      resuming = false; // reached the server: it attached us or will park us with 4000
       retryDelay = 1000;
       if (everOpened) onReconnect();
       everOpened = true;
@@ -227,7 +232,7 @@ export function connectPty(
     },
     takeover: () => {
       if (stopped) return;
-      open(); // re-attach → server makes us the owner and parks the other device
+      open(false); // re-attach → server makes us the owner and parks the other device
     },
   };
 }

@@ -191,6 +191,39 @@ describe("connectPty", () => {
       vi.useRealTimers();
     });
 
+    it("keeps asking with resume=1 while the resume never opens (waking offline)", () => {
+      vi.useFakeTimers();
+      const onParked = vi.fn();
+      const { conn, last } = make(() => {}, onParked);
+      last().open();
+      conn.pause();
+      conn.poke(); // the window is back, but the network is still waking up
+      last().drop(); // never opened
+      vi.advanceTimersByTime(1000);
+      expect(FakeWs.instances).toHaveLength(3);
+      expect(last().url).toMatch(/&resume=1$/); // a backoff retry must not take over
+      last().drop();
+      conn.poke(); // refocus skips the backoff, still politely
+      expect(last().url).toMatch(/&resume=1$/);
+      last().open(); // reached the server…
+      last().supersede(); // …which says the phone owns it now
+      expect(onParked).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it("drops the resume once an attach has opened", () => {
+      vi.useFakeTimers();
+      const { conn, last } = make();
+      last().open();
+      conn.pause();
+      conn.poke();
+      last().open(); // resumed: this client owns the terminal again
+      last().drop(); // an ordinary drop later
+      vi.advanceTimersByTime(1000);
+      expect(last().url).not.toContain("resume");
+      vi.useRealTimers();
+    });
+
     it("is a no-op once parked or closed", () => {
       const { conn, last } = make();
       last().open();

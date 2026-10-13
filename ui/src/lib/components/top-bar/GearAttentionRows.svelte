@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import type { UpdateStatus, DiagnosticState } from "#lib/types.js";
+  import type { DiagnosticState } from "#lib/types.js";
+  import type { UpdateBadge } from "#lib/machine-updates.js";
   import GearRow from "./GearRow.svelte";
 
   // Attention rows (diagnostics / updates / What's-New), shared by the mobile sheet and
@@ -10,7 +11,7 @@
     mobile = false,
     diagnosticsOverall,
     updateAvailable,
-    update,
+    updateBadge,
     herdrUpdateAvailable,
     codexUpdateAvailable,
     whatsNew,
@@ -24,7 +25,7 @@
     mobile?: boolean;
     diagnosticsOverall: DiagnosticState;
     updateAvailable: boolean;
-    update: UpdateStatus | null;
+    updateBadge: UpdateBadge | null;
     herdrUpdateAvailable: boolean;
     codexUpdateAvailable: boolean;
     whatsNew: boolean;
@@ -61,7 +62,7 @@
       <GearRow
         {mobile}
         warm
-        label={`${m.topbar_update_badge()} · ${update!.behind}`}
+        label={`${m.topbar_update_badge()} · ${updateBadge!.count}`}
         onclick={closeAnd(onupdate)}
       >
         {#snippet glyphIcon()}

@@ -8,6 +8,7 @@ import type {
   Session,
   UsageLimits,
   UpdateStatus,
+  MachineUpdate,
   HerdrUpdateStatus,
   CodexUpdateStatus,
   DiagnosticState,
@@ -3650,5 +3651,59 @@ describe("TopBar — Operator Assistant entry points", () => {
     await sheet.getByRole("button", { name: m.operator_assistant_title() }).click();
     expect(onassistant).toHaveBeenCalledOnce();
     await expect.element(sheet).not.toBeInTheDocument();
+  });
+});
+
+describe("TopBar — the update badge counts machines once another one is behind", () => {
+  const machine = (behind: number): MachineUpdate => ({
+    instanceId: "mac",
+    name: "MacBook",
+    platform: "macos",
+    status: "connected",
+    update: { behind, current: "aaaaaaa", latest: "bbbbbbb", commits: [], checkedAt: 0 },
+  });
+  const renderBar = (props: Record<string, unknown>) => {
+    document.body.style.width = "1436px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      limits: null,
+      onassistant: () => {},
+      ...sessionsProp(0),
+      ...props,
+    } as ComponentProps<typeof TopBar>);
+    return () => document.querySelector<HTMLElement>(".update-badge:not(.herdr):not(.codex)");
+  };
+
+  beforeEach(() => page.viewport(1436, 900));
+
+  it("shows for a connected machine that is behind while this one is up to date", async () => {
+    const badge = renderBar({
+      update: { behind: 0 } as UpdateStatus,
+      machineUpdates: [machine(11)],
+    });
+    await vi.waitFor(() => expect(badge()).not.toBeNull());
+    expect(badge()!.getAttribute("aria-label")).toBe("Update for 1 machine");
+    expect(badge()!.querySelector(".up-machine")).not.toBeNull();
+    expect(badge()!.querySelector(".up-n")!.textContent!.trim()).toBe("1");
+  });
+
+  it("keeps counting commits while only this Shepherd is behind", async () => {
+    const badge = renderBar({
+      update: { behind: 4 } as UpdateStatus,
+      machineUpdates: [machine(0)],
+    });
+    await vi.waitFor(() => expect(badge()).not.toBeNull());
+    expect(badge()!.querySelector(".up-machine")).toBeNull();
+    expect(badge()!.querySelector(".up-n")!.textContent!.trim()).toBe("4");
+  });
+
+  it("stays hidden while nothing is behind", async () => {
+    const badge = renderBar({
+      update: { behind: 0 } as UpdateStatus,
+      machineUpdates: [machine(0)],
+    });
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    expect(badge()).toBeNull();
   });
 });

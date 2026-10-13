@@ -10,6 +10,7 @@ import type {
   PluginGearItem,
   UsageLimits,
   UpdateStatus,
+  MachineUpdate,
   HerdrUpdateStatus,
   HerdrUpdateResult,
   CodexUpdateStatus,
@@ -99,6 +100,9 @@ export class HerdStore {
   attended = $state(false);
   usageLimits = $state<UsageLimits | null>(null);
   update = $state<UpdateStatus | null>(null);
+  /** Every connected machine's self-update — the update window lists those behind beside this
+   *  one. Seeded by a bootstrap GET, live-updated by the `remote:updates` event. */
+  machineUpdates = $state<MachineUpdate[]>([]);
   herdrUpdate = $state<HerdrUpdateStatus | null>(null);
   codexUpdate = $state<CodexUpdateStatus | null>(null);
   /** Installed-plugin update snapshot (informational). Seeded by the
@@ -973,6 +977,9 @@ export class HerdStore {
         return true;
       case "update:status":
         this.setUpdate(ev.data);
+        return true;
+      case "remote:updates":
+        this.machineUpdates = ev.data.machines;
         return true;
       case "diagnostics:status":
         this.diagnostics = ev.data;

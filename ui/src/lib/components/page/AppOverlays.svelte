@@ -536,9 +536,12 @@
   />
 {/if}
 
-{#if showUpdate && store.update && store.update.behind > 0}
+<!-- Opened only from a badge that shows while something is behind; once open it stays until
+     closed, so a machine that just finished (and now reads up to date) keeps its row. -->
+{#if showUpdate && (store.update || store.machineUpdates.length > 0)}
   <UpdateModal
     update={store.update}
+    machines={store.machineUpdates}
     updating={store.updating}
     {deploy}
     onconfirm={onupdateconfirm}

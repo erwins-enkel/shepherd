@@ -8,14 +8,34 @@ vi.mock("#lib/api.js", async (orig) => ({
   ...((await orig()) as object),
   applyUpdate: vi.fn(() => new Promise(() => {})),
   getUpdateDirty: vi.fn(async () => ({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null })),
+  getInstance: vi.fn(async () => ({ name: "moes-tavern", platform: "linux" })),
+  applyMachineUpdate: vi.fn(async () => {}),
+  getMachineUpdateLog: vi.fn(async () => ({ phase: "done", exitCode: 0, log: "" })),
+  getMachineUpdateDirty: vi.fn(async () => ({
+    dirty: false,
+    dirtyFiles: [],
+    dirtyCount: 0,
+    sig: null,
+  })),
+  checkRemoteInstance: vi.fn(async () => ({})),
 }));
 
 import UpdateModal from "./UpdateModal.svelte";
 import { theme } from "#lib/theme.svelte.js";
-import { applyUpdate, getUpdateDirty } from "#lib/api.js";
+import {
+  applyMachineUpdate,
+  applyUpdate,
+  getMachineUpdateDirty,
+  getMachineUpdateLog,
+  getUpdateDirty,
+} from "#lib/api.js";
+import type { MachineUpdate } from "#lib/types.js";
 
 const mockApply = applyUpdate as unknown as ReturnType<typeof vi.fn>;
 const mockDirty = getUpdateDirty as unknown as ReturnType<typeof vi.fn>;
+const mockApplyMachine = applyMachineUpdate as unknown as ReturnType<typeof vi.fn>;
+const mockMachineLog = getMachineUpdateLog as unknown as ReturnType<typeof vi.fn>;
+const mockMachineDirty = getMachineUpdateDirty as unknown as ReturnType<typeof vi.fn>;
 const DIRTY = (over: Partial<DirtyStatus> = {}): DirtyStatus => ({
   dirty: true,
   dirtyFiles: [" M src/a.ts"],
@@ -53,6 +73,11 @@ afterEach(async () => {
   mockApply.mockImplementation(() => new Promise(() => {}));
   mockDirty.mockReset();
   mockDirty.mockResolvedValue({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null });
+  mockApplyMachine.mockReset();
+  mockApplyMachine.mockResolvedValue(undefined);
+  mockMachineLog.mockReset();
+  mockMachineLog.mockResolvedValue({ phase: "done", exitCode: 0, log: "" });
+  mockMachineDirty.mockReset();
   theme.setMotion("system");
   await page.viewport(1280, 900);
 });
@@ -378,5 +403,109 @@ describe("UpdateModal", () => {
 
     await vi.waitFor(() => expect(btn(/retry/i)).toBeTruthy());
     expect(btn(/discard & update/i)).toBeFalsy();
+  });
+
+  // ── every machine ──────────────────────────────────────────────────────────
+
+  const machine = (over: Partial<MachineUpdate> = {}): MachineUpdate => ({
+    instanceId: "mac",
+    name: "MacBook",
+    platform: "macos",
+    status: "connected",
+    update: {
+      behind: 11,
+      current: "bb73c95",
+      latest: "048d35c",
+      commits: [{ sha: "048d35c", subject: "fix(mac): add web backend app menu item" }],
+      checkedAt: 0,
+    },
+    ...over,
+  });
+  const vps = machine({
+    instanceId: "vps",
+    name: "hetzner-vps",
+    platform: "linux",
+    update: { behind: 0, current: "048d35c", latest: "048d35c", commits: [], checkedAt: 0 },
+  });
+  const nas = machine({ instanceId: "nas", name: "nas", status: "unreachable" });
+  const rowOf = (name: string) => document.querySelector<HTMLElement>(`[data-machine="${name}"]`)!;
+
+  it("lists every machine with the update it needs, beside this one", async () => {
+    render(UpdateModal, {
+      props: { update, updating: false, deploy: null, machines: [machine(), vps, nas] },
+    });
+
+    await vi.waitFor(() => expect(rowOf("moes-tavern")).toBeTruthy());
+    expect(document.body.textContent).toContain("of 4 machines need an update");
+    expect(rowOf("MacBook").textContent).toContain("bb73c95 → 048d35c · 11 commits");
+    expect(rowOf("hetzner-vps").textContent).toContain("Up to date");
+    expect(rowOf("nas").textContent).toContain("Unreachable");
+    expect(rowOf("nas").querySelector("button")).toBeNull(); // nothing to start out of reach
+    await vi.waitFor(() => expect(btn(/update all \(2\)/i)).toBeTruthy());
+  });
+
+  it("a row's own button updates only that machine", async () => {
+    render(UpdateModal, {
+      props: { update, updating: false, deploy: null, machines: [machine(), vps] },
+    });
+
+    await vi.waitFor(() =>
+      expect(page.getByRole("button", { name: "Update MacBook" })).toBeTruthy(),
+    );
+    await page.getByRole("button", { name: "Update MacBook" }).click();
+    await vi.waitFor(() => expect(mockApplyMachine).toHaveBeenCalledWith("mac", false, undefined));
+    await vi.waitFor(() => expect(rowOf("MacBook").textContent).toContain("Updated"), {
+      timeout: 5000,
+    });
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  it("update all starts the other machines first and this one only once they are through", async () => {
+    let finish!: () => void;
+    const through = new Promise<void>((r) => (finish = r));
+    mockMachineLog.mockImplementation(async () => {
+      await through;
+      return { phase: "done", exitCode: 0, log: "" };
+    });
+    render(UpdateModal, {
+      props: { update, updating: false, deploy: null, machines: [machine(), vps] },
+    });
+
+    await vi.waitFor(() => expect(btn(/update all \(2\)/i)).toBeTruthy());
+    expect(document.body.textContent).toContain("this machine goes last");
+    btn(/update all \(2\)/i)!.click();
+
+    await vi.waitFor(() => expect(mockApplyMachine).toHaveBeenCalledWith("mac", false, undefined));
+    await vi.waitFor(() => expect(rowOf("moes-tavern").textContent).toContain("Waiting"));
+    expect(mockApply).not.toHaveBeenCalled();
+
+    finish();
+    await vi.waitFor(() => expect(mockApply).toHaveBeenCalledWith(false), { timeout: 5000 });
+  });
+
+  it("a machine blocked by local changes holds this one back until it is skipped", async () => {
+    mockMachineLog.mockResolvedValue({
+      phase: "failed",
+      exitCode: 1,
+      log: "--pull needs a clean tree",
+      reason: "dirty",
+    });
+    mockMachineDirty.mockResolvedValue(DIRTY({ dirtyFiles: [" M native/Client.swift"] }));
+    render(UpdateModal, {
+      props: { update, updating: false, deploy: null, machines: [machine()] },
+    });
+
+    await vi.waitFor(() => expect(btn(/update all \(2\)/i)).toBeTruthy());
+    btn(/update all \(2\)/i)!.click();
+
+    await vi.waitFor(() => expect(rowOf("MacBook").textContent).toContain("Blocked"), {
+      timeout: 5000,
+    });
+    expect(rowOf("MacBook").textContent).toContain("native/Client.swift");
+    expect(mockApply).not.toHaveBeenCalled();
+
+    btn(/^skip$/i)!.click();
+    await vi.waitFor(() => expect(mockApply).toHaveBeenCalledWith(false));
+    expect(rowOf("MacBook").textContent).toContain("Skipped");
   });
 });

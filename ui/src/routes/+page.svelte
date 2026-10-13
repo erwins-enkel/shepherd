@@ -26,6 +26,7 @@
     ApiError,
     getUsageLimits,
     getUpdate,
+    listMachineUpdates,
     getUpdateLog,
     getHerdrUpdate,
     getCodexUpdate,
@@ -2046,6 +2047,9 @@
     getUpdate()
       .then((u) => store.setUpdate(u))
       .catch(() => {});
+    listMachineUpdates()
+      .then((r) => (store.machineUpdates = r.machines))
+      .catch(() => {});
     getHerdrUpdate()
       .then((u) => store.setHerdrUpdate(u))
       .catch(() => {});
@@ -3295,6 +3299,7 @@
         onusage={() => (showUsage = true)}
         onhalt={haltHerd}
         update={store.update}
+        machineUpdates={store.machineUpdates}
         onupdate={() => (showUpdate = true)}
         herdrUpdate={store.herdrUpdate}
         onherdrupdate={() => (showHerdrUpdate = true)}

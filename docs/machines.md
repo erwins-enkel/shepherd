@@ -88,9 +88,9 @@ Shepherd checks the machine at once and every minute after:
 
 To work the other way round too, connect the coordinator on the machine with a token from the
 coordinator. **Settings → Machines** shows which directions are connected
-([below](#see-who-mirrors-whom)).
+([below](#see-both-directions)).
 
-## See who mirrors whom
+## See both directions
 
 Each side connects the other on its own, so connecting only one direction is easy to miss: if
 only the MacBook connects the coordinator, the MacBook's herd shows the coordinator's sessions,
@@ -99,8 +99,9 @@ but the coordinator shows none of the MacBook's. **Settings → Machines** shows
 - **You see their sessions** lists the machines connected here. Each row says how many of its
   sessions are in your herd, whether it takes tasks (connected, on a released platform), and
   whether it **sees yours too**.
-- **They see your sessions** lists the Shepherds that connected this one and mirror it right now,
-  each with the access token it uses here and since when. An entry ends when its connection does.
+- **They see your sessions** lists the Shepherds that connected this one and are directly
+  connected to it right now, each with the access token it uses here and since when. An entry ends
+  when its connection does.
 
 | Direction          | Meaning and next step                                                                                                                                                                                                      |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -108,11 +109,11 @@ but the coordinator shows none of the MacBook's. **Settings → Machines** shows
 | One direction only | It sees your sessions, you don't see its sessions. **Connect … here** opens the connect form with its name; add its address and a token from it. If it is connected here but its check fails, its status is named instead. |
 | Direction unknown  | It sends no instance ID, so it runs an older release. Update both to the same release.                                                                                                                                     |
 
-A mirroring Shepherd names itself in two headers on its `/events?host=local` socket and its
-snapshot request: `X-Shepherd-Instance-Id` and `X-Shepherd-Instance-Name` (percent-encoded). What
-it claims there is shown, never trusted: the name is shortened and cleaned, nothing of it is
-logged, and **Both directions** rests on this Shepherd's own check of a machine with that ID. Only
-an operator signed in here sees the list.
+A Shepherd that shows your sessions names itself in two headers on its live connection
+(`/events?host=local`) and its session request: `X-Shepherd-Instance-Id` and
+`X-Shepherd-Instance-Name` (percent-encoded). What it claims there is shown, never trusted: the
+name is shortened and cleaned, nothing of it is logged, and **Both directions** rests on this
+Shepherd's own check of a machine with that ID. Only an operator signed in here sees the list.
 
 ## Start a task on a machine
 

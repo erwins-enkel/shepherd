@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { rebaseLandingBranch } from "../src/landing-rebase";
+import { rebaseLandingBranch, isUnionDriverReady } from "../src/landing-rebase";
 import type { LandingRebaseDeps } from "../src/landing-rebase";
 import { WorktreeMgr } from "../src/worktree";
 
@@ -554,4 +554,115 @@ test("transient: invalid integrationBranch refname returns transient", async () 
 test("transient: invalid defaultBranch refname returns transient", async () => {
   const result = await rebaseLandingBranch("/some/repo", "epic/1-valid", "-evil");
   expect(result.kind).toBe("transient");
+});
+
+// ── TEST: repo without union globs needs no driver ──────────────────────────
+
+/** Origin + seed WITHOUT .gitattributes union entries or driver scripts (a non-Shepherd repo). */
+function setupPlainRepo(): { origin: string; seed: string } {
+  const origin = mkdtempSync(join(tmpdir(), "shepherd-lr-origin-"));
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin], { stdio: "pipe" });
+  const seed = mkdtempSync(join(tmpdir(), "shepherd-lr-seed-"));
+  execFileSync("git", ["init", "-q", "-b", "main", seed], { stdio: "pipe" });
+  commitFile(seed, "a.txt", "base content\n", "init");
+  execFileSync("git", ["remote", "add", "origin", origin], { cwd: seed, stdio: "pipe" });
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seed, stdio: "pipe" });
+  return { origin, seed };
+}
+
+test("rebased: repo without union globs rebases without registering a driver", async () => {
+  const { origin, seed } = setupPlainRepo();
+  track(origin, seed);
+  const repo = track(cloneRepo(origin));
+
+  const intBranch = "epic/8-plain";
+  git(seed, ["checkout", "-qb", intBranch]);
+  commitFile(seed, "epic8.txt", "epic 8\n", "feat: epic 8");
+  execFileSync("git", ["push", "-q", "origin", intBranch], { cwd: seed, stdio: "pipe" });
+  git(seed, ["checkout", "-q", "main"]);
+  commitFile(seed, "main8.txt", "main 8\n", "chore: advance main");
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seed, stdio: "pipe" });
+
+  let registerCalls = 0;
+  const result = await rebaseLandingBranch(repo, intBranch, "main", {
+    worktrees: new WorktreeMgr(),
+    git: makeGit(),
+    registerDriver: () => {
+      registerCalls++;
+      throw new Error("no register script in this repo");
+    },
+  });
+
+  expect(result.kind).toBe("rebased");
+  expect(registerCalls).toBe(0);
+});
+
+test("isUnionDriverReady: true for a repo without union globs, false when globs but no driver", async () => {
+  const plain = setupPlainRepo();
+  track(plain.origin, plain.seed);
+  expect(await isUnionDriverReady(plain.seed)).toBe(true);
+
+  const union = setupBaseRepo();
+  track(union.origin, union.seed);
+  expect(await isUnionDriverReady(union.seed)).toBe(false);
+  registerDriverIn(union.seed);
+  expect(await isUnionDriverReady(union.seed)).toBe(true);
+});
+
+test("rebased: repo with only built-in merge=union globs needs no driver registration", async () => {
+  const { origin, seed } = setupPlainRepo();
+  track(origin, seed);
+  commitFile(seed, ".gitattributes", "CHANGELOG.md merge=union\n", "chore: union changelog");
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seed, stdio: "pipe" });
+  const repo = track(cloneRepo(origin));
+  expect(await isUnionDriverReady(repo)).toBe(true);
+
+  const intBranch = "epic/9-builtin-union";
+  git(seed, ["checkout", "-qb", intBranch]);
+  commitFile(seed, "epic9.txt", "epic 9\n", "feat: epic 9");
+  execFileSync("git", ["push", "-q", "origin", intBranch], { cwd: seed, stdio: "pipe" });
+  git(seed, ["checkout", "-q", "main"]);
+  commitFile(seed, "main9.txt", "main 9\n", "chore: advance main");
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seed, stdio: "pipe" });
+
+  let registerCalls = 0;
+  const result = await rebaseLandingBranch(repo, intBranch, "main", {
+    worktrees: new WorktreeMgr(),
+    git: makeGit(),
+    registerDriver: () => {
+      registerCalls++;
+      throw new Error("no register script in this repo");
+    },
+  });
+
+  expect(result.kind).toBe("rebased");
+  expect(registerCalls).toBe(0);
+});
+
+test("conflict: modify/delete on a built-in merge=union path is a genuine conflict, not driver-broken", async () => {
+  const { origin, seed } = setupPlainRepo();
+  track(origin, seed);
+  writeFileSync(join(seed, ".gitattributes"), "CHANGELOG.md merge=union\n");
+  commitFile(seed, "CHANGELOG.md", "# Changelog\n- base\n", "chore: changelog");
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seed, stdio: "pipe" });
+  const repo = track(cloneRepo(origin));
+
+  const intBranch = "epic/10-moddel";
+  git(seed, ["checkout", "-qb", intBranch]);
+  commitFile(seed, "CHANGELOG.md", "# Changelog\n- base\n- epic\n", "feat: changelog entry");
+  execFileSync("git", ["push", "-q", "origin", intBranch], { cwd: seed, stdio: "pipe" });
+  git(seed, ["checkout", "-q", "main"]);
+  git(seed, ["rm", "-q", "CHANGELOG.md"]);
+  git(seed, ["commit", "-qm", "chore: drop changelog"]);
+  execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seed, stdio: "pipe" });
+
+  const result = await rebaseLandingBranch(repo, intBranch, "main", {
+    worktrees: new WorktreeMgr(),
+    git: makeGit(),
+    registerDriver: () => {
+      throw new Error("no register script in this repo");
+    },
+  });
+
+  expect(result.kind).toBe("conflict");
 });

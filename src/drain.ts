@@ -81,7 +81,7 @@ import {
 } from "./forge/types";
 import { readEpicStructureByParts } from "./forge/epic-structure";
 import { config } from "./config";
-import { rebaseLandingBranch, isUnionDriverRegistered } from "./landing-rebase";
+import { rebaseLandingBranch, isUnionDriverReady } from "./landing-rebase";
 import { LandingPrReads } from "./landing-pr-reads";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { NotifyInput } from "./push";
@@ -363,7 +363,7 @@ export interface DrainDeps {
    *  impl (src/landing-rebase.ts) in the constructor. */
   rebaseLandingBranch?: typeof rebaseLandingBranch;
   /** #1071: injectable seam for the driver-pause fast-path re-probe (tests inject a fake).
-   *  Defaults to the real isUnionDriverRegistered (src/landing-rebase.ts) in the constructor. */
+   *  Defaults to the real isUnionDriverReady (src/landing-rebase.ts) in the constructor. */
   isDriverRegistered?: (repoPath: string) => Promise<boolean>;
   /** #1838: push a notification (→ push.notify). Optional — absent in tests that don't assert it.
    *  Used by enterLandingConflict to surface a genuine-conflict landing pause to the operator. */
@@ -512,7 +512,7 @@ export class DrainService {
   private issuesTtlMs: number;
   /** #1071: injectable seam; defaults to the real rebaseLandingBranch import. */
   private rebaseLandingBranch: typeof rebaseLandingBranch;
-  /** #1071: injectable seam; defaults to the real isUnionDriverRegistered import. */
+  /** #1071: injectable seam; defaults to the real isUnionDriverReady import. */
   private isDriverRegistered: (repoPath: string) => Promise<boolean>;
   /** #2873: the landing passes' shared landing-PR read (one per tick; settled PRs left alone). */
   private readonly landingPrs: LandingPrReads;
@@ -531,7 +531,7 @@ export class DrainService {
       rebase(repoPath, branch, defaultBranch, rebaseDeps).finally(() =>
         this.landingPrs.invalidate(repoPath, branch),
       );
-    this.isDriverRegistered = deps.isDriverRegistered ?? isUnionDriverRegistered;
+    this.isDriverRegistered = deps.isDriverRegistered ?? isUnionDriverReady;
   }
 
   /** Operator approves the next epic-attended spawn for the given repo. */

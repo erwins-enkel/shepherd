@@ -254,6 +254,41 @@ describe("mirrored sessions", () => {
     expect(ids(await get(a, "/api/sessions?host=local"))).toEqual([own.id]);
   });
 
+  test("the machine's PR state reaches the reference and nothing local (#3055)", async () => {
+    const a = startNode();
+    const b = startNode();
+    const frames = await dashboard(a);
+    const remote = startSession(b, "on-b");
+    const green = { state: "open", checks: "success", deployConfigured: false, number: 7 };
+    b.deps.prCache = { snapshot: () => ({ [remote.id]: green }) } as never;
+    await connect(a, b);
+
+    const git = (l: Session[]) => (l.find((s) => s.id === remote.id) as Record<string, any>)?.git;
+    await until(
+      () => get(a, "/api/sessions"),
+      (l) => git(l)?.checks === "success",
+    );
+    const pending = { ...green, checks: "pending" };
+    b.deps.events.emit("session:git", { id: remote.id, git: pending });
+    await until(
+      () => get(a, "/api/sessions"),
+      (l) => git(l)?.checks === "pending",
+    );
+    await until(
+      () => frames,
+      (f) => f.some((x) => x.event === "session:git" && x.data.id === remote.id),
+    );
+
+    // Never local: A's PR map, store and hub — what its poller, autopilot, merge train, drain and
+    // reaper read — have never heard of it.
+    const map = await fetch(`${a.base}/api/git`, {
+      headers: { authorization: `Bearer ${a.token}` },
+    }).then((r) => r.json());
+    expect(Object.keys(map)).not.toContain(remote.id);
+    expect(a.deps.store.get(remote.id)).toBeNull();
+    expect(JSON.stringify(a.hub)).not.toContain(remote.id);
+  });
+
   test("machines connected to each other show every session exactly once", async () => {
     const a = startNode();
     const b = startNode();

@@ -64,10 +64,12 @@ interface FakeSocket {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** A mirror wired to fakes: `machines` is what the probe service reports, `snapshot` what
- *  `GET /api/sessions?host=local` answers (a function to defer or fail it). */
+ *  `GET /api/sessions?host=local` answers (a function to defer or fail it), `git` what
+ *  `GET /api/git` answers. */
 function setup(
   opts: {
     snapshot?: () => unknown | Promise<Response>;
+    git?: () => unknown | Promise<Response>;
     self?: () => { instanceId: string; name: string };
   } = {},
 ) {
@@ -76,6 +78,7 @@ function setup(
     machines: [machine()],
     rows: new Map([[B, row()]]),
     snapshot: opts.snapshot ?? (() => [s1, s2]),
+    git: opts.git ?? (() => ({})),
   };
   const sockets: FakeSocket[] = [];
   const terminals: { url: string; headers: Record<string, string>; closed: boolean }[] = [];
@@ -83,7 +86,7 @@ function setup(
   const checks: string[] = [];
   const fetch: FetchLike = async (url, init) => {
     requests.push({ url, init });
-    const body = await state.snapshot();
+    const body = await (url.endsWith("/api/git") ? state.git() : state.snapshot());
     return body instanceof Response ? body : Response.json(body);
   };
   const openSocket: OpenSocket = (url, headers, on) => {
@@ -163,8 +166,13 @@ describe("session mirror", () => {
     const socket = await t.live();
     expect(socket.url).toBe("ws://b.test:7777/events?host=local");
     expect(socket.headers).toEqual({ authorization: `Bearer ${TOKEN}` });
-    expect(t.requests.map((r) => r.url)).toEqual(["http://b.test:7777/api/sessions?host=local"]);
-    expect(new Headers(t.requests[0]!.init.headers).get("authorization")).toBe(`Bearer ${TOKEN}`);
+    expect(t.requests.map((r) => r.url)).toEqual([
+      "http://b.test:7777/api/sessions?host=local",
+      "http://b.test:7777/api/git",
+    ]);
+    for (const r of t.requests) {
+      expect(new Headers(r.init.headers).get("authorization")).toBe(`Bearer ${TOKEN}`);
+    }
     const host = { instanceId: B, name: "MacBook", platform: "macos" };
     const connection = { state: "connected" as const, since: 1_000 };
     expect(t.mirror.list()).toEqual([
@@ -272,6 +280,76 @@ describe("session mirror", () => {
     expect(t.mirror.list().map(({ id, status }) => ({ id, status }))).toEqual([
       { id: S1, status: "idle" },
     ]);
+  });
+
+  test("the machine's PR state rides on its sessions (#3055)", async () => {
+    const green = { state: "open", checks: "success", deployConfigured: false };
+    const t = setup({
+      git: () => ({ [S1]: green, [S2]: "not a record", "not-a-uuid": green }),
+    });
+    await t.live();
+    expect(t.mirror.list().map(({ id, git }) => ({ id, git }))).toEqual([
+      { id: S1, git: green },
+      { id: S2, git: undefined },
+    ]);
+    expect(t.events).toEqual([["remote:sessions", { instanceId: B, sessions: t.mirror.list() }]]);
+  });
+
+  test("a session:git frame updates the held PR state; archiving forgets it", async () => {
+    const t = setup();
+    const socket = await t.live();
+    t.events.length = 0;
+    const host = { instanceId: B, name: "MacBook", platform: "macos" };
+    const connection = { state: "connected" as const, since: 1_000 };
+    const pending = { state: "open", checks: "pending" };
+    send(socket, "session:git", { id: S2, git: pending });
+    send(socket, "session:status", { id: S2, status: "idle" });
+    send(socket, "session:git", { id: S2, git: "not a record" });
+    expect(t.mirror.list().find((s) => s.id === S2)?.git).toEqual(pending);
+    expect(t.events.slice(0, 2)).toEqual([
+      ["session:git", { id: S2, git: pending, host, connection }],
+      ["session:status", { git: pending, id: S2, status: "idle", host, connection }],
+    ]);
+    send(socket, "session:archived", { id: S2 });
+    send(socket, "session:new", s2);
+    expect(t.mirror.list().find((s) => s.id === S2)?.git).toBeUndefined();
+  });
+
+  test("a PR state frame during the snapshot is replayed on top of it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const t = setup({
+      git: async () => {
+        await gate;
+        return Response.json({ [S1]: { state: "open", checks: "pending" } });
+      },
+    });
+    t.mirror.sync(B);
+    const socket = t.sockets[0]!;
+    socket.on.open();
+    send(socket, "session:git", { id: S1, git: { state: "open", checks: "success" } });
+    release();
+    await flush();
+    expect(t.mirror.list().find((s) => s.id === S1)?.git).toEqual({
+      state: "open",
+      checks: "success",
+    });
+  });
+
+  test("a PR state the machine cannot answer leaves its sessions mirrored without one", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const t = setup({ git: () => new Response("nope", { status: 500 }) });
+      const socket = await t.live();
+      expect(socket.closed).toBe(false);
+      expect(t.mirror.list().map(({ id, connection, git }) => ({ id, connection, git }))).toEqual([
+        { id: S1, connection: { state: "connected", since: 1_000 }, git: undefined },
+        { id: S2, connection: { state: "connected", since: 1_000 }, git: undefined },
+      ]);
+      expect(String(warn.mock.calls[0]?.[0])).not.toContain(TOKEN);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("a lost socket keeps the sessions as disconnected and re-probes", async () => {

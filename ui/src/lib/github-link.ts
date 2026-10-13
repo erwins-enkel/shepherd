@@ -29,12 +29,11 @@ export function matchRepoForLinks(
 ): { repo: RepoEntry; issue: number | null; viaUpstream: boolean } | null {
   for (const link of parseGithubLinks(text)) {
     const slug = link.slug.toLowerCase();
-    for (const repo of repos) {
-      if (repo.remoteSlug?.toLowerCase() === slug)
-        return { repo, issue: link.issue, viaUpstream: false };
-      if (repo.upstreamSlug?.toLowerCase() === slug)
-        return { repo, issue: link.issue, viaUpstream: true };
-    }
+    // An exact clone of the linked repo beats a fork of it, whatever the list order.
+    const own = repos.find((r) => r.remoteSlug?.toLowerCase() === slug);
+    if (own) return { repo: own, issue: link.issue, viaUpstream: false };
+    const fork = repos.find((r) => r.upstreamSlug?.toLowerCase() === slug);
+    if (fork) return { repo: fork, issue: link.issue, viaUpstream: true };
   }
   return null;
 }

@@ -77,6 +77,25 @@ describe("matchRepoForLinks", () => {
     });
   });
 
+  it("an exact clone wins over a fork of it, whatever the list order", () => {
+    const upstream = repo("flow", { remoteSlug: "murakamyadvisory/flowagent" });
+    const fork = repo("myflow", {
+      remoteSlug: "me/flowagent",
+      upstreamSlug: "murakamyadvisory/flowagent",
+      isFork: true,
+    });
+    const link = "https://github.com/murakamyadvisory/flowagent/pull/1288";
+    for (const list of [
+      [fork, upstream],
+      [upstream, fork],
+    ])
+      expect(matchRepoForLinks(list, link)).toEqual({
+        repo: upstream,
+        issue: null,
+        viaUpstream: false,
+      });
+  });
+
   it("null when nothing matches", () => {
     expect(matchRepoForLinks(repos, "https://github.com/nobody/x")).toBeNull();
     expect(matchRepoForLinks(repos, "no links")).toBeNull();

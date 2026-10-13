@@ -6442,5 +6442,8 @@
   "drain_paused_usage_ceiling": "Pausiert: Auslastung {pct} % ≥ Grenze {ceiling} %",
   "epic_usage_ignore": "Nutzungsgrenze ignorieren",
   "epic_usage_ignored_note": "Die Nutzungsgrenze wird für diesen Lauf ignoriert.",
-  "epic_usage_respect": "Wieder beachten"
+  "epic_usage_respect": "Wieder beachten",
+  "drain_usage_ignore": "Für Epic #{epic} ignorieren",
+  "drain_usage_ignored": "Grenze ignoriert · Epic #{epic}",
+  "drain_usage_respect": "Grenze beachten"
 }

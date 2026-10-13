@@ -6442,5 +6442,8 @@
   "drain_paused_usage_ceiling": "Paused: usage {pct}% ≥ ceiling {ceiling}%",
   "epic_usage_ignore": "Ignore usage ceiling",
   "epic_usage_ignored_note": "The usage ceiling is ignored for this run.",
-  "epic_usage_respect": "Respect it again"
+  "epic_usage_respect": "Respect it again",
+  "drain_usage_ignore": "Ignore for epic #{epic}",
+  "drain_usage_ignored": "Ceiling ignored · epic #{epic}",
+  "drain_usage_respect": "Respect ceiling"
 }

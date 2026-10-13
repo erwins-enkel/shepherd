@@ -795,7 +795,7 @@ export function notifySessionDone(
 }
 
 /** Push bodies get truncated by the OS anyway; keep the agent's reason to one line's worth. */
-const LOGIN_REASON_PUSH_CHARS = 160;
+export const LOGIN_REASON_PUSH_CHARS = 160;
 
 /** Bridge F3 state events to push notifications. Both events are already edge-triggered. The
  *  Operator Assistant never pushes: the operator is talking to it in its panel (#1446). */

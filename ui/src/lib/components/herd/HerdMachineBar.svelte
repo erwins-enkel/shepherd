@@ -57,7 +57,12 @@
   ]);
 </script>
 
-<div class="machine-bar" class:touch role="group" aria-label={m.herd_machines_label()}>
+<div
+  class="machine-bar"
+  class:touch-target={touch}
+  role="group"
+  aria-label={m.herd_machines_label()}
+>
   {#each chips as chip (chip.id)}
     <button
       type="button"
@@ -104,7 +109,7 @@
       color 0.12s ease,
       background 0.12s ease;
   }
-  .touch .chip {
+  .touch-target .chip {
     min-height: 44px;
   }
   .chip:hover {

@@ -546,13 +546,157 @@ test("existing token contract is cookie-admin only", async () => {
   await request("DELETE", "/api/access-tokens/{id}", 200, undefined, path, admin);
   await request("DELETE", "/api/access-tokens/{id}", 404, undefined, path, admin);
 });
+test("runner update contract uses existing backend actions and all event payloads", async () => {
+  const herdr = {
+    current: "0.8.2",
+    latest: "0.9.3",
+    updateAvailable: true,
+    notes: null,
+    checkedAt: 1,
+    phase: "idle" as const,
+    revision: 1,
+    currentUnsupported: true,
+    downgradeTarget: "0.8.1",
+    sandboxIdleRegressed: true,
+    sandboxDowngradeTarget: "0.6.9",
+  };
+  const codex = {
+    current: "0.160.1",
+    latest: "0.162.1",
+    updateAvailable: true,
+    notes: null,
+    checkedAt: 1,
+  };
+  const saved = { herdr: s.deps.herdrUpdates, codex: s.deps.codexUpdates };
+  let started = true;
+  const calls: string[] = [];
+  s.deps.herdrUpdates = {
+    current: () => herdr,
+    status: async () => herdr,
+    apply: () => {
+      calls.push("herdr");
+      return { started };
+    },
+    downgrade: (target) => {
+      calls.push(target ?? "supported");
+      return { started };
+    },
+    restartServer: async (runtime) => {
+      expect(runtime).toEqual({ installedVersion: "0.9.3", serverVersion: "0.8.2" });
+      calls.push("restart");
+      return started ? { started } : { started, error: "runtime_changed" };
+    },
+  };
+  s.deps.codexUpdates = {
+    current: () => codex,
+    apply: () => {
+      calls.push("codex");
+      return { started };
+    },
+    releaseNotes: async () => ({
+      current: codex.current,
+      latest: codex.latest,
+      notes: [{ version: "0.162.1", body: "fixture notes" }],
+      complete: false,
+    }),
+  };
+  const actions = [
+    "/api/herdr-update",
+    "/api/herdr-update/downgrade",
+    "/api/herdr-update/downgrade/sandbox",
+    "/api/herdr-update/restart",
+    "/api/codex-update",
+  ];
+  const restart = { confirmed: true, installedVersion: "0.9.3", serverVersion: "0.8.2" };
+  const body = (path: string) => (path.endsWith("/restart") ? restart : undefined);
+  try {
+    await request("GET", "/api/herdr-update", 200);
+    await request("GET", "/api/codex-update", 200);
+    await request("GET", "/api/codex-update/notes", 200);
+    await request("POST", "/api/herdr-update/restart", 400, {});
+    for (const path of actions) await request("POST", path, 202, body(path));
+    expect(calls).toEqual(["herdr", "supported", "0.6.9", "restart", "codex"]);
+    started = false;
+    for (const path of actions) await request("POST", path, 409, body(path));
+    herdr.updateAvailable = false;
+    codex.updateAvailable = false;
+    await request("POST", "/api/herdr-update", 409);
+    await request("POST", "/api/codex-update", 409);
+    herdr.currentUnsupported = false;
+    herdr.sandboxIdleRegressed = false;
+    await request("POST", "/api/herdr-update/downgrade", 409);
+    await request("POST", "/api/herdr-update/downgrade/sandbox", 409);
+    const readToken = (await request(
+      "POST",
+      "/api/access-tokens",
+      201,
+      { name: "runner-read", scope: "read", expiresInDays: 30 },
+      undefined,
+      { cookie },
+    )) as { token: string };
+    const denied = [
+      ...actions.map((path) => ["POST", path]),
+      ...["/api/herdr-update", "/api/codex-update", "/api/codex-update/notes"].map((path) => [
+        "GET",
+        path,
+      ]),
+    ];
+    for (const [method, path] of denied)
+      await request(
+        method!,
+        path!,
+        403,
+        method === "POST" ? body(path!) : undefined,
+        undefined,
+        bearer(readToken.token),
+      );
+    const payloads = {
+      "herdr-update:status": herdr,
+      "codex-update:status": codex,
+      "herdr-update:log": { line: "herdr fixture" },
+      "codex-update:log": { line: "codex fixture" },
+      "herdr-update:done": {
+        ok: false,
+        from: "0.8.2",
+        to: "0.9.3",
+        errorCode: "restart_required",
+        error: "restart required",
+      },
+      "codex-update:done": {
+        ok: false,
+        from: "0.160.1",
+        to: "0.160.1",
+        onPathBinary: "/fixture/codex",
+        error: "no progress",
+      },
+    };
+    const frames = await collectEvents(s, token, async () => {
+      for (const [event, data] of Object.entries(payloads)) s.deps.events.emit(event, data);
+    });
+    for (const event of Object.keys(payloads)) {
+      const frame = frames.find((frame) => frame.event === event);
+      expect(frame).toBeDefined();
+      validateEvent(event, frame!.data);
+    }
+    s.deps.herdrUpdates = undefined;
+    s.deps.codexUpdates = undefined;
+    for (const path of actions) await request("POST", path, 503, body(path));
+    for (const path of ["/api/herdr-update", "/api/codex-update", "/api/codex-update/notes"])
+      await request("GET", path, 200);
+  } finally {
+    s.deps.herdrUpdates = saved.herdr;
+    s.deps.codexUpdates = saved.codex;
+  }
+});
+
 test("settings owns a full unauthenticated sweep and its exception coverage", async () => {
   for (const op of OPS.filter((o) => o.endsWith(" 401"))) {
     const [method, path] = op.split(" ") as [string, string];
     await request(method, path, 401, method === "GET" ? undefined : {}, undefined, {});
   }
   expect(OPS.length).toBeGreaterThan(35);
-  expect(EVENTS).toEqual(["diagnostics:status"]);
+  expect(EVENTS).toContain("diagnostics:status");
+  expect(EVENTS.filter((event) => event.includes("-update:"))).toHaveLength(6);
   const seen = coverage();
   expect(OPS.filter((o) => !seen.operations.has(o))).toEqual([]);
   expect(EVENTS.filter((e) => !seen.events.has(e))).toEqual([]);

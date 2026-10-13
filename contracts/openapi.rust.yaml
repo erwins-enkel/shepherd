@@ -7029,6 +7029,228 @@ components:
           type: string
           nullable: true
           description: The push service's reason (BadDeviceToken, …) or not_configured.
+    HerdrRuntimeStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+        - installedVersion
+        - serverVersion
+      properties:
+        state:
+          type: string
+        installedVersion:
+          type: string
+          nullable: true
+        serverVersion:
+          type: string
+          nullable: true
+        reason:
+          type: string
+    HerdrUpdateResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - from
+        - to
+      properties:
+        ok:
+          type: boolean
+        from:
+          type: string
+          nullable: true
+        to:
+          type: string
+          nullable: true
+        error:
+          type: string
+        serverVersion:
+          type: string
+          nullable: true
+        errorCode:
+          type: string
+        handoffPaneLimit:
+          type: integer
+    HerdrUpdateStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - current
+        - latest
+        - updateAvailable
+        - notes
+        - checkedAt
+      properties:
+        current:
+          type: string
+          nullable: true
+        latest:
+          type: string
+          nullable: true
+        updateAvailable:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+        checkedAt:
+          type: integer
+        error:
+          type: string
+        runtime:
+          $ref: "#/components/schemas/HerdrRuntimeStatus"
+        phase:
+          type: string
+        operation:
+          type: object
+          additionalProperties: true
+          required:
+            - from
+            - to
+          properties:
+            from:
+              type: string
+              nullable: true
+            to:
+              type: string
+              nullable: true
+        result:
+          allOf:
+            - $ref: "#/components/schemas/HerdrUpdateResult"
+          nullable: true
+        revision:
+          type: integer
+        latestUnsupported:
+          type: boolean
+        currentUnsupported:
+          type: boolean
+        downgradeTarget:
+          type: string
+          nullable: true
+        sandboxIdleRegressed:
+          type: boolean
+        sandboxDowngradeTarget:
+          type: string
+          nullable: true
+    CodexUpdateStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - current
+        - latest
+        - updateAvailable
+        - notes
+        - checkedAt
+      properties:
+        current:
+          type: string
+          nullable: true
+        latest:
+          type: string
+          nullable: true
+        updateAvailable:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+        checkedAt:
+          type: integer
+        error:
+          type: string
+    CodexUpdateResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - from
+        - to
+      properties:
+        ok:
+          type: boolean
+        from:
+          type: string
+          nullable: true
+        to:
+          type: string
+          nullable: true
+        error:
+          type: string
+        onPathBinary:
+          type: string
+          nullable: true
+    CodexReleaseNotesResult:
+      type: object
+      additionalProperties: true
+      required:
+        - current
+        - latest
+        - notes
+        - complete
+      properties:
+        current:
+          type: string
+          nullable: true
+        latest:
+          type: string
+          nullable: true
+        notes:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required:
+              - version
+              - body
+            properties:
+              version:
+                type: string
+              body:
+                type: string
+        complete:
+          type: boolean
+    RunnerUpdateLog:
+      type: object
+      additionalProperties: true
+      required:
+        - line
+      properties:
+        line:
+          type: string
+    RunnerUpdateConflict:
+      type: object
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+        code:
+          type: string
+    RunnerUpdateAccepted:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+    HerdrRestartRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - confirmed
+        - installedVersion
+        - serverVersion
+      properties:
+        confirmed:
+          type: boolean
+          enum:
+            - true
+        installedVersion:
+          type: string
+        serverVersion:
+          type: string
+          nullable: true
     CreateSessionSuccess:
       description: "Rust-only: every success body createSession can answer (statuses 200, 201)."
       oneOf:
@@ -7094,6 +7316,31 @@ components:
       description: "Rust-only: every error body putApnsConfig can answer (statuses 400, 401, 403, 409, 422, 503)."
       oneOf:
         - $ref: "#/components/schemas/ApnsConfigError"
+        - $ref: "#/components/schemas/Error"
+    ApplyHerdrUpdateError:
+      description: "Rust-only: every error body applyHerdrUpdate can answer (statuses 401, 403, 409, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/RunnerUpdateConflict"
+        - $ref: "#/components/schemas/Error"
+    RestartHerdrServerError:
+      description: "Rust-only: every error body restartHerdrServer can answer (statuses 400, 401, 403, 409, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/RunnerUpdateConflict"
+        - $ref: "#/components/schemas/Error"
+    ApplyHerdrDowngradeError:
+      description: "Rust-only: every error body applyHerdrDowngrade can answer (statuses 401, 403, 409, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/RunnerUpdateConflict"
+        - $ref: "#/components/schemas/Error"
+    ApplyHerdrSandboxDowngradeError:
+      description: "Rust-only: every error body applyHerdrSandboxDowngrade can answer (statuses 401, 403, 409, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/RunnerUpdateConflict"
+        - $ref: "#/components/schemas/Error"
+    ApplyCodexUpdateError:
+      description: "Rust-only: every error body applyCodexUpdate can answer (statuses 401, 403, 409, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/RunnerUpdateConflict"
         - $ref: "#/components/schemas/Error"
   responses:
     Unauthorized:
@@ -11475,6 +11722,240 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/herdr-update:
+    get:
+      operationId: getHerdrUpdate
+      responses:
+        "200":
+          description: HerdrUpdateStatus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HerdrUpdateStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Token scope denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: applyHerdrUpdate
+      responses:
+        "202":
+          description: RunnerUpdateAccepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerUpdateAccepted"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrUpdateError"
+        "403":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrUpdateError"
+        "409":
+          description: RunnerUpdateConflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrUpdateError"
+        "503":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrUpdateError"
+  /api/herdr-update/restart:
+    post:
+      operationId: restartHerdrServer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HerdrRestartRequest"
+      responses:
+        "202":
+          description: RunnerUpdateAccepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerUpdateAccepted"
+        "400":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestartHerdrServerError"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestartHerdrServerError"
+        "403":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestartHerdrServerError"
+        "409":
+          description: RunnerUpdateConflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestartHerdrServerError"
+        "503":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestartHerdrServerError"
+  /api/herdr-update/downgrade:
+    post:
+      operationId: applyHerdrDowngrade
+      responses:
+        "202":
+          description: RunnerUpdateAccepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerUpdateAccepted"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrDowngradeError"
+        "403":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrDowngradeError"
+        "409":
+          description: RunnerUpdateConflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrDowngradeError"
+        "503":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrDowngradeError"
+  /api/herdr-update/downgrade/sandbox:
+    post:
+      operationId: applyHerdrSandboxDowngrade
+      responses:
+        "202":
+          description: RunnerUpdateAccepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerUpdateAccepted"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrSandboxDowngradeError"
+        "403":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrSandboxDowngradeError"
+        "409":
+          description: RunnerUpdateConflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrSandboxDowngradeError"
+        "503":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyHerdrSandboxDowngradeError"
+  /api/codex-update:
+    get:
+      operationId: getCodexUpdate
+      responses:
+        "200":
+          description: CodexUpdateStatus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexUpdateStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Token scope denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: applyCodexUpdate
+      responses:
+        "202":
+          description: RunnerUpdateAccepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerUpdateAccepted"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyCodexUpdateError"
+        "403":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyCodexUpdateError"
+        "409":
+          description: RunnerUpdateConflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyCodexUpdateError"
+        "503":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyCodexUpdateError"
+  /api/codex-update/notes:
+    get:
+      operationId: getCodexReleaseNotes
+      responses:
+        "200":
+          description: CodexReleaseNotesResult
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexReleaseNotesResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Token scope denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -11673,6 +12154,24 @@ x-shepherd-events:
   diagnostics:status:
     schema:
       $ref: "#/components/schemas/DiagnosticsSnapshot"
+  herdr-update:status:
+    schema:
+      $ref: "#/components/schemas/HerdrUpdateStatus"
+  herdr-update:log:
+    schema:
+      $ref: "#/components/schemas/RunnerUpdateLog"
+  herdr-update:done:
+    schema:
+      $ref: "#/components/schemas/HerdrUpdateResult"
+  codex-update:status:
+    schema:
+      $ref: "#/components/schemas/CodexUpdateStatus"
+  codex-update:log:
+    schema:
+      $ref: "#/components/schemas/RunnerUpdateLog"
+  codex-update:done:
+    schema:
+      $ref: "#/components/schemas/CodexUpdateResult"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. closeCodes.machineUnreachable means the session runs on a connected machine this server cannot reach right now; clients do not retry until that session's connection reports connected again. Any other close is transient; clients retry with backoff. resume=1 marks a client returning from a stream it paused itself; it attaches only when no other client owns the terminal, and is otherwise refused at once with closeCodes.superseded (park, do not reconnect) instead of taking the terminal over.
   path: /pty/{id}

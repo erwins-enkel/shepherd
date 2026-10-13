@@ -104,6 +104,7 @@ function startNode(dir: string): Node {
   remoteInstances.onChange((id) => remoteSessions.sync(id));
   const forge = { slug: "acme/app", isFork: false } as unknown as GitForge;
   const deps = {
+    hostPlatform: "linux",
     store,
     events,
     service,

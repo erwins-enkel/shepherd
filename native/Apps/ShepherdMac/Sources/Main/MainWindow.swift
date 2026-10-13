@@ -55,6 +55,11 @@ struct MainWindow: View {
         }
         .navigationTitle(model.activeProfile?.name ?? "Shepherd")
         .toolbar { toolbarContent }
+        .task(id: model.activationGeneration) {
+            if let settings = model.extension(SettingsModel.self), let store = model.store {
+                settings.installRunnerUpdates(store: store, app: model)
+            }
+        }
         .toolbarBackground(ShepherdPalette.panel, for: .windowToolbar)
         .toolbarBackground(.visible, for: .windowToolbar)
         .sheet(isPresented: $confirmingArchive) {
@@ -147,6 +152,11 @@ struct MainWindow: View {
                 // The retry task belongs to the model, not to this view: a
                 // profile switch or a teardown has to be able to cancel it.
                 LocalConnectionBanner(kind: kind)
+            }
+            if let updates = model.extension(SettingsModel.self)?.runnerUpdates {
+                RunnerUpdatesIndicator(model: updates, serverName: model.activeProfile?.name ?? "",
+                    sessions: RunnerUpdatesView.runningSessions(model.store?.sessions ?? []))
+                    .id(model.activationGeneration)
             }
             if let message = command.message {
                 NoticeBar(message: message) { command.clear() }

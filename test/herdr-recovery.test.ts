@@ -87,7 +87,7 @@ exit 19
     PATH: `${binDir}:/usr/bin:/bin`,
     HERDR_SESSION: "herd with spaces",
     HERDR_SOCKET_PATH: join(dir, "socket path"),
-    SHEPHERD_HERDR_RECOVERY_TIMEOUT_MS: String(options.timeoutMs ?? 180),
+    SHEPHERD_HERDR_RECOVERY_TIMEOUT_MS: String(options.timeoutMs ?? 1_000),
     SHEPHERD_HERDR_RECOVERY_POLL_MS: "10",
   };
   return { dir, bin, state, calls, stopped, stopping, started, logPath, env, binDir };
@@ -170,7 +170,7 @@ test("a changed runtime snapshot is rejected immediately before mutation", async
 });
 
 test("a start that never becomes healthy is bounded and rejected", async () => {
-  const f = fixture({ startWorks: false });
+  const f = fixture({ startWorks: false, timeoutMs: 180 });
   writeFileSync(f.state, "offline");
   const started = Date.now();
   await expect(

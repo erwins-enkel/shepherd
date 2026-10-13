@@ -6367,5 +6367,7 @@
   "settings_machines_mirrors_back": "Sieht auch deine",
   "settings_machines_mirrors_back_not": "Sieht deine nicht",
   "feat_machines_both_directions_title": "Wer sieht wessen Sessions",
-  "feat_machines_both_directions_body": "Einstellungen → Rechner zeigt jetzt beide Richtungen: die Rechner, deren Sessions du siehst, und die Shepherds, die deine sehen. Läuft eine Verbindung nur in eine Richtung, sagt die Seite das und bietet an, den anderen Shepherd auch hier zu verbinden."
+  "feat_machines_both_directions_body": "Einstellungen → Rechner zeigt jetzt beide Richtungen: die Rechner, deren Sessions du siehst, und die Shepherds, die deine sehen. Läuft eine Verbindung nur in eine Richtung, sagt die Seite das und bietet an, den anderen Shepherd auch hier zu verbinden.",
+  "feat_herdr_094_title": "herdr 0.9.4 wird unterstützt",
+  "feat_herdr_094_body": "Du kannst herdr in Shepherd jetzt bis Version 0.9.4 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.9.3 und 0.9.4 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin."
 }

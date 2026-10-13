@@ -50,6 +50,7 @@ import type {
   AccessToken,
   InstanceIdentity,
   RemoteInstance,
+  MachineUpdate,
   ClearMergedPreview,
   ClearMergedResult,
   ApnsStatus,
@@ -394,6 +395,9 @@ export const demoState = {
   /** GET /api/remote-instances — the demo connects no machines. `{ instances: [] }`, never `{}`:
    *  SettingsMachinesPanel reads `instances`. */
   remoteInstances: (): { instances: RemoteInstance[] } => ({ instances: [] }),
+
+  /** GET /api/remote-instances/updates — no machines, so none to update. `{ machines: [] }`. */
+  machineUpdates: (): { machines: MachineUpdate[] } => ({ machines: [] }),
 
   /** GET /api/push/apns/config — the demo server has no APNs key, so iOS push reads as not set
    *  up; the key itself is never part of this shape anyway. */

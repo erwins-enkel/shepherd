@@ -165,6 +165,7 @@ import {
   placementOf,
 } from "./remote-instances/dispatch";
 import { isRecord } from "./remote-instances/client";
+import { IncomingMirrors, type MirrorClaim, parseMirrorClaim } from "./remote-instances/incoming";
 import {
   clearMergedAcross,
   clearMergedSummaryAcross,
@@ -463,6 +464,9 @@ export interface AppDeps {
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
   remoteInstances?: RemoteInstanceService;
+  /** The Shepherds mirroring this one right now (#3056), one entry per open `?host=local` socket.
+   *  Same memo-slot contract: `incomingMirrors(deps)` builds it on first use. */
+  incomingMirrors?: IncomingMirrors;
   /** Sessions mirrored from connected machines (#2762) — read-only references held apart from
    *  `store` — their terminals, bridged to the machine at `/pty/:id` (#2764), and the routes their
    *  forwarded actions take (#2765). Absent ⇒ `GET /api/sessions`, `/events`, `/pty/:id` and the
@@ -976,6 +980,9 @@ function accessTokens(deps: AppDeps): AccessTokenService {
 }
 function remoteInstances(deps: AppDeps): RemoteInstanceService {
   return (deps.remoteInstances ??= new RemoteInstanceService({ store: deps.store }));
+}
+function incomingMirrors(deps: AppDeps): IncomingMirrors {
+  return (deps.incomingMirrors ??= new IncomingMirrors());
 }
 type RemoteDispatchPort = Pick<
   RemoteDispatcher,
@@ -1582,7 +1589,7 @@ async function handleRemoteInstances({ req, parts, deps }: Ctx): Promise<Respons
   const id = parts[2] ?? "";
   switch (route) {
     case "list":
-      return json({ instances: svc.list() });
+      return json({ instances: svc.list(), incoming: incomingMirrorList(deps, svc) });
     case "connect":
       return connectRemoteInstance(req, svc);
     case "patch":
@@ -1642,6 +1649,20 @@ async function relayMachineUpdate(
   return isRecord(res.body) && MACHINE_UPDATE_STATUSES.has(res.status)
     ? json(res.body, res.status)
     : json({ error: "remote_unreachable", reason: "bad_response" }, 502);
+}
+
+/** Who mirrors this Shepherd (#3056). "Both directions" rests on this Shepherd's own probe of the
+ *  claimed ID, never on the claim; the token is named by the name its owner gave it here. */
+function incomingMirrorList(deps: AppDeps, svc: RemoteInstanceService) {
+  const tokenNames = new Map(
+    accessTokens(deps)
+      .list()
+      .map((t) => [t.id, t.name]),
+  );
+  return incomingMirrors(deps).list({
+    confirmed: (instanceId) => svc.get(instanceId)?.status === "connected",
+    tokenName: (tokenId) => tokenNames.get(tokenId) ?? null,
+  });
 }
 
 function handleGitSnapshot({ req, parts, deps, token }: Ctx): Response | null {
@@ -4179,8 +4200,11 @@ function reachesMachines(url: URL, token: VerifiedToken | null | undefined): boo
   return url.searchParams.get("host") !== "local" && (!token || token.repoPaths === null);
 }
 
-/** `GET /api/sessions`: the active local sessions the caller may see, then mirrored ones. */
-async function sessionListRead({ url, deps, token }: Ctx): Promise<Response> {
+/** `GET /api/sessions`: the active local sessions the caller may see, then mirrored ones. A
+ *  mirroring Shepherd's snapshot (`?host=local`) also refreshes the name it is listed under (#3056). */
+async function sessionListRead({ req, url, deps, token }: Ctx): Promise<Response> {
+  if (url.searchParams.get("host") === "local")
+    incomingMirrors(deps).refresh(token?.id ?? null, parseMirrorClaim(req.headers));
   const local = await withScratchpadFlags(
     deps.store
       .list({ activeOnly: true })
@@ -11049,6 +11073,8 @@ type WsData = (
       /** Opened with `?host=local` by another Shepherd that mirrors this one (#2762): it gets this
        *  instance's own frames only, and it is not a dashboard (no presence). */
       localOnly: boolean;
+      /** What that Shepherd says about itself (#3056) — unverified, listed while the socket is open. */
+      peer?: MirrorClaim;
       unsub?: () => void;
       unsubRemote?: () => void;
     }
@@ -11408,10 +11434,12 @@ export function serve(deps: AppDeps, port: number) {
     if (refused) return refused;
     if (pty) return upgradePty(req, url, server, tokenId, pty[1]!);
     if (view) return upgradeBrowserView(req, server, tokenId, view[1]!);
+    const localOnly = url.searchParams.get("host") === "local";
     return upgradeWith(req, server, {
       kind: "events",
       tokenId,
-      localOnly: url.searchParams.get("host") === "local",
+      localOnly,
+      peer: localOnly ? parseMirrorClaim(req.headers) : undefined,
     });
   }
   // Browser View (#2881): one CdpPipe client per operator socket, attached to the repo's browser.
@@ -11637,6 +11665,13 @@ export function serve(deps: AppDeps, port: number) {
             // A live /events socket = a dashboard is open (regardless of focus), so
             // background pollers should run warm. `close` drops it again.
             deps.presence?.connect(ws);
+          } else if (ws.data.peer) {
+            // Another Shepherd mirroring this one: listed while this socket is open (#3056).
+            incomingMirrors(deps).open(ws, {
+              ...ws.data.peer,
+              tokenId: ws.data.tokenId ?? null,
+              since: Date.now(),
+            });
           }
         } else if (ws.data.kind === "browser-view") {
           openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
@@ -11672,6 +11707,7 @@ export function serve(deps: AppDeps, port: number) {
           ws.data.unsub?.();
           ws.data.unsubRemote?.();
           deps.presence?.drop(ws);
+          incomingMirrors(deps).close(ws);
         } else if (ws.data.kind === "browser-view") {
           // only drop ownership if still the owner (a newer view may have taken over)
           if (browserViewOwners.get(ws.data.id) === ws) browserViewOwners.delete(ws.data.id);

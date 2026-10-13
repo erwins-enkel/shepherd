@@ -7,6 +7,7 @@ import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeApp, serve, type AppDeps } from "../src/server";
 import { config } from "../src/config";
+import { SESSION_COOKIE, signCookie } from "../src/operator-auth";
 import { AccessTokenService } from "../src/access-tokens";
 import { RemoteInstanceService } from "../src/remote-instances/service";
 import { RemoteSessionMirror } from "../src/remote-instances/sessions";
@@ -326,5 +327,35 @@ describe("mirrored sessions", () => {
           ?.state === "connected",
     );
     expect(back.find((s) => s.id === remote.id)!.status).toBe("idle");
+  });
+
+  test("an older mirror without identity headers is listed under its token's name (#3056)", async () => {
+    const a = startNode();
+    const b = startNode();
+    // `startNode` builds its mirror without `self`: it sends no ID or name, as a release before
+    // #3056 does.
+    await dashboard(b);
+    const bId = await connect(a, b);
+    const incoming = async () => {
+      const res = await fetch(`${b.base}/api/remote-instances`, {
+        headers: { cookie: `${SESSION_COOKIE}=${signCookie("mirror-test-secret")}` },
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { incoming: Record<string, unknown>[] }).incoming;
+    };
+    // Only A's mirror socket is listed; B's own dashboard is no mirror.
+    const listed = await until(incoming, (l) => l.length > 0);
+    expect(listed).toEqual([
+      {
+        instanceId: null,
+        name: null,
+        tokenName: "machine",
+        since: expect.any(Number),
+        direction: "unknown",
+      },
+    ]);
+    // Removing B on A closes the socket, and with it the entry.
+    a.deps.remoteInstances.remove(bId);
+    await until(incoming, (l) => l.length === 0);
   });
 });

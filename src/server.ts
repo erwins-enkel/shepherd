@@ -1483,6 +1483,8 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
 function instanceBody(deps: AppDeps) {
   return {
     ...instanceIdentity(deps.store, hostPlatform(deps)),
+    // Push registrations here take coveredInstances/relayRemote (#3058).
+    pushRelay: true,
     capabilities: capabilities(deps).report(),
   };
 }

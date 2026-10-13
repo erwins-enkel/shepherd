@@ -153,11 +153,13 @@ describe("instance", () => {
       return (await validateResponse("GET", "/api/instance", res)) as {
         instanceId: string;
         federationApi: number;
+        pushRelay: boolean;
       };
     };
     const first = await read();
     expect(first.instanceId).toMatch(/^[0-9a-f-]{36}$/);
     expect(first.federationApi).toBe(FEDERATION_API_VERSION);
+    expect(first.pushRelay).toBe(true);
     expect((await read()).instanceId).toBe(first.instanceId);
   });
 

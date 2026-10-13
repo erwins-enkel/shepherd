@@ -338,7 +338,7 @@ checks the requirements again when it accepts the task.
 
 A task Shepherd keeps for the [machine](#machine) it is meant for while that
 machine is asleep, out of reach or missing a [requirement](#requirement). It shows
-at the top of that machine's group in the herd — **Waiting** while the machine is
+at the top of the herd, labelled with its machine — **Waiting** while the machine is
 away, **Blocked** while it is back but lacks a requirement or the project's
 checkout — and nothing is sent until the machine is back and a fresh check of its
 capabilities and project passes; then it starts there by itself, attachments

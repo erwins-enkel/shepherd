@@ -108,8 +108,8 @@ public struct HerdMachineGroup: Identifiable, Equatable {
     }
 
     /// One group per machine, in the order the machines' sessions first appear; a machine with
-    /// only tasks that are not settled follows them — the web's `machineGroups`. A session that is
-    /// not mirrored is skipped.
+    /// only tasks that are not settled follows them — the web's machine groups before #3055. A
+    /// session that is not mirrored is skipped.
     public static func groups(_ remote: [Session], dispatches: [RemoteDispatch] = []) -> [HerdMachineGroup] {
         var order: [String] = []
         var byMachine: [String: (host: SessionHost, connection: SessionConnection?, sessions: [Session],

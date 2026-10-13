@@ -15,9 +15,10 @@ moves to another machine.
 - **A machine is another Shepherd.** You connect it with its address and an access token created
   on it. Each side connects the other on its own; connecting in both directions is fine.
 - **Sessions stay where they run.** A machine keeps running its own sessions, including those
-  started there directly or by its own automation. Your Shepherd mirrors them into its herd, grouped
-  under the machine (`MacBook · TASK-07`), and never treats them as its own: no poller, autopilot,
-  drain or reaper on your side touches them. A mirrored session is never passed on, so two machines
+  started there directly or by its own automation. Your Shepherd mirrors them into its herd, among
+  its own sessions in the lifecycle group their state belongs to, labelled with the machine
+  (`MacBook · TASK-07`), and never treats them as its own: no poller, autopilot, merge train, drain
+  or reaper on your side touches them. A mirrored session is never passed on, so two machines
   connected to each other neither loop nor show a session twice.
 - **Actions go to the machine.** The terminal, steering, stopping, archiving, the diff, the files
   and the preview are sent to the machine and run there. While the machine can't be reached,
@@ -127,9 +128,8 @@ you pick must have what the task needs, or nothing starts and the dialog says wh
 - Attachments are uploaded to the machine right before the task is sent. If one can't be sent, the
   task doesn't start.
 - A refusal on the machine is shown with its reason. A task the machine holds (its usage limit
-  or capacity) shows as **Busy** in that machine's group until it starts there.
-- If no answer comes back, the task shows as **Start status unknown** in that machine's group of
-  the herd. Shepherd asks the machine as soon as it can be reached, also after a restart of your
+  or capacity) shows as **Busy** at the top of the herd until it starts there.
+- If no answer comes back, the task shows as **Start status unknown** at the top of the herd. Shepherd asks the machine as soon as it can be reached, also after a restart of your
   Shepherd, and then about once a minute. It then shows the session, or sends the same task again
   if it never arrived. It never starts twice and never goes elsewhere. Until the machine confirms
   it, you can cancel it.
@@ -198,8 +198,8 @@ then Linux**.
 
 ## Waiting tasks
 
-A task that cannot start on its machine right now stays visible at the top of that machine's group
-in the herd, in one of four states. Hover the state for what it means and what happens next.
+A task that cannot start on its machine right now stays visible at the top of the herd, labelled
+with its machine, in one of four states. Hover the state for what it means and what happens next.
 
 | State                    | Meaning                                                                                                                                            | What happens                                                                                                                                  |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -249,13 +249,20 @@ unknown start or a refusal. None of them falls back to another machine.
 
 ## Work with its sessions
 
+A mirrored session sits in the herd's lifecycle groups among your own, by the PR state its
+machine reports: one that waits on you is under **Your turn**, with a label in its machine's
+color. The machine bar under the lenses narrows the herd to one machine; it lists every connected
+machine with its session count, one with none too, and marks one that can't be reached as
+**disconnected**. The jump to the next waiting session includes blocked sessions on connected
+machines.
+
 Select a mirrored session in the herd. From the coordinator you can use its terminal, steer, stop
 and archive it, read its activity, diff and files, answer its plan, and start or open its preview,
 which opens from the machine's own tailnet address. Merging, relaunching and the remaining actions
 are not offered for it yet: open the Shepherd on that machine for those.
 
 When the machine drops off, for example asleep or offline, its sessions stay in the herd with their
-last known state, marked **disconnected**. Nothing is sent while it is gone, and the terminal says
+last known state, dimmed and marked **disconnected**. Nothing is sent while it is gone, and the terminal says
 so. Once the machine answers again, the same sessions come back live.
 
 A client only needs to connect to the coordinator. If a client connects to several Shepherds, as

@@ -6347,12 +6347,12 @@
   "feat_machine_updates_title": "Update every machine from one window",
   "feat_machine_updates_body": "The update badge now also lights up when a connected machine is behind. The update window lists each machine with the update it needs: update one, or all at once — this machine goes last, because it restarts Shepherd.",
   "settings_machines_incoming_title": "They see your sessions",
-  "settings_machines_incoming_hint": "Shepherds that connected this one as a machine and mirror it right now.",
-  "settings_machines_incoming_empty": "No other Shepherd mirrors this one right now.",
+  "settings_machines_incoming_hint": "Shepherds that connected this one as a machine and are directly connected to it right now.",
+  "settings_machines_incoming_empty": "No other Shepherd is connected to this one right now.",
   "settings_machines_direction_both": "Both directions",
   "settings_machines_direction_one": "One direction only",
   "settings_machines_direction_unknown": "Direction unknown",
-  "settings_machines_incoming_since": "Mirroring since {at}",
+  "settings_machines_incoming_since": "Connected since {at}",
   "settings_machines_incoming_token": "token “{name}”",
   "settings_machines_incoming_token_unnamed": "no named access token",
   "settings_machines_incoming_unnamed": "Unnamed Shepherd",
@@ -6366,6 +6366,6 @@
   "settings_machines_takes_tasks": "Takes tasks",
   "settings_machines_mirrors_back": "Sees yours too",
   "settings_machines_mirrors_back_not": "Doesn't see yours",
-  "feat_machines_both_directions_title": "See who mirrors whom",
+  "feat_machines_both_directions_title": "See who sees whose sessions",
   "feat_machines_both_directions_body": "Settings → Machines now shows both directions: the machines whose sessions you see, and the Shepherds that see yours. When a link runs one way only, the page says so and offers to connect the other Shepherd here too."
 }

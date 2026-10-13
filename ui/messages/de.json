@@ -6347,12 +6347,12 @@
   "feat_machine_updates_title": "Alle Rechner aus einem Fenster aktualisieren",
   "feat_machine_updates_body": "Das Update-Abzeichen leuchtet jetzt auch, wenn ein verbundener Rechner veraltet ist. Das Update-Fenster listet jeden Rechner mit seinem fälligen Update: einzeln aktualisieren oder alle auf einmal – dieser Rechner kommt zuletzt, weil er Shepherd neu startet.",
   "settings_machines_incoming_title": "Sie sehen deine Sessions",
-  "settings_machines_incoming_hint": "Shepherds, die diesen hier als Rechner verbunden haben und ihn gerade spiegeln.",
-  "settings_machines_incoming_empty": "Gerade spiegelt kein anderer Shepherd diesen hier.",
+  "settings_machines_incoming_hint": "Shepherds, die diesen hier als Rechner verbunden haben und gerade direkt mit ihm verbunden sind.",
+  "settings_machines_incoming_empty": "Gerade ist kein anderer Shepherd mit diesem hier verbunden.",
   "settings_machines_direction_both": "Beide Richtungen",
   "settings_machines_direction_one": "Nur eine Richtung",
   "settings_machines_direction_unknown": "Richtung unbekannt",
-  "settings_machines_incoming_since": "Spiegelt seit {at}",
+  "settings_machines_incoming_since": "Verbunden seit {at}",
   "settings_machines_incoming_token": "Token „{name}“",
   "settings_machines_incoming_token_unnamed": "ohne benanntes Zugriffstoken",
   "settings_machines_incoming_unnamed": "Unbenannter Shepherd",
@@ -6366,6 +6366,6 @@
   "settings_machines_takes_tasks": "Nimmt Aufgaben an",
   "settings_machines_mirrors_back": "Sieht auch deine",
   "settings_machines_mirrors_back_not": "Sieht deine nicht",
-  "feat_machines_both_directions_title": "Sehen, wer wen spiegelt",
+  "feat_machines_both_directions_title": "Wer sieht wessen Sessions",
   "feat_machines_both_directions_body": "Einstellungen → Rechner zeigt jetzt beide Richtungen: die Rechner, deren Sessions du siehst, und die Shepherds, die deine sehen. Läuft eine Verbindung nur in eine Richtung, sagt die Seite das und bietet an, den anderen Shepherd auch hier zu verbinden."
 }

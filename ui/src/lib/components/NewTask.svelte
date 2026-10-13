@@ -15,6 +15,7 @@
     shapeTask as apiShapeTask,
     composeTaskBrief,
     cancelSpawn,
+    getIssue,
     ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -44,6 +45,7 @@
     commandProviders,
   } from "#lib/slash.js";
   import { matchIssueTrigger } from "#lib/issue-trigger.js";
+  import { matchRepoForLinks } from "#lib/github-link.js";
   import { isFableModel } from "#lib/provider-models.js";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
@@ -1249,7 +1251,28 @@
   // Cmd/Ctrl+V of a screenshot: upload any image on the clipboard.
   function onPaste(e: ClipboardEvent) {
     if (suspended) return;
-    handleImagePaste(e, addFiles);
+    if (handleImagePaste(e, addFiles)) return;
+    selectRepoFromLink(e.clipboardData?.getData("text/plain") ?? "");
+  }
+
+  // A pasted GitHub link names the repo the task is about: select it, and attach an
+  // `/issues/<n>` link's issue. The link itself stays in the prompt as pasted.
+  function selectRepoFromLink(text: string) {
+    const hit = matchRepoForLinks(repos, text);
+    if (!hit) return;
+    const path = hit.repo.path;
+    if (path !== repoPath) {
+      repoPath = path;
+      toasts.info(m.newtask_repo_from_link({ name: hit.repo.name }));
+    }
+    // A fork's issues live upstream, so only an upstream link names one of them.
+    const issueNumber = hit.issue;
+    if (issueNumber === null || relaunch || (hit.repo.isFork && !hit.viaUpstream)) return;
+    getIssue(path, issueNumber)
+      .then((issue) => {
+        if (issue && repoPath === path) pickIssue(issue);
+      })
+      .catch(() => {});
   }
 
   function removeUpload(path: string) {

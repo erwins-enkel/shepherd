@@ -699,21 +699,22 @@ describe("GET /api/epics", () => {
       resolveForge: () =>
         ({
           kind: "github",
+          slug: "acme/repo",
           listIssues: async () => {
             order.push("list");
             return [];
           },
         }) as any,
       fingerprint: {
-        ensureFresh: async () => {
-          order.push("fresh");
+        ensureFresh: async (slug) => {
+          order.push(`fresh:${slug}`);
         },
         coversRepo: () => true,
       },
     });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
-    expect(order).toEqual(["fresh", "list"]);
+    expect(order).toEqual(["fresh:acme/repo", "list"]);
   });
 
   test("stored epic_run surfaces even with no forge issues match", async () => {

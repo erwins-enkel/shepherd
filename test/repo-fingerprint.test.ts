@@ -7,6 +7,7 @@ import {
 } from "../src/repo-fingerprint";
 import type { FingerprintResult, RepoFingerprint } from "../src/forge/github-fingerprint";
 import type { RateLimitSnapshot } from "../src/forge/rate-limit";
+import { issuesKey } from "../src/github-read-cache";
 
 const BASE: RepoFingerprint = {
   openIssues: 3,
@@ -191,7 +192,7 @@ test("below the reserve the background tick makes no call, coverage holds, ensur
     await h.svc.tick();
     expect(h.fetches).toHaveLength(1);
     expect(h.svc.covered("acme/web")).toBe(true); // paused → serve the cache, don't re-list
-    await h.svc.ensureFresh();
+    await h.svc.ensureFresh("acme/web");
     expect(h.fetches).toHaveLength(2);
     // Past resetAt the stale low reading no longer pauses the background refresh.
     h.advance(30 * 60_000);
@@ -232,7 +233,7 @@ test("while the GraphQL backoff is engaged neither the tick nor a demand calls G
   try {
     h.setRate({ blocked: true, pausedUntil: h.now() + 60_000 });
     await h.svc.tick();
-    await h.svc.ensureFresh();
+    await h.svc.ensureFresh("acme/web");
     await h.svc.refreshSoon();
     expect(h.fetches).toHaveLength(0);
   } finally {
@@ -240,28 +241,137 @@ test("while the GraphQL backoff is engaged neither the tick nor a demand calls G
   }
 });
 
-test("ensureFresh answers immediately after a recent run and runs once the gap has passed", async () => {
+test("ensureFresh fingerprints only the requested repo, once per gap, single-flight", async () => {
   const h = harness();
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
-    await h.svc.ensureFresh();
-    expect(h.fetches).toHaveLength(1);
+    await h.svc.ensureFresh("acme/web");
+    expect(h.fetches).toEqual([["acme/web"]]);
+    expect(h.observations).toHaveLength(1);
+    expect(h.observations[0]!.changed.map((c) => [c.slug, c.paths])).toEqual([
+      ["acme/web", ["/r/web"]],
+    ]);
+    expect(h.svc.issuesKey("acme/web")).not.toBeNull();
+    expect(h.svc.covered("acme/api")).toBe(false);
     h.advance(10_000);
-    await Promise.all([h.svc.ensureFresh(), h.svc.ensureFresh()]);
+    await Promise.all([h.svc.ensureFresh("acme/web"), h.svc.ensureFresh("acme/web")]);
     expect(h.fetches).toHaveLength(1);
     h.advance(30_000);
-    await Promise.all([h.svc.ensureFresh(), h.svc.ensureFresh()]); // single-flight
+    await Promise.all([h.svc.ensureFresh("acme/web"), h.svc.ensureFresh("acme/web")]);
+    expect(h.fetches).toEqual([["acme/web"], ["acme/web"]]);
+    await h.svc.ensureFresh("acme/untracked");
     expect(h.fetches).toHaveLength(2);
   } finally {
     log.mockRestore();
   }
 });
 
-test("the background tick skips when a demanded run is fresher than half an interval", async () => {
+test("ensureFresh answers at once for a repo a fleet run saw within the gap", async () => {
   const h = harness();
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
-    await h.svc.ensureFresh();
+    await h.svc.tick();
+    h.advance(10_000);
+    await h.svc.ensureFresh("acme/web");
+    expect(h.fetches).toHaveLength(1);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+/** A service whose fleet fetch (more than one slug) is held until `release()` and answers with
+ *  `fleetFp`; a single-slug fetch answers `scopedFp` at once. */
+function heldFleet(fleetFp: RepoFingerprint, scopedFp: RepoFingerprint) {
+  let clock = 1_000_000;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fetches: string[][] = [];
+  const observations: FingerprintObservation[] = [];
+  const svc = new RepoFingerprintService({
+    listTargets: () => [
+      { slug: "acme/web", paths: ["/r/web"] },
+      { slug: "acme/api", paths: ["/r/api"] },
+    ],
+    fetch: async (slugs): Promise<FingerprintResult> => {
+      fetches.push(slugs);
+      const fleet = slugs.length > 1;
+      if (fleet) await held;
+      return {
+        fingerprints: new Map(slugs.map((s) => [s, { ...(fleet ? fleetFp : scopedFp) }])),
+        rateLimit: null,
+      };
+    },
+    rateLimit: () => HEALTHY,
+    onObserved: (o) => {
+      observations.push(o);
+    },
+    now: () => clock,
+  });
+  return {
+    svc,
+    fetches,
+    observations,
+    release,
+    advance: (ms: number) => {
+      clock += ms;
+    },
+  };
+}
+
+test("ensureFresh does not wait on a fleet run in flight", async () => {
+  const h = heldFleet(BASE, BASE);
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const fleet = h.svc.tick();
+    await h.svc.ensureFresh("acme/web"); // resolves while the fleet fetch is still held
+    expect(h.fetches).toEqual([["acme/web", "acme/api"], ["acme/web"]]);
+    expect(h.svc.issuesKey("acme/web")).not.toBeNull();
+    h.release();
+    await fleet;
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("a fleet run that started first cannot roll back a newer ensureFresh reading", async () => {
+  const newer = { ...BASE, issuesUpdatedAt: "2026-10-05T00:00:00Z" };
+  const h = heldFleet(BASE, newer);
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const fleet = h.svc.tick(); // starts first, with the older reading
+    h.advance(1_000);
+    await h.svc.ensureFresh("acme/web"); // starts later, lands first
+    h.release();
+    await fleet;
+    expect(h.svc.issuesKey("acme/web")).toBe(issuesKey(newer));
+    const fleetObs = h.observations.at(-1)!;
+    expect([...fleetObs.changed, ...fleetObs.unchanged].map((t) => t.slug)).toEqual(["acme/api"]);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("an ensureFresh run neither holds back the fleet cadence nor makes the service ready", async () => {
+  const h = harness();
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await h.svc.ensureFresh("acme/web");
+    expect(h.svc.backgroundReady()).toBe(false);
+    await h.svc.tick();
+    expect(h.fetches).toEqual([["acme/web"], ["acme/web", "acme/api"]]);
+    expect(h.svc.backgroundReady()).toBe(true);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("the background tick skips when a demanded fleet run is fresher than half an interval", async () => {
+  const h = harness();
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await h.svc.refreshSoon();
     h.advance(59_000);
     await h.svc.tick();
     expect(h.fetches).toHaveLength(1);
@@ -289,7 +399,7 @@ test("refreshSoon coalesces demands into one trailing run after the gap", async 
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
     const t0 = Date.now();
-    await svc.ensureFresh(); // run #1 at ~t0
+    await svc.tick(); // run #1 at ~t0
     const a = svc.refreshSoon();
     const b = svc.refreshSoon();
     expect(a).toBe(b);

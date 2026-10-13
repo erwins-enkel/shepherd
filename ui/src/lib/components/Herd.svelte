@@ -474,13 +474,14 @@
 
   // The waiting-on-* group headers name the responsible person when the whole
   // group shares one (the common case: one repo, one merger). The herd can span
-  // repos, so a mixed group falls back to a name-less header.
+  // repos, so a mixed group falls back to a name-less header. The partition's map, so a
+  // mirrored session's handoff (its machine's PR state, #3055) names its person too.
   function uniqueWho(list: Session[]): string | null {
-    const names = new Set(list.map((s) => git[s.id]?.handoffWho ?? null));
+    const names = new Set(list.map((s) => joined.git[s.id]?.handoffWho ?? null));
     return names.size === 1 ? ([...names][0] ?? null) : null;
   }
   function allAnonymous(list: Session[]): boolean {
-    return list.every((s) => !git[s.id]?.handoffWho);
+    return list.every((s) => !joined.git[s.id]?.handoffWho);
   }
   const reviewerWho = $derived(uniqueWho(partition.waitingOnReviewer));
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));

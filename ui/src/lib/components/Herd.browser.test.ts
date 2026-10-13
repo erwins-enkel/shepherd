@@ -1396,6 +1396,25 @@ describe("Herd with connected machines (#3055)", () => {
     expect(row("l1")!.querySelector(".machine-badge")).toBeNull();
   });
 
+  it("a mirrored session handed off to a named reviewer names them in the header", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      remoteSessions: [
+        session({
+          id: "r1",
+          host: mac,
+          connection: LIVE,
+          git: { ...openPr, handoff: "reviewer", handoffWho: "scoop" },
+        }),
+      ],
+      git: {},
+    });
+    await expect
+      .element(page.getByText(m.herd_waiting_reviewer_group({ who: "scoop", count: 1 })))
+      .toBeInTheDocument();
+  });
+
   it("without PR state a mirrored session lands where its status puts it", async () => {
     render(Herd, {
       ...base,

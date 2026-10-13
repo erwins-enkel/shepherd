@@ -1010,6 +1010,7 @@
     class:has-activity={live}
     class:awaits-operator={awaitsOperator}
     class:decommissioning
+    class:link-lost={session.connection?.state === "disconnected"}
     data-unit-id={session.id}
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[dStatus]}"
   >
@@ -1323,6 +1324,12 @@
      window — fade it so it visibly recedes; restored instantly on UNDO */
   .unit.decommissioning {
     opacity: 0.4;
+  }
+
+  /* a mirrored session whose machine dropped (#3055): its state is the last one known, not the
+     current one — dimmed among the live cards, its RemoteConnectionNote says since when */
+  .unit.link-lost {
+    opacity: 0.6;
   }
 
   /* Transparent overlay that IS the row's click/keyboard target — keeps the

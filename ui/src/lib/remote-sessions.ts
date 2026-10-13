@@ -1,11 +1,12 @@
-import type { RemoteDispatch, Session, SessionConnection, SessionHost } from "./types";
+import type { RemoteInstance, Session, SessionConnection, SessionHost } from "./types";
 import { m } from "#lib/paraglide/messages.js";
 
 /**
  * Sessions mirrored from connected machines (#2762) — references the server marks with `host` +
  * `connection`; the actions it forwards to their machine (#2765) run there, never here. The store
  * keeps them apart from its own `sessions`, so nothing that acts on a local session (attention
- * queue, merge train, keyboard nav, side maps) ever sees one.
+ * queue, merge train, side maps) ever sees one. Only the herd's view joins them into its lifecycle
+ * groups (#3055), with the PR state their machine reports (`git`).
  */
 
 /** A remote session with its annotation guaranteed. */
@@ -49,47 +50,71 @@ export function lastKnownLabel(since: number, nowMs: number): string {
     : at.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
-export interface MachineGroup {
-  host: SessionHost;
-  /** null for a machine with only tasks it has not confirmed (#2774): no session says how its
-   *  link is. */
-  connection: SessionConnection | null;
-  sessions: MirroredSession[];
-  /** Tasks sent to it whose start it has not confirmed, shown before its sessions. */
-  dispatches: RemoteDispatch[];
+/**
+ * The herd's machine filter (#3055): every machine, this Shepherd's own sessions, or one connected
+ * machine by instance ID. Instance IDs are UUIDs, so they never read as "all" or "local".
+ */
+export type MachineFilter = "all" | "local" | (string & {});
+
+/** What the herd lists under `filter` — sessions or unconfirmed tasks alike: a local one has no
+ *  `host`, a mirrored one names its machine. */
+export function byMachine<T extends { host?: SessionHost }>(
+  items: readonly T[],
+  filter: MachineFilter,
+): T[] {
+  if (filter === "all") return [...items];
+  if (filter === "local") return items.filter((x) => !x.host);
+  return items.filter((x) => x.host?.instanceId === filter);
 }
 
-/** One group per machine, in the order the machines' sessions first appear; a machine with only
- *  unconfirmed tasks follows them. */
-export function machineGroups(
-  remote: readonly Session[],
-  dispatches: readonly RemoteDispatch[] = [],
-): MachineGroup[] {
-  const groups = new Map<string, MachineGroup>();
-  for (const s of remote) {
-    if (!isMirrored(s)) continue;
-    const group = groups.get(s.host.instanceId);
-    if (group) group.sessions.push(s);
-    else
-      groups.set(s.host.instanceId, {
-        host: s.host,
-        connection: s.connection,
-        sessions: [s],
-        dispatches: [],
-      });
-  }
-  for (const d of dispatches) {
-    const group = groups.get(d.host.instanceId);
-    if (group) group.dispatches.push(d);
-    else
-      groups.set(d.host.instanceId, {
-        host: d.host,
-        connection: null,
-        sessions: [],
-        dispatches: [d],
-      });
-  }
-  return [...groups.values()];
+/**
+ * Display names that are unique across machines, so a machine chip reads like the label on its
+ * sessions. DRIFT: mirrors `hostNames` in src/remote-instances/sessions.ts, which names the `host`
+ * of every mirrored session — a name two machines share gets each one's first four ID characters.
+ */
+export function machineDisplayNames(
+  machines: readonly Pick<RemoteInstance, "instanceId" | "name">[],
+): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const { name } of machines) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return new Map(
+    machines.map(({ instanceId, name }) => [
+      instanceId,
+      counts.get(name)! > 1 ? `${name} (${instanceId.slice(0, 4)})` : name,
+    ]),
+  );
+}
+
+/** Data hues a machine may wear (#3055) — identity, never a status color. */
+const MACHINE_HUES = 6;
+
+/**
+ * A machine's color: its place among the configured machines in the order they were connected,
+ * so it stays the same across reloads and devices and the first six machines never share one.
+ * Null for a machine not (yet) in the list — its label then stays neutral.
+ */
+export function machineColorVar(
+  instanceId: string,
+  machines: readonly Pick<RemoteInstance, "instanceId" | "createdAt">[],
+): string | null {
+  const order = [...machines].sort(
+    (a, b) => a.createdAt - b.createdAt || a.instanceId.localeCompare(b.instanceId),
+  );
+  const slot = order.findIndex((x) => x.instanceId === instanceId);
+  return slot === -1 ? null : `var(--color-data-${(slot % MACHINE_HUES) + 1})`;
+}
+
+/**
+ * Mirrored sessions the jump to the next waiting session may land on (#3055): blocked, on a machine
+ * whose link is live — an answer or a plan approval is forwarded there (#2765), so the jump leads
+ * somewhere the operator can act. The machines mirror no block reason or time, so the longest
+ * unchanged comes first by its last update.
+ */
+export function mirroredNeedsYou(remote: readonly Session[]): string[] {
+  return remote
+    .filter((s) => isMirrored(s) && s.connection.state === "connected" && s.status === "blocked")
+    .sort((a, b) => a.updatedAt - b.updatedAt)
+    .map((s) => s.id);
 }
 
 function isMirroredFrame(data: unknown): data is Session & { host: SessionHost } {
@@ -111,6 +136,7 @@ function applyMirroredFrame(list: Session[], event: string, data: Session): Sess
       return list.filter((s) => s.id !== data.id);
     case "session:status":
     case "session:renamed":
+    case "session:git":
       // Object spread defines properties, so an own `__proto__` key in the payload stays a plain key.
       return known ? list.map((s) => (s.id === data.id ? { ...s, ...data } : s)) : list;
     default:

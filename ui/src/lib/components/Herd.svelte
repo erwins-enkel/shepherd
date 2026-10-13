@@ -21,7 +21,8 @@
   import HerdExperimentGroups from "./herd/HerdExperimentGroups.svelte";
   import HerdDoneList from "./herd/HerdDoneList.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
-  import HerdMachineGroups from "./herd/HerdMachineGroups.svelte";
+  import HerdMachineBar from "./herd/HerdMachineBar.svelte";
+  import RemoteDispatchRow from "./herd/RemoteDispatchRow.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
@@ -29,6 +30,8 @@
   import {
     partitionSessions,
     shownSessions,
+    shownMirrored,
+    joinMirrored,
     GROUP_KEY_BY_STAGE,
     type HerdFilter,
   } from "./herd-partition";
@@ -42,6 +45,8 @@
   import { m } from "#lib/paraglide/messages.js";
   import { postMergeSteps, owedRecordsForRepo } from "#lib/post-merge-steps.svelte.js";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
+  import { byMachine, type MachineFilter } from "#lib/remote-sessions.js";
+  import { machines } from "#lib/machines.svelte.js";
 
   let {
     sessions,
@@ -84,6 +89,7 @@
     onrename = undefined,
     onamend = undefined,
     filter = $bindable("all"),
+    machineFilter = $bindable("all"),
     statusFilter = null,
     onstatusfilter = undefined,
     workingBlocked = {},
@@ -118,9 +124,10 @@
     upNextLaunch = null,
   }: {
     sessions: Session[];
-    // sessions mirrored from connected machines (#2762) — read-only, one group per machine
+    // sessions mirrored from connected machines (#2762) — joined into the lifecycle groups among
+    // the local ones (#3055), with the PR state their machine reports; only the view mixes them
     remoteSessions?: Session[];
-    /** Tasks sent to connected machines that no machine confirmed (#2774), in their groups. */
+    /** Tasks sent to connected machines that no machine confirmed (#2774), atop the list. */
     remoteDispatches?: RemoteDispatch[];
     selectedId: string | null;
     // The session a global jump (command bar, deep link, notification) just landed on —
@@ -201,6 +208,9 @@
     // the all/ready list filter — bindable so the page-level keyboard navigation
     // can mirror exactly what the rail shows (herd-keynav's railOrder takes it)
     filter?: HerdFilter;
+    // the machine bar's pick (#3055): every machine, this Shepherd, or one connected machine —
+    // bindable for the same reason as `filter` (herd-keynav's railOrder walks the same rows)
+    machineFilter?: MachineFilter;
     // page-level status filter (TopBar tallies). Sessions already arrive filtered;
     // the prop only drives the head chip, the empty-state copy, and short-circuits
     // the local all/ready filter (one filter at a time).
@@ -320,10 +330,33 @@
   // one filter at a time: an active page-level status filter short-circuits the
   // local all/ready filter ENTIRELY — a "ready" remnant would drop running sessions
   // and empty the list under statusFilter="running" (sessions already arrive filtered).
-  const shown = $derived(
+  // Before the machine filter: the machine bar counts what each machine shows under the lens.
+  const localLens = $derived(
     statusFilter != null
       ? sessions
       : shownSessions(sessions, filter, inReview, workingBlocked, git, nowMs, backgroundBusy),
+  );
+  // Mirrored sessions (#3055) take the same lens with the PR state their machine reports; they
+  // arrive status-filtered from the page like the local ones.
+  const remoteLens = $derived(
+    statusFilter != null ? remoteSessions : shownMirrored(remoteSessions, filter, inReview, nowMs),
+  );
+  const shown = $derived(byMachine(localLens, machineFilter));
+  const remoteShown = $derived(byMachine(remoteLens, machineFilter));
+  // Unconfirmed tasks lead the "all" list only, like the sessions they will become.
+  const dispatchesShown = $derived(
+    filter === "all" ? byMachine(remoteDispatches, machineFilter) : [],
+  );
+  const showMachineBar = $derived(
+    machines.list.length > 0 && (filter === "all" || filter === "ready"),
+  );
+  // The name of a picked machine (this Shepherd included) for the empty note; null for "all".
+  const machineFilterName = $derived(
+    machineFilter === "all"
+      ? null
+      : machineFilter === "local"
+        ? (machines.self?.name ?? m.herd_machine_this())
+        : (machines.names.get(machineFilter) ?? machineFilter),
   );
   // label for the status chip + filtered empty states (only read when set)
   const statusLabel = $derived(
@@ -360,23 +393,27 @@
       nowMs,
     ),
   );
+  // Mirrored sessions skip epic/experiment grouping (both are this Shepherd's own) and join the
+  // lifecycle groups by start time, with their machine's PR state — view-only (#3055).
+  const joined = $derived(joinMirrored(grouped.rest, git, remoteShown));
   const partition = $derived(
-    partitionSessions(grouped.rest, git, inReview, isReworkRunning, nowMs),
+    partitionSessions(joined.sessions, joined.git, inReview, isReworkRunning, nowMs),
   );
   // ready-to-merge sessions that actually have an open PR — the merge-train link
   // only surfaces when there's something to run (fail-closed: no PR → no link).
   // In-review sessions are excluded so the link's count matches the launch action.
-  // Global (over `shown`, not `rest`) so grouped epic-child PRs still arm the action.
+  // Global (over `shown`, not `rest`) so grouped epic-child PRs still arm the action. Local only:
+  // the merge train never carries a mirrored session (#3055).
   const readyPrCount = $derived(collectReadyPrs(shown, git, inReview).length);
 
   // One model-label decision for the whole rail. Derived from `shown` — the post-filter set, BEFORE
   // grouping — so epic- and experiment-grouped rows are judged by the set they are actually
   // displayed in rather than by whichever partition bucket they happen to land in.
-  const modelMix = $derived(modelsMixed(shown, activity));
+  const modelMix = $derived(modelsMixed([...shown, ...remoteShown], activity));
   // Same decision for the CLI chip, kept INDEPENDENT of the model one: a herd running two Claude
   // models wants the models named but not the same CLI word on every row, and a Claude/Codex herd
   // wants both.
-  const cliMix = $derived(providersMixed(shown));
+  const cliMix = $derived(providersMixed([...shown, ...remoteShown]));
 
   // ONE partition per epic group, keyed by group key — the cue chips, the grouped
   // ready/merged tallies, and the "in epics above" annotation all read from it, so we
@@ -729,7 +766,8 @@
 </script>
 
 {#snippet integratedEpics()}
-  {#if filter !== "done" && filter !== "owed"}
+  <!-- this Shepherd's own epics: hidden while the machine bar narrows the herd to another machine -->
+  {#if filter !== "done" && filter !== "owed" && (machineFilter === "all" || machineFilter === "local")}
     <IntegratedEpicsBand
       epics={completedEpics}
       bind:collapsed={epicsBandCollapsed}
@@ -751,6 +789,14 @@
          the list scrolls (D10, docs/design/mobile-herd). `filter` stays bindable because the page
          still drives it; only the control moved. -->
     <div class="phead"><span class="micro">{m.herd_title()}</span></div>
+    {#if showMachineBar}
+      <HerdMachineBar
+        bind:filter={machineFilter}
+        localCount={localLens.length}
+        remote={remoteLens}
+        touch
+      />
+    {/if}
   {:else}
     <!-- desktop / touch-wide: the icon-over-label lens strip IS the panel header
          (no separate "The Herd" title row) -->
@@ -763,6 +809,14 @@
       {onstatusfilter}
       {oncollapse}
     />
+    {#if showMachineBar}
+      <HerdMachineBar
+        bind:filter={machineFilter}
+        localCount={localLens.length}
+        remote={remoteLens}
+        {touch}
+      />
+    {/if}
   {/if}
   <div class="units" class:flow>
     {#if epicNeedsOperator}{@render integratedEpics()}{/if}
@@ -785,7 +839,7 @@
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
       <HerdDoneList {doneList} {doneSelectedId} {ondoneselect} {onbringback} {nowMs} />
-    {:else if sessions.length === 0}
+    {:else if sessions.length + remoteSessions.length + remoteDispatches.length === 0}
       <!-- the status filter empties the list at PAGE level (herdSessions), so an
          empty status result lands HERE — it must outrank the repo note and the
          first-run EmptyHerd nudge, and name the active status so vanished
@@ -799,9 +853,10 @@
         {onnew}
         {onsettings}
       />
-    {:else if shown.length === 0}
+    {:else if shown.length + remoteShown.length + dispatchesShown.length === 0}
       <HerdEmptyState
-        mode="shown"
+        mode={machineFilterName ? "machine" : "shown"}
+        machine={machineFilterName}
         {statusFilter}
         {statusLabel}
         {filteredRepo}
@@ -810,6 +865,9 @@
         {onsettings}
       />
     {:else}
+      {#each dispatchesShown as dispatch (dispatch.id)}
+        <RemoteDispatchRow {dispatch} />
+      {/each}
       <HerdEpicGroups
         groups={grouped.groups}
         {collapsedKeys}
@@ -840,15 +898,6 @@
         />
       {/each}
     {/if}
-    <HerdMachineGroups
-      sessions={remoteSessions}
-      dispatches={remoteDispatches}
-      {filter}
-      {selectedId}
-      {nowMs}
-      {onselect}
-      {ondecommission}
-    />
     {#if !epicNeedsOperator}{@render integratedEpics()}{/if}
   </div>
 </div>

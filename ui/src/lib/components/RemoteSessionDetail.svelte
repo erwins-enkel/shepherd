@@ -81,7 +81,9 @@
       <div class="desig">{qualifiedDesig(session)}</div>
       <h2 class="name">{session.name}</h2>
     </div>
-    <MachineBadge {session} {nowMs} />
+    {#if session.host}
+      <MachineBadge host={session.host} connection={session.connection} {nowMs} />
+    {/if}
   </header>
   <RemoteConnectionNote {session} {nowMs} />
   <dl class="facts">

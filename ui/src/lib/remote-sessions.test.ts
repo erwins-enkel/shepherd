@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
+  byMachine,
   lastKnownLabel,
-  machineGroups,
+  machineColorVar,
+  machineDisplayNames,
+  mirroredNeedsYou,
   mirroredPreviewChange,
   platformName,
   qualifiedDesig,
@@ -41,15 +44,6 @@ describe("remote sessions (#2762)", () => {
     expect(earlier.length).toBeGreaterThan(today.length);
   });
 
-  test("groups follow the machines in order of first appearance", () => {
-    const other = { instanceId: "m2", name: "Studio", platform: "linux" };
-    const groups = machineGroups([s("a"), s("b", { host: other }), s("c"), { id: "x" } as Session]);
-    expect(groups.map((g) => [g.host.name, g.sessions.map((x) => x.id)])).toEqual([
-      ["MacBook", ["a", "c"]],
-      ["Studio", ["b"]],
-    ]);
-  });
-
   test("a machine's preview frames name the session, never pass on its port (#2767)", () => {
     const frame = { id: "a", previewPort: 4100, host: HOST, connection: LIVE };
     expect(mirroredPreviewChange({ event: "session:preview", data: frame })).toBe("a");
@@ -66,24 +60,6 @@ describe("remote sessions (#2762)", () => {
     expect(mirroredPreviewChange({ event: "session:status", data: s("a") })).toBeNull();
   });
 
-  test("tasks a machine has not confirmed lead its group; a machine with only those gets one", () => {
-    const studio = { ...HOST, instanceId: "m2", name: "Studio" };
-    const dispatch = (id: string, host = HOST) =>
-      ({ id, state: "unknown", host, summary: "x", createdAt: 1, updatedAt: 1 }) as const;
-    const groups = machineGroups([s("a")], [dispatch("d1"), dispatch("d2", studio)]);
-    expect(
-      groups.map((g) => [
-        g.host.name,
-        g.connection,
-        g.dispatches.map((x) => x.id),
-        g.sessions.map((x) => x.id),
-      ]),
-    ).toEqual([
-      ["MacBook", LIVE, ["d1"], ["a"]],
-      ["Studio", null, ["d2"], []],
-    ]);
-  });
-
   test("frames without host are left to the local store", () => {
     expect(reduceRemoteSessions([], { event: "session:new", data: { id: "l" } })).toBeNull();
     expect(reduceRemoteSessions([], { event: "usage:limits", data: { host: HOST } })).toBeNull();
@@ -98,12 +74,73 @@ describe("remote sessions (#2762)", () => {
     ]);
   });
 
+  test("a machine's PR state frame lands on its session (#3055)", () => {
+    const git = { state: "open", checks: "success", deployConfigured: false } as const;
+    const next = reduceRemoteSessions([s("a"), s("b")], {
+      event: "session:git",
+      data: { id: "a", git, host: HOST, connection: LIVE },
+    });
+    expect(next?.map((x) => [x.id, x.git])).toEqual([
+      ["a", git],
+      ["b", undefined],
+    ]);
+  });
+
   test("a status for an unknown mirrored session is consumed without adding it", () => {
     const next = reduceRemoteSessions([], {
       event: "session:status",
       data: { id: "z", status: "idle", host: HOST, connection: LIVE },
     });
     expect(next).toEqual([]);
+  });
+});
+
+describe("machine filter, names and colors (#3055)", () => {
+  const STUDIO = { instanceId: "m2", name: "Studio", platform: "linux" };
+  const machine = (instanceId: string, name: string, createdAt: number) => ({
+    instanceId,
+    name,
+    createdAt,
+  });
+
+  test("the filter keeps everything, this Shepherd's own, or one machine's", () => {
+    const local = { id: "l" } as Session;
+    const items = [local, s("a"), s("b", { host: STUDIO })];
+    expect(byMachine(items, "all").map((x) => x.id)).toEqual(["l", "a", "b"]);
+    expect(byMachine(items, "local").map((x) => x.id)).toEqual(["l"]);
+    expect(byMachine(items, "m2").map((x) => x.id)).toEqual(["b"]);
+    expect(byMachine(items, "gone").map((x) => x.id)).toEqual([]);
+  });
+
+  test("names match the server's: a shared name gets the ID's first four characters", () => {
+    const names = machineDisplayNames([
+      machine("abcd1234", "Mac", 1),
+      machine("ef015678", "Mac", 2),
+      machine("m3", "Studio", 3),
+    ]);
+    expect([...names.values()]).toEqual(["Mac (abcd)", "Mac (ef01)", "Studio"]);
+  });
+
+  test("a machine keeps its color by connection order, whatever order the list comes in", () => {
+    const list = [machine("m2", "B", 20), machine("m1", "A", 10), machine("m3", "C", 30)];
+    expect(machineColorVar("m1", list)).toBe("var(--color-data-1)");
+    expect(machineColorVar("m2", list)).toBe("var(--color-data-2)");
+    expect(machineColorVar("m3", [...list].reverse())).toBe("var(--color-data-3)");
+    const seven = Array.from({ length: 7 }, (_, i) => machine(`m${i}`, `M${i}`, i));
+    expect(machineColorVar("m6", seven)).toBe("var(--color-data-1)");
+    expect(machineColorVar("unknown", list)).toBeNull();
+  });
+
+  test("the jump reaches blocked sessions on live machines, longest unchanged first", () => {
+    const DOWN = { state: "disconnected" as const, since: 1 };
+    const ids = mirroredNeedsYou([
+      s("late", { status: "blocked", updatedAt: 30 }),
+      s("early", { status: "blocked", updatedAt: 10 }),
+      s("idle", { status: "idle", updatedAt: 5 }),
+      s("down", { status: "blocked", updatedAt: 1, connection: DOWN }),
+      { id: "local", status: "blocked", updatedAt: 0 } as Session,
+    ]);
+    expect(ids).toEqual(["early", "late"]);
   });
 });
 

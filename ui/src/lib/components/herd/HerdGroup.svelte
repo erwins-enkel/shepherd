@@ -136,39 +136,57 @@
          old row would restate exactly the rail-disagrees-with-the-terminal confusion this
          whole path exists to end. Gating here, rather than clearing the id inside one
          selection function, holds for every one of those routes and for later ones. -->
-    <UnitRow
-      {session}
-      selected={session.id === ctx.selectedId}
-      jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
-      nowMs={ctx.nowMs}
-      onselect={ctx.onselect}
-      git={ctx.git[session.id]}
-      activity={ctx.activity[session.id]}
-      previewPort={withPreview ? (ctx.preview[session.id] ?? null) : null}
-      previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
-      onpreview={withPreview ? ctx.onpreview : undefined}
-      onopenbrowser={ctx.onopenbrowser}
-      ondecommission={ctx.ondecommission}
-      onrename={ctx.onrename}
-      onamend={ctx.onamend}
-      onrelaunch={ctx.onrelaunch}
-      onrelaunchElsewhere={ctx.onrelaunchElsewhere}
-      oncleanTerminal={ctx.oncleanTerminal}
-      onaskassistant={ctx.onaskassistant}
-      onvariant={ctx.onvariant}
-      onreplace={ctx.onreplace}
-      repoFilter={ctx.repoFilter}
-      onrepofilter={ctx.onrepofilter}
-      workingBlocked={ctx.workingBlocked}
-      backgroundBusy={ctx.backgroundBusy}
-      liveness={ctx.liveness[session.id]}
-      quotaKind={ctx.quotaKindFor(session.id)}
-      hold={ctx.holdFor(session.id)}
-      onackmanualsteps={ctx.onackmanualsteps}
-      onshowowed={ctx.onshowowed}
-      showModel={ctx.showModel}
-      showCli={ctx.showCli}
-    />
+    {#if session.host}
+      <!-- A session mirrored from a connected machine (#2762, joined into this group by #3055)
+           gets only what this server forwards to its machine and the card has an item for
+           (#2765): Stop, and Decommission while the link is live. Every other callback here acts
+           on a local session and its side maps, so none is passed; `git` is its machine's. -->
+      <UnitRow
+        {session}
+        selected={session.id === ctx.selectedId}
+        jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
+        nowMs={ctx.nowMs}
+        onselect={ctx.onselect}
+        git={session.git}
+        ondecommission={session.connection?.state === "connected" ? ctx.ondecommission : undefined}
+        showModel={ctx.showModel}
+        showCli={ctx.showCli}
+      />
+    {:else}
+      <UnitRow
+        {session}
+        selected={session.id === ctx.selectedId}
+        jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
+        nowMs={ctx.nowMs}
+        onselect={ctx.onselect}
+        git={ctx.git[session.id]}
+        activity={ctx.activity[session.id]}
+        previewPort={withPreview ? (ctx.preview[session.id] ?? null) : null}
+        previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
+        onpreview={withPreview ? ctx.onpreview : undefined}
+        onopenbrowser={ctx.onopenbrowser}
+        ondecommission={ctx.ondecommission}
+        onrename={ctx.onrename}
+        onamend={ctx.onamend}
+        onrelaunch={ctx.onrelaunch}
+        onrelaunchElsewhere={ctx.onrelaunchElsewhere}
+        oncleanTerminal={ctx.oncleanTerminal}
+        onaskassistant={ctx.onaskassistant}
+        onvariant={ctx.onvariant}
+        onreplace={ctx.onreplace}
+        repoFilter={ctx.repoFilter}
+        onrepofilter={ctx.onrepofilter}
+        workingBlocked={ctx.workingBlocked}
+        backgroundBusy={ctx.backgroundBusy}
+        liveness={ctx.liveness[session.id]}
+        quotaKind={ctx.quotaKindFor(session.id)}
+        hold={ctx.holdFor(session.id)}
+        onackmanualsteps={ctx.onackmanualsteps}
+        onshowowed={ctx.onshowowed}
+        showModel={ctx.showModel}
+        showCli={ctx.showCli}
+      />
+    {/if}
   {/each}
 {/if}
 

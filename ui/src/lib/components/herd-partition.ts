@@ -115,6 +115,46 @@ export function shownSessions(
   return sessions;
 }
 
+/** Each mirrored session's PR state as its machine reports it (#3055), keyed like the store's
+ *  `git` map so the partition reads both alike. View-only: never merged into the store's map. */
+export function mirroredGit(mirrored: readonly Session[]): Record<string, GitState> {
+  return Object.fromEntries(mirrored.flatMap((s) => (s.git ? [[s.id, s.git]] : [])));
+}
+
+/** The mirrored sessions (#3055) the rail lists under `filter` — the same lens as a local
+ *  session's, with the PR state their machine reports. The flags the machines do not mirror
+ *  (working-while-blocked, background-busy) read as unset. */
+export function shownMirrored(
+  mirrored: Session[],
+  filter: HerdFilter,
+  inReview: (id: string) => boolean,
+  now: number = Date.now(),
+): Session[] {
+  return shownSessions(mirrored, filter, inReview, {}, mirroredGit(mirrored), now);
+}
+
+/** The lifecycle partition's input with mirrored sessions joined in (#3055): the local `rest`
+ *  (what epic and experiment grouping left — mirrored sessions skip both, they are this Shepherd's
+ *  own) with the mirrored ones interleaved by start time, the local order kept; and the PR map
+ *  extended by theirs. Shared by Herd.svelte and herd-keynav so render and nav cannot drift. */
+export function joinMirrored(
+  rest: Session[],
+  git: Record<string, GitState>,
+  mirrored: Session[],
+): { sessions: Session[]; git: Record<string, GitState> } {
+  if (mirrored.length === 0) return { sessions: rest, git };
+  const byStart = [...mirrored].sort((a, b) => a.createdAt - b.createdAt);
+  const sessions: Session[] = [];
+  let next = 0;
+  for (const s of rest) {
+    while (next < byStart.length && byStart[next].createdAt < s.createdAt)
+      sessions.push(byStart[next++]);
+    sessions.push(s);
+  }
+  sessions.push(...byStart.slice(next));
+  return { sessions, git: { ...git, ...mirroredGit(mirrored) } };
+}
+
 /** Terminal / in-flight stages that win before the green-idle handoff decision, or null
  *  when none apply (the session is then either active or handed off). Split out of stageOf
  *  to keep each branch-set small. */

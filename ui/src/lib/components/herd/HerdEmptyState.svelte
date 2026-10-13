@@ -4,6 +4,7 @@
 
   let {
     mode,
+    machine = null,
     statusFilter,
     statusLabel,
     filteredRepo,
@@ -11,7 +12,10 @@
     onnew,
     onsettings,
   }: {
-    mode: "sessions" | "shown";
+    // "machine": the machine bar narrowed the herd to one machine (#3055) that shows nothing here
+    mode: "sessions" | "shown" | "machine";
+    // the picked machine's name, for "machine"
+    machine?: string | null;
     statusFilter: "running" | "idle" | "blocked" | null;
     statusLabel: string;
     filteredRepo: string | null;
@@ -35,6 +39,8 @@
   {:else}
     <EmptyHerd {onnew} {issueActionsUnset} {onsettings} />
   {/if}
+{:else if mode === "machine" && machine}
+  <div class="empty micro static">{m.herd_machine_empty({ machine })}</div>
 {:else}
   <div class="empty micro static">{m.herd_ready_empty()}</div>
 {/if}

@@ -14,7 +14,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
 });
 
 const api = await import("#lib/api.js");
-const { default: HerdMachineGroups } = await import("./HerdMachineGroups.svelte");
+const { default: RemoteDispatchRow } = await import("./RemoteDispatchRow.svelte");
 
 const HOST = { instanceId: "m1", name: "MacBook", platform: "macos" };
 const dispatch = (over: Partial<RemoteDispatch> = {}): RemoteDispatch => ({
@@ -27,10 +27,8 @@ const dispatch = (over: Partial<RemoteDispatch> = {}): RemoteDispatch => ({
   ...over,
 });
 
-function renderGroups(dispatches: RemoteDispatch[], sessions: Session[] = []) {
-  return render(HerdMachineGroups, {
-    props: { sessions, dispatches, filter: "all", selectedId: null, nowMs: 1, onselect: () => {} },
-  });
+function renderRows(dispatches: RemoteDispatch[]) {
+  for (const d of dispatches) render(RemoteDispatchRow, { props: { dispatch: d } });
 }
 
 afterEach(() => {
@@ -41,12 +39,12 @@ afterEach(() => {
 });
 
 describe("a task whose start on a machine is unknown (#2774)", () => {
-  it("leads its machine's group with the state, an explanation and Cancel", async () => {
-    renderGroups([dispatch()]);
-    const group = page.getByRole("region", { name: m.remote_group_aria({ machine: "MacBook" }) });
-    await expect.element(group).toBeVisible();
-    // No session reports the link, so the group says nothing about it.
-    expect(document.querySelector(".machine-state")).toBeNull();
+  it("names its machine and shows the state, an explanation and Cancel", async () => {
+    renderRows([dispatch()]);
+    // The machine's label (#3055); no session reports the link, so it says nothing about it.
+    const label = page.getByRole("img", { name: m.remote_runs_on({ machine: "MacBook" }) });
+    await expect.element(label).toHaveTextContent("MacBook");
+    expect(document.querySelector(".machine-badge.offline")).toBeNull();
 
     const row = page.getByRole("group", {
       name: m.remote_dispatch_row_aria({ machine: "MacBook", state: m.remote_dispatch_unknown() }),
@@ -72,7 +70,7 @@ describe("a task whose start on a machine is unknown (#2774)", () => {
 
   it("Cancel asks the server; a machine out of reach gets it later", async () => {
     vi.mocked(api.cancelRemoteDispatch).mockResolvedValue(dispatch({ state: "canceling" }));
-    renderGroups([dispatch()]);
+    renderRows([dispatch()]);
     await page
       .getByRole("button", { name: m.remote_dispatch_cancel_aria({ machine: "MacBook" }) })
       .click();
@@ -88,7 +86,7 @@ describe("a task whose start on a machine is unknown (#2774)", () => {
     vi.mocked(api.cancelRemoteDispatch).mockRejectedValue(
       new ApiError(409, "already has it", "remote_dispatch_not_cancelable", true),
     );
-    renderGroups([dispatch()]);
+    renderRows([dispatch()]);
     await page
       .getByRole("button", { name: m.remote_dispatch_cancel_aria({ machine: "MacBook" }) })
       .click();
@@ -100,27 +98,13 @@ describe("a task whose start on a machine is unknown (#2774)", () => {
   });
 
   it("a pending cancel reads as such and offers no second Cancel", async () => {
-    renderGroups([dispatch({ state: "canceling" })]);
+    renderRows([dispatch({ state: "canceling" })]);
     const state = page.getByText(m.remote_dispatch_canceling());
     await expect.element(state).toBeVisible();
     expect(document.querySelector(".dispatch-state")!.getAttribute("aria-description")).toContain(
       m.tooltip_dispatch_canceling_summary({ machine: "MacBook" }),
     );
     expect(document.querySelector(".dispatch-row button")).toBeNull();
-  });
-
-  it("only in the all lens, like the machine's sessions", async () => {
-    render(HerdMachineGroups, {
-      props: {
-        sessions: [],
-        dispatches: [dispatch()],
-        filter: "ready",
-        selectedId: null,
-        nowMs: 1,
-        onselect: () => {},
-      },
-    });
-    expect(document.querySelector(".dispatch-row")).toBeNull();
   });
 });
 
@@ -157,7 +141,7 @@ describe("a task waiting for its machine, or held there (#2775)", () => {
     [...document.querySelectorAll(".dispatch-row button")].map((b) => b.textContent?.trim());
 
   it("offline: waits with what it needs, explains when it starts, offers Cancel", async () => {
-    renderGroups([waiting()]);
+    renderRows([waiting()]);
     await expect.element(page.getByText(m.remote_dispatch_waiting())).toBeVisible();
     expect(document.querySelector(".dispatch-detail")!.textContent).toBe(
       m.placement_basis_requirements({ list: "Xcode" }),
@@ -173,7 +157,7 @@ describe("a task waiting for its machine, or held there (#2775)", () => {
       ...({} as Session),
       id: "s-1",
     });
-    renderGroups([waiting({ alternatives: [HERE, BOX] })]);
+    renderRows([waiting({ alternatives: [HERE, BOX] })]);
     await expect.element(page.getByText(m.remote_dispatch_waiting())).toBeVisible();
     expect(buttons()).toEqual([
       m.remote_dispatch_run_here(),
@@ -200,7 +184,7 @@ describe("a task waiting for its machine, or held there (#2775)", () => {
     vi.mocked(api.redirectRemoteDispatch).mockRejectedValue(
       new ApiError(409, "not reachable", "remote_target_unavailable", true),
     );
-    renderGroups([waiting({ alternatives: [BOX] })]);
+    renderRows([waiting({ alternatives: [BOX] })]);
     await page
       .getByRole("button", {
         name: m.remote_dispatch_redirect_aria({ machine: "MacBook", target: "Box" }),
@@ -214,7 +198,7 @@ describe("a task waiting for its machine, or held there (#2775)", () => {
   });
 
   it("blocked: names the missing capability and the next step", async () => {
-    renderGroups([blocked()]);
+    renderRows([blocked()]);
     await expect.element(page.getByText(m.remote_dispatch_blocked())).toBeVisible();
     expect(document.querySelector(".dispatch-state")!.classList.contains("blocked")).toBe(true);
     const list = `Xcode (${m.settings_machines_cap_reason_license_not_accepted()})`;
@@ -228,7 +212,7 @@ describe("a task waiting for its machine, or held there (#2775)", () => {
   });
 
   it("busy: held there, cancelable, never redirected", async () => {
-    renderGroups([dispatch({ state: "held", heldId: "h-1", alternatives: [BOX] })]);
+    renderRows([dispatch({ state: "held", heldId: "h-1", alternatives: [BOX] })]);
     await expect.element(page.getByText(m.remote_dispatch_held())).toBeVisible();
     expect(description()).toContain(m.tooltip_held_summary({ machine: "MacBook" }));
     expect(description()).toContain(m.tooltip_held_elsewhere_body());
@@ -236,7 +220,7 @@ describe("a task waiting for its machine, or held there (#2775)", () => {
   });
 
   it("the four states side by side read differently", async () => {
-    renderGroups([
+    renderRows([
       waiting(),
       dispatch({ id: "d-2", state: "held", heldId: "h-1" }),
       { ...blocked(), id: "d-3" },

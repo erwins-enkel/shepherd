@@ -6369,5 +6369,11 @@
   "feat_machines_both_directions_title": "Wer sieht wessen Sessions",
   "feat_machines_both_directions_body": "Einstellungen → Rechner zeigt jetzt beide Richtungen: die Rechner, deren Sessions du siehst, und die Shepherds, die deine sehen. Läuft eine Verbindung nur in eine Richtung, sagt die Seite das und bietet an, den anderen Shepherd auch hier zu verbinden.",
   "feat_herdr_094_title": "herdr 0.9.4 wird unterstützt",
-  "feat_herdr_094_body": "Du kannst herdr in Shepherd jetzt bis Version 0.9.4 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.9.3 und 0.9.4 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin."
+  "feat_herdr_094_body": "Du kannst herdr in Shepherd jetzt bis Version 0.9.4 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.9.3 und 0.9.4 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin.",
+  "herd_machines_label": "Rechner",
+  "herd_machine_all": "Alle Rechner",
+  "herd_machine_this": "Dieser Shepherd",
+  "herd_machine_empty": "In dieser Ansicht keine Sessions auf {machine}",
+  "feat_herd_machines_title": "Sessions deiner Rechner direkt in der Herde",
+  "feat_herd_machines_body": "Sessions auf deinen verbundenen Rechnern stehen jetzt in den Gruppen der Herde neben den eigenen: Eine MacBook-Session, die auf dich wartet, steht unter „Du bist dran“, mit einem Etikett in der Farbe ihres Rechners. Die Rechner-Leiste unter den Ansichten filtert die Herde auf einen Rechner und zeigt jeden verbundenen Rechner, auch einen ohne Sessions."
 }

@@ -1303,6 +1303,8 @@ export interface EpicRun {
   agentProvider?: AgentProvider | null;
   model?: string | null;
   effort?: string | null;
+  /** The operator lifted the repo's usage ceiling for this run; only ever true while running. */
+  ignoreUsageCeiling?: boolean;
 }
 export interface Epic {
   repoPath: string;

@@ -6439,5 +6439,8 @@
   "native_runner_runtime_restart": "Neustart erforderlich",
   "native_runner_runtime_offline": "Offline",
   "native_runner_runtime_unknown": "Unbekannt",
-  "drain_paused_usage_ceiling": "Pausiert: Auslastung {pct} % ≥ Grenze {ceiling} %"
+  "drain_paused_usage_ceiling": "Pausiert: Auslastung {pct} % ≥ Grenze {ceiling} %",
+  "epic_usage_ignore": "Nutzungsgrenze ignorieren",
+  "epic_usage_ignored_note": "Die Nutzungsgrenze wird für diesen Lauf ignoriert.",
+  "epic_usage_respect": "Wieder beachten"
 }

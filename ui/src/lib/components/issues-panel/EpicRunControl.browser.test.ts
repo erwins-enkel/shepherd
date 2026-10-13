@@ -775,3 +775,54 @@ describe("EpicRunControl — why a stopped epic does not run", () => {
     expect(page.getByText(m.epic_run_state_idle()).query()).toBeNull();
   });
 });
+
+describe("EpicRunControl usage ceiling override", () => {
+  const usageHold = () =>
+    drain({ paused: true, reason: "usage", detail: "81", usageCeilingPct: 80 });
+
+  it("a run halted on the usage ceiling offers lifting it for this run", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: usageHold(),
+      titleFor,
+    });
+
+    await expect
+      .element(page.getByText(m.drain_paused_usage_ceiling({ pct: "81", ceiling: 80 })))
+      .toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await page.getByRole("button", { name: m.epic_usage_ignore() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { ignoreUsageCeiling: true });
+  });
+
+  it("a run with the ceiling lifted says so and offers respecting it again", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B, { ignoreUsageCeiling: true }),
+      drain: drain({ usageCeilingIgnored: true }),
+      titleFor,
+    });
+
+    await expect.element(page.getByText(m.epic_usage_ignored_note())).toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_usage_ignore() }).query()).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await page.getByRole("button", { name: m.epic_usage_respect() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { ignoreUsageCeiling: false });
+  });
+
+  it("no override control for another hold", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain({ paused: true, reason: "credits" }),
+      titleFor,
+    });
+
+    await expect.element(page.getByText(m.epic_run_state_halted())).toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_usage_ignore() }).query()).toBeNull();
+  });
+});

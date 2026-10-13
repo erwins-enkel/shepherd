@@ -3349,7 +3349,9 @@ export async function diagnoseEpic(repoPath: string, parent: number): Promise<Ep
 export async function updateEpic(
   repoPath: string,
   parent: number,
-  patch: Partial<Pick<EpicRun, "mode" | "status" | "agentProvider" | "model" | "effort">>,
+  patch: Partial<
+    Pick<EpicRun, "mode" | "status" | "agentProvider" | "model" | "effort" | "ignoreUsageCeiling">
+  >,
 ): Promise<Epic> {
   const r = await fetch(`/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, {
     method: "PUT",

@@ -18,6 +18,7 @@
     epicRunWhy,
     queuedBehind,
     queuePosition,
+    usageOverride,
   } from "../epic-panel";
   import type { EpicOthersFlag } from "../issues-panel";
   import EpicRunSteps from "./EpicRunSteps.svelte";
@@ -65,6 +66,8 @@
   const canApprove = $derived(epic.run.mode === "attended" && running);
   // #2624: this epic's place in the repo's epic queue (null = not queued).
   const position = $derived(queuePosition(drain?.runSummary, parent));
+  // Lifting the repo's usage ceiling for this run: offered while it halts there, else revocable.
+  const ceiling = $derived(usageOverride(epic, parent, drain));
 
   const inFlightText = $derived.by(() => {
     if (runState.inFlight.length) return runState.inFlight.map((n) => `#${n}`).join(", ");
@@ -143,6 +146,10 @@
 
   function setStatus(status: EpicRunStatus) {
     updateEpic(repoPath, parent, { status }).catch(updateFailed);
+  }
+
+  function setIgnoreCeiling(ignoreUsageCeiling: boolean) {
+    updateEpic(repoPath, parent, { ignoreUsageCeiling }).catch(updateFailed);
   }
 
   // Starting (or re-leading) while another epic leads supersedes it (the server keeps one epic
@@ -338,6 +345,21 @@
     <p class="note" class:alert={runState.tone === "halt"}>{note}</p>
   {/if}
 
+  {#if ceiling === "offer"}
+    <div class="ceiling">
+      <button class="gbtn" type="button" onclick={() => setIgnoreCeiling(true)}
+        >{m.epic_usage_ignore()}</button
+      >
+    </div>
+  {:else if ceiling === "active"}
+    <div class="ceiling">
+      <p class="note alert">{m.epic_usage_ignored_note()}</p>
+      <button class="gbtn" type="button" onclick={() => setIgnoreCeiling(false)}
+        >{m.epic_usage_respect()}</button
+      >
+    </div>
+  {/if}
+
   {#if othersFlag}
     <p class="others-notice">
       <span class="others-glyph" aria-hidden="true">⚠</span>{othersNotice}
@@ -388,6 +410,12 @@
   }
   .note.alert {
     color: var(--color-amber);
+  }
+  .ceiling {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 
   /* Why the epic does not run — the answer the operator came for, so it reads as body text. */

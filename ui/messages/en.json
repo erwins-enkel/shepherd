@@ -6439,5 +6439,8 @@
   "native_runner_runtime_restart": "Restart required",
   "native_runner_runtime_offline": "Offline",
   "native_runner_runtime_unknown": "Unknown",
-  "drain_paused_usage_ceiling": "Paused: usage {pct}% ≥ ceiling {ceiling}%"
+  "drain_paused_usage_ceiling": "Paused: usage {pct}% ≥ ceiling {ceiling}%",
+  "epic_usage_ignore": "Ignore usage ceiling",
+  "epic_usage_ignored_note": "The usage ceiling is ignored for this run.",
+  "epic_usage_respect": "Respect it again"
 }

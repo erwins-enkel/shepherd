@@ -6,6 +6,18 @@
   flex-direction: column;
   gap: 6px;
 }
+/* The panel's sections (this Shepherd, machines, order) stand apart from what precedes them. */
+* + .mch-block {
+  margin-top: 20px;
+}
+/* A section title with its action on the right; wraps under it on a narrow screen. */
+.mch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
 .mch-micro {
   font-size: var(--fs-meta);
   letter-spacing: 0.18em;

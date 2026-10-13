@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import {
     checkInstanceCapabilities,
     getInstance,
@@ -45,6 +45,9 @@
   let loading = $state(true);
   let loadFailed = $state(false);
   let now = $state(Date.now());
+  /** The connect form is folded behind the list header's toggle until asked for. */
+  let connectOpen = $state(false);
+  let connectToggle = $state<HTMLButtonElement>();
 
   async function loadSelf() {
     try {
@@ -77,6 +80,17 @@
 
   function drop(instanceId: string) {
     machines = machines.filter((x) => x.instanceId !== instanceId);
+  }
+
+  async function closeConnect() {
+    connectOpen = false;
+    await tick();
+    connectToggle?.focus();
+  }
+
+  function connected(instance: RemoteInstance) {
+    upsert(instance);
+    void closeConnect();
   }
 
   async function checkCapabilities() {
@@ -207,7 +221,19 @@
 </div>
 
 <div class="mch-block">
-  <span class="mch-micro"><HighlightText text={m.settings_machines_list_title()} {query} /></span>
+  <div class="mch-head">
+    <span class="mch-micro"><HighlightText text={m.settings_machines_list_title()} {query} /></span>
+    <button
+      type="button"
+      class="set-gbtn"
+      aria-expanded={connectOpen}
+      bind:this={connectToggle}
+      onclick={() => (connectOpen = !connectOpen)}
+    >
+      <span aria-hidden="true">+</span>
+      <HighlightText text={m.settings_machines_connect_title()} {query} />
+    </button>
+  </div>
   {#if loading}
     <p class="mch-hint">{m.common_loading()}</p>
   {:else if machines.length === 0 && !loadFailed}
@@ -225,9 +251,13 @@
       <button type="button" class="set-gbtn" onclick={loadMachines}>{m.common_retry()}</button>
     </div>
   {/if}
+  {#if connectOpen}
+    <MachineConnectForm onconnected={connected} oncancel={closeConnect} />
+  {/if}
 </div>
 
-{#if order}
+<!-- Only once a machine is connected: before that there is nothing for the order to rank. -->
+{#if order && machines.length > 0}
   <!-- The order the automatic machine choice (#2772) ranks fitting machines by. -->
   <div class="mch-block">
     <span class="mch-micro"><HighlightText text={m.settings_machines_order_title()} {query} /></span
@@ -248,5 +278,3 @@
     {#if orderError}<p class="mch-hint mch-err" role="alert">{orderError}</p>{/if}
   </div>
 {/if}
-
-<MachineConnectForm {query} onconnected={upsert} />

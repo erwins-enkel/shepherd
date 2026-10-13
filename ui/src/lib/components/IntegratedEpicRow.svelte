@@ -18,17 +18,19 @@
     nowMs?: number;
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
-    onland: (repoPath: string, parent: number) => void;
+    onland: (repoPath: string, parent: number) => Promise<void>;
     onresolveconflicts?: (repoPath: string, parent: number) => void;
     onrepairci?: (repoPath: string, parent: number) => Promise<boolean>;
     onopensession?: (id: string) => void;
   } = $props();
   let open = $state(false);
   let childrenOpen = $state(false);
+  // The land POST runs the merge before answering; show it as in flight until it settles.
+  let landing = $state(false);
   const repoName = $derived(epic.repoPath.split("/").filter(Boolean).at(-1) ?? epic.repoPath);
   const total = $derived(epic.children.length);
   const included = $derived(epic.children.filter((c) => c.integrated).length);
-  const status = $derived(deriveIntegratedEpicStatus(epic));
+  const status = $derived(deriveIntegratedEpicStatus(epic, false, landing));
   const turnLabel = $derived(
     {
       "nothing-to-do": m.integrated_epics_turn_nothing(),
@@ -47,7 +49,12 @@
         ? m.integrated_epics_heading_repairing_conflicts()
         : m.integrated_epics_heading_repairing_ci(),
   );
-  const summary = $derived.by(() => {
+  const summary = $derived(
+    status.situation === "landing"
+      ? m.integrated_epics_short_landing({ number: epic.landingPrNumber! })
+      : situationSummary(),
+  );
+  function situationSummary() {
     const number = epic.landingPrNumber;
     switch (status.situation) {
       case "preparing":
@@ -83,7 +90,15 @@
       case "not-ready":
         return m.integrated_epics_heading_not_ready();
     }
-  });
+  }
+  async function handleLand(repoPath: string, parent: number) {
+    landing = true;
+    try {
+      await onland(repoPath, parent);
+    } finally {
+      landing = false;
+    }
+  }
 </script>
 
 <div
@@ -127,7 +142,8 @@
   {#if open}
     <IntegratedEpicLanding
       {epic}
-      {onland}
+      {landing}
+      onland={handleLand}
       {ondismiss}
       {onackmigrations}
       {onresolveconflicts}

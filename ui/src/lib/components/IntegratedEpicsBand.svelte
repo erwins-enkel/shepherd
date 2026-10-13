@@ -21,7 +21,7 @@
     collapsed?: boolean | null;
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
-    onland: (repoPath: string, parent: number) => void;
+    onland: (repoPath: string, parent: number) => Promise<void>;
     onresolveconflicts?: (repoPath: string, parent: number) => void;
     onrepairci?: (repoPath: string, parent: number) => Promise<boolean>;
     onopensession?: (id: string) => void;

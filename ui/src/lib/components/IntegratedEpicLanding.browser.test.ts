@@ -120,6 +120,18 @@ describe("IntegratedEpicLanding next step", () => {
     await page.getByRole("button", { name: "Yes, land now" }).click();
     expect(p.onland).toHaveBeenCalledExactlyOnceWith("/repo", 327);
   });
+  it("an in-flight land shows a busy button and hides the locked land and remove", async () => {
+    await render(IntegratedEpicLanding, { ...props(epic({ landingReady: true })), landing: true });
+    await expect
+      .element(page.getByRole("button", { name: "Landing…", exact: true }))
+      .toBeDisabled();
+    await expect
+      .element(page.getByRole("button", { name: "Landing…", exact: true }))
+      .toHaveAttribute("aria-busy", "true");
+    await expect.element(page.getByText("Merging landing PR #55…")).toBeInTheDocument();
+    expect(button("Land epic")).toBeUndefined();
+    expect(button("Remove from list")).toBeUndefined();
+  });
   it("cancel does not land or remove", async () => {
     const p = props(epic({ landingReady: true }));
     await render(IntegratedEpicLanding, p);

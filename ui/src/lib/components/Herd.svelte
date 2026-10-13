@@ -232,7 +232,7 @@
     // dismiss a completed epic from the band; page owns the optimistic remove + reconcile
     ondismissepic?: (repoPath: string, parent: number) => void;
     // merge the landing PR for a completed epic (#1039); server emits epic:completed on success
-    onlandepic?: (repoPath: string, parent: number) => void;
+    onlandepic?: (repoPath: string, parent: number) => Promise<void>;
     /** #1841: dispatch a conflict-rework agent for a completed epic's conflicting landing PR. */
     onresolveconflictsepic?: (repoPath: string, parent: number) => void;
     /** #2872: dispatch a CI-repair agent for a completed epic's red landing PR; false = not started. */
@@ -727,7 +727,7 @@
       bind:collapsed={epicsBandCollapsed}
       ondismiss={ondismissepic ?? (() => {})}
       onackmigrations={onackmigrationsepic ?? (() => {})}
-      onland={onlandepic ?? (() => {})}
+      onland={onlandepic ?? (async () => {})}
       onresolveconflicts={onresolveconflictsepic ?? (() => {})}
       onrepairci={onrepairciepic ?? (async () => false)}
       onopensession={onopensessionepic ?? (() => {})}

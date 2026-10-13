@@ -859,6 +859,9 @@ components:
           $ref: "#/components/schemas/SessionHost"
         connection:
           $ref: "#/components/schemas/SessionConnection"
+        git:
+          $ref: "#/components/schemas/GitState"
+          description: "Set only on a session mirrored from a connected machine: its PR state as that machine reports it, so a client can place it in the same lifecycle stage as a local session. Absent when the machine reported none. A `session:git` frame about a mirrored session carries the new one. This instance's own sessions never carry it; read GET /api/git."
         launchMetadata:
           $ref: "#/components/schemas/SessionLaunchMetadata"
     SessionLaunchMetadata:

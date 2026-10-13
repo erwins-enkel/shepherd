@@ -146,6 +146,11 @@ function epicRunFromRow(row: EpicRunRow): EpicRun {
   return { ...row, ignoreUsageCeiling: row.ignoreUsageCeiling === 1 };
 }
 
+/** The persisted override: only a running run may lift the ceiling, so every other write clears it. */
+function epicRunCeilingColumn(r: EpicRun): 0 | 1 {
+  return r.status === "running" && r.ignoreUsageCeiling ? 1 : 0;
+}
+
 const PERSISTED_GIT_KINDS = new Set<unknown>(["github", "gitea", "local"]);
 const PERSISTED_PR_STATES = new Set<unknown>(["none", "open", "merged", "closed"]);
 const PERSISTED_CHECK_STATES = new Set<unknown>(["none", "pending", "success", "failure"]);
@@ -2646,8 +2651,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           r.agentProvider ?? null,
           r.agentProvider ? (r.model ?? null) : null,
           r.agentProvider ? (r.effort ?? null) : null,
-          // Only a running run may lift the ceiling: every other write clears the override.
-          r.status === "running" && r.ignoreUsageCeiling ? 1 : 0,
+          epicRunCeilingColumn(r),
           Date.now(),
         ],
       );

@@ -9762,10 +9762,15 @@ function mergeEpicRunPatch(
   };
 }
 
-/** Only a running run may lift the usage ceiling: it lives on the run row and is cleared whenever
+/** The patched run, or why it is refused: 400 for an invalid patch, 409 for lifting the usage
+ *  ceiling on a run that is not running — the override lives on the run row and is cleared whenever
  *  the run leaves running, so lifting it for a paused, idle or queued epic would be a silent no-op. */
-function liftsCeilingWhileNotRunning(patch: EpicRunPatch, merged: EpicRun): boolean {
-  return patch.ignoreUsageCeiling === true && merged.status !== "running";
+function patchedEpicRun(base: EpicRun, patch: EpicRunPatch): EpicRun | Response {
+  const merged = mergeEpicRunPatch(base, patch);
+  if (merged === null) return json({ error: "invalid epic run patch" }, 400);
+  if (patch.ignoreUsageCeiling === true && merged.status !== "running")
+    return json({ error: "epic not running" }, 409);
+  return merged;
 }
 
 // GET /api/epics?repo= — list epic parent issues for a repo.
@@ -10261,9 +10266,8 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
       },
       400,
     );
-  const merged = mergeEpicRunPatch(base, patch);
-  if (merged === null) return json({ error: "invalid epic run patch" }, 400);
-  if (liftsCeilingWhileNotRunning(patch, merged)) return json({ error: "epic not running" }, 409);
+  const merged = patchedEpicRun(base, patch);
+  if (merged instanceof Response) return merged;
   const leader = leadingRun(deps.store, dir);
   const via = requestTokenName(deps.store, token);
   const saved = saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via);

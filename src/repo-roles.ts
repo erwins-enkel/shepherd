@@ -1,5 +1,5 @@
-import { execFileSync } from "./instrument";
 import { execFile } from "node:child_process";
+import { execFileSync } from "./instrument";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -10,6 +10,7 @@ export type IntegratedEpicSituation =
   | "nothing-to-land"
   | "ready"
   | "confirming"
+  | "landing"
   | "landed"
   | "error"
   | "not-ready";
@@ -52,6 +53,7 @@ const SITUATION_TURN: Record<IntegratedEpicSituation, IntegratedEpicStatus["turn
   "not-ready": "your-turn",
   ready: "ready",
   confirming: "ready",
+  landing: "nothing-to-do",
   landed: "done",
 };
 const TURN_POLICY: Record<
@@ -98,12 +100,23 @@ function landingSituation(epic: CompletedEpic, confirming: boolean): IntegratedE
   return "checking";
 }
 
-/** Shared display decision for the card, band order and Herd placement. The server owns merge readiness. */
+/** The operator's land request is in flight (the merge runs inside the POST) on a still-open PR. */
+function situationOf(
+  epic: CompletedEpic,
+  confirming: boolean,
+  landing: boolean,
+): IntegratedEpicSituation {
+  return landing && epic.landingState === "open" ? "landing" : landingSituation(epic, confirming);
+}
+
+/** Shared display decision for the card, band order and Herd placement. The server owns merge readiness.
+ *  `landing`: the operator's land request is still in flight. */
 export function deriveIntegratedEpicStatus(
   epic: CompletedEpic,
   confirming = false,
+  landing = false,
 ): IntegratedEpicStatus {
-  const situation = landingSituation(epic, confirming);
+  const situation = situationOf(epic, confirming, landing);
   const turn = SITUATION_TURN[situation];
   return {
     situation,

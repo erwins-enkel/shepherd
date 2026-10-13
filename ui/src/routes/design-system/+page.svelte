@@ -903,7 +903,7 @@ const overview: TooltipExplanation = {
     <div style="max-width: 340px">
       <IntegratedEpicRow
         epic={epicExample}
-        onland={() => {}}
+        onland={async () => {}}
         ondismiss={() => {}}
         onackmigrations={() => {}}
       />
@@ -916,7 +916,7 @@ const overview: TooltipExplanation = {
           landingReady: false,
           landingStranded: false,
         }}
-        onland={() => {}}
+        onland={async () => {}}
         ondismiss={() => {}}
         onackmigrations={() => {}}
       />

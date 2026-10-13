@@ -150,6 +150,17 @@ describe("deriveIntegratedEpicStatus", () => {
     );
   });
 
+  it("an in-flight land request reads as landing and blocks a second land", () => {
+    expect(deriveIntegratedEpicStatus(landing({ landingReady: true }), false, true)).toMatchObject({
+      situation: "landing",
+      turn: "nothing-to-do",
+      canLand: false,
+    });
+    expect(
+      deriveIntegratedEpicStatus(landing({ landingState: "merged" }), false, true).situation,
+    ).toBe("landed");
+  });
+
   it("live repair outranks conflicts and failing CI, and does not ask the operator", () => {
     expect(
       deriveIntegratedEpicStatus(

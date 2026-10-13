@@ -57,6 +57,25 @@ describe("IntegratedEpicRow", () => {
       .toBeInTheDocument();
     expect(document.querySelector(".landing-path")).toBeNull();
   });
+  it("shows the land as in flight until the request settles", async () => {
+    let settle!: () => void;
+    const p = { ...props(epic()), onland: vi.fn(() => new Promise<void>((r) => (settle = r))) };
+    await render(IntegratedEpicRow, p);
+    await page.getByRole("button", { name: "Expand epic #327" }).click();
+    await page.getByRole("button", { name: "Land epic", exact: true }).click();
+    await page.getByRole("button", { name: "Yes, land now" }).click();
+    const busy = page.getByRole("button", { name: "Landing…", exact: true });
+    await expect.element(busy).toBeDisabled();
+    expect(p.onland).toHaveBeenCalledExactlyOnceWith("/repo", 327);
+    await page.getByRole("button", { name: "Collapse epic #327" }).click();
+    await expect
+      .element(page.getByText("Merging landing PR #55…", { exact: true }))
+      .toBeInTheDocument();
+    settle();
+    await expect
+      .element(page.getByText("Landing PR #55 is green", { exact: true }))
+      .toBeInTheDocument();
+  });
   it("shows all tasks done separately from PR inclusion", async () => {
     await render(IntegratedEpicRow, props(epic()));
     await page.getByRole("button", { name: "Expand epic #327" }).click();

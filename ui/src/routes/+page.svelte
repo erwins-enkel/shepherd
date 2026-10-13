@@ -2973,10 +2973,15 @@
   });
 
   // Merge the landing PR for a completed epic (#1039). Server emits epic:completed on success
-  // (landingState:"merged") so the band updates live — no optimistic mutation needed here.
+  // (landingState:"merged") so the band updates live — no optimistic mutation needed here. The
+  // reseed is awaited so the card's in-flight state hands straight over to "Merged" even if the
+  // WS event lags.
   async function onLandEpic(repoPath: string, parent: number) {
     try {
       await landEpic(repoPath, parent);
+      await getCompletedEpics()
+        .then((l) => store.seedCompletedEpics(l))
+        .catch(() => {});
     } catch (err) {
       const msg =
         err instanceof Error && err.message ? err.message : m.integrated_epics_land_failed();

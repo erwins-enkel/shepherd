@@ -14,6 +14,7 @@
 
   let {
     epic,
+    landing = false,
     onland,
     ondismiss,
     onackmigrations,
@@ -24,7 +25,9 @@
     children,
   }: {
     epic: CompletedEpic;
-    onland: (repoPath: string, parent: number) => void;
+    /** The operator's land request is in flight. */
+    landing?: boolean;
+    onland: (repoPath: string, parent: number) => Promise<void>;
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
     onresolveconflicts?: (repoPath: string, parent: number) => void;
@@ -37,13 +40,23 @@
   let confirming = $state(false);
   let repairStarting = $state(false);
   let repairFailed = $state(false);
-  const status = $derived(deriveIntegratedEpicStatus(epic, confirming));
+  const status = $derived(deriveIntegratedEpicStatus(epic, confirming, landing));
   const total = $derived(epic.children.length);
   const included = $derived(epic.children.filter((c) => c.integrated).length);
   const pendingAck = $derived(epic.migrationPaths.length > 0 && epic.migrationsAckedAt == null);
   const ackInstead = $derived(epic.landingState !== "open" && pendingAck);
   const fieldRemoval = $derived(
     status.situation === "nothing-to-land" || status.situation === "landed",
+  );
+  // While a land request is in flight neither the locked Land button nor the remove footer shows.
+  const lockedLand = $derived(
+    epic.landingState === "open" && !status.canLand && status.situation !== "landing",
+  );
+  const showFooter = $derived(
+    !fieldRemoval &&
+      !ackInstead &&
+      status.situation !== "confirming" &&
+      status.situation !== "landing",
   );
   const reasonId = $props.id();
   const parentUrl = $derived.by(() => {
@@ -175,6 +188,12 @@
         label: m.integrated_epics_status_ready(),
         reason: "",
       }),
+      landing: () => ({
+        heading: m.integrated_epics_heading_landing({ number: number! }),
+        body: m.integrated_epics_body_landing(),
+        label: m.integrated_epics_status_landing(),
+        reason: "",
+      }),
       landed: () => ({
         heading: m.integrated_epics_path_landed(),
         body:
@@ -208,7 +227,9 @@
           ? "failure"
           : status.situation === "conflicts" || status.situation === "error"
             ? "warn"
-            : ["preparing", "checking", "repairing", "ci-retrying"].includes(status.situation)
+            : ["preparing", "checking", "repairing", "ci-retrying", "landing"].includes(
+                  status.situation,
+                )
               ? "running"
               : "open",
   );
@@ -263,7 +284,7 @@
   function handleLandConfirm() {
     if (!deriveIntegratedEpicStatus(epic).canLand) return;
     confirming = false;
-    onland(epic.repoPath, epic.parentIssueNumber);
+    void onland(epic.repoPath, epic.parentIssueNumber);
   }
 </script>
 
@@ -310,6 +331,10 @@
         >
         <button class="gbtn" type="button" onclick={() => (confirming = false)}
           >{m.common_cancel()}</button
+        >
+      {:else if status.situation === "landing"}
+        <button class="gbtn primary" type="button" disabled aria-busy="true"
+          >{m.integrated_epics_land_in_progress()}</button
         >
       {:else if status.situation === "ready"}
         <button class="gbtn primary" type="button" onclick={() => (confirming = true)}
@@ -372,7 +397,7 @@
           >{m.integrated_epics_open_pr()}</a
         >
       {/if}
-      {#if epic.landingState === "open" && !status.canLand}
+      {#if lockedLand}
         <div class="locked-action">
           <button class="gbtn land" type="button" disabled aria-describedby={reasonId}>
             <svg
@@ -420,7 +445,7 @@
 
   {@render children?.()}
 
-  {#if !fieldRemoval && !ackInstead && status.situation !== "confirming"}
+  {#if showFooter}
     <footer>
       <button
         class="gbtn"

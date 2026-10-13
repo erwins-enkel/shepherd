@@ -103,6 +103,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** The list header's toggle that unfolds the connect form. */
+const connectToggle = () =>
+  page.getByRole("button", { name: m.settings_machines_connect_title(), exact: true });
+/** The form's submit button; `exact`, since the toggle's name contains it in EN. */
+const connectButton = () =>
+  page.getByRole("button", { name: m.settings_machines_connect_button(), exact: true });
+
 describe("SettingsMachinesPanel", () => {
   it("shows this Shepherd's identity and an empty list", async () => {
     stubApi({});
@@ -110,7 +117,34 @@ describe("SettingsMachinesPanel", () => {
     await expect.element(page.getByText("moes-tavern")).toBeVisible();
     await expect.element(page.getByText(SELF.instanceId)).toBeVisible();
     await expect.element(page.getByText(m.settings_machines_empty())).toBeVisible();
+    // The connect form stays folded behind the list header's toggle until asked for.
+    await expect.element(connectToggle()).toHaveAttribute("aria-expanded", "false");
+    await expect.element(page.getByText(m.settings_machines_trust())).not.toBeInTheDocument();
+  });
+
+  it("unfolds the connect form from the list header and focuses the address", async () => {
+    stubApi({});
+    render(SettingsMachinesPanel);
+    await connectToggle().click();
+    await expect.element(connectToggle()).toHaveAttribute("aria-expanded", "true");
+    await expect.element(page.getByLabelText(m.settings_machines_url_label())).toHaveFocus();
     await expect.element(page.getByText(m.settings_machines_trust())).toBeVisible();
+  });
+
+  it("folds the form on cancel and forgets what was typed", async () => {
+    stubApi({});
+    render(SettingsMachinesPanel);
+    await connectToggle().click();
+    await page.getByLabelText(m.settings_machines_url_label()).fill("https://mac.example.ts.net");
+    await page.getByLabelText(m.settings_machines_token_label()).fill("shp_secret");
+    await page.getByRole("button", { name: m.common_cancel(), exact: true }).click();
+    await expect
+      .element(page.getByLabelText(m.settings_machines_url_label()))
+      .not.toBeInTheDocument();
+    await expect.element(connectToggle()).toHaveFocus();
+    await connectToggle().click();
+    await expect.element(page.getByLabelText(m.settings_machines_url_label())).toHaveValue("");
+    await expect.element(page.getByLabelText(m.settings_machines_token_label())).toHaveValue("");
   });
 
   it("renders each connection state distinctly with its next step", async () => {
@@ -145,10 +179,11 @@ describe("SettingsMachinesPanel", () => {
     const added = machine({ name: "MacBook" });
     const calls = stubApi({ connect: () => ({ payload: { instance: added }, status: 201 }) });
     render(SettingsMachinesPanel);
+    await connectToggle().click();
     await page.getByLabelText(m.settings_machines_url_label()).fill("https://mac.example.ts.net");
     await page.getByLabelText(m.settings_machines_token_label()).fill("shp_secret");
     await page.getByLabelText(m.settings_machines_label_label()).fill("MacBook");
-    await page.getByRole("button", { name: m.settings_machines_connect_button() }).click();
+    await connectButton().click();
     await expect.element(page.getByText("MacBook", { exact: true })).toBeVisible();
     const post = calls.find((c) => c.method === "POST");
     expect(JSON.parse(post!.body)).toEqual({
@@ -156,7 +191,11 @@ describe("SettingsMachinesPanel", () => {
       token: "shp_secret",
       label: "MacBook",
     });
-    await expect.element(page.getByLabelText(m.settings_machines_token_label())).toHaveValue("");
+    // A connected machine folds the form away, token and all.
+    await expect
+      .element(page.getByLabelText(m.settings_machines_token_label()))
+      .not.toBeInTheDocument();
+    await expect.element(connectToggle()).toHaveAttribute("aria-expanded", "false");
   });
 
   it("explains a refused connection", async () => {
@@ -167,14 +206,17 @@ describe("SettingsMachinesPanel", () => {
       }),
     });
     render(SettingsMachinesPanel);
+    await connectToggle().click();
     await page.getByLabelText(m.settings_machines_url_label()).fill("https://mac.example.ts.net");
     await page.getByLabelText(m.settings_machines_token_label()).fill("shp_secret");
-    await page.getByRole("button", { name: m.settings_machines_connect_button() }).click();
+    await connectButton().click();
     await expect
       .element(page.getByRole("alert"))
       .toHaveTextContent(
         `${m.settings_machines_status_unauthorized()}: ${m.settings_machines_hint_token_restricted()}`,
       );
+    // A refusal keeps the form open so the operator can fix what it names.
+    await expect.element(page.getByLabelText(m.settings_machines_url_label())).toBeVisible();
   });
 
   it("removes a machine after confirmation", async () => {
@@ -261,6 +303,15 @@ describe("SettingsMachinesPanel", () => {
       .poll(() => calls.find((c) => c.url === "/api/settings" && c.method === "PUT")?.body)
       .toBe(JSON.stringify({ machinePlatformOrder: ["macos", "linux"] }));
     await expect.element(select).toHaveValue("macos,linux");
+  });
+
+  it("leaves the platform order out while no machine is connected", async () => {
+    stubApi({ order: ["linux", "macos"] });
+    render(SettingsMachinesPanel);
+    await expect.element(page.getByText(m.settings_machines_empty())).toBeVisible();
+    await expect
+      .element(page.getByRole("combobox", { name: m.settings_machines_order_label() }))
+      .not.toBeInTheDocument();
   });
 
   it("shows a Windows machine as not released", async () => {

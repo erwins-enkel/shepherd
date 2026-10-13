@@ -717,6 +717,26 @@ test("PUT /api/repo-roles back to the committed value closes the pending PR", as
   expect(hasRef(remote, `refs/heads/${ROLES_PR_BRANCH}`)).toBe(false);
 });
 
+test("PUT /api/repo-roles back to the committed value keeps a PR it could not close", async () => {
+  // An open roles PR with auto-merge armed would still land its value, so it must stay visible.
+  const { remote, clone } = remoteWithClone(config.repoRoot);
+  protectMain(remote);
+  const { forge } = fakeRolesForge({
+    closePr: async () => {
+      throw new Error("HTTP 502");
+    },
+  });
+  const call = rolesApp(forge);
+  await call("PUT", clone, { reviewer: "kai" });
+
+  const res = await call("PUT", clone, { reviewer: null });
+  expect(res.status).toBe(502);
+  const body = await res.json();
+  expect(body.pushError).toBe("push rejected");
+  expect(body.pending).toMatchObject({ number: 41, roles: { reviewer: "kai", merger: null } });
+  expect((await (await call("GET", clone)).json()).pending).toMatchObject({ number: 41 });
+});
+
 test("POST /api/repo-roles/auto-merge: 409 without host support", async () => {
   const { clone } = remoteWithClone(config.repoRoot);
   const res = await rolesApp(fakeRolesForge().forge)(

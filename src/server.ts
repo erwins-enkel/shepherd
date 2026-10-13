@@ -2768,8 +2768,9 @@ async function setRepoRoles(
 ): Promise<Response> {
   const body = (await req.json().catch(() => null)) as Partial<RepoRoles> | null;
   if (!body) return json({ error: "invalid body" }, 400);
-  const cur = readRepoRoles(dir);
+  // Host state first: finding the roles PR merged refreshes the committed roles read below.
   const { pending, settings } = await readRolesHostState(dir, forge);
+  const cur = readRepoRoles(dir);
   // What the panel shows: an open roles PR's value wins over the committed one.
   const effective = pending?.roles ?? cur;
   const next: RepoRoles = {
@@ -2786,8 +2787,10 @@ async function setRepoRoles(
   if (sameRoles(next, effective)) return json(rolesBody(cur, me, pending, settings));
   if (pending && forge && sameRoles(next, cur)) {
     // Back to what the default branch already says: the open PR would only undo that.
-    await closeRolesPr(dir, forge, pending.number);
-    return json(rolesBody(cur, me, null, settings));
+    if (await closeRolesPr(dir, forge, pending.number)) {
+      return json(rolesBody(cur, me, null, settings));
+    }
+    return json({ ...rolesBody(cur, me, pending, settings), pushError: "push rejected" }, 502);
   }
   let saved: Awaited<ReturnType<typeof saveRepoRoles>>;
   try {

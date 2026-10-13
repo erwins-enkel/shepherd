@@ -507,21 +507,25 @@ async function armAutoMerge(
 }
 
 /** Close a roles PR whose change no longer applies (reverted, or landed directly) and take
- *  its branch down. Best-effort: a leftover PR is harmless next to a correct default branch. */
+ *  its branch down. Returns false when it may still be open: the marker then stays, so the
+ *  panel keeps showing a PR that — with auto-merge armed — would still land its value. */
 export async function closeRolesPr(
   repoPath: string,
   forge: GitForge,
   prNumber: number,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await forge.closePr?.(prNumber);
+    // Also closes the PR on hosts without a close API.
     await gitAsync(repoPath, ["push", "--no-verify", "origin", `:refs/heads/${ROLES_PR_BRANCH}`], {
       timeout: PUSH_TIMEOUT_MS,
     });
   } catch (err) {
     console.warn(`[repo-roles] could not close roles PR #${prNumber}:`, err);
+    return false;
   }
   await dropRolesPrMarker(repoPath);
+  return true;
 }
 
 /** Persist roles: a direct push to the default branch, or — when the host refuses it — the

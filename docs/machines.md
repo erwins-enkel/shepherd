@@ -15,11 +15,11 @@ moves to another machine.
 - **A machine is another Shepherd.** You connect it with its address and an access token created
   on it. Each side connects the other on its own; connecting in both directions is fine.
 - **Sessions stay where they run.** A machine keeps running its own sessions, including those
-  started there directly or by its own automation. Your Shepherd mirrors them into its herd, among
-  its own sessions in the lifecycle group their state belongs to, labelled with the machine
-  (`MacBook · TASK-07`), and never treats them as its own: no poller, autopilot, merge train, drain
-  or reaper on your side touches them. A mirrored session is never passed on, so two machines
-  connected to each other neither loop nor show a session twice.
+  started there directly or by its own automation. Your Shepherd shows them in its herd, among its
+  own sessions in the lifecycle group their state belongs to, labelled with the machine they run
+  on (`MacBook · TASK-07`), and never treats them as its own: no poller, autopilot, merge train,
+  drain or reaper on your side touches them. A session on another machine is never passed on, so
+  two machines connected to each other neither loop nor show a session twice.
 - **Actions go to the machine.** The terminal, steering, stopping, archiving, the diff, the files
   and the preview are sent to the machine and run there. While the machine can't be reached,
   nothing is sent and nothing runs on your side in its place.
@@ -249,14 +249,14 @@ unknown start or a refusal. None of them falls back to another machine.
 
 ## Work with its sessions
 
-A mirrored session sits in the herd's lifecycle groups among your own, by the PR state its
-machine reports: one that waits on you is under **Your turn**, with a label in its machine's
+A session on another machine sits in the herd's lifecycle groups among your own, by the PR state
+its machine reports: one that waits on you is under **Your turn**, with a label in its machine's
 color. The machine bar under the lenses narrows the herd to one machine; it lists every connected
 machine with its session count, one with none too, and marks one that can't be reached as
 **disconnected**. The jump to the next waiting session includes blocked sessions on connected
 machines.
 
-Select a mirrored session in the herd. From the coordinator you can use its terminal, steer, stop
+Select a session on another machine in the herd. From the coordinator you can use its terminal, steer, stop
 and archive it, read its activity, diff and files, answer its plan, and start or open its preview,
 which opens from the machine's own tailnet address. Merging, relaunching and the remaining actions
 are not offered for it yet: open the Shepherd on that machine for those.

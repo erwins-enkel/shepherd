@@ -65,6 +65,9 @@ export function countsPlan(
 interface SlugState {
   fp: RepoFingerprint;
   observedAt: number;
+  /** Start time of the run that recorded `fp`; -Infinity when rehydrated. A run that started
+   *  earlier never overwrites it. */
+  startedAt: number;
   rehydrated?: boolean;
 }
 
@@ -77,9 +80,10 @@ interface SlugState {
  *
  * - Background: every `intervalMs`, unless the GraphQL bucket is in backoff or below `reserve`
  *   (until its reset) — then it waits instead of competing with agents for the last points.
- * - Demand: {@link ensureFresh} for an operator opening a view (answers at once if a run is at
- *   most `minGapMs` old), {@link refreshSoon} after an event that likely changed GitHub (a PR
- *   opened or merged). Both run under a low budget; only the backoff stops them.
+ * - Demand: {@link ensureFresh} for an operator opening one repo's view (fingerprints just that
+ *   repo unless it was seen at most `minGapMs` ago), {@link refreshSoon} after an event that likely
+ *   changed GitHub (a PR opened or merged). Both run under a low budget; only the backoff stops
+ *   them.
  * - Coverage ({@link covered}): rehydrated slugs until their first observation, then slugs seen
  *   within three intervals or while background refresh is paused — serve the cache during backoff.
  *
@@ -94,7 +98,9 @@ export class RepoFingerprintService {
   private readonly minGapMs: number;
   private readonly state = new Map<string, SlugState>();
   private inflight: Promise<void> | null = null;
-  /** Start time of the latest run. */
+  /** {@link ensureFresh} runs in flight, by slug. */
+  private readonly scopedInflight = new Map<string, Promise<void>>();
+  /** Start time of the latest fleet run. */
   private lastRunAt = Number.NEGATIVE_INFINITY;
   private pending: Promise<void> | null = null;
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -108,12 +114,17 @@ export class RepoFingerprintService {
     this.reserve = deps.reserve ?? 1_000;
     this.minGapMs = deps.minGapMs ?? 30_000;
     for (const { slug, fp, observedAt } of deps.cache?.fingerprints() ?? []) {
-      this.state.set(slug, { fp, observedAt, rehydrated: true });
+      this.state.set(slug, {
+        fp,
+        observedAt,
+        startedAt: Number.NEGATIVE_INFINITY,
+        rehydrated: true,
+      });
     }
   }
 
-  /** Background run: skipped while paused, or when a demanded run is fresher than half an
-   *  interval. */
+  /** Background run: skipped while paused, or when a fleet run demanded by {@link refreshSoon}
+   *  is fresher than half an interval. */
   async tick(): Promise<void> {
     if (this.backgroundPaused()) {
       if (!this.pausedLogged) {
@@ -133,12 +144,25 @@ export class RepoFingerprintService {
     await this.run();
   }
 
-  /** Make sure a fingerprint at most `minGapMs` old exists, running one now if needed — for an
-   *  operator opening a view. Awaits a run already in flight, since its answer is about to land. */
-  ensureFresh(): Promise<void> {
+  /** Make sure `slug`'s fingerprint is at most `minGapMs` old, fingerprinting just that repo now
+   *  if needed — for an operator opening its view. Never waits on a fleet run: one query for every
+   *  tracked repo takes seconds once there are dozens. Calls for the same slug share one run. */
+  ensureFresh(slug: string): Promise<void> {
     if (this.deps.rateLimit().blocked) return Promise.resolve();
-    if (this.now() - this.lastRunAt < this.minGapMs) return this.inflight ?? Promise.resolve();
-    return this.run();
+    const s = this.state.get(slug);
+    if (s && !s.rehydrated && this.now() - s.observedAt < this.minGapMs) return Promise.resolve();
+    const inflight = this.scopedInflight.get(slug);
+    if (inflight) return inflight;
+    const targets = () => this.deps.listTargets().filter((t) => t.slug === slug);
+    const p = this.observe(targets, this.now(), false)
+      .catch((err: unknown) => {
+        console.warn(`[fingerprint] ${slug} run failed:`, err instanceof Error ? err.message : err);
+      })
+      .finally(() => {
+        if (this.scopedInflight.get(slug) === p) this.scopedInflight.delete(slug);
+      });
+    this.scopedInflight.set(slug, p);
+    return p;
   }
 
   /** Guarantee a run that STARTS after this call — no sooner than `minGapMs` after the last one;
@@ -209,11 +233,11 @@ export class RepoFingerprintService {
     return this.reserve + Math.round((foreign * left) / 3_600_000);
   }
 
-  /** Single-flight run. */
+  /** Single-flight fleet run over every tracked repo. */
   private run(): Promise<void> {
     if (this.inflight) return this.inflight;
     this.lastRunAt = this.now();
-    const p = this.observe()
+    const p = this.observe(() => this.deps.listTargets(), this.lastRunAt, true)
       .catch((err: unknown) => {
         console.warn("[fingerprint] run failed:", err instanceof Error ? err.message : err);
       })
@@ -224,44 +248,56 @@ export class RepoFingerprintService {
     return p;
   }
 
-  private async observe(): Promise<void> {
-    const targets = this.deps.listTargets();
+  /** Fingerprint `listTargets()` for a run started at `startedAt`. Only a `fleet` run counts
+   *  toward {@link backgroundReady}: broad boot work needs every repo covered, not just one. */
+  private async observe(
+    listTargets: () => FingerprintTarget[],
+    startedAt: number,
+    fleet: boolean,
+  ): Promise<void> {
+    const targets = listTargets();
     if (targets.length === 0) {
+      if (!fleet) return; // an untracked slug: nothing to fingerprint
       this.observed = true;
       await this.deps.onObserved({ changed: [], unchanged: [] });
       return;
     }
     const { fingerprints, rateLimit } = await this.deps.fetch(targets.map((t) => t.slug));
     const at = this.now();
-    if (fingerprints.size > 0) this.observed = true;
+    if (fleet && fingerprints.size > 0) this.observed = true;
     const observation: FingerprintObservation = { changed: [], unchanged: [] };
     for (const target of targets) {
       if (!fingerprints.has(target.slug)) continue; // its chunk failed — leave as it was
-      this.record(target, fingerprints.get(target.slug) ?? null, at, observation);
+      this.record(target, fingerprints.get(target.slug) ?? null, at, startedAt, observation);
     }
     logChanges(targets.length, observation.changed, rateLimit);
     await this.deps.onObserved(observation);
   }
 
-  /** Diff one repo's fresh fingerprint against the last and file it as changed or unchanged. */
+  /** Diff one repo's fresh fingerprint against the last and file it as changed or unchanged.
+   *  Skipped when a run that started later already recorded the repo — a slow fleet run must not
+   *  roll back a newer {@link ensureFresh} reading. */
   private record(
     target: FingerprintTarget,
     fp: RepoFingerprint | null,
     at: number,
+    startedAt: number,
     into: FingerprintObservation,
   ): void {
+    const prev = this.state.get(target.slug);
+    if (prev && prev.startedAt > startedAt) return;
     if (!fp) {
       const hadState = this.state.delete(target.slug); // unreadable now → consumers keep a TTL
       if (hadState || this.deps.cache?.get("fingerprint", target.slug))
         this.deps.cache?.invalidate(target.slug, ["fingerprint"]);
       return;
     }
-    const prev = this.state.get(target.slug);
     const issues = !prev || issuesKey(prev.fp) !== issuesKey(fp);
     const counts = !prev || countsKey(prev.fp) !== countsKey(fp);
     this.state.set(target.slug, {
       fp,
       observedAt: at,
+      startedAt,
     });
     this.deps.cache?.put("fingerprint", target.slug, null, fp, "", at);
     if (issues || counts) into.changed.push({ ...target, first: !prev, issues, counts });

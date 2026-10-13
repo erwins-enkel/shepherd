@@ -3985,7 +3985,10 @@ const appDeps: AppDeps = {
   loginRequests,
   browserToken,
   service,
-  fingerprint: { ensureFresh: () => fingerprint.ensureFresh(), coversRepo: fingerprintCoversRepo },
+  fingerprint: {
+    ensureFresh: (slug) => fingerprint.ensureFresh(slug),
+    coversRepo: fingerprintCoversRepo,
+  },
   readCodexAuthMode,
   telemetry,
   learnings: learningsSvc,

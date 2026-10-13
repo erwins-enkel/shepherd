@@ -713,6 +713,9 @@ public actor LocalServerSupervisor {
                                        instanceID: UUID().uuidString)
     launchIdentity = identity
     var childEnvironment = launch.environment
+    let updateHandoff = LocalAppUpdateHandoff(runDirectory: runDirectory)
+    try updateHandoff.prepare()
+    childEnvironment["SHEPHERD_APP_UPDATE_DIR"] = updateHandoff.directory.path
     childEnvironment["SHEPHERD_LOCAL_SUPERVISION"] = "1"
     childEnvironment["SHEPHERD_LOCAL_INSTANCE_ID"] = identity.instanceID
     // A one-shot private channel keeps the generated credential off stdout

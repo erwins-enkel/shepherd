@@ -644,6 +644,7 @@ export const config = {
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.
   // set SHEPHERD_HOST=0.0.0.0 to expose on all interfaces (not recommended).
   host: process.env.SHEPHERD_HOST ?? "127.0.0.1",
+  appUpdateDir: process.env.SHEPHERD_APP_UPDATE_DIR ?? "",
   localSupervision: process.env.SHEPHERD_LOCAL_SUPERVISION === "1",
   localInstanceID: process.env.SHEPHERD_LOCAL_INSTANCE_ID ?? "",
   // Stable port for the restricted agent-ingress listener (issue #1083). The hook URL

@@ -507,6 +507,7 @@ describe("starting a task on a connected machine", () => {
 
   test("naming this instance runs here; without a target a plain task stays on Linux", async () => {
     const linux = startNode("app");
+    linux.deps.hostPlatform = "linux";
     const mac = startNode("app-mac");
     mac.deps.hostPlatform = "macos";
     await connect(linux, mac);

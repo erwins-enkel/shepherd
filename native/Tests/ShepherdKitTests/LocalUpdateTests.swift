@@ -13,6 +13,57 @@ import Testing
     return (file, environment)
   }
 
+  @Test func supervisorInjectsTheAppOwnedUpdateDirectory() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let runDirectory = home.appendingPathComponent("custom-run")
+    let output = home.appendingPathComponent("handoff-path")
+    let launch = LocalServerLaunch(executable: URL(fileURLWithPath: "/bin/sh"),
+      arguments: ["-c", "printf '%s' \"$SHEPHERD_APP_UPDATE_DIR\" > '\(output.path)'; sleep 30"],
+      workingDirectory: home, environment: ["PATH": "/usr/bin:/bin", "SHEPHERD_APP_UPDATE_DIR": "/untrusted"])
+    let supervisor = LocalServerSupervisor(environment: LocalServerEnvironment(home: home),
+      log: LogRing(), health: { true }, runDirectory: runDirectory, launch: { launch })
+    await supervisor.start()
+    try await waitUntil { FileManager.default.fileExists(atPath: output.path) }
+    #expect(try String(contentsOf: output, encoding: .utf8) == runDirectory.appendingPathComponent("app-update").path)
+    await supervisor.stop()
+  }
+
+  @Test func appHandoffClaimsRequestsOnceInAPrivateDirectory() throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let handoff = LocalAppUpdateHandoff(runDirectory: home.appendingPathComponent("run"))
+    try handoff.prepare()
+    #expect(handoff.directory.lastPathComponent == "app-update")
+    let attributes = try FileManager.default.attributesOfItem(atPath: handoff.directory.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+    #expect(try !handoff.claim())
+    try #"{"requestedAt":123}"#.write(to: handoff.requestURL, atomically: true, encoding: .utf8)
+    #expect(try handoff.claim())
+    #expect(try !handoff.claim())
+    #expect(!FileManager.default.fileExists(atPath: handoff.requestURL.path))
+  }
+
+  @Test func appHandoffMirrorsEveryRedactedLineAndExactlyOneExitMarker() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let handoff = LocalAppUpdateHandoff(runDirectory: home.appendingPathComponent("run"))
+    try handoff.prepare()
+    try "handoff\n".write(to: handoff.logURL, atomically: true, encoding: .utf8)
+    let ring = LogRing(capacity: 1)
+    await ring.append("before mirror")
+    await ring.redact("secret")
+    try await ring.beginMirroring(to: handoff.logURL)
+    await ring.append("first secret")
+    await ring.append("second line")
+    await ring.append(LocalAppUpdateHandoff.exitMarker(7))
+    await ring.endMirroring()
+    await ring.append("after mirror")
+    #expect(try String(contentsOf: handoff.logURL, encoding: .utf8)
+      == "handoff\nfirst ••••\nsecond line\n__SHEPHERD_UPDATE_EXIT__:7\n")
+    #expect(await ring.lines == ["after mirror"])
+  }
+
   @Test func parserKeepsCountSHAsDateAndBoundedSubjects() throws {
     let date = Date(timeIntervalSince1970: 123)
     let lines = ["12", "abc1234", "def5678"] + (0..<12).map { _ in "def5678\t" + String(repeating: "x", count: 400) }

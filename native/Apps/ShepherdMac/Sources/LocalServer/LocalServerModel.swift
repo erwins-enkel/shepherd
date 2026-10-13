@@ -168,6 +168,9 @@ final class LocalServerModel {
     private let updateNow: @Sendable () -> Date
     private let updateMonitorClock: any SupervisorClock
     private var updateMonitorTask: Task<Void, Never>?
+    private let appUpdateWatchClock: any SupervisorClock
+    private var appUpdateWatchTask: Task<Void, Never>?
+    private let appUpdateHandoff: LocalAppUpdateHandoff
     private var bunUpgradeTask: Task<Void, Never>?
     private var lastOutdatedBunVersion: String?
     private let bunUpgrader: @Sendable (LocalServerEnvironment, LogRing) async -> Result<String, LocalServerFailure>
@@ -195,11 +198,14 @@ final class LocalServerModel {
         updater: (@Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>)? = nil,
         updateNow: @escaping @Sendable () -> Date = { Date() },
         updateMonitorClock: any SupervisorClock = SystemSupervisorClock(),
+        appUpdateWatchClock: any SupervisorClock = SystemSupervisorClock(),
         bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
         tailnet: LocalTailnetExposure? = nil,
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
         self.environment = environment
+        self.appUpdateHandoff = LocalAppUpdateHandoff(
+            runDirectory: environment.homeDirectory.appendingPathComponent(".shepherd/run"))
         self.defaults = defaults ?? (isolated ? nil : .standard)
         self.startOnLaunch = self.defaults?.object(forKey: Self.startOnLaunchKey) as? Bool ?? true
         self.automaticStartAllowed = !isolated
@@ -230,6 +236,7 @@ final class LocalServerModel {
         }
         self.updateNow = updateNow
         self.updateMonitorClock = updateMonitorClock
+        self.appUpdateWatchClock = appUpdateWatchClock
         let ring = log
         self.supervisor = LocalServerSupervisor(
             environment: environment, log: ring,
@@ -493,6 +500,14 @@ final class LocalServerModel {
     /// refreshes use the same throttle, including failed attempts.
     func startUpdateMonitoring() {
         guard updatesAllowed, updateMonitorTask == nil else { return }
+        let watchClock = appUpdateWatchClock
+        appUpdateWatchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.pickUpAppUpdateRequest()
+                do { try await watchClock.sleep(for: 2) }
+                catch { return }
+            }
+        }
         let clock = updateMonitorClock
         updateMonitorTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -581,9 +596,29 @@ final class LocalServerModel {
         }
     }
 
-    func applyUpdate() async {
-        guard await ensureLaunchRecovery() else { return }
-        guard !busy, canManageUpdates, !recoveryFailed, !quittingUpdates else { return }
+    func pickUpAppUpdateRequest() async {
+        guard await supervisor.state.isRunning else { return }
+        do {
+            guard try appUpdateHandoff.claim() else { return }
+            try await log.beginMirroring(to: appUpdateHandoff.logURL)
+            let code = await applyUpdate()
+            await log.append(LocalAppUpdateHandoff.exitMarker(code))
+            await log.endMirroring()
+        } catch {
+            await log.append("Could not pick up the app update: \(error)")
+        }
+    }
+
+    @discardableResult
+    func applyUpdate() async -> Int32 {
+        guard await ensureLaunchRecovery() else {
+            await log.append("Cannot update: deployment recovery failed. Open the Shepherd app on this Mac.")
+            return 1
+        }
+        guard !busy, canManageUpdates, !recoveryFailed, !quittingUpdates else {
+            await log.append("Cannot start the update: the Shepherd app is busy, quitting, or update management is unavailable.")
+            return 1
+        }
         busy = true
         generation += 1
         lifecycleGeneration += 1
@@ -601,6 +636,7 @@ final class LocalServerModel {
         let progress = sampleProgress()
         defer { progress.cancel(); busy = false }
         var failure: LocalServerFailure?
+        await log.append("Preparing the backend update…")
         do {
             try Task.checkCancellation()
             // Copy off the main actor; no build writes to the live deployment.
@@ -612,8 +648,10 @@ final class LocalServerModel {
             if case .failure(let error) = result { throw error }
             try Task.checkCancellation()
             guard !quittingUpdates else { throw LocalServerFailure.updateFailed(exitCode: 130) }
+            await log.append("Promoting the updated backend…")
             try deployment!.promote()
             if wasRunning {
+                await log.append("Restarting the supervised backend…")
                 await supervisor.restart()
                 guard await supervisor.state.isRunning else { throw LocalServerFailure.updateFailed(exitCode: 1) }
             }
@@ -635,9 +673,10 @@ final class LocalServerModel {
                 await log.append("Could not restore the previous deployment: \(error). Recovery remains suspended.")
                 await resolveState()
                 await pullLog()
-                return
+                return 1
             }
         }
+        if let failure { await log.append("Backend update failed: \(failure)") }
         // Quit retains promotion intent even after rollback: the next launch
         // must recover before it can adopt any persisted server.
         if !quittingUpdates { deployment?.finish() }
@@ -653,20 +692,25 @@ final class LocalServerModel {
         await pullLog()
         if failure == nil {
             updateStatus = nil
+            await log.append("Backend update applied successfully")
             await performUpdateCheck(force: true, allowBusy: true)
         }
+        if case .updateFailed(let code) = failure { return code }
+        return failure == nil ? 0 : 1
     }
 
     func beginUpdate() {
         guard !busy, updateTask == nil, canManageUpdates else { return }
         updateTask = Task {
             defer { updateTask = nil }
-            await self.applyUpdate()
+            _ = await self.applyUpdate()
         }
     }
 
     func cancelUpdateForQuit() {
         quittingUpdates = true
+        appUpdateWatchTask?.cancel()
+        appUpdateWatchTask = nil
         updateMonitorTask?.cancel()
         updateMonitorTask = nil
         updateTask?.cancel()

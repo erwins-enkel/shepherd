@@ -687,6 +687,81 @@ extension MacSeamTests {
         #expect(!model.state.isRunning)
     }
 
+    @Test func fleetRequestUsesTheExistingUpdateFlowAndMirrorsSuccess() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let calls = Mutex(0)
+        let watchClock = LocalUpdateMonitorClock()
+        let checkClock = LocalUpdateMonitorClock()
+        let model = LocalServerModel(
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false }, health: { true },
+            launch: { launch }, updateChecker: { _ in .success(.init(behind: 0, current: "abc1234", latest: "abc1234")) },
+            updater: { staged, log in
+                #expect(staged.appDirectory != home.appendingPathComponent(".shepherd/app"))
+                calls.withLock { $0 += 1 }
+                await log.append("fleet build output")
+                return .success(())
+            }, updateMonitorClock: checkClock, appUpdateWatchClock: watchClock)
+        await model.start()
+        model.startUpdateMonitoring()
+        let deadline = ContinuousClock.now + .seconds(10)
+        while await watchClock.sleeps.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
+        while await checkClock.sleeps.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await watchClock.sleeps == [2])
+        #expect(await checkClock.sleeps == [1800])
+        let handoff = LocalAppUpdateHandoff(runDirectory: home.appendingPathComponent(".shepherd/run"))
+        try "handing off\n".write(to: handoff.logURL, atomically: true, encoding: .utf8)
+        try "{}".write(to: handoff.requestURL, atomically: true, encoding: .utf8)
+        await watchClock.tick()
+        while (try? String(contentsOf: handoff.logURL, encoding: .utf8))?.hasSuffix("__SHEPHERD_UPDATE_EXIT__:0\n") != true,
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        await model.pickUpAppUpdateRequest()
+        let output = try String(contentsOf: handoff.logURL, encoding: .utf8)
+        #expect(output.hasPrefix("handing off\n"))
+        #expect(output.contains("fleet build output\n"))
+        #expect(output.contains("Restarting the supervised backend"))
+        #expect(output.hasSuffix("__SHEPHERD_UPDATE_EXIT__:0\n"))
+        #expect(output.components(separatedBy: "__SHEPHERD_UPDATE_EXIT__").count == 2)
+        #expect(calls.withLock { $0 } == 1)
+        #expect(model.state.isRunning)
+        #expect(!FileManager.default.fileExists(atPath: handoff.requestURL.path))
+        model.cancelUpdateForQuit()
+        await model.stop()
+    }
+
+    @Test func fleetRequestMirrorsFailureAndCannotStartReason() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let calls = Mutex(0)
+        let model = LocalServerModel(
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false }, health: { true },
+            launch: { launch }, updateChecker: { _ in .failure(.commandFailed(exitCode: 7)) },
+            updater: { _, log in
+                calls.withLock { $0 += 1 }
+                await log.append("fleet build failed")
+                return .failure(.updateFailed(exitCode: 7))
+            })
+        await model.start()
+        let handoff = LocalAppUpdateHandoff(runDirectory: home.appendingPathComponent(".shepherd/run"))
+        try "{}".write(to: handoff.requestURL, atomically: true, encoding: .utf8)
+        await model.pickUpAppUpdateRequest()
+        let failed = try String(contentsOf: handoff.logURL, encoding: .utf8)
+        #expect(failed.contains("fleet build failed"))
+        #expect(failed.hasSuffix("__SHEPHERD_UPDATE_EXIT__:7\n"))
+        #expect(model.state.isRunning)
+        model.cancelUpdateForQuit()
+        try "".write(to: handoff.logURL, atomically: true, encoding: .utf8)
+        try "{}".write(to: handoff.requestURL, atomically: true, encoding: .utf8)
+        await model.pickUpAppUpdateRequest()
+        let refused = try String(contentsOf: handoff.logURL, encoding: .utf8)
+        #expect(refused.contains("Cannot start the update"))
+        #expect(refused.hasSuffix("__SHEPHERD_UPDATE_EXIT__:1\n"))
+        #expect(calls.withLock { $0 } == 1)
+        await model.stop()
+    }
+
     @Test func applyingUpdateRestartsARunningServerAndRechecks() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let launch = try fakeScript(in: home, emitPasswordOnce: false)

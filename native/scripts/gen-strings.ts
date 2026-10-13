@@ -389,6 +389,11 @@ export const KEYS_IOS_SERVERS: readonly string[] = [
   "native_ios_server_disconnect",
   "native_ios_server_disconnected",
   "native_ios_server_hint",
+  "native_ios_server_mirror_add",
+  "native_ios_server_mirror_add_aria",
+  "native_ios_server_mirror_direct",
+  "native_ios_server_mirror_only",
+  "native_ios_server_mirror_via",
 ];
 
 export const KEYS_IOS_SIDEBAR: readonly string[] = [

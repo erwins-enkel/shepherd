@@ -468,9 +468,12 @@ struct SessionListView: View {
     private func machineHeader(_ machine: IOSMergedSessionPresentation.MachineGroup) -> some View {
         let offline = RemoteSessionCopy.isDisconnected(machine.connection)
         return HStack(spacing: 10) {
+            Circle().fill(SessionListStyle.machineTint(machine.host.instanceId)).frame(width: 6, height: 6)
             Text(verbatim: machine.host.name).foregroundStyle(SessionListStyle.ink)
             Text(verbatim: RemoteSessionCopy.platformName(machine.host.platform).uppercased())
                 .foregroundStyle(SessionListStyle.slate)
+            Text(verbatim: L.t("native_ios_server_mirror_via", machine.via.name))
+                .foregroundStyle(SessionListStyle.muted).lineLimit(1)
             Spacer(minLength: 0)
             Text(verbatim: RemoteSessionCopy.stateLabel(machine.connection).uppercased())
                 .foregroundStyle(offline ? SessionListStyle.amber : SessionListStyle.slate)

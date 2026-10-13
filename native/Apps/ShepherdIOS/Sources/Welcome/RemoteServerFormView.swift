@@ -7,10 +7,16 @@ struct RemoteServerFormView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var pairing = false
-    @State private var name = ""
+    @State private var name: String
     @State private var address = ""
     @State private var error: String?
     @FocusState private var focused: Bool
+
+    /// `name` prefills the server's name, e.g. a mirrored machine's when it is added directly.
+    init(name: String = "", onConnect: @escaping (ServerProfile) -> Void) {
+        self.onConnect = onConnect
+        _name = State(initialValue: name)
+    }
 
     var body: some View {
         NavigationStack {

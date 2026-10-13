@@ -212,6 +212,47 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         XCTAssertEqual(merged.tallies.total, 1)
     }
 
+    // MARK: - The server list names the machines each server mirrors (#3057)
+
+    func testTheCoordinatorListsTheMacBookAsAddedDirectlyWhenBothAreConnected() {
+        let linux = profile("coordinator"), mac = profile("macbook")
+        var coordinator = source(linux, sessions: [session("l1", created: 10)])
+        coordinator.instanceID = "linux-id"
+        coordinator.remote = [mirrored("m1"), mirrored("m2"),
+            mirrored("b1", machine: "box-id", name: "build-box", connected: false)]
+        var macbook = source(mac, sessions: [session("m1", created: 20), session("m2", created: 30)])
+        macbook.instanceID = "mac-id"
+        for order in [[coordinator, macbook], [macbook, coordinator]] {
+            let machines = IOSMergedSessionPresentation.mirroredMachines(order)
+            XCTAssertEqual(machines[linux.id]?.map(\.host.name), ["MacBook", "build-box"])
+            XCTAssertEqual(machines[linux.id]?.map(\.direct), [true, false])
+            XCTAssertEqual(machines[linux.id]?.last?.connection.state.known, .disconnected)
+            XCTAssertNil(machines[mac.id])
+            let merged = IOSMergedSessionPresentation.merge(order, selectedRepos: [])
+            XCTAssertEqual(shownIDs(merged).filter { $0.hasPrefix("m") }, ["m1", "m2"])
+            XCTAssertEqual(merged.machines.map(\.id), ["box-id"])
+            XCTAssertEqual(merged.machines.first?.via.id, linux.id)
+        }
+        // Before the MacBook's /api/instance answers, its own sessions already mark it direct.
+        macbook.instanceID = nil
+        XCTAssertEqual(IOSMergedSessionPresentation.mirroredMachines([coordinator, macbook])[linux.id]?.map(\.direct),
+            [true, false])
+    }
+
+    func testTheCoordinatorAloneListsTheMacBookAsMirroredOnly() {
+        let linux = profile("coordinator")
+        var coordinator = source(linux, sessions: [session("l1", created: 10)])
+        coordinator.instanceID = "linux-id"
+        coordinator.remote = [mirrored("m1"), mirrored("m2")]
+        let machines = IOSMergedSessionPresentation.mirroredMachines([coordinator])
+        XCTAssertEqual(machines[linux.id], [.init(host: mirrored("m1").host!, connection: mirrored("m1").connection!,
+            direct: false)])
+        let merged = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: [])
+        XCTAssertEqual(merged.machines.first?.via.name, "coordinator")
+        XCTAssertEqual(merged.machines.first?.rows.map(\.session.id), ["m1", "m2"])
+        XCTAssertTrue(IOSMergedSessionPresentation.mirroredMachines([source(linux, sessions: [])]).isEmpty)
+    }
+
     func testAMirroredCardNamesItsMachineAndTheLostLink() {
         let card = IOSSessionListPresentation.card(mirrored("m1", connected: false),
             displayed: mirrored("m1", connected: false), now: 1_800_000_000_000)

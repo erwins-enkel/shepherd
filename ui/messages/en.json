@@ -6394,5 +6394,10 @@
   "roles_automerge_enable_failed": "Auto-merge could not be turned on.",
   "newtask_derive_adopt": "Use this",
   "feat_requirements_screenshots_title": "Requirements read from screenshots, too",
-  "feat_requirements_screenshots_body": "New Task now also looks at the screenshots you attach when it reads what a task needs, and keeps reading as you type even after you changed the chips — a different answer then appears as a suggestion you can take over with one click. With the decision model (JEV) switched on, a task without screenshots is read in about a second."
+  "feat_requirements_screenshots_body": "New Task now also looks at the screenshots you attach when it reads what a task needs, and keeps reading as you type even after you changed the chips — a different answer then appears as a suggestion you can take over with one click. With the decision model (JEV) switched on, a task without screenshots is read in about a second.",
+  "native_ios_server_mirror_direct": "added directly · copy hidden",
+  "native_ios_server_mirror_only": "mirrored only",
+  "native_ios_server_mirror_add": "Add",
+  "native_ios_server_mirror_add_aria": "Add {machine} as a server",
+  "native_ios_server_mirror_via": "via {server}"
 }

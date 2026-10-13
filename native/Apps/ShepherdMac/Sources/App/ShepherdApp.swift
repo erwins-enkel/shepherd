@@ -1,3 +1,4 @@
+import AppKit
 import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
@@ -6,6 +7,7 @@ import ShepherdKit
 struct ShepherdApp: App {
     @NSApplicationDelegateAdaptor(IsolatedTerminationDelegate.self) private var terminationDelegate
     @State private var model: AppModel
+    @State private var localServer = LocalServerModel.shared
     /// Non-nil only for an isolated launch — `-ShepherdIsolated 1` or
     /// `SHEPHERD_ISOLATED=1`. See `LaunchEnvironment`: it is what keeps an
     /// automated launch off the login Keychain and out of the operator's saved
@@ -68,6 +70,10 @@ struct ShepherdApp: App {
             }
             CommandGroup(after: .appInfo) {
                 AppUpdateMenu(updater: appUpdater)
+            }
+            CommandGroup(after: .appSettings) {
+                Button(L.t("native_local_open_web")) { NSWorkspace.shared.open(localServer.baseURL) }
+                    .disabled(!(localServer.state.isRunning || localServer.state == .externallyManaged))
             }
             CommandGroup(after: .newItem) { MenuCommandItems(menu: .file, app: model) }
             CommandGroup(after: .toolbar) { MenuCommandItems(menu: .view, app: model) }

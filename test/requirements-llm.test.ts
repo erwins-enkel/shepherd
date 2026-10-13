@@ -286,7 +286,10 @@ describe("deriveRequirementsViaJudge", () => {
   test("a clear pick is derived, the call booked", async () => {
     const asked: unknown[] = [];
     const { spend, booked } = ledger();
-    const judge = judgeAnswering({ none: 0.05, "ios-simulator": 0.9, ios: 0.05 }, asked);
+    const judge = judgeAnswering(
+      { none: 0.05, "ios-simulator": 0.9, ios: 0.05, macos: 0, android: 0, "ios-and-android": 0 },
+      asked,
+    );
     expect(
       await deriveRequirementsViaJudge({ prompt: "UI-Test im Simulator" }, judge, spend, quiet),
     ).toEqual({

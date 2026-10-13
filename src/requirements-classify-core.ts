@@ -203,6 +203,7 @@ export const JUDGE_REQUIREMENT_SETS = {
   ios: ["xcode", "sdk:ios"],
   "ios-simulator": ["xcode", "sdk:ios", "ios-simulator"],
   android: ["android-sdk"],
+  "ios-and-android": ["xcode", "sdk:ios", "android-sdk"],
 } as const satisfies Record<string, readonly Capability[]>;
 
 export type JudgeRequirementSet = keyof typeof JUDGE_REQUIREMENT_SETS;
@@ -241,19 +242,25 @@ export function requirementsJudgeQuestion() {
       ios: "Builds or tests an iOS/iPadOS app, its views or tests, without running the Simulator.",
       "ios-simulator": "Runs the iOS app or its UI tests in the iOS Simulator.",
       android: "Builds, runs or tests an Android app.",
+      "ios-and-android": "Builds or tests both an iOS app and an Android app.",
     } satisfies Record<JudgeRequirementSet, string>,
   };
 }
 
 /** The judge's distribution as a derivation: a clear winner is derived; a close call asks the
- *  operator between every set that is likely enough. Null when the answer is unusable. */
+ *  operator between every set that is likely enough. Null when the answer is unusable — a set
+ *  missing, a value outside 0–1, or a distribution that does not sum to one — so the helper
+ *  answers instead. */
 export function derivationFromJudge(
   probabilities: Readonly<Record<string, number>>,
 ): AnsweredDerivation | null {
-  const ranked = (Object.keys(JUDGE_REQUIREMENT_SETS) as JudgeRequirementSet[])
-    .map((set) => ({ set, p: probabilities[set] }))
-    .filter((x): x is { set: JudgeRequirementSet; p: number } => Number.isFinite(x.p))
-    .sort((a, b) => b.p - a.p);
+  const ranked = (Object.keys(JUDGE_REQUIREMENT_SETS) as JudgeRequirementSet[]).map((set) => ({
+    set,
+    p: probabilities[set] ?? NaN,
+  }));
+  if (ranked.some((x) => !(x.p >= 0 && x.p <= 1))) return null;
+  if (Math.abs(ranked.reduce((sum, x) => sum + x.p, 0) - 1) > 0.05) return null;
+  ranked.sort((a, b) => b.p - a.p);
   const [top, next] = ranked;
   if (!top) return null;
   const caps = (set: JudgeRequirementSet) => withImplied(JUDGE_REQUIREMENT_SETS[set]);

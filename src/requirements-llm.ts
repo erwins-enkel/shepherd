@@ -160,7 +160,9 @@ export async function deriveRequirementsViaAgent(
     cwd = makeTmpDir();
     const screenshots = task.images?.length ? stageScreenshots(task.images, cwd) : [];
     try {
-      // Screenshots need the Read tool; it reaches only this temp dir (no `--add-dir`).
+      // Screenshots need the Read tool, and no `--add-dir` points it anywhere but this temp dir.
+      // Even a read elsewhere leads nowhere: the helper has no exec or network, and its only output
+      // is an answer read strictly against the vocabulary (`normalizeDerivation`).
       const { argv } = buildTransientAgentArgv(
         screenshots.length > 0 ? "writer-ro" : "writer-only",
         {

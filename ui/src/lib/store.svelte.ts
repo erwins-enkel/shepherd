@@ -52,6 +52,7 @@ import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
 import { mirroredPreviewChange, reduceRemoteSessions } from "./remote-sessions";
+import { machines } from "./machines.svelte";
 import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
 import { wakeMotionOn } from "./motion-settle";
 
@@ -79,10 +80,11 @@ export class HerdStore {
   assistantUnavailableReason = $state<OperatorAssistantUnavailableReason | null>(null);
   /** Sessions mirrored from connected machines (#2762), held apart from `sessions` so nothing
    *  that acts on a local session — or keys a side map by its id — ever sees one. Only the herd's
-   *  machine groups and the remote detail read them. */
+   *  view (which joins them into its lifecycle groups, #3055), the jump to the next waiting session
+   *  and the remote detail read them. */
   remoteSessions = $state<Session[]>([]);
   /** Tasks sent to connected machines whose start no machine has confirmed (#2774); bootstrapped
-   *  via GET /api/remote-dispatches, kept live by `remote:dispatch`. Shown in the machine groups. */
+   *  via GET /api/remote-dispatches, kept live by `remote:dispatch`. Shown atop the herd. */
   remoteDispatches = $state<RemoteDispatch[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
@@ -539,6 +541,8 @@ export class HerdStore {
     // A status change re-animates the rested pulses so the change catches the eye (#3035).
     wakeMotionOn(ev.event);
     if (ev.event === "remote:dispatch") return this.applyRemoteDispatch(ev.data);
+    // A machine connected, dropped, was removed or re-synced: its chip in the herd follows (#3055).
+    if (ev.event === "remote:sessions") void machines.refresh();
     const remote = reduceRemoteSessions(this.remoteSessions, ev);
     if (!remote) return this.applyLocal(ev);
     this.remoteSessions = remote;

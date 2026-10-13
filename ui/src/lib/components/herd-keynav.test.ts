@@ -619,3 +619,47 @@ test("isPtySuppressedChord unions the command-bar and settings chords", () => {
   expect(isPtySuppressedChord(chordEvent("k", {}))).toBe(false);
   expect(isPtySuppressedChord(chordEvent(",", { ctrlKey: true, shiftKey: true }))).toBe(false);
 });
+
+// Mirrored sessions (#3055): keyboard navigation reaches them where the rail renders them.
+test("railOrder reaches mirrored sessions in their lifecycle sections, honouring lens and collapse", () => {
+  const host = { instanceId: "m1", name: "MacBook", platform: "macos" };
+  const connection = { state: "connected" as const, since: 1 };
+  const remote = (id: string, over: Partial<Session>) =>
+    ({ ...session(id, false, "idle"), host, connection, ...over }) as Session;
+  const local = [session("a"), { ...session("g", false, "idle"), createdAt: 10 }];
+  const gitMap = { g: git("open", "success") };
+  const mirrored = [
+    remote("rg", { git: git("open", "success"), createdAt: 20 }),
+    remote("rr", { status: "running" }),
+  ];
+  const order = (filter: HerdFilter, collapsed: ReadonlySet<string> = new Set()) =>
+    railOrderRaw(
+      local,
+      gitMap,
+      noReview,
+      noRework,
+      Date.now(),
+      filter,
+      {},
+      {},
+      new Set(),
+      new Set(),
+      collapsed,
+      {},
+      mirrored,
+    );
+  expect(order("all")).toEqual(["a", "rr", "g", "rg"]);
+  expect(order("ready")).toEqual(["g", "rg"]);
+  expect(order("all", new Set([GROUP_KEY_BY_STAGE.awaitingMerge]))).toEqual(["a", "rr"]);
+  const where = railLocationsOf(
+    local,
+    gitMap,
+    noReview,
+    noRework,
+    Date.now(),
+    {},
+    new Set(),
+    mirrored,
+  );
+  expect(where.get("rg")).toEqual({ kind: "stage", key: GROUP_KEY_BY_STAGE.awaitingMerge });
+});

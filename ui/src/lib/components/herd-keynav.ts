@@ -2,6 +2,8 @@ import type { Session, GitState, Epic } from "#lib/types.js";
 import {
   partitionSessions,
   shownSessions,
+  shownMirrored,
+  joinMirrored,
   flattenByStage,
   GROUP_KEY_BY_STAGE,
   type HerdFilter,
@@ -29,7 +31,10 @@ function experimentMembers(g: ExperimentGroup): Session[] {
  *  Reuses the SAME grouping helpers + `flattenByStage` the template does, so the rail can
  *  never drift from the render.
  *
- *  The trailing epic/collapse args default empty: with no epics and no experiments,
+ *  Sessions mirrored from connected machines (`mirrored`, #3055) join the lifecycle sections
+ *  where their stage puts them, after the same lens, exactly as the template interleaves them.
+ *
+ *  The trailing epic/collapse/mirrored args default empty: with no epics and no experiments,
  *  `grouped.groups` is empty and `grouped.rest === shown`, so the output equals the
  *  pre-epic behavior (`flattenByStage(partitionSessions(shownSessions(...)))`) — existing
  *  callers and tests that pass no grouping args see identical order. */
@@ -46,6 +51,7 @@ export function railOrder(
   collapsedKeys: Set<string> = new Set(),
   collapsedStageKeys: ReadonlySet<string> = new Set(),
   backgroundBusy: Record<string, boolean> = {},
+  mirrored: Session[] = [],
 ): string[] {
   const shown = shownSessions(
     sessions,
@@ -72,8 +78,9 @@ export function railOrder(
   const experimentIds = experimentGrouped.groups.flatMap((g) =>
     experimentMembers(g).map((s) => s.id),
   );
+  const rest = joinMirrored(grouped.rest, git, shownMirrored(mirrored, filter, isReviewing, now));
   const restIds = flattenByStage(
-    partitionSessions(grouped.rest, git, isReviewing, isReworkRunning, now),
+    partitionSessions(rest.sessions, rest.git, isReviewing, isReworkRunning, now),
     collapsedStageKeys,
   ).map((s) => s.id);
   return [...groupIds, ...experimentIds, ...restIds];
@@ -91,7 +98,8 @@ export type RailLocation =
  *  experiment rest, lifecycle partition over the true rest. Single authority for
  *  "which collapsed group hides this row" — jump handlers expand based on this, so an
  *  experiment member (even one carrying epic metadata) can never open an epic or
- *  lifecycle group it doesn't render in. */
+ *  lifecycle group it doesn't render in. A mirrored session (#3055) always sits in a
+ *  lifecycle section. */
 export function railLocationsOf(
   sessions: Session[],
   git: Record<string, GitState>,
@@ -100,6 +108,7 @@ export function railLocationsOf(
   now: number,
   epics: Record<string, Epic> = {},
   activeEpicKeys: Set<string> = new Set(),
+  mirrored: Session[] = [],
 ): Map<string, RailLocation> {
   const experimentGrouped = groupSessionsByExperiment(sessions);
   const grouped = groupSessionsByEpic(
@@ -111,7 +120,8 @@ export function railLocationsOf(
     isReworkRunning,
     now,
   );
-  const partition = partitionSessions(grouped.rest, git, isReviewing, isReworkRunning, now);
+  const rest = joinMirrored(grouped.rest, git, mirrored);
+  const partition = partitionSessions(rest.sessions, rest.git, isReviewing, isReworkRunning, now);
   // Entries array (not .set in a loop) so callers get a plain non-reactive lookup,
   // matching the page's previous epicGroupOf pattern.
   const entries: [string, RailLocation][] = [

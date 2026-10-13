@@ -199,7 +199,7 @@ public final class SidebarModel: AppExtension {
     /// Sessions mirrored from connected machines, one read-only group per machine after the local
     /// groups (#2768). Only in the All lens — the others are about what to act on here, and these
     /// cannot be acted on from this server — and never narrowed by the repo filter, whose chips
-    /// name this server's checkouts (`HerdMachineGroups.svelte`).
+    /// name this server's checkouts (the web's machine groups before #3055).
     public var machineGroups: [HerdMachineGroup] {
         guard lens == .all else { return [] }
         // Tasks for machines that are not settled (#2776) only while the herd is not narrowed to

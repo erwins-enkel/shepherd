@@ -12,13 +12,14 @@
     redirectLabel,
   } from "#lib/remote-dispatches.js";
   import { placementFailureMessage, runOnFailureMessage } from "../new-task/run-on.js";
+  import MachineBadge from "../MachineBadge.svelte";
 
-  // A task for a connected machine that is not settled, at the top of that machine's group: its
-  // start status is unknown or a cancel is on its way (#2774); it waits here for the machine,
-  // which is out of reach or blocked; or the machine holds it, busy (#2775). The server settles it
-  // and `remote:dispatch` then drops this row — a started task's session is in the group already.
-  // Cancel makes sure it never starts there. A waiting task can also be run on another machine
-  // that fits it now, never on its own.
+  // A task for a connected machine that is not settled, at the top of the herd with its machine's
+  // label (#3055): its start status is unknown or a cancel is on its way (#2774); it waits here for
+  // the machine, which is out of reach or blocked; or the machine holds it, busy (#2775). The
+  // server settles it and `remote:dispatch` then drops this row — a started task's session is in
+  // the herd already. Cancel makes sure it never starts there. A waiting task can also be run on
+  // another machine that fits it now, never on its own.
   let { dispatch }: { dispatch: RemoteDispatch } = $props();
 
   let busy = $state(false);
@@ -69,6 +70,7 @@
   role="group"
   aria-label={m.remote_dispatch_row_aria({ machine, state: label })}
 >
+  <MachineBadge host={dispatch.host} />
   <span
     class="dispatch-state"
     class:canceling={dispatch.state === "canceling"}
@@ -101,7 +103,7 @@
 </div>
 
 <style>
-  /* Not yet a session: a quiet row above the machine's sessions. The state word is amber — a
+  /* Not yet a session: a quiet row atop the herd. The state word is amber — a
      standing condition Shepherd is resolving, not a call to act: an unknown start, a task waiting
      for its machine. Blocked needs someone to fix the machine: warn. Held there and a pending
      cancel are the machine's to settle: slate. */

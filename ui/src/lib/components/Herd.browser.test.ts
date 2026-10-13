@@ -8,6 +8,7 @@ import { GROUP_KEY_BY_STAGE } from "./herd-partition";
 import { isReworkRunning } from "./rework-running";
 import { reviews, planGates } from "#lib/reviews.svelte.js";
 import { postMergeSteps } from "#lib/post-merge-steps.svelte.js";
+import { machines } from "#lib/machines.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
 import { m } from "#lib/paraglide/messages.js";
 import type {
@@ -18,6 +19,8 @@ import type {
   EpicChild,
   PostMergeSteps,
   ReviewVerdict,
+  RemoteInstance,
+  InstanceIdentity,
 } from "#lib/types.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -1352,54 +1355,210 @@ describe("Herd epics to land", () => {
   });
 });
 
-describe("Herd machine groups (#2762)", () => {
+describe("Herd with connected machines (#3055)", () => {
   const mac = { instanceId: "m1", name: "MacBook", platform: "macos" };
   const studio = { instanceId: "m2", name: "Studio", platform: "linux" };
-  const remoteSessions = [
-    session({ id: "r1", name: "on mac", host: mac, connection: { state: "connected", since: 0 } }),
-    session({
-      id: "r2",
-      name: "on studio",
-      host: studio,
-      connection: { state: "disconnected", since: 0 },
-    }),
-  ];
+  const LIVE = { state: "connected" as const, since: 0 };
+  const DOWN = { state: "disconnected" as const, since: 0 };
+  const instance = (host: typeof mac, createdAt: number, status = "connected") =>
+    ({ instanceId: host.instanceId, name: host.name, createdAt, status }) as RemoteInstance;
+  const row = (id: string) => document.querySelector(`[data-unit-id="${id}"]`);
+  const follows = (first: Element | null, second: Element | null) =>
+    !!(first!.compareDocumentPosition(second!) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-  it("lists each machine's sessions in its own group after the local ones", async () => {
-    await render(Herd, {
+  afterEach(() => {
+    machines.list = [];
+    machines.self = null;
+  });
+
+  it("a mirrored session waiting on you sits in Your turn beside local ones, labelled", async () => {
+    machines.list = [instance(mac, 1)];
+    render(Herd, {
       ...base,
-      sessions: [session({ id: "l1", name: "local one" })],
-      remoteSessions,
+      sessions: [session({ id: "l1", name: "local one", createdAt: 1 })],
+      remoteSessions: [
+        session({
+          id: "r1",
+          name: "on mac",
+          createdAt: 2,
+          host: mac,
+          connection: LIVE,
+          git: openPr,
+        }),
+      ],
+      git: { l1: openPr },
+    });
+    await expect.element(page.getByText(/Your turn \(2\)/)).toBeInTheDocument();
+    expect(follows(row("l1"), row("r1"))).toBe(true);
+    const label = row("r1")!.querySelector<HTMLElement>(".machine-badge")!;
+    expect(label.textContent).toBe("MacBook");
+    expect(label.getAttribute("style")).toContain("--color-data-1");
+    expect(row("l1")!.querySelector(".machine-badge")).toBeNull();
+  });
+
+  it("a mirrored session handed off to a named reviewer names them in the header", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      remoteSessions: [
+        session({
+          id: "r1",
+          host: mac,
+          connection: LIVE,
+          git: { ...openPr, handoff: "reviewer", handoffWho: "scoop" },
+        }),
+      ],
       git: {},
     });
-    const groups = page.getByRole("region");
     await expect
-      .element(page.getByRole("region", { name: m.remote_group_aria({ machine: "MacBook" }) }))
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByRole("region", { name: m.remote_group_aria({ machine: "Studio" }) }))
-      .toBeInTheDocument();
-    expect(groups.elements()).toHaveLength(2);
-    await expect
-      .element(page.getByText(m.remote_state_disconnected(), { exact: true }))
-      .toBeInTheDocument();
-    const local = page.getByRole("button", { name: m.unit_open_aria({ name: "local one" }) });
-    const mirrored = page.getByRole("button", { name: m.unit_open_aria({ name: "on mac" }) });
-    expect(
-      local.element().compareDocumentPosition(mirrored.element()) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it("shows them even when there is no local session", async () => {
-    await render(Herd, { ...base, sessions: [], remoteSessions, git: {} });
-    await expect
-      .element(page.getByRole("button", { name: m.unit_open_aria({ name: "on mac" }) }))
+      .element(page.getByText(m.herd_waiting_reviewer_group({ who: "scoop", count: 1 })))
       .toBeInTheDocument();
   });
 
-  it.each(["ready", "done"] as const)("keeps them out of the %s lens", async (filter) => {
-    await render(Herd, { ...base, filter, sessions: [], remoteSessions, git: {} });
-    expect(document.querySelector(".machine-group")).toBeNull();
+  it("without PR state a mirrored session lands where its status puts it", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      remoteSessions: [session({ id: "r1", status: "blocked", host: mac, connection: LIVE })],
+      git: {},
+    });
+    await expect.element(page.getByText(/Your turn/)).not.toBeInTheDocument();
+    expect(row("r1")).not.toBeNull();
+  });
+
+  it("looks as before while no machine is connected", async () => {
+    render(Herd, { ...base, sessions: [session({ id: "l1" })], git: {} });
+    await expect.element(page.getByRole("button", { name: /task one/ })).toBeInTheDocument();
+    expect(document.querySelector(".machine-bar")).toBeNull();
+    expect(document.querySelector(".machine-badge")).toBeNull();
+  });
+
+  it("the machine bar lists every machine with its count, 0 included, and filters", async () => {
+    machines.list = [instance(mac, 1), instance(studio, 2, "unreachable")];
+    machines.self = { instanceId: "self", name: "moes-tavern" } as InstanceIdentity;
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "l1", name: "local one" })],
+      remoteSessions: [session({ id: "r1", name: "on mac", host: mac, connection: LIVE })],
+      git: {},
+    });
+    const bar = page.getByRole("group", { name: m.herd_machines_label() });
+    await expect.element(bar).toBeInTheDocument();
+    const chips = [...document.querySelectorAll(".machine-bar .chip")].map((c) =>
+      c.textContent!.replace(/\s+/g, " ").trim(),
+    );
+    expect(chips).toEqual([
+      `${m.herd_machine_all()} 2`,
+      "moes-tavern 1",
+      "MacBook 1",
+      `Studio 0 ${m.remote_state_disconnected()}`,
+    ]);
+
+    await page.getByRole("button", { name: /^MacBook/ }).click();
+    await expect
+      .element(page.getByRole("button", { name: /^MacBook/ }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(row("l1")).toBeNull();
+    expect(row("r1")).not.toBeNull();
+
+    await page.getByRole("button", { name: /^Studio/ }).click();
+    await expect
+      .element(page.getByText(m.herd_machine_empty({ machine: "Studio" })))
+      .toBeInTheDocument();
+
+    await page.getByRole("button", { name: /^moes-tavern/ }).click();
+    await expect.element(page.getByRole("button", { name: /local one/ })).toBeInTheDocument();
+    expect(row("r1")).toBeNull();
+  });
+
+  it("a disconnected machine's cards are dimmed, say how old they are, and offer no actions", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      remoteSessions: [
+        session({ id: "r1", name: "on mac", host: mac, connection: LIVE }),
+        session({ id: "r2", name: "on studio", host: studio, connection: DOWN }),
+      ],
+      git: {},
+      ondecommission: () => {},
+    });
+    await expect.element(page.getByRole("button", { name: /on studio/ })).toBeInTheDocument();
+    expect(row("r2")!.classList.contains("link-lost")).toBe(true);
+    expect(row("r1")!.classList.contains("link-lost")).toBe(false);
+    expect(row("r2")!.querySelector(".remote-offline")).not.toBeNull();
+    // Decommission works on the live machine only; the lost one's ✕ is disabled and explains why.
+    expect(row("r1")!.querySelector(".row-decom")!.getAttribute("aria-disabled")).toBeNull();
+    expect(row("r2")!.querySelector(".row-decom")!.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("a mirrored ready PR never arms the merge train", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      remoteSessions: [
+        session({ id: "r1", readyToMerge: true, host: mac, connection: LIVE, git: openPr }),
+      ],
+      git: {},
+      onmergetrain: () => {},
+    });
+    await expect.element(page.getByText(/Ready to merge \(1\)/i)).toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Merge train" })).not.toBeInTheDocument();
+  });
+
+  const dispatch = {
+    id: "d-1",
+    state: "unknown",
+    host: mac,
+    summary: "Port the settings screen",
+    createdAt: 1,
+    updatedAt: 1,
+  } as const;
+  const withDispatch = {
+    ...base,
+    sessions: [session({ id: "l1", status: "blocked" })],
+    remoteDispatches: [dispatch],
+    git: {},
+  };
+
+  it("unconfirmed tasks lead the all lens with their machine's label", async () => {
+    render(Herd, withDispatch);
+    const dispatchRow = page.getByRole("group", {
+      name: m.remote_dispatch_row_aria({ machine: "MacBook", state: m.remote_dispatch_unknown() }),
+    });
+    await expect.element(dispatchRow).toBeInTheDocument();
+    expect(follows(dispatchRow.element(), row("l1"))).toBe(true);
+    expect(dispatchRow.element().querySelector(".machine-badge")!.textContent).toBe("MacBook");
+  });
+
+  it("unconfirmed tasks stay out of the Ready lens", async () => {
+    render(Herd, { ...withDispatch, filter: "ready" });
+    await expect.element(page.getByRole("button", { name: /task one/ })).toBeInTheDocument();
+    expect(document.querySelector(".dispatch-row")).toBeNull();
+  });
+
+  it("the Ready lens keeps a waiting mirrored session and drops a working one", async () => {
+    render(Herd, {
+      ...base,
+      filter: "ready",
+      sessions: [],
+      remoteSessions: [
+        session({ id: "r1", name: "waits", status: "blocked", host: mac, connection: LIVE }),
+        session({ id: "r2", name: "works", status: "running", host: mac, connection: LIVE }),
+      ],
+      git: {},
+    });
+    await expect.element(page.getByRole("button", { name: /waits/ })).toBeInTheDocument();
+    expect(row("r2")).toBeNull();
+  });
+
+  it("keeps them out of the Done lens", async () => {
+    render(Herd, {
+      ...base,
+      filter: "done",
+      sessions: [],
+      remoteSessions: [session({ id: "r1", host: mac, connection: LIVE })],
+      git: {},
+    });
+    expect(row("r1")).toBeNull();
   });
 });

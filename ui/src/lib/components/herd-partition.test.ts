@@ -2,6 +2,9 @@ import { test, expect } from "vitest";
 import {
   partitionSessions as partitionSessionsRaw,
   shownSessions,
+  shownMirrored,
+  joinMirrored,
+  mirroredGit,
   flattenByStage,
   GROUP_KEY_BY_STAGE,
 } from "./herd-partition";
@@ -681,4 +684,64 @@ test("flattenByStage skips stages whose group key is collapsed", () => {
   expect(flattenByStage(p).map((s) => s.id)).toEqual(["act", "am", "rdy", "mrg"]);
   const collapsed = new Set([GROUP_KEY_BY_STAGE.awaitingMerge, GROUP_KEY_BY_STAGE.merged]);
   expect(flattenByStage(p, collapsed).map((s) => s.id)).toEqual(["act", "rdy"]);
+});
+
+// Sessions mirrored from connected machines (#3055): they join the lifecycle groups with the PR
+// state their machine reports, and never take a stage they cannot show.
+const MAC = { instanceId: "m1", name: "MacBook", platform: "macos" };
+const LIVE = { state: "connected" as const, since: 1 };
+function mirrored(id: string, over: Partial<Session> = {}): Session {
+  return { ...session(id, false, "idle"), host: MAC, connection: LIVE, ...over };
+}
+
+test("a mirrored session with a green, handed-off PR waits in Your turn beside local ones", () => {
+  const local = session("l", false, "idle");
+  const remote = mirrored("r", { git: git("open", "success"), createdAt: 5 });
+  const joined = joinMirrored([local], { l: git("open", "success") }, [remote]);
+  const p = partitionSessions(joined.sessions, joined.git);
+  expect(p.awaitingMerge.map((s) => s.id)).toEqual(["l", "r"]);
+});
+
+test("a mirrored session without PR state lands where its status and flags put it", () => {
+  const joined = joinMirrored([], {}, [
+    mirrored("blocked", { status: "blocked" }),
+    mirrored("parked", { readyToMerge: true }),
+    mirrored("training", { mergingSince: 1_000, mergingTrainId: "t" }),
+  ]);
+  const p = partitionSessions(joined.sessions, joined.git, notReviewing, 2_000);
+  expect(p.active.map((s) => s.id)).toEqual(["blocked"]);
+  expect(p.ready.map((s) => s.id)).toEqual(["parked"]);
+  expect(p.merging.map((s) => s.id)).toEqual(["training"]);
+  expect(p.awaitingMerge).toHaveLength(0);
+});
+
+test("mirrored sessions interleave by start time and keep the local order", () => {
+  const local = [
+    { ...session("l1"), createdAt: 10 },
+    { ...session("l2"), createdAt: 30 },
+  ];
+  const joined = joinMirrored(local, {}, [
+    mirrored("r3", { createdAt: 40 }),
+    mirrored("r1", { createdAt: 5 }),
+    mirrored("r2", { createdAt: 20 }),
+  ]);
+  expect(joined.sessions.map((s) => s.id)).toEqual(["r1", "l1", "r2", "l2", "r3"]);
+});
+
+test("the mirrored PR map is view-only and leaves the caller's map untouched", () => {
+  const local = { l: git("open") };
+  const joined = joinMirrored([], local, [mirrored("r", { git: git("merged") })]);
+  expect(joined.git).toEqual({ l: git("open"), r: git("merged") });
+  expect(local).toEqual({ l: git("open") });
+  expect(mirroredGit([mirrored("x")])).toEqual({});
+});
+
+test("the Ready lens filters mirrored sessions like local ones", () => {
+  const list = [
+    mirrored("waiting", { status: "blocked" }),
+    mirrored("running", { status: "running" }),
+    mirrored("ci", { git: git("open", "pending") }),
+  ];
+  expect(shownMirrored(list, "ready", notReviewing).map((s) => s.id)).toEqual(["waiting"]);
+  expect(shownMirrored(list, "all", notReviewing)).toHaveLength(3);
 });

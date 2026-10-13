@@ -368,7 +368,7 @@ is safe too: the machine replays what became of it.
 machine, or `held` for one the machine holds ([Waiting for a machine](#waiting-for-a-machine))
 — and the `remote:dispatch` event announces each change of one, including the one
 that resolves it (`started` with `sessionId`, `rejected` with `reason`/`code`,
-`canceled`, `redirected`). The herd shows them in the machine's group.
+`canceled`, `redirected`). The herd shows them at its top, labelled with the machine.
 `DELETE /api/remote-dispatches/{id}` cancels one: the machine's
 `DELETE /api/dispatches/{id}` makes sure it never starts there, even if it arrives
 late (`200`). A machine out of reach gets the cancel as soon as it answers (`202`,

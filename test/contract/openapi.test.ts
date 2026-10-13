@@ -930,7 +930,9 @@ describe("sessions", () => {
       platform: "macos",
     };
     const connection = { state: "disconnected", since: 1_790_000_000_000 };
-    const ref = { ...created, id: "remote-session", desig: "TASK-07", host, connection };
+    // The machine's PR state rides on the reference (#3055).
+    const git = { state: "open", checks: "success", deployConfigured: false, number: 7 };
+    const ref = { ...created, id: "remote-session", desig: "TASK-07", host, connection, git };
     s.deps.remoteSessions = { list: () => [ref], subscribe: () => () => {} } as never;
     try {
       const res = await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) });

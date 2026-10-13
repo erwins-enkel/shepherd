@@ -170,7 +170,9 @@
        BuildQueuePanel / the preview tab carry the same controls at a conformant size, and the
        issue chip's own href is reachable from the session's issue link there. -->
   <div class="u-badges">
-    <MachineBadge {session} {nowMs} />
+    {#if session.host}
+      <MachineBadge host={session.host} connection={session.connection} {nowMs} />
+    {/if}
     {#if previewPort != null}
       <!-- Live preview available (server reports a bound listener). Selecting +
            opening the pane is an action distinct from the row's own select, so

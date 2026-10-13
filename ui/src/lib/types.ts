@@ -1725,6 +1725,9 @@ export interface Session {
   host?: SessionHost;
   /** The link to `host`; present exactly when `host` is. */
   connection?: SessionConnection;
+  /** Mirrored sessions only (#3055): the PR state `host` reports, which places the session in its
+   *  lifecycle group. A local session's lives in the store's `git` map, never here. */
+  git?: GitState;
   /** The commit the worktree was actually created on (#2761); absent on rows that predate it. */
   baseCommit?: string | null;
 }

@@ -91,6 +91,8 @@
     TaskRunSeed,
   } from "#lib/types.js";
   import { sortBlocked } from "#lib/triage.js";
+  import { byMachine, mirroredNeedsYou, type MachineFilter } from "#lib/remote-sessions.js";
+  import { machines } from "#lib/machines.svelte.js";
   import { displayStatus } from "#lib/display-status.js";
   import { steers } from "#lib/steers.svelte.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
@@ -668,6 +670,7 @@
       nowMs,
       store.epics,
       activeEpicKeys,
+      herdRemoteSessions,
     );
   });
 
@@ -1012,6 +1015,7 @@
       .catch(() => {});
     loadOperatorAssistant();
     refreshRemoteDispatches();
+    void machines.refresh();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -1664,6 +1668,13 @@
   // The rail's all/ready list filter, bound into <Herd> so keynav sees exactly
   // what the rail shows — with "ready" active, j/k/1-9 only walk visible rows.
   let herdFilter = $state<HerdFilter>("all");
+  // The machine bar's pick (#3055), bound into <Herd> for the same reason: keynav walks only the
+  // picked machine's rows. A machine that is removed takes its pick with it.
+  let machineFilter = $state<MachineFilter>("all");
+  $effect(() => {
+    if (machineFilter === "all" || machineFilter === "local") return;
+    if (!machines.list.some((x) => x.instanceId === machineFilter)) machineFilter = "all";
+  });
   // Owed-lens focus (#1275): set when a manual-steps chip is clicked, so the Owed panel can
   // scroll-to + highlight the target session's card (or render a frozen fallback). The nonce
   // pair lets the panel (which unmounts on lens switch) tell an unhandled click from one it
@@ -1726,7 +1737,7 @@
     // live partition.
     if (herdFilter === "done") return doneRailIds(shownDoneSessions);
     return railOrder(
-      herdSessions,
+      byMachine(herdSessions, machineFilter),
       store.git,
       (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
       (session) =>
@@ -1748,6 +1759,7 @@
       collapsedEpics,
       collapsedStages,
       store.backgroundBusy,
+      byMachine(herdRemoteSessions, machineFilter),
     );
   }
 
@@ -1960,9 +1972,15 @@
     }
   }
 
+  // Every session waiting on the operator, oldest-first: the local triage, then the blocked
+  // sessions of connected machines (#3055) — an answer there is forwarded (#2765).
+  const needsYouIds = $derived([
+    ...blockedEntries.map((entry) => entry.session.id),
+    ...mirroredNeedsYou(store.remoteSessions),
+  ]);
   // sessions waiting on the operator other than the one on screen — gates the
   // command bar's `next-needs-you` verb and tells the operator how many remain.
-  const otherNeedsYou = $derived(blockedEntries.filter((e) => e.session.id !== selectedId));
+  const otherNeedsYou = $derived(needsYouIds.filter((id) => id !== selectedId));
 
   // Every global (outside-the-rail) session jump, built on herd-jump.ts's single
   // reveal-before-select core: a target hidden in a collapsed epic group or (desktop)
@@ -1973,8 +1991,8 @@
     {
       locate: () => railLocations,
       selectedId: () => selectedId,
-      // blockedEntries stays UNFILTERED (count + jump read the same full set)
-      blockedIds: () => blockedEntries.map((entry) => entry.session.id),
+      // needsYouIds stays UNFILTERED (count + jump read the same full set)
+      blockedIds: () => needsYouIds,
       isDesktop: () => !mobile.current,
       collapsedEpics,
       collapsedStages,
@@ -1989,6 +2007,7 @@
       resetLensAndFilters: () => {
         showBacklog = false;
         herdFilter = "all";
+        machineFilter = "all";
         statusFilter = null;
       },
       followRepo: (id) => {
@@ -2041,6 +2060,7 @@
       .catch(() => {});
     loadOperatorAssistant();
     refreshRemoteDispatches();
+    void machines.refresh();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -3410,6 +3430,7 @@
             flow={true}
             remoteDispatches={herdRemoteDispatches}
             bind:filter={herdFilter}
+            bind:machineFilter
             workingBlocked={store.workingBlocked}
             backgroundBusy={store.backgroundBusy}
             liveness={store.claudeAlive}
@@ -3607,6 +3628,7 @@
                 showSettings = true;
               }}
               bind:filter={herdFilter}
+              bind:machineFilter
               workingBlocked={store.workingBlocked}
               backgroundBusy={store.backgroundBusy}
               liveness={store.claudeAlive}

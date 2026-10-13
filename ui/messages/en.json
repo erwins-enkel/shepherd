@@ -6369,5 +6369,11 @@
   "feat_machines_both_directions_title": "See who sees whose sessions",
   "feat_machines_both_directions_body": "Settings → Machines now shows both directions: the machines whose sessions you see, and the Shepherds that see yours. When a link runs one way only, the page says so and offers to connect the other Shepherd here too.",
   "feat_herdr_094_title": "herdr 0.9.4 is supported",
-  "feat_herdr_094_body": "You can now update herdr up to 0.9.4 from Shepherd. Agent startup, terminal controls and cleanup were checked against isolated 0.9.3 and 0.9.4 servers. The existing sandbox status advisory still applies."
+  "feat_herdr_094_body": "You can now update herdr up to 0.9.4 from Shepherd. Agent startup, terminal controls and cleanup were checked against isolated 0.9.3 and 0.9.4 servers. The existing sandbox status advisory still applies.",
+  "herd_machines_label": "Machines",
+  "herd_machine_all": "All machines",
+  "herd_machine_this": "This Shepherd",
+  "herd_machine_empty": "No sessions on {machine} in this view",
+  "feat_herd_machines_title": "Sessions on your machines, right in the herd",
+  "feat_herd_machines_body": "Sessions running on your connected machines now sit in the herd's groups beside this Shepherd's own: a MacBook session that waits on you shows up under “Your turn”, with a label in its machine's color. The machine bar under the lenses narrows the herd to one machine, and lists every connected machine, even one with no sessions."
 }

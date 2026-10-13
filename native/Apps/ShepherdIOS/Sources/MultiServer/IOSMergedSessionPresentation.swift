@@ -189,7 +189,8 @@ enum IOSMergedSessionPresentation {
             return left == right ? $0.offset < $1.offset : left > right
         }.map(\.element)
         // Mirrored sessions are never narrowed by the repo filter: its chips name checkouts of the
-        // connected servers, not of the machines they mirror (`HerdMachineGroups.svelte`).
+        // connected servers, not of the machines they mirror (the web's machine groups before
+        // #3055).
         var machineOrder: [String] = []
         var machineRows: [String: [Row]] = [:]
         var seenMirrored: Set<String> = []

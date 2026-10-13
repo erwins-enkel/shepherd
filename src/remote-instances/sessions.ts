@@ -9,6 +9,9 @@
  *
  * Per machine: open `/events?host=local` with the stored token, then take a snapshot of
  * `GET /api/sessions?host=local` and replay the frames that arrived while it was in flight.
+ * Its PR state (#3055) comes the same way: `GET /api/git` alongside the snapshot, `session:git`
+ * frames after it. Each reference carries its own as `git`, so the herd can place it in the
+ * lifecycle group it belongs to; it never enters this server's PR cache.
  * `host=local` asks the machine for its OWN sessions only — never the references it mirrors from
  * elsewhere — so two machines connected to each other neither loop nor duplicate; anything that
  * still carries a `host` is dropped here as well.
@@ -59,7 +62,15 @@ export interface SessionConnection {
   since: number;
 }
 
-export type MirroredSession = RemoteRow & { host: SessionHost; connection: SessionConnection };
+/** A session's PR state exactly as its machine reported it (that machine's own GitState JSON). */
+type RemoteGit = Record<string, unknown>;
+
+/** `git` is present when the machine reported PR state for the session. */
+export type MirroredSession = RemoteRow & {
+  host: SessionHost;
+  connection: SessionConnection;
+  git?: RemoteGit;
+};
 
 /** Who holds a session's terminal on its machine, as that machine reports it. */
 export interface TerminalClient {
@@ -98,6 +109,8 @@ interface Link {
   instanceId: string;
   host: SessionHost;
   sessions: Map<string, RemoteRow>;
+  /** The machine's PR state per session ID, from its `GET /api/git` and `session:git` frames. */
+  git: Map<string, RemoteGit>;
   /** null until the socket first opened — a machine never synced has no references to show. */
   connection: SessionConnection | null;
   /** Identifies the current socket; callbacks from an older one are ignored. */
@@ -140,6 +153,16 @@ function parseSnapshot(body: unknown): RemoteRow[] | null {
     const row = asRow(entry);
     return row ? [row] : [];
   });
+}
+
+/** A `GET /api/git` answer: session ID → GitState record. Anything else is no PR state at all. */
+function parseGitSnapshot(body: unknown): Map<string, RemoteGit> {
+  if (!isRecord(body)) return new Map();
+  return new Map(
+    Object.entries(body).filter((entry): entry is [string, RemoteGit] => {
+      return UUID_RE.test(entry[0]) && isRecord(entry[1]);
+    }),
+  );
 }
 
 function parseFrame(raw: unknown): { event: string; data: unknown } | null {
@@ -299,6 +322,7 @@ export class RemoteSessionMirror {
         instanceId: machine.instanceId,
         host: { instanceId: machine.instanceId, name, platform: "unknown" },
         sessions: new Map(),
+        git: new Map(),
         connection: null,
         socketToken: null,
         socket: null,
@@ -353,16 +377,21 @@ export class RemoteSessionMirror {
     );
   }
 
-  /** Replace the machine's sessions with a fresh snapshot, then replay what arrived meanwhile. */
+  /** Replace the machine's sessions (and their PR state) with a fresh snapshot, then replay what
+   *  arrived meanwhile. A PR state the machine cannot answer leaves its sessions without one —
+   *  they still show, in the group their status implies — and is not a lost connection. */
   private async refresh(link: Link): Promise<void> {
     const row = this.store.getRemoteInstance(link.instanceId);
     if (link.buffer || !row) return;
     const token = link.socketToken;
     link.buffer = [];
-    const res = await getRemoteJson(row, "/api/sessions?host=local", {
-      fetch: this.fetch,
-      headers: this.identityHeaders(),
-    });
+    const [res, gitRes] = await Promise.all([
+      getRemoteJson(row, "/api/sessions?host=local", {
+        fetch: this.fetch,
+        headers: this.identityHeaders(),
+      }),
+      getRemoteJson(row, "/api/git", { fetch: this.fetch }),
+    ]);
     const buffered = link.buffer;
     link.buffer = null;
     if (this.links.get(link.instanceId) !== link) return;
@@ -379,7 +408,13 @@ export class RemoteSessionMirror {
       );
       return this.disconnect(link);
     }
+    if (!gitRes.ok) {
+      console.warn(
+        `[remote-sessions] ${link.host.name}: PR state failed (${gitRes.failure.reason})`,
+      );
+    }
     link.sessions = new Map(sessions.map((s) => [s.id, s]));
+    link.git = gitRes.ok ? parseGitSnapshot(gitRes.body) : new Map();
     for (const [event, data] of buffered) this.patch(link, event, data);
     this.publish(link);
   }
@@ -403,8 +438,12 @@ export class RemoteSessionMirror {
    *  next snapshot (every probe round) carries their effect. */
   private patch(link: Link, event: string, data: RemoteRow): void {
     if (event === "session:new") link.sessions.set(data.id, data);
-    else if (event === "session:archived") link.sessions.delete(data.id);
-    else if (event === "session:status" || event === "session:renamed") {
+    else if (event === "session:archived") {
+      link.sessions.delete(data.id);
+      link.git.delete(data.id);
+    } else if (event === "session:git") {
+      if (isRecord(data.git)) link.git.set(data.id, data.git);
+    } else if (event === "session:status" || event === "session:renamed") {
       const current = link.sessions.get(data.id);
       if (current) link.sessions.set(data.id, { ...current, ...data });
     }
@@ -484,8 +523,11 @@ export class RemoteSessionMirror {
     return [...link.sessions.values()].map((row) => this.annotate(link, row));
   }
 
+  /** A row the machine sent with its own `git` (a `session:git` frame) keeps it; any other gets
+   *  the held one, so every reference and relayed frame says where its PR stands. */
   private annotate(link: Link, row: RemoteRow): MirroredSession {
-    return { ...row, host: link.host, connection: link.connection! };
+    const git = link.git.get(row.id);
+    return { ...(git ? { git } : {}), ...row, host: link.host, connection: link.connection! };
   }
 
   private emit(event: string, data: unknown): void {

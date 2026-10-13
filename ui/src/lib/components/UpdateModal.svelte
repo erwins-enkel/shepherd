@@ -168,11 +168,12 @@
   // this machine is queued behind the others in an "update all"
   let localQueued = $state(false);
 
-  const remoteRunning = $derived(Object.values(phases).some((p) => p === "updating"));
+  // Read only for machines still listed: one removed mid-run takes its row along, and its last
+  // phase must not hold this machine back (or the window open) forever.
+  const listedPhases = $derived(machines.map((mc) => phaseOf(mc.instanceId)));
+  const remoteRunning = $derived(listedPhases.some((p) => p === "updating"));
   // still running, or blocked on the operator's decision about a dirty tree
-  const remoteUnsettled = $derived(
-    Object.values(phases).some((p) => p === "updating" || p === "dirty"),
-  );
+  const remoteUnsettled = $derived(listedPhases.some((p) => p === "updating" || p === "dirty"));
   const blocking = $derived(busy || remoteRunning || localQueued);
 
   const remotesReady = $derived(
@@ -205,16 +206,19 @@
     ).length,
   );
   const pending = $derived(remotePending + (local.behind > 0 ? 1 : 0));
-  const doneCount = $derived(Object.values(phases).filter((p) => p === "done").length);
+  const doneCount = $derived(listedPhases.filter((p) => p === "done").length);
 
   function runAll() {
-    const remotes = remotesReady;
-    for (const mc of remotes) {
-      phases[mc.instanceId] = "updating"; // now, so the queue below already sees them running
-      void rows[mc.instanceId]?.start();
+    let started = 0;
+    for (const mc of remotesReady) {
+      const row = rows[mc.instanceId];
+      if (!row) continue;
+      phases[mc.instanceId] = "updating"; // now, so the queue below already sees it running
+      void row.start();
+      started++;
     }
     if (!localReady) return;
-    if (remotes.length > 0 || remoteUnsettled) localQueued = true;
+    if (started > 0 || remoteUnsettled) localQueued = true;
     else void runUpdate();
   }
 

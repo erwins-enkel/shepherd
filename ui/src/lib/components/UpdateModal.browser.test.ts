@@ -508,4 +508,19 @@ describe("UpdateModal", () => {
     await vi.waitFor(() => expect(mockApply).toHaveBeenCalledWith(false));
     expect(rowOf("MacBook").textContent).toContain("Skipped");
   });
+
+  it("a machine that drops out mid-run no longer holds this one back", async () => {
+    mockMachineLog.mockImplementation(() => new Promise(() => {})); // never answers
+    const screen = await render(UpdateModal, {
+      props: { update, updating: false, deploy: null, machines: [machine(), vps] },
+    });
+
+    await vi.waitFor(() => expect(btn(/update all \(2\)/i)).toBeTruthy());
+    btn(/update all \(2\)/i)!.click();
+    await vi.waitFor(() => expect(rowOf("moes-tavern").textContent).toContain("Waiting"));
+
+    // removed from this Shepherd (or gone from the list) while its update was being followed
+    await screen.rerender({ machines: [vps] });
+    await vi.waitFor(() => expect(mockApply).toHaveBeenCalledWith(false));
+  });
 });

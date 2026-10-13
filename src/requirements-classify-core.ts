@@ -197,7 +197,7 @@ export function requirementsPrompt(task: TaskText, screenshots: readonly string[
 // task text. It reads no images, so a task with screenshots always goes to the helper.
 
 /** The sets a judge picks from — every combination a task realistically calls for. */
-export const JUDGE_REQUIREMENT_SETS = {
+const JUDGE_REQUIREMENT_SETS = {
   none: [],
   macos: ["xcode"],
   ios: ["xcode", "sdk:ios"],
@@ -206,7 +206,7 @@ export const JUDGE_REQUIREMENT_SETS = {
   "ios-and-android": ["xcode", "sdk:ios", "android-sdk"],
 } as const satisfies Record<string, readonly Capability[]>;
 
-export type JudgeRequirementSet = keyof typeof JUDGE_REQUIREMENT_SETS;
+type JudgeRequirementSet = keyof typeof JUDGE_REQUIREMENT_SETS;
 
 /** Below this the winner is no answer on its own… */
 const JUDGE_CLEAR = 0.6;

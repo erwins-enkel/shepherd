@@ -19,7 +19,9 @@ moves to another machine.
   own sessions in the lifecycle group their state belongs to, labelled with the machine they run
   on (`MacBook · TASK-07`), and never treats them as its own: no poller, autopilot, merge train,
   drain or reaper on your side touches them. A session on another machine is never passed on, so
-  two machines connected to each other neither loop nor show a session twice.
+  two machines connected to each other neither loop nor show a session twice. A repo filter in the
+  herd also keeps the other machines' sessions of the same project, matched by its forge remote
+  (`owner/repo`), because the checkout paths differ between machines.
 - **Actions go to the machine.** The terminal, steering, stopping, archiving, the diff, the files
   and the preview are sent to the machine and run there. While the machine can't be reached,
   nothing is sent and nothing runs on your side in its place.

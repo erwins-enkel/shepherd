@@ -13,7 +13,7 @@ import { oscLinkHandler, openTerminalLink } from "./terminalLinks";
  */
 export function openXterm(
   el: HTMLElement,
-  opts: { fontSize: number; theme: "light" | "dark" },
+  opts: { fontSize: number; theme: "light" | "dark"; screenReaderMode?: boolean },
 ): { term: Terminal; fit: FitAddon } {
   const term = new Terminal({
     fontFamily: "'JetBrains Mono', monospace",
@@ -23,8 +23,9 @@ export function openXterm(
     cursorBlink: true,
     // Mirror terminal output into xterm's hidden ARIA live region so screen
     // readers can follow the live agent session (the .term-mount region label
-    // alone names the area but exposes none of its scrolling content).
-    screenReaderMode: true,
+    // alone names the area but exposes none of its scrolling content). A caller may start it
+    // off: the mirror re-lays-out on every write, so Viewport keeps it only while attended.
+    screenReaderMode: opts.screenReaderMode ?? true,
     // Claude Code runs as a TUI with mouse tracking on, which hands mouse drags
     // to the app instead of selecting text. xterm lets a modifier force local
     // selection anyway — Shift on Linux/Windows, Option (⌥) on macOS — but the

@@ -196,12 +196,17 @@ interface Terminal {
 function terminal(
   node: Node,
   id: string,
-  opts: { token?: string; client?: [string, string]; size?: [number, number] } = {},
+  opts: {
+    token?: string;
+    client?: [string, string];
+    size?: [number, number];
+    resume?: boolean;
+  } = {},
 ): Terminal {
   const [clientKind, clientPlatform] = opts.client ?? ["browser", "linux"];
   const [cols, rows] = opts.size ?? [100, 30];
   const ws = new WebSocket(
-    `${node.ws}/pty/${id}?cols=${cols}&rows=${rows}&clientKind=${clientKind}&clientPlatform=${clientPlatform}`,
+    `${node.ws}/pty/${id}?cols=${cols}&rows=${rows}&clientKind=${clientKind}&clientPlatform=${clientPlatform}${opts.resume ? "&resume=1" : ""}`,
     { headers: { Authorization: `Bearer ${opts.token ?? node.token}` } } as never,
   );
   ws.binaryType = "arraybuffer";
@@ -286,6 +291,27 @@ describe("terminal of a mirrored session through the coordinator", () => {
       (c) => c !== null,
     );
     expect(direct.closed!.code).toBe(4000);
+  });
+
+  test("a resuming client yields to the machine's holder instead of taking over (#3035)", async () => {
+    const a = startNode();
+    const b = startNode();
+    const remote = startSession(b, "on-b");
+    await connectWith(a, b, remote);
+    const owners = ownersOn(a);
+
+    const phone = terminal(a, remote.id, { client: ["pwa", "ios"] });
+    await until(owners, (o) => (o?.[remote.id] as { kind?: string })?.kind === "pwa");
+
+    // The desktop window paused its stream while hidden and now comes back.
+    const desktop = terminal(a, remote.id, { client: ["browser", "macos"], resume: true });
+    await until(
+      () => desktop.closed,
+      (c) => c !== null,
+    );
+    expect(desktop.closed!.code).toBe(4000);
+    expect(phone.closed).toBeNull();
+    expect((owners()?.[remote.id] as { kind?: string })?.kind).toBe("pwa");
   });
 
   test("a session that ended on its machine closes as gone", async () => {

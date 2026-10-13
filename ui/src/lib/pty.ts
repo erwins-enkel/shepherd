@@ -47,6 +47,12 @@ export interface PtyConn {
    * running, so a fresh attach (`--takeover`) repaints the live session.
    */
   poke(): void;
+  /**
+   * Stop streaming without giving up for good — the window is hidden, nobody is watching
+   * (#3035). The next poke() resumes with `resume=1`, so the server parks this client instead
+   * of letting it steal the terminal from a device that attached in the meantime.
+   */
+  pause(): void;
   /** Re-attach after being parked (superseded) — makes this client the owner again. */
   takeover(): void;
 }
@@ -75,6 +81,11 @@ export function connectPty(
   let ws: WebSocket;
   let stopped = false;
   let parked = false;
+  // closed on purpose by pause(); the next poke() resumes
+  let paused = false;
+  // a resume that no socket has carried to the server yet: retries (e.g. the network still
+  // waking up) keep asking with resume=1, or they would take the terminal over after all
+  let resuming = false;
   let everOpened = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
   // track the latest fitted size so a reconnect attaches at the right dimensions
@@ -106,8 +117,10 @@ export function connectPty(
   // the measured RTT is approximate.
   let _pendingSendTime = 0;
 
-  const open = () => {
+  const open = (resume = resuming) => {
     parked = false;
+    paused = false;
+    resuming = resume;
     openedAt = 0;
     if (retry) {
       clearTimeout(retry);
@@ -115,7 +128,7 @@ export function connectPty(
     }
     const client = detectTerminalClient();
     ws = makeWs(
-      `/pty/${id}?cols=${lastCols}&rows=${lastRows}&clientKind=${client.kind}&clientPlatform=${client.platform}`,
+      `/pty/${id}?cols=${lastCols}&rows=${lastRows}&clientKind=${client.kind}&clientPlatform=${client.platform}${resume ? "&resume=1" : ""}`,
     );
     ws.binaryType = "arraybuffer";
     ws.onmessage = (e) => {
@@ -130,6 +143,7 @@ export function connectPty(
     };
     ws.onopen = () => {
       openedAt = Date.now();
+      resuming = false; // reached the server: it attached us or will park us with 4000
       retryDelay = 1000;
       if (everOpened) onReconnect();
       everOpened = true;
@@ -200,13 +214,25 @@ export function connectPty(
     },
     poke: () => {
       if (stopped || parked) return; // parked is deliberate — don't steal back on refocus
+      if (paused) return open(true);
       // a scheduled retry → run it immediately; otherwise reconnect only if the
       // socket is actually gone (CLOSING/CLOSED), never disturb a live one
       if (retry || ws.readyState >= ws.CLOSING) open();
     },
+    pause: () => {
+      if (stopped || parked || paused) return;
+      paused = true;
+      if (retry) {
+        clearTimeout(retry);
+        retry = null;
+      }
+      // Detach first: the socket's late onclose must not read as a drop and schedule a retry.
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+      ws.close();
+    },
     takeover: () => {
       if (stopped) return;
-      open(); // re-attach → server makes us the owner and parks the other device
+      open(false); // re-attach → server makes us the owner and parks the other device
     },
   };
 }

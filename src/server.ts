@@ -10994,6 +10994,9 @@ type WsData = (
       terminalId: string;
       cols: number;
       rows: number;
+      /** `?resume=1`: a client returning from a paused stream — attach only if nobody else owns
+       *  the terminal now, instead of taking it over (#3035). */
+      resume: boolean;
       bridge?: PtyBridge | SocketPtyBridge;
       pendingInput?: string[];
       awaitingFirstFrame?: boolean;
@@ -11006,6 +11009,8 @@ type WsData = (
       id: string;
       cols: number;
       rows: number;
+      /** `?resume=1`, forwarded so the machine applies the same yield as a local attach. */
+      resume: boolean;
       terminal?: RemoteTerminal;
     }
 ) & {
@@ -11287,11 +11292,20 @@ export function serve(deps: AppDeps, port: number) {
       url.searchParams.get("cols"),
       url.searchParams.get("rows"),
     );
+    const resume = url.searchParams.get("resume") === "1";
     // A session mirrored from a connected machine (#2764): its terminal is bridged there once the
     // socket opens. Reached only past checkAuth's `full` scope gate and the repository boundary.
     if (!s && deps.remoteSessions?.has(id)) {
       const client = parseTerminalClient(url.searchParams);
-      return upgradeWith(req, server, { kind: "remote-pty", tokenId, id, cols, rows, client });
+      return upgradeWith(req, server, {
+        kind: "remote-pty",
+        tokenId,
+        id,
+        cols,
+        rows,
+        resume,
+        client,
+      });
     }
     if (!s) return new Response("no session", { status: 404 });
     return upgradeWith(req, server, {
@@ -11301,6 +11315,7 @@ export function serve(deps: AppDeps, port: number) {
       terminalId: s.herdrAgentId,
       cols,
       rows,
+      resume,
       client: parseTerminalClient(url.searchParams),
     });
   }
@@ -11388,9 +11403,16 @@ export function serve(deps: AppDeps, port: number) {
     }
     const tid = attach.terminalId;
     ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
+    const prev = ptyOwners.get(tid);
+    // A client resuming a stream it paused while hidden (#3035) must not steal the terminal from
+    // a device that attached meanwhile: refuse with "superseded" so it parks behind the owner,
+    // exactly as if that device had bumped it. Unclaimed, so close() leaves ownership alone.
+    if (ws.data.resume && prev && prev !== ws) {
+      ws.close(PTY_SUPERSEDED_CODE, "superseded");
+      return;
+    }
     // single owner per terminal: claim it, then bump the previous owner
     // with a "superseded" close so it parks instead of fighting back.
-    const prev = ptyOwners.get(tid);
     ptyOwners.set(tid, ws);
     deps.events.emit("terminal:owners", terminalOwners());
     if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
@@ -11468,14 +11490,14 @@ export function serve(deps: AppDeps, port: number) {
   // single owner and reports gone — its close codes reach this socket unchanged. An unreachable
   // machine closes it with PTY_MACHINE_UNREACHABLE_CODE; nothing is ever attached locally instead.
   function openRemotePtySocket(ws: ServerWebSocket<WsData & { kind: "remote-pty" }>): void {
-    const { id, cols, rows, client } = ws.data;
+    const { id, cols, rows, resume, client } = ws.data;
     const sink = {
       send: (data: string | Uint8Array) => {
         if (socketAuthorized(ws)) ws.send(data);
       },
       close: (code?: number, reason?: string) => ws.close(code, reason),
     };
-    const attach = { cols, rows, clientKind: client.kind, clientPlatform: client.platform };
+    const attach = { cols, rows, clientKind: client.kind, clientPlatform: client.platform, resume };
     ws.data.terminal = deps.remoteSessions?.openTerminal(id, sink, attach);
   }
   // Presence frame: the page reports focus+visibility so push delivery

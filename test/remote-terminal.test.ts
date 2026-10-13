@@ -20,7 +20,9 @@ interface Upstream {
   closed: boolean;
 }
 
-function setup(opts: { target?: typeof TARGET | null; connectTimeoutMs?: number } = {}) {
+function setup(
+  opts: { target?: typeof TARGET | null; connectTimeoutMs?: number; resume?: boolean } = {},
+) {
   const upstreams: Upstream[] = [];
   const received: (string | Uint8Array)[] = [];
   const closes: { code?: number; reason?: string }[] = [];
@@ -42,7 +44,7 @@ function setup(opts: { target?: typeof TARGET | null; connectTimeoutMs?: number 
       send: (data) => received.push(data),
       close: (code, reason) => closes.push({ code, reason }),
     },
-    ATTACH,
+    opts.resume ? { ...ATTACH, resume: true } : ATTACH,
     { openSocket, connectTimeoutMs: opts.connectTimeoutMs ?? 1_000, onDone: () => done++ },
   );
   return { bridge, upstreams, received, closes, done: () => done };
@@ -65,6 +67,13 @@ describe("RemoteTerminalBridge", () => {
     });
     expect(upstreams[0]!.url).not.toContain(TOKEN);
     expect(upstreams[0]!.headers).toEqual({ authorization: `Bearer ${TOKEN}` });
+    bridge.close();
+  });
+
+  test("forwards a resume, so the machine yields to its holder as it would locally (#3035)", () => {
+    const { bridge, upstreams } = setup({ resume: true });
+    bridge.open();
+    expect(new URL(upstreams[0]!.url).searchParams.get("resume")).toBe("1");
     bridge.close();
   });
 

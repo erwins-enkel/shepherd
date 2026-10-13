@@ -101,7 +101,7 @@ describe("x-shepherd-pty documents what the native client relies on", () => {
   test("the constants still match the server", () => {
     const pty = loadContract()["x-shepherd-pty"];
     expect(pty.path).toBe("/pty/{id}");
-    expect(pty.query).toEqual(["cols", "rows", "clientKind", "clientPlatform"]);
+    expect(pty.query).toEqual(["cols", "rows", "clientKind", "clientPlatform", "resume"]);
     expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
     expect(pty.closeCodes.superseded).toBe(PTY_SUPERSEDED_CODE);
     expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);

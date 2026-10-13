@@ -24,6 +24,7 @@
     mobile = false,
     touch = false,
     connected = true,
+    attended = true,
     terminalOwners = null,
     workingBlocked = {},
     backgroundBusy = {},
@@ -49,6 +50,8 @@
     mobile?: boolean;
     touch?: boolean;
     connected?: boolean;
+    /** Window visible and focused: unattended, the live terminal paces its output (#3035). */
+    attended?: boolean;
     terminalOwners?: Record<string, TerminalClientInfo> | null;
     workingBlocked?: Record<string, boolean>;
     backgroundBusy?: Record<string, boolean>;
@@ -186,6 +189,7 @@
         {mobile}
         {touch}
         {connected}
+        {attended}
         {terminalOwners}
         {workingBlocked}
         {backgroundBusy}

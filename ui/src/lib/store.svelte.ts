@@ -52,6 +52,7 @@ import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte
 import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
 import { mirroredPreviewChange, reduceRemoteSessions } from "./remote-sessions";
 import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
+import { wakeMotionOn } from "./motion-settle";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
  *  (or other-scheme) value would be an open-redirect / script-execution vector
@@ -531,6 +532,8 @@ export class HerdStore {
   }
 
   apply(ev: WsEvent) {
+    // A status change re-animates the rested pulses so the change catches the eye (#3035).
+    wakeMotionOn(ev.event);
     if (ev.event === "remote:dispatch") return this.applyRemoteDispatch(ev.data);
     const remote = reduceRemoteSessions(this.remoteSessions, ev);
     if (!remote) return this.applyLocal(ev);

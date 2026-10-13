@@ -67,6 +67,33 @@ describe("BrowserPanel", () => {
     await expect.element(page.getByText(/connecting/i)).toBeVisible();
   });
 
+  it("holds the ack while the window is hidden, then resumes with a fresh frame (#3035)", async () => {
+    let visibility: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    });
+    try {
+      render(BrowserPanel, { session, makeWs });
+      const ws = FakeWs.last;
+      ws.push(targets());
+      visibility = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+      ws.push({ type: "frame", data: jpeg(), width: 1280, height: 720 });
+      await vi.waitFor(() => expect(document.querySelector("img.bv-frame")).not.toBeNull());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(ws.sentOf("frameAck")).toHaveLength(0); // screencast paused at the source
+      ws.sent.length = 0;
+      visibility = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(ws.sent).toEqual([{ type: "frameAck" }, { type: "select", targetId: "T1" }]);
+      document.dispatchEvent(new Event("visibilitychange")); // nothing held: no extra traffic
+      expect(ws.sent).toHaveLength(2);
+    } finally {
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    }
+  });
+
   it("draws frames and acks each once painted", async () => {
     render(BrowserPanel, { session, makeWs });
     const ws = FakeWs.last;

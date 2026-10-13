@@ -121,6 +121,34 @@ export function connectBrowserView(
   };
 }
 
+export interface FrameAckGate {
+  /** A frame finished painting: ack it now, or hold the ack while the window is hidden. */
+  settled(): void;
+  /** The window is visible again: send a held ack. True when one was held (the stream paused). */
+  visible(): boolean;
+}
+
+/**
+ * Pauses the screencast while nobody can see it (#3035). The server sends the next frame only
+ * after the previous one's ack, so holding the ack stops the stream at its source — no frames,
+ * no socket churn — and sending it resumes the stream.
+ */
+export function createFrameAckGate(ack: () => void, hidden: () => boolean): FrameAckGate {
+  let held = false;
+  return {
+    settled() {
+      if (hidden()) held = true;
+      else ack();
+    },
+    visible() {
+      if (!held) return false;
+      held = false;
+      ack();
+      return true;
+    },
+  };
+}
+
 /** Where a `w`×`h` image lands when `object-fit: contain`-ed into a `boxW`×`boxH` box. */
 export function containRect(boxW: number, boxH: number, w: number, h: number) {
   if (w <= 0 || h <= 0 || boxW <= 0 || boxH <= 0) return { x: 0, y: 0, w: 0, h: 0 };

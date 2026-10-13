@@ -28,6 +28,7 @@
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { hotterGauge, gaugeColor } from "./usage-gauges";
   import { connectPty, type PtyConn, type PtyEndReason } from "#lib/pty.js";
+  import { createWriteBatcher, type WriteBatcher } from "#lib/term-write-batcher.js";
   import { theme } from "#lib/theme.svelte.js";
   import { terminalFontSize, FONT_MIN, FONT_MAX } from "#lib/terminal-font-size.svelte.js";
   import { uiScale } from "#lib/ui-scale.svelte.js";
@@ -128,6 +129,7 @@
     onnavigate,
     limits = null,
     connected = true,
+    attended = true,
     terminalOwners = null,
     git = null,
     activity = undefined,
@@ -156,6 +158,9 @@
     onresume,
   }: {
     session: Session;
+    /** The window is visible AND focused. Unattended, the terminal paces its output and drops
+     *  the screen-reader mirror (#3035) — screen readers only follow the focused window. */
+    attended?: boolean;
     terminalOwners?: Record<string, TerminalClientInfo> | null;
     onarchive?: (id: string, reap?: string[]) => void;
     onback?: () => void;
@@ -428,6 +433,7 @@
   // mirror the live terminal so the theme effect can repaint it without
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
+  let writeBatcher: WriteBatcher | undefined;
   // mirror the FitAddon too, so the live font-size effect can reflow (fit) the
   // terminal after changing fontSize without recreating it
   let fitRef = $state<FitAddon | undefined>();
@@ -904,10 +910,10 @@
         .then((r) => alive && (todoExists = r.exists))
         .catch(() => {});
     load();
-    const t = setInterval(load, 5000);
+    const stop = pollWhileVisible(load, 5000); // skip hidden-tab ticks; refresh on return
     return () => {
       alive = false;
-      clearInterval(t);
+      stop();
     };
   });
   // Don't strand the operator on a To-Do tab that just vanished (TODO.md removed).
@@ -1179,6 +1185,8 @@
   // `headerCollapsed` and the pre-tap tab via `preFoldTab`.
   // 500ms matches the common OS double-click default (400 dropped slow double-clicks).
   const DOUBLE_TAP_MS = 500;
+  /** How long a hidden window keeps streaming its terminal before pausing it (#3035). */
+  const PTY_HIDDEN_PAUSE_MS = 30_000;
   let lastTitleTap = 0;
   // compact only: the tab shown before a first-tap fold, restored if the second
   // tap turns the gesture into a rename (so rename leaves the fold — and the
@@ -1750,7 +1758,16 @@
     // effect below.
     const initialFont =
       (untrack(() => terminalFontSize.size) ?? termFontDefault) * untrack(() => uiScale.value);
-    const { term, fit } = openXterm(el, { fontSize: initialFont, theme: initialTheme });
+    // The screen-reader mirror only while attended: it re-lays-out on every write, and an
+    // unfocused window is never read aloud anyway (see the attended effect below).
+    const { term, fit } = openXterm(el, {
+      fontSize: initialFont,
+      theme: initialTheme,
+      screenReaderMode: untrack(() => attended),
+    });
+    const batcher = createWriteBatcher((d) => term.write(d));
+    batcher.setLive(untrack(() => attended));
+    writeBatcher = batcher;
     termRef = term;
     fitRef = fit;
 
@@ -1768,7 +1785,7 @@
         hasFreshOutput = true;
         lastOutputAt = Date.now();
         if (!ptyLive) ptyLive = true;
-        term.write(d);
+        batcher.push(d);
       },
       // reconnected (e.g. after a mobile app-switch dropped the socket): refit in
       // case the layout changed while away, then resize to repaint the attach
@@ -1788,7 +1805,8 @@
       (reason) => {
         endReason = reason;
         ptyLive = false;
-        term.write(
+        // through the batcher, so the note lands after output still pending while unattended
+        batcher.push(
           `\r\n\x1b[2m${reason === "unreachable" ? m.viewport_herdr_unreachable() : m.viewport_session_ended()}\x1b[0m\r\n`,
         );
         ended = true;
@@ -2055,6 +2073,19 @@
     // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
     // the tab returns (including iOS Safari's bfcache restore).
     const offPageReturn = onPageReturn(() => c.poke());
+    // A window hidden for PTY_HIDDEN_PAUSE_MS stops streaming altogether (#3035): nobody sees
+    // the output, yet every frame costs network, IPC and parsing. The grace period keeps a
+    // quick app switch from churning the attach; the poke() above resumes (and repaints).
+    let pauseTimer: ReturnType<typeof setTimeout> | undefined;
+    const onHidden = () => {
+      clearTimeout(pauseTimer);
+      if (document.visibilityState === "hidden")
+        pauseTimer = setTimeout(() => c.pause(), PTY_HIDDEN_PAUSE_MS);
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    // attached while already hidden (e.g. a session switch from a notification): no edge will
+    // come to arm the pause, so arm it now
+    onHidden();
 
     // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
     let dragged = false;
@@ -2331,9 +2362,11 @@
     return () => {
       disposed = true; // stops a pending document.fonts.ready remeasure after teardown
       codexQuestions = false;
+      clearTimeout(pauseTimer);
       window.removeEventListener("keydown", onWindowKeydown, true);
       mount.removeEventListener("focusin", onTermFocusIn);
       offPageReturn();
+      document.removeEventListener("visibilitychange", onHidden);
       el?.removeEventListener("click", onTap);
       el?.removeEventListener("mousedown", onTermMouseDown, true);
       document.removeEventListener("mouseup", onDocMouseUp);
@@ -2353,6 +2386,8 @@
       ro.disconnect();
       c.close();
       conn = undefined;
+      batcher.dispose();
+      writeBatcher = undefined;
       termRef = undefined;
       fitRef = undefined;
       term.dispose();
@@ -2394,6 +2429,17 @@
     };
     attempt();
     return () => clearTimeout(timer);
+  });
+
+  // Unattended (window hidden or another app focused, #3035): a working agent's spinner would
+  // otherwise repaint the terminal ~10×/s — the bulk of the renderer's idle cost. Pace output
+  // to 1×/s and drop the screen-reader mirror; focus restores both at once, nothing is lost.
+  $effect(() => {
+    const live = attended;
+    const term = termRef;
+    if (!term) return;
+    term.options.screenReaderMode = live;
+    writeBatcher?.setLive(live);
   });
 
   // repaint the live terminal when the active theme changes (no recreation)

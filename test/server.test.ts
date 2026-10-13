@@ -17,7 +17,14 @@ import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
-import { makeApp, serve, PTY_GONE_CODE, claimLinkedIssue, type AppDeps } from "../src/server";
+import {
+  makeApp,
+  serve,
+  PTY_GONE_CODE,
+  PTY_SUPERSEDED_CODE,
+  claimLinkedIssue,
+  type AppDeps,
+} from "../src/server";
 import { WorktreeMgr, WorktreeOccupiedError } from "../src/worktree";
 import type { GitForge } from "../src/forge/types";
 import { config, USAGE_HISTORY_RETENTION_MS } from "../src/config";
@@ -3425,6 +3432,61 @@ test("terminal owners follow successive takeovers, close and events reconnect", 
     await until(() => latest()?.[session.id] !== undefined);
     expect(latest()).toEqual({ [session.id]: { kind: "unknown", platform: "unknown" } });
     legacy.close();
+  } finally {
+    for (const ws of sockets) ws.close();
+    server.stop(true);
+    openBridge.mockRestore();
+  }
+});
+
+test("a resuming pty attach yields to the current owner instead of taking over (#3035)", async () => {
+  const deps = makeDeps();
+  const session = deps.store.create({
+    name: "resume",
+    prompt: "go",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_resume",
+  });
+  const openBridge = spyOn(PtyBridge.prototype, "open").mockImplementation(() => {});
+  const server = serve({ ...deps, herdr: herdrWith("term_resume") }, 0);
+  const sockets: WebSocket[] = [];
+  const frames: { event: string; data: { owners: Record<string, unknown> } }[] = [];
+  const connect = (path: string) => {
+    const ws = new WebSocket(`ws://localhost:${server.port}${path}`);
+    sockets.push(ws);
+    ws.onmessage = (e) => frames.push(JSON.parse(String(e.data)));
+    return ws;
+  };
+  const closeCode = (ws: WebSocket) =>
+    new Promise<number>((resolve) => ws.addEventListener("close", (e) => resolve(e.code)));
+  const until = async (check: () => boolean) => {
+    for (let i = 0; i < 100 && !check(); i++) await Bun.sleep(10);
+    expect(check()).toBe(true);
+  };
+  const latest = () => frames.filter((f) => f.event === "terminal:owners").at(-1)?.data.owners;
+  try {
+    connect("/events");
+    await until(() => latest() !== undefined);
+    const phone = connect(`/pty/${session.id}?clientKind=pwa&clientPlatform=ios`);
+    await until(() => latest()?.[session.id] !== undefined);
+    // The paused desktop comes back while the phone owns the terminal: it is refused and parks.
+    const desktop = connect(`/pty/${session.id}?clientKind=browser&clientPlatform=macos&resume=1`);
+    expect(await closeCode(desktop)).toBe(PTY_SUPERSEDED_CODE);
+    await Bun.sleep(50);
+    expect(phone.readyState).toBe(WebSocket.OPEN);
+    expect(latest()).toEqual({ [session.id]: { kind: "pwa", platform: "ios" } });
+    // With nobody attached, the same resume attaches and owns the terminal.
+    phone.close();
+    await until(() => Object.keys(latest() ?? { pending: true }).length === 0);
+    const again = connect(`/pty/${session.id}?clientKind=browser&clientPlatform=macos&resume=1`);
+    await until(() => latest()?.[session.id] !== undefined);
+    expect(latest()).toEqual({ [session.id]: { kind: "browser", platform: "macos" } });
+    expect(again.readyState).toBe(WebSocket.OPEN);
   } finally {
     for (const ws of sockets) ws.close();
     server.stop(true);

@@ -3239,6 +3239,7 @@
     mobile={mobile.current}
     touch={touch.current}
     connected={store.connected}
+    attended={store.attended}
     terminalOwners={store.terminalOwners}
     workingBlocked={store.workingBlocked}
     backgroundBusy={store.backgroundBusy}
@@ -3497,6 +3498,7 @@
         <div class="col">
           <Viewport
             terminalOwners={store.terminalOwners}
+            attended={store.attended}
             session={selected}
             autoMergeTrain={store.autoMerge}
             mobile={mobile.current}
@@ -3698,6 +3700,7 @@
         {:else if selected}
           <Viewport
             terminalOwners={store.terminalOwners}
+            attended={store.attended}
             bind:this={viewportRef}
             session={selected}
             autoMergeTrain={store.autoMerge}

@@ -3,6 +3,7 @@ import { amendments } from "./amendments.svelte";
 import { HerdStore } from "./store.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
+import { motionSettle } from "./motion-settle";
 
 test("an older herdr snapshot cannot erase a repair in progress", () => {
   const store = new HerdStore();
@@ -651,6 +652,20 @@ const ACTIVITY: SessionActivity = {
   recentTs: [1000],
   recentErrTs: [],
 };
+
+test("status events wake rested animations; high-frequency activity does not (#3035)", () => {
+  const wake = vi.spyOn(motionSettle, "wake");
+  try {
+    const s = new HerdStore();
+    s.apply({ event: "session:activity", data: { id: "s1", activity: ACTIVITY } });
+    expect(wake).not.toHaveBeenCalled();
+    s.setAll([session("s1")]);
+    s.apply({ event: "session:status", data: { id: "s1", status: "running" } });
+    expect(wake).toHaveBeenCalledTimes(1);
+  } finally {
+    wake.mockRestore();
+  }
+});
 
 test("session:activity populates the activity map for that session", () => {
   const s = new HerdStore();

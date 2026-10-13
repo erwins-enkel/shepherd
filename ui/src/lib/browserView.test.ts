@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   connectBrowserView,
   containRect,
+  createFrameAckGate,
   keyMessage,
   modifiersOf,
   mouseButton,
@@ -37,6 +38,27 @@ describe("browserView", () => {
     );
     ws.onopen?.(new Event("open"));
     expect(opened).toBe(1);
+  });
+
+  it("createFrameAckGate acks at once while visible and holds one ack while hidden", () => {
+    let hidden = false;
+    let acks = 0;
+    const gate = createFrameAckGate(
+      () => acks++,
+      () => hidden,
+    );
+    gate.settled();
+    expect(acks).toBe(1);
+    expect(gate.visible()).toBe(false); // nothing held → no extra ack
+    hidden = true;
+    gate.settled();
+    gate.settled();
+    expect(acks).toBe(1);
+    hidden = false;
+    expect(gate.visible()).toBe(true);
+    expect(acks).toBe(2); // exactly one ack for the held frame
+    expect(gate.visible()).toBe(false);
+    expect(acks).toBe(2);
   });
 
   it("containRect letterboxes a wide image in a tall box", () => {

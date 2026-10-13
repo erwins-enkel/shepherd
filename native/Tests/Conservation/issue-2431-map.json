@@ -12729,6 +12729,7 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopDuringFinalLaunchDiscoveryPreventsSpawn() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopDuringLaunchDiscoveryPreventsAutomaticStartup() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"stopOrRemoteSelectionDuringLaunchRunnerWaitPreventsSpawn(stop: Bool) async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"supersededLaunchDiscoveryWaitsUntilExternalServerIsResolved() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"supersededLaunchDiscoveryWaitsUntilExternalServerIsResolved() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"promotionIgnoresBackendGitBookkeepingButRefusesOperatorWork() throws\"]"
   ]
 }

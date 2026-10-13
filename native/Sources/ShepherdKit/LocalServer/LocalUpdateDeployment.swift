@@ -60,7 +60,9 @@ public struct LocalUpdateDeployment: Sendable {
     do {
       try FileManager.default.copyItem(at: live, to: staged)
       try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staged.path)
-      guard try Self.inventory(live) == original else { throw LocalServerFailure.updateFailed(exitCode: 1) }
+      guard Self.operatorState(try Self.inventory(live)) == Self.operatorState(original) else {
+        throw LocalServerFailure.updateFailed(exitCode: 1)
+      }
       journal.stagedIdentity = try Self.directoryIdentity(staged)
       journal.phase = .building
       try Self.write(journal, to: journalURL)
@@ -74,7 +76,9 @@ public struct LocalUpdateDeployment: Sendable {
     try Task.checkCancellation()
     // Refuse publication if the operator edited ANY part of the live checkout
     // while building. In particular, never discard tracked or untracked work.
-    guard try Self.inventory(live) == original else { throw LocalServerFailure.updateFailed(exitCode: 1) }
+    guard Self.operatorState(try Self.inventory(live)) == Self.operatorState(original) else {
+      throw LocalServerFailure.updateFailed(exitCode: 1)
+    }
     // Persist intent BEFORE the rename. Identities distinguish a crash before
     // the swap from one after it, and make recovery itself safe to retry.
     journal.phase = .promoted
@@ -202,21 +206,29 @@ public struct LocalUpdateDeployment: Sendable {
     }
   }
 
+  /// The running backend keeps writing git bookkeeping in the live checkout
+  /// (`git fetch` → FETCH_HEAD, objects, remote refs; `git status` → index), so
+  /// only HEAD and local branch refs stand in for `.git`: a commit, checkout or
+  /// branch move during the build still refuses promotion; the rest is noise.
+  private static func operatorState(_ inventory: [String: Entry]) -> [String: Entry] {
+    inventory.filter { path, _ in
+      guard path == "/.git" || path.hasPrefix("/.git/") else { return true }
+      return path == "/.git/HEAD" || path.hasPrefix("/.git/refs/heads/")
+    }
+  }
+
   private static func inventory(_ directory: URL) throws -> [String: Entry] {
     let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey, .isSymbolicLinkKey]
-    var failure: (any Error)?
-    guard let entries = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: Array(keys),
-      errorHandler: { _, error in failure = error; return false }) else {
-      throw LocalServerFailure.updateFailed(exitCode: 1)
-    }
+    // Relative subpaths, not enumerated URLs: those may drop a /private prefix
+    // the directory path keeps, which would garble the "/<relative path>" keys.
     var result: [String: Entry] = [:]
-    for case let file as URL in entries {
+    for path in try FileManager.default.subpathsOfDirectory(atPath: directory.path) {
+      let file = directory.appendingPathComponent(path)
       let values = try file.resourceValues(forKeys: keys)
-      result[String(file.path.dropFirst(directory.path.count))] = Entry(
+      result["/" + path] = Entry(
         modified: values.contentModificationDate, size: values.fileSize,
         link: values.isSymbolicLink == true ? try FileManager.default.destinationOfSymbolicLink(atPath: file.path) : nil)
     }
-    if let failure { throw failure }
     return result
   }
 }

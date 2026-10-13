@@ -21,7 +21,7 @@ beforeEach(() => {
 
 describe("machines store (#3055)", () => {
   it("reads the list, this Shepherd once a machine is known, and each machine's color", async () => {
-    mockList.mockResolvedValue({ instances: [machine("m2", 2), machine("m1", 1)] });
+    mockList.mockResolvedValue({ instances: [machine("m2", 2), machine("m1", 1)], incoming: [] });
     mockInstance.mockResolvedValue({ instanceId: "self", name: "moes-tavern" } as never);
     await machines.refresh();
     expect(machines.list.map((x) => x.instanceId)).toEqual(["m2", "m1"]);
@@ -31,7 +31,7 @@ describe("machines store (#3055)", () => {
   });
 
   it("asks for nothing more without machines", async () => {
-    mockList.mockResolvedValue({ instances: [] });
+    mockList.mockResolvedValue({ instances: [], incoming: [] });
     await machines.refresh();
     expect(mockInstance).not.toHaveBeenCalled();
   });
@@ -39,9 +39,12 @@ describe("machines store (#3055)", () => {
   it("refreshes arriving during a read coalesce into one more read", async () => {
     let release!: () => void;
     mockList.mockImplementationOnce(
-      () => new Promise((resolve) => (release = () => resolve({ instances: [machine("a", 1)] }))),
+      () =>
+        new Promise(
+          (resolve) => (release = () => resolve({ instances: [machine("a", 1)], incoming: [] })),
+        ),
     );
-    mockList.mockResolvedValue({ instances: [] });
+    mockList.mockResolvedValue({ instances: [], incoming: [] });
     mockInstance.mockResolvedValue({ instanceId: "self", name: "x" } as never);
     const first = machines.refresh();
     void machines.refresh();
@@ -53,7 +56,7 @@ describe("machines store (#3055)", () => {
   });
 
   it("a failed read keeps the last known list", async () => {
-    mockList.mockResolvedValueOnce({ instances: [machine("a", 1)] });
+    mockList.mockResolvedValueOnce({ instances: [machine("a", 1)], incoming: [] });
     mockInstance.mockResolvedValue({ instanceId: "self", name: "x" } as never);
     await machines.refresh();
     mockList.mockRejectedValueOnce(new Error("offline"));

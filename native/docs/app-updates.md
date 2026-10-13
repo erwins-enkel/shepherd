@@ -8,6 +8,11 @@ Settings → App updates lets each tester disable automatic checking or installa
 
 The initial rollout uses one shared tester feed for alpha, beta and subsequent regular releases.
 Every build on that feed is offered to every tester; this is not separate stable/beta opt-in.
+Besides releases, `native-mac-nightly.yml` publishes main to the same feed every night at 04:30
+UTC when `native/`, `contracts/` or the Mac release workflows changed since the feed's newest
+build. Nightlies keep the last release's version line (`2.1.0-nightly.<build>`) and get their own
+`macos-nightly-<build>` pre-release; Sparkle offers them because it compares build numbers.
+Dispatch the workflow manually to publish main immediately, without the change check.
 macOS 15+ is required. Release archives contain both Apple Silicon and Intel executables.
 
 ## One-time release setup

@@ -6243,6 +6243,8 @@ async function handleRepos({ req, parts, deps, token }: Ctx): Promise<Response |
           // A fork's `slug` is its upstream; use the clone origin so callers identify
           // the account that owns the fork. Undefined fields are omitted from JSON.
           remoteSlug: forge?.originSlug ?? forge?.slug ?? undefined,
+          // A fork's upstream, so a pasted upstream link still resolves to this clone.
+          upstreamSlug: forge?.isFork ? forge.slug : undefined,
           hidden: hiddenSet.has(r.path),
         };
       });

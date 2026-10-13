@@ -1406,7 +1406,7 @@ test("GET /api/repos → 200 + { repos, recentWindowDays }", async () => {
   expect(typeof body.recentWindowDays).toBe("number");
 });
 
-test("GET /api/repos prefers originSlug, falls back to slug, and omits remoteSlug without a forge", async () => {
+test("GET /api/repos prefers originSlug, falls back to slug, omits remoteSlug without a forge, and sends a fork's upstreamSlug", async () => {
   const noRemoteRoot = mkdtempSync(join(config.repoRoot, "shepherd-srv-no-remote-"));
   const slugOnlyRoot = mkdtempSync(join(config.repoRoot, "shepherd-srv-slug-only-"));
   const deps = makeDeps();
@@ -1436,11 +1436,13 @@ test("GET /api/repos prefers originSlug, falls back to slug, and omits remoteSlu
       path: tmpRoot,
       isFork: true,
       remoteSlug: "fork-account/project",
+      upstreamSlug: "upstream/project",
     });
     expect(slugOnlyRepo).toMatchObject({
       path: slugOnlyRoot,
       remoteSlug: "account/ordinary-project",
     });
+    expect(slugOnlyRepo).not.toHaveProperty("upstreamSlug");
     expect(noRemoteRepo).toBeDefined();
     expect(noRemoteRepo).not.toHaveProperty("remoteSlug");
     expect([...calls.values()].every((count) => count === 1)).toBe(true);

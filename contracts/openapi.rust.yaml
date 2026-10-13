@@ -801,6 +801,8 @@ components:
           type: boolean
         remoteSlug:
           type: string
+        upstreamSlug:
+          type: string
         hidden:
           type: boolean
     RepoList:

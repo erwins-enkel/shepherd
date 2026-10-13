@@ -38,8 +38,10 @@ import {
   shapeTask,
   composeTaskBrief,
   cancelSpawn,
+  getIssue,
   ApiError,
 } from "#lib/api.js";
+import { toasts } from "#lib/toasts.svelte.js";
 
 // Mock the API so the issue picker renders deterministically with no network.
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -60,6 +62,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     shapeTask: vi.fn(),
     composeTaskBrief: vi.fn(),
     cancelSpawn: vi.fn(),
+    getIssue: vi.fn(),
   };
 });
 
@@ -93,6 +96,7 @@ const mockUploadFile = vi.mocked(uploadFile);
 const mockShapeTask = vi.mocked(shapeTask);
 const mockComposeTaskBrief = vi.mocked(composeTaskBrief);
 const mockCancelSpawn = vi.mocked(cancelSpawn);
+const mockGetIssue = vi.mocked(getIssue);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -5542,5 +5546,97 @@ describe("NewTask explanation tooltips", () => {
 
     research.click();
     await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
+  });
+});
+
+describe("NewTask pasted GitHub link selects the repo", () => {
+  const plain: RepoEntry = {
+    name: "plain",
+    path: "/repo/plain",
+    display: "plain",
+    realPath: "/repo/plain",
+  };
+  const flow: RepoEntry = {
+    name: "flowagent",
+    path: "/repo/flowagent",
+    display: "flowagent",
+    realPath: "/repo/flowagent",
+    remoteSlug: "murakamyadvisory/flowagent",
+  };
+  const fork: RepoEntry = {
+    name: "proj",
+    path: "/repo/proj",
+    display: "proj",
+    realPath: "/repo/proj",
+    remoteSlug: "me/proj",
+    upstreamSlug: "upstream/proj",
+    isFork: true,
+  };
+
+  const triggerLabel = () => document.querySelector<HTMLElement>(".rs-trigger b")?.textContent;
+
+  function pasteText(text: string) {
+    const transfer = new DataTransfer();
+    transfer.setData("text/plain", text);
+    const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: transfer });
+    window.dispatchEvent(event);
+  }
+
+  beforeEach(() => {
+    for (const t of toasts.items) toasts.close(t.id);
+    mockListRepos.mockResolvedValue({ repos: [plain, flow, fork], recentWindowDays: 30 });
+    mockGetIssue.mockReset();
+  });
+
+  it("a PR link switches to the matching repo and toasts once", async () => {
+    render(NewTask, { props: base({ initialRepoPath: plain.path }) });
+    await expect.poll(triggerLabel).toBe(plain.name);
+
+    pasteText("look at https://github.com/MurakamyAdvisory/flowagent/pull/1288 please");
+    await expect.poll(triggerLabel).toBe(flow.name);
+    expect(toasts.items.map((t) => t.text)).toEqual([
+      m.newtask_repo_from_link({ name: flow.name }),
+    ]);
+    expect(mockGetIssue).not.toHaveBeenCalled();
+
+    // Already selected: no second toast.
+    pasteText("https://github.com/murakamyadvisory/flowagent/pull/1289");
+    expect(toasts.items).toHaveLength(1);
+  });
+
+  it("an unmatched link leaves the repo alone", async () => {
+    render(NewTask, { props: base({ initialRepoPath: plain.path }) });
+    await expect.poll(triggerLabel).toBe(plain.name);
+
+    pasteText("https://github.com/someone/else/pull/1");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(triggerLabel()).toBe(plain.name);
+    expect(toasts.items).toEqual([]);
+  });
+
+  it("an issue link on a fork's upstream selects the fork and attaches the issue", async () => {
+    mockGetIssue.mockResolvedValue(mkIssue(9, "Upstream bug"));
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: plain.path } });
+    await expect.poll(triggerLabel).toBe(plain.name);
+
+    pasteText("https://github.com/upstream/proj/issues/9");
+    await expect.poll(triggerLabel).toBe(fork.name);
+    await expect.poll(() => mockGetIssue.mock.calls).toEqual([[fork.path, 9]]);
+
+    typePrompt("https://github.com/upstream/proj/issues/9");
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0].issueRef).toMatchObject({ number: 9 });
+  });
+
+  it("an issue link on a fork's own origin does not attach", async () => {
+    render(NewTask, { props: base({ initialRepoPath: plain.path }) });
+    await expect.poll(triggerLabel).toBe(plain.name);
+
+    pasteText("https://github.com/me/proj/issues/3");
+    await expect.poll(triggerLabel).toBe(fork.name);
+    expect(mockGetIssue).not.toHaveBeenCalled();
   });
 });

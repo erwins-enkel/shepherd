@@ -204,6 +204,58 @@ describe("connectPty", () => {
     vi.useRealTimers();
   });
 
+  it("keeps retrying when the socket never opens (network down, not herdr)", () => {
+    vi.useFakeTimers();
+    const onEnded = vi.fn();
+    const { last } = make(
+      () => {},
+      () => {},
+      onEnded,
+    );
+    // PWA resume / wake: the network or Tailscale isn't back yet, so every connect
+    // fails before opening. That's Shepherd being unreachable, never "herdr down".
+    for (let i = 0; i < 20; i++) {
+      last().drop();
+      vi.advanceTimersByTime(8000); // past the backoff cap
+    }
+    expect(onEnded).not.toHaveBeenCalled();
+    expect(FakeWs.instances).toHaveLength(21);
+    vi.useRealTimers();
+  });
+
+  it("backs off never-opened retries up to 8s and resets after an open", () => {
+    vi.useFakeTimers();
+    const { last } = make();
+    const waitFor = (ms: number) => {
+      const n = FakeWs.instances.length;
+      last().drop();
+      vi.advanceTimersByTime(ms - 1);
+      expect(FakeWs.instances).toHaveLength(n); // not yet
+      vi.advanceTimersByTime(1);
+      expect(FakeWs.instances).toHaveLength(n + 1);
+    };
+    for (const ms of [1000, 2000, 4000, 8000, 8000]) waitFor(ms);
+    last().open(); // reachable again → backoff resets
+    vi.advanceTimersByTime(5000);
+    waitFor(1000); // an opened drop retries after 1s
+    waitFor(1000); // and the next never-opened failure starts over at 1s
+    vi.useRealTimers();
+  });
+
+  it("poke skips a pending backoff wait", () => {
+    vi.useFakeTimers();
+    const { conn, last } = make();
+    for (let i = 0; i < 4; i++) {
+      last().drop();
+      vi.advanceTimersByTime(8000);
+    }
+    last().drop(); // now waiting 8s
+    const n = FakeWs.instances.length;
+    conn.poke(); // tab came back → reconnect at once
+    expect(FakeWs.instances).toHaveLength(n + 1);
+    vi.useRealTimers();
+  });
+
   it("close stops reconnection", () => {
     vi.useFakeTimers();
     const { conn, last } = make();

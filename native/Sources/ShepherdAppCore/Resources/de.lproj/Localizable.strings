@@ -1733,7 +1733,7 @@
 "vblock_wireframe_surface_popover" = "Popover-Skizze";
 "viewport_decommission_title" = "Agent stoppen + Worktree entfernen";
 "viewport_diff_annotation_review" = "Prüfung";
-"viewport_reconnect_sub" = "herdr ist offline. Tippen, sobald es zurück ist.";
+"viewport_reconnect_sub" = "Terminal bricht direkt nach dem Verbinden ab — herdr ist evtl. nicht erreichbar. Tippen zum erneuten Versuch.";
 "viewport_reconnect_title" = "Neu verbinden";
 "viewport_rename_aria" = "Task umbenennen";
 "viewport_rename_branch_kept" = "Name geändert; Branch beibehalten (offener PR)";

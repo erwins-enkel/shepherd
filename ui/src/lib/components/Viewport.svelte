@@ -417,7 +417,7 @@
   let lastOutputAt = 0;
   // true once the connection stopped for good — show a recovery prompt. endReason
   // splits the two cases: "gone" = the agent exited (offer provider resume),
-  // "unreachable" = herdr itself is down (offer a plain re-attach).
+  // "unreachable" = attaches keep dying right after opening, likely herdr down (offer a plain re-attach).
   let ended = $state(false);
   let endReason = $state<"gone" | "unreachable">("gone");
   let resuming = $state(false);
@@ -1836,7 +1836,7 @@
       },
       // the connection stopped for good — note it in the buffer + surface a
       // recovery prompt. "gone" → agent exited (status badge already flipped to
-      // "done" via session:status); "unreachable" → herdr is down, just re-attach.
+      // "done" via session:status); "unreachable" → attaches keep failing (likely herdr), just re-attach.
       (reason) => {
         endReason = reason;
         ptyLive = false;

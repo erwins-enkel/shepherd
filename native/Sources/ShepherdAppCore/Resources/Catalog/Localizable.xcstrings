@@ -29731,13 +29731,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "herdr ist offline. Tippen, sobald es zurück ist."
+            "value": "Terminal bricht direkt nach dem Verbinden ab — herdr ist evtl. nicht erreichbar. Tippen zum erneuten Versuch."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "herdr is down. Tap once it's back."
+            "value": "Terminal keeps dropping right after attaching — herdr may be down. Tap to retry."
           }
         }
       }

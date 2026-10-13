@@ -171,7 +171,7 @@
   </button>
 {/if}
 {#if ended && !parked && tab === "term" && endReason === "unreachable"}
-  <!-- herdr is down, not the agent — re-attach (no claudeSessionId needed) -->
+  <!-- attaches keep dying right after opening (likely herdr down), not the agent — re-attach (no claudeSessionId needed) -->
   <button class="parked resume" type="button" onclick={reattach}>
     <span class="parked-icon" aria-hidden="true">↻</span>
     <span class="parked-title">{m.viewport_reconnect_title()}</span>

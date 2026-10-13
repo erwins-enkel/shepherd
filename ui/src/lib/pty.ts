@@ -53,8 +53,10 @@ export function connectPty(
   // "take over" affordance instead of fighting for the attach
   onParked: () => void = () => {},
   // fired when the connection stops for good and never reconnects. "gone" = the
-  // herdr agent itself exited (user quit claude); "unreachable" = herdr is down
-  // so no attach can succeed (e.g. its server was stopped by a failed update).
+  // herdr agent itself exited (user quit claude); "unreachable" = attaches keep
+  // dying right after opening, most likely herdr is down (e.g. its server was
+  // stopped by a failed update). A socket that never opens (network down, PWA
+  // resume) is Shepherd being unreachable, never this — it just keeps retrying.
   // The caller shows a Resume vs. Reconnect affordance accordingly.
   onEnded: (reason: "gone" | "unreachable") => void = () => {},
   makeWs: (path: string) => WebSocket = (p) => new WebSocket(wsUrl(p)),
@@ -81,6 +83,11 @@ export function connectPty(
   let fastFails = 0;
   const FAST_FAIL_MS = 4000;
   const MAX_FAST_FAILS = 8;
+  // A socket that never opened didn't reach Shepherd at all (offline, Tailscale still
+  // reconnecting after a PWA resume or wake). Says nothing about herdr, so it never
+  // counts as a fast fail; it retries forever, backing off so an offline tab stays cheap.
+  let retryDelay = 1000;
+  const MAX_RETRY_DELAY_MS = 8000;
   // echo RTT: timestamp of the last real input send (0 = none pending).
   // Cleared by the first server message after a send, so measurement is
   // send→first-server-message, not send→echo. A concurrent unsolicited server
@@ -112,6 +119,7 @@ export function connectPty(
     };
     ws.onopen = () => {
       openedAt = Date.now();
+      retryDelay = 1000;
       if (everOpened) onReconnect();
       everOpened = true;
     };
@@ -132,10 +140,17 @@ export function connectPty(
       }
       // conn.close() / a terminal state already stopped us → don't revive
       if (stopped || parked) return;
+      // never opened → Shepherd unreachable, not herdr: back off and keep trying
+      if (!openedAt) {
+        if (!retry) {
+          retry = setTimeout(open, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS);
+        }
+        return;
+      }
       // herdr unreachable? a dead-herdr attach opens then drops at once; a
       // connection that lived past the window was a real session → reset.
-      const livedMs = openedAt ? Date.now() - openedAt : 0;
-      fastFails = livedMs >= FAST_FAIL_MS ? 0 : fastFails + 1;
+      fastFails = Date.now() - openedAt >= FAST_FAIL_MS ? 0 : fastFails + 1;
       if (fastFails >= MAX_FAST_FAILS) {
         // herdr is gone for good (not a blip) — stop the attach loop and let the
         // caller surface a Reconnect affordance instead of error spam.

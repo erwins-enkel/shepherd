@@ -267,6 +267,14 @@ into a running agent's terminal. Anything a scope doesn't cover is refused, so a
 client can only do what you granted it. `SHEPHERD_TOKEN` has no scope; it always
 has full reach.
 
+### Operator Assistant
+
+A Claude session Shepherd runs for you and grounds in its own telemetry, docs and
+source. Ask it why the herd stalled, an epic won't drain or an agent died: it
+reads, explains and tells you what to do, but changes nothing itself — every
+shell command waits for your approval. See
+[Operator Assistant](/operating/#operator-assistant).
+
 ## Industry terms
 
 ### PR

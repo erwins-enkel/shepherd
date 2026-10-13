@@ -56,6 +56,37 @@ test("POST /api/push/subscribe rejects a malformed body", async () => {
   expect(res.status).toBe(400);
 });
 
+test("POST /api/push/subscribe stores the relay fields, relayRemote defaulting to on (#3058)", async () => {
+  const { app, store } = harness();
+  const res = await post(app, "/api/push/subscribe", {
+    endpoint: "https://push/e1",
+    keys: { p256dh: "p", auth: "a" },
+    coveredInstances: ["b"],
+  });
+  expect(res.status).toBe(200);
+  expect(store.listPushSubs()[0]).toMatchObject({ relayRemote: true, coveredInstances: ["b"] });
+  await post(app, "/api/push/subscribe", {
+    endpoint: "https://push/e2",
+    keys: { p256dh: "p", auth: "a" },
+  });
+  expect(store.listPushSubs()[1]).toMatchObject({ relayRemote: false, coveredInstances: [] });
+});
+
+test("POST /api/push/subscribe rejects malformed relay fields (#3058)", async () => {
+  const { app } = harness();
+  const base = { endpoint: "https://push/e1", keys: { p256dh: "p", auth: "a" } };
+  for (const extra of [
+    { relayRemote: "yes" },
+    { coveredInstances: "b" },
+    { coveredInstances: [1] },
+    { coveredInstances: [""] },
+    { coveredInstances: ["x".repeat(65)] },
+    { coveredInstances: Array.from({ length: 65 }, (_, i) => `i${i}`) },
+  ]) {
+    expect((await post(app, "/api/push/subscribe", { ...base, ...extra })).status).toBe(400);
+  }
+});
+
 test("POST /api/push/unsubscribe removes the subscription", async () => {
   const { app, store } = harness();
   store.putPushSub({ endpoint: "e1", keys: { p256dh: "p", auth: "a" } }, "");

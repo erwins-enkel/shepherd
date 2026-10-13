@@ -65,3 +65,23 @@ test("putPushSub upsert preserves an existing category selection", () => {
   s.putPushSub({ endpoint: "e1", keys: { p256dh: "new", auth: "new2" } }, "ua2");
   expect(s.getPushPrefs("e1")).toEqual({ agent: false, reviews: false, ci: true });
 });
+
+test("a registration without relay fields gets no relayed notifications (#3058)", () => {
+  const s = new SessionStore(":memory:");
+  s.putPushSub(sub("e1"), "");
+  expect(s.listPushSubs()[0]).toMatchObject({ relayRemote: false, coveredInstances: [] });
+});
+
+test("relay preferences persist and the latest registration replaces them (#3058)", () => {
+  const s = new SessionStore(":memory:");
+  s.putPushSub({ ...sub("e1"), relay: { coveredInstances: ["b", "c"], relayRemote: true } }, "");
+  s.setPushPrefs("e1", { agent: false, reviews: true, ci: true });
+  expect(s.listPushSubs()[0]).toMatchObject({ relayRemote: true, coveredInstances: ["b", "c"] });
+  s.putPushSub({ ...sub("e1"), relay: { coveredInstances: [], relayRemote: false } }, "");
+  expect(s.listPushSubs()[0]).toMatchObject({ relayRemote: false, coveredInstances: [] });
+  // An older client re-registering drops back to no relay; categories still survive.
+  s.putPushSub({ ...sub("e1"), relay: { coveredInstances: ["b"], relayRemote: true } }, "");
+  s.putPushSub(sub("e1"), "");
+  expect(s.listPushSubs()[0]).toMatchObject({ relayRemote: false, coveredInstances: [] });
+  expect(s.getPushPrefs("e1")).toEqual({ agent: false, reviews: true, ci: true });
+});

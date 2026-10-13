@@ -261,3 +261,14 @@ test("POST /api/push/apns rejects malformed bodies and answers 503 when APNs is 
   const off = appWith(null);
   expect((await register(off.app, { token: TOKEN, environment: "production" })).status).toBe(503);
 });
+
+test("POST /api/push/apns stores the relay fields and rejects malformed ones (#3058)", async () => {
+  const { app, store } = appWith(new ApnsSender(cfg(), recording().transport));
+  const device = { token: TOKEN, environment: "production" };
+  expect((await register(app, { ...device, relayRemote: false })).status).toBe(200);
+  expect(store.listPushSubs()[0]).toMatchObject({ relayRemote: false, coveredInstances: [] });
+  expect((await register(app, { ...device, coveredInstances: ["b"] })).status).toBe(200);
+  expect(store.listPushSubs()[0]).toMatchObject({ relayRemote: true, coveredInstances: ["b"] });
+  expect((await register(app, { ...device, coveredInstances: [7] })).status).toBe(400);
+  expect((await register(app, { ...device, relayRemote: 1 })).status).toBe(400);
+});

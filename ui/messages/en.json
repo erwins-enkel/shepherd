@@ -6438,5 +6438,6 @@
   "native_runner_runtime_ready": "Ready",
   "native_runner_runtime_restart": "Restart required",
   "native_runner_runtime_offline": "Offline",
-  "native_runner_runtime_unknown": "Unknown"
+  "native_runner_runtime_unknown": "Unknown",
+  "drain_paused_usage_ceiling": "Paused: usage {pct}% ≥ ceiling {ceiling}%"
 }

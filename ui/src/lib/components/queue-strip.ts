@@ -251,7 +251,9 @@ export function pausedText(d: DrainStatus): string {
     case "error":
       return m.drain_paused_error({ desig });
     case "usage":
-      return m.drain_paused_usage({ pct: desig });
+      return d.usageCeilingPct != null
+        ? m.drain_paused_usage_ceiling({ pct: desig, ceiling: d.usageCeilingPct })
+        : m.drain_paused_usage({ pct: desig });
     case "credits":
       return m.drain_paused_credits();
     // #1757: the epic's integration branch could not be ensured on the forge — detail carries the

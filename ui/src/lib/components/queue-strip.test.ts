@@ -132,6 +132,11 @@ describe("pausedText", () => {
   it("maps usage with its percentage", () => {
     expect(pausedText(drain({ paused: true, reason: "usage", detail: "80" }))).toContain("80");
   });
+  it("maps usage with both the usage and the ceiling when the ceiling is known", () => {
+    expect(
+      pausedText(drain({ paused: true, reason: "usage", detail: "81", usageCeilingPct: 80 })),
+    ).toBe(m.drain_paused_usage_ceiling({ pct: "81", ceiling: 80 }));
+  });
   it("falls back to the generic line for an unknown reason", () => {
     const generic = pausedText(drain({ paused: true, reason: null }));
     expect(generic).toBe(pausedText(drain({ paused: true, reason: "something-else" })));

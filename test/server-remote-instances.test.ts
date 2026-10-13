@@ -377,6 +377,21 @@ describe("connected machines", () => {
     expect((await call(a, "POST", "/api/remote-instances/nope/update", {})).status).toBe(404);
     expect((await call(a, "GET", "/api/remote-instances/nope/update/log")).status).toBe(404);
 
+    // An answer the machine's update route never gives is not passed on as one.
+    const real = b.app;
+    b.app = {
+      ...real,
+      fetch: (req: Request) =>
+        req.method === "POST" && new URL(req.url).pathname === "/api/update"
+          ? Promise.resolve(Response.json({ error: "boom" }, { status: 500 }))
+          : real.fetch(req),
+    } as typeof real;
+    const odd = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
+    expect([odd.status, odd.body]).toEqual([
+      502,
+      { error: "remote_unreachable", reason: "bad_response" },
+    ]);
+
     instances.delete("b.test");
     const offline = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
     expect([offline.status, offline.body]).toEqual([

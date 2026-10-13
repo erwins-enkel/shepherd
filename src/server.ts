@@ -1625,6 +1625,9 @@ async function applyMachineUpdate(
   });
 }
 
+/** What the machine's own update routes answer; anything else is not an answer to pass on. */
+const MACHINE_UPDATE_STATUSES = new Set([200, 202, 400, 409, 503]);
+
 /** The machine's answer served from here, or why there was none: 404 for a machine not connected
  *  here, 502 `remote_<status>` with its reason for one that gave no usable answer. */
 async function relayMachineUpdate(
@@ -1636,7 +1639,7 @@ async function relayMachineUpdate(
   if (!res) return json({ error: "not found" }, 404);
   if (!res.ok)
     return json({ error: `remote_${res.failure.status}`, reason: res.failure.reason }, 502);
-  return isRecord(res.body)
+  return isRecord(res.body) && MACHINE_UPDATE_STATUSES.has(res.status)
     ? json(res.body, res.status)
     : json({ error: "remote_unreachable", reason: "bad_response" }, 502);
 }

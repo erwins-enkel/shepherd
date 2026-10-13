@@ -27,6 +27,7 @@ import {
   type FetchLike,
   type ProbeFailure,
   type ProbeOutcome,
+  type RemoteTarget,
   getRemoteJson,
   isRecord,
   lostReach,
@@ -220,7 +221,10 @@ export class RemoteInstanceService {
 
   /** Probe the target first and store it only once it answers as a compatible, distinct machine. */
   async connect(req: ConnectRequest): Promise<ConnectResult> {
-    const outcome = await probeRemote(req, { fetch: this.fetch, now: this.now });
+    const [outcome, update] = await Promise.all([
+      probeRemote(req, { fetch: this.fetch, now: this.now }),
+      this.readSelfUpdate(req),
+    ]);
     if (outcome.status !== "connected") {
       return { ok: false, error: `remote_${outcome.status}`, reason: outcome.reason };
     }
@@ -238,7 +242,7 @@ export class RemoteInstanceService {
       createdAt: this.now(),
     };
     this.store.insertRemoteInstance(row);
-    this.apply(row, outcome, await this.readSelfUpdate(row));
+    this.apply(row, outcome, update);
     return { ok: true, instance: this.summary(row) };
   }
 
@@ -349,10 +353,14 @@ export class RemoteInstanceService {
   }
 
   private async runProbe(row: RemoteInstanceRow): Promise<void> {
-    const outcome = await probeRemote(row, { fetch: this.fetch, now: this.now });
-    // A machine that answered — compatible or not — says how far behind it is.
+    // Its self-update is read beside the probe, so a slow answer never lengthens the round; it
+    // counts only from a machine that answered — compatible or not.
+    const [outcome, fresh] = await Promise.all([
+      probeRemote(row, { fetch: this.fetch, now: this.now }),
+      this.readSelfUpdate(row),
+    ]);
     const answered = outcome.status === "connected" || outcome.status === "incompatible";
-    const update = answered ? await this.readSelfUpdate(row) : undefined;
+    const update = answered ? fresh : undefined;
     // Removed (or re-added) while the probe was out: its result belongs to nobody.
     const current = this.store.getRemoteInstance(row.instanceId);
     if (!current || current.createdAt !== row.createdAt) return;
@@ -368,8 +376,8 @@ export class RemoteInstanceService {
   }
 
   /** The machine's self-update, or null when it does not say (a failed read never fails a probe). */
-  private async readSelfUpdate(row: RemoteInstanceRow): Promise<MachineSelfUpdate | null> {
-    const res = await getRemoteJson(row, "/api/update", { fetch: this.fetch });
+  private async readSelfUpdate(target: RemoteTarget): Promise<MachineSelfUpdate | null> {
+    const res = await getRemoteJson(target, "/api/update", { fetch: this.fetch });
     return res.ok ? parseSelfUpdate(res.body) : null;
   }
 

@@ -170,7 +170,7 @@ describe("ended terminal: reconnect", () => {
   it("keeps the herdr copy when herdr itself is down", async () => {
     await render(ViewportTermBanners, { ...baseProps, ended: true, endReason: "unreachable" });
     await expect
-      .element(page.getByRole("button", { name: /Reconnect.*herdr is down/ }))
+      .element(page.getByRole("button", { name: /Reconnect.*herdr may be down/ }))
       .toBeInTheDocument();
   });
 });

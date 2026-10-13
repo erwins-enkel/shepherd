@@ -8,9 +8,12 @@ import {
   computeHandoff,
   parseRoles,
   normalizeLogin,
+  readPendingRoles,
+  ROLES_PR_BRANCH,
+  saveRepoRoles,
   writeRepoRoles,
 } from "../src/repo-roles";
-import type { GitForge, GitState, PrStatus } from "../src/forge/types";
+import type { GitForge, GitState, OpenPrInput, PrStatus } from "../src/forge/types";
 import { makeApp, type AppDeps } from "../src/server";
 import { config } from "../src/config";
 
@@ -439,8 +442,8 @@ function writeHook(dir: string, name: string, body: string): void {
   writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 }
 
-function remoteWithClone(): { remote: string; clone: string } {
-  const root = mkdtempSync(join(tmpdir(), "shepherd-roles-remote-"));
+function remoteWithClone(parent = tmpdir()): { remote: string; clone: string } {
+  const root = mkdtempSync(join(parent, "shepherd-roles-remote-"));
   fixtureRepos.push(root);
   const remote = join(root, "remote.git");
   const clone = join(root, "clone");
@@ -489,4 +492,274 @@ test("writeRepoRoles keeps the event loop turning during a slow push", async () 
   // run after the write had already resolved.
   expect(fired).toBe(true);
   expect(remoteRoles(remote)).toEqual({ reviewer: null, merger: "scoop" });
+});
+
+// ── PR fallback: a default branch that refuses direct pushes ───────────────────────────────
+
+/** The remote refuses any update of `main` — what a protected branch / ruleset does. */
+function protectMain(remote: string): void {
+  writeHook(
+    join(remote, "hooks"),
+    "pre-receive",
+    'while read old new ref; do [ "$ref" = refs/heads/main ] && { echo "main is protected" >&2; exit 1; }; done; exit 0',
+  );
+}
+
+const SETTINGS_ON = { requiresPr: true, autoMergeAllowed: true, canAdminister: true };
+
+function fakeRolesForge(over: Record<string, unknown> = {}) {
+  const calls = {
+    openPr: [] as OpenPrInput[],
+    autoMerge: [] as [number, string][],
+    closed: [] as number[],
+    prStatus: 0,
+  };
+  let pr: PrStatus = { state: "none", checks: "none" } as PrStatus;
+  const forge = {
+    mergeMethod: "squash",
+    defaultBranch: async () => "main",
+    currentUser: async () => "kai",
+    prStatus: async () => {
+      calls.prStatus++;
+      return pr;
+    },
+    openPr: async (o: OpenPrInput) => {
+      calls.openPr.push(o);
+      pr = { state: "open", number: 41, url: "https://host/pr/41", checks: "pending" } as PrStatus;
+      return pr;
+    },
+    enableAutoMerge: async (n: number, method: string) => {
+      calls.autoMerge.push([n, method]);
+    },
+    closePr: async (n: number) => {
+      calls.closed.push(n);
+      pr = { ...pr, state: "closed" };
+    },
+    ...over,
+  } as unknown as GitForge;
+  return { forge, calls, setPr: (p: Partial<PrStatus>) => (pr = { ...pr, ...p }) };
+}
+
+const hasRef = (repo: string, ref: string): boolean => {
+  try {
+    execFileSync("git", ["-C", repo, "rev-parse", "--verify", "--quiet", ref], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+test("saveRepoRoles routes a refused default branch through one PR with auto-merge armed", async () => {
+  const { remote, clone } = remoteWithClone();
+  protectMain(remote);
+  const { forge, calls } = fakeRolesForge();
+  const roles = { reviewer: "kai", merger: "scoop" };
+
+  const saved = await saveRepoRoles(clone, roles, forge, { pending: null, settings: SETTINGS_ON });
+
+  expect(saved).toEqual({
+    kind: "pr",
+    pending: { number: 41, url: "https://host/pr/41", roles, autoMerge: "enabled" },
+  });
+  expect(remoteRoles(remote, ROLES_PR_BRANCH)).toEqual(roles);
+  expect(() => remoteRoles(remote, "main")).toThrow(); // main never took it
+  expect(calls.openPr).toHaveLength(1);
+  expect(calls.openPr[0]).toMatchObject({
+    head: ROLES_PR_BRANCH,
+    base: "main",
+    title: "chore(shepherd): set repo roles",
+  });
+  expect(calls.autoMerge).toEqual([[41, "squash"]]);
+});
+
+test("saveRepoRoles reports auto-merge as off instead of trying it where the repo forbids it", async () => {
+  const { remote, clone } = remoteWithClone();
+  protectMain(remote);
+  const { forge, calls } = fakeRolesForge();
+  const saved = await saveRepoRoles(clone, { reviewer: "kai", merger: null }, forge, {
+    pending: null,
+    settings: { ...SETTINGS_ON, autoMergeAllowed: false },
+  });
+  expect(saved.kind === "pr" && saved.pending.autoMerge).toBe("off");
+  expect(calls.autoMerge).toEqual([]);
+});
+
+test("saveRepoRoles updates the open roles PR on a second save instead of opening another", async () => {
+  const { remote, clone } = remoteWithClone();
+  protectMain(remote);
+  const { forge, calls } = fakeRolesForge();
+  const o = { pending: null, settings: SETTINGS_ON };
+  await saveRepoRoles(clone, { reviewer: "kai", merger: null }, forge, o);
+  await saveRepoRoles(clone, { reviewer: "dana", merger: null }, forge, o);
+
+  expect(calls.openPr).toHaveLength(1);
+  expect(remoteRoles(remote, ROLES_PR_BRANCH)).toEqual({ reviewer: "dana", merger: null });
+});
+
+test("saveRepoRoles throws without a PR when the push fails for any other reason", async () => {
+  const { clone } = remoteWithClone();
+  execFileSync("git", ["-C", clone, "remote", "set-url", "origin", join(clone, "no-such-remote")]);
+  const { forge, calls } = fakeRolesForge();
+  await expect(
+    saveRepoRoles(clone, { reviewer: "kai", merger: null }, forge, {
+      pending: null,
+      settings: SETTINGS_ON,
+    }),
+  ).rejects.toThrow();
+  expect(calls.openPr).toEqual([]);
+});
+
+test("saveRepoRoles never opens a roles PR from a fork", async () => {
+  const { remote, clone } = remoteWithClone();
+  protectMain(remote);
+  const { forge, calls } = fakeRolesForge({ isFork: true });
+  await expect(
+    saveRepoRoles(clone, { reviewer: "kai", merger: null }, forge, {
+      pending: null,
+      settings: null,
+    }),
+  ).rejects.toThrow();
+  expect(calls.openPr).toEqual([]);
+});
+
+test("readPendingRoles: no roles PR from this checkout costs no host call", async () => {
+  const { clone } = remoteWithClone();
+  const { forge, calls } = fakeRolesForge();
+  expect(await readPendingRoles(clone, forge)).toBeNull();
+  expect(calls.prStatus).toBe(0);
+});
+
+test("readPendingRoles reports the open PR's roles, then forgets it once merged", async () => {
+  const { remote, clone } = remoteWithClone();
+  protectMain(remote);
+  const { forge, calls, setPr } = fakeRolesForge();
+  const roles = { reviewer: "kai", merger: null };
+  await saveRepoRoles(clone, roles, forge, { pending: null, settings: SETTINGS_ON });
+
+  expect(await readPendingRoles(clone, forge)).toEqual({
+    number: 41,
+    url: "https://host/pr/41",
+    roles,
+  });
+
+  setPr({ state: "merged" });
+  expect(await readPendingRoles(clone, forge)).toBeNull();
+  expect(hasRef(clone, `refs/remotes/origin/${ROLES_PR_BRANCH}`)).toBe(false);
+  const before = calls.prStatus;
+  expect(await readPendingRoles(clone, forge)).toBeNull();
+  expect(calls.prStatus).toBe(before);
+});
+
+// ── routes ─────────────────────────────────────────────────────────────────────────────────
+
+function rolesApp(forge: GitForge | null) {
+  const deps: AppDeps = {
+    store: { list: () => [] } as never,
+    service: {} as never,
+    events: { emit: () => {} } as never,
+    usageLimits: { limits: () => ({}) } as never,
+    resolveForge: () => forge,
+  };
+  const app = makeApp(deps);
+  return (method: string, dir: string, body?: unknown, path = "/api/repo-roles") =>
+    app.fetch(
+      new Request(`http://x${path}?repo=${encodeURIComponent(dir)}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+    );
+}
+
+test("PUT /api/repo-roles on a refused default branch answers 200 with the pending PR", async () => {
+  const { remote, clone } = remoteWithClone(config.repoRoot);
+  protectMain(remote);
+  const { forge } = fakeRolesForge({ repoMergeSettings: async () => SETTINGS_ON });
+  const call = rolesApp(forge);
+
+  const res = await call("PUT", clone, { reviewer: "kai" });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.roles).toEqual({ reviewer: null, merger: null }); // committed: unchanged
+  expect(body.pending).toMatchObject({ number: 41, roles: { reviewer: "kai", merger: null } });
+  expect(body.mergeSettings).toEqual(SETTINGS_ON);
+
+  // A reload finds the PR again.
+  const read = await (await call("GET", clone)).json();
+  expect(read.pending).toMatchObject({ number: 41, roles: { reviewer: "kai", merger: null } });
+});
+
+test("PUT /api/repo-roles: re-sending the pending value is a no-op", async () => {
+  const { remote, clone } = remoteWithClone(config.repoRoot);
+  protectMain(remote);
+  const { forge, calls } = fakeRolesForge();
+  const call = rolesApp(forge);
+  await call("PUT", clone, { reviewer: "kai" });
+  const res = await call("PUT", clone, { reviewer: "KAI" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).pending).toMatchObject({ number: 41 });
+  expect(calls.openPr).toHaveLength(1);
+  expect(calls.autoMerge).toHaveLength(1);
+});
+
+test("PUT /api/repo-roles back to the committed value closes the pending PR", async () => {
+  const { remote, clone } = remoteWithClone(config.repoRoot);
+  protectMain(remote);
+  const { forge, calls } = fakeRolesForge();
+  const call = rolesApp(forge);
+  await call("PUT", clone, { reviewer: "kai" });
+
+  const res = await call("PUT", clone, { reviewer: null });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.pending).toBeUndefined();
+  expect(calls.closed).toEqual([41]);
+  expect(hasRef(remote, `refs/heads/${ROLES_PR_BRANCH}`)).toBe(false);
+});
+
+test("POST /api/repo-roles/auto-merge: 409 without host support", async () => {
+  const { clone } = remoteWithClone(config.repoRoot);
+  const res = await rolesApp(fakeRolesForge().forge)(
+    "POST",
+    clone,
+    undefined,
+    "/api/repo-roles/auto-merge",
+  );
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "unsupported" });
+});
+
+test("POST /api/repo-roles/auto-merge turns the setting on and arms the open roles PR", async () => {
+  const { remote, clone } = remoteWithClone(config.repoRoot);
+  protectMain(remote);
+  let allowed = false;
+  const { forge, calls } = fakeRolesForge({
+    repoMergeSettings: async () => ({ ...SETTINGS_ON, autoMergeAllowed: allowed }),
+    enableRepoAutoMerge: async () => {
+      allowed = true;
+    },
+  });
+  const call = rolesApp(forge);
+  const put = await (await call("PUT", clone, { reviewer: "kai" })).json();
+  expect(put.pending.autoMerge).toBe("off");
+
+  const res = await call("POST", clone, undefined, "/api/repo-roles/auto-merge");
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.mergeSettings.autoMergeAllowed).toBe(true);
+  expect(body.pending).toMatchObject({ number: 41, autoMerge: "enabled" });
+  expect(calls.autoMerge).toEqual([[41, "squash"]]);
+});
+
+test("POST /api/repo-roles/auto-merge: 502 with a generic error when the host refuses", async () => {
+  const { clone } = remoteWithClone(config.repoRoot);
+  const { forge } = fakeRolesForge({
+    enableRepoAutoMerge: async () => {
+      throw new Error("HTTP 403 at secret-host");
+    },
+  });
+  const res = await rolesApp(forge)("POST", clone, undefined, "/api/repo-roles/auto-merge");
+  expect(res.status).toBe(502);
+  const body = await res.json();
+  expect(body).toEqual({ error: "auto_merge_enable_failed" });
 });

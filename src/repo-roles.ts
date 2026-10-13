@@ -4,7 +4,14 @@ import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import type { GitState, PrReviewBlock, PrReviewerState, PrStatus } from "./forge/types";
+import type {
+  GitForge,
+  GitState,
+  PrReviewBlock,
+  PrReviewerState,
+  PrStatus,
+  RepoMergeSettings,
+} from "./forge/types";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { evaluateMergeGate, mergeResponsibility, reviewBlockFor } from "./merge-gate";
 
@@ -349,17 +356,18 @@ async function buildRolesCommit(
       { env },
     );
     const tree = await gitAsync(repoPath, ["write-tree"], { env });
-    return await gitAsync(repoPath, [
-      "commit-tree",
-      tree,
-      "-p",
-      base,
-      "-m",
-      "chore(shepherd): set repo roles",
-    ]);
+    return await gitAsync(repoPath, ["commit-tree", tree, "-p", base, "-m", ROLES_COMMIT_MSG]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/** A host-side refusal of the pushed ref (protected branch, ruleset, pre-receive hook) — the
+ *  one push failure a PR can route around. Auth, network, non-fast-forward and timeouts are not.
+ *  Matched on git's fixed status token; {@link gitAsync} runs git in the C locale. */
+function isRemoteRejection(err: unknown): boolean {
+  const { stdout, stderr } = (err ?? {}) as { stdout?: unknown; stderr?: unknown };
+  return [stdout, stderr].some((s) => typeof s === "string" && s.includes("[remote rejected]"));
 }
 
 /** Push a server-built commit. `--no-verify`: this is a single-file plumbing commit, so the
@@ -373,16 +381,198 @@ async function pushCommit(repoPath: string, commit: string, ref: string, force =
 /** Write `.shepherd/roles.json` and push it to the repo's default branch WITHOUT
  *  touching the working tree (the checkout usually sits on a feature branch). The
  *  commit is built via plumbing on a temp index and pushed straight to the remote
- *  default ref, so the user's branch/working tree is never disturbed. Throws on
- *  push rejection (protected branch / non-fast-forward / no auth) — the caller
- *  surfaces that to the dialog. On success the cache is set so the new value is
- *  read back immediately. */
+ *  default ref, so the user's branch/working tree is never disturbed. A host-side
+ *  refusal (protected branch) returns the built commit as `rejected` so the caller can
+ *  route it through a PR; every other push failure (non-fast-forward / no auth /
+ *  offline) throws. On success the cache is set so the new value is read back
+ *  immediately. */
 export async function writeRepoRoles(
   repoPath: string,
   roles: RepoRoles,
   defaultBranch: string,
-): Promise<void> {
+): Promise<{ kind: "pushed" } | { kind: "rejected"; commit: string }> {
   const commit = await buildRolesCommit(repoPath, roles, defaultBranch);
-  await pushCommit(repoPath, commit, `refs/heads/${defaultBranch}`);
+  try {
+    await pushCommit(repoPath, commit, `refs/heads/${defaultBranch}`);
+  } catch (err) {
+    if (isRemoteRejection(err)) return { kind: "rejected", commit };
+    throw err;
+  }
   setRolesCache(repoPath, roles);
+  return { kind: "pushed" };
+}
+
+// ── PR fallback: a default branch that refuses direct pushes ──────────────────────────────
+//
+// One fixed branch per repo, force-pushed on every save, so repeated edits while a PR is open
+// update that PR instead of piling up new ones. The local remote-tracking ref of that branch is
+// the marker "this checkout has a roles PR out": it is set on every fallback push and dropped
+// once the PR is merged or closed, so a repo that never needed the fallback costs no host call.
+
+export const ROLES_PR_BRANCH = "shepherd/repo-roles";
+const ROLES_PR_MARKER = `refs/remotes/origin/${ROLES_PR_BRANCH}`;
+const ROLES_COMMIT_MSG = "chore(shepherd): set repo roles";
+const ROLES_PR_BODY = [
+  "Sets this repo's reviewer and merger in `.shepherd/roles.json`.",
+  "",
+  "Opened by Shepherd because the default branch does not accept direct pushes. Shepherd reads",
+  "the roles from the default branch, so they take effect once this PR is merged.",
+].join("\n");
+
+/** Whether the save armed host auto-merge on the roles PR. `off`: the repo does not allow
+ *  auto-merge; `unsupported`: the host has no auto-merge; `failed`: the host refused. */
+export type RolesAutoMerge = "enabled" | "off" | "failed" | "unsupported";
+
+/** A roles change waiting in an open PR. `roles` is the value the PR will commit. */
+export interface PendingRoles {
+  number: number;
+  url: string | null;
+  roles: RepoRoles;
+  /** Set only by the request that armed (or tried to arm) auto-merge. */
+  autoMerge?: RolesAutoMerge;
+}
+
+/** Fork forges never take the PR fallback: the PR would land on the upstream's maintainers. */
+export async function readMergeSettings(forge: GitForge): Promise<RepoMergeSettings | null> {
+  if (forge.isFork || !forge.repoMergeSettings) return null;
+  try {
+    return await forge.repoMergeSettings();
+  } catch (err) {
+    console.warn("[repo-roles] merge settings unavailable:", err);
+    return null;
+  }
+}
+
+/** The open roles PR this checkout opened, or null. On a merged/closed PR the marker is
+ *  dropped; a merge also refreshes the default branch so the committed roles are current. */
+export async function readPendingRoles(
+  repoPath: string,
+  forge: GitForge,
+): Promise<PendingRoles | null> {
+  if (forge.isFork) return null;
+  let marker: string;
+  try {
+    marker = await gitAsync(repoPath, ["rev-parse", "--verify", "--quiet", ROLES_PR_MARKER]);
+  } catch {
+    return null; // no roles PR from this checkout
+  }
+  try {
+    const pr = await forge.prStatus(ROLES_PR_BRANCH);
+    if (pr.state === "open" && pr.number) {
+      const roles = parseRoles(await gitAsync(repoPath, ["show", `${marker}:${ROLES_PATH}`]));
+      return { number: pr.number, url: pr.url ?? null, roles };
+    }
+    if (pr.state === "merged" || pr.state === "closed") {
+      await dropRolesPrMarker(repoPath);
+      if (pr.state === "merged") await refreshCommittedRoles(repoPath, forge);
+    }
+  } catch (err) {
+    console.warn("[repo-roles] roles PR lookup failed:", err);
+  }
+  return null;
+}
+
+async function dropRolesPrMarker(repoPath: string): Promise<void> {
+  try {
+    await gitAsync(repoPath, ["update-ref", "-d", ROLES_PR_MARKER]);
+  } catch {
+    /* already gone */
+  }
+}
+
+async function refreshCommittedRoles(repoPath: string, forge: GitForge): Promise<void> {
+  try {
+    const def = await forge.defaultBranch();
+    await gitAsync(repoPath, ["fetch", "origin", def], { timeout: FETCH_TIMEOUT_MS });
+  } catch {
+    /* offline — the next fetch catches up */
+  }
+  rolesCache.delete(repoPath);
+}
+
+async function armAutoMerge(
+  forge: GitForge,
+  prNumber: number,
+  settings: RepoMergeSettings | null,
+): Promise<RolesAutoMerge> {
+  if (!forge.enableAutoMerge) return "unsupported";
+  if (settings?.autoMergeAllowed === false) return "off";
+  try {
+    await forge.enableAutoMerge(prNumber, forge.mergeMethod);
+    return "enabled";
+  } catch (err) {
+    console.warn(`[repo-roles] could not arm auto-merge on PR #${prNumber}:`, err);
+    return "failed";
+  }
+}
+
+/** Close a roles PR whose change no longer applies (reverted, or landed directly) and take
+ *  its branch down. Best-effort: a leftover PR is harmless next to a correct default branch. */
+export async function closeRolesPr(
+  repoPath: string,
+  forge: GitForge,
+  prNumber: number,
+): Promise<void> {
+  try {
+    await forge.closePr?.(prNumber);
+    await gitAsync(repoPath, ["push", "--no-verify", "origin", `:refs/heads/${ROLES_PR_BRANCH}`], {
+      timeout: PUSH_TIMEOUT_MS,
+    });
+  } catch (err) {
+    console.warn(`[repo-roles] could not close roles PR #${prNumber}:`, err);
+  }
+  await dropRolesPrMarker(repoPath);
+}
+
+/** Persist roles: a direct push to the default branch, or — when the host refuses it — the
+ *  same commit on {@link ROLES_PR_BRANCH} with a PR (reused while open) and auto-merge armed
+ *  where the repo allows it. `pending`/`settings` are the caller's current reads, passed in so
+ *  one request asks the host once. Throws when neither path can persist the change. */
+export async function saveRepoRoles(
+  repoPath: string,
+  roles: RepoRoles,
+  forge: GitForge,
+  o: { pending: PendingRoles | null; settings: RepoMergeSettings | null },
+): Promise<{ kind: "pushed" } | { kind: "pr"; pending: PendingRoles }> {
+  const def = await forge.defaultBranch();
+  const write = await writeRepoRoles(repoPath, roles, def);
+  if (write.kind === "pushed") {
+    // The default branch took it after all; an older PR would later overwrite it.
+    if (o.pending) await closeRolesPr(repoPath, forge, o.pending.number);
+    return { kind: "pushed" };
+  }
+  if (forge.isFork) throw new Error("default branch refused the roles push (fork: no PR)");
+  await pushCommit(repoPath, write.commit, `refs/heads/${ROLES_PR_BRANCH}`, true);
+  // Set explicitly: a narrow fetch refspec would not update the tracking ref on push.
+  await gitAsync(repoPath, ["update-ref", ROLES_PR_MARKER, write.commit]);
+  let pr = await forge.prStatus(ROLES_PR_BRANCH);
+  if (pr.state !== "open") {
+    pr = await forge.openPr({
+      head: ROLES_PR_BRANCH,
+      base: def,
+      title: ROLES_COMMIT_MSG,
+      body: ROLES_PR_BODY,
+    });
+  }
+  if (!pr.number) throw new Error("roles PR could not be resolved after opening it");
+  const autoMerge = await armAutoMerge(forge, pr.number, o.settings);
+  return { kind: "pr", pending: { number: pr.number, url: pr.url ?? null, roles, autoMerge } };
+}
+
+/** Turn the repo's auto-merge setting on, then arm it on the open roles PR (if any). */
+export async function enableRolesAutoMerge(
+  repoPath: string,
+  forge: GitForge,
+): Promise<{ settings: RepoMergeSettings | null; pending: PendingRoles | null }> {
+  if (!forge.enableRepoAutoMerge) throw new Error("host has no auto-merge setting");
+  await forge.enableRepoAutoMerge();
+  const [settings, pending] = await Promise.all([
+    readMergeSettings(forge),
+    readPendingRoles(repoPath, forge),
+  ]);
+  if (!pending) return { settings, pending };
+  return {
+    settings,
+    pending: { ...pending, autoMerge: await armAutoMerge(forge, pending.number, settings) },
+  };
 }

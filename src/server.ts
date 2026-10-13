@@ -279,6 +279,7 @@ import type {
   MergeMethod,
   PrStatus,
   PullRequest,
+  RepoMergeSettings,
   WorkflowRun,
 } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError, MergeNotCompletedError } from "./forge/types";
@@ -291,9 +292,14 @@ import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teard
 import { type PrCache, gitStateChanged, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
-  writeRepoRoles,
+  saveRepoRoles,
+  readPendingRoles,
+  readMergeSettings,
+  closeRolesPr,
+  enableRolesAutoMerge,
   annotateHandoff,
   normalizeLogin,
+  type PendingRoles,
   type RepoRoles,
 } from "./repo-roles";
 import {
@@ -2709,16 +2715,48 @@ async function handleRepoBrowserOpen({ req, parts, deps }: Ctx): Promise<Respons
 
 // /api/repo-roles?repo=<path> — read (GET) / set (PUT) the committed reviewer +
 // merger logins for a repo. PUT commits & pushes .shepherd/roles.json to the
-// default branch and immediately re-pushes the affected sessions' waiting-state.
+// default branch and immediately re-pushes the affected sessions' waiting-state;
+// a default branch that refuses the push gets the change as a PR instead (`pending`).
+// Both carry the host's merge settings so the panel can say how a change lands.
 async function handleRepoRoles({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "repo-roles" && !parts[2])) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const forge = deps.resolveForge?.(dir) ?? null;
   const me = (await forge?.currentUser?.()) ?? null;
-  if (req.method === "GET") return json({ roles: readRepoRoles(dir), me });
+  if (req.method === "GET") {
+    const { pending, settings } = await readRolesHostState(dir, forge);
+    return json(rolesBody(readRepoRoles(dir), me, pending, settings));
+  }
   if (req.method !== "PUT") return null;
   return setRepoRoles(req, dir, forge, me, deps);
+}
+
+/** The open roles PR and the host's merge settings, both best-effort (null when unknown). */
+async function readRolesHostState(
+  dir: string,
+  forge: GitForge | null,
+): Promise<{ pending: PendingRoles | null; settings: RepoMergeSettings | null }> {
+  if (!forge) return { pending: null, settings: null };
+  const [pending, settings] = await Promise.all([
+    readPendingRoles(dir, forge),
+    readMergeSettings(forge),
+  ]);
+  return { pending, settings };
+}
+
+function rolesBody(
+  roles: RepoRoles,
+  me: string | null,
+  pending: PendingRoles | null,
+  settings: RepoMergeSettings | null,
+) {
+  return {
+    roles,
+    me,
+    ...(pending ? { pending } : {}),
+    ...(settings ? { mergeSettings: settings } : {}),
+  };
 }
 
 async function setRepoRoles(
@@ -2731,31 +2769,69 @@ async function setRepoRoles(
   const body = (await req.json().catch(() => null)) as Partial<RepoRoles> | null;
   if (!body) return json({ error: "invalid body" }, 400);
   const cur = readRepoRoles(dir);
+  const { pending, settings } = await readRolesHostState(dir, forge);
+  // What the panel shows: an open roles PR's value wins over the committed one.
+  const effective = pending?.roles ?? cur;
   const next: RepoRoles = {
-    reviewer: "reviewer" in body ? normalizeLogin(body.reviewer) : cur.reviewer,
-    merger: "merger" in body ? normalizeLogin(body.merger) : cur.merger,
+    reviewer: "reviewer" in body ? normalizeLogin(body.reviewer) : effective.reviewer,
+    merger: "merger" in body ? normalizeLogin(body.merger) : effective.merger,
   };
   // No change → don't author a redundant commit (and CI run) on the default branch.
   // Fold case to match handoff: a casing-only edit is a no-op (logins are
   // case-insensitive). Return the persisted `cur` so the response keeps on-disk casing.
   const sameLogin = (a: string | null, b: string | null) =>
     (a?.toLowerCase() ?? null) === (b?.toLowerCase() ?? null);
-  if (sameLogin(next.reviewer, cur.reviewer) && sameLogin(next.merger, cur.merger)) {
-    return json({ roles: cur, me });
+  const sameRoles = (a: RepoRoles, b: RepoRoles) =>
+    sameLogin(a.reviewer, b.reviewer) && sameLogin(a.merger, b.merger);
+  if (sameRoles(next, effective)) return json(rolesBody(cur, me, pending, settings));
+  if (pending && forge && sameRoles(next, cur)) {
+    // Back to what the default branch already says: the open PR would only undo that.
+    await closeRolesPr(dir, forge, pending.number);
+    return json(rolesBody(cur, me, null, settings));
   }
+  let saved: Awaited<ReturnType<typeof saveRepoRoles>>;
   try {
     if (!forge) throw new Error("no forge configured for repo");
-    await writeRepoRoles(dir, next, await forge.defaultBranch());
+    saved = await saveRepoRoles(dir, next, forge, { pending, settings });
   } catch (e) {
-    // Push rejected (protected branch / no-ff / auth) or no forge. Log the detail
-    // server-side; return a generic, non-error-derived message so raw error/stack text
+    // Push failed (no-ff / auth / offline, or the PR fallback failed too) or no forge. Log the
+    // detail server-side; return a generic, non-error-derived message so raw error/stack text
     // never reaches the client (CodeQL js/stack-trace-exposure #14). The dialog still
     // shows its localized "roles push failed" message alongside this.
     console.error("[repo-roles] role push failed:", e);
-    return json({ roles: readRepoRoles(dir), me, pushError: "push rejected" }, 502);
+    return json(
+      { ...rolesBody(readRepoRoles(dir), me, pending, settings), pushError: "push rejected" },
+      502,
+    );
   }
+  // A PR changes nothing yet: the herd keeps reading the committed roles until it merges.
+  if (saved.kind === "pr") return json(rolesBody(cur, me, saved.pending, settings));
   repushHandoff(deps, dir, me);
-  return json({ roles: next, me });
+  return json(rolesBody(next, me, null, settings));
+}
+
+// /api/repo-roles/auto-merge?repo=<path> — POST turns the host's auto-merge setting on for the
+// repo (the roles panel's button; needs repo admin) and arms it on an open roles PR.
+async function handleRepoRolesAutoMerge({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-roles" && parts[2] === "auto-merge")) return null;
+  if (parts[3] || req.method !== "POST") return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge || forge.isFork || !forge.enableRepoAutoMerge) {
+    return json({ error: "unsupported" }, 409);
+  }
+  try {
+    const { settings, pending } = await enableRolesAutoMerge(dir, forge);
+    return json({
+      ...(settings ? { mergeSettings: settings } : {}),
+      ...(pending ? { pending } : {}),
+    });
+  } catch (e) {
+    // Same no-raw-error rule as the roles PUT above.
+    console.error("[repo-roles] enabling auto-merge failed:", e);
+    return json({ error: "auto_merge_enable_failed" }, 502);
+  }
 }
 
 /** Recompute + re-push the waiting-state for every session in `dir` so the herd
@@ -10835,6 +10911,7 @@ const ROUTE_HANDLERS = [
   handleRepoConfig,
   handleRepoBrowserOpen,
   handleRepoRoles,
+  handleRepoRolesAutoMerge,
   handleRepoCollaborators,
   handleLearnings,
   handleDocAgent,

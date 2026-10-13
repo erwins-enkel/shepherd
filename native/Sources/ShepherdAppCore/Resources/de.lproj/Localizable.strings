@@ -1775,10 +1775,10 @@
 "tooltip_blocked_title" = "Blockiert auf %1$@";
 "tooltip_blocked_unreleased_summary" = "Die Plattform von %1$@ ist nicht für Aufgaben freigegeben.";
 "tooltip_derive_correct" = "Korrigieren";
-"tooltip_derive_correct_body" = "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine, und Shepherd überschreibt sie nicht mehr.";
+"tooltip_derive_correct_body" = "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine: Shepherd liest beim Tippen weiter, bietet eine abweichende Antwort aber nur zum Übernehmen an.";
 "tooltip_derive_reads" = "Was gelesen wird";
-"tooltip_derive_reads_body" = "Nur Prompt und Issue – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon.";
-"tooltip_derive_summary" = "Shepherd hat aus Prompt und verknüpftem Issue gelesen, was diese Aufgabe braucht, weil sich die verbundenen Rechner darin unterscheiden.";
+"tooltip_derive_reads_body" = "Nur Prompt, Issue und angehängte Screenshots – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon.";
+"tooltip_derive_summary" = "Shepherd hat aus Prompt, verknüpftem Issue und Screenshots gelesen, was diese Aufgabe braucht, damit „Automatisch“ einen Rechner wählt, der es hat.";
 "tooltip_derive_title" = "Aus der Aufgabe gelesene Anforderungen";
 "tooltip_dispatch_cancel" = "Abbrechen";
 "tooltip_dispatch_cancel_body" = "Stellt sicher, dass sie auf %1$@ nie startet, auch wenn sie verspätet ankommt. Nicht mehr möglich, sobald %1$@ sie hat.";

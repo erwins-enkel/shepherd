@@ -30481,13 +30481,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine, und Shepherd überschreibt sie nicht mehr."
+            "value": "Entferne oder ergänze Chips vor dem Start. Sobald du sie änderst, gelten deine: Shepherd liest beim Tippen weiter, bietet eine abweichende Antwort aber nur zum Übernehmen an."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove or add chips before you start. Once you change them they're yours, and Shepherd no longer overwrites them."
+            "value": "Remove or add chips before you start. Once you change them they're yours: Shepherd keeps reading as you type, but only offers a different answer for you to take over."
           }
         }
       }
@@ -30515,13 +30515,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nur Prompt und Issue – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon."
+            "value": "Nur Prompt, Issue und angehängte Screenshots – nie das Repository. Package.swift oder einen Mac nur zu erwähnen zählt nicht; eine native App zu bauen, auszuführen oder zu testen schon."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only the prompt and the issue — never the repository. Mentioning Package.swift or a Mac in passing doesn't count; building, running or testing a native app does."
+            "value": "Only the prompt, the issue and attached screenshots — never the repository. Mentioning Package.swift or a Mac in passing doesn't count; building, running or testing a native app does."
           }
         }
       }
@@ -30532,13 +30532,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shepherd hat aus Prompt und verknüpftem Issue gelesen, was diese Aufgabe braucht, weil sich die verbundenen Rechner darin unterscheiden."
+            "value": "Shepherd hat aus Prompt, verknüpftem Issue und Screenshots gelesen, was diese Aufgabe braucht, damit „Automatisch“ einen Rechner wählt, der es hat."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shepherd read what this task needs from its prompt and attached issue, because the connected machines differ in it."
+            "value": "Shepherd read what this task needs from its prompt, attached issue and screenshots, so Automatic picks a machine that has it."
           }
         }
       }

@@ -1775,10 +1775,10 @@
 "tooltip_blocked_title" = "Blocked on %1$@";
 "tooltip_blocked_unreleased_summary" = "%1$@'s platform is not released for tasks.";
 "tooltip_derive_correct" = "Correct it";
-"tooltip_derive_correct_body" = "Remove or add chips before you start. Once you change them they're yours, and Shepherd no longer overwrites them.";
+"tooltip_derive_correct_body" = "Remove or add chips before you start. Once you change them they're yours: Shepherd keeps reading as you type, but only offers a different answer for you to take over.";
 "tooltip_derive_reads" = "What it reads";
-"tooltip_derive_reads_body" = "Only the prompt and the issue — never the repository. Mentioning Package.swift or a Mac in passing doesn't count; building, running or testing a native app does.";
-"tooltip_derive_summary" = "Shepherd read what this task needs from its prompt and attached issue, because the connected machines differ in it.";
+"tooltip_derive_reads_body" = "Only the prompt, the issue and attached screenshots — never the repository. Mentioning Package.swift or a Mac in passing doesn't count; building, running or testing a native app does.";
+"tooltip_derive_summary" = "Shepherd read what this task needs from its prompt, attached issue and screenshots, so Automatic picks a machine that has it.";
 "tooltip_derive_title" = "Requirements read from the task";
 "tooltip_dispatch_cancel" = "Cancel";
 "tooltip_dispatch_cancel_body" = "Makes sure it never starts on %1$@, even if it arrives late. Not possible once %1$@ has it.";

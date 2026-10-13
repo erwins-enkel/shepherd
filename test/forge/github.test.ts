@@ -1998,6 +1998,57 @@ test("GithubForge.closePr: invokes gh pr close with the PR number and repo", asy
   expect(calls[0]).toEqual(["pr", "close", "42", "--repo", "o/r"]);
 });
 
+test("GithubForge.repoMergeSettings: a pull_request rule, auto-merge off, admin", async () => {
+  const { run, calls } = fakeRunner({
+    "api repos/o/r": JSON.stringify({
+      default_branch: "trunk",
+      allow_auto_merge: false,
+      permissions: { admin: true },
+    }),
+    "api repos/o/r/rules/branches/trunk?per_page=100": JSON.stringify([
+      { type: "deletion" },
+      { type: "pull_request", parameters: {} },
+    ]),
+  });
+  const settings = await new GithubForge("o/r", {}, run).repoMergeSettings!();
+  expect(settings).toEqual({ requiresPr: true, autoMergeAllowed: false, canAdminister: true });
+  expect(calls.map((c) => c.join(" "))).toEqual([
+    "api repos/o/r",
+    "api repos/o/r/rules/branches/trunk?per_page=100",
+  ]);
+});
+
+test("GithubForge.repoMergeSettings: no rules, auto-merge field absent → unknown", async () => {
+  const { run } = fakeRunner({
+    "api repos/o/r": JSON.stringify({ default_branch: "main", permissions: { admin: false } }),
+    "api repos/o/r/rules/branches/main?per_page=100": "[]",
+  });
+  expect(await new GithubForge("o/r", {}, run).repoMergeSettings!()).toEqual({
+    requiresPr: false,
+    autoMergeAllowed: null,
+    canAdminister: false,
+  });
+});
+
+test("GithubForge.enableAutoMerge: arms gh pr merge --auto with the merge method", async () => {
+  const { run, calls } = fakeRunner({});
+  await new GithubForge("o/r", {}, run).enableAutoMerge!(7, "squash");
+  expect(calls[0]).toEqual(["pr", "merge", "7", "--repo", "o/r", "--auto", "--squash"]);
+});
+
+test("GithubForge.enableRepoAutoMerge: PATCHes allow_auto_merge on the repo", async () => {
+  const { run, calls } = fakeRunner({});
+  await new GithubForge("o/r", {}, run).enableRepoAutoMerge!();
+  expect(calls[0]).toEqual([
+    "api",
+    "--method",
+    "PATCH",
+    "repos/o/r",
+    "-F",
+    "allow_auto_merge=true",
+  ]);
+});
+
 test("GithubForge.canPush: WRITE → true", async () => {
   const { run } = fakeRunner({
     "repo view": JSON.stringify({ viewerPermission: "WRITE" }),

@@ -130,10 +130,16 @@ function defaultLaunch(script: string): void {
   const args = ["--user", "--collect", `--unit=${RESTART_UNIT}`];
   if (process.env.PATH) args.push(`--setenv=PATH=${process.env.PATH}`);
   args.push("bash", "-c", script);
-  const r = spawnSync("systemd-run", args, { stdio: ["ignore", "ignore", "pipe"] });
-  if (r.error) throw new Error(`could not launch the restart: ${r.error.message}`);
+  systemdRun(args, "restart");
+}
+
+/** Register a transient `systemd-run` unit; throws with the launcher's reason
+ *  (`could not launch the <what>` / `<what> launcher exited N: stderr`). */
+export function systemdRun(args: string[], what: string, cwd?: string): void {
+  const r = spawnSync("systemd-run", args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
+  if (r.error) throw new Error(`could not launch the ${what}: ${r.error.message}`);
   if (typeof r.status === "number" && r.status !== 0) {
     const stderr = r.stderr?.toString().trim();
-    throw new Error(`restart launcher exited ${r.status}${stderr ? `: ${stderr}` : ""}`);
+    throw new Error(`${what} launcher exited ${r.status}${stderr ? `: ${stderr}` : ""}`);
   }
 }

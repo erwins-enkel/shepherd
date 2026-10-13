@@ -1,4 +1,4 @@
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, type Hash } from "node:crypto";
 import {
   appendFileSync,
@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { config } from "./config";
 import { timedAsync } from "./instrument";
+import { systemdRun } from "./restart";
 import { shepherdRuntimeDir } from "./runtime-dir";
 
 const execFileAsync = promisify(execFile);
@@ -425,15 +426,7 @@ export class UpdateService {
       `bash ${shq(this.scriptPath)} --pull${discard ? " --discard" : ""}; ` +
       `echo "${EXIT_MARKER}:$?"`;
     args.push("bash", "-c", inner);
-    const r = spawnSync("systemd-run", args, {
-      cwd: this.repoDir,
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-    if (r.error) throw new Error(`could not launch the deploy: ${r.error.message}`);
-    if (typeof r.status === "number" && r.status !== 0) {
-      const stderr = r.stderr?.toString().trim();
-      throw new Error(`deploy launcher exited ${r.status}${stderr ? `: ${stderr}` : ""}`);
-    }
+    systemdRun(args, "deploy", this.repoDir);
   }
 
   /** Read the detached deploy's captured output to classify its state. Fail-safe:
@@ -446,12 +439,7 @@ export class UpdateService {
       raw = readFileSync(this.logPath, "utf8");
     } catch {
       // A pending app request still needs pickup/timeout handling if its log disappeared.
-      try {
-        if (!this.appUpdateDir) throw new Error("no app handoff");
-        statSync(join(this.appUpdateDir, "update-request"));
-      } catch {
-        return { phase: "idle", exitCode: null, log: "" };
-      }
+      if (!this.appRequestPending()) return { phase: "idle", exitCode: null, log: "" };
       raw = "";
     }
     const clean = stripAnsi(raw);
@@ -464,24 +452,7 @@ export class UpdateService {
       const reason = classifyDeployReason(exitCode, log);
       return { phase: exitCode === 0 ? "done" : "failed", exitCode, log, reason };
     }
-    if (this.appUpdateDir) {
-      const requestPath = join(this.appUpdateDir, "update-request");
-      try {
-        if (Date.now() - statSync(requestPath).mtimeMs > APP_PICKUP_TIMEOUT_MS) {
-          // Unlink claims the stale request; if the app already claimed it, leave its run alone.
-          unlinkSync(requestPath);
-          appendFileSync(
-            this.logPath,
-            "Shepherd app did not pick up the update — open the app on this Mac and retry.\n" +
-              `${EXIT_MARKER}:1\n`,
-            { mode: 0o600 },
-          );
-          return this.applyState();
-        }
-      } catch {
-        // The app has claimed the request, or it has not been written yet.
-      }
-    }
+    if (this.expireStaleAppRequest()) return this.applyState();
     let mtimeMs = 0;
     try {
       mtimeMs = statSync(this.logPath).mtimeMs;
@@ -496,6 +467,39 @@ export class UpdateService {
       };
     }
     return { phase: "running", exitCode: null, log: tail(clean) };
+  }
+
+  /** True while an app-handoff request is waiting for the Shepherd app to claim it. */
+  private appRequestPending(): boolean {
+    if (!this.appUpdateDir) return false;
+    try {
+      statSync(join(this.appUpdateDir, "update-request"));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Fail an app-handoff request the app never claimed within the pickup timeout.
+   *  True when it was expired (the log then carries a failure exit marker). */
+  private expireStaleAppRequest(): boolean {
+    if (!this.appUpdateDir) return false;
+    const requestPath = join(this.appUpdateDir, "update-request");
+    try {
+      if (Date.now() - statSync(requestPath).mtimeMs <= APP_PICKUP_TIMEOUT_MS) return false;
+      // Unlink claims the stale request; if the app already claimed it, leave its run alone.
+      unlinkSync(requestPath);
+      appendFileSync(
+        this.logPath,
+        "Shepherd app did not pick up the update — open the app on this Mac and retry.\n" +
+          `${EXIT_MARKER}:1\n`,
+        { mode: 0o600 },
+      );
+      return true;
+    } catch {
+      // The app has claimed the request, or it has not been written yet.
+      return false;
+    }
   }
 
   /** Last computed status, or null before the first check. */

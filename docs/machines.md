@@ -261,6 +261,12 @@ so. Once the machine answers again, the same sessions come back live.
 A client only needs to connect to the coordinator. If a client connects to several Shepherds, as
 the iOS app can, it still shows each session once.
 
+Notifications work the same way. When a mirrored session finishes, blocks, gets a critic review or
+asks you to log in, the coordinator notifies the devices that are not registered with that machine
+themselves. A device registered with both hears it once, from the machine. Anything that happened
+while the machine was disconnected is not announced afterwards. Browsers and iOS apps that predate
+this only get the coordinator's own notifications.
+
 ## Update its Shepherd
 
 When a connected machine's Shepherd is behind its branch, the update badge in the top bar lights up

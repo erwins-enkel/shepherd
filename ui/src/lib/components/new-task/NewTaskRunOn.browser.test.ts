@@ -154,7 +154,7 @@ beforeEach(async () => {
   vi.mocked(getRepoConfig).mockResolvedValue(cfg());
   vi.mocked(putRepoConfig).mockResolvedValue(cfg());
   vi.mocked(listRepos).mockResolvedValue({ repos: [repo], recentWindowDays: 30 });
-  vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [] });
+  vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [] });
   vi.mocked(getInstance).mockResolvedValue(self);
   vi.mocked(previewPlacement).mockResolvedValue({ active: true, placement: placed(here) });
   vi.mocked(branchStatus).mockResolvedValue({ ahead: 0, behind: 0, diverged: false } as never);
@@ -216,7 +216,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("starts on Automatic and shows where the task runs and why before it is submitted", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
     await expect.poll(() => runOnSelect()?.options.length).toBe(3);
@@ -246,7 +246,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("feeds the requirement chips to the preview and the task", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     vi.mocked(previewPlacement).mockImplementation(async (body) =>
       body.requirements?.includes("xcode")
         ? {
@@ -295,6 +295,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
 
   it("names a machine as the target, and this machine by its own ID", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({
+      incoming: [],
       instances: [
         machine(),
         machine({ instanceId: "other-1", name: "Builder", projects: ["acme/other"] }),
@@ -334,7 +335,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("keeps this machine's first-task confirmation for a task placed here", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     // Even without this Shepherd's identity, the record says it was placed where it was decided.
     vi.mocked(getInstance).mockRejectedValue(new Error("offline"));
     vi.mocked(getRepoConfig).mockResolvedValue({ ...cfg(), automationConfirmed: false });
@@ -351,7 +352,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("says before submitting when no machine fits", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     const refused: PlacementPreview = {
       active: true,
       refusal: {
@@ -370,7 +371,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("names what is missing when the create refuses the machine choice", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     const refusal = {
       code: "missing_capabilities",
       error: "MacBook is missing capabilities: xcode (not_installed)",
@@ -392,7 +393,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("says before submitting that the task would wait for a machine out of reach (#2775)", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     const waits: PlacementPreview = {
       active: true,
       placement: placed(mac, { requirements: ["xcode"], basis: "requirements" }),
@@ -417,14 +418,17 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
     });
 
   it("never offers a Windows machine (not released, #2770)", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [windows(), machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({
+      incoming: [],
+      instances: [windows(), machine()],
+    });
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
     await expect.poll(() => runOnSelect()?.options.length).toBe(3);
     expect([...runOnSelect()!.options].map((o) => o.value)).not.toContain("win-1");
   });
 
   it("is unchanged while the server says the choice is not active (only Windows)", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [windows()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [windows()] });
     vi.mocked(previewPlacement).mockResolvedValue({ active: false });
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
@@ -440,7 +444,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
 
   // #2766: attachments travel with the task; the server uploads them to the machine.
   it("sends attachments along to another machine", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, {
       props: {
@@ -460,7 +464,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("names the machine when an attachment did not reach it", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     const reason = "attachment 1 of 1: the machine answered 413 (file too large)";
     const onsubmit = vi
       .fn()
@@ -481,7 +485,7 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   });
 
   it("retries an unanswered send under the same key, and names the machine", async () => {
-    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
     const onsubmit = vi
       .fn()
       .mockRejectedValueOnce(new ApiError(504, "no answer", "remote_dispatch_unknown", true))

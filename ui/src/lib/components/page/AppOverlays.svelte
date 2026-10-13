@@ -665,6 +665,7 @@
     initialTab={settingsTab}
     initialMobileView={settingsMobileView}
     connected={store.connected}
+    remoteSessions={store.remoteSessions}
     initialDiagnostics={store.diagnostics?.checks ?? null}
     plugins={store.plugins}
     onpluginschanged={async () => store.setPlugins(await getPlugins())}

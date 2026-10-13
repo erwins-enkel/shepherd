@@ -97,6 +97,7 @@ import type {
   PlacementPreview,
   RequirementsDerivation,
   PlacementRefusal,
+  IncomingMirror,
   RemoteInstance,
   MachineUpdate,
   ApnsConfigError,
@@ -962,8 +963,10 @@ export async function checkInstanceCapabilities(): Promise<InstanceIdentity> {
   return r.json();
 }
 
-export const listRemoteInstances = (): Promise<{ instances: RemoteInstance[] }> =>
-  getJson("/api/remote-instances", "machines");
+export const listRemoteInstances = (): Promise<{
+  instances: RemoteInstance[];
+  incoming: IncomingMirror[];
+}> => getJson("/api/remote-instances", "machines");
 
 /** Every connected machine's self-update, for the update window. */
 export const listMachineUpdates = (): Promise<{ machines: MachineUpdate[] }> =>

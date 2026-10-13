@@ -182,6 +182,11 @@
   font-size: var(--fs-micro);
   color: var(--color-ink);
 }
+/* Something a machine does NOT do (#3056), e.g. "doesn't see yours": present, but muted. */
+.mch-chip.mch-off {
+  border-style: dashed;
+  color: var(--color-faint);
+}
 .mch-actions {
   display: flex;
   gap: 8px;

@@ -8,9 +8,10 @@
     putMachinePlatformOrder,
     renameInstance,
   } from "#lib/api.js";
-  import type { InstanceIdentity, RemoteInstance } from "#lib/types.js";
+  import type { IncomingMirror, InstanceIdentity, RemoteInstance, Session } from "#lib/types.js";
   import { platformLabel } from "#lib/machines.js";
   import MachineRow from "./MachineRow.svelte";
+  import MachineIncomingRow from "./MachineIncomingRow.svelte";
   import MachineConnectForm from "./MachineConnectForm.svelte";
   import MachineCapabilities from "./MachineCapabilities.svelte";
   import HighlightText from "./HighlightText.svelte";
@@ -22,8 +23,17 @@
   // Settings → Machines (#2759): this Shepherd's own identity, the other Shepherds it is connected
   // to, and the form to connect one. Mounted only while the section is shown, and only then does it
   // poll — the server checks every machine once a minute; this just picks up the result. Its own
-  // identity is polled too, so the age of its capability check (#2770) stays current.
-  let { query = "" }: { query?: string } = $props();
+  // identity is polled too, so the age of its capability check (#2770) stays current. Both
+  // directions (#3056): the machines this one mirrors ("You see their sessions") and the Shepherds
+  // mirroring this one ("They see your sessions").
+  let {
+    query = "",
+    remoteSessions = [],
+  }: {
+    query?: string;
+    /** The herd's mirrored sessions, counted per machine. */
+    remoteSessions?: Session[];
+  } = $props();
 
   const POLL_MS = 10_000;
 
@@ -37,6 +47,7 @@
   let capsError = $state("");
 
   let machines = $state<RemoteInstance[]>([]);
+  let incoming = $state<IncomingMirror[]>([]);
   /** This instance's platform order for the automatic machine choice (#2772); null until loaded
    *  (or on a server that has none). */
   let order = $state<string[] | null>(null);
@@ -48,6 +59,22 @@
   /** The connect form is folded behind the list header's toggle until asked for. */
   let connectOpen = $state(false);
   let connectToggle = $state<HTMLButtonElement>();
+  /** The name the connect form starts from, and a counter that remounts it for each "Connect
+   *  <name> here", so its address takes focus again. */
+  let connectName = $state("");
+  let connectRound = $state(0);
+
+  const sessionCounts = $derived(
+    remoteSessions.reduce((counts, s) => {
+      if (s.host) counts.set(s.host.instanceId, (counts.get(s.host.instanceId) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>()),
+  );
+  const mirroredBy = $derived(
+    new Set(
+      incoming.flatMap((i) => (i.direction === "both" && i.instanceId ? [i.instanceId] : [])),
+    ),
+  );
 
   async function loadSelf() {
     try {
@@ -60,7 +87,7 @@
 
   async function loadMachines() {
     try {
-      machines = (await listRemoteInstances()).instances;
+      ({ instances: machines, incoming } = await listRemoteInstances());
       loadFailed = false;
     } catch {
       loadFailed = true;
@@ -88,9 +115,23 @@
     connectToggle?.focus();
   }
 
+  function toggleConnect() {
+    connectName = "";
+    connectOpen = !connectOpen;
+  }
+
+  /** "Connect <name> here" on a Shepherd that mirrors this one one way only. */
+  function connectHere(name: string) {
+    connectName = name;
+    connectRound++;
+    connectOpen = true;
+  }
+
   function connected(instance: RemoteInstance) {
     upsert(instance);
     void closeConnect();
+    // A Shepherd that already mirrors this one now counts both ways (#3056): show it right away.
+    if (incoming.some((i) => i.instanceId === instance.instanceId)) void loadMachines();
   }
 
   async function checkCapabilities() {
@@ -228,7 +269,7 @@
       class="set-gbtn"
       aria-expanded={connectOpen}
       bind:this={connectToggle}
-      onclick={() => (connectOpen = !connectOpen)}
+      onclick={toggleConnect}
     >
       <span aria-hidden="true">+</span>
       <HighlightText text={m.settings_machines_connect_title()} {query} />
@@ -241,7 +282,14 @@
   {:else}
     <ul class="mch-list">
       {#each machines as machine (machine.instanceId)}
-        <MachineRow {machine} {now} onchange={upsert} onremove={drop} />
+        <MachineRow
+          {machine}
+          {now}
+          sessionCount={sessionCounts.get(machine.instanceId) ?? 0}
+          mirrorsBack={mirroredBy.has(machine.instanceId)}
+          onchange={upsert}
+          onremove={drop}
+        />
       {/each}
     </ul>
   {/if}
@@ -252,7 +300,27 @@
     </div>
   {/if}
   {#if connectOpen}
-    <MachineConnectForm onconnected={connected} oncancel={closeConnect} />
+    {#key connectRound}
+      <MachineConnectForm name={connectName} onconnected={connected} oncancel={closeConnect} />
+    {/key}
+  {/if}
+</div>
+
+<div class="mch-block">
+  <span class="mch-micro"
+    ><HighlightText text={m.settings_machines_incoming_title()} {query} /></span
+  >
+  <p class="mch-hint">{m.settings_machines_incoming_hint()}</p>
+  {#if loading}
+    <p class="mch-hint">{m.common_loading()}</p>
+  {:else if incoming.length === 0 && !loadFailed}
+    <p class="mch-hint">{m.settings_machines_incoming_empty()}</p>
+  {:else}
+    <ul class="mch-list">
+      {#each incoming as mirror, i (`${mirror.instanceId}-${mirror.tokenName}-${mirror.since}-${i}`)}
+        <MachineIncomingRow {mirror} {machines} {now} onconnect={connectHere} />
+      {/each}
+    </ul>
   {/if}
 </div>
 

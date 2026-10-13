@@ -146,7 +146,7 @@ beforeEach(async () => {
   vi.mocked(getRepoConfig).mockResolvedValue(cfg());
   vi.mocked(putRepoConfig).mockResolvedValue(cfg());
   vi.mocked(listRepos).mockResolvedValue({ repos: [repo], recentWindowDays: 30 });
-  vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [mac] });
+  vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [mac], incoming: [] });
   vi.mocked(getInstance).mockResolvedValue(self);
   vi.mocked(previewPlacement).mockImplementation(async (body) => ({
     active: true,

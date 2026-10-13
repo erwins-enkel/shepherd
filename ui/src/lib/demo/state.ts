@@ -49,6 +49,7 @@ import type {
   DirListing,
   AccessToken,
   InstanceIdentity,
+  IncomingMirror,
   RemoteInstance,
   MachineUpdate,
   ClearMergedPreview,
@@ -392,9 +393,12 @@ export const demoState = {
     },
   }),
 
-  /** GET /api/remote-instances — the demo connects no machines. `{ instances: [] }`, never `{}`:
-   *  SettingsMachinesPanel reads `instances`. */
-  remoteInstances: (): { instances: RemoteInstance[] } => ({ instances: [] }),
+  /** GET /api/remote-instances — the demo connects no machines and nothing mirrors it. Both lists
+   *  present, never `{}`: SettingsMachinesPanel reads `instances` and `incoming`. */
+  remoteInstances: (): { instances: RemoteInstance[]; incoming: IncomingMirror[] } => ({
+    instances: [],
+    incoming: [],
+  }),
 
   /** GET /api/remote-instances/updates — no machines, so none to update. `{ machines: [] }`. */
   machineUpdates: (): { machines: MachineUpdate[] } => ({ machines: [] }),

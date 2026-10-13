@@ -15,6 +15,7 @@
     PluginUpdatesStatus,
     DiagnosticCheck,
     PluginInfo,
+    Session,
     Settings,
   } from "#lib/types.js";
   import {
@@ -72,6 +73,7 @@
     focusSteerId = null,
     connected = false,
     showPairing = false,
+    remoteSessions = [],
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -107,6 +109,8 @@
     /** WS liveness for the rail footer's ● live/offline dot. */
     connected?: boolean;
     showPairing?: boolean;
+    /** Sessions mirrored from connected machines; Machines counts them per machine (#3056). */
+    remoteSessions?: Session[];
   } = $props();
 
   // initialTab/initialMobileView seed the starting route; the user then freely
@@ -586,7 +590,7 @@
       >
         <!-- Mounted only while shown: the panel polls machine state, which nobody needs elsewhere. -->
         {#if active === "machines" && (!isNarrow || !mobileList)}
-          <SettingsMachinesPanel {query} />
+          <SettingsMachinesPanel {query} {remoteSessions} />
         {/if}
       </div>
 

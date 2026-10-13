@@ -285,6 +285,7 @@ export function sectionSearchRows(ctx: {
       [m.settings_machines_self_title(), m.settings_machines_self_hint()],
       [m.settings_machines_list_title()],
       [m.settings_machines_connect_title(), m.settings_machines_connect_hint()],
+      [m.settings_machines_incoming_title(), m.settings_machines_incoming_hint()],
     ],
     diagnose: [[m.settings_tab_diagnose()], [m.diagnostics_title(), m.diagnostics_subtitle()]],
   };

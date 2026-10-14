@@ -144,13 +144,39 @@ extension MacSeamTests {
     }
 
     private func checkout(in home: URL) throws -> LocalServerEnvironment {
-        let environment = LocalServerEnvironment(home: home, processEnvironment: [:])
+        let environment = LocalServerEnvironment(home: home, pathEntries: ["/usr/bin", "/bin"], processEnvironment: [:])
         try FileManager.default.createDirectory(
             at: environment.appDirectory, withIntermediateDirectories: true)
         try #"{"name":"shepherd"}"#.write(
             to: environment.appDirectory.appendingPathComponent("package.json"),
             atomically: true, encoding: .utf8)
+        try git(["init", "-q", "-b", "main"], in: environment)
+        try git(["add", "package.json"], in: environment)
+        try git(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false",
+                 "commit", "-qm", "fixture"], in: environment)
         return environment
+    }
+
+    private func git(_ arguments: [String], in environment: LocalServerEnvironment) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = environment.appDirectory
+        process.environment = environment.childEnvironment()
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit() // Finite fixture setup only.
+        #expect(process.terminationStatus == 0)
+    }
+
+    private func deleteTrackedLock(in environment: LocalServerEnvironment) throws {
+        let lock = environment.appDirectory.appendingPathComponent("bun.lock")
+        try "original lock".write(to: lock, atomically: true, encoding: .utf8)
+        try git(["add", "bun.lock"], in: environment)
+        try git(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false",
+                 "commit", "-qm", "lock fixture"], in: environment)
+        try FileManager.default.removeItem(at: lock)
     }
 
     /// `AppModel` takes `defaults:` + `credentials:`, not a built `ProfileStore`
@@ -687,6 +713,114 @@ extension MacSeamTests {
         #expect(!model.state.isRunning)
     }
 
+    @Test func dirtyCheckoutExplainsDeletionAndDoesNotCallUpdater() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        try deleteTrackedLock(in: environment)
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+        #expect(await model.applyUpdate() == 1)
+        #expect(model.updateFailure == .dirtyCheckout(changes: [.init(status: " D", path: "bun.lock")]))
+        #expect(model.pendingDiscardPaths == ["bun.lock"])
+        #expect(calls.withLock { $0 } == 0)
+        #expect(model.state == .stopped && !model.busy)
+        #expect(model.logLines.contains(" D \"bun.lock\""))
+        #expect(model.logLines.contains { $0.contains("open the Shepherd app on this Mac to discard them") })
+        #expect(!FileManager.default.fileExists(atPath: environment.appDirectory.appendingPathComponent("bun.lock").path))
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".shepherd/run/backend-update.json").path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: environment.appDirectory.deletingLastPathComponent().path)
+            .allSatisfy { !$0.hasPrefix(".shepherd-update-") && !$0.hasPrefix(".shepherd-discard-") })
+    }
+
+    @Test func confirmedDiscardRestoresStagingThenPromotesWithoutTouchingUntrackedFiles() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        try deleteTrackedLock(in: environment)
+        let lock = environment.appDirectory.appendingPathComponent("bun.lock")
+        try "keep".write(to: environment.appDirectory.appendingPathComponent("notes"), atomically: true, encoding: .utf8)
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in .success(.init(behind: 0, current: "abc", latest: "abc")) },
+            updater: { staged, _ in
+                calls.withLock { $0 += 1 }
+                #expect(staged.appDirectory != environment.appDirectory)
+                #expect(!FileManager.default.fileExists(atPath: lock.path))
+                #expect(try! String(contentsOf: staged.appDirectory.appendingPathComponent("bun.lock"), encoding: .utf8) == "original lock")
+                #expect(try! await LocalCheckoutChanges(environment: staged).trackedChanges().isEmpty)
+                return .success(())
+            })
+        #expect(await model.applyUpdate() == 1)
+        #expect(await model.applyUpdate(discardingLocalChanges: model.pendingDiscardPaths) == 0)
+        #expect(calls.withLock { $0 } == 1)
+        #expect(model.updateFailure == nil && model.pendingDiscardPaths.isEmpty)
+        #expect(try String(contentsOf: lock, encoding: .utf8) == "original lock")
+        #expect(try String(contentsOf: environment.appDirectory.appendingPathComponent("notes"), encoding: .utf8) == "keep")
+    }
+
+    @Test func changedConfirmationPathsRefuseDiscardAndUpdater() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        try deleteTrackedLock(in: environment)
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+        #expect(await model.applyUpdate() == 1)
+        let confirmed = model.pendingDiscardPaths
+        let package = environment.appDirectory.appendingPathComponent("package.json")
+        try #"{"name":"shepherd","newEdit":true}"#.write(to: package, atomically: true, encoding: .utf8)
+        #expect(await model.applyUpdate(discardingLocalChanges: confirmed) == 1)
+        #expect(model.updateFailure == .dirtyCheckout(changes: [
+            .init(status: " D", path: "bun.lock"), .init(status: " M", path: "package.json")]))
+        #expect(Set(model.pendingDiscardPaths) == ["bun.lock", "package.json"])
+        #expect(calls.withLock { $0 } == 0)
+        #expect(!FileManager.default.fileExists(atPath: environment.appDirectory.appendingPathComponent("bun.lock").path))
+        #expect(try String(contentsOf: package, encoding: .utf8).contains("newEdit"))
+    }
+
+    @Test func dirtyFleetHandoffNeverUsesPendingDiscardConfirmation() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        try deleteTrackedLock(in: environment)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: { true }, launch: { launch },
+            updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+        await model.start()
+        #expect(await model.applyUpdate() == 1)
+        #expect(model.pendingDiscardPaths == ["bun.lock"])
+        let handoff = LocalAppUpdateHandoff(runDirectory: home.appendingPathComponent(".shepherd/run"))
+        try "{}".write(to: handoff.requestURL, atomically: true, encoding: .utf8)
+        await model.pickUpAppUpdateRequest()
+        let output = try String(contentsOf: handoff.logURL, encoding: .utf8)
+        #expect(output.contains("open the Shepherd app on this Mac to discard them"))
+        #expect(output.contains(" D \"bun.lock\""))
+        #expect(output.hasSuffix("__SHEPHERD_UPDATE_EXIT__:1\n"))
+        #expect(calls.withLock { $0 } == 0)
+        #expect(model.state.isRunning && !model.busy)
+        #expect(model.pendingDiscardPaths == ["bun.lock"])
+        #expect(!FileManager.default.fileExists(atPath: environment.appDirectory.appendingPathComponent("bun.lock").path))
+        await model.stop()
+    }
+
+    @Test func confirmedDiscardStillRefusesPromotionAfterAnEditToLive() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        try deleteTrackedLock(in: environment)
+        let package = environment.appDirectory.appendingPathComponent("package.json")
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, updater: { staged, _ in
+                #expect(FileManager.default.fileExists(atPath: staged.appDirectory.appendingPathComponent("bun.lock").path))
+                try! "operator edit during build".write(to: package, atomically: true, encoding: .utf8)
+                return .success(())
+            })
+        #expect(await model.applyUpdate(discardingLocalChanges: ["bun.lock"]) == 1)
+        #expect(model.updateFailure == .updateFailed(exitCode: 1))
+        #expect(try String(contentsOf: package, encoding: .utf8) == "operator edit during build")
+        #expect(!FileManager.default.fileExists(atPath: environment.appDirectory.appendingPathComponent("bun.lock").path))
+    }
+
     @Test func fleetRequestUsesTheExistingUpdateFlowAndMirrorsSuccess() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let launch = try fakeScript(in: home, emitPasswordOnce: false)
@@ -971,10 +1105,20 @@ extension MacSeamTests {
                 } onCancel: { cancelled.withLock { $0 = true } }
             })
         model.beginUpdate()
-        #expect(await settle { entered.withLock { $0 } })
+        // Staged Git preflight is real child-process work: yielding alone does
+        // not give it a bounded amount of wall-clock time to reach the updater.
+        let enteredDeadline = ContinuousClock.now + .seconds(5)
+        while !entered.withLock({ $0 }), ContinuousClock.now < enteredDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(entered.withLock { $0 })
         model.cancelUpdateForQuit()
         #expect(cancelled.withLock { $0 })
-        #expect(await settle { !model.busy })
+        let finishedDeadline = ContinuousClock.now + .seconds(5)
+        while model.busy, ContinuousClock.now < finishedDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!model.busy)
         #expect(!model.state.isRunning)
     }
 

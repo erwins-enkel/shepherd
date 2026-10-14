@@ -124,6 +124,11 @@ describe("gen-strings core resources", () => {
         "native_local_update_apply",
         "native_local_update_check",
         "native_local_update_failed",
+        "native_local_update_dirty",
+        "native_local_update_dirty_more",
+        "native_local_update_discard",
+        "native_local_update_discard_confirm_title",
+        "native_local_update_discard_confirm_body",
         "native_local_open_web",
         "native_settings_local_server_title",
       ]) {

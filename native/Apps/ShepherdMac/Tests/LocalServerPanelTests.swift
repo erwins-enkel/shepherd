@@ -8,6 +8,27 @@ extension MacSeamTests {
 /// The panel's enablement logic, pulled out of the view so it is testable without
 /// hosting SwiftUI — same pattern as LoginSheetState.
 @Suite @MainActor struct LocalServerPanelStateTests {
+    @Test func discardIsOfferedOnlyForDirtyManagedUpdatesAndHasLocalizedCopy() {
+        let dirty = LocalServerPanelState(state: .running(pid: 1), busy: false, managesUpdates: true,
+            updateFailed: true, hasDiscardChanges: true)
+        #expect(dirty.showsDiscardUpdate && dirty.canUpdate)
+        let busy = LocalServerPanelState(state: .running(pid: 1), busy: true, managesUpdates: true,
+            updateFailed: true, hasDiscardChanges: true)
+        #expect(busy.showsDiscardUpdate && !busy.canUpdate)
+        #expect(!LocalServerPanelState(state: .stopped, busy: false, managesUpdates: true,
+            updateFailed: true).showsDiscardUpdate)
+        #expect(!LocalServerPanelState(state: .externallyManaged, busy: false, managesUpdates: true,
+            updateFailed: true, hasDiscardChanges: true).showsDiscardUpdate)
+        #expect(!LocalServerCopy.message(for: .dirtyCheckout(changes: [.init(status: " D", path: "bun.lock")])).hasPrefix("native_"))
+        let keys: [StaticString] = ["native_local_update_discard", "native_local_update_discard_confirm_title",
+                                    "native_local_update_discard_confirm_body"]
+        for key in keys {
+            #expect(!L.t(key).hasPrefix("native_"))
+        }
+        #expect(!L.t("native_local_update_dirty_more", "3").hasPrefix("native_"))
+        #expect(LocalServerCopy.message(for: .updateFailed(exitCode: 7)) == L.t("native_local_update_failed", "7"))
+    }
+
     @Test func bunFailuresOfferUpgradeAndStartInsteadOfInstall() {
         for failure in [LocalServerFailure.bunOutdated(version: "1.3.1"), .bunUpgradeFailed(exitCode: 3)] {
             let state = LocalServerPanelState(state: .failed(failure), busy: false)

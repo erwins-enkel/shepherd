@@ -12735,6 +12735,17 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"appHandoffMirrorsEveryRedactedLineAndExactlyOneExitMarker() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"fleetRequestUsesTheExistingUpdateFlowAndMirrorsSuccess() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"fleetRequestMirrorsFailureAndCannotStartReason() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"supervisorInjectsTheAppOwnedUpdateDirectory() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"supervisorInjectsTheAppOwnedUpdateDirectory() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateCheckoutChangesTests.swift\",\"LocalUpdateCheckoutChangesTests\",\"aSmallerOrEmptyPathSetAlsoRequiresAnotherAttempt() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateCheckoutChangesTests.swift\",\"LocalUpdateCheckoutChangesTests\",\"ignoresUntrackedFilesAndDetectsTrackedDeletionAndIndexChanges() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateCheckoutChangesTests.swift\",\"LocalUpdateCheckoutChangesTests\",\"parserPreservesNulDelimitedPathsAndRejectsIncompleteOrInvalidUtf8() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateCheckoutChangesTests.swift\",\"LocalUpdateCheckoutChangesTests\",\"pathSetMismatchDoesNotRestoreAnything() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateCheckoutChangesTests.swift\",\"LocalUpdateCheckoutChangesTests\",\"restoresOnlyConfirmedLiteralPathsIncludingRenamesAndStagedAdditions() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"changedConfirmationPathsRefuseDiscardAndUpdater() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"confirmedDiscardRestoresStagingThenPromotesWithoutTouchingUntrackedFiles() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"confirmedDiscardStillRefusesPromotionAfterAnEditToLive() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"dirtyCheckoutExplainsDeletionAndDoesNotCallUpdater() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"dirtyFleetHandoffNeverUsesPendingDiscardConfirmation() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"discardIsOfferedOnlyForDirtyManagedUpdatesAndHasLocalizedCopy()\"]"
   ]
 }

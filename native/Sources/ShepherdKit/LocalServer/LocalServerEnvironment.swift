@@ -13,6 +13,7 @@ public enum LocalServerFailure: Error, Equatable, Sendable {
   case bunOutdated(version: String)
   case bunUpgradeFailed(exitCode: Int32)
   case updateFailed(exitCode: Int32)
+  case dirtyCheckout(changes: [LocalCheckoutChanges.Change])
   case notAShepherdCheckout(path: String)
   case installFailed(exitCode: Int32)
   case exited(code: Int32)

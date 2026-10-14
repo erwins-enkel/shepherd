@@ -13,6 +13,7 @@ struct LocalServerPanelState: Equatable {
     var updateBehind = 0
     var checkingUpdate = false
     var updateFailed = false
+    var hasDiscardChanges = false
     var tailnet: TailnetExposureStatus? = nil
     var tailnetBusy = false
 
@@ -45,6 +46,7 @@ struct LocalServerPanelState: Equatable {
     var showsUpdateCheck: Bool { managesUpdates && state != .externallyManaged && state != .notInstalled && state != .installing }
     var showsUpdate: Bool { showsUpdateCheck && (updateBehind > 0 || state == .updating || updateFailed) }
     var canUpdate: Bool { !isBusyState && showsUpdate }
+    var showsDiscardUpdate: Bool { showsUpdate && hasDiscardChanges }
     var canCheckUpdate: Bool { !isBusyState && !checkingUpdate && showsUpdateCheck }
     var showsOpenWeb: Bool { true }
     var canOpenWeb: Bool { state.isRunning || state == .externallyManaged }
@@ -82,11 +84,14 @@ struct LocalServerPanel: View {
 
     @State private var showingLog = false
     @State private var confirmingUpdate = false
+    @State private var confirmingDiscard = false
+    @State private var discardConfirmationPaths: [String] = []
 
     private var panel: LocalServerPanelState {
         LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged,
             managesUpdates: model.canManageUpdates, updateBehind: model.updateStatus?.behind ?? 0,
             checkingUpdate: model.isCheckingUpdate, updateFailed: model.updateFailure != nil,
+            hasDiscardChanges: !model.pendingDiscardPaths.isEmpty,
             tailnet: model.tailnet, tailnetBusy: model.tailnetBusy)
     }
 
@@ -115,10 +120,19 @@ struct LocalServerPanel: View {
         .accessibilityElement(children: .contain)
         .alert(L.t("native_local_update_confirm_title"), isPresented: $confirmingUpdate) {
             Button(L.t("common_cancel"), role: .cancel) {}
-            Button(L.t("native_local_update_apply"), action: model.beginUpdate)
+            Button(L.t("native_local_update_apply")) { model.beginUpdate() }
                 .disabled(!panel.canUpdate)
         } message: {
             Text(verbatim: L.t("native_local_update_confirm_body"))
+        }
+        .alert(L.t("native_local_update_discard_confirm_title"), isPresented: $confirmingDiscard) {
+            Button(L.t("common_cancel"), role: .cancel) {}
+            Button(L.t("native_local_update_discard"), role: .destructive) {
+                model.beginUpdate(discardingLocalChanges: discardConfirmationPaths)
+            }
+            .disabled(!panel.canUpdate)
+        } message: {
+            Text(verbatim: L.t("native_local_update_discard_confirm_body"))
         }
     }
 
@@ -192,6 +206,20 @@ struct LocalServerPanel: View {
             if let failure = model.updateFailure {
                 Text(verbatim: LocalServerCopy.message(for: failure)).font(.callout).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                if case .dirtyCheckout(let changes) = failure {
+                    ForEach(Array(changes.prefix(8).enumerated()), id: \.offset) { _, change in
+                        Text(verbatim: "\(change.status) \(change.path.debugDescription)")
+                            .font(.caption.monospaced()).lineLimit(2)
+                    }
+                    if changes.count > 8 {
+                        DisclosureGroup(L.t("native_local_update_dirty_more", String(changes.count - 8))) {
+                            ForEach(Array(changes.dropFirst(8).enumerated()), id: \.offset) { _, change in
+                                Text(verbatim: "\(change.status) \(change.path.debugDescription)")
+                                    .font(.caption.monospaced()).lineLimit(2)
+                            }
+                        }
+                    }
+                }
             }
             if let status = model.updateStatus, status.behind > 0 {
                 Text(verbatim: L.t("native_local_update_summary", String(status.behind), status.current, status.latest))
@@ -214,6 +242,16 @@ struct LocalServerPanel: View {
             .buttonStyle(.borderedProminent)
             .disabled(!panel.canUpdate)
             .accessibilityIdentifier("local-update-apply")
+            if panel.showsDiscardUpdate {
+                Button(L.t("native_local_update_discard"), role: .destructive) {
+                    // Capture the paths shown when opening the dialog. A later
+                    // failure must never silently broaden this confirmation.
+                    discardConfirmationPaths = model.pendingDiscardPaths
+                    confirmingDiscard = true
+                }
+                .disabled(!panel.canUpdate)
+                .accessibilityIdentifier("local-update-discard")
+            }
             DisclosureGroup(L.t("native_local_update_what_title")) {
                 Text(verbatim: L.t("native_local_update_what_body"))
                     .font(.caption).foregroundStyle(.secondary)

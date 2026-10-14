@@ -911,6 +911,11 @@
 "native_local_update_confirm_body" = "This installs the latest backend code and rebuilds the web UI. A running local server will restart briefly. Uncommitted changes block the update and remain intact.";
 "native_local_update_confirm_title" = "Apply backend update?";
 "native_local_update_current" = "Backend is up to date.";
+"native_local_update_dirty" = "The backend checkout has local changes to tracked files, so the update cannot pull. The affected paths and Git status codes are listed below.";
+"native_local_update_dirty_more" = "Show %1$@ more paths";
+"native_local_update_discard" = "Discard changes and update";
+"native_local_update_discard_confirm_body" = "The listed tracked changes in ~/.shepherd/app will be discarded and replaced by the version from origin/main when the update succeeds. Untracked files stay. This cannot be undone.";
+"native_local_update_discard_confirm_title" = "Discard local backend changes?";
 "native_local_update_failed" = "Backend update failed (exit %1$@). Check the log, then retry.";
 "native_local_update_indicator" = "Backend update available (%1$@)";
 "native_local_update_summary" = "%1$@ new commits (%2$@ → %3$@)";

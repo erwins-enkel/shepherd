@@ -911,6 +911,11 @@
 "native_local_update_confirm_body" = "Dies installiert den neuesten Backend-Code und baut die Weboberfläche neu. Ein laufender lokaler Server wird kurz neu gestartet. Nicht gespeicherte Git-Änderungen verhindern das Update und bleiben erhalten.";
 "native_local_update_confirm_title" = "Backend-Update installieren?";
 "native_local_update_current" = "Backend ist aktuell.";
+"native_local_update_dirty" = "Der Backend-Checkout enthält lokale Änderungen an versionierten Dateien. Daher kann das Update keine Änderungen abrufen. Die betroffenen Pfade und Git-Statuscodes stehen unten.";
+"native_local_update_dirty_more" = "%1$@ weitere Pfade anzeigen";
+"native_local_update_discard" = "Änderungen verwerfen und aktualisieren";
+"native_local_update_discard_confirm_body" = "Die aufgeführten Änderungen an versionierten Dateien in ~/.shepherd/app werden verworfen und bei erfolgreichem Update durch die Version von origin/main ersetzt. Nicht versionierte Dateien bleiben erhalten. Dies kann nicht rückgängig gemacht werden.";
+"native_local_update_discard_confirm_title" = "Lokale Backend-Änderungen verwerfen?";
 "native_local_update_failed" = "Backend-Update fehlgeschlagen (Exit %1$@). Protokoll prüfen und erneut versuchen.";
 "native_local_update_indicator" = "Backend-Update verfügbar (%1$@)";
 "native_local_update_summary" = "%1$@ neue Commits (%2$@ → %3$@)";

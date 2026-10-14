@@ -30,6 +30,7 @@ enum LocalServerCopy {
         case .bunMissing: L.t("native_local_error_bun_missing")
         case .bunOutdated(let version): L.t("native_local_error_bun_outdated", version)
         case .updateFailed(let code): L.t("native_local_update_failed", String(code))
+        case .dirtyCheckout: L.t("native_local_update_dirty")
         case .bunUpgradeFailed(let code): L.t("native_local_error_bun_upgrade_failed", String(code))
         case .notAShepherdCheckout(let path): L.t("native_local_error_not_checkout", path)
         case .installFailed(let code): L.t("native_local_error_install_failed", String(code))
@@ -149,6 +150,10 @@ final class LocalServerModel {
     /// old supervised server is usually still healthy, and folding the failure
     /// into `state` would hide Stop/Restart/Connect for a server that works.
     private(set) var updateFailure: LocalServerFailure?
+    var pendingDiscardPaths: [String] {
+        guard case .dirtyCheckout(let changes) = updateFailure else { return [] }
+        return changes.map(\.path)
+    }
     private(set) var isCheckingUpdate = false
     /// What `tailscale serve` does for this server's port; nil until first read.
     private(set) var tailnet: TailnetExposureStatus?
@@ -610,7 +615,7 @@ final class LocalServerModel {
     }
 
     @discardableResult
-    func applyUpdate() async -> Int32 {
+    func applyUpdate(discardingLocalChanges confirmedPaths: [String]? = nil) async -> Int32 {
         guard await ensureLaunchRecovery() else {
             await log.append("Cannot update: deployment recovery failed. Open the Shepherd app on this Mac.")
             return 1
@@ -644,6 +649,15 @@ final class LocalServerModel {
                 try LocalUpdateDeployment(environment: environment)
             }.value
             try Task.checkCancellation()
+            let stagedEnvironment = deployment!.environment
+            let preparation = Task.detached {
+                try await LocalCheckoutChanges(environment: stagedEnvironment)
+                    .prepare(discardingLocalChanges: confirmedPaths)
+            }
+            try await withTaskCancellationHandler {
+                try await preparation.value
+            } onCancel: { preparation.cancel() }
+            try Task.checkCancellation()
             let result = await updater(deployment!.environment, log)
             if case .failure(let error) = result { throw error }
             try Task.checkCancellation()
@@ -676,7 +690,12 @@ final class LocalServerModel {
                 return 1
             }
         }
-        if let failure { await log.append("Backend update failed: \(failure)") }
+        if case .dirtyCheckout(let changes) = failure {
+            await log.append("Backend checkout has local changes to tracked files; open the Shepherd app on this Mac to discard them.")
+            for change in changes {
+                await log.append("\(change.status) \(change.path.debugDescription)")
+            }
+        } else if let failure { await log.append("Backend update failed: \(failure)") }
         // Quit retains promotion intent even after rollback: the next launch
         // must recover before it can adopt any persisted server.
         if !quittingUpdates { deployment?.finish() }
@@ -699,11 +718,11 @@ final class LocalServerModel {
         return failure == nil ? 0 : 1
     }
 
-    func beginUpdate() {
+    func beginUpdate(discardingLocalChanges confirmedPaths: [String]? = nil) {
         guard !busy, updateTask == nil, canManageUpdates else { return }
         updateTask = Task {
             defer { updateTask = nil }
-            _ = await self.applyUpdate()
+            _ = await self.applyUpdate(discardingLocalChanges: confirmedPaths)
         }
     }
 

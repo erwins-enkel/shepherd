@@ -15649,6 +15649,92 @@
         }
       }
     },
+    "native_local_update_dirty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Backend-Checkout enthält lokale Änderungen an versionierten Dateien. Daher kann das Update keine Änderungen abrufen. Die betroffenen Pfade und Git-Statuscodes stehen unten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backend checkout has local changes to tracked files, so the update cannot pull. The affected paths and Git status codes are listed below."
+          }
+        }
+      }
+    },
+    "native_local_update_dirty_more": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ weitere Pfade anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show %1$@ more paths"
+          }
+        }
+      }
+    },
+    "native_local_update_discard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen verwerfen und aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard changes and update"
+          }
+        }
+      }
+    },
+    "native_local_update_discard_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die aufgeführten Änderungen an versionierten Dateien in ~/.shepherd/app werden verworfen und bei erfolgreichem Update durch die Version von origin/main ersetzt. Nicht versionierte Dateien bleiben erhalten. Dies kann nicht rückgängig gemacht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The listed tracked changes in ~/.shepherd/app will be discarded and replaced by the version from origin/main when the update succeeds. Untracked files stay. This cannot be undone."
+          }
+        }
+      }
+    },
+    "native_local_update_discard_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale Backend-Änderungen verwerfen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard local backend changes?"
+          }
+        }
+      }
+    },
     "native_local_update_failed": {
       "comment": "%1$@ = code",
       "extractionState": "manual",

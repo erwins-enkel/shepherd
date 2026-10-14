@@ -59,7 +59,7 @@
   }}
   use:coachTarget={"topbar-assist"}
 >
-  <AssistantGlyph size="var(--fs-lg)" />
+  <AssistantGlyph size={mobile ? "var(--fs-xl)" : "var(--fs-lg)"} />
   {#if !compact}<span class="assist-label">{m.topbar_assist()}</span>{/if}
   {#if pip}<span class="assist-pip {pip}" data-pip={pip} aria-hidden="true"></span>{/if}
 </button>
@@ -103,10 +103,24 @@
   .assist.compact {
     min-width: 44px;
   }
-  /* Width-gated 44px floor (like .gear.mobile): `mobile` is width-only, so a fine-pointer
-     narrow viewport gets no help from the coarse-pointer floor below. */
+  /* Phone: the gear's ghost-button language (.gear.mobile), not the desktop chip — the bar's
+     ● ✦ ⚙ cluster reads as three equal 44px cells; open = .gear.open's sel ground. The 44px
+     floor is width-gated: `mobile` is width-only, so a fine-pointer narrow viewport gets no help
+     from the coarse-pointer floor below. */
   .assist.phone {
     min-height: 44px;
+    padding: 0;
+    border-color: transparent;
+  }
+  .assist.phone:hover {
+    background: transparent;
+    color: var(--color-amber);
+  }
+  .assist.phone.on {
+    background: var(--color-sel);
+    border-color: var(--color-line-bright);
+    color: var(--color-ink-bright);
+    box-shadow: none;
   }
   /* The status pip (DESIGN.md "Status Pip"): pinned to the chip's top-right corner, ringed in the
      bar's ground so it reads against the border. Working pulses; blocked stays solid red. */
@@ -118,6 +132,13 @@
     height: 9px;
     border-radius: 50%;
     box-shadow: 0 0 0 2px var(--color-panel);
+  }
+  /* Phone: no border to straddle, so the pip sits inside the cell like .gear-pip. */
+  .assist.phone .assist-pip {
+    top: 2px;
+    right: 2px;
+    width: 7px;
+    height: 7px;
   }
   .assist-pip.working {
     background: var(--status-running);

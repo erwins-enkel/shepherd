@@ -1231,6 +1231,11 @@
      off-centre in the corner. */
   .hud.mobile .conn {
     order: -1;
+    /* Same 44px cell as the Assist + gear ghost buttons beside it, so the three glyphs share
+       one rhythm instead of the dot hugging its neighbour. */
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
   }
   .hud.mobile .rightside {
     flex-wrap: wrap;

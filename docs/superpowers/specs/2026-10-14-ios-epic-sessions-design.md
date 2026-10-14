@@ -84,9 +84,9 @@ The strip is one accessibility element ("Braucht nichts. Stufe 1 von 4, #101. Gi
 ### 3. Children without a session
 
 After the group's cards, one dashed row folds every child that is not merged and matches no row
-in the group: "9 WEITERE SCHRITTE" on the left; on the right, for the lowest stage among them,
-"{n} bereit" when any of them is ready, else "{n} warten auf #a · #b" (their open blockers, at
-most two, then `+k`). No row when nothing is folded. Collapsed by default; the expanded state is
+in the group: "WEITERE SCHRITTE (9)" on the left; on the right, for the lowest stage among them,
+"{n} bereit" when any of them is ready, else "als Nächstes nach #a · #b" (their open blockers, at
+most two, then `+k`), else nothing. No row when nothing is folded. Collapsed by default; the expanded state is
 per group and in memory only.
 
 Expanded, the folded children are listed by stage. Stage label: "Stufe s · nach #a · #b" (the
@@ -169,12 +169,15 @@ The Mac app does not change.
 ## Copy
 
 Reuse the web keys that fit: `epic_badge`, `epic_role_leading`, `epic_group_cue_*`,
-`childrun_step_unlocks`, `epic_run_after_none`, `epicflow_title`, `epicflow_merged`,
-`epicflow_stage_first`, `epicflow_stage_parallel`, `epicflow_legend_*`, `epicflow_slots_hint`,
-`epic_state_*`, `epic_tip_confidence_*`. New keys use the `native_ios_epic_` prefix and go into
+`childrun_step_unlocks`, `epicflow_title`, `epicflow_merged`, `epicflow_stage_first`,
+`epicflow_stage_parallel`, `epicflow_legend_*`, `epic_state_running`, `epic_state_in_review`,
+`epic_tip_confidence_*`. `epicflow_slots_hint` is not reused: it carries web glossary markup
+(`[[agent-slot|…]]`). New keys use the `native_ios_epic_` prefix and go into
 `ui/messages/en.json` and `de.json`. Examples: the short "Braucht" label, "nichts", "{n}
-parallel", "Stufe {s}/{total}", "{n} weitere Schritte", "{n} warten auf {deps}", "gibt {n} frei",
-"pausiert", "Jetzt", the clock lines and the strip's accessibility sentence. All keys used go
+parallel", "Stufe {s}/{total}", "Weitere Schritte ({n})", "als Nächstes nach {deps}", "gibt {n}
+frei", "nichts wartet", "pausiert", "Jetzt", the slots hint, the clock lines and the strip's
+accessibility sentence. Counted phrases are worded so they read correctly for one as well as for
+many. All keys used go
 into `KEYS_IOS_EPICS` in `native/scripts/gen-strings.ts`, and the catalog is regenerated with
 `bun native/scripts/gen-strings.ts`. `--check` must pass.
 

@@ -79,23 +79,24 @@ public struct LocalCheckoutChanges: Sendable {
     process.environment = childEnvironment
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
-    let exit = Mutex<Int32?>(nil)
-    let outputDone = Mutex(false)
-    let livePID = Mutex<Int32?>(nil)
-    process.terminationHandler = { child in exit.withLock { $0 = child.terminationStatus } }
+    // A Sendable class, not captured local mutexes: Swift 6.3 rejects sending
+    // a closure over those into the output Task (same shape as LocalUpdateRun).
+    let shared = SharedState()
+    let reader = pipe.fileHandleForReading
+    process.terminationHandler = { child in shared.exitCode.withLock { $0 = child.terminationStatus } }
     return try await withTaskCancellationHandler {
       try process.run()
       let pid = process.processIdentifier
-      livePID.withLock { $0 = pid }
+      shared.livePID.withLock { $0 = pid }
       let output = Task {
         var data = Data()
-        for await chunk in ProcessOutputPump.chunks(from: pipe.fileHandleForReading) { data.append(chunk) }
-        outputDone.withLock { $0 = true }
+        for await chunk in ProcessOutputPump.chunks(from: reader) { data.append(chunk) }
+        shared.outputDone.withLock { $0 = true }
         return data
       }
       let deadline = Date().addingTimeInterval(30)
       var timedOut = false
-      while exit.withLock({ $0 }) == nil || !outputDone.withLock({ $0 }) {
+      while shared.exitCode.withLock({ $0 }) == nil || !shared.outputDone.withLock({ $0 }) {
         if Task.isCancelled || Date() >= deadline {
           timedOut = Date() >= deadline
           killpg(pid, SIGKILL)
@@ -104,15 +105,21 @@ public struct LocalCheckoutChanges: Sendable {
         do { try await Task.sleep(for: .milliseconds(20)) } catch { usleep(20_000) }
       }
       let data = await output.value
-      livePID.withLock { $0 = nil }
+      shared.livePID.withLock { $0 = nil }
       try Task.checkCancellation()
       if timedOut { throw LocalServerFailure.updateFailed(exitCode: 124) }
-      guard exit.withLock({ $0 }) == 0 else { throw LocalServerFailure.updateFailed(exitCode: 1) }
+      guard shared.exitCode.withLock({ $0 }) == 0 else { throw LocalServerFailure.updateFailed(exitCode: 1) }
       return data
     } onCancel: {
       // The loop also catches cancellation before publishing the owned group.
-      if let pid = livePID.withLock({ $0 }) { killpg(pid, SIGKILL) }
+      if let pid = shared.livePID.withLock({ $0 }) { killpg(pid, SIGKILL) }
     }
+  }
+
+  private final class SharedState: Sendable {
+    let livePID = Mutex<Int32?>(nil)
+    let exitCode = Mutex<Int32?>(nil)
+    let outputDone = Mutex(false)
   }
 }
 #endif

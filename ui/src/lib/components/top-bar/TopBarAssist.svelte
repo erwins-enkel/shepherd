@@ -14,6 +14,7 @@
     assistant,
     open,
     compact,
+    mobile = false,
     workingBlocked,
     backgroundBusy,
     onclick,
@@ -21,6 +22,8 @@
     assistant: Session | null;
     open: boolean;
     compact: boolean;
+    /** Phone layout (width-only): the chip takes the 44px floor the gear has. */
+    mobile?: boolean;
     workingBlocked: Record<string, boolean>;
     backgroundBusy: Record<string, boolean>;
     onclick: () => void;
@@ -44,6 +47,7 @@
   type="button"
   class="assist"
   class:compact
+  class:phone={mobile}
   class:on={open}
   aria-pressed={open}
   aria-label={label}
@@ -98,6 +102,11 @@
   }
   .assist.compact {
     min-width: 44px;
+  }
+  /* Width-gated 44px floor (like .gear.mobile): `mobile` is width-only, so a fine-pointer
+     narrow viewport gets no help from the coarse-pointer floor below. */
+  .assist.phone {
+    min-height: 44px;
   }
   /* The status pip (DESIGN.md "Status Pip"): pinned to the chip's top-right corner, ringed in the
      bar's ground so it reads against the border. Working pulses; blocked stays solid red. */

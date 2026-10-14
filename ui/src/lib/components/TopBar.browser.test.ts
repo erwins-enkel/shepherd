@@ -3640,12 +3640,51 @@ describe("TopBar — Operator Assistant entry points", () => {
     expect(toggle().query()).toBeNull();
   });
 
-  it("phone: no toggle in the bar; the Controls sheet row opens the assistant", async () => {
+  it("phone: an icon-only toggle in the bar opens the assistant", async () => {
     await page.viewport(390, 844);
     document.body.style.width = "390px";
     const onassistant = vi.fn();
     render(TopBar, props({ onassistant, mobile: true, touch: true }));
+    await expect.element(toggle()).toBeVisible();
+    const chip = document.querySelector("#topbar-assist")!;
+    expect(chip.classList.contains("compact")).toBe(true);
+    expect(chip.querySelector(".assist-label")).toBeNull();
+    // Width-gated touch floor, independent of (pointer: coarse).
+    expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await toggle().click();
+    expect(onassistant).toHaveBeenCalledOnce();
+  });
+
+  it("phone: the pip follows the assistant's status", async () => {
+    await page.viewport(390, 844);
+    document.body.style.width = "390px";
+    render(
+      TopBar,
+      props({
+        onassistant: vi.fn(),
+        mobile: true,
+        touch: true,
+        assistant: { id: "oa", status: "blocked" } as Session,
+      }),
+    );
+    await expect
+      .element(page.getByRole("button", { name: m.topbar_assist_blocked() }))
+      .toBeInTheDocument();
+  });
+
+  it("phone: renders no toggle without onassistant", async () => {
+    await page.viewport(390, 844);
+    document.body.style.width = "390px";
+    render(TopBar, props({ mobile: true, touch: true }));
+    await expect.element(page.getByRole("button", { name: m.topbar_menu_aria() })).toBeVisible();
     expect(document.querySelector("#topbar-assist")).toBeNull();
+  });
+
+  it("phone: the Controls sheet row also opens the assistant", async () => {
+    await page.viewport(390, 844);
+    document.body.style.width = "390px";
+    const onassistant = vi.fn();
+    render(TopBar, props({ onassistant, mobile: true, touch: true }));
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     const sheet = page.getByRole("dialog", { name: m.topbar_sheet_title() });
     await sheet.getByRole("button", { name: m.operator_assistant_title() }).click();

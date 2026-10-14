@@ -187,6 +187,20 @@ describe("mirrored sessions", () => {
     expect(withMirror[0]).not.toHaveProperty("connection");
   });
 
+  test("a machine's session names its project, as the machine's repo index has it", async () => {
+    const a = startNode();
+    const b = startNode();
+    b.deps.resolveForge = ((path: string) =>
+      path === repo ? { slug: "acme/app" } : null) as never;
+    const remote = startSession(b, "on-b");
+    await connect(a, b);
+    const list = await until(
+      () => get(a, "/api/sessions"),
+      (l) => l.some((s) => s.id === remote.id),
+    );
+    expect(list.find((s) => s.id === remote.id)).toMatchObject({ remoteSlug: "acme/app" });
+  });
+
   test("a session started on the machine appears live with its host and never enters the local store", async () => {
     const a = startNode();
     const b = startNode();

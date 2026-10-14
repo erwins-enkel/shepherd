@@ -629,6 +629,13 @@ components:
             reports it, so a client can place it in the same lifecycle stage as a local session.
             Absent when the machine reported none. A `session:git` frame about a mirrored session
             carries the new one. This instance's own sessions never carry it; read GET /api/git.
+        remoteSlug:
+          type: string
+          description: >-
+            Set only on a session mirrored from a connected machine: the forge slug (`owner/repo`)
+            of its project, as that machine's repo index names the session's checkout, so a client
+            can match it to a local repo by project rather than by path. Absent when the machine
+            knows none.
         launchMetadata:
           oneOf:
             - $ref: "#/components/schemas/SessionLaunchMetadata"

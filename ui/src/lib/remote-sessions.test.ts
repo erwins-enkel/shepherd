@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   byMachine,
+  inRepoFilter,
   lastKnownLabel,
   machineColorVar,
   machineDisplayNames,
@@ -92,6 +93,41 @@ describe("remote sessions (#2762)", () => {
       data: { id: "z", status: "idle", host: HOST, connection: LIVE },
     });
     expect(next).toEqual([]);
+  });
+});
+
+describe("repo filter", () => {
+  const repos = [
+    {
+      path: "/home/moe/projects/shepherd",
+      realPath: "/home/moe/projects/shepherd",
+      remoteSlug: "erwins-enkel/shepherd",
+    },
+    { path: "/home/moe/link/app", realPath: "/srv/app", remoteSlug: "Acme/App" },
+    { path: "/home/moe/projects/scratch", realPath: "/home/moe/projects/scratch" },
+  ];
+  const mac = [
+    s("a", { repoPath: "/Users/k/shepherd", remoteSlug: "erwins-enkel/shepherd" }),
+    s("b", { repoPath: "/Users/k/app", remoteSlug: "acme/app" }),
+    s("c", { repoPath: "/Users/k/scratch" }),
+  ];
+  const ids = (list: Session[]) => list.map((x) => x.id);
+
+  test("no repo selected keeps every session", () => {
+    expect(ids(inRepoFilter(mac, new Set(), repos))).toEqual(["a", "b", "c"]);
+  });
+
+  test("a selected repo keeps the sessions of its project on other machines", () => {
+    expect(ids(inRepoFilter(mac, new Set(["/home/moe/projects/shepherd"]), repos))).toEqual(["a"]);
+  });
+
+  test("a repo selected by its realpath matches, whatever the case of the slugs", () => {
+    expect(ids(inRepoFilter(mac, new Set(["/srv/app"]), repos))).toEqual(["b"]);
+  });
+
+  test("a repo or a session without a slug never matches", () => {
+    expect(ids(inRepoFilter(mac, new Set(["/home/moe/projects/scratch"]), repos))).toEqual([]);
+    expect(ids(inRepoFilter(mac, new Set(["/unknown"]), repos))).toEqual([]);
   });
 });
 

@@ -28,6 +28,9 @@ export type ProbeOutcome =
       status: "connected";
       info: InstanceIdentity;
       projects: string[];
+      /** Which project (slug) each of the machine's checkouts belongs to, by its path and its
+       *  realpath — its sessions name their checkout by `repoPath`. */
+      repoSlugs: Map<string, string>;
       /** The machine's capability report re-based onto this clock; null when it sends none. */
       capabilities: CapabilitySnapshot | null;
     }
@@ -271,14 +274,20 @@ export function parseProjectPath(body: unknown, slug: string): string | null {
 
 /** Project identity is the forge slug; a repo without one is not a project another machine can
  *  be matched on. Hidden repos count — hiding is a picker preference, not absence. */
-function parseProjects(body: unknown): string[] | null {
+function parseProjects(
+  body: unknown,
+): { projects: string[]; repoSlugs: Map<string, string> } | null {
   if (!isRecord(body) || !Array.isArray(body.repos)) return null;
-  const slugs = body.repos.flatMap((repo: unknown) =>
-    isRecord(repo) && typeof repo.remoteSlug === "string" && repo.remoteSlug
-      ? [repo.remoteSlug]
-      : [],
-  );
-  return [...new Set(slugs)].sort();
+  const slugs: string[] = [];
+  const repoSlugs = new Map<string, string>();
+  for (const repo of body.repos as unknown[]) {
+    if (!isRecord(repo) || typeof repo.remoteSlug !== "string" || !repo.remoteSlug) continue;
+    slugs.push(repo.remoteSlug);
+    for (const path of [repo.path, repo.realPath]) {
+      if (typeof path === "string" && path) repoSlugs.set(path, repo.remoteSlug);
+    }
+  }
+  return { projects: [...new Set(slugs)].sort(), repoSlugs };
 }
 
 /**
@@ -311,6 +320,6 @@ export async function probeRemote(
 
   const repos = await getRemoteJson(target, "/api/repos", opts);
   if (!repos.ok) return repos.failure;
-  const projects = parseProjects(repos.body);
-  return projects ? { status: "connected", info, projects, capabilities } : BAD_RESPONSE;
+  const parsed = parseProjects(repos.body);
+  return parsed ? { status: "connected", info, ...parsed, capabilities } : BAD_RESPONSE;
 }

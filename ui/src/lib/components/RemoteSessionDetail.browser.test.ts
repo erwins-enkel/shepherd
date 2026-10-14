@@ -38,12 +38,28 @@ function remote(over: Partial<Session> = {}): Session {
   } as Session;
 }
 
+// The designator's hover panel, as assistive tech reads it (statusTip's aria-description).
+function factsOf(el: Element): string {
+  return el.getAttribute("aria-description") ?? "";
+}
+
 // The forwarded reads and actions (#2765) go through the api module; the server forwards them.
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     interruptSession: vi.fn(async () => {}),
+    getSessionUsage: vi.fn(async () => ({
+      available: true,
+      source: "live" as const,
+      total: 1200,
+      input: null,
+      output: null,
+      cacheRead: null,
+      cacheWrite: null,
+      messageCount: null,
+      byModel: null,
+    })),
     getLeftovers: vi.fn(async () => ({ leftovers: [], probesUnavailable: false })),
     getActivity: vi.fn(async () => []),
     getDiff: vi.fn(async () => ({
@@ -69,6 +85,7 @@ afterEach(() => {
   vi.mocked(connectPty).mockClear();
   for (const fn of [
     api.interruptSession,
+    api.getSessionUsage,
     api.getLeftovers,
     api.getActivity,
     api.getDiff,
@@ -86,17 +103,16 @@ describe("RemoteSessionDetail started from here (#2763)", () => {
       session: remote({ baseCommit: "a".repeat(40), sandboxDegraded: true }),
       nowMs: Date.now(),
     });
-    await expect.element(page.getByText(m.remote_detail_base())).toBeInTheDocument();
-    await expect.element(page.getByText("main @ aaaaaaa")).toBeInTheDocument();
-    await expect.element(page.getByText(m.session_sandbox_degraded_label())).toBeInTheDocument();
+    const facts = factsOf(page.getByRole("button", { name: "MacBook · TASK-07" }).element());
+    expect(facts).toContain(`${m.remote_detail_base()}: main @ aaaaaaa`);
+    expect(facts).toContain(`${m.remote_detail_sandbox()}: ${m.session_sandbox_degraded_label()}`);
   });
 
   it("shows neither fact for a session that reports no base commit and a working sandbox", async () => {
     render(RemoteSessionDetail, { session: remote({ sandboxDegraded: false }), nowMs: Date.now() });
-    await expect.element(page.getByText("MacBook · TASK-07")).toBeInTheDocument();
-    expect(page.getByText(m.remote_detail_base()).elements()).toHaveLength(0);
-    expect(page.getByText(m.remote_detail_sandbox()).elements()).toHaveLength(0);
-    expect(page.getByText(m.remote_detail_placement()).elements()).toHaveLength(0);
+    const facts = factsOf(page.getByRole("button", { name: "MacBook · TASK-07" }).element());
+    expect(facts).not.toContain(`${m.remote_detail_base()}:`);
+    expect(facts).not.toContain(`${m.remote_detail_sandbox()}:`);
   });
 
   it("says why it runs on that machine, as the Shepherd that chose it recorded (#2772)", async () => {
@@ -110,15 +126,60 @@ describe("RemoteSessionDetail started from here (#2763)", () => {
       decidedAt: 1,
     };
     render(RemoteSessionDetail, {
-      session: remote({ launchMetadata: { placement } as Session["launchMetadata"] }),
+      session: remote({
+        launchMetadata: {
+          placement,
+          agent: { provider: "claude" },
+          resolvedLaunch: { effort: null },
+        } as unknown as Session["launchMetadata"],
+      }),
       nowMs: Date.now(),
     });
-    await expect.element(page.getByText(m.remote_detail_placement())).toBeInTheDocument();
+    // The status bar's, as for a local session.
     await expect
       .element(
         page.getByText(m.placement_basis_requirements({ list: m.settings_machines_cap_xcode() })),
       )
       .toBeInTheDocument();
+  });
+});
+
+describe("RemoteSessionDetail lays out like the local Viewport", () => {
+  it("puts the tabs and the actions in the header and the terminal above the steer bar", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), terminalOwners: {} });
+    const term = page.getByRole("region", { name: m.remote_terminal_aria({ machine: "MacBook" }) });
+    await expect.element(term).toBeInTheDocument();
+    expect(page.getByRole("tablist").element().closest("header")).not.toBeNull();
+    for (const name of [m.remote_detail_stop(), m.remote_detail_archive()])
+      expect(page.getByRole("button", { name }).element().closest("header")).not.toBeNull();
+    await vi.waitFor(() => expect(document.querySelector(".steer-row")).not.toBeNull());
+    const steer = document.querySelector(".steer-row")!;
+    expect(term.element().compareDocumentPosition(steer) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("shows the keyboard hints on the desktop layout only", async () => {
+    const view = await render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await expect.element(page.getByText(m.viewport_keynav_hint())).toBeInTheDocument();
+    await expect.element(page.getByText(m.viewport_keynav_enter_hint())).toBeInTheDocument();
+    await view.rerender({ compact: true });
+    expect(page.getByText(m.viewport_keynav_hint()).query()).toBeNull();
+  });
+
+  it("reads the token usage from the machine for the status bar", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await vi.waitFor(() => expect(api.getSessionUsage).toHaveBeenCalledWith("r1"));
+  });
+
+  it("hands the keyboard back to its terminal", async () => {
+    const { component } = await render(RemoteSessionDetail, {
+      session: remote(),
+      nowMs: Date.now(),
+    });
+    await vi.waitFor(() => expect(document.querySelector(".xterm")).not.toBeNull());
+    (component as { focusTerminal: () => void }).focusTerminal();
+    expect(document.activeElement?.closest(".xterm")).not.toBeNull();
   });
 });
 
@@ -134,10 +195,17 @@ describe("RemoteSessionDetail (#2762)", () => {
 
   it("shows what the machine reports", async () => {
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
-    await expect.element(page.getByText("MacBook · TASK-07")).toBeInTheDocument();
+    const desig = page.getByRole("button", { name: "MacBook · TASK-07" });
+    await expect.element(desig).toBeInTheDocument();
     await expect.element(page.getByText("fix login redirect")).toBeInTheDocument();
-    await expect.element(page.getByText("Fix the login redirect loop")).toBeInTheDocument();
-    await expect.element(page.getByText("shepherd/fix-login")).toBeInTheDocument();
+    // The header's branch drops the `shepherd/` every session branch carries, as the Viewport's.
+    await expect.element(page.getByText("fix-login", { exact: true })).toBeInTheDocument();
+    // The task and where it works sit in the designator's hover panel.
+    const facts = factsOf(desig.element());
+    expect(facts).toContain(`${m.remote_detail_task()}: Fix the login redirect loop`);
+    expect(facts).toContain(`${m.remote_detail_repo()}: app`);
+    expect(facts).toContain(`${m.remote_detail_branch()}: shepherd/fix-login`);
+    expect(facts).toContain(`${m.remote_detail_status()}: ${statusLabel("running")}`);
     await expect
       .element(page.getByRole("img", { name: m.remote_runs_on({ machine: "MacBook" }) }))
       .toBeInTheDocument();
@@ -268,6 +336,7 @@ describe("RemoteSessionDetail (#2762)", () => {
       await expect.element(page.getByRole("tab", { name: tab })).toBeDisabled();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(api.interruptSession).not.toHaveBeenCalled();
+    expect(api.getSessionUsage).not.toHaveBeenCalled();
   });
 
   it("keeps the last known state visible while the machine is unreachable", async () => {
@@ -283,7 +352,11 @@ describe("RemoteSessionDetail (#2762)", () => {
     await expect.element(page.getByText(m.remote_disconnected_line({ time }))).toBeInTheDocument();
     // The last status the machine reported stays — a lost connection is not an end.
     await expect
-      .element(page.getByText(statusLabel("running"), { exact: true }))
+      .element(
+        page.getByRole("img", {
+          name: m.statuspip_status_aria({ status: statusLabel("running") }),
+        }),
+      )
       .toBeInTheDocument();
   });
 

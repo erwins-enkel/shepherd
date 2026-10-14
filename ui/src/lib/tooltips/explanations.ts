@@ -7,7 +7,9 @@ import type {
   SessionConnection,
   SessionHost,
 } from "#lib/types.js";
-import { lastKnownLabel, platformName } from "#lib/remote-sessions.js";
+import { statusLabel } from "#lib/format.js";
+import { basename } from "#lib/components/learnings-drawer.js";
+import { lastKnownLabel, platformName, type MirroredSession } from "#lib/remote-sessions.js";
 import { capabilityList, placementReason } from "#lib/placement.js";
 import { isBlocked, missingList, offlineLabel } from "#lib/remote-dispatches.js";
 
@@ -545,6 +547,46 @@ export function remoteSessionExplanation(
               }),
       },
       { label: m.tooltip_remote_actions(), text: m.tooltip_remote_forwarded_body({ machine }) },
+    ],
+  };
+}
+
+/** What a connected machine reports about one of its sessions (#2762): the task and where it
+ *  works. The hover panel on the detail's designator, as the Viewport's meta popover is locally;
+ *  why it runs on that machine is the status bar's, so it is not repeated here. */
+export function remoteFactsExplanation(
+  session: Pick<
+    MirroredSession,
+    | "name"
+    | "status"
+    | "prompt"
+    | "repoPath"
+    | "branch"
+    | "baseBranch"
+    | "baseCommit"
+    | "sandboxDegraded"
+    | "host"
+  >,
+): TooltipExplanation {
+  return {
+    title: session.name,
+    summary: m.remote_runs_on({ machine: session.host.name }),
+    sections: [
+      { label: m.remote_detail_status(), text: statusLabel(session.status) },
+      { label: m.remote_detail_task(), text: session.prompt, full: true },
+      { label: m.remote_detail_repo(), text: basename(session.repoPath) },
+      { label: m.remote_detail_branch(), text: session.branch ?? session.baseBranch },
+      ...(session.baseCommit
+        ? [
+            {
+              label: m.remote_detail_base(),
+              text: `${session.baseBranch} @ ${session.baseCommit.slice(0, 7)}`,
+            },
+          ]
+        : []),
+      ...(session.sandboxDegraded
+        ? [{ label: m.remote_detail_sandbox(), text: m.session_sandbox_degraded_label() }]
+        : []),
     ],
   };
 }

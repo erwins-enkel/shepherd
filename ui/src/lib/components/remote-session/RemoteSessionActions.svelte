@@ -6,34 +6,26 @@
   import { toasts } from "#lib/toasts.svelte.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import SteerBar from "../SteerBar.svelte";
   import LeftoverDialog from "../LeftoverDialog.svelte";
 
-  // What the operator can do to a session on a connected machine (#2765): the actions this server
-  // forwards to the machine that the detail has a surface for — steer, stop, archive. Each runs on
-  // the machine, never here. While the machine is disconnected they stay visible but disabled, with
-  // the reason in their tooltip: the server would refuse them without asking the machine.
+  // The header controls for a session on a connected machine (#2765), where the Viewport keeps its
+  // own: stop, and archive as the quiet ✕. Each is forwarded to the machine and runs there, never
+  // here. While the machine is disconnected they stay visible but disabled, with the reason in
+  // their tooltip: the server would refuse them without asking the machine. Steering is the steer
+  // bar's, under the terminal.
   let {
     session,
     tip,
     ondecommission = undefined,
-    onedit = undefined,
   }: {
     session: MirroredSession;
     tip: TooltipExplanation;
     /** Archive (with the leftover keys to terminate) — the page's undo-windowed decommission. */
     ondecommission?: (id: string, reap?: string[]) => void;
-    /** Open the steers editor — the steers themselves are this Shepherd's settings. */
-    onedit?: (steerId?: string) => void;
   } = $props();
 
   const live = $derived(session.connection.state === "connected");
   const machine = $derived(session.host.name);
-  const disabledLabels = $derived([
-    m.remote_detail_steer(),
-    m.remote_detail_stop(),
-    m.remote_detail_archive(),
-  ]);
 
   // Archive arms first, like the Viewport's decommission control: one stray click never queues it.
   let armed = $state(false);
@@ -93,17 +85,28 @@
   }
 </script>
 
+{#snippet cross()}
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
+  >
+{/snippet}
 {#if live}
-  <SteerBar
-    focusedId={session.id}
-    repoPath={session.repoPath}
-    agentProvider={session.agentProvider ?? "claude"}
-    {onedit}
-  />
   <div class="actions" role="group" aria-label={m.remote_detail_actions_live_aria({ machine })}>
-    <button type="button" class="gbtn" onclick={stop}>{m.remote_detail_stop()}</button>
-    <button type="button" class="gbtn" class:armed onclick={archive}
-      >{armed ? m.viewport_confirm_decommission() : m.remote_detail_archive()}</button
+    <button type="button" class="stop" onclick={stop}>{m.remote_detail_stop()}</button>
+    <button
+      type="button"
+      class="decom icon-btn"
+      class:armed
+      onclick={archive}
+      title={armed ? m.viewport_confirm_decommission() : m.remote_detail_archive()}
+      aria-label={armed ? m.viewport_confirm_decommission() : m.remote_detail_archive()}
+      >{@render cross()}</button
     >
   </div>
 {:else}
@@ -112,14 +115,19 @@
     role="group"
     aria-label={m.remote_detail_actions_unavailable_aria({ machine })}
   >
-    {#each disabledLabels as label (label)}
-      <button
-        type="button"
-        class="gbtn"
-        aria-disabled="true"
-        use:statusTip={{ text: tip, wide: true }}>{label}</button
-      >
-    {/each}
+    <button
+      type="button"
+      class="stop"
+      aria-disabled="true"
+      use:statusTip={{ text: tip, wide: true }}>{m.remote_detail_stop()}</button
+    >
+    <button
+      type="button"
+      class="decom icon-btn"
+      aria-disabled="true"
+      aria-label={m.remote_detail_archive()}
+      use:statusTip={{ text: tip, wide: true }}>{@render cross()}</button
+    >
   </div>
 {/if}
 {#if pending}
@@ -133,35 +141,46 @@
 <style>
   .actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
   }
-  /* The canonical .gbtn recipe (/design-system); disabled through aria-disabled so it keeps focus
-     and hover — and with them the tooltip that says why. */
-  .gbtn {
+  /* The Viewport header's quiet text pill (ViewportHeaderActions .decom:not(.icon-btn)). */
+  .stop {
+    flex-shrink: 0;
     background: transparent;
-    border: 1px solid var(--color-line);
+    border: 1px solid transparent;
     border-radius: 2px;
-    color: var(--color-muted);
+    color: var(--color-faint);
     font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    padding: 2px 8px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
     cursor: pointer;
   }
-  .gbtn:hover:not([aria-disabled="true"]) {
+  .stop:hover:not([aria-disabled="true"]) {
     color: var(--color-ink);
     border-color: var(--color-line-bright);
   }
-  .gbtn:focus-visible {
+  .stop:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
-  .gbtn.armed {
+  /* The Viewport's quiet ✕ (ViewportHeaderActions .decom.quiet.icon-btn): faint at rest, red on
+     hover, a solid red square while armed. */
+  .decom:hover:not([aria-disabled="true"]) {
     color: var(--color-red);
-    border-color: var(--color-red);
+    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
   }
-  .gbtn[aria-disabled="true"] {
+  .decom.armed {
+    background: var(--color-red);
+    border-color: var(--color-red);
+    color: var(--color-bg);
+  }
+  /* Disabled through aria-disabled so they keep focus and hover — and with them the tooltip that
+     says why. */
+  [aria-disabled="true"] {
     opacity: 0.4;
     cursor: not-allowed;
   }

@@ -3655,6 +3655,24 @@ describe("TopBar — Operator Assistant entry points", () => {
     expect(onassistant).toHaveBeenCalledOnce();
   });
 
+  it("phone: dot, Assist and gear share one ghost-cell rhythm", async () => {
+    await page.viewport(390, 844);
+    document.body.style.width = "390px";
+    render(TopBar, props({ onassistant: vi.fn(), mobile: true, touch: true }));
+    await expect.element(toggle()).toBeVisible();
+    const chip = document.querySelector<HTMLElement>("#topbar-assist")!;
+    // Ghost like the gear: no resting border box.
+    expect(getComputedStyle(chip).borderTopColor).toBe(
+      getComputedStyle(document.querySelector(".gear")!).borderTopColor,
+    );
+    const [conn, assist, gear] = [".conn", "#topbar-assist", ".gear"].map((s) =>
+      document.querySelector(s)!.getBoundingClientRect(),
+    );
+    for (const r of [conn, assist, gear]) expect(r.width).toBeCloseTo(44, 0);
+    expect(assist.left - conn.right).toBeCloseTo(gear.left - assist.right, 0);
+    expect(assist.top + assist.height / 2).toBeCloseTo(conn.top + conn.height / 2, 0);
+  });
+
   it("phone: the pip follows the assistant's status", async () => {
     await page.viewport(390, 844);
     document.body.style.width = "390px";

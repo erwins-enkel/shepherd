@@ -401,11 +401,12 @@
   .gear-pip[data-tier="info"] {
     background: var(--color-blue);
   }
-  /* Mobile: finger-sized tap targets (≥44px). */
+  /* Mobile: finger-sized tap target (≥44px), no side padding so it's the same 44px cell as the
+     conn dot + Assist beside it. */
   .gear.mobile {
     min-height: 44px;
     min-width: 44px;
-    padding: 0 11px;
+    padding: 0;
     font-size: var(--fs-xl);
   }
 

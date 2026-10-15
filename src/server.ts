@@ -121,6 +121,12 @@ import {
 } from "./remote-instances/identity";
 import { type Capability, describeMissing } from "./remote-instances/capabilities";
 import {
+  HOUSE_STACK_SETTING,
+  HouseStackResolver,
+  parseHouseStack,
+  storedHouseStack,
+} from "./house-stack";
+import {
   type MachineView,
   type Placement,
   type PlacementDecision,
@@ -718,6 +724,8 @@ export interface AppDeps {
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
   verifyKey?: () => Promise<VerifyKeyResult>;
+  /** House Stack version resolver (#3108); defaults to the process-wide registry-backed one. */
+  houseStackResolver?: Pick<HouseStackResolver, "resolve">;
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
   /** Read a repo's committed `.shepherd/roles.json` (#2299). Seam over `readRepoRoles` so the
@@ -7645,6 +7653,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       envTokenActive: config.token !== null,
       // The platform order the machine choice ranks fitting machines by (#2772); Linux first.
       machinePlatformOrder: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
+      // the operator's House Stack (#3108); the default list when unset.
+      houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
       reducedPushMode: config.reducedPushMode,
       // What the Operator Assistant may do (Settings → Assistant).
       assistantPermissions: config.assistantPermissions,
@@ -7847,7 +7857,30 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
   ["machinePlatformOrder", putMachinePlatformOrder],
+  ["houseStack", putHouseStack],
 ];
+
+/** The operator's House Stack (#3108): packages whose current stable versions a bootstrap pins. */
+function putHouseStack(value: unknown, deps: Ctx["deps"]): Response {
+  const parsed = parseHouseStack(value);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  deps.store.setSetting(HOUSE_STACK_SETTING, JSON.stringify(parsed.value));
+  return json({ houseStack: parsed.value });
+}
+
+// One process-wide resolver so its registry cache is shared across requests.
+const defaultHouseStackResolver = new HouseStackResolver();
+
+// ── House Stack: resolve the current setting against the registries (#3108) ──
+// GET /api/house-stack/resolve → 200 {ok:true,…versions} | 502 {ok:false,errors} (never partial).
+async function handleHouseStackResolve({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "house-stack" && parts[2] === "resolve" && !parts[3]))
+    return null;
+  if (req.method !== "GET") return null;
+  const stack = storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING));
+  const resolved = await (deps.houseStackResolver ?? defaultHouseStackResolver).resolve(stack);
+  return json(resolved, resolved.ok ? 200 : 502);
+}
 
 /** The platform order of the machine choice (#2772): this instance's own. A task lands on the same
  *  machine wherever it is submitted only while every connected Shepherd uses the same order. */
@@ -11036,6 +11069,7 @@ const ROUTE_HANDLERS = [
   handleGitCredentials,
   handleSettingsVerifyKey,
   handleSettings,
+  handleHouseStackResolve,
   handleSteers,
   handleProjectIcons,
   handleBroadcast,

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { putSettings } from "#lib/api.js";
   import DirPicker from "#lib/components/DirPicker.svelte";
-  import { type DirListing } from "#lib/types.js";
+  import { type DirListing, type Settings } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import HighlightText from "./HighlightText.svelte";
+  import SettingsHouseStackBlock from "./SettingsHouseStackBlock.svelte";
 
   let {
     repoRoot,
@@ -12,6 +13,7 @@
     onsaved,
     onclose,
     query = "",
+    payload = null,
   }: {
     // resolved by the parent's single getSettings() call (no second fetch here):
     // repoRoot drives the initial browse, repoRootDisplay is the current-root label.
@@ -23,6 +25,8 @@
     onclose?: () => void;
     /** Active settings-search query — highlights the panel's indexed labels. */
     query?: string;
+    /** The parent's single getSettings() payload; seeds the House Stack block. */
+    payload?: Settings | null;
   } = $props();
 
   // the persisted root (display form), authoritative from the parent
@@ -77,6 +81,8 @@
   {/if}
 </button>
 
+<div class="stack"><SettingsHouseStackBlock {payload} {query} /></div>
+
 <style>
   .micro {
     font-size: var(--fs-meta);
@@ -114,6 +120,9 @@
     font-size: var(--fs-meta);
     cursor: pointer;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
+  }
+  .stack {
+    margin-top: 12px;
   }
   .run:disabled {
     opacity: 0.5;

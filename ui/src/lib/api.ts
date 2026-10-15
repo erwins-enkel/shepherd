@@ -26,6 +26,8 @@ import type {
   PrStatus,
   MergeMethod,
   Settings,
+  HouseStack,
+  HouseStackResolution,
   DirListing,
   ScratchListing,
   UpdateStatus,
@@ -1026,6 +1028,17 @@ export async function deriveRequirements(
 export const putMachinePlatformOrder = (
   order: string[],
 ): Promise<{ machinePlatformOrder: string[] }> => patchSettings({ machinePlatformOrder: order });
+
+/** The operator's House Stack (#3108); the server validates and normalizes it. */
+export const putHouseStack = (houseStack: HouseStack): Promise<{ houseStack: HouseStack }> =>
+  patchSettings({ houseStack });
+
+/** Resolve the saved House Stack against the registries. A 502 carries per-package errors. */
+export async function resolveHouseStack(): Promise<HouseStackResolution> {
+  const r = await fetch("/api/house-stack/resolve");
+  if (r.ok || r.status === 502) return r.json();
+  throw await failed(r, "resolve house stack");
+}
 
 /** A refused connection keeps the server's machine codes so the form can say what to fix. */
 export type ConnectMachineResult =

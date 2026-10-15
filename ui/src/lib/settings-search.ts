@@ -246,6 +246,7 @@ export function sectionSearchRows(ctx: {
       [m.settings_tab_workspace()],
       [m.settings_current_root_label()],
       [m.settings_use_folder()],
+      [m.settings_house_stack_title(), m.settings_house_stack_hint()],
     ],
     codingAgents: [[m.settings_tab_coding_agents()], ...cli.defaults, ...cli.engines, ...cli.roles],
     steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],

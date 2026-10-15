@@ -139,11 +139,13 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // Autopilot then gained 128 chars for rebase-before-every-push (stale pushes burned CI + review).
   // Every shape then gained 552 chars / 558 bytes for the GitHub rate-limit notice (#2860: agents
   // followed Claude Code's `gh api rate_limit` reminder, which misreports on this account).
+  // Every shape then gained 209 chars / 211 bytes when the research-first notice stopped letting
+  // framework majors pass as "well-established" (#3108).
   const baseline: [string, number, string][] = [
-    ["attended Claude, no house rules", 3357, "3399"],
-    ["+ autopilot", 4443, "4489"],
-    ["plan-gate interactive", 8660, "8746"],
-    ["research", 4166, "4212"],
+    ["attended Claude, no house rules", 3566, "3610"],
+    ["+ autopilot", 4652, "4700"],
+    ["plan-gate interactive", 8869, "8957"],
+    ["research", 4375, "4423"],
   ];
   const payloads = [
     composeSystemPrompt(null, false),
@@ -189,8 +191,9 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
   // so the notice has to say which skills are gone rather than "all of them"); 13,600 before #2003
   // replaced the build-queue curl tutorial with the queue_write / queue_step tools (10,577), and
   // before #2002 moved the situational blocks behind the guard + skills (3,813); +657 for the
-  // steer-provenance notice; +552 for the GitHub rate-limit notice (#2860).
-  expect(measured.totalChars).toBe(5022);
+  // steer-provenance notice; +552 for the GitHub rate-limit notice (#2860); +209 for the
+  // research-first notice's framework-major clause (#3108).
+  expect(measured.totalChars).toBe(5231);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(houseRules, false, {
       buildQueue,

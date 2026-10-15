@@ -51,7 +51,7 @@ export async function forgeReadiness(
     autoLabel,
     checks: forgeChecks(settings, {
       mergeMethod: forge.mergeMethod,
-      derivedChecks: deriveRequiredChecks(workflows),
+      derivedChecks: deriveRequiredChecks(workflows, settings.defaultBranch),
     }),
   };
 }

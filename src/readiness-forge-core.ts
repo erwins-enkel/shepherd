@@ -40,28 +40,61 @@ export function isForgeCheckId(v: unknown): v is ForgeCheckId {
 
 const PR_EVENTS = new Set(["pull_request", "pull_request_target"]);
 
-/** Filters that make a PR workflow skip some PRs; a check it reports would then stay Pending
+/** Path filters make a PR workflow skip some PRs; a check it reports would then stay Pending
  *  forever on those PRs once required. */
-const PR_FILTERS = ["paths", "paths-ignore", "branches", "branches-ignore"];
+const PATH_FILTERS = ["paths", "paths-ignore"];
 
-/** True when a PR-event config (`pull_request:` value) runs on every PR push: no path/branch
- *  filter, and `types` (if set) covers both `opened` and `synchronize`. */
-function runsOnEveryPr(cfg: unknown): boolean {
+/** GitHub branch-filter glob → RegExp: `**` any, `*` any but `/`, `?` one char. */
+function globRe(pattern: string): RegExp {
+  const re = pattern
+    .split(/(\*\*|\*|\?)/)
+    .map((t) =>
+      t === "**"
+        ? ".*"
+        : t === "*"
+          ? "[^/]*"
+          : t === "?"
+            ? "."
+            : t.replace(/[.+^${}()|[\]\\]/g, "\\$&"),
+    )
+    .join("");
+  return new RegExp(`^${re}$`);
+}
+
+/** Whether a `branches` list (later `!pattern` entries negate) matches `branch`. */
+function branchListMatches(list: unknown, branch: string): boolean {
+  const items = Array.isArray(list) ? list : [list];
+  let hit = false;
+  for (const p of items) {
+    if (typeof p !== "string") continue;
+    const neg = p.startsWith("!");
+    if (globRe(neg ? p.slice(1) : p).test(branch)) hit = !neg;
+  }
+  return hit;
+}
+
+/** True when a PR-event config (`pull_request:` value) runs on every PR into `branch`: no path
+ *  filter, a branch filter that admits `branch`, and `types` (if set) covering both `opened`
+ *  and `synchronize`. The ruleset only gates PRs into the default branch, so that's the base
+ *  the filter is matched against. */
+function runsOnEveryPr(cfg: unknown, branch: string): boolean {
   if (cfg === null || cfg === undefined) return true;
   if (typeof cfg !== "object" || Array.isArray(cfg)) return false;
   const c = cfg as Record<string, unknown>;
-  if (PR_FILTERS.some((k) => k in c)) return false;
+  if (PATH_FILTERS.some((k) => k in c)) return false;
+  if ("branches" in c && !branchListMatches(c.branches, branch)) return false;
+  if ("branches-ignore" in c && branchListMatches(c["branches-ignore"], branch)) return false;
   if (c.types === undefined) return true;
   const types = Array.isArray(c.types) ? c.types : [c.types];
   return types.includes("opened") && types.includes("synchronize");
 }
 
-/** True when a workflow's `on:` (string / list / map) runs on every pull request. */
-function triggersOnEveryPr(on: unknown): boolean {
+/** True when a workflow's `on:` (string / list / map) runs on every pull request into `branch`. */
+function triggersOnEveryPr(on: unknown, branch: string): boolean {
   if (typeof on === "string") return PR_EVENTS.has(on);
   if (Array.isArray(on)) return on.some((e) => typeof e === "string" && PR_EVENTS.has(e));
   if (on && typeof on === "object")
-    return Object.entries(on).some(([e, cfg]) => PR_EVENTS.has(e) && runsOnEveryPr(cfg));
+    return Object.entries(on).some(([e, cfg]) => PR_EVENTS.has(e) && runsOnEveryPr(cfg, branch));
   return false;
 }
 
@@ -77,8 +110,9 @@ function jobContext(id: string, job: unknown): string | null {
 }
 
 /** Required-check contexts derived from the repo's workflow files: every predictable job of a
- *  workflow that runs on every pull request (filtered PR triggers are skipped). Deduped, sorted; unparseable files are skipped. */
-export function deriveRequiredChecks(workflowTexts: string[]): string[] {
+ *  workflow that runs on every pull request into `defaultBranch` (path-filtered, branch-excluded
+ *  or type-restricted PR triggers are skipped). Deduped, sorted; unparseable files are skipped. */
+export function deriveRequiredChecks(workflowTexts: string[], defaultBranch: string): string[] {
   const out = new Set<string>();
   for (const text of workflowTexts) {
     let doc: unknown;
@@ -89,7 +123,8 @@ export function deriveRequiredChecks(workflowTexts: string[]): string[] {
     }
     if (!doc || typeof doc !== "object") continue;
     const wf = doc as { on?: unknown; jobs?: unknown };
-    if (!triggersOnEveryPr(wf.on) || !wf.jobs || typeof wf.jobs !== "object") continue;
+    if (!triggersOnEveryPr(wf.on, defaultBranch) || !wf.jobs || typeof wf.jobs !== "object")
+      continue;
     for (const [id, job] of Object.entries(wf.jobs)) {
       const ctx = jobContext(id, job);
       if (ctx) out.add(ctx);

@@ -36,7 +36,7 @@ jobs:
 `;
     const deploy = "on:\n  push:\n    branches: [main]\njobs:\n  deploy: {runs-on: x}\n";
     const target = "on:\n  pull_request_target: {}\njobs:\n  label: {}\n";
-    expect(deriveRequiredChecks([ci, deploy, target, ": : not yaml ["])).toEqual([
+    expect(deriveRequiredChecks([ci, deploy, target, ": : not yaml ["], "main")).toEqual([
       "Unit tests",
       "label",
       "lint",
@@ -48,25 +48,36 @@ jobs:
     for (const filter of [
       "    paths: [native/**]\n",
       "    paths-ignore: [docs/**]\n",
-      "    branches: [main]\n",
-      "    branches-ignore: [release]\n",
+      "    branches: [release]\n",
+      "    branches-ignore: [main]\n",
+      "    branches-ignore: ['**']\n",
+      "    branches: ['**', '!main']\n",
       "    types: [labeled]\n",
       "    types: [opened]\n",
     ])
-      expect(deriveRequiredChecks([wf(filter)])).toEqual([]);
-    expect(deriveRequiredChecks([wf("    types: [opened, synchronize, reopened]\n")])).toEqual([
-      "ci",
-    ]);
-    expect(deriveRequiredChecks([wf("")])).toEqual(["ci"]);
+      expect(deriveRequiredChecks([wf(filter)], "main")).toEqual([]);
+    expect(
+      deriveRequiredChecks([wf("    types: [opened, synchronize, reopened]\n")], "main"),
+    ).toEqual(["ci"]);
+    expect(deriveRequiredChecks([wf("")], "main")).toEqual(["ci"]);
+    // Branch filters are matched against the default branch (the only base the ruleset gates).
+    for (const kept of [
+      "    branches: [main]\n",
+      '    branches: [main, "epic/**"]\n',
+      "    branches: ['ma*']\n",
+      "    branches-ignore: [release]\n",
+      "    branches-ignore: ['release/*']\n",
+    ])
+      expect(deriveRequiredChecks([wf(kept)], "main")).toEqual(["ci"]);
     // One unfiltered PR event is enough.
     const mixed =
       "on:\n  pull_request: {paths: [a/**]}\n  pull_request_target: {}\njobs:\n  ci: {}\n";
-    expect(deriveRequiredChecks([mixed])).toEqual(["ci"]);
+    expect(deriveRequiredChecks([mixed], "main")).toEqual(["ci"]);
   });
 
   test("string trigger and dedupe", () => {
     const a = "on: pull_request\njobs:\n  lint: {}\n";
-    expect(deriveRequiredChecks([a, a])).toEqual(["lint"]);
+    expect(deriveRequiredChecks([a, a], "main")).toEqual(["lint"]);
   });
 });
 

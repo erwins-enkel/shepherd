@@ -2,7 +2,9 @@ import { describe, expect, it } from "bun:test";
 import type { GitForge } from "../src/forge/types";
 import type { EpicDraftContent } from "../src/types";
 import {
+  findPinnedVersion,
   materializeEpicDraft,
+  pinnedVersionError,
   renderParentBody,
   topoSortChildren,
   validateEpicDraft,
@@ -243,5 +245,54 @@ describe("materializeEpicDraft", () => {
     expect(r.childNumbers.c1).toBe(100); // carried from alreadyCreated, not re-created
     expect(r.childNumbers.c2).toBe(200); // created this attempt
     expect(r.parentNumber).toBe(201);
+  });
+});
+
+// ── no versions in acceptance criteria (#3111) ───────────────────────────────
+
+describe("findPinnedVersion", () => {
+  it.each([
+    ["Scaffold uses SvelteKit 2", "SvelteKit 2"],
+    ["installs svelte@5", "svelte@5"],
+    ["styles via Tailwind 4.1", "Tailwind 4.1"],
+    ["runs on Node.js 22", "Node.js 22"],
+    ["bumped to 3.0.1", "3.0.1"],
+    ["API v2 answers", "v2"],
+    ["Python 3.12 supported", "Python 3.12"],
+    ["React 18.x renders", "React 18.x"],
+  ])("flags %j", (text, token) => {
+    expect(findPinnedVersion(text)).toBe(token);
+  });
+
+  it.each([
+    "200 ok",
+    "shows 3 items",
+    "Stage 4 done",
+    "99.9% uptime",
+    "p95 < 1.5s",
+    "the pinned stack in CLAUDE.md builds",
+    "Next 3 items load",
+  ])("passes %j", (text) => {
+    expect(findPinnedVersion(text)).toBeNull();
+  });
+});
+
+describe("pinnedVersionError", () => {
+  it("is null for a clean draft", () => {
+    expect(pinnedVersionError(content())).toBeNull();
+  });
+
+  it("names the parent", () => {
+    const c = content();
+    c.parent.acceptanceCriteria = ["builds on SvelteKit 2"];
+    expect(pinnedVersionError(c)).toContain("parent acceptance criterion");
+  });
+
+  it("names the child and points at CLAUDE.md", () => {
+    const c = content();
+    c.children[1]!.acceptanceCriteria = ["uses svelte@5"];
+    const err = pinnedVersionError(c);
+    expect(err).toContain('child "c2"');
+    expect(err).toContain("the pinned stack in CLAUDE.md");
   });
 });

@@ -60,6 +60,34 @@ test("manual session (no issue): archives, no close, no retain", async () => {
   expect((d.retainClaim as any).mock.calls.length).toBe(0);
 });
 
+test("onMerged fires once with the session, before archive (#3133)", async () => {
+  const order: string[] = [];
+  const onMerged = mock<(s: unknown) => void>(() => void order.push("onMerged"));
+  const d = deps({ onMerged, archive: mock(async () => (order.push("archive"), 1)) });
+  const s = { id: "s1", auto: true, issueNumber: 9, repoPath: "/r" } as any;
+  await settleMergedSession(s, d);
+  expect(onMerged.mock.calls).toEqual([[s]]);
+  expect(order).toEqual(["onMerged", "archive"]);
+});
+
+test("onMerged also fires for an integrated epic child (#3133)", async () => {
+  const onMerged = mock<(s: unknown) => void>(() => {});
+  const d = deps({ onMerged, isIntegratedEpicChild: () => true });
+  await settleMergedSession({ id: "s1", auto: true, issueNumber: 12, repoPath: "/r" } as any, d);
+  expect(onMerged.mock.calls.length).toBe(1);
+});
+
+test("a throwing onMerged never blocks teardown (#3133)", async () => {
+  const d = deps({
+    onMerged: () => {
+      throw new Error("boom");
+    },
+  });
+  await settleMergedSession({ id: "s1", auto: false, issueNumber: null, repoPath: "/r" } as any, d);
+  expect((d.archive as any).mock.calls).toEqual([["s1", "merged"]]);
+  expect((d.emitArchived as any).mock.calls).toEqual([["s1"]]);
+});
+
 // ── recordEpicIntegrationIfChild (#1401) ─────────────────────────────────────
 
 const PINNED = "epic/7-thing";

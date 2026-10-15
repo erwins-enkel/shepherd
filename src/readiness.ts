@@ -7,13 +7,15 @@
 // it never executes the target repo's code.
 //
 // Scope: two ecosystem profiles, selected per repo. `js-ts` — the JS/TS baseline we
-// dogfood (a package.json at the root or exactly one directory level down gates
-// applicability). `rust` — Cargo crates (a Cargo.toml at the root or one level down),
+// dogfood (a package.json at the root or one directory level down gates
+// applicability; two levels down as a fallback). `rust` — Cargo crates (same depth rule),
 // whose rustfmt/clippy live as rustup components rather than manifest deps, so its
 // detection also scans a bounded command corpus (hooks/CI/Makefile/justfile). js-ts is
 // tried first, so a mixed repo (both manifests) resolves to js-ts and every currently
-// applicable repo scores exactly as before. Deeper layouts (`apps/web/package.json`,
-// `crates/foo/Cargo.toml`) are not detected. A repo with neither manifest is N/A.
+// applicable repo scores exactly as before. Second-level layouts (`apps/web/package.json`,
+// `crates/foo/Cargo.toml`) are searched only when NEITHER ecosystem has a manifest at the root or
+// first level (#3107), so the deeper search never changes a repo's profile. A repo with neither
+// manifest is N/A here; the greenfield profile (`greenfield-core.ts`) covers it.
 
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join } from "node:path";
@@ -52,7 +54,7 @@ export interface GuardrailCheck {
 }
 
 export interface ReadinessReport {
-  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml at the root or one level down) — baseline N/A. */
+  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml within two levels) — baseline N/A. */
   applicable: boolean;
   /** The matched ecosystem, or `null` on the not-applicable path (a defined value, never undefined). */
   ecosystem: Ecosystem | null;
@@ -96,10 +98,11 @@ interface GuardrailDef<Ctx> {
  * scoring math are shared, so each ecosystem owns its own context shape (JS deps/scripts,
  * Rust command corpus) with no union.
  */
-interface EcosystemProfile<Ctx> {
+interface EcosystemProfile<Ctx extends FileScan> {
   id: Ecosystem;
-  /** Package/crate roots relative to `dir`; `[]` when the repo isn't this ecosystem. */
-  detectRoots: (dir: string) => string[];
+  /** Package/crate roots relative to `dir`; `[]` when the repo isn't this ecosystem. `deep`
+   *  searches ONLY the second level (#3107) — callers try it after every profile missed shallow. */
+  detectRoots: (dir: string, deep: boolean) => string[];
   buildContext: (dir: string, roots: string[]) => Ctx;
   guardrails: GuardrailDef<Ctx>[];
   stackLabel: (ctx: Ctx) => string;
@@ -109,6 +112,9 @@ interface EcosystemProfile<Ctx> {
   prescriptionNote: (ctx: Ctx, id: GuardrailId) => string[];
   /** Extra section appended after the adopt-list (JS: the .prettierignore note; Rust: none). */
   trailingNote: (ctx: Ctx) => string;
+  /** Toolchain pins the repo commits (JS: packageManager/engines; Rust: rust-toolchain) — read by
+   *  the greenfield profile (#3107), not scored here. */
+  toolchainPins: (ctx: Ctx) => string[];
 }
 
 // ── Language-agnostic detectors (shared verbatim by both profiles) ───────────────
@@ -175,6 +181,8 @@ interface RepoScan extends FileScan {
   scripts: Record<string, string>;
   /** Detected package manager — drives the install verbs in the prescription. */
   pm: PackageManager;
+  /** Manifest toolchain pins found (`packageManager`, `engines`). */
+  pins: string[];
 }
 
 const dep = (s: RepoScan, name: string) => s.deps.has(name);
@@ -334,13 +342,13 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
  * first-level subdirectories with one (mixed-stack repos whose JS/TS lives in
  * a subproject, e.g. `ui/` next to Python). Empty → not a JS/TS repo.
  *
- * Known limits, accepted to keep the scan cheap: detection descends exactly
- * one level (`apps/web/package.json` is missed), and a root manifest
+ * Known limits, accepted to keep the scan cheap: detection descends at most
+ * two levels (the second only when the first has none), and a root manifest
  * short-circuits the subproject scan — a workspaces-only root whose tooling
  * lives in subpackages is scored from the root manifest alone.
  */
-function findPackageRoots(dir: string): string[] {
-  return findManifestRoots(dir, "package.json", (n) => n !== "node_modules");
+function findPackageRoots(dir: string, deep: boolean): string[] {
+  return findManifestRoots(dir, "package.json", (n) => n !== "node_modules", deep);
 }
 
 /**
@@ -367,13 +375,14 @@ function collectManifest(
   file: string,
   deps: Set<string>,
   scripts: Record<string, string>,
-  meta: { packageManager?: string },
+  meta: { packageManager?: string; engines?: boolean },
 ) {
   let pkg: {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
     scripts?: Record<string, string>;
     packageManager?: string;
+    engines?: Record<string, string>;
   } = {};
   try {
     pkg = JSON.parse(readFileSync(file, "utf8"));
@@ -385,17 +394,29 @@ function collectManifest(
   for (const d of Object.keys(pkg.devDependencies ?? {})) deps.add(d);
   for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) scripts[name] ??= cmd;
   meta.packageManager ??= pkg.packageManager;
+  if (pkg.engines && Object.keys(pkg.engines).length) meta.engines = true;
 }
 
 function buildJsContext(dir: string, pkgRoots: string[]): RepoScan {
   const deps = new Set<string>();
   const scripts: Record<string, string> = {};
-  const meta: { packageManager?: string } = {};
+  const meta: { packageManager?: string; engines?: boolean } = {};
   for (const root of pkgRoots)
     collectManifest(join(dir, root, "package.json"), deps, scripts, meta);
 
   const { has, glob } = rootAwareProbes(dir, pkgRoots);
-  return { dir, deps, scripts, has, glob, pm: pickPackageManager(meta.packageManager, has) };
+  const pins: string[] = [];
+  if (meta.packageManager) pins.push("packageManager");
+  if (meta.engines) pins.push("engines");
+  return {
+    dir,
+    deps,
+    scripts,
+    has,
+    glob,
+    pm: pickPackageManager(meta.packageManager, has),
+    pins,
+  };
 }
 
 const jsProfile: EcosystemProfile<RepoScan> = {
@@ -418,6 +439,7 @@ Prettier, add \`${SHEPHERD_IGNORE_GLOB}\` to your \`.prettierignore\` (run
 \`echo '${SHEPHERD_IGNORE_GLOB}' >> .prettierignore\`), or it will reformat Shepherd's
 artifacts. \`.gitignore\` alone is not reliable here.
 `,
+  toolchainPins: (s) => s.pins,
 };
 
 // ══ Rust profile ═══════════════════════════════════════════════════════════════
@@ -438,8 +460,8 @@ interface RustScan extends FileScan {
   devDeps: Set<string>;
 }
 
-function findCargoRoots(dir: string): string[] {
-  return findManifestRoots(dir, "Cargo.toml", (n) => n !== "target");
+function findCargoRoots(dir: string, deep: boolean): string[] {
+  return findManifestRoots(dir, "Cargo.toml", (n) => n !== "target", deep);
 }
 
 /** Loose parse of a Cargo.toml `[dev-dependencies]` table — dep names only. */
@@ -606,6 +628,8 @@ const rustProfile: EcosystemProfile<RustScan> = {
   prescriptionNote: (_s, id) => RUST_PRESCRIPTION_NOTE[id as RustGuardrailId]?.() ?? [],
   // rustfmt only formats .rs files in the crate, so Shepherd's scratch files are never touched — no note needed.
   trailingNote: () => "",
+  toolchainPins: (s) =>
+    ["rust-toolchain.toml", "rust-toolchain"].filter((f) => s.has(f)).slice(0, 1),
 };
 
 // ══ Shared detection / scoring plumbing ════════════════════════════════════════════
@@ -619,17 +643,8 @@ function safeReaddir(dir: string): string[] {
   }
 }
 
-/**
- * Manifest roots relative to `dir`: `""` when the root has `manifest`, else first-level
- * subdirectories with one. `keep` excludes ecosystem-specific noise dirs (node_modules, target);
- * hidden dirs are always excluded. Mirrors the one-level-deep, root-short-circuit contract.
- */
-function findManifestRoots(
-  dir: string,
-  manifest: string,
-  keep: (name: string) => boolean,
-): string[] {
-  if (existsSync(join(dir, manifest))) return [""];
+/** First-level, non-hidden subdirectory names of `dir` that pass `keep`; [] when unreadable. */
+function childDirs(dir: string, keep: (name: string) => boolean): string[] {
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -638,8 +653,31 @@ function findManifestRoots(
   }
   return entries
     .filter((e) => e.isDirectory() && !e.name.startsWith(".") && keep(e.name))
-    .map((e) => e.name)
-    .filter((n) => existsSync(join(dir, n, manifest)))
+    .map((e) => e.name);
+}
+
+/**
+ * Manifest roots relative to `dir`. Shallow: `""` when the root has `manifest`, else first-level
+ * subdirectories with one. `deep` (#3107): second-level ones only (`apps/web`) — the caller runs
+ * it only after EVERY profile missed shallow, so a repo matched at the root or one level down by
+ * any ecosystem keeps exactly the profile and roots it always had (a root Cargo.toml beside
+ * `editors/code/package.json` stays rust). `keep` excludes ecosystem-specific noise dirs
+ * (node_modules, target); hidden dirs are always excluded.
+ */
+function findManifestRoots(
+  dir: string,
+  manifest: string,
+  keep: (name: string) => boolean,
+  deep: boolean,
+): string[] {
+  const level1 = childDirs(dir, keep);
+  if (!deep) {
+    if (existsSync(join(dir, manifest))) return [""];
+    return level1.filter((n) => existsSync(join(dir, n, manifest))).sort();
+  }
+  return level1
+    .flatMap((n) => childDirs(join(dir, n), keep).map((c) => `${n}/${c}`))
+    .filter((rel) => existsSync(join(dir, rel, manifest)))
     .sort();
 }
 
@@ -663,18 +701,26 @@ function rootAwareProbes(
   return { roots, has, glob };
 }
 
-/** Runs one profile against `dir`, or null when the repo isn't that ecosystem. */
-function runProfile<Ctx>(profile: EcosystemProfile<Ctx>, dir: string): ReadinessReport | null {
-  const roots = profile.detectRoots(dir);
-  if (roots.length === 0) return null;
-  const ctx = profile.buildContext(dir, roots);
-
-  const checks: GuardrailCheck[] = profile.guardrails
+/** Runs a guardrail list against a scan context; conditional guardrails that don't apply drop out. */
+function runGuardrails<Ctx>(guardrails: GuardrailDef<Ctx>[], ctx: Ctx): GuardrailCheck[] {
+  return guardrails
     .filter((g) => g.applies?.(ctx) ?? true)
     .map((g) => {
       const evidence = g.detect(ctx);
       return { id: g.id, present: evidence.length > 0, weight: g.weight, evidence };
     });
+}
+
+/** Runs one profile against `dir`, or null when the repo isn't that ecosystem. */
+function runProfile<Ctx extends FileScan>(
+  profile: EcosystemProfile<Ctx>,
+  dir: string,
+  deep: boolean,
+): ReadinessReport | null {
+  const roots = profile.detectRoots(dir, deep);
+  if (roots.length === 0) return null;
+  const ctx = profile.buildContext(dir, roots);
+  const checks = runGuardrails(profile.guardrails, ctx);
 
   // Score derived from the checks array — never a hardcoded denominator.
   const total = checks.reduce((s, c) => s + c.weight, 0);
@@ -695,6 +741,18 @@ function runProfile<Ctx>(profile: EcosystemProfile<Ctx>, dir: string): Readiness
   };
 }
 
+/** Profile precedence: every profile shallow (js-ts first), then every profile deep. */
+function firstProfile<T>(
+  dir: string,
+  run: <Ctx extends FileScan>(p: EcosystemProfile<Ctx>, dir: string, deep: boolean) => T | null,
+): T | null {
+  for (const deep of [false, true]) {
+    const hit = run(jsProfile, dir, deep) ?? run(rustProfile, dir, deep);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /**
  * Selects the ecosystem profile for `dir` (js-ts first, so a mixed repo resolves to js-ts
  * and every currently-applicable repo is unchanged) and produces its scorecard, or a
@@ -702,8 +760,7 @@ function runProfile<Ctx>(profile: EcosystemProfile<Ctx>, dir: string): Readiness
  */
 export function analyzeReadiness(dir: string): ReadinessReport {
   return (
-    runProfile(jsProfile, dir) ??
-    runProfile(rustProfile, dir) ?? {
+    firstProfile(dir, runProfile) ?? {
       applicable: false,
       ecosystem: null,
       score: 0,
@@ -712,6 +769,51 @@ export function analyzeReadiness(dir: string): ReadinessReport {
       hasIssueTemplates: false,
       claudeMd: "",
       issueTemplate: "",
+    }
+  );
+}
+
+/** The stack-agnostic guardrails (repo/forge configuration), scored without any manifest. */
+const AGNOSTIC_GUARDRAILS: GuardrailDef<FileScan>[] = [
+  { id: "agent_instructions", weight: 8, detect: detectAgentInstructions },
+  { id: "ci", weight: 6, detect: detectCi },
+  { id: "dependency_automation", weight: 5, detect: detectDependencyAutomation },
+  { id: "issue_templates", weight: 4, detect: detectIssueTemplates },
+];
+
+/** What the greenfield profile (#3107) reads from the ecosystem scan. */
+export interface EcosystemScan {
+  /** The matched ecosystem (js-ts first, as in {@link analyzeReadiness}), or null without a manifest. */
+  ecosystem: Ecosystem | null;
+  /** The profile's guardrail checks; without a manifest only the stack-agnostic ones. */
+  checks: GuardrailCheck[];
+  /** Committed toolchain pins (`packageManager`, `engines`, `rust-toolchain.toml`). */
+  toolchainPins: string[];
+}
+
+function scanProfile<Ctx extends FileScan>(
+  profile: EcosystemProfile<Ctx>,
+  dir: string,
+  deep: boolean,
+): EcosystemScan | null {
+  const roots = profile.detectRoots(dir, deep);
+  if (roots.length === 0) return null;
+  const ctx = profile.buildContext(dir, roots);
+  return {
+    ecosystem: profile.id,
+    checks: runGuardrails(profile.guardrails, ctx),
+    toolchainPins: profile.toolchainPins(ctx),
+  };
+}
+
+/** The ecosystem scan behind the greenfield profile — same detection as {@link analyzeReadiness},
+ *  plus the stack-agnostic checks for a repo without a manifest. Never executes repo code. */
+export function scanEcosystem(dir: string): EcosystemScan {
+  return (
+    firstProfile(dir, scanProfile) ?? {
+      ecosystem: null,
+      checks: runGuardrails(AGNOSTIC_GUARDRAILS, rootAwareProbes(dir, [""])),
+      toolchainPins: [],
     }
   );
 }
@@ -736,7 +838,7 @@ export function analyzeReadiness(dir: string): ReadinessReport {
  * (e.g. a "prettier + lint-staged" churn line) can leak into another stack's artifact.
  * Returned verbatim — it's a generated artifact for the *target* repo, exempt from i18n.
  */
-function generateClaudeMd<Ctx>(
+function generateClaudeMd<Ctx extends FileScan>(
   profile: EcosystemProfile<Ctx>,
   ctx: Ctx,
   checks: GuardrailCheck[],

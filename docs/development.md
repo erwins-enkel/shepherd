@@ -82,6 +82,8 @@ as per-repo automation:
 
 - **Readiness** — Shepherd scores a JS/TS repo's guardrails (typecheck, lint, tests, CI, house
   rules) before you point agents at it, and prescribes the gaps as setup tasks you seed with a click.
+  A repo with no manifest yet gets a greenfield bootstrap checklist instead; its must-haves are the
+  exit gate of project-bootstrap mode.
 - **Plan gate** — before an autonomous run, the agent writes a plan and a separate read-only
   reviewer grills it adversarially; only a plan that survives review is released to implement.
 - **Critic** — the moment a PR's CI goes green, an isolated read-only agent reviews the full diff

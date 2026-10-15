@@ -172,6 +172,7 @@ function makeHarness(
     listSubIssuesImpl?: (parentNumber: number) => Promise<SubIssueRef[]>;
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
     repos?: () => string[];
+    bootstrapMustHaves?: (repoPath: string) => string[];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -300,6 +301,7 @@ function makeHarness(
 
   const drain = new DrainService({
     capacity: opts.capacity,
+    bootstrapMustHaves: opts.bootstrapMustHaves,
     store,
     service,
     resolveForge: () => forge,
@@ -369,6 +371,22 @@ test("#3105: an actively-bootstrapping repo spawns nothing and reports bootstrap
   h.store.setRepoBootstrapOverride(REPO, true);
   await h.drain.pump(REPO);
   expect(h.creates).toHaveLength(1);
+});
+
+test("#3107: an active repo's red must-haves hold the drain after the phases", async () => {
+  const asked: string[] = [];
+  const h = makeHarness({
+    issues: [issue(1)],
+    bootstrapMustHaves: (r) => (asked.push(r), ["ci_on_main"]),
+  });
+  await h.drain.pump(REPO);
+  expect(asked).toEqual([]); // not bootstrapping → never scanned
+  h.store.setRepoBootstrap(REPO, { state: "active", phase: 5 });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(1); // the first pump spawned; this one held
+  expect(h.statuses.at(-1)?.reason).toBe("bootstrap_incomplete");
+  expect(h.statuses.at(-1)?.detail).toBe("ci_on_main");
+  expect(asked).toContain(REPO);
 });
 
 test("ChatGPT auth clamps a blocked Codex global default before drain create", async () => {

@@ -41,7 +41,6 @@ import {
   BOOTSTRAP_LAST_PHASE,
   bootstrapExitReached,
   bootstrapMissing,
-  bootstrapMustHavesMissing,
   hasProjectManifest,
   isBootstrapPhase,
 } from "./bootstrap";
@@ -211,6 +210,7 @@ import {
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { applyForgeCheck, ForgeCheckNotApplicableError, forgeReadiness } from "./readiness-forge";
+import type { GreenfieldService } from "./greenfield";
 import { isForgeCheckId } from "./readiness-forge-core";
 import { composeTaskBrief } from "./intent-shape";
 import { normalizeRound } from "./task-shape";
@@ -811,6 +811,8 @@ export interface AppDeps {
   gitignoreAdopter?: {
     adopt: (repoPath: string) => Promise<import("./gitignore-adopt").AdoptResult>;
   };
+  /** Readiness greenfield profile + bootstrap must-haves (#3107); absent → no must-haves gate. */
+  greenfield?: Pick<GreenfieldService, "refresh" | "mustHavesMissing">;
   /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
   drain?: {
     snapshot(): Promise<DrainStatus[]>;
@@ -2691,10 +2693,15 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
 // `done` is never set directly: only the exit predicate (P1–P4 complete + must-haves green) gets
 // there. Every mutation kicks the drain so the bootstrap_incomplete hold appears/clears at once.
 
-async function repoBootstrapView(store: AppDeps["store"], dir: string) {
-  const b = store.getRepoBootstrap(dir);
+/** The red must-haves of `dir` (#3107) — none when the greenfield service isn't wired. */
+function bootstrapMustHaves(deps: AppDeps, dir: string): string[] {
+  return deps.greenfield?.mustHavesMissing(dir) ?? [];
+}
+
+async function repoBootstrapView(deps: AppDeps, dir: string) {
+  const b = deps.store.getRepoBootstrap(dir);
   // `missing` ignores the override: the operator still sees what the override is skipping.
-  const missing = bootstrapMissing({ ...b, overrideAt: null }, bootstrapMustHavesMissing()) ?? [];
+  const missing = bootstrapMissing({ ...b, overrideAt: null }, bootstrapMustHaves(deps, dir)) ?? [];
   const suggested = b.state === "off" && !(await hasProjectManifest(dir));
   return { ...b, missing, suggested };
 }
@@ -2712,10 +2719,11 @@ function parseRepoBootstrapPut(
 }
 
 function applyRepoBootstrapPut(
-  store: AppDeps["store"],
+  deps: AppDeps,
   dir: string,
   patch: { state?: "off" | "active"; phase?: number },
 ): string | null {
+  const { store } = deps;
   const cur = store.getRepoBootstrap(dir);
   if (patch.state === "off") {
     store.setRepoBootstrap(dir, { state: "off", phase: 1 });
@@ -2726,8 +2734,10 @@ function applyRepoBootstrapPut(
   if (!entering && cur.state !== "active") return "repo is not bootstrapping";
   const phase = patch.phase ?? (entering ? 1 : cur.phase);
   store.setRepoBootstrap(dir, { state: "active", phase });
+  // #3107: entering active scans the greenfield profile at once (its exit check runs on landing).
+  if (entering) void deps.greenfield?.refresh(dir).catch(() => {});
   const next = store.getRepoBootstrap(dir);
-  if (bootstrapExitReached(next, bootstrapMustHavesMissing()))
+  if (bootstrapExitReached(next, bootstrapMustHaves(deps, dir)))
     store.setRepoBootstrap(dir, { state: "done", phase: BOOTSTRAP_LAST_PHASE });
   return null;
 }
@@ -2739,7 +2749,7 @@ async function handleRepoBootstrap({ req, parts, url, deps }: Ctx): Promise<Resp
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const route = `${req.method} ${leaf}`;
-  if (route === "GET ") return json(await repoBootstrapView(deps.store, dir));
+  if (route === "GET ") return json(await repoBootstrapView(deps, dir));
   if (route !== "PUT " && route !== "POST override") return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
@@ -2748,13 +2758,13 @@ async function handleRepoBootstrap({ req, parts, url, deps }: Ctx): Promise<Resp
     route === "PUT " ? putRepoBootstrap(deps, dir, body) : overrideRepoBootstrap(deps, dir, body);
   if (err) return err;
   if (deps.drain) kickDrain(deps.drain, "bootstrap");
-  return json(await repoBootstrapView(deps.store, dir));
+  return json(await repoBootstrapView(deps, dir));
 }
 
 function putRepoBootstrap(deps: AppDeps, dir: string, body: unknown): Response | null {
   const patch = parseRepoBootstrapPut(body);
   if (typeof patch === "string") return json({ error: patch }, 400);
-  const conflict = applyRepoBootstrapPut(deps.store, dir, patch);
+  const conflict = applyRepoBootstrapPut(deps, dir, patch);
   return conflict ? json({ error: conflict }, 409) : null;
 }
 
@@ -2763,7 +2773,7 @@ function overrideRepoBootstrap(deps: AppDeps, dir: string, body: unknown): Respo
   if (typeof on !== "boolean") return json({ error: "on must be a boolean" }, 400);
   const missing = bootstrapMissing(
     { ...deps.store.getRepoBootstrap(dir), overrideAt: null },
-    bootstrapMustHavesMissing(),
+    bootstrapMustHaves(deps, dir),
   );
   if (!deps.store.setRepoBootstrapOverride(dir, on))
     return json({ error: "repo is not bootstrapping" }, 409);
@@ -7520,6 +7530,7 @@ async function createProjectFromRequest(
   req: Request,
   store: AppDeps["store"],
   ghRunner?: GhRunner,
+  greenfield?: AppDeps["greenfield"],
 ): Promise<Response> {
   const b = firstRunBlock();
   if (b) return b;
@@ -7534,7 +7545,10 @@ async function createProjectFromRequest(
   // scaffold exists. Keyed by the same resolved dir the drain and repo-config use. The local repo
   // exists even when the remote step only warned.
   const dir = safeRepoDir(r.entry.path, config.repoRoot);
-  if (dir) store.setRepoBootstrap(dir, { state: "active", phase: 1 });
+  if (dir) {
+    store.setRepoBootstrap(dir, { state: "active", phase: 1 });
+    void greenfield?.refresh(dir).catch(() => {});
+  }
   return json(r.warning ? { ...r.entry, warning: r.warning } : r.entry, 201);
 }
 
@@ -7592,7 +7606,7 @@ async function handleRepos({ req, parts, deps, token }: Ctx): Promise<Response |
 async function handleProjects({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "projects" && !parts[2]) {
     if (req.method === "POST")
-      return createProjectFromRequest(req, deps.store, deps.newProjectGhRunner);
+      return createProjectFromRequest(req, deps.store, deps.newProjectGhRunner, deps.greenfield);
   }
   return null;
 }
@@ -9574,6 +9588,22 @@ async function handleReadiness({ req, parts, url }: Ctx): Promise<Response | nul
   return json(analyzeReadiness(dir));
 }
 
+// Readiness → greenfield profile (#3107). GET /api/readiness/greenfield?repo= re-scans now (tab open)
+// and returns the checklist; 503 when the service isn't wired.
+async function handleReadinessGreenfield({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "readiness") return null;
+  if (parts[2] !== "greenfield" || parts[3]) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!deps.greenfield) return json({ error: "greenfield unavailable" }, 503);
+  try {
+    return json(await deps.greenfield.refresh(dir));
+  } catch (e) {
+    console.error("[greenfield] scan failed:", e);
+    return json({ error: "scan_failed" }, 500);
+  }
+}
+
 // Readiness → Forge settings (#3106). GET /api/readiness/forge?repo= lists the host-setting checks;
 // POST /api/readiness/forge/apply?repo= {check} fixes one through the forge API and re-checks.
 async function handleReadinessForge({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -11165,6 +11195,7 @@ const ROUTE_HANDLERS = [
   handleShape,
   handleShapeBrief,
   handleReadiness,
+  handleReadinessGreenfield,
   handleReadinessForge,
   handleAdoptGitignore,
   handleBacklog,

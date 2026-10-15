@@ -27,15 +27,10 @@ export function isBootstrapPhase(n: unknown): n is number {
   return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= BOOTSTRAP_LAST_PHASE;
 }
 
-/**
- * The must-haves still red for this repo. PLACEHOLDER: the real list (pinned stack, scaffold
- * builds, CI on main, hooks/pre-push, fallow, forge settings) comes from the greenfield readiness
- * profile — TODO(#3107), which adds the repo argument. Until then nothing is reported missing,
- * so the exit hinges on P1–P4.
- */
-export function bootstrapMustHavesMissing(): string[] {
-  return [];
-}
+/** The must-have placeholder while a repo's greenfield readiness (#3107) has not been scanned yet:
+ *  the gate fails closed until the first scan lands. The red must-haves themselves come from
+ *  `GreenfieldService.mustHavesMissing` (src/greenfield.ts). */
+export const READINESS_PENDING = "readiness_pending";
 
 /**
  * What still holds the drain: `null` when the repo is not gating (off, done, or overridden),

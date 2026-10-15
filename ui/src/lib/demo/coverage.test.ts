@@ -224,6 +224,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/actions/run-jobs", `/api/actions/run-jobs?repo=${r}&runId=77061`),
   get("/api/readiness", `/api/readiness?repo=${r}`),
   get("/api/readiness/forge", `/api/readiness/forge?repo=${r}`),
+  get("/api/readiness/greenfield", `/api/readiness/greenfield?repo=${r}`),
   get("/api/repo-web", `/api/repo-web?repo=${r}`),
   get("/api/repo-roles", `/api/repo-roles?repo=${r}`),
   get("/api/repo-collaborators", `/api/repo-collaborators?repo=${r}`),

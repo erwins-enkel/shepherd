@@ -11,10 +11,10 @@
  * free, everything else denied" cannot be expressed. The four levels are every combination that can.
  */
 
-export const ASSISTANT_SHELL_LEVELS = ["off", "ask", "read", "all"] as const;
+const ASSISTANT_SHELL_LEVELS = ["off", "ask", "read", "all"] as const;
 export type AssistantShellLevel = (typeof ASSISTANT_SHELL_LEVELS)[number];
 
-export const ASSISTANT_ACTION_LEVELS = ["off", "ask", "allow"] as const;
+const ASSISTANT_ACTION_LEVELS = ["off", "ask", "allow"] as const;
 export type AssistantActionLevel = (typeof ASSISTANT_ACTION_LEVELS)[number];
 
 /** The assistant's read tools (src/operator-assistant-tools.ts), always allowed. Named here rather
@@ -43,9 +43,7 @@ export const ASSISTANT_ACTION_GROUPS = {
 } as const;
 
 export type AssistantActionGroup = keyof typeof ASSISTANT_ACTION_GROUPS;
-export const ASSISTANT_ACTION_GROUP_NAMES = Object.keys(
-  ASSISTANT_ACTION_GROUPS,
-) as AssistantActionGroup[];
+const ASSISTANT_ACTION_GROUP_NAMES = Object.keys(ASSISTANT_ACTION_GROUPS) as AssistantActionGroup[];
 export type AssistantActionTool = (typeof ASSISTANT_ACTION_GROUPS)[AssistantActionGroup][number];
 
 export type AssistantPermissions = { shell: AssistantShellLevel } & Record<

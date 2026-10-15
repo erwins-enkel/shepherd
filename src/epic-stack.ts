@@ -62,6 +62,36 @@ export function epicChildBaseOk(i: EpicChildBaseInput): boolean {
   return i.actualBase === i.sessionBase;
 }
 
+/** What to do about a stacked child whose base may have died under it (#3102).
+ *
+ *  A child spawned on its predecessor's head while that PR was open can open its OWN PR only after
+ *  the predecessor already squash-merged into the epic branch. Its base is then dead: composition
+ *  refuses to seed a stack on it (the bottom must target the pinned branch) and the retire gate
+ *  refuses it forever, leaving an out-of-band merge into the dead branch as the only exit.
+ *
+ *  - `retarget`: the PR still targets the dead branch — point it at the pinned branch, then adopt.
+ *  - `adopt`: the PR already targets the pinned branch (an operator re-targeted it) — only flip
+ *    the session's base so the plain retire rule applies.
+ *  - `none`: anything else. In particular a predecessor that is NOT integrated stays untouched —
+ *    re-targeting then would land the predecessor's ungated commits on the epic branch. */
+export type DeadStackBaseAction = "retarget" | "adopt" | "none";
+
+export function deadStackBaseAction(i: {
+  /** The child session's spawn base (`Session.baseBranch`). */
+  sessionBase: string;
+  pinnedBranch: string | null;
+  /** True when the session whose head IS `sessionBase` is an integrated child of this epic. */
+  predecessorIntegrated: boolean;
+  /** The child PR's live base, or null when it has no PR / the base is unknown. */
+  prBase: string | null;
+}): DeadStackBaseAction {
+  if (!i.pinnedBranch || !i.predecessorIntegrated || i.prBase == null) return "none";
+  if (!isStackedBase(i.sessionBase, i.pinnedBranch)) return "none";
+  if (i.prBase === i.sessionBase) return "retarget";
+  if (i.prBase === i.pinnedBranch) return "adopt";
+  return "none";
+}
+
 /** What the drain knows about a potential stack predecessor: the head branch a successor would be
  *  based on, and whether its PR is actually open (the earliest point at which that branch is
  *  definitely pushed and the head ref is authoritative). */
@@ -239,8 +269,8 @@ export interface StackWedge {
  *    i.e. whose live session was spawned on a SIBLING's head branch. That includes the layers
  *    BELOW the hole, which were perfectly fine while the stack existed: `unstack` dissolves the
  *    whole thing (GitHub has no drop-one), and `epicChildBaseOk` then refuses them for the same
- *    reason it refuses the ones above, since `Session.baseBranch` is never updated after create. It
- *    also includes the lost child itself when its re-spawned session landed on a sibling head.
+ *    reason it refuses the ones above, since `Session.baseBranch` is not updated after create
+ *    (#3102's dead-base re-target aside). It also includes the lost child itself when its re-spawned session landed on a sibling head.
  *
  *  Layers spawned on the epic branch (the stack's bottom) are NOT victims: their PR still targets
  *  the epic branch, so they retire normally once the stack is gone. */

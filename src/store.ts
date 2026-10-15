@@ -4128,6 +4128,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** Re-point a session's spawn base (#3102). The ONE sanctioned write after create: a stacked
+   *  epic child whose predecessor already landed, once its PR has been re-targeted onto the epic's
+   *  integration branch. Every other base-reading rule keeps treating the column as fixed. */
+  setSessionBaseBranch(id: string, baseBranch: string): void {
+    this.db.run(`UPDATE sessions SET baseBranch=?, updatedAt=? WHERE id=?`, [
+      baseBranch,
+      Date.now(),
+      id,
+    ]);
+  }
+
   /** Patch a session's applied sandbox state (set at spawn by the sandbox wrapper).
    *  Only the provided keys are written. */
   setSandboxState(

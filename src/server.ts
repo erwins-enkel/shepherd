@@ -316,6 +316,7 @@ import { attemptsOf } from "./forge/gh-attempt";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
+import { deadBaseSession } from "./dead-base";
 import { type PrCache, gitStateChanged, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
@@ -6459,6 +6460,27 @@ function manualMergeFailure(err: unknown): Response | null {
   return null;
 }
 
+/** #3102: refuse a manual merge whose base branch already merged (a landed Shepherd session's
+ *  head) — the work would land in a branch nothing will ever merge again. Shared by both manual
+ *  endpoints; null ⇒ the base is alive. */
+function deadBaseRefusal(
+  repoPath: string,
+  base: string | null | undefined,
+  deps: AppDeps,
+): Response | null {
+  const dead = deadBaseSession(deps.store, repoPath, base);
+  if (!dead) return null;
+  return json(
+    {
+      error: `base \`${base}\` already merged into \`${dead.mergedInto}\` — re-target the PR onto \`${dead.mergedInto}\` first`,
+      code: "base_already_merged",
+      base,
+      mergedInto: dead.mergedInto,
+    },
+    409,
+  );
+}
+
 /** Why a merge/close found no open PR, as a stable `code`. A decommission retry reads it to tell
  *  "the step already took effect" (a merge that landed but answered an error) from "this PR can no
  *  longer land" — without it, the retry replays the merge into this 409 forever. */
@@ -6484,6 +6506,8 @@ async function forgeMerge(
   if (cur.state !== "open" || !cur.number) {
     return json({ error: "no open PR to merge", code: notOpenPrCode(cur.state) }, 409);
   }
+  const dead = deadBaseRefusal(session.repoPath, cur.baseRefName, deps);
+  if (dead) return dead;
   const confirm = parseMergeConfirm(body.confirm);
   const refusal = mergeGateRefusal(
     session.repoPath,
@@ -9344,13 +9368,16 @@ async function resolveBacklogMerge(
   const forge = deps.resolveForge?.(dir) ?? null;
   if (!forge) return { refusal: json({ error: "no forge for repo" }, 400) };
   const confirm = parseMergeConfirm(body.confirm);
+  // Same snapshot the PRs panel rendered the row from, so the operator's confirmation and this
+  // check see one view of the PR. A miss (the snapshot moved on, or the fetch failed) leaves
+  // every field unresolved, which fails closed rather than merging on no information.
+  const status: Partial<PrStatus> = (await manualMergePrStatus(forge, body.number, deps)) ?? {};
+  const dead = deadBaseRefusal(dir, status.baseRefName, deps);
+  if (dead) return { refusal: dead };
   const refusal = mergeGateRefusal(
     dir,
     (await forge.currentUser?.()) ?? null,
-    // Same snapshot the PRs panel rendered the row from, so the operator's confirmation and this
-    // check see one view of the PR. A miss (the snapshot moved on, or the fetch failed) leaves
-    // every field unresolved, which fails closed rather than merging on no information.
-    (await manualMergePrStatus(forge, body.number, deps)) ?? {},
+    status,
     confirm,
     deps,
   );

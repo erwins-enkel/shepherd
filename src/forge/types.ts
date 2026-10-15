@@ -870,6 +870,9 @@ export interface GitForge {
   /** Dissolve a stack, unlinking its UNMERGED pull requests (merged or merge-queued ones stay
    *  linked, host-side). Mutation — errors propagate. */
   unstack?(stackNumber: number): Promise<void>;
+  /** Re-point an open pull request at another base branch (#3102: a stacked child whose
+   *  predecessor already landed). Mutation — errors propagate. GitHub only. */
+  retargetPr?(prNumber: number, base: string): Promise<void>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

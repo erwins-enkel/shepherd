@@ -240,14 +240,15 @@ describe("event-time epic-integration recording", () => {
     expect(h.closeIssueCalls).toHaveLength(0); // close reserved for the landing PR merge
   });
 
-  test("merged into a non-pinned base → no row; auto settle closes the issue as before", async () => {
+  test("merged into a non-pinned base → no row; the epic child's issue stays OPEN (#3102)", async () => {
     const h = makeHarness({ subIssues: [sub(133, true), sub(134, false, true)] });
     const s = addSession(h, { branch: "shepherd/134-auto", auto: true, issueNumber: 134 });
 
     await h.drain.onGit(s.id, mergedGit({ baseRefName: "main" }));
 
     expect(h.store.isEpicIntegratedChild(REPO, 134)).toBe(false);
-    expect(h.closeIssueCalls).toEqual([134]); // normal non-epic-child settle
+    // Closing would count the child done and let the epic land without its work.
+    expect(h.closeIssueCalls).toHaveLength(0);
     expect(h.archiveCalls).toEqual([s.id]);
   });
 });

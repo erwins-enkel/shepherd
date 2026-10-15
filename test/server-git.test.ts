@@ -108,6 +108,8 @@ function makeDeps(
     /** Injected worktree-branch reconcile: `resolveGitState` calls it on a "none" result
      *  to adopt a renamed branch and retry. Absent (default) → reconcile is a no-op. */
     syncBranch?: (id: string) => string | null;
+    /** Every session the store knows (the #3102 dead-base guard scans them). */
+    sessions?: Session[];
   } = {},
 ): AppDeps & {
   emitted: { event: string; data: unknown }[];
@@ -124,6 +126,9 @@ function makeDeps(
         signoffAuthority: opts.signoffAuthority ?? "human",
       }) as any,
     getReview: () => null,
+    list: () => opts.sessions ?? [],
+    isEpicIntegratedChild: () => false,
+    getEpicIntegrationBranch: () => null,
   };
   const emitted: { event: string; data: unknown }[] = [];
   const cacheWrites: string[] = [];
@@ -343,6 +348,45 @@ test("POST git/merge → 409 when no open PR", async () => {
   const app = makeApp(makeDeps(f));
   const res = await app.fetch(post("/api/sessions/s1/git/merge", {}));
   expect(res.status).toBe(409);
+});
+
+test("POST git/merge into an already-merged session branch → 409 base_already_merged, no merge (#3102)", async () => {
+  const f = fakeForge({
+    prStatus: async () =>
+      ({
+        state: "open",
+        number: 5,
+        checks: "success",
+        baseRefName: "shepherd/landed",
+      }) as PrStatus,
+  });
+  const landed: Session = {
+    ...SESSION,
+    id: "s0",
+    branch: "shepherd/landed",
+    baseBranch: "epic/54-m0",
+    status: "archived",
+    archiveReason: "merged",
+  };
+  const app = makeApp(makeDeps(f, SESSION, { sessions: [landed, SESSION] }));
+  const res = await app.fetch(post("/api/sessions/s1/git/merge", {}));
+  expect(res.status).toBe(409);
+  const body = await res.json();
+  expect(body.code).toBe("base_already_merged");
+  expect(body.mergedInto).toBe("epic/54-m0");
+  expect(f.log.some((l) => l.startsWith("merge:"))).toBe(false);
+});
+
+test("POST git/merge into a LIVE session's branch is not refused", async () => {
+  const f = fakeForge({
+    prStatus: async () =>
+      ({ state: "open", number: 5, checks: "success", baseRefName: "shepherd/live" }) as PrStatus,
+  });
+  const live: Session = { ...SESSION, id: "s0", branch: "shepherd/live" };
+  const app = makeApp(makeDeps(f, SESSION, { sessions: [live, SESSION] }));
+  const res = await app.fetch(post("/api/sessions/s1/git/merge", {}));
+  expect(res.status).toBe(200);
+  expect(f.log).toContain("merge:5:squash:true");
 });
 
 // A decommission retry tells "the merge already landed" apart from "this PR can no longer land" by

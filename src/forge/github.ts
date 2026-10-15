@@ -2751,6 +2751,18 @@ export class GithubForge implements GitForge {
     ]).finally(() => this.invalidatePrs());
   }
 
+  /** Point an open pull request at a different base branch (#3102). Mutation — errors propagate. */
+  async retargetPr(prNumber: number, base: string): Promise<void> {
+    await this.run([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${this.slug}/pulls/${prNumber}`,
+      "-f",
+      `base=${base}`,
+    ]).finally(() => this.invalidatePrs());
+  }
+
   /** Stack membership, head SHA and the stack's trunk in one REST call, narrowed with `--jq` so
    *  the payload stays small. The trunk rides along for free: `.stack` is taken wholesale and
    *  GitHub puts `base: { ref, sha }` on it.

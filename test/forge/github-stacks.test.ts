@@ -177,3 +177,23 @@ test("Gitea and Local omit the stack surface, so callers branch on capability no
     expect(forge.unstack).toBeUndefined();
   }
 });
+
+test("retargetPr: PATCHes the pull request's base (#3102)", async () => {
+  const { forge, calls } = harness([]);
+
+  await forge.retargetPr(63, TRUNK);
+
+  expect(calls[0]).toEqual([
+    "api",
+    "--method",
+    "PATCH",
+    "repos/o/r/pulls/63",
+    "-f",
+    `base=${TRUNK}`,
+  ]);
+});
+
+test("retargetPr: a host rejection propagates", async () => {
+  const { forge } = harness([["pulls/63", boom]]);
+  await expect(forge.retargetPr(63, TRUNK)).rejects.toThrow("503");
+});

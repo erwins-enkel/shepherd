@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   bottomMostUnmergedPr,
   buildStackSpawnPlan,
+  deadStackBaseAction,
   detectStackWedge,
   epicChildBaseOk,
   hasLiveStackedSuccessor,
@@ -617,5 +618,35 @@ describe("wedgeCleared", () => {
         pinnedBranch: EPIC,
       }),
     ).toBe(false);
+  });
+});
+
+describe("deadStackBaseAction (#3102)", () => {
+  const PINNED = "epic/54-epic-m0-fundament";
+  const DEAD = "shepherd/m0-projektgeruest-60";
+  const base = { sessionBase: DEAD, pinnedBranch: PINNED, predecessorIntegrated: true };
+
+  test("PR still on the landed predecessor's branch → retarget", () => {
+    expect(deadStackBaseAction({ ...base, prBase: DEAD })).toBe("retarget");
+  });
+  test("PR already re-targeted onto the epic branch → adopt", () => {
+    expect(deadStackBaseAction({ ...base, prBase: PINNED })).toBe("adopt");
+  });
+  test("predecessor not integrated → none (would drag ungated commits)", () => {
+    expect(deadStackBaseAction({ ...base, predecessorIntegrated: false, prBase: DEAD })).toBe(
+      "none",
+    );
+  });
+  test("no PR yet → none", () => {
+    expect(deadStackBaseAction({ ...base, prBase: null })).toBe("none");
+  });
+  test("session already on the epic branch → none", () => {
+    expect(deadStackBaseAction({ ...base, sessionBase: PINNED, prBase: PINNED })).toBe("none");
+  });
+  test("PR on some third branch → none", () => {
+    expect(deadStackBaseAction({ ...base, prBase: "main" })).toBe("none");
+  });
+  test("unpinned epic → none", () => {
+    expect(deadStackBaseAction({ ...base, pinnedBranch: null, prBase: DEAD })).toBe("none");
   });
 });

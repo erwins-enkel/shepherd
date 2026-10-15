@@ -305,8 +305,9 @@ function lowestOf(lines: string[]): string {
 
 /** One row per declared tracked package. `latest` maps a {@link driftKey} to the registry
  *  version, or null when the lookup failed (→ `unknown`, never `behind`). A declaration is behind
- *  only when its range admits no version on the target line — a range like `^8 || ^9` or `>=5`
- *  already covers the current major, and narrowing it would drop support for the older one. */
+ *  only when its lowest line is below the target AND its range admits no version on the target
+ *  line — a range like `^8 || ^9` or `>=5` already covers the current major, and narrowing it
+ *  would drop support for the older one. */
 export function driftRows(
   packages: DeclaredPackage[],
   latest: Map<string, string | null>,
@@ -315,7 +316,11 @@ export function driftRows(
   return packages.map((p) => {
     const version = latest.get(driftKey(p.ecosystem, p.name)) ?? null;
     const target = version ? pinOf(version) : null;
-    const lagging = target ? p.declarations.filter((d) => !admitsLine(d.spec, target)) : [];
+    // Below the target AND not admitting it: a declaration ahead of stable (a prerelease major
+    // like `^3.0.0-next.4` while stable is 2.x) is never behind.
+    const lagging = target
+      ? p.declarations.filter((d) => compareLine(d.line, target) < 0 && !admitsLine(d.spec, target))
+      : [];
     const shown = lagging.length ? lagging : p.declarations;
     return {
       ecosystem: p.ecosystem,

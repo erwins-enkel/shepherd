@@ -218,6 +218,23 @@ describe("driftRows", () => {
     expect(resolverState(rows)).toBe("partial");
   });
 
+  test("a declaration ahead of stable (prerelease major) is not behind", () => {
+    const pkgs = trackedDeclared(
+      [
+        {
+          ecosystem: "npm",
+          name: "@sveltejs/kit",
+          line: lowestLine("^3.0.0-next.4")!,
+          spec: "^3.0.0-next.4",
+          manifest: "package.json",
+        },
+      ],
+      trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [] }),
+    );
+    const rows = driftRows(pkgs, new Map([["npm:@sveltejs/kit", "2.70.0"]]), new Map());
+    expect(rows[0]).toMatchObject({ state: "ok", installed: "3", target: "2" });
+  });
+
   test("a range already admitting the target line is not behind (peer || / open >=)", () => {
     const decl = (spec: string, line: string, manifest: string) => ({
       ecosystem: "npm" as const,

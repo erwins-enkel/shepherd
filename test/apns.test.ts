@@ -3,7 +3,7 @@ import { generateKeyPairSync, verify } from "node:crypto";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { makeApp, type AppDeps } from "../src/server";
-import { PushService, type NotifyInput } from "../src/push";
+import { PushService, attachBadgePush, type NotifyInput } from "../src/push";
 import {
   ApnsSender,
   apnsBody,
@@ -103,6 +103,57 @@ test("collapse ids are capped at 64 bytes without splitting a character", () => 
   const cut = collapseId("ä".repeat(40));
   expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(64);
   expect(cut).toBe("ä".repeat(32));
+});
+
+test("alert bodies carry an optional badge, including zero to clear it", () => {
+  for (const badge of [0, 3]) {
+    expect(JSON.parse(apnsBody({ ...payload(), badge })).aps.badge).toBe(badge);
+  }
+  expect(JSON.parse(apnsBody(payload())).aps).not.toHaveProperty("badge");
+});
+
+test("badge-only sends use alert type, low priority, one-hour expiry and shared authentication", async () => {
+  const { calls, transport } = recording();
+  const sender = new ApnsSender(cfg(), transport, () => 1_000);
+  await sender.send("sandbox", TOKEN, payload());
+  await sender.sendBadge("sandbox", TOKEN, 4);
+  await sender.sendBadge("production", TOKEN, 0);
+  const call = calls[1]!;
+  expect(JSON.parse(call.body)).toEqual({ aps: { badge: 4 } });
+  expect(call.headers).toMatchObject({
+    ":path": `/3/device/${TOKEN}`,
+    "apns-topic": "run.shepherd.ios",
+    "apns-push-type": "alert",
+    "apns-priority": "5",
+    "apns-expiration": "4600",
+    "apns-collapse-id": "shepherd-badge",
+  });
+  expect(call.headers.authorization).toBe(calls[0]!.headers.authorization);
+  expect(calls[2]!.origin).toBe("https://api.push.apple.com");
+  expect(JSON.parse(calls[2]!.body)).toEqual({ aps: { badge: 0 } });
+  expect(sender.lastDeliveredAt).toBe(1_000_000);
+});
+
+test("badge sends reuse disabled, failure and thrown-transport handling", async () => {
+  const { calls, transport } = recording({ status: 403, reason: "InvalidProviderToken" });
+  const sender = new ApnsSender(cfg(), transport, () => 1_000);
+  await sender.sendBadge("sandbox", TOKEN, 1);
+  expect(sender.lastError).toEqual({ status: 403, reason: "InvalidProviderToken", at: 1_000_000 });
+  await sender.sendBadge("sandbox", TOKEN, 2);
+  expect(calls[1]!.headers.authorization).not.toBe(calls[0]!.headers.authorization);
+  expect(await new ApnsSender(cfg(null), transport).sendBadge("sandbox", TOKEN, 0)).toEqual({
+    status: 0,
+    reason: "disabled",
+  });
+  const throwing = new ApnsSender(
+    cfg(),
+    async () => {
+      throw new Error("offline");
+    },
+    () => 1_000,
+  );
+  await expect(throwing.sendBadge("sandbox", TOKEN, 0)).rejects.toThrow("offline");
+  expect(throwing.lastError).toEqual({ status: 0, reason: "offline", at: 1_000_000 });
 });
 
 test("only gone or foreign tokens count as dead", () => {
@@ -206,10 +257,14 @@ test("iOS devices go through APNs in their own locale, browsers through Web Push
     "",
   );
   store.putPushSub({ endpoint: "https://push/web", keys: { p256dh: "p", auth: "a" } }, "");
+  push.setBadgeSource(() => 3);
   expect(await push.notify(done())).toBe(true);
   expect(webSends).toEqual(["https://push/web"]);
   expect(calls).toHaveLength(1);
   expect(JSON.parse(calls[0]!.body).aps.alert.title).toBe("naechster-schritt-tun — wartet");
+  expect(JSON.parse(calls[0]!.body).aps.badge).toBe(3);
+  await push.testSend(store.listPushSubs().find((s) => s.endpoint.startsWith("apns:"))!);
+  expect(JSON.parse(calls[1]!.body).aps.badge).toBe(3);
 });
 
 test("a dead iOS token is pruned; a transient APNs error keeps it", async () => {
@@ -244,7 +299,7 @@ function appWith(apns: ApnsSender | null) {
     usageLimits: { limits: () => ({}) } as any,
     push,
   };
-  return { app: makeApp(deps), store };
+  return { app: makeApp(deps), store, push, events: deps.events };
 }
 
 const register = (app: ReturnType<typeof makeApp>, body: unknown) =>
@@ -255,6 +310,39 @@ const register = (app: ReturnType<typeof makeApp>, body: unknown) =>
       body: JSON.stringify(body),
     }),
   );
+
+test("POST /api/push/apns resets the unchanged startup badge for the registered phone", async () => {
+  const { calls, transport } = recording();
+  const { app, push, events } = appWith(new ApnsSender(cfg(), transport));
+  let reads = 0;
+  const detach = attachBadgePush(
+    events,
+    {
+      list: () => {
+        reads++;
+        return [];
+      },
+    },
+    push,
+    10,
+  );
+  const until = async (condition: () => boolean) => {
+    const deadline = Date.now() + 2_000;
+    while (!condition()) {
+      if (Date.now() >= deadline) throw new Error("registration badge did not arrive");
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  };
+  try {
+    await until(() => reads === 1); // startup has no device yet
+    expect(calls).toHaveLength(0);
+    expect((await register(app, { token: TOKEN, environment: "sandbox" })).status).toBe(200);
+    await until(() => calls.length === 1);
+    expect(JSON.parse(calls[0]!.body)).toEqual({ aps: { badge: 0 } });
+  } finally {
+    detach();
+  }
+});
 
 test("POST /api/push/apns registers a device once and keeps its categories", async () => {
   const { app, store } = appWith(new ApnsSender(cfg(), recording().transport));

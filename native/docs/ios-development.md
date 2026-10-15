@@ -339,7 +339,7 @@ store (launch, login, profile switch). Debug builds register for the APNs sandbo
 `APS_ENVIRONMENT` in `project.yml`, so the App Store profile must include Push Notifications.
 
 The server stores the device as an ordinary push subscription with an `apns:<env>:<token>`
-endpoint, so every Web Push gate applies unchanged: nothing is sent while any client reports
+endpoint, so alert pushes follow the Web Push gates: nothing is sent while any client reports
 presence as active, repeats per session are collapsed for `SHEPHERD_PUSH_COOLDOWN_MS`, reduced
 push mode and the per-device categories apply, and the copy is the server's EN/DE text. A
 notification groups by session (`thread-id`), replaces an earlier one with the same tag
@@ -347,6 +347,12 @@ notification groups by session (`thread-id`), replaces an earlier one with the s
 the device registers again on its next launch. In this interim transport title and body pass
 through Apple in plain text; the relay adds end-to-end encryption. Isolated launches never prompt
 or register.
+
+The app-icon badge counts non-archived sessions with status `blocked` or `idle`; `running` and
+`done` do not count. The server sends badge-only updates without alert or sound when the count
+changes, bypassing alert gates, and includes the current count on every iOS alert push.
+With several servers connected, each push knows only that server's count; the app corrects the
+sum when opened and writes it again when entering the background.
 
 ## Task composer and dictation
 

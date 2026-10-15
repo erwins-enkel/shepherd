@@ -9,6 +9,12 @@ import { blockReasonToHoldCode, renderHold } from "./hold";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isDeadToken, parseApnsEndpoint, type ApnsSender } from "./apns";
 import { instanceId } from "./remote-instances/identity";
+import type { Session } from "./types";
+
+/** Sessions parked for the operator's next command or blocked on their reaction. */
+export function awaitingOperatorCount(sessions: readonly Pick<Session, "status">[]): number {
+  return sessions.filter((s) => s.status === "blocked" || s.status === "idle").length;
+}
 
 export interface PushPayload {
   title: string;
@@ -41,6 +47,7 @@ export interface PushPayload {
    *  session, a connected machine's for one relayed from it (#3058). The app opens the session in
    *  that server's connection. */
   instanceId: string;
+  badge?: number;
 }
 
 /** User-facing notification categories — coarser than the internal kinds. */
@@ -562,6 +569,8 @@ export class PushService {
   private pub: string;
   /** Last *successful-send* timestamp per cooldown key, for cooldown debouncing. */
   private lastNotified = new Map<string, number>();
+  private badgeSource: (() => number) | null = null;
+  private badgeRegistration: (() => void) | null = null;
 
   constructor(
     private store: SessionStore,
@@ -571,7 +580,8 @@ export class PushService {
     /** True while a window is actively in use; such pushes are suppressed. */
     private isActive: () => boolean = () => false,
     /** Delivers to native iOS devices (`apns:` endpoints); null leaves them unreachable. */
-    private apns: Pick<ApnsSender, "enabled" | "send"> | null = null,
+    private apns:
+      (Pick<ApnsSender, "enabled" | "send"> & Partial<Pick<ApnsSender, "sendBadge">>) | null = null,
   ) {
     let pub = config.vapidPublic ?? store.getSetting("vapidPublic");
     let priv = config.vapidPrivate ?? store.getSetting("vapidPrivate");
@@ -609,6 +619,28 @@ export class PushService {
 
   subscribe(sub: PushSubInput, ua: string): void {
     this.store.putPushSub(sub, ua);
+    if (parseApnsEndpoint(sub.endpoint)) this.badgeRegistration?.();
+  }
+
+  setBadgeSource(source: () => number): void {
+    this.badgeSource = source;
+  }
+
+  /** Re-registering a phone also repairs a badge changed by another connected server. */
+  onBadgeRegistration(handler: (() => void) | null): void {
+    this.badgeRegistration = handler;
+  }
+
+  /** Badge state bypasses every alert gate and never arms the alert cooldown. */
+  async sendBadge(count: number): Promise<void> {
+    if (!this.apns?.enabled || !this.apns.sendBadge) return;
+    for (const row of this.store.listPushSubs()) {
+      const target = parseApnsEndpoint(row.endpoint);
+      if (!target) continue;
+      await this.sendApns(row, () =>
+        this.apns!.sendBadge!(target.environment, target.token, count),
+      );
+    }
   }
 
   unsubscribe(endpoint: string): void {
@@ -680,12 +712,17 @@ export class PushService {
     input: NotifyInput,
   ): Promise<boolean> {
     if (!this.apns?.enabled) return false;
+    const payload = buildPayload(input, row.locale);
+    if (this.badgeSource) payload.badge = this.badgeSource();
+    return this.sendApns(row, () => this.apns!.send(target.environment, target.token, payload));
+  }
+
+  private async sendApns(
+    row: StoredPushSub,
+    send: () => ReturnType<ApnsSender["send"]>,
+  ): Promise<boolean> {
     try {
-      const result = await this.apns.send(
-        target.environment,
-        target.token,
-        buildPayload(input, row.locale),
-      );
+      const result = await send();
       if (result.status === 200) return true;
       if (isDeadToken(result)) this.store.deletePushSub(row.endpoint);
       else console.warn(`[push] APNs ${result.status} ${result.reason ?? ""} for an iOS device`);
@@ -712,6 +749,7 @@ export class PushService {
     const apnsTarget = parseApnsEndpoint(row.endpoint);
     if (apnsTarget) {
       if (!this.apns?.enabled) return { delivered: false, status: null, reason: "not_configured" };
+      if (this.badgeSource) payload.badge = this.badgeSource();
       try {
         const r = await this.apns.send(apnsTarget.environment, apnsTarget.token, payload);
         return { delivered: r.status === 200, status: r.status, reason: r.reason ?? null };
@@ -746,6 +784,53 @@ export class PushService {
       console.warn(`[push] send failed for ${endpoint}:`, code ?? err);
     }
   }
+}
+
+/** Re-read the store after a quiet window; even delayed status events carry no stale state here. */
+export function attachBadgePush(
+  events: EventHub,
+  store: Pick<SessionStore, "list">,
+  push: PushService,
+  debounceMs = 1_500,
+): () => void {
+  const source = () => awaitingOperatorCount(store.list({ activeOnly: true }));
+  push.setBadgeSource(source);
+  let lastSent: number | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pending = Promise.resolve();
+  let disposed = false;
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      // Serialize batches so a slow delivery cannot put an older count behind a newer one.
+      pending = pending.then(async () => {
+        if (disposed) return;
+        const count = source();
+        if (count === lastSent) return;
+        lastSent = count;
+        await push.sendBadge(count);
+      });
+    }, debounceMs);
+    timer.unref();
+  };
+  push.onBadgeRegistration(() => {
+    lastSent = null;
+    schedule();
+  });
+  const unsubscribe = events.subscribe((event) => {
+    // Create and unarchive both emit session:new; removal emits session:archived.
+    if (["session:status", "session:block", "session:archived", "session:new"].includes(event)) {
+      schedule();
+    }
+  });
+  schedule();
+  return () => {
+    disposed = true;
+    if (timer) clearTimeout(timer);
+    unsubscribe();
+    push.onBadgeRegistration(null);
+  };
 }
 
 /** Push when the critic posts a verdict (changes-requested or comment) — an attention signal. */

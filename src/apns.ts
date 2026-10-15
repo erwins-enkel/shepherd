@@ -4,6 +4,7 @@
 // `apns:<environment>:<device token>`, so the existing gates (presence, cooldown, reduced mode,
 // per-device categories, locale) apply unchanged and only delivery differs. The relay that
 // replaces this transport will hand out its own endpoints; nothing above `deliver` changes.
+// Badge-only state updates bypass those alert gates.
 
 import http2 from "node:http2";
 import { createPrivateKey, sign, type KeyObject } from "node:crypto";
@@ -60,6 +61,7 @@ export function apnsBody(payload: PushPayload): string {
       sound: "default",
       // Group per session; host-global alerts (empty sessionId) share one thread.
       "thread-id": payload.sessionId || "host",
+      ...(typeof payload.badge === "number" ? { badge: payload.badge } : {}),
     },
     sessionId: payload.sessionId,
     kind: payload.kind,
@@ -186,6 +188,29 @@ export class ApnsSender {
     token: string,
     payload: PushPayload,
   ): Promise<ApnsResult> {
+    return this.sendBody(environment, token, apnsBody(payload), 10, 24 * 60 * 60, payload.tag);
+  }
+
+  /** Badge-only updates conserve power and replace any older queued count. */
+  async sendBadge(environment: ApnsEnvironment, token: string, count: number): Promise<ApnsResult> {
+    return this.sendBody(
+      environment,
+      token,
+      JSON.stringify({ aps: { badge: count } }),
+      5,
+      60 * 60,
+      "shepherd-badge",
+    );
+  }
+
+  private async sendBody(
+    environment: ApnsEnvironment,
+    token: string,
+    body: string,
+    priority: number,
+    lifetimeSeconds: number,
+    tag: string,
+  ): Promise<ApnsResult> {
     if (!this.key || !this.cfg.keyId || !this.cfg.teamId) return { status: 0, reason: "disabled" };
     const now = this.nowSeconds();
     if (!this.jwt || now - this.jwt.issuedAt >= TOKEN_LIFETIME_S) {
@@ -197,14 +222,13 @@ export class ApnsSender {
       authorization: `bearer ${this.jwt.value}`,
       "apns-topic": this.cfg.topic,
       "apns-push-type": "alert",
-      "apns-priority": "10",
-      // Keep trying for a day while the phone is offline; a stale alert after that is noise.
-      "apns-expiration": String(now + 24 * 60 * 60),
+      "apns-priority": String(priority),
+      "apns-expiration": String(now + lifetimeSeconds),
     };
-    if (payload.tag) headers["apns-collapse-id"] = collapseId(payload.tag);
+    if (tag) headers["apns-collapse-id"] = collapseId(tag);
     let result: ApnsResult;
     try {
-      result = await this.transport(HOSTS[environment], headers, apnsBody(payload));
+      result = await this.transport(HOSTS[environment], headers, body);
     } catch (err) {
       this.lastError = { status: 0, reason: (err as Error)?.message ?? null, at: now * 1000 };
       throw err;

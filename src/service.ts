@@ -12,7 +12,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { claudeTranscriptExists } from "./usage";
-import { bootstrapDirective } from "./bootstrap-directive";
+import { bootstrapDirective, bootstrapP3Directive } from "./bootstrap-directive";
+import { bootstrapSessionPhase } from "./bootstrap";
 import {
   HOUSE_STACK_SETTING,
   type HouseStackResolver,
@@ -3495,6 +3496,7 @@ export class SessionService {
       | "plain"
       | "bootstrap"
       | "bootstrapStack"
+      | "bootstrapPhase"
     >,
     ctx: {
       sessionId: string;
@@ -3536,13 +3538,19 @@ export class SessionService {
         })
       : null;
     // Bootstrap directive (#3109): the pins resolved at spawn ride the create input; a resume (input
-    // is the stored row) reads the same persisted resolution back.
-    const bootstrap = input.bootstrap
-      ? bootstrapDirective({
-          stack: input.bootstrapStack ?? this.deps.store.getBootstrapStack(sessionId),
-          agentProvider: ctx.agentProvider,
-        })
+    // is the stored row) reads the same persisted resolution back. A P3 session (#3110) runs the gap
+    // sweep instead, whose pins already live in the project's CLAUDE.md.
+    const bootstrapPhase = input.bootstrap
+      ? (input.bootstrapPhase ?? this.deps.store.getBootstrapPhase(sessionId))
       : null;
+    const bootstrap = !input.bootstrap
+      ? null
+      : bootstrapPhase === 3
+        ? bootstrapP3Directive({ agentProvider: ctx.agentProvider })
+        : bootstrapDirective({
+            stack: input.bootstrapStack ?? this.deps.store.getBootstrapStack(sessionId),
+            agentProvider: ctx.agentProvider,
+          });
     return composeSystemPromptBlocks(ctx.houseRules, autopilotActive, {
       research: input.research,
       epicAuthoring,
@@ -4354,19 +4362,24 @@ export class SessionService {
   }
 
   /**
-   * A bootstrap create (#3109) resolves the operator's House Stack BEFORE anything is created, so
-   * an unresolvable package refuses the start with nothing to roll back — no pin is ever guessed.
-   * Every other input passes through untouched. Re-resolved on each create (relaunch included);
-   * the registry cache keeps that cheap.
+   * A bootstrap create picks its phase from the repo's bootstrap state (#3110): P3 (the gap sweep)
+   * once the repo reached it, else P1+P2. A P1+P2 create (#3109) resolves the operator's House
+   * Stack BEFORE anything is created, so an unresolvable package refuses the start with nothing to
+   * roll back — no pin is ever guessed. P3 needs no resolution. Every other input passes through
+   * untouched. Re-picked on each create (relaunch included); the registry cache keeps that cheap.
    */
   private async withBootstrapStack(input: StandardCreateInput): Promise<StandardCreateInput> {
-    if (!input.bootstrap || input.bootstrapStack) return input;
+    if (!input.bootstrap) return input;
+    const phase =
+      input.bootstrapPhase ??
+      bootstrapSessionPhase(this.deps.store.getRepoBootstrap(input.repoPath));
+    if (phase === 3 || input.bootstrapStack) return { ...input, bootstrapPhase: phase };
     const stack = storedHouseStack(this.deps.store.getSetting(HOUSE_STACK_SETTING));
     const resolved = await (this.deps.houseStackResolver ?? sharedHouseStackResolver).resolve(
       stack,
     );
     if (!resolved.ok) throw new HouseStackUnresolvedError(resolved.errors);
-    return { ...input, bootstrapStack: resolved };
+    return { ...input, bootstrapPhase: phase, bootstrapStack: resolved };
   }
 
   /** The pre-de-dupe session name: the namer's slug, with the issue number folded in when the
@@ -4481,6 +4494,7 @@ export class SessionService {
         landingRepair: spawnInput.landingRepair ?? false,
         plain: spawnInput.plain ?? false,
         bootstrapStack: spawnInput.bootstrapStack,
+        bootstrapPhase: spawnInput.bootstrapPhase,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
         launchMetadata: this.buildLaunchMetadata({
           input,
@@ -5052,6 +5066,7 @@ export class SessionService {
       // The replacement keeps the pins this session was bootstrapped with (#3109).
       bootstrap: s.bootstrap,
       bootstrapStack: this.deps.store.getBootstrapStack(s.id) ?? undefined,
+      bootstrapPhase: this.deps.store.getBootstrapPhase(s.id) ?? undefined,
       auto: false,
       // #2225: replace REUSES this session's row, so its amendments (and the rows its critic
       // reads) are already in place — but the fresh agent has never seen them. Fold the same

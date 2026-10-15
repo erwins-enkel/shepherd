@@ -85,7 +85,10 @@ as per-repo automation:
   A repo with no manifest yet gets a greenfield bootstrap checklist instead; its must-haves are the
   exit gate of project-bootstrap mode. A **Bootstrap** task (New Task → Bootstrap) builds that
   scaffold: one attended session pins the House Stack versions resolved from the registries, asks
-  the scaffold-shaping decisions, and lands framework, guardrails and CI as one PR to `main`.
+  the scaffold-shaping decisions, and lands framework, guardrails and CI as one PR to `main`. Once
+  that PR merges, the next Bootstrap task runs P3: it sweeps the PRD against `docs/design`, asks the
+  open product decisions as one numbered list and lands them, with the M0 candidates for the
+  backlog, as one docs-only PR. Each merged bootstrap PR moves the repo's phase on.
 - **Plan gate** — before an autonomous run, the agent writes a plan and a separate read-only
   reviewer grills it adversarially; only a plan that survives review is released to implement.
 - **Critic** — the moment a PR's CI goes green, an isolated read-only agent reviews the full diff

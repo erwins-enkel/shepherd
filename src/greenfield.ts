@@ -9,7 +9,13 @@
  */
 import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { BOOTSTRAP_LAST_PHASE, READINESS_PENDING, bootstrapExitReached } from "./bootstrap";
+import {
+  BOOTSTRAP_LAST_PHASE,
+  READINESS_PENDING,
+  type BootstrapSessionPhase,
+  bootstrapExitReached,
+  phaseAfterBootstrapMerge,
+} from "./bootstrap";
 import type { GitForge, ForgeRun } from "./forge/types";
 import { buildGreenfieldReport, type GreenfieldReport } from "./greenfield-core";
 import { fastForwardDefaultBranch, resolveDefaultBranch } from "./pull";
@@ -134,9 +140,17 @@ export class GreenfieldService {
     return hit ? [...hit.mustHavesMissing] : [READINESS_PENDING];
   }
 
-  /** A PR merged in `dir`: in an active bootstrap, pull what landed and re-scan. */
-  async onMerged(dir: string): Promise<void> {
-    if (this.deps.store.getRepoBootstrap(dir).state !== "active") return;
+  /** A PR merged in `dir`: in an active bootstrap, advance the phase when it was a bootstrap
+   *  session's PR (#3110: P1+P2 → 3, P3 → 4), then pull what landed and re-scan. */
+  async onMerged(dir: string, bootstrapPhase?: BootstrapSessionPhase | null): Promise<void> {
+    const b = this.deps.store.getRepoBootstrap(dir);
+    if (b.state !== "active") return;
+    const next = bootstrapPhase ? phaseAfterBootstrapMerge(b, bootstrapPhase) : null;
+    if (next != null) {
+      this.deps.store.setRepoBootstrap(dir, { state: "active", phase: next });
+      console.log(`[greenfield] bootstrap phase ${b.phase} → ${next} repo=${dir}`);
+      this.deps.onChange?.(dir);
+    }
     const forge = this.deps.resolveForge(dir);
     await (this.deps.pull ?? defaultPull)(dir, forge).catch((e: unknown) =>
       console.warn(`[greenfield] fast-forward failed repo=${dir}:`, e),

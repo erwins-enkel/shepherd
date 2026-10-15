@@ -6612,7 +6612,7 @@
   "feat_readiness_drift_title": "Framework-Rückstand in Readiness",
   "feat_readiness_drift_body": "Readiness warnt jetzt, wenn ein Paket des gepinnten Stacks eine Major-Version hinter der Registry liegt – und legt per Klick eine priorisierte Upgrade-Story an, inklusive der nachzuziehenden Epic-Branches.",
   "newtask_mode_bootstrap": "Bootstrap",
-  "newtask_prompt_placeholder_bootstrap": "Was soll das neue Projekt werden? Der Agent liest PRD und Design-Export, klärt mit dir die Gerüst-Entscheidungen und baut es dann…",
+  "newtask_prompt_placeholder_bootstrap": "Was soll das neue Projekt werden? Ohne Gerüst liest der Agent PRD und Design-Export, klärt mit dir die Gerüst-Entscheidungen und baut es; danach gleicht er PRD und Design ab und klärt die offenen Produktentscheidungen…",
   "newtask_house_stack_unresolved": "Bootstrap nicht gestartet: Shepherd konnte die aktuellen Versionen deines House-Stacks nicht abfragen ({detail}). Prüfe die Paketnamen unter Einstellungen → Workspace → House-Stack und versuche es erneut.",
   "keymap_mode_bootstrap": "Modus Bootstrap",
   "tooltip_mode_bootstrap_title": "Bootstrap-Modus",
@@ -6624,5 +6624,9 @@
   "tooltip_mode_bootstrap_guards": "Schutzmechanismen",
   "tooltip_mode_bootstrap_guards_body": "Kein Plan-Gate und kein Autopilot: Der Agent klärt die Gerüst-Entscheidungen selbst mit dir. Die autonome Sandbox ist nicht verfügbar, weil der Agent die Paket-Registries braucht.",
   "feat_bootstrap_task_title": "Neues Projekt bootstrappen",
-  "feat_bootstrap_task_body": "Neue Aufgabe hat einen Bootstrap-Modus. Eine begleitete Session liest PRD und Design-Export, klärt mit dir die Entscheidungen, die das Gerüst prägen, und öffnet dann einen Pull Request mit gepinntem Stack, App-Shell, i18n, Hooks und CI. Jede Version stammt aus deinem House-Stack."
+  "feat_bootstrap_task_body": "Neue Aufgabe hat einen Bootstrap-Modus. Eine begleitete Session liest PRD und Design-Export, klärt mit dir die Entscheidungen, die das Gerüst prägen, und öffnet dann einen Pull Request mit gepinntem Stack, App-Shell, i18n, Hooks und CI. Jede Version stammt aus deinem House-Stack.",
+  "tooltip_mode_bootstrap_phases": "Phasen",
+  "tooltip_mode_bootstrap_phases_body": "Bis ihr Gerüst-PR gemergt ist, läuft eine Bootstrap-Aufgabe als P1+P2. Hat das Repo P3 erreicht, läuft der Gap-Sweep: PRD gegen docs/design abgleichen, offene Produktentscheidungen als eine nummerierte Liste klären und einen reinen Doku-PR mit Entscheidungen, PRD-Ergänzungen und M0-Kandidaten für den Backlog öffnen. Jeder Merge rückt die Phase vor.",
+  "feat_bootstrap_gap_sweep_title": "Bootstrap-Gap-Sweep (P3)",
+  "feat_bootstrap_gap_sweep_body": "Ist das Gerüst gemergt, gleicht eine Bootstrap-Aufgabe dein PRD mit dem Design-Export ab, stellt alle offenen Produktentscheidungen als eine nummerierte Liste und bringt sie als einen PR ein — PRD-Ergänzungen, CLAUDE.md-Regeln und M0-Kandidaten für den Backlog. Der Merge eines Bootstrap-PRs rückt das Repo in die nächste Phase."
 }

@@ -5,7 +5,9 @@ import { join } from "node:path";
 import {
   bootstrapExitReached,
   bootstrapMissing,
+  bootstrapSessionPhase,
   hasProjectManifest,
+  phaseAfterBootstrapMerge,
   type RepoBootstrap,
 } from "../src/bootstrap";
 import { SessionStore } from "../src/store";
@@ -28,6 +30,31 @@ describe("bootstrapMissing", () => {
     expect(bootstrapMissing(active(1), [])).toEqual(["P1", "P2", "P3", "P4"]);
     expect(bootstrapMissing(active(3), ["ci"])).toEqual(["P3", "P4", "ci"]);
     expect(bootstrapMissing(active(5), ["ci"])).toEqual(["ci"]);
+  });
+});
+
+describe("bootstrapSessionPhase", () => {
+  test("P3 only once an active repo reached phase 3", () => {
+    expect(bootstrapSessionPhase(active(1))).toBe(1);
+    expect(bootstrapSessionPhase(active(2))).toBe(1);
+    expect(bootstrapSessionPhase(active(3))).toBe(3);
+    expect(bootstrapSessionPhase(active(4))).toBe(3);
+    expect(bootstrapSessionPhase({ state: "off", phase: 3, overrideAt: null })).toBe(1);
+    expect(bootstrapSessionPhase({ state: "done", phase: 5, overrideAt: null })).toBe(1);
+  });
+});
+
+describe("phaseAfterBootstrapMerge", () => {
+  test("P1+P2 merge → 3, P3 merge → 4", () => {
+    expect(phaseAfterBootstrapMerge(active(1), 1)).toBe(3);
+    expect(phaseAfterBootstrapMerge(active(2), 1)).toBe(3);
+    expect(phaseAfterBootstrapMerge(active(3), 3)).toBe(4);
+  });
+  test("never lowers the phase; inactive repos are untouched", () => {
+    expect(phaseAfterBootstrapMerge(active(3), 1)).toBeNull();
+    expect(phaseAfterBootstrapMerge(active(5), 3)).toBeNull();
+    expect(phaseAfterBootstrapMerge({ state: "off", phase: 1, overrideAt: null }, 1)).toBeNull();
+    expect(phaseAfterBootstrapMerge({ state: "done", phase: 5, overrideAt: null }, 3)).toBeNull();
   });
 });
 

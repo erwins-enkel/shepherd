@@ -2848,6 +2848,24 @@ test("session: bootstrap derives from the persisted resolved stack (#3109)", () 
   expect(s.getBootstrapStack(b.id)).toEqual(stack);
 });
 
+test("session: a P3 bootstrap row has no stack but is bootstrap (#3110)", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(s.getBootstrapPhase(a.id)).toBeNull();
+  const p3 = s.create({ ...base, herdrAgentId: "t2", bootstrapPhase: 3 });
+  expect(p3.bootstrap).toBe(true);
+  expect(s.get(p3.id)?.bootstrap).toBe(true);
+  expect(s.getBootstrapPhase(p3.id)).toBe(3);
+  expect(s.getBootstrapStack(p3.id)).toBeNull();
+  // A legacy P1+P2 row (stack, no phase) reads as phase 1.
+  const legacy = s.create({
+    ...base,
+    herdrAgentId: "t3",
+    bootstrapStack: { ok: true, resolvedAt: "x", npm: [], crates: [], rustToolchain: null },
+  });
+  expect(s.getBootstrapPhase(legacy.id)).toBe(1);
+});
+
 test("session: plain defaults false, round-trips via create + get", () => {
   const s = mk();
   const a = s.create(base);

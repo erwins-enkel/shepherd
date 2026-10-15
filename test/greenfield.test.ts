@@ -151,6 +151,26 @@ describe("GreenfieldService", () => {
     expect(pulls).toEqual([dir]);
   });
 
+  test("onMerged of a bootstrap session advances the phase, never backwards (#3110)", async () => {
+    const changes: string[] = [];
+    const store = fakeStore(active(1));
+    const svc = new GreenfieldService({
+      store,
+      resolveForge: () => null,
+      pull: async () => {},
+      onChange: (d) => changes.push(d),
+    });
+    await svc.onMerged(dir, 1);
+    expect(store.getRepoBootstrap().phase).toBe(3);
+    expect(changes.length).toBeGreaterThanOrEqual(1);
+    await svc.onMerged(dir, 1); // a late P1+P2 merge never lowers P3
+    expect(store.getRepoBootstrap().phase).toBe(3);
+    await svc.onMerged(dir, 3);
+    expect(store.getRepoBootstrap().phase).toBe(4);
+    await svc.onMerged(dir); // a non-bootstrap merge leaves the phase alone
+    expect(store.getRepoBootstrap().phase).toBe(4);
+  });
+
   test("forge runs gate scaffold_builds; a forge read error is red, not a crash", async () => {
     scaffold();
     const forge = {

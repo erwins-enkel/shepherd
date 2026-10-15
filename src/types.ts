@@ -7,6 +7,7 @@ import type { TaskAmendment } from "./task-amendments";
 import type { Capability } from "./remote-instances/capabilities";
 import type { Placement } from "./remote-instances/placement";
 import type { ResolvedHouseStack } from "./house-stack";
+import type { BootstrapSessionPhase } from "./bootstrap";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -385,6 +386,9 @@ export interface StandardCreateInput {
   /** The House Stack resolved for a bootstrap spawn. Set ONLY by the service at create time (no
    *  HTTP route passes it) and persisted so a resume re-renders the same pins. */
   bootstrapStack?: ResolvedHouseStack;
+  /** The bootstrap phase (#3110): 1 = P1+P2, 3 = P3 gap sweep. Set ONLY by the service at create
+   *  (picked from the repo's bootstrap state) and persisted so a resume renders the same phase. */
+  bootstrapPhase?: BootstrapSessionPhase;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
   /** #2770: capabilities this instance must have — sorted, deduplicated, never empty. Checked by a

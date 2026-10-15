@@ -678,6 +678,9 @@ export const KEYS_NOTIFICATIONS: readonly string[] = [
   "native_ios_push_failed",
   "native_ios_push_pending",
   "native_ios_push_registered",
+  // Per-server switch for relayed notifications of mirrored machines (#3059)
+  "native_ios_push_relay_hint",
+  "native_ios_push_relay_toggle",
   "native_ios_push_title",
   "native_ios_push_unavailable",
   "native_notify_blocked_title",

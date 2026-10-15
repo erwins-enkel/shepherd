@@ -44,6 +44,12 @@ struct ShepherdClientReadTests {
     let identity = try await client.instance()
     #expect(identity.instanceId == "0b6f2c1e")
     #expect(identity.platform.known == .macos)
+    #expect(identity.pushRelay == nil)
+
+    server.stub(
+      "GET", "/api/instance", status: 200,
+      json: Data(#"{"instanceId":"0b6f2c1e","name":"MacBook","version":"1.71.0","federationApi":1,"platform":"macos","arch":"arm64","pushRelay":true}"#.utf8))
+    #expect(try await client.instance().pushRelay == true)
 
     server.stub("GET", "/api/instance", status: 404, json: try Fixtures.errorJSON("not found"))
     await #expect(throws: ShepherdError.self) { _ = try await client.instance() }

@@ -13484,6 +13484,41 @@
         }
       }
     },
+    "native_ios_push_relay_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen für Rechner, die dieser Server spiegelt. Rechner, die du hier direkt hinterlegt hast, melden sich selbst, nie doppelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications for machines this server mirrors. Machines you saved here directly notify you themselves, never twice."
+          }
+        }
+      }
+    },
+    "native_ios_push_relay_toggle": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespiegelte Rechner über %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirrored machines via %1$@"
+          }
+        }
+      }
+    },
     "native_ios_push_title": {
       "extractionState": "manual",
       "localizations": {

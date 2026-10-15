@@ -186,4 +186,24 @@ struct ShepherdClientWriteTests {
       _ = try await client.putRepoRoot("/nope")
     }
   }
+
+  @Test("APNs registration carries relay fields only when asked to (#3059)")
+  func apnsRelayFields() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("POST", "/api/push/apns", status: 200, json: Data(#"{"endpoint":"apns:sandbox:ab"}"#.utf8))
+    let client = try makeClient(server)
+
+    _ = try await client.registerApnsDevice(token: "ab", sandbox: true, locale: "de")
+    let plain = try JSONSerialization.jsonObject(with: try #require(server.requests().last?.body)) as? [String: Any]
+    #expect(plain?["coveredInstances"] == nil)
+    #expect(plain?["relayRemote"] == nil)
+
+    let outcome = try await client.registerApnsDevice(token: "ab", sandbox: true, locale: "de",
+      relay: ApnsRelay(coveredInstances: ["macbook"], relayRemote: false))
+    #expect(outcome == .registered(endpoint: "apns:sandbox:ab"))
+    let relayed = try JSONSerialization.jsonObject(with: try #require(server.requests().last?.body)) as? [String: Any]
+    #expect(relayed?["coveredInstances"] as? [String] == ["macbook"])
+    #expect(relayed?["relayRemote"] as? Bool == false)
+  }
 }

@@ -12,6 +12,11 @@ import ShepherdKit
 @MainActor
 final class IOSInstanceIdentity: AppExtension {
     private(set) var instanceID: String?
+    /// The server relays notifications for its mirrored machines and accepts the coverage fields
+    /// in push registration (#3058); older servers get the registration they always had.
+    private(set) var pushRelay = false
+    /// The read is over, answered or not: a notification naming an instance stops waiting here.
+    private(set) var settled = false
     @ObservationIgnored private var reader: Task<Void, Never>?
 
     required init(store: SessionStore, app: AppModel) {
@@ -22,10 +27,13 @@ final class IOSInstanceIdentity: AppExtension {
                 do {
                     let identity = try await client.instance()
                     self?.instanceID = identity.instanceId
+                    self?.pushRelay = identity.pushRelay == true
+                    self?.settled = true
                     return
                 } catch ShepherdError.transport(_) {
                     // Not reachable yet: the store reconnects on its own, and so does this read.
                 } catch {
+                    self?.settled = true
                     return
                 }
                 do { try await Task.sleep(for: delay) } catch { return }

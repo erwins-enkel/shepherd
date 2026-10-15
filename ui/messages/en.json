@@ -6448,5 +6448,7 @@
   "drain_usage_respect": "Respect ceiling",
   "feat_epic_usage_override_title": "Let an epic run past the usage ceiling",
   "feat_epic_usage_override_body": "When an epic pauses at the repo's usage ceiling, you can now lift the ceiling for that epic's run — from the epic's run control or straight from the pause banner in the repo bar. It applies only to this run and ends when you pause or stop the epic; the extra-credit ceiling still applies. The banner now also names your usage and the ceiling it was compared against.",
-  "native_ios_server_unavailable": "{server} is currently unavailable"
+  "native_ios_server_unavailable": "{server} is currently unavailable",
+  "native_ios_push_relay_hint": "Notifications for machines this server mirrors. Machines you saved here directly notify you themselves, never twice.",
+  "native_ios_push_relay_toggle": "Mirrored machines via {server}"
 }

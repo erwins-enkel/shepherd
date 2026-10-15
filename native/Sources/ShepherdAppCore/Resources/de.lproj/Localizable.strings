@@ -785,6 +785,8 @@
 "native_ios_push_failed" = "Registrierung fehlgeschlagen: %1$@";
 "native_ios_push_pending" = "Wird bei diesem Server registriert…";
 "native_ios_push_registered" = "Für diesen Server aktiv";
+"native_ios_push_relay_hint" = "Benachrichtigungen für Rechner, die dieser Server spiegelt. Rechner, die du hier direkt hinterlegt hast, melden sich selbst, nie doppelt.";
+"native_ios_push_relay_toggle" = "Gespiegelte Rechner über %1$@";
 "native_ios_push_title" = "Benachrichtigungen";
 "native_ios_push_unavailable" = "Auf diesem Server nicht eingerichtet — auf dem Server unter Einstellungen → Benachrichtigungen einrichten";
 "native_ios_remote_actions_body" = "Diese App zeigt die Session so, wie %1$@ sie meldet. Terminal, Steuern, Stoppen, Archivieren und Mergen gibt es hier noch nicht, und nichts davon wird stellvertretend auf diesem Server ausgeführt – öffne dafür den Shepherd auf %1$@.";

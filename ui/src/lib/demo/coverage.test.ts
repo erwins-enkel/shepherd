@@ -433,6 +433,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/push/devices/:p",
     "/api/push/devices/:p/test",
     "/api/settings/verify-key",
+    // House Stack check (#3108) queries the live package registries; the demo has no server
+    "/api/house-stack/resolve",
     "/api/plugins/manage/install",
     "/api/plugins/manage/activate",
     "/api/plugins/manage/installed/:p",

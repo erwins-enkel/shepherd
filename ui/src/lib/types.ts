@@ -342,6 +342,9 @@ export interface Settings {
   /** The platform order the machine choice ranks fitting machines by (#2772), Linux first by
    *  default; this instance's own. Absent from older servers. */
   machinePlatformOrder?: string[];
+  /** The operator's House Stack (#3108): packages a project bootstrap pins to current stable.
+   *  Absent from older servers. */
+  houseStack?: HouseStack;
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
@@ -3442,3 +3445,21 @@ export interface Leftover {
   startTicks?: number;
   command?: { bin: string; args: string[] };
 }
+
+/** House Stack setting (#3108) — mirrors `HouseStack` in src/house-stack.ts. */
+export interface HouseStack {
+  npm: string[];
+  crates: string[];
+  rustToolchain: boolean;
+}
+
+/** GET /api/house-stack/resolve — all-or-nothing: versions for every entry, or per-entry errors. */
+export type HouseStackResolution =
+  | {
+      ok: true;
+      resolvedAt: string;
+      npm: { name: string; version: string }[];
+      crates: { name: string; version: string }[];
+      rustToolchain: string | null;
+    }
+  | { ok: false; errors: { ecosystem: "npm" | "crates" | "rust"; name: string; reason: string }[] };

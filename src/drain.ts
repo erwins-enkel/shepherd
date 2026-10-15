@@ -1168,7 +1168,11 @@ export class DrainService {
    *  CI were judged against that tip (the dead base), and the epic already holds the same content
    *  squashed, so landing it on the epic adds exactly the reviewed diff. A child cut from an EARLIER
    *  predecessor head is held: a 3-way squash would resurrect anything the predecessor's later
-   *  rework removed, unreviewed. It stays blocked, as before, until its branch absorbs that tip. */
+   *  rework removed, unreviewed. It stays blocked, as before, until its branch absorbs that tip —
+   *  or is rebased onto the epic branch: a head that contains the PINNED tip squashes to exactly its
+   *  own (CI'd, reviewed) content. That second test is what makes the logged remedy work at all: the
+   *  epic holds the predecessor only as a squash commit, so a rebased head never contains the dead
+   *  branch's tip. */
   private async retargetDeadStackBasesForRepo(repoPath: string): Promise<void> {
     try {
       const forge = this.deps.resolveForge(repoPath);
@@ -1213,6 +1217,20 @@ export class DrainService {
       : null;
   }
 
+  /** #3102: may a head land on the epic without carrying unreviewed content? Yes when it contains
+   *  the landed predecessor's final tip (`deadBase`) or the epic branch's tip (`pinned`). */
+  private async headSafeOnEpic(
+    forge: GitForge,
+    headSha: string,
+    deadBase: string,
+    pinned: string,
+  ): Promise<boolean> {
+    return (
+      (await forge.branchContains!(deadBase, headSha)) ||
+      (await forge.branchContains!(pinned, headSha))
+    );
+  }
+
   /** One candidate: probe, then move it. True only when the session was moved onto `pinned`. */
   private async retargetDeadStackBase(
     forge: GitForge,
@@ -1232,10 +1250,10 @@ export class DrainService {
       if (action === "none") return false;
       // The dead base is kept on the remote (keepBranchForStackedSuccessor), so its tip IS the
       // predecessor's merged head. Unknown head ⇒ cannot vouch ⇒ hold.
-      if (!pr.headSha || !(await forge.branchContains!(s.baseBranch, pr.headSha))) {
+      if (!pr.headSha || !(await this.headSafeOnEpic(forge, pr.headSha, s.baseBranch, pinned))) {
         if (!this.deadBaseCheckedAt.has(s.id)) {
           console.log(
-            `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed, but the branch does not contain its final tip — holding (rebase it onto \`${pinned}\`)`,
+            `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed, but the branch contains neither its final tip nor \`${pinned}\` — holding (rebase it onto \`${pinned}\`)`,
           );
         }
         return false;

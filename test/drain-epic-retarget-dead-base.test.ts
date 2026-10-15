@@ -61,6 +61,8 @@ interface ForgeOpts {
   retargetFails?: boolean;
   /** Does the child's head contain the dead base's tip? Default: yes. */
   contains?: boolean;
+  /** Does the child's head contain the PINNED tip (rebased onto the epic)? Default: no. */
+  containsPinned?: boolean;
 }
 
 function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
@@ -111,7 +113,7 @@ function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
   }
   f.branchContains = async (ref: string, headSha: string) => {
     rec.containsChecks.push({ ref, headSha });
-    return opts.contains ?? true;
+    return ref === EPIC_BRANCH ? (opts.containsPinned ?? false) : (opts.contains ?? true);
   };
   if (!opts.noRetarget) {
     f.retargetPr = async (prNumber: number, base: string) => {
@@ -450,11 +452,43 @@ describe("dead stacked base → re-target onto the epic branch (#3102)", () => {
 
     await retargetPass(h);
 
-    expect(h.forgeRec.containsChecks).toEqual([{ ref: PRED_BRANCH, headSha: `sha-${PR}` }]);
+    expect(h.forgeRec.containsChecks).toEqual([
+      { ref: PRED_BRANCH, headSha: `sha-${PR}` },
+      { ref: EPIC_BRANCH, headSha: `sha-${PR}` },
+    ]);
     expect(h.forgeRec.retargets).toHaveLength(0);
     expect(h.store.get(s.id)?.baseBranch).toBe(PRED_BRANCH);
     await h.drain.pump(REPO);
     expect(h.forgeRec.merges).toHaveLength(0);
+  });
+
+  test("child rebased onto the epic branch (no dead tip, has pinned tip): re-targeted and retires (critic r2)", async () => {
+    // The logged remedy. The epic holds the predecessor only squashed, so the rebased head never
+    // contains the dead branch's tip — the pinned-tip test is what lets it move.
+    const h = makeHarness({ baseRefName: PRED_BRANCH, contains: false, containsPinned: true });
+    pinned(h);
+    seedLandedPredecessor(h);
+    const s = seedStackedChild(h);
+
+    await retargetPass(h);
+
+    expect(h.forgeRec.containsChecks.map((c) => c.ref)).toEqual([PRED_BRANCH, EPIC_BRANCH]);
+    expect(h.forgeRec.retargets).toEqual([{ prNumber: PR, base: EPIC_BRANCH }]);
+    expect(h.store.get(s.id)?.baseBranch).toBe(EPIC_BRANCH);
+    await h.drain.pump(REPO);
+    expect(h.forgeRec.merges.map((m) => m.prNumber)).toEqual([PR]);
+  });
+
+  test("rebased child the operator already re-targeted by hand: adopted", async () => {
+    const h = makeHarness({ baseRefName: EPIC_BRANCH, contains: false, containsPinned: true });
+    pinned(h);
+    seedLandedPredecessor(h);
+    const s = seedStackedChild(h);
+
+    await retargetPass(h);
+
+    expect(h.forgeRec.retargets).toHaveLength(0);
+    expect(h.store.get(s.id)?.baseBranch).toBe(EPIC_BRANCH);
   });
 
   test("operator re-targeted a child that lacks the final tip: NOT adopted", async () => {
@@ -508,7 +542,7 @@ describe("dead stacked base → re-target onto the epic branch (#3102)", () => {
     await retargetPass(h);
     await retargetPass(h);
 
-    expect(h.forgeRec.containsChecks).toHaveLength(1);
+    expect(h.forgeRec.containsChecks).toHaveLength(2); // one probe round (dead + pinned), then throttled
   });
 
   test("child without a PR yet: waits", async () => {

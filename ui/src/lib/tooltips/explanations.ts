@@ -97,6 +97,19 @@ export function upNextReadinessExplanation(): TooltipExplanation {
   };
 }
 
+/** Settings → Workspace "House Stack" (#3108) — what the list feeds and why a failure pins nothing. */
+export function houseStackExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_house_stack_title(),
+    summary: m.tooltip_house_stack_summary(),
+    sections: [
+      { label: m.tooltip_house_stack_does(), text: m.tooltip_house_stack_does_body() },
+      { label: m.tooltip_house_stack_pins(), text: m.tooltip_house_stack_pins_body() },
+      { label: m.tooltip_house_stack_failure(), text: m.tooltip_house_stack_failure_body() },
+    ],
+  };
+}
+
 /** Review banner "Hold" — what holding an in-flight review does and what it costs. */
 export function reviewHoldExplanation(): TooltipExplanation {
   return {

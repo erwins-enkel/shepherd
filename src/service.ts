@@ -953,13 +953,18 @@ const ENGINEERING_POSTURE =
  * sure is current, so it doesn't fire a search on every trivial edit or well-known pattern. WebSearch
  * is already allowed for task agents, so this adds no new permission prompt. Agent-facing prompt text
  * (not operator UI), so fixed English — same precedent as the other notices.
+ *
+ * The well-established exception explicitly excludes framework majors (#3108): an agent once kept a
+ * new scaffold on SvelteKit 2 from memory, weeks after 3.0 shipped, costing a 208-file upgrade.
  */
 const RESEARCH_FIRST_NOTICE =
   "Before writing non-trivial code against an external library, framework, or API — especially one " +
   "you're not certain is current — do a quick web search to confirm the present best approach, then " +
   "note in one or two lines what you found and why you chose it. Skip this for trivial edits and " +
   "well-established patterns you're already confident about; it exists to stop you scaffolding many " +
-  "files against a stale or assumed API with no human to correct course.";
+  "files against a stale or assumed API with no human to correct course. A framework or library " +
+  "MAJOR version is never a well-established pattern: whenever you choose, pin or keep one, confirm " +
+  "the current stable major from the package registry or official docs — never from memory.";
 
 /**
  * Rides every spawn whose MCP config carries `self_status` — Claude-family, non-plain (issue #2860).

@@ -5286,6 +5286,8 @@ test("composeSystemPrompt always injects the research-first notice, with or with
     // Scoped to non-trivial external API work, with the "note what you found" half intact.
     expect(sp).toContain("do a quick web search to confirm the present best approach");
     expect(sp).toContain("Skip this for trivial edits");
+    // #3108: framework majors never fall under the well-established exception.
+    expect(sp).toContain("MAJOR version is never a well-established pattern");
   }
   // Rides unconditionally, like the autopilot-independent posture/branch blocks.
   expect(composeSystemPrompt(null, true)).toContain("<research-first-notice>");

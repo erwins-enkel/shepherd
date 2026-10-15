@@ -9,7 +9,8 @@
 
   // Asks before starting epic `parent` supersedes `leader`, the epic that leads the repo now
   // (#2623): the server keeps one epic per repo, so the leader stops starting new tasks. Queueing
-  // behind the leader instead is the run area's own Queue button (#2972), not a choice here.
+  // behind the leader instead is the run area's own Queue button (#2972), not a choice here; the
+  // leader itself goes back to the queue's head unless the operator unticks "Requeue".
   let {
     repoPath,
     parent,
@@ -25,12 +26,14 @@
     /** The epic that leads now (`summary.leadingEpic`). */
     leader: number;
     summary: DrainRunSummary;
-    onconfirm: () => void;
+    /** `requeue`: put the leader at the head of the epic queue instead of leaving it behind. */
+    onconfirm: (requeue: boolean) => void;
     onclose: () => void;
     onopenautomation?: () => void;
   } = $props();
 
   let record = $state<"loading" | "error" | Epic>("loading");
+  let requeue = $state(true);
   onMount(() => {
     getEpic(repoPath, leader)
       .then((e) => (record = e))
@@ -107,13 +110,20 @@
           {m.epic_supersede_finishes({ inflight: list(impact.holders.map((h) => h.issue)) })}
         </span>
       {/if}
-      {#if impact.leftBehind?.length}
+      {#if impact.leftBehind?.length && !requeue}
         <span class="consequence">
           {m.epic_supersede_left_behind({
             count: impact.leftBehind.length,
             list: list(impact.leftBehind),
           })}
         </span>
+      {/if}
+      <label class="requeue">
+        <input type="checkbox" bind:checked={requeue} />
+        <span>{m.epic_supersede_requeue({ leader })}</span>
+      </label>
+      {#if requeue}
+        <span class="consequence">{m.epic_supersede_requeue_body({ leader, epic: parent })}</span>
       {/if}
     </div>
 
@@ -124,7 +134,7 @@
         </button>
       {/if}
       <button type="button" class="gbtn" onclick={onclose}>{m.common_cancel()}</button>
-      <button type="button" class="gbtn primary" onclick={onconfirm}>
+      <button type="button" class="gbtn primary" onclick={() => onconfirm(requeue)}>
         {m.epic_supersede_confirm()}
       </button>
     </div>
@@ -230,6 +240,15 @@
     color: var(--color-ink-bright);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
+  }
+  .requeue {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
+    cursor: pointer;
   }
   .consequence {
     display: block;

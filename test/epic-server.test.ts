@@ -2460,6 +2460,72 @@ describe("PUT /api/epic status idle on the leader promotes the queue", () => {
   });
 });
 
+// ── superseding with requeueLeader puts the old leader at the queue head ─────
+
+describe("PUT /api/epic status running with requeueLeader", () => {
+  const start = (parent: number, requeue: boolean) =>
+    new Request(
+      `http://x/api/epic?repo=${encRepo(repoDir)}&parent=${parent}${requeue ? "&requeueLeader=1" : ""}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "running" }),
+      },
+    );
+  const queued = (store: SessionStore) =>
+    store.listEpicQueue(repoDir).map((e) => e.parentIssueNumber);
+  const lead = (store: SessionStore, status: "running" | "paused") =>
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 100,
+      mode: "attended",
+      status,
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+
+  for (const status of ["running", "paused"] as const) {
+    test(`a ${status} leader goes to the queue head with its settings`, async () => {
+      const { app, store, emitted } = harness();
+      lead(store, status);
+      store.enqueueEpic({ repoPath: repoDir, parentIssueNumber: 300, mode: "auto" });
+      expect((await app.fetch(start(400, true))).status).toBe(200);
+      expect(store.getEpicRun(repoDir)).toMatchObject({
+        parentIssueNumber: 400,
+        status: "running",
+      });
+      expect(queued(store)).toEqual([100, 300]);
+      expect(store.getEpicQueueEntry(repoDir, 100)).toMatchObject({
+        mode: "attended",
+        agentProvider: "claude",
+        model: "opus",
+        effort: "high",
+      });
+      expect(store.getEpicSettings(repoDir, 100)).toBeNull();
+      // The superseded epic is re-emitted, so an open view of it learns it is queued.
+      expect((emitted as Epic[]).map((e) => e.parentIssueNumber)).toContain(100);
+    });
+  }
+
+  test("without the flag the superseded leader is not queued", async () => {
+    const { app, store } = harness();
+    lead(store, "running");
+    expect((await app.fetch(start(400, false))).status).toBe(200);
+    expect(queued(store)).toEqual([]);
+    expect(store.getEpicSettings(repoDir, 100)).toMatchObject({ mode: "attended" });
+  });
+
+  test("no leader, or restarting the leader itself, queues nothing", async () => {
+    const { app, store } = harness();
+    expect((await app.fetch(start(400, true))).status).toBe(200);
+    expect(queued(store)).toEqual([]);
+    expect((await app.fetch(start(400, true))).status).toBe(200);
+    expect(queued(store)).toEqual([]);
+    expect(store.getEpicRun(repoDir)?.parentIssueNumber).toBe(400);
+  });
+});
+
 // ── settings of an epic that does not lead: remembered, never superseding ────
 
 describe("PUT /api/epic for an epic that does not lead", () => {

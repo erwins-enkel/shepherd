@@ -8969,7 +8969,9 @@ paths:
         epic. status running starts this epic (superseding a run for another parent); any status
         change kicks the drain at once. status idle or paused for an epic that does not lead, while
         another epic runs or is paused, is refused with 409. A queued epic given a status leaves the
-        queue first.
+        queue first. With requeueLeader=1, a start that supersedes another running or paused epic
+        puts that epic at the head of the repo's epic queue with its settings, instead of leaving it
+        behind.
       parameters:
         - name: repo
           in: query
@@ -8979,6 +8981,11 @@ paths:
           in: query
           required: true
           schema: { type: integer, minimum: 1 }
+        - name: requeueLeader
+          in: query
+          required: false
+          description: '"1" queues the superseded leader at the queue head.'
+          schema: { type: string, enum: ["1"] }
       requestBody:
         required: true
         content:

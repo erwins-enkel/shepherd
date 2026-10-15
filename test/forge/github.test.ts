@@ -3459,3 +3459,125 @@ test("GithubForge.failedRunStepLogs: groups --log-failed lines by job + step", a
   ]);
   expect(calls.at(-1)).toEqual(["run", "view", "501", "--repo", "o/r", "--log-failed"]);
 });
+
+/** Runner keyed on the full argv; a value of `null` rejects like gh on a 404. */
+function exactRunner(responses: Record<string, string | null>) {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    const v = responses[args.join(" ")];
+    if (v === null) throw Object.assign(new Error("gh failed"), { stderr: "HTTP 404: Not Found" });
+    return v ?? "";
+  };
+  return { run, calls };
+}
+
+test("GithubForge.repoForgeSettings: flags, rules ∪ classic checks, label, permissions", async () => {
+  const { run } = exactRunner({
+    "api repos/o/r": JSON.stringify({
+      default_branch: "trunk",
+      allow_merge_commit: false,
+      allow_squash_merge: true,
+      allow_rebase_merge: true,
+      allow_auto_merge: false,
+      delete_branch_on_merge: true,
+      permissions: { admin: false, push: true },
+    }),
+    "api repos/o/r/rules/branches/trunk?per_page=100": JSON.stringify([
+      { type: "pull_request" },
+      {
+        type: "required_status_checks",
+        parameters: { required_status_checks: [{ context: "lint" }, { context: "test" }] },
+      },
+    ]),
+    "api repos/o/r/branches/trunk/protection/required_status_checks": JSON.stringify({
+      contexts: ["build", "lint"],
+    }),
+    "api repos/o/r/labels/shepherd%3Aauto": null,
+  });
+  expect(await new GithubForge("o/r", {}, run).repoForgeSettings!("shepherd:auto")).toEqual({
+    defaultBranch: "trunk",
+    mergeMethods: { merge: false, squash: true, rebase: true },
+    autoMergeAllowed: false,
+    deleteBranchOnMerge: true,
+    requiredChecks: ["build", "lint", "test"],
+    labelExists: false,
+    canAdminister: false,
+    canPush: true,
+  });
+});
+
+test("GithubForge.repoForgeSettings: withheld flags → null, unprotected branch → []", async () => {
+  const { run } = exactRunner({
+    "api repos/o/r": JSON.stringify({ default_branch: "main" }),
+    "api repos/o/r/rules/branches/main?per_page=100": "[]",
+    "api repos/o/r/branches/main/protection/required_status_checks": null,
+    "api repos/o/r/labels/x": "{}",
+  });
+  expect(await new GithubForge("o/r", {}, run).repoForgeSettings!("x")).toMatchObject({
+    mergeMethods: null,
+    autoMergeAllowed: null,
+    deleteBranchOnMerge: null,
+    requiredChecks: [],
+    labelExists: true,
+  });
+});
+
+test("GithubForge.patchRepoSettings: PATCHes merge flags and branch cleanup", async () => {
+  const { run, calls } = exactRunner({});
+  await new GithubForge("o/r", {}, run).patchRepoSettings!({
+    mergeMethods: { merge: false, squash: true, rebase: false },
+    deleteBranchOnMerge: true,
+  });
+  expect(calls[0]).toEqual([
+    "api",
+    "--method",
+    "PATCH",
+    "repos/o/r",
+    "-F",
+    "allow_merge_commit=false",
+    "-F",
+    "allow_squash_merge=true",
+    "-F",
+    "allow_rebase_merge=false",
+    "-F",
+    "delete_branch_on_merge=true",
+  ]);
+});
+
+test("GithubForge.createRequiredChecksRuleset: POSTs the ruleset JSON via --input", async () => {
+  let body: unknown;
+  const calls: string[][] = [];
+  const run = async (args: string[]) => {
+    calls.push(args);
+    body = JSON.parse(await Bun.file(args[args.length - 1]!).text());
+    return "{}";
+  };
+  await new GithubForge("o/r", {}, run).createRequiredChecksRuleset!(["lint", "test"]);
+  expect(calls[0]!.slice(0, 5)).toEqual([
+    "api",
+    "--method",
+    "POST",
+    "repos/o/r/rulesets",
+    "--input",
+  ]);
+  expect(body).toMatchObject({
+    target: "branch",
+    enforcement: "active",
+    conditions: { ref_name: { include: ["~DEFAULT_BRANCH"] } },
+    rules: [
+      {
+        type: "required_status_checks",
+        parameters: { required_status_checks: [{ context: "lint" }, { context: "test" }] },
+      },
+    ],
+  });
+  // The temp file is removed afterwards.
+  expect(await Bun.file(calls[0]![5]!).exists()).toBe(false);
+});
+
+test("GithubForge.createRepoLabel: gh label create", async () => {
+  const { run, calls } = exactRunner({});
+  await new GithubForge("o/r", {}, run).createRepoLabel!("shepherd:auto");
+  expect(calls[0]!.slice(0, 5)).toEqual(["label", "create", "shepherd:auto", "--repo", "o/r"]);
+});

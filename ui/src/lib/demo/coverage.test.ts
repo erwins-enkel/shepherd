@@ -222,6 +222,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/actions/history", `/api/actions/history?repo=${r}&workflowId=9001&limit=10`),
   get("/api/actions/run-jobs", `/api/actions/run-jobs?repo=${r}&runId=77061`),
   get("/api/readiness", `/api/readiness?repo=${r}`),
+  get("/api/readiness/forge", `/api/readiness/forge?repo=${r}`),
   get("/api/repo-web", `/api/repo-web?repo=${r}`),
   get("/api/repo-roles", `/api/repo-roles?repo=${r}`),
   get("/api/repo-collaborators", `/api/repo-collaborators?repo=${r}`),
@@ -378,6 +379,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/epics/completed/resolve-conflicts",
     "/api/epics/completed/repair-ci",
     "/api/up-next/refresh",
+    // Every seeded Forge-settings check is already "ok", so no Apply button renders.
+    "/api/readiness/forge/apply",
     "/api/up-next/start",
     "/api/prs/merge",
     "/api/prs/dependabot-rebase",

@@ -671,7 +671,8 @@
   const deriveTask = $derived.by(() => {
     const shots = images.map((x) => x.path).filter((path) => SCREENSHOT_RE.test(path));
     return {
-      prompt: prompt.trim(),
+      // The derive route reads at most 8000 chars; a longer task still starts in full.
+      prompt: prompt.trim().slice(0, 8000),
       ...(activeIssue && {
         issue: { title: activeIssue.title, ...(activeIssue.body && { body: activeIssue.body }) },
       }),

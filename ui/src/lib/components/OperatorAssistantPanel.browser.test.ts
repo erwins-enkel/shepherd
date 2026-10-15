@@ -38,6 +38,14 @@ const assistantRow = {
   archivedAt: null,
 } as unknown as Session;
 
+const READ_ONLY = {
+  shell: "read",
+  steer: "off",
+  sessions: "off",
+  approve: "off",
+  automation: "off",
+} as const;
+
 function props(over: Partial<Props> = {}): Props {
   return {
     session: null,
@@ -125,8 +133,8 @@ describe("OperatorAssistantPanel", () => {
     await expect.element(alert.getByText(m.operator_assistant_error_reset())).toBeVisible();
   });
 
-  it("renders the assistant terminal once live, with the read-only and model badges", async () => {
-    const { container } = await mount({ session: assistantRow });
+  it("renders the assistant terminal once live, with the mode chip and the model badge", async () => {
+    const { container } = await mount({ session: assistantRow, permissions: READ_ONLY });
     await vi.waitFor(() => expect(ptyIds).toEqual(["oa"]));
     expect(container.querySelector(".term-mount")).not.toBeNull();
     // the assistant variant: no session-console header or tab bar
@@ -134,6 +142,29 @@ describe("OperatorAssistantPanel", () => {
     expect(container.querySelector("[role=tablist]")).toBeNull();
     await expect.element(page.getByText(m.operator_assistant_readonly())).toBeVisible();
     await expect.element(page.getByText(m.model_label_opus_5_5())).toBeVisible();
+  });
+
+  it("the mode chip names what Settings → Assistant allows and opens that section", async () => {
+    const onpermissions = vi.fn();
+    const view = await mount({
+      session: assistantRow,
+      permissions: { ...READ_ONLY, steer: "ask" },
+      onpermissions,
+    });
+    const chip = page.getByRole("button", { name: m.operator_assistant_mode_asks() });
+    await chip.click();
+    expect(onpermissions).toHaveBeenCalledOnce();
+
+    await view.rerender({ ...view.props, permissions: { ...READ_ONLY, approve: "allow" } });
+    await expect
+      .element(page.getByRole("button", { name: m.operator_assistant_mode_acts() }))
+      .toBeVisible();
+  });
+
+  it("shows no mode chip before the permissions are known", async () => {
+    await mount({ session: assistantRow });
+    await vi.waitFor(() => expect(ptyIds).toContain("oa"));
+    expect(page.getByText(m.operator_assistant_readonly()).query()).toBeNull();
   });
 
   it("New conversation needs a second click to reset, and disarms on its own", async () => {

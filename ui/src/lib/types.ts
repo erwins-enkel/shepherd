@@ -355,6 +355,8 @@ export interface Settings {
   /** Language spawned agents use to talk to the operator ("en" | "de"). Independent of the
    *  interface language — set only from the Settings page. */
   operatorLanguage: string;
+  /** What the Operator Assistant may do (Settings → Assistant); absent from an older server. */
+  assistantPermissions?: AssistantPermissions;
   /** Per-role ENVIRONMENT settings for the helper agents Shepherd spawns: a CLI pair per role.
    *  `<role>Cli` ∈ "inherit" | "claude" | "codex" ("inherit" follows `defaultAgentProvider` +
    *  `defaultModel`); `<role>Model` ∈ "default" | <alias for that CLI>. The Settings UI shows each
@@ -3026,16 +3028,36 @@ export type WsEvent =
       data: { repoPath: string; url: string | null; outcome: DocAgentOutcome };
     }
   | { event: "repo:untrusted-author"; data: { repoPath: string; issue: number } }
-  | { event: "operator-assistant:update"; data: { session: Session | null } };
+  | {
+      event: "operator-assistant:update";
+      data: { session: Session | null; permissions?: AssistantPermissions };
+    };
 
 /** Why the Operator Assistant can't run: no `claude` on the node, or herdr is down. */
 export type OperatorAssistantUnavailableReason = "claude_missing" | "herdr_unreachable";
 
-/** `GET /api/operator-assistant`: whether the assistant can run, why not, and its live row. */
+/** Settings → Assistant: the shell row's levels (off · every command asks · read-only commands
+ *  run, the rest asks · everything runs). Mirrors src/operator-assistant-permissions.ts. */
+export const ASSISTANT_SHELL_LEVELS = ["off", "ask", "read", "all"] as const;
+export type AssistantShellLevel = (typeof ASSISTANT_SHELL_LEVELS)[number];
+/** Settings → Assistant: an action group's levels. */
+export const ASSISTANT_ACTION_LEVELS = ["off", "ask", "allow"] as const;
+export type AssistantActionLevel = (typeof ASSISTANT_ACTION_LEVELS)[number];
+export const ASSISTANT_ACTION_GROUPS = ["steer", "sessions", "approve", "automation"] as const;
+export type AssistantActionGroup = (typeof ASSISTANT_ACTION_GROUPS)[number];
+/** What the Operator Assistant may do (Settings → Assistant). */
+export type AssistantPermissions = { shell: AssistantShellLevel } & Record<
+  AssistantActionGroup,
+  AssistantActionLevel
+>;
+
+/** `GET /api/operator-assistant`: whether the assistant can run, why not, its live row, and what
+ *  the operator lets it do (absent from an older server). */
 export interface OperatorAssistantState {
   available: boolean;
   reason: OperatorAssistantUnavailableReason | null;
   session: Session | null;
+  permissions?: AssistantPermissions;
 }
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */

@@ -6,6 +6,7 @@ export const SETTINGS_SECTION_IDS = [
   "steers",
   "plugins",
   "session",
+  "assistant",
   "notifications",
   "device",
   "access",
@@ -21,6 +22,8 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   steers: "⇥",
   plugins: "✦",
   session: "⌖",
+  // U+25C7, same Geometric Shapes block as ▦/◫/◈ — a hollow diamond, the assistant's ✦ cousin.
+  assistant: "◇",
   // Same Geometric Shapes block as ▦/◫/◈, so it shares their font coverage.
   notifications: "◎",
   device: "◫",
@@ -248,6 +251,14 @@ export function sectionSearchRows(ctx: {
     steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
     session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],
+    assistant: [
+      [m.settings_tab_assistant(), m.settings_assistant_intro()],
+      [m.settings_assistant_shell_title(), m.settings_assistant_shell_hint()],
+      [m.settings_assistant_steer_title(), m.settings_assistant_steer_hint()],
+      [m.settings_assistant_sessions_title(), m.settings_assistant_sessions_hint()],
+      [m.settings_assistant_approve_title(), m.settings_assistant_approve_hint()],
+      [m.settings_assistant_automation_title(), m.settings_assistant_automation_hint()],
+    ],
     device: [
       [m.settings_tab_device()],
       [m.actionbar_theme_group_aria()],

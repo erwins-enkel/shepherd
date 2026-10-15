@@ -1,13 +1,22 @@
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
-import type {
-  Placement,
-  PlacementWait,
-  RemoteDispatch,
-  SessionConnection,
-  SessionHost,
+import {
+  ASSISTANT_ACTION_GROUPS,
+  type AssistantActionGroup,
+  type AssistantPermissions,
+  type Placement,
+  type PlacementWait,
+  type RemoteDispatch,
+  type SessionConnection,
+  type SessionHost,
 } from "#lib/types.js";
 import { statusLabel } from "#lib/format.js";
+import {
+  assistantActionLevelLabel,
+  assistantGroupHint,
+  assistantGroupTitle,
+  assistantShellLevelLabel,
+} from "#lib/assistant-permissions.js";
 import { basename } from "#lib/components/learnings-drawer.js";
 import { lastKnownLabel, platformName, type MirroredSession } from "#lib/remote-sessions.js";
 import { capabilityList, placementReason } from "#lib/placement.js";
@@ -344,18 +353,77 @@ export function sandboxOverrideExplanation(): TooltipExplanation {
   };
 }
 
-/** Operator Assistant (#1446): the Assist toggle, the panel's READ-ONLY badge and the glossary. */
-export function operatorAssistantExplanation(): TooltipExplanation {
+/** Operator Assistant (#1446): the Assist toggle and the panel's mode chip. With `permissions`,
+ *  "What it may do" lists each Settings → Assistant row with its level; `settingsLink` adds the
+ *  footer saying a click opens that section (the chip). */
+export function operatorAssistantExplanation(
+  permissions: AssistantPermissions | null = null,
+  settingsLink = false,
+): TooltipExplanation {
   return {
     title: m.operator_assistant_title(),
     summary: m.operator_assistant_tip_summary(),
     sections: [
       { label: m.operator_assistant_tip_reads(), text: m.operator_assistant_tip_reads_body() },
       {
-        label: m.operator_assistant_tip_approval(),
-        text: m.operator_assistant_tip_approval_body(),
+        label: m.operator_assistant_tip_may(),
+        text: m.operator_assistant_tip_may_body(),
+        rows: permissions
+          ? [
+              {
+                text: m.settings_assistant_shell_title(),
+                aside: assistantShellLevelLabel(permissions.shell),
+              },
+              ...ASSISTANT_ACTION_GROUPS.map((g) => ({
+                text: assistantGroupTitle(g),
+                aside: assistantActionLevelLabel(permissions[g]),
+              })),
+            ]
+          : undefined,
       },
       { label: m.operator_assistant_tip_herdr(), text: m.operator_assistant_tip_herdr_body() },
+    ],
+    footer: settingsLink ? [m.operator_assistant_tip_open_settings()] : undefined,
+  };
+}
+
+/** Settings → Assistant, the shell row: what each level lets run. */
+export function assistantShellExplanation(): TooltipExplanation {
+  return {
+    title: m.settings_assistant_shell_title(),
+    summary: m.settings_assistant_shell_tip_summary(),
+    sections: [
+      {
+        label: m.settings_assistant_tip_levels(),
+        text: "",
+        rows: [
+          { text: m.settings_assistant_shell_tip_off() },
+          { text: m.settings_assistant_shell_tip_ask() },
+          { text: m.settings_assistant_shell_tip_read() },
+          { text: m.settings_assistant_shell_tip_all() },
+        ],
+      },
+      { label: m.settings_assistant_tip_locked(), text: m.settings_assistant_tip_locked_body() },
+    ],
+  };
+}
+
+/** Settings → Assistant, one action group's row: the levels, and what Allowed costs. */
+export function assistantGroupExplanation(group: AssistantActionGroup): TooltipExplanation {
+  return {
+    title: assistantGroupTitle(group),
+    summary: assistantGroupHint(group),
+    sections: [
+      {
+        label: m.settings_assistant_tip_levels(),
+        text: "",
+        rows: [
+          { text: m.settings_assistant_tip_off() },
+          { text: m.settings_assistant_tip_ask() },
+          { text: m.settings_assistant_tip_allow() },
+        ],
+      },
+      { label: m.settings_assistant_tip_risk(), text: m.settings_assistant_tip_risk_body() },
     ],
   };
 }

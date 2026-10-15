@@ -1685,6 +1685,28 @@ describe("Operator Assistant row (#1446)", () => {
     expect(s.assistantAvailable).toBe(true);
   });
 
+  test("the assistant's permissions come with the bootstrap GET and every operator-assistant:update", () => {
+    const s = new HerdStore();
+    expect(s.assistantPermissions).toBeNull();
+    const perms = {
+      shell: "read",
+      steer: "ask",
+      sessions: "ask",
+      approve: "off",
+      automation: "ask",
+    } as const;
+    s.seedAssistant({ available: true, reason: null, session: null, permissions: perms });
+    expect(s.assistantPermissions).toEqual(perms);
+    s.apply({
+      event: "operator-assistant:update",
+      data: { session: null, permissions: { ...perms, approve: "allow" } },
+    });
+    expect(s.assistantPermissions?.approve).toBe("allow");
+    // A frame without permissions (an older server) keeps what is known.
+    s.apply({ event: "operator-assistant:update", data: { session: assistantRow() } });
+    expect(s.assistantPermissions?.approve).toBe("allow");
+  });
+
   test("per-session pushes patch the assistant by id, behind the same __proto__ guard", () => {
     const s = new HerdStore();
     s.setAll([session("s1")]);

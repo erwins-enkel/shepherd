@@ -1,4 +1,5 @@
 import type {
+  AssistantPermissions,
   Session,
   ClearMergedPreview,
   ClearMergedResult,
@@ -1210,6 +1211,12 @@ export const putEngineEffort = (
 // Persist the language spawned agents use to talk to the operator ("en" | "de").
 export const putOperatorLanguage = (lang: string): Promise<{ operatorLanguage: string }> =>
   patchSettings<{ operatorLanguage: string }>({ operatorLanguage: lang });
+
+/** Settings → Assistant: change one or more levels; the answer is the whole merged set. */
+export const putAssistantPermissions = (
+  patch: Partial<AssistantPermissions>,
+): Promise<{ assistantPermissions: AssistantPermissions }> =>
+  patchSettings<{ assistantPermissions: AssistantPermissions }>({ assistantPermissions: patch });
 
 export const putDefaultAgentProvider = (
   provider: AgentProvider,

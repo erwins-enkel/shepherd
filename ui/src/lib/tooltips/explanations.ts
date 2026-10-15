@@ -352,6 +352,7 @@ export function bootstrapModeExplanation(): TooltipExplanation {
       { label: m.tooltip_mode_bootstrap_output(), text: m.tooltip_mode_bootstrap_output_body() },
       { label: m.tooltip_mode_bootstrap_pins(), text: m.tooltip_mode_bootstrap_pins_body() },
       { label: m.tooltip_mode_bootstrap_guards(), text: m.tooltip_mode_bootstrap_guards_body() },
+      { label: m.tooltip_mode_bootstrap_phases(), text: m.tooltip_mode_bootstrap_phases_body() },
     ],
   };
 }

@@ -136,3 +136,73 @@ export function bootstrapDirective(args: {
     "- You are attended: ask on genuine product decisions; otherwise keep going until the PR is up.",
   ].join("\n");
 }
+
+/** The fixed P3 checklist (#3110): product decisions a PRD tends to leave open. */
+const P3_CHECKLIST = [
+  "Auth: sign-up/sign-in methods, roles and what each role may see and do.",
+  "Data: who owns each record, deletion and retention, export.",
+  "States per screen: empty, loading, error, no-permission.",
+  "Forms: validation rules and messages; date/time pickers, timezones, number and currency formats.",
+  "Notifications: which events notify whom, through which channel (in-app, email, push).",
+  "Lists: search, filters, sort order, pagination or infinite scroll.",
+  "Layout: responsive breakpoints, dark mode, the accessibility level to meet.",
+  "First run: onboarding, sample data, the empty-account experience.",
+  "Analytics/telemetry: what is measured, consent.",
+  "Copy: tone, who owns translated content.",
+];
+
+/**
+ * The P3 directive (#3110): an attended Foundation grill + PRD↔design gap sweep on the scaffold P2
+ * landed. Ships ONE docs-only PR; every finding ends decided or as an M0/P4 candidate, so no
+ * orphan issue appears mid-drain. Needs no pins — they are already in the project's CLAUDE.md.
+ */
+export function bootstrapP3Directive(args: { agentProvider: AgentProvider }): string {
+  const ask =
+    args.agentProvider === "codex"
+      ? "ask the operator in chat and wait for the answer"
+      : "use AskUserQuestion";
+  return [
+    "You are running as an attended BOOTSTRAP task, phase P3: sweep the PRD against the design " +
+      "export, settle the open product decisions with the operator, and deliver the result as " +
+      "exactly ONE documentation-only pull request to the default branch. Do not write app code " +
+      "and do not create issues or epics (the backlog is phase P4).",
+    "",
+    "## Inputs",
+    "- PRD: `docs/prd/`, `docs/prd.md` or `PRD.md`. If none exists, " +
+      `${ask} where it is; without one, stop.`,
+    "- Design export: `docs/design/` (canvas, screens, tokens). If it is missing, do NOT abort: " +
+      'sweep the PRD alone and state "no design input" in the decision record and the PR body.',
+    "- Already decided: CLAUDE.md `## Foundation decisions` and `docs/decisions/0001-foundation.md` " +
+      "(P1). Read them first and never ask one of those again.",
+    "- The scaffold that exists (routes, app shell, shared components) — the gaps are measured " +
+      "against it, not against an imagined app.",
+    "",
+    "## Sweep",
+    "Fixed checklist — skip what is already decided:",
+    ...P3_CHECKLIST.map((c) => `- ${c}`),
+    "Then a free gap sweep between PRD and design:",
+    "- Screens without a story, stories without a screen.",
+    "- Missing states and components (date picker, empty, error, loading, confirmation dialogs).",
+    "- Contradictions between PRD text and screens.",
+    "",
+    "## Grill — one numbered round",
+    "Post ALL open decisions as ONE numbered list in chat. Each item: the question, your proposed " +
+      "default, and the PRD section or screen it comes from. Do not use AskUserQuestion for this " +
+      "list (it caps at four questions). The operator answers by number or accepts the defaults; " +
+      "ask follow-ups only for answers that open new questions.",
+    "",
+    "## Deliverable (one PR)",
+    "- `docs/decisions/0002-product-decisions.md`: the numbered decisions (question, answer, " +
+      "source); a gap table (finding → decision number, or M0/P4 candidate); and a section " +
+      "`## M0 candidates` listing the foundation stories for the backlog (app shell, shared " +
+      "components, cross-cutting states) — intent only, never a version number.",
+    "- The PRD supplemented in place with the decisions and the resolved gaps.",
+    "- CLAUDE.md `## Product decisions`: the short rules every implementing agent must follow.",
+    "- No orphans: every finding is either decided or listed as an M0/P4 candidate — none is left " +
+      "only in chat.",
+    "- PR body: the decision list and the M0 candidates.",
+    "",
+    "## Done",
+    "- The PR is up and its CI is green. You are attended: keep going until it is.",
+  ].join("\n");
+}

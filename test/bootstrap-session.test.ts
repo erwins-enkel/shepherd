@@ -3,7 +3,7 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { SessionService, composeSystemPrompt } from "../src/service";
-import { bootstrapDirective } from "../src/bootstrap-directive";
+import { bootstrapDirective, bootstrapP3Directive } from "../src/bootstrap-directive";
 import { HouseStackUnresolvedError, type HouseStackResolution } from "../src/house-stack";
 
 const RESOLVED: HouseStackResolution = {
@@ -172,6 +172,62 @@ test("relaunch keeps the bootstrap flag and re-resolves", async () => {
   expect(store.get(again.id)?.bootstrap).toBe(true);
 });
 
+test("bootstrap spawn on a repo at P3 runs the gap sweep without resolving (#3110)", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoBootstrap("/repo", { state: "active", phase: 3 });
+  const captured = { worktrees: 0 } as { argv?: string[]; worktrees: number };
+  let calls = 0;
+  const d = deps(store, captured);
+  d.houseStackResolver = {
+    resolve: async () => {
+      calls++;
+      return RESOLVED;
+    },
+  };
+  const svc = new SessionService(d as any);
+  const s = await svc.create(input);
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain("<bootstrap-directive>");
+  expect(sp).toContain("phase P3");
+  expect(sp).not.toContain("`svelte@9`");
+  expect(calls).toBe(0);
+  expect(store.get(s.id)?.bootstrap).toBe(true);
+  expect(store.getBootstrapPhase(s.id)).toBe(3);
+  expect(store.getBootstrapStack(s.id)).toBeNull();
+});
+
+test("bootstrap spawn on a repo before P3 stays P1+P2", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoBootstrap("/repo", { state: "active", phase: 2 });
+  const captured = { worktrees: 0 } as { argv?: string[]; worktrees: number };
+  const svc = new SessionService(deps(store, captured) as any);
+  const s = await svc.create(input);
+  expect(sysPrompt(captured.argv!)).toContain("`svelte@9`");
+  expect(store.getBootstrapPhase(s.id)).toBe(1);
+});
+
+test("resume of a P3 session re-renders the gap sweep", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "abc-123",
+    bootstrapPhase: 3,
+  });
+  store.update(s.id, { status: "done", lastState: "done" });
+  const captured = { worktrees: 0 } as { argv?: string[]; worktrees: number };
+  const svc = new SessionService({ ...deps(store, captured), transcriptExists: () => true } as any);
+  await svc.resume(s.id);
+  expect(sysPrompt(captured.argv!)).toContain("phase P3");
+});
+
 test("composeSystemPrompt: bootstrap outranks plan gate + autopilot but keeps the PR blocks", () => {
   const sp = composeSystemPrompt(null, true, {
     bootstrap: "BOOT",
@@ -226,4 +282,18 @@ test("relaunch rejects a merged kind conflict, allows an explicit switch", async
   const switched = await svc.relaunch(research.id, undefined, { bootstrap: true, research: false });
   expect(store.get(switched.id)?.bootstrap).toBe(true);
   expect(store.get(switched.id)?.research).toBe(false);
+});
+
+test("bootstrapP3Directive: gap sweep, one numbered grill, no orphans, design optional", () => {
+  const text = bootstrapP3Directive({ agentProvider: "claude" });
+  expect(text).toContain("phase P3");
+  expect(text).toContain("ONE numbered list");
+  expect(text).toContain("Screens without a story, stories without a screen");
+  expect(text).toContain("docs/decisions/0002-product-decisions.md");
+  expect(text).toContain("## M0 candidates");
+  expect(text).toContain("No orphans");
+  expect(text).toContain("do NOT abort");
+  expect(text).toContain("never ask one of those again");
+  expect(text).not.toMatch(/\d+\.\d+\.\d+/);
+  expect(bootstrapP3Directive({ agentProvider: "codex" })).toContain("ask the operator in chat");
 });

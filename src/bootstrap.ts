@@ -48,6 +48,25 @@ export function bootstrapExitReached(b: RepoBootstrap, mustHaves: readonly strin
   return b.state === "active" && b.phase === BOOTSTRAP_LAST_PHASE && mustHaves.length === 0;
 }
 
+/** The phase a bootstrap SESSION runs (#3110): P1+P2 (one PR) until the repo reaches P3, then the
+ *  P3 gap sweep. Picked at create from the repo's state, so the session follows the repo. */
+export type BootstrapSessionPhase = 1 | 3;
+
+export function bootstrapSessionPhase(b: RepoBootstrap): BootstrapSessionPhase {
+  return b.state === "active" && b.phase >= 3 ? 3 : 1;
+}
+
+/** The repo phase after a bootstrap session's PR merged: P1+P2 → 3, P3 → 4. Null when the repo is
+ *  not active or already at/after that phase — a merge never moves the phase backwards. */
+export function phaseAfterBootstrapMerge(
+  b: RepoBootstrap,
+  sessionPhase: BootstrapSessionPhase,
+): number | null {
+  if (b.state !== "active") return null;
+  const next = sessionPhase === 1 ? 3 : 4;
+  return next > b.phase ? next : null;
+}
+
 /** True when the repo root carries a manifest of a supported ecosystem (package.json /
  *  Cargo.toml). A repo without one is SUGGESTED for bootstrap mode, never switched on. Async so
  *  it never blocks the server loop. */

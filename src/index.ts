@@ -2818,10 +2818,13 @@ events.subscribe((event, data) => {
   if (event === "session:archived") {
     const { id } = data as { id: string };
     void drain.onArchived(id).catch((err) => console.warn("[drain] onArchived:", err));
-    // #3107: a merged PR in an active-bootstrap repo re-scans its greenfield readiness.
+    // #3107: a merged PR in an active-bootstrap repo re-scans its greenfield readiness; a bootstrap
+    // session's merge also advances the repo's phase (#3110).
     const s = store.get(id);
     if (s?.archiveReason === "merged")
-      void greenfield.onMerged(s.repoPath).catch((err) => console.warn("[greenfield]:", err));
+      void greenfield
+        .onMerged(s.repoPath, s.bootstrap ? store.getBootstrapPhase(id) : null)
+        .catch((err) => console.warn("[greenfield]:", err));
   } else if (event === "session:review") {
     const { id } = data as { id: string };
     void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));

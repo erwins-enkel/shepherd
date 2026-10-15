@@ -62,6 +62,7 @@ import type {
   WorkflowJob,
   ReadinessReport,
   ForgeReadiness,
+  GreenfieldReport,
   RepoRoles,
   InstalledPlugin,
   DocAgentRun,
@@ -498,6 +499,26 @@ export const demoState = {
       { id: "auto_label", state: "ok", current: true, target: true },
     ],
   }),
+
+  /** GET /api/readiness/greenfield?repo= — the bootstrap checklist (#3107): an empty project
+   *  with its inputs (PRD, design) in place and nothing else yet. */
+  greenfieldReadiness: (): GreenfieldReport => {
+    const items: GreenfieldReport["items"] = [
+      { id: "stack_pinned", tier: "must", present: false, evidence: [] },
+      { id: "scaffold_builds", tier: "must", present: false, evidence: [] },
+      { id: "ci_on_main", tier: "must", present: false, evidence: [] },
+      { id: "hooks_pre_push", tier: "must", present: false, evidence: [] },
+      { id: "dead_code_audit", tier: "must", present: false, evidence: [] },
+      { id: "forge_settings", tier: "must", present: true, evidence: ["5 forge checks ok"] },
+      { id: "prd", tier: "nice", present: true, evidence: ["docs/prd/"] },
+      { id: "design_export", tier: "nice", present: true, evidence: ["docs/design/"] },
+      { id: "foundation_decisions", tier: "nice", present: false, evidence: [] },
+      { id: "issue_templates", tier: "nice", present: false, evidence: [] },
+      { id: "dependency_automation", tier: "nice", present: false, evidence: [] },
+    ];
+    const missing = items.filter((i) => i.tier === "must" && !i.present).map((i) => i.id);
+    return { ecosystem: null, score: 22, items, mustHavesMissing: missing, checkedAt: 0 };
+  },
 
   /** GET /api/readiness?repo= — the Backlog Readiness tab. An unseeded repo answers
    *  `applicable:false`, the server's own "matches no supported ecosystem" path, which the

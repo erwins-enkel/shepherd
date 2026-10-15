@@ -8,6 +8,7 @@ import {
   INSTALL_STEPS,
   PM_VERBS,
   pickPackageManager,
+  scanEcosystem,
   type GuardrailId,
 } from "../src/readiness";
 
@@ -448,4 +449,33 @@ test("an env template in a package subdirectory makes env_schema apply", () => {
   const r = analyzeReadiness(dir);
   expect(r.checks.map((c) => c.id)).toContain("env_schema");
   expect(present("env_schema", r)).toBe(false);
+});
+
+test("#3107: a package.json two levels down (apps/web) makes the repo applicable", () => {
+  write("apps/web/package.json", JSON.stringify({ name: "web", scripts: { lint: "eslint ." } }));
+  write("node_modules/x/package.json", "{}");
+  const r = analyzeReadiness(dir);
+  expect(r.applicable).toBe(true);
+  expect(present("linter", r)).toBe(true);
+});
+
+test("#3107: a first-level manifest short-circuits the second-level search", () => {
+  write("ui/package.json", JSON.stringify({ name: "ui" }));
+  write("apps/web/package.json", JSON.stringify({ name: "web", scripts: { lint: "eslint ." } }));
+  const r = analyzeReadiness(dir);
+  expect(r.applicable).toBe(true);
+  expect(present("linter", r)).toBe(false); // apps/web is not scanned
+});
+
+test("#3107: a root Cargo.toml beside a nested JS tool (rust-analyzer layout) stays rust", () => {
+  write("Cargo.toml", '[package]\nname = "ra"\n');
+  write("editors/code/package.json", JSON.stringify({ name: "vscode-ext" }));
+  const r = analyzeReadiness(dir);
+  expect(r.ecosystem).toBe("rust");
+  expect(scanEcosystem(dir).ecosystem).toBe("rust");
+});
+
+test("#3107: a depth-2 Cargo.toml only is found by the deep pass", () => {
+  write("crates/core/Cargo.toml", '[package]\nname = "core"\n');
+  expect(analyzeReadiness(dir).ecosystem).toBe("rust");
 });

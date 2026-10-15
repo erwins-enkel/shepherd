@@ -162,6 +162,7 @@ import { GithubReadCache } from "./github-read-cache";
 import { BacklogPoller, reposUsedSince } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
+import { GreenfieldService } from "./greenfield";
 import {
   ProcessReaper,
   reapDeletedWorktreeOrphans,
@@ -2776,11 +2777,21 @@ events.subscribe((event, data) => {
   autopilot.forget((data as { id: string }).id);
 });
 
+// Readiness greenfield profile (#3107): scans an active-bootstrap repo's must-haves for the drain
+// gate. A changed gate (or the exit to `done`) kicks a drain tick; `drain` is declared below and
+// only read when a scan lands, long after construction.
+const greenfield = new GreenfieldService({
+  store,
+  resolveForge,
+  onChange: () => void drain.tick().catch((err) => console.warn("[greenfield] tick:", err)),
+});
+
 // Self-draining work queue (#222): when an auto session's PR merges, archive it and
 // spawn the next labeled backlog issue, bounded by the per-repo rails. Pure decision
 // core (computeNext) with side effects here; driven off the same poller events.
 const drain = new DrainService({
   capacity: capacityCheck,
+  bootstrapMustHaves: (repoPath) => greenfield.mustHavesMissing(repoPath),
   store,
   readCodexAuthMode,
   service,
@@ -2818,6 +2829,10 @@ events.subscribe((event, data) => {
   if (event === "session:archived") {
     const { id } = data as { id: string };
     void drain.onArchived(id).catch((err) => console.warn("[drain] onArchived:", err));
+    // #3107: a merged PR in an active-bootstrap repo re-scans its greenfield readiness.
+    const s = store.get(id);
+    if (s?.archiveReason === "merged")
+      void greenfield.onMerged(s.repoPath).catch((err) => console.warn("[greenfield]:", err));
   } else if (event === "session:review") {
     const { id } = data as { id: string };
     void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
@@ -4170,6 +4185,7 @@ const appDeps: AppDeps = {
     snapshot: () => maintainService.snapshot(),
   },
   gitignoreAdopter,
+  greenfield,
   drain: {
     snapshot: () => drain.snapshot(),
     queue: (repoPath) => drain.queue(repoPath),

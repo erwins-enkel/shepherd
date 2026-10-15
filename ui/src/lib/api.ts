@@ -61,6 +61,7 @@ import type {
   ReadinessReport,
   ForgeCheckId,
   ForgeReadiness,
+  GreenfieldReport,
   DrainStatus,
   AutoMergeStatus,
   QueuedItem,
@@ -2819,6 +2820,14 @@ export async function getBacklog(): Promise<BacklogPayload> {
 
 export async function getReadiness(repoPath: string): Promise<ReadinessReport> {
   return getJson(`/api/readiness?repo=${encodeURIComponent(repoPath)}`, "readiness");
+}
+
+/** Readiness → greenfield profile (#3107): re-scans the repo's bootstrap checklist. */
+export async function getGreenfieldReadiness(repoPath: string): Promise<GreenfieldReport> {
+  return getJson(
+    `/api/readiness/greenfield?repo=${encodeURIComponent(repoPath)}`,
+    "readiness-greenfield",
+  );
 }
 
 /** Readiness → Forge settings checks (#3106); `{supported:false}` off GitHub. */

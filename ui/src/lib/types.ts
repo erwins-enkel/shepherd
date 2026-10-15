@@ -2665,7 +2665,7 @@ export interface GuardrailCheck {
 /** Which stack the repo matched, or null when it matches no supported ecosystem. */
 export type Ecosystem = "js-ts" | "rust";
 export interface ReadinessReport {
-  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml) — the baseline is N/A. */
+  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml within two levels) — the baseline is N/A. */
   applicable: boolean;
   /** The matched ecosystem, or null on the not-applicable path. */
   ecosystem: Ecosystem | null;
@@ -2680,6 +2680,40 @@ export interface ReadinessReport {
   /** The prescribed intent-shaped issue template (#2158) — same sections as a shaped task brief.
    *  Verbatim artifact, exempt from i18n; "" on the not-applicable path. */
   issueTemplate: string;
+}
+
+// ── Readiness → greenfield profile (#3107); mirrors src/greenfield-core.ts ──
+export type GreenfieldItemId =
+  | "stack_pinned"
+  | "scaffold_builds"
+  | "ci_on_main"
+  | "hooks_pre_push"
+  | "dead_code_audit"
+  | "forge_settings"
+  | "prd"
+  | "design_export"
+  | "foundation_decisions"
+  | "issue_templates"
+  | "env_schema"
+  | "dependency_automation";
+/** must = bootstrap exit predicate (holds the drain); nice = scored, never blocking. */
+export type GreenfieldTier = "must" | "nice";
+export interface GreenfieldItem {
+  id: GreenfieldItemId;
+  tier: GreenfieldTier;
+  present: boolean;
+  /** Matched markers — verbatim, not translated. */
+  evidence: string[];
+}
+export interface GreenfieldReport {
+  /** Scaffold ecosystem once a manifest exists; null before. */
+  ecosystem: Ecosystem | null;
+  /** Weighted 0–100 (must 3, nice 1). */
+  score: number;
+  items: GreenfieldItem[];
+  /** Red must-haves — what the bootstrap gate still waits for. */
+  mustHavesMissing: GreenfieldItemId[];
+  checkedAt: number;
 }
 
 // ── Readiness → Forge settings (#3106); mirrors src/readiness-forge-core.ts ──

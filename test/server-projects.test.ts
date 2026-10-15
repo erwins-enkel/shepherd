@@ -6,7 +6,7 @@
  * issue that can wedge the root suite in Shepherd worktrees (see memory note).
  */
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SessionStore } from "../src/store";
@@ -236,7 +236,8 @@ test("POST /api/projects local-only happy path → 201 + RepoEntry shape", async
   const name = "srv-proj-happy-" + Date.now();
   const targetDir = join(config.repoRoot, name);
   try {
-    const app = makeTestApp();
+    const deps = makeDeps();
+    const app = makeApp(deps);
     const res = await postProjects(app, {
       name,
       idea: "a simple todo app",
@@ -262,6 +263,12 @@ test("POST /api/projects local-only happy path → 201 + RepoEntry shape", async
     expect(body.warning).toBeUndefined();
     // Dir must exist
     expect(existsSync(targetDir)).toBe(true);
+    // #3105: a new project starts in project-bootstrap mode at P1.
+    expect(deps.store.getRepoBootstrap(realpathSync(targetDir))).toEqual({
+      state: "active",
+      phase: 1,
+      overrideAt: null,
+    });
   } finally {
     if (existsSync(targetDir)) rmSync(targetDir, { recursive: true, force: true });
   }

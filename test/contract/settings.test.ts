@@ -539,6 +539,20 @@ test("push administration is cookie-admin only and never returns the key", async
     s.deps.store.deletePushSub(ios);
   }
 });
+test("repo bootstrap state, phase and logged override (#3105)", async () => {
+  const q = `?repo=${encodeURIComponent(s.validRepo)}`;
+  const base = "/api/repo-bootstrap",
+    ovr = "/api/repo-bootstrap/override";
+  await request("GET", base, 200, undefined, base + q);
+  await request("GET", base, 400, undefined, base + "?repo=/outside");
+  await request("PUT", base, 409, { phase: 2 }, base + q);
+  await request("POST", ovr, 409, { on: true }, ovr + q);
+  await request("PUT", base, 400, { state: "done" }, base + q);
+  await request("PUT", base, 200, { state: "active" }, base + q);
+  await request("POST", ovr, 400, { on: "yes" }, ovr + q);
+  await request("POST", ovr, 200, { on: false }, ovr + q);
+  await request("PUT", base, 200, { state: "off" }, base + q);
+});
 test("existing token contract is cookie-admin only", async () => {
   const admin = { cookie };
   await request("GET", "/api/access-tokens", 200, undefined, undefined, admin);

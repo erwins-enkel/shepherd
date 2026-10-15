@@ -13,6 +13,7 @@
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import BrowserAllowedHosts from "./automation-settings/BrowserAllowedHosts.svelte";
+  import AutomationBootstrap from "./automation-settings/AutomationBootstrap.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
   import type { Session, SandboxProfile, DrainStatus } from "#lib/types.js";
@@ -523,6 +524,8 @@
      switch to the epic-scoped intro copy. Both flags are gated inside the component
      so this template stays flat. -->
 <AutomationDrainFields {repoPath} active={drainRailsActive} {epicActive} />
+<!-- Project bootstrap (#3105): holds the drain above until the foundation is in place. -->
+<AutomationBootstrap {repoPath} />
 <div class={["auto-row", { disabled: lightweight }]}>
   <div class="auto-meta">
     <div class="auto-name">☑ {m.automation_prewarm_epic_ci_name()}</div>

@@ -6380,6 +6380,56 @@ components:
           type: string
         hasApiKey:
           type: boolean
+    RepoBootstrapView:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+        - phase
+        - overrideAt
+        - missing
+        - suggested
+      properties:
+        state:
+          type: string
+          enum:
+            - off
+            - active
+            - done
+        phase:
+          type: integer
+          minimum: 1
+          maximum: 5
+        overrideAt:
+          type: integer
+          nullable: true
+        missing:
+          type: array
+          items:
+            type: string
+        suggested:
+          type: boolean
+    RepoBootstrapPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        state:
+          type: string
+          enum:
+            - off
+            - active
+        phase:
+          type: integer
+          minimum: 1
+          maximum: 5
+    RepoBootstrapOverride:
+      type: object
+      additionalProperties: false
+      required:
+        - on
+      properties:
+        on:
+          type: boolean
     RepoConfig:
       type: object
       additionalProperties: true
@@ -11149,6 +11199,104 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/repo-bootstrap:
+    get:
+      operationId: getRepoBootstrap
+      description: Project-bootstrap state of a repo (#3105); `off` for every repo never bootstrapped.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoBootstrapView"
+        "400":
+          description: Invalid repo or body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: putRepoBootstrap
+      description: Switch project bootstrap on/off or move its phase. `done` is reached only through the exit predicate (P1–P4 complete and every must-have green), never set directly.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoBootstrapPatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoBootstrapView"
+        "400":
+          description: Invalid repo or body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The repo is not in active project bootstrap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/repo-bootstrap/override:
+    post:
+      operationId: overrideRepoBootstrap
+      description: Grant or revoke the logged operator override that lets the drain run while the repo is still bootstrapping.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoBootstrapOverride"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoBootstrapView"
+        "400":
+          description: Invalid repo or body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The repo is not in active project bootstrap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/repo-browser/open:
     post:
       operationId: openRepoBrowser

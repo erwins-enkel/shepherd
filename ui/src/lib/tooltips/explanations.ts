@@ -671,3 +671,16 @@ export function remoteFactsExplanation(
     ],
   };
 }
+
+/** Project bootstrap (#3105): what the hold stops, when it ends, what the override costs. */
+export function bootstrapExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_bootstrap_title(),
+    summary: m.tooltip_bootstrap_summary(),
+    sections: [
+      { label: m.tooltip_bootstrap_hold(), text: m.tooltip_bootstrap_hold_body() },
+      { label: m.tooltip_bootstrap_exit(), text: m.tooltip_bootstrap_exit_body() },
+      { label: m.tooltip_bootstrap_override(), text: m.tooltip_bootstrap_override_body() },
+    ],
+  };
+}

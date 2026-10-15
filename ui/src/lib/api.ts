@@ -2933,6 +2933,51 @@ export async function putRepoConfig(
   return r.json();
 }
 
+/** Project-bootstrap state of a repo (#3105) — mirrors the server's RepoBootstrapView. */
+export interface RepoBootstrapView {
+  state: "off" | "active" | "done";
+  /** Current phase 1–5; every phase below it is complete. */
+  phase: number;
+  /** When the operator overrode the drain hold; null when no override is in force. */
+  overrideAt: number | null;
+  /** What still holds the drain (phases `P<n>`, then must-haves), even while overridden. */
+  missing: string[];
+  /** Off and the repo root has no package.json / Cargo.toml — offer bootstrap mode. */
+  suggested: boolean;
+}
+
+export async function getRepoBootstrap(repoPath: string): Promise<RepoBootstrapView> {
+  return getJson(`/api/repo-bootstrap?repo=${encodeURIComponent(repoPath)}`, "repo-bootstrap");
+}
+
+/** Switch bootstrap mode on/off (or move its phase). `done` is reached only via the exit check. */
+export async function putRepoBootstrap(
+  repoPath: string,
+  patch: { state?: "off" | "active"; phase?: number },
+): Promise<RepoBootstrapView> {
+  const r = await fetch(`/api/repo-bootstrap?repo=${encodeURIComponent(repoPath)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw await failed(r, "repo-bootstrap put");
+  return r.json();
+}
+
+/** Grant (on) or revoke the logged operator override of the bootstrap drain hold. */
+export async function overrideRepoBootstrap(
+  repoPath: string,
+  on: boolean,
+): Promise<RepoBootstrapView> {
+  const r = await fetch(`/api/repo-bootstrap/override?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ on }),
+  });
+  if (!r.ok) throw await failed(r, "repo-bootstrap override");
+  return r.json();
+}
+
 export interface PrReviewerOptions {
   prNumber: number;
   repoSlug: string | null;

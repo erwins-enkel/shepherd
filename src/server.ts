@@ -38,6 +38,14 @@ import { LearningsService } from "./learnings-service";
 import { isRelevanceMode } from "./house-rules-relevance";
 import { RepoConfigService } from "./repo-config-service";
 import {
+  BOOTSTRAP_LAST_PHASE,
+  bootstrapExitReached,
+  bootstrapMissing,
+  bootstrapMustHavesMissing,
+  hasProjectManifest,
+  isBootstrapPhase,
+} from "./bootstrap";
+import {
   BLOCK_JUDGE_MODES,
   EFFORTS,
   isBlockJudgeMode,
@@ -2676,6 +2684,96 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
   if (browserWasOn && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
   return json(r.config);
+}
+
+// ── project bootstrap (#3105) ─────────────────────────────────────────────────────────────────
+// GET  /api/repo-bootstrap?repo=           → RepoBootstrapView
+// PUT  /api/repo-bootstrap?repo=           body { state?: "off"|"active", phase?: 1..5 }
+// POST /api/repo-bootstrap/override?repo=  body { on: boolean } — logged operator override
+// `done` is never set directly: only the exit predicate (P1–P4 complete + must-haves green) gets
+// there. Every mutation kicks the drain so the bootstrap_incomplete hold appears/clears at once.
+
+async function repoBootstrapView(store: AppDeps["store"], dir: string) {
+  const b = store.getRepoBootstrap(dir);
+  // `missing` ignores the override: the operator still sees what the override is skipping.
+  const missing = bootstrapMissing({ ...b, overrideAt: null }, bootstrapMustHavesMissing()) ?? [];
+  const suggested = b.state === "off" && !(await hasProjectManifest(dir));
+  return { ...b, missing, suggested };
+}
+
+function parseRepoBootstrapPut(
+  body: unknown,
+): { state?: "off" | "active"; phase?: number } | string {
+  if (!body || typeof body !== "object") return "body must be an object";
+  const { state, phase } = body as { state?: unknown; phase?: unknown };
+  if (state !== undefined && state !== "off" && state !== "active")
+    return 'state must be "off" or "active"';
+  if (phase !== undefined && !isBootstrapPhase(phase)) return "phase must be an integer 1–5";
+  if (state === undefined && phase === undefined) return "body must set state and/or phase";
+  return { state, phase };
+}
+
+function applyRepoBootstrapPut(
+  store: AppDeps["store"],
+  dir: string,
+  patch: { state?: "off" | "active"; phase?: number },
+): string | null {
+  const cur = store.getRepoBootstrap(dir);
+  if (patch.state === "off") {
+    store.setRepoBootstrap(dir, { state: "off", phase: 1 });
+    return null;
+  }
+  // Entering active restarts at P1 unless a phase is given; a phase alone needs a bootstrap run.
+  const entering = patch.state === "active" && cur.state !== "active";
+  if (!entering && cur.state !== "active") return "repo is not bootstrapping";
+  const phase = patch.phase ?? (entering ? 1 : cur.phase);
+  store.setRepoBootstrap(dir, { state: "active", phase });
+  const next = store.getRepoBootstrap(dir);
+  if (bootstrapExitReached(next, bootstrapMustHavesMissing()))
+    store.setRepoBootstrap(dir, { state: "done", phase: BOOTSTRAP_LAST_PHASE });
+  return null;
+}
+
+async function handleRepoBootstrap({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-bootstrap")) return null;
+  const leaf = parts[2] ?? "";
+  if (parts[3] || (leaf !== "" && leaf !== "override")) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const route = `${req.method} ${leaf}`;
+  if (route === "GET ") return json(await repoBootstrapView(deps.store, dir));
+  if (route !== "PUT " && route !== "POST override") return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as unknown;
+  const err =
+    route === "PUT " ? putRepoBootstrap(deps, dir, body) : overrideRepoBootstrap(deps, dir, body);
+  if (err) return err;
+  if (deps.drain) kickDrain(deps.drain, "bootstrap");
+  return json(await repoBootstrapView(deps.store, dir));
+}
+
+function putRepoBootstrap(deps: AppDeps, dir: string, body: unknown): Response | null {
+  const patch = parseRepoBootstrapPut(body);
+  if (typeof patch === "string") return json({ error: patch }, 400);
+  const conflict = applyRepoBootstrapPut(deps.store, dir, patch);
+  return conflict ? json({ error: conflict }, 409) : null;
+}
+
+function overrideRepoBootstrap(deps: AppDeps, dir: string, body: unknown): Response | null {
+  const on = (body as { on?: unknown } | null)?.on;
+  if (typeof on !== "boolean") return json({ error: "on must be a boolean" }, 400);
+  const missing = bootstrapMissing(
+    { ...deps.store.getRepoBootstrap(dir), overrideAt: null },
+    bootstrapMustHavesMissing(),
+  );
+  if (!deps.store.setRepoBootstrapOverride(dir, on))
+    return json({ error: "repo is not bootstrapping" }, 409);
+  // The override is deliberately loud: it lets the drain run on an unfinished bootstrap.
+  console.warn(
+    `[bootstrap] operator override ${on ? "ON" : "OFF"} repo=${dir} missing=${(missing ?? []).join(",") || "-"}`,
+  );
+  return null;
 }
 
 /** The tab URL for the operator "Open": the session's real dev origin when it has a dev server
@@ -7459,7 +7557,11 @@ const PROJECT_ERROR_STATUS: Record<string, number> = {
   newproject_failed_generic: 422,
 };
 
-async function createProjectFromRequest(req: Request, ghRunner?: GhRunner): Promise<Response> {
+async function createProjectFromRequest(
+  req: Request,
+  store: AppDeps["store"],
+  ghRunner?: GhRunner,
+): Promise<Response> {
   const b = firstRunBlock();
   if (b) return b;
   const ctErr = requireJsonContentType(req);
@@ -7469,6 +7571,11 @@ async function createProjectFromRequest(req: Request, ghRunner?: GhRunner): Prom
   if (!parsed.ok) return json({ error: parsed.error }, PROJECT_ERROR_STATUS[parsed.error] ?? 400);
   const r = await createProject(parsed.value, config.repoRoot, ghRunner);
   if (!r.ok) return json({ error: r.error }, PROJECT_ERROR_STATUS[r.error] ?? 422);
+  // #3105: a new project starts in project-bootstrap mode (P1), so no drain runs on it before its
+  // scaffold exists. Keyed by the same resolved dir the drain and repo-config use. The local repo
+  // exists even when the remote step only warned.
+  const dir = safeRepoDir(r.entry.path, config.repoRoot);
+  if (dir) store.setRepoBootstrap(dir, { state: "active", phase: 1 });
   return json(r.warning ? { ...r.entry, warning: r.warning } : r.entry, 201);
 }
 
@@ -7525,7 +7632,8 @@ async function handleRepos({ req, parts, deps, token }: Ctx): Promise<Response |
 // POST /api/projects — bootstrap a new git project (git init + optional GitHub remote).
 async function handleProjects({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "projects" && !parts[2]) {
-    if (req.method === "POST") return createProjectFromRequest(req, deps.newProjectGhRunner);
+    if (req.method === "POST")
+      return createProjectFromRequest(req, deps.store, deps.newProjectGhRunner);
   }
   return null;
 }
@@ -11054,6 +11162,7 @@ const ROUTE_HANDLERS = [
   handleEpicQueue,
   handleEpicQueueReorder,
   handleRepoConfig,
+  handleRepoBootstrap,
   handleRepoBrowserOpen,
   handleRepoRoles,
   handleRepoRolesAutoMerge,

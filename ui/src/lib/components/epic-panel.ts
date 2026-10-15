@@ -8,7 +8,7 @@ import type {
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { formatReset } from "#lib/format.js";
-import { pausedText } from "./queue-strip";
+import { bootstrapMissingText, pausedText } from "./queue-strip";
 
 export type ChipTone = "done" | "review" | "running" | "ready" | "muted";
 
@@ -85,6 +85,9 @@ export function epicHoldLine(
     // The forge's open-issue listing failed (e.g. a rate limit) — self-heals on the next read.
     case "epic_unreadable":
       return m.epic_hold_epic_unreadable();
+    // #3105: the repo is still in project bootstrap — no child starts until it is done/overridden.
+    case "bootstrap_incomplete":
+      return m.epic_hold_bootstrap_incomplete({ missing: bootstrapMissingText(desig) });
     case "awaiting_signoff":
       return m.epic_hold_awaiting_signoff({ desig });
     case "empty":
@@ -181,6 +184,7 @@ const HALT_REASONS = new Set([
   "credits",
   "epic_base_unavailable",
   "epic_unreadable",
+  "bootstrap_incomplete",
   "awaiting_signoff",
   "disabled",
 ]);

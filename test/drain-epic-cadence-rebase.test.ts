@@ -382,6 +382,12 @@ async function holdCode(h: Harness): Promise<string | null> {
   return d.kind === "hold" ? d.reason.code : null;
 }
 
+/** What autopilot does when a rework session finishes: mark it complete — it is NOT archived. */
+function finishRework(h: Harness): void {
+  const s = h.store.list().find((x) => x.landingRepair && !x.autopilotComplete)!;
+  h.store.setAutopilotState(s.id, { complete: true });
+}
+
 function restart(h: Harness): Harness {
   // A fresh DrainService on the SAME store: in-memory throttles/overrides are gone.
   const next = makeHarness();
@@ -406,8 +412,11 @@ describe("epic base freshness (#3101)", () => {
     h.clock.t += 1;
     expect(await holdCode(h)).toBe("epic_base_stale");
 
-    // Armed + still busy: every tick re-checks quiescence, without another fetch.
+    // Armed + still busy: the hourly probe runs once; ticks inside the hour re-check quiescence
+    // without another fetch.
+    await callPass(h);
     const probes = h.probes;
+    h.clock.t += 30_000;
     await callPass(h);
     expect(h.probes).toBe(probes);
     expect(h.calls).toHaveLength(0);
@@ -445,7 +454,7 @@ describe("epic base freshness (#3101)", () => {
     expect(h.calls).toHaveLength(1);
 
     // It ends without fixing it → retried at once; cap spent → notify, no second agent.
-    h.store.archive(h.store.list().find((s) => s.landingRepair)!.id);
+    finishRework(h);
     await callPass(h);
     expect(h.calls).toHaveLength(2);
     expect(h.spawned).toHaveLength(1);
@@ -458,7 +467,7 @@ describe("epic base freshness (#3101)", () => {
   test("conflict resolved → hold clears and the rework budget resets", async () => {
     const h = makeHarness({ result: "conflict", autoDrain: true });
     await callPass(h);
-    h.store.archive(h.store.list().find((s) => s.landingRepair)!.id);
+    finishRework(h);
     h.probe.kind = "current"; // the agent's push brought the branch up to date
     await callPass(h);
     expect(await holdCode(h)).not.toBe("epic_base_conflict");
@@ -530,5 +539,75 @@ describe("epic base freshness (#3101)", () => {
       childrenJson: "[]",
     });
     expect(await holdCode(h)).not.toBe("epic_predecessor_unlanded");
+  });
+
+  test("a finished rework session (complete, not archived) does not keep a stale-armed epic busy", async () => {
+    const h = makeHarness({ result: "conflict", autoDrain: true });
+    // Behind for >4h while busy → stale armed.
+    addSession(h, { issueNumber: CHILD2, baseBranch: BRANCH });
+    await callPass(h);
+    h.clock.t += 4 * HOUR;
+    h.store.archive(h.store.list().find((s) => s.issueNumber === CHILD2)!.id);
+    await callPass(h); // quiescent → conflict → rework dispatched
+    expect(h.spawned).toHaveLength(1);
+    finishRework(h);
+    // main moved again meanwhile: still behind, and only a quiescent rebase can clear the holds.
+    h.rebase.kind = "rebased";
+    await callPass(h);
+    expect(h.calls).toHaveLength(2);
+    expect(h.store.getEpicBaseFreshness(REPO, PARENT)).toEqual({
+      behindSince: null,
+      conflictSince: null,
+      reworkCount: 0,
+    });
+    expect(await holdCode(h)).toBe("empty"); // no base hold left; nothing else to start
+  });
+
+  test("stale armed + conflict recorded → the hourly throttle holds (no rebase every tick)", async () => {
+    const h = makeHarness({ result: "conflict" }); // auto-drain off → no agent
+    addSession(h, { issueNumber: CHILD2, baseBranch: BRANCH });
+    await callPass(h);
+    h.clock.t += 4 * HOUR;
+    h.store.archive(h.store.list().find((s) => s.issueNumber === CHILD2)!.id);
+    await callPass(h); // fast path: quiescent → rebase → conflict
+    expect(h.calls).toHaveLength(1);
+    for (let i = 0; i < 5; i++) {
+      h.clock.t += 30_000;
+      await callPass(h);
+    }
+    expect(h.calls).toHaveLength(1);
+    expect(h.notifies).toHaveLength(1);
+    h.clock.t += HOUR;
+    await callPass(h);
+    expect(h.calls).toHaveLength(2);
+  });
+
+  test("a failed (transient) rebase on the fast path falls back to the hourly throttle", async () => {
+    const h = makeHarness({ result: "transient" });
+    addSession(h, { issueNumber: CHILD2, baseBranch: BRANCH });
+    await callPass(h);
+    h.clock.t += 4 * HOUR;
+    h.store.archive(h.store.list().find((s) => s.issueNumber === CHILD2)!.id);
+    await callPass(h);
+    h.clock.t += 30_000;
+    await callPass(h);
+    expect(h.calls).toHaveLength(1);
+  });
+
+  test("override on a busy stale epic still probes hourly and lapses when main moves", async () => {
+    const h = makeHarness();
+    addSession(h, { issueNumber: CHILD2, baseBranch: BRANCH });
+    await callPass(h);
+    h.clock.t += 4 * HOUR;
+    await callPass(h);
+    expect(await holdCode(h)).toBe("epic_base_stale");
+    expect(await h.drain.overrideEpicBaseHold(REPO, PARENT, "base")).toEqual({ ok: true });
+    while ((h.drain as unknown as { pumping: Set<string> }).pumping.has(REPO))
+      await new Promise((r) => setTimeout(r, 1));
+    expect(await holdCode(h)).not.toBe("epic_base_stale");
+    h.probe.sha = "m2"; // main moved; the epic stays busy
+    h.clock.t += HOUR;
+    await callPass(h);
+    expect(await holdCode(h)).toBe("epic_base_stale");
   });
 });

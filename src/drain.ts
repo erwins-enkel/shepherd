@@ -518,6 +518,9 @@ export class DrainService {
   private lastDefaultSha = new Map<string, string>();
   private epicBaseOverride = new Map<string, string>();
   private predecessorOverride = new Set<string>();
+  // #3101: epics whose last base pass found them behind but busy — the only ones an armed stale
+  // hold re-checks every tick (see cadenceRebaseTarget). Cleared by any pass that runs.
+  private awaitingQuiescence = new Set<string>();
   private lastEpicSig = new Map<string, string>();
   // #1401: `${repoPath}#${parentIssueNumber}` → last reconcile-sweep timestamp. In-memory on
   // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
@@ -2424,8 +2427,15 @@ export class DrainService {
     if (cfg.draftMode || er?.status !== "running") return null;
     const parent = er.parentIssueNumber;
     const key = `${repoPath}#${parent}`;
-    const staleWaiting = this.epicBaseStaleArmed(repoPath, parent);
-    if (!staleWaiting && this.now() < (this.cadenceRebaseNextAt.get(key) ?? 0)) return null;
+    const due = this.now() >= (this.cadenceRebaseNextAt.get(key) ?? 0);
+    // #3101 fast path: an armed stale hold that a busy epic made wait re-checks quiescence every
+    // tick, so the rebase runs the moment the last child lets go. Never for a recorded conflict, and
+    // only until one attempt has run — a failed rebase falls back to the hourly throttle.
+    const fastPath =
+      this.awaitingQuiescence.has(key) &&
+      this.epicBaseStaleArmed(repoPath, parent) &&
+      this.deps.store.getEpicBaseFreshness(repoPath, parent)?.conflictSince == null;
+    if (!due && !fastPath) return null;
     if (this.landingInFlight.has(key)) return null;
     const forge = this.deps.resolveForge(repoPath);
     if (!forge || forge.kind !== "github") return null;
@@ -2436,14 +2446,10 @@ export class DrainService {
     if (!branch || this.hasLiveRepairSession(repoPath, branch)) return null;
     const epic = await this.buildEpic(repoPath, er);
     if (!epic) return null;
-    const quiescent = epicQuiescentForCadenceRebase(
-      epic.children,
-      this.deps.store.list(),
-      repoPath,
-      branch,
-    );
-    // A stale hold already waits for quiescence: nothing to learn from another fetch until then.
-    if (staleWaiting && !quiescent) return null;
+    const quiescent = this.epicBaseQuiescent(repoPath, epic.children, branch);
+    // The fast path only acts on quiescence; the hourly probe runs either way (it keeps the stale
+    // clock and an operator override's default-branch head current while the epic is busy).
+    if (!due && !quiescent) return null;
     return {
       key,
       parent,
@@ -2454,19 +2460,31 @@ export class DrainService {
     };
   }
 
+  /** #3101: {@link epicQuiescentForCadenceRebase}, minus repair sessions — a LIVE one already fences
+   *  the pass ({@link hasLiveRepairSession}); a finished one is never archived by autopilot and would
+   *  otherwise keep the epic "busy" (and its base holds armed) until the stale sweep. */
+  private epicBaseQuiescent(repoPath: string, children: EpicChild[], branch: string): boolean {
+    const sessions = this.deps.store.list().filter((s) => !s.landingRepair);
+    return epicQuiescentForCadenceRebase(children, sessions, repoPath, branch);
+  }
+
   /** #3101: one due base-freshness pass — probe, stamp/clear the stale clock, rebase when
    *  quiescent, and route a genuine conflict into the conflict hold. */
   private async refreshEpicBase(repoPath: string, t: EpicBaseTarget): Promise<void> {
     const { key, parent, branch, defaultBranch } = t;
     const now = this.now();
     this.cadenceRebaseNextAt.set(key, now + CADENCE_REBASE_INTERVAL_MS);
+    this.awaitingQuiescence.delete(key);
     const probe = await this.branchBehindDefault(repoPath, branch, defaultBranch);
     if (probe.kind === "transient") return;
     this.lastDefaultSha.set(key, probe.defaultSha);
     if (probe.kind === "current") return this.clearEpicBaseHolds(repoPath, parent);
     if (this.deps.store.getEpicBaseFreshness(repoPath, parent)?.behindSince == null)
       this.deps.store.setEpicBaseFreshness(repoPath, parent, { behindSince: now });
-    if (!t.quiescent) return;
+    if (!t.quiescent) {
+      this.awaitingQuiescence.add(key); // arms the fast path once the stale hold is armed
+      return;
+    }
     const res = await this.rebaseLandingBranch(repoPath, branch, defaultBranch);
     if (res.kind !== "current")
       console.warn(`[drain] cadence rebase of \`${branch}\` for ${key}: ${res.kind}`);
@@ -4215,7 +4233,8 @@ export class DrainService {
     const branch = decision.integrationBranch;
     if (!branch || decision.epicParent == null || forge.kind !== "github") return;
     if (this.deps.store.listEpicIntegratedDetails(repoPath, decision.epicParent).length > 0) return;
-    if (!epicQuiescentForCadenceRebase([], this.deps.store.list(), repoPath, branch)) return;
+    if (this.hasLiveRepairSession(repoPath, branch)) return;
+    if (!this.epicBaseQuiescent(repoPath, [], branch)) return;
     const res = await this.rebaseLandingBranch(repoPath, branch, def);
     if (res.kind !== "current")
       console.warn(`[drain] pre-spawn refresh of \`${branch}\` for ${repoPath}: ${res.kind}`);

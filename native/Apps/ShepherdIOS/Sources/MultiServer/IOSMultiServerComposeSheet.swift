@@ -64,13 +64,16 @@ final class IOSComposeTarget {
     func pick(_ choice: IOSComposeRepoChoice, hub: IOSServerHub) {
         repoKey = choice.key
         if let profileID, choice.paths[profileID] != nil { return }
-        if let id = hub.connectedIDs.first(where: { choice.paths[$0] != nil && Self.selectable(hub.models[$0]) }) { profileID = id }
+        let candidates = hub.connectedIDs.filter { choice.paths[$0] != nil && Self.selectable(hub.models[$0]) }
+        if let id = candidates.first(where: { hub.models[$0].map(hub.isLive) == true })
+            ?? candidates.first(where: { hub.models[$0].map { !hub.isUnavailable($0) } == true })
+            ?? candidates.first { profileID = id }
     }
     func repoPath(in hub: IOSServerHub) -> String {
         guard let repoKey, let store = model(in: hub)?.store else { return "" }
         return store.repos.first { !$0.hidden && IOSComposeRepoChoice.key($0) == repoKey }?.path ?? ""
     }
-    /// Servers the task can start on: every healthy one until a repo is chosen, then those carrying it.
+    /// Offline targets stay selectable; a chosen repo restricts this to servers carrying it.
     func servers(in hub: IOSServerHub) -> [UUID] {
         hub.connectedIDs.filter { id in
             guard Self.selectable(hub.models[id]) else { return false }

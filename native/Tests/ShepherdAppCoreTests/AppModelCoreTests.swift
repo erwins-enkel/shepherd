@@ -93,6 +93,18 @@ struct AppModelTests {
         try model.addRemoteProfile(name: label, address: "https://\(label).example.ts.net")
     }
 
+    @Test func activationUsesPlatformClientFactory() async throws {
+        let model = makeModel()
+        defer { model.teardown() }
+        let profile = try remote(model, "transport")
+        let client = try ShepherdClient(profile: profile, credentials: InMemoryCredentialStore())
+        var received: ServerProfile?
+        model.makeClient = { profile, _, _ in received = profile; return client }
+        await model.activate(profile)
+        #expect(received == profile)
+        #expect(model.store?.client === client)
+    }
+
     @Test func startsWithNoProfiles() {
         let model = makeModel()
         #expect(model.profiles.isEmpty)

@@ -309,17 +309,36 @@ Retired models with pending sign-ins remain reachable for profile-removal cleanu
 Sign-out and login share a per-profile credential queue across model replacements;
 a late sign-out can disconnect only the model that started it.
 
-The composer starts on the focused server, falling back to an eligible connected
-server when focus has no store, and offers a server picker with several connections. Switching servers retains prompt text and resets
-server-specific repository, branch and upload state.
+Restored focus and the default compose target prefer a live server, then a server
+without an outage while its socket reconnects. Pairing, Connect, focus and session
+selection explicitly keep their server, including while it connects or is offline;
+closing its sheet or detail does not undo that choice. Disconnecting the focused
+server restores automatic fallback. An opened composer keeps its server. Switching
+servers retains prompt text and resets server-specific repository, branch and upload state.
+
+Normal and isolated live launches bound ordinary GETs to eight seconds without
+data and 30 seconds overall, with one attempt. Uploads and other writes retain
+their existing session. Slow opt-in operations keep
+the separate 300-second session and existing retry policy. Local isolated fixtures
+retain shared-session HTTP interception. Startup, multi-server pull-to-refresh and
+repository summaries dispatch work independently, so a silent Tailscale peer cannot
+hold up another server's results. The store retains its capped background retry
+loop; foreground recovery refreshes every activation independently.
+
+The existing connection banner shows one unavailable notice per server after a
+failed attempt or an eight-second connection deadline. Retry is scoped to that
+server. Close hides its notice and reconnect line for the outage; a live connection
+rearms notices for the next outage. Notices remain until closed, including after
+recovery. They never cover or disable the healthy server's session controls.
 
 Every connected model receives foreground recovery and APNs device registration.
 Notification routing accepts `serverURL`, `baseURL`, `serverId` (profile UUID), or
 `server` (origin URL). Existing origin-free payloads are looked up in connected
-stores; duplicate IDs offer a server chooser. A connecting peer is allowed to
-finish its first lookup, while an offline peer or a no-store profile awaiting
-sign-in does not block an available match. A running sign-in or credential probe
-still participates in the first-lookup barrier.
+stores; duplicate IDs offer a server chooser. While a peer finishes its first lookup or credential probe, an available match
+can be selected immediately through the server chooser; routing waits for the
+remaining lookups before automatically choosing a unique origin-free match.
+An unavailable peer, including one retrying after a failed attempt, does not
+participate in that barrier.
 Direct APNs delivery and simultaneous real-server connections still need device
 acceptance. `IOSMultiServerRenderTests` exports the production list, connection
 manager and composer fixtures through `ImageRenderer`.

@@ -12764,6 +12764,9 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRunnerUpdatesTests.swift\",\"ShepherdClientRunnerUpdatesTests\",\"updateEventsReachTheExistingStreamTap() throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/RunnerUpdatesTests.swift\",\"MacSeamTests.RunnerUpdatesTests\",\"screenshotIndicatorsAndDetailsUseLocalizedCopy() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/RunnerUpdatesTests.swift\",\"MacSeamTests.RunnerUpdatesTests\",\"settingsOwnsUpdatesAcrossProfileSwitchAndTeardown() async throws\"]",
-    "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/RunnerUpdatesUITests.swift\",\"RunnerUpdatesUITests\",\"testBothUpdatesAppearBeforeOpeningSettingsAndOpenNativeDetails() throws\"]"
+    "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/RunnerUpdatesUITests.swift\",\"RunnerUpdatesUITests\",\"testBothUpdatesAppearBeforeOpeningSettingsAndOpenNativeDetails() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientLongRunningTests.swift\",\"ShepherdClientLongRunningTests\",\"ordinaryAttemptBudget() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"activationUsesPlatformClientFactory() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientLongRunningTests.swift\",\"ShepherdClientLongRunningTests\",\"boundedReadsKeepWriteTimeouts() async throws\"]"
   ]
 }

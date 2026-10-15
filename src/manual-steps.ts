@@ -33,28 +33,29 @@ export interface ManualStep {
 const FENCE_OPEN = /^```shepherd:manual-steps[ \t]*$/i;
 const FENCE_CLOSE = /^```[ \t]*$/;
 /** A markdown task-list line inside the fence: `- [ ] text` / `- [x] text` / `* [X] text`. */
-const TASK_LINE = /^[ \t]*[-*][ \t]+\[[ xX]\][ \t]*(.*)$/;
+const TASK_LINE = /^[ \t]*[-*][ \t]+\[([ xX])\][ \t]*(.*)$/;
 /** A `Manual-Step:` trailer line, anchored at column 0 (no leading whitespace / blockquote). */
 const TRAILER_LINE = /^Manual-Step:[ \t]*(.+)$/i;
 /** A leading `POST-MERGE:` marker on a step's text (case-insensitive). */
 const POST_MERGE_PREFIX = /^POST-MERGE:[ \t]*/i;
 
-/** A raw step before dedupe: its text (POST-MERGE stripped) and post-merge flag. */
+/** A raw step before dedupe: its text (POST-MERGE stripped), post-merge flag and checkbox state. */
 interface RawStep {
   text: string;
   postMerge: boolean;
+  done: boolean;
 }
 
 /** Split a step's raw text into its post-merge flag + cleaned text. */
-function splitPostMerge(raw: string): RawStep {
+function splitPostMerge(raw: string, done = false): RawStep {
   const postMerge = POST_MERGE_PREFIX.test(raw);
   const text = raw.replace(POST_MERGE_PREFIX, "").trim();
-  return { text, postMerge };
+  return { text, postMerge, done };
 }
 
 /** Normalize for dedupe: collapse whitespace + lowercase. Run BOTH new and stored text through
  *  this same normalizer before keying the Set (house rule: dedupe in normalized space). */
-function normalize(text: string): string {
+export function normalizeStepText(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
@@ -84,7 +85,7 @@ function extractBlockSteps(body: string): { steps: RawStep[]; bodyWithoutFences:
       continue; // drop the closing fence too
     }
     const m = TASK_LINE.exec(line);
-    if (m) steps.push(splitPostMerge(m[1]!.trim()));
+    if (m) steps.push(splitPostMerge(m[2]!.trim(), m[1] !== " "));
     // non-list lines inside the fence are dropped (not kept for trailer scan)
   }
   return { steps, bodyWithoutFences: kept.join("\n") };
@@ -100,12 +101,27 @@ function extractTrailerSteps(bodyWithoutFences: string): RawStep[] {
   return steps;
 }
 
+/** A parsed step plus its checkbox state (`- [x]` → done; trailer steps are never done). */
+export interface ManualStepWithState extends ManualStep {
+  done: boolean;
+}
+
 /**
  * Parse manual operator steps from a PR body. Block steps first (primary), then trailer steps
  * (additive). Merge + dedupe in normalized space: first occurrence wins for display text;
  * `postMerge` is true if ANY source marks it. Pure; no I/O. Empty / malformed body → [].
  */
 export function parseManualSteps(prBody: string): ManualStep[] {
+  return parseManualStepChecklist(prBody).map(({ id, text, postMerge }) => ({
+    id,
+    text,
+    postMerge,
+  }));
+}
+
+/** {@link parseManualSteps}, keeping each step's checkbox state — `done` is true if ANY duplicate
+ *  is ticked. Used by the epic landing PR (#3103) so already-done child steps stay done. */
+export function parseManualStepChecklist(prBody: string): ManualStepWithState[] {
   if (!prBody) return [];
   const { steps: blockSteps, bodyWithoutFences } = extractBlockSteps(prBody);
   const trailerSteps = extractTrailerSteps(bodyWithoutFences);
@@ -113,14 +129,15 @@ export function parseManualSteps(prBody: string): ManualStep[] {
   const byKey = new Map<string, RawStep>();
   for (const s of [...blockSteps, ...trailerSteps]) {
     if (!s.text) continue; // skip empty steps (e.g. `- [ ]` with no text)
-    const key = normalize(s.text);
+    const key = normalizeStepText(s.text);
     if (!key) continue;
     const existing = byKey.get(key);
     if (existing) {
-      // keep first text, OR the post-merge flag across duplicates
+      // keep first text, OR the post-merge + done flags across duplicates
       if (s.postMerge) existing.postMerge = true;
+      if (s.done) existing.done = true;
     } else {
-      byKey.set(key, { text: s.text, postMerge: s.postMerge });
+      byKey.set(key, { ...s });
     }
   }
 
@@ -128,5 +145,6 @@ export function parseManualSteps(prBody: string): ManualStep[] {
     id: `ms${i + 1}`,
     text: s.text,
     postMerge: s.postMerge,
+    done: s.done,
   }));
 }

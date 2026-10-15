@@ -5,6 +5,7 @@
  *  GitHub — like `epicBaseDirective` in src/autopilot.ts, Shepherd owns this text and it is
  *  NEVER i18n'd. No forge calls, no store, no I/O — deterministic string building only. */
 import type { CompletedEpicChild } from "./completed-epic";
+import { normalizeStepText, parseManualStepChecklist } from "./manual-steps";
 
 /** Conventional-commit types release-please recognizes at column 0 of a merge subject.
  *  A subject NOT starting with one of these (a bare title, or a non-type `Word:` prefix) is
@@ -108,14 +109,73 @@ function cellSafe(title: string): string {
   return title.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
+/** One aggregated manual operator step on the landing PR (#3103): a child step deduped across
+ *  every child PR that declared it, carrying its origin PRs and whether it is already done. */
+export interface LandingManualStep {
+  text: string;
+  postMerge: boolean;
+  done: boolean;
+  /** Child PR numbers that declared this step, ascending, unique. */
+  fromPrs: number[];
+}
+
+/** Trailing ` (from #12, #15)` origin suffix the landing fence appends to each step. */
+const FROM_SUFFIX = /\s*\(from (#\d+(?:,\s*#\d+)*)\)\s*$/;
+
+/** Merge step lists in order, deduping in normalized-text space: first text wins, `postMerge` and
+ *  `done` are OR'd, origin PRs unioned. Pure. */
+export function mergeLandingManualSteps(lists: LandingManualStep[][]): LandingManualStep[] {
+  const byKey = new Map<string, LandingManualStep>();
+  for (const s of lists.flat()) {
+    const key = normalizeStepText(s.text);
+    if (!key) continue;
+    const cur = byKey.get(key);
+    if (!cur) {
+      byKey.set(key, { ...s, fromPrs: [...new Set(s.fromPrs)].sort((a, b) => a - b) });
+      continue;
+    }
+    cur.postMerge ||= s.postMerge;
+    cur.done ||= s.done;
+    cur.fromPrs = [...new Set([...cur.fromPrs, ...s.fromPrs])].sort((a, b) => a - b);
+  }
+  return [...byKey.values()];
+}
+
+/** Render the landing body's manual-steps section as a `shepherd:manual-steps` fence, so the
+ *  landing PR itself carries the steps in the same format every child PR uses. Empty → "". */
+export function renderLandingManualSteps(steps: LandingManualStep[]): string {
+  if (steps.length === 0) return "";
+  const lines = steps.map((s) => {
+    const box = s.done ? "[x]" : "[ ]";
+    const pm = s.postMerge ? "POST-MERGE: " : "";
+    const from = s.fromPrs.length ? ` (from ${s.fromPrs.map((n) => `#${n}`).join(", ")})` : "";
+    return `- ${box} ${pm}${s.text.replace(/\r?\n/g, " ")}${from}`;
+  });
+  return `### Manual operator steps\n\n\`\`\`shepherd:manual-steps\n${lines.join("\n")}\n\`\`\`\n`;
+}
+
+/** Parse a landing PR body's steps back into {@link LandingManualStep}s, splitting the origin
+ *  suffix off so the text dedupes against the child's own step text. Pure. */
+export function parseLandingManualSteps(body: string): LandingManualStep[] {
+  return parseManualStepChecklist(body).map((s) => {
+    const m = FROM_SUFFIX.exec(s.text);
+    const fromPrs = m ? [...m[1]!.matchAll(/#(\d+)/g)].map((x) => Number(x[1])) : [];
+    const text = m ? s.text.slice(0, m.index).trim() : s.text;
+    return { text, postMerge: s.postMerge, done: s.done, fromPrs };
+  });
+}
+
 export function buildLandingPrBody(input: {
   parentNumber: number;
   parentTitle: string;
   integrationBranch: string;
   defaultBranch: string;
   children: Pick<CompletedEpicChild, "number" | "title" | "prNumber" | "prUrl">[];
+  /** Aggregated child manual steps (#3103); section omitted when absent/empty. */
+  manualSteps?: LandingManualStep[];
 }): string {
   const { parentNumber, parentTitle, integrationBranch, defaultBranch, children } = input;
+  const stepsSection = renderLandingManualSteps(input.manualSteps ?? []);
 
   // Parent first, then one Closes line per child in array order — a single merge closes all.
   const closes = [`Closes #${parentNumber}`, ...children.map((c) => `Closes #${c.number}`)].join(
@@ -137,6 +197,7 @@ export function buildLandingPrBody(input: {
   return (
     `Lands epic **#${parentNumber} — ${parentTitle}** from \`${integrationBranch}\` onto \`${defaultBranch}\`.\n\n` +
     `${closes}\n\n` +
-    `${childrenSection}\n`
+    `${childrenSection}\n` +
+    (stepsSection ? `\n${stepsSection}` : "")
   );
 }

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { buildLandingPrBody, buildLandingPrTitle } from "../src/epic-landing";
+import {
+  buildLandingPrBody,
+  buildLandingPrTitle,
+  mergeLandingManualSteps,
+  parseLandingManualSteps,
+  renderLandingManualSteps,
+} from "../src/epic-landing";
+import { parseManualSteps } from "../src/manual-steps";
 
 /** Build a landing title AND assert it clears the `pr title` gate. `.github/workflows/pr-title.yml`
  *  lints the PR title with the repo's commitlint config, whose `subject-case` rule rejects a
@@ -229,5 +236,68 @@ describe("buildLandingPrBody", () => {
     const rows = body.split("\n").filter((l) => l.startsWith("| #"));
     expect(rows.length).toBe(0);
     expect(body).toContain("| Issue | Title | PR |");
+  });
+});
+
+describe("landing manual steps (#3103)", () => {
+  const base = {
+    parentNumber: 55,
+    parentTitle: "Epic",
+    integrationBranch: "epic/55-x",
+    defaultBranch: "main",
+    children: [
+      { number: 60, title: "A", prNumber: 70, prUrl: null },
+      { number: 61, title: "B", prNumber: 71, prUrl: null },
+    ],
+  };
+
+  it("merges ≥2 children: dedupes in normalized space, unions origins, ORs done/postMerge", () => {
+    const merged = mergeLandingManualSteps([
+      [
+        { text: "Set VERCEL_TOKEN", postMerge: false, done: false, fromPrs: [70] },
+        { text: "Rotate Blob key", postMerge: true, done: true, fromPrs: [70] },
+      ],
+      [
+        { text: "set  vercel_token", postMerge: true, done: false, fromPrs: [71] },
+        { text: "Configure Trello webhook", postMerge: false, done: false, fromPrs: [71] },
+      ],
+    ]);
+    expect(merged).toEqual([
+      { text: "Set VERCEL_TOKEN", postMerge: true, done: false, fromPrs: [70, 71] },
+      { text: "Rotate Blob key", postMerge: true, done: true, fromPrs: [70] },
+      { text: "Configure Trello webhook", postMerge: false, done: false, fromPrs: [71] },
+    ]);
+  });
+
+  it("body carries a shepherd:manual-steps fence with origin PRs + done state", () => {
+    const body = buildLandingPrBody({
+      ...base,
+      manualSteps: [
+        { text: "Set VERCEL_TOKEN", postMerge: true, done: false, fromPrs: [70, 71] },
+        { text: "Rotate Blob key", postMerge: false, done: true, fromPrs: [70] },
+      ],
+    });
+    expect(body).toContain(
+      "```shepherd:manual-steps\n- [ ] POST-MERGE: Set VERCEL_TOKEN (from #70, #71)\n- [x] Rotate Blob key (from #70)\n```",
+    );
+    // The landing PR's own carrier parses like any child PR body.
+    expect(parseManualSteps(body).map((s) => s.text)).toEqual([
+      "Set VERCEL_TOKEN (from #70, #71)",
+      "Rotate Blob key (from #70)",
+    ]);
+  });
+
+  it("omits the section when there are no steps", () => {
+    expect(buildLandingPrBody(base)).not.toContain("Manual operator steps");
+    expect(buildLandingPrBody({ ...base, manualSteps: [] })).toBe(buildLandingPrBody(base));
+  });
+
+  it("parseLandingManualSteps round-trips the rendered fence", () => {
+    const steps = [
+      { text: "Set VERCEL_TOKEN", postMerge: true, done: false, fromPrs: [70, 71] },
+      { text: "Rotate Blob key", postMerge: false, done: true, fromPrs: [70] },
+      { text: "No origin", postMerge: false, done: false, fromPrs: [] },
+    ];
+    expect(parseLandingManualSteps(renderLandingManualSteps(steps))).toEqual(steps);
   });
 });

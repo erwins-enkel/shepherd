@@ -70,7 +70,8 @@ import {
   type CompletedEpicChild,
   type EpicLandingState,
 } from "./completed-epic";
-import { buildLandingPrTitle, buildLandingPrBody } from "./epic-landing";
+import { buildLandingPrTitle, buildLandingPrBody, type LandingManualStep } from "./epic-landing";
+import { collectLandingManualSteps } from "./epic-landing-steps";
 import { parseEpicBody } from "./epic-parse";
 import { diagnoseEpic, type EpicDiagnosis } from "./epic-diagnosis";
 import { repoHasNoCiCached } from "./checks-gate";
@@ -318,6 +319,9 @@ export interface DrainDeps {
     | "setEpicLandingConflictReworkCount"
     | "setEpicLandingConflictEscalatedAt"
     | "setEpicMigrationPaths"
+    | "setEpicLandingManualSteps"
+    | "listPostMergeStepsForPr"
+    | "latestSessionManualStepsForIssue"
     | "recordEpicStackMember"
     | "listEpicStack"
     | "deleteEpicStack"
@@ -1928,6 +1932,35 @@ export class DrainService {
     }
   }
 
+  /** The children's aggregated manual steps for the landing body (#3103). `landingPrNumber` is the
+   *  landing PR being refreshed: its current body's ticks are kept (a failed read only loses those
+   *  landing-only ticks). Never throws. */
+  private async landingManualSteps(
+    forge: GitForge,
+    repoPath: string,
+    children: CompletedEpicChild[],
+    landingPrNumber: number | null,
+  ): Promise<LandingManualStep[]> {
+    let priorLandingBody: string | null = null;
+    if (landingPrNumber != null) {
+      try {
+        priorLandingBody = (await forge.prReviewMeta?.(landingPrNumber))?.body ?? null;
+      } catch (err) {
+        console.warn(
+          `[drain] landing pr#${landingPrNumber} body read failed for ${repoPath}:`,
+          err,
+        );
+      }
+    }
+    return collectLandingManualSteps({
+      forge,
+      store: this.deps.store,
+      repoPath,
+      children,
+      priorLandingBody,
+    });
+  }
+
   /**
    * A.3 sub-step of {@link adoptOpenLanding} (#1664), split out to keep that method under the
    * fallow complexity gate. Refreshes the existing PR's title/body from the final rollup —
@@ -1952,15 +1985,23 @@ export class DrainService {
       const defaultBranch = await forge.defaultBranch();
       const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
       const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
+      const manualSteps = await this.landingManualSteps(
+        forge,
+        repoPath,
+        children,
+        existing.number ?? null,
+      );
       const body = buildLandingPrBody({
         parentNumber: parentIssueNumber,
         parentTitle,
         integrationBranch,
         defaultBranch,
         children,
+        manualSteps,
       }); // plain builder — NO provisional marker
       if (forge.editPr && existing.number != null) {
         await forge.editPr(existing.number, { title, body });
+        this.deps.store.setEpicLandingManualSteps(repoPath, parentIssueNumber, manualSteps);
       }
       // editPr absent or number null ⇒ nothing to do, refresh counts as successful
       return true;
@@ -2183,12 +2224,14 @@ export class DrainService {
     );
     const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
     const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
+    const manualSteps = await this.landingManualSteps(forge, row.repoPath, children, null);
     const body = buildLandingPrBody({
       parentNumber: parentIssueNumber,
       parentTitle,
       integrationBranch,
       defaultBranch,
       children,
+      manualSteps,
     });
     const status = await forge.openPr({
       head: integrationBranch,
@@ -2196,6 +2239,7 @@ export class DrainService {
       title,
       body,
     });
+    this.deps.store.setEpicLandingManualSteps(row.repoPath, parentIssueNumber, manualSteps);
     return {
       state: "open",
       prNumber: status.number ?? null,
@@ -2432,6 +2476,7 @@ export class DrainService {
           integrationBranch: branch,
           defaultBranch,
           children,
+          manualSteps: await this.landingManualSteps(forge, repoPath, children, null),
         });
 
         // 10. Prepend the provisional marker (this pass only — the shared builder is unchanged).

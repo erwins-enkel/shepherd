@@ -587,8 +587,8 @@ describe("ensureLandingPr — open + track the epic→default landing PR (#635)"
     const first = ensure(REPO, PARENT, PARENT_TITLE);
     const second = ensure(REPO, PARENT, PARENT_TITLE);
     await second; // returns immediately (guard no-op) while first is still gated
-    // Let `first` advance through prStatus → defaultBranch up to the gated openPr.
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    // Let `first` advance through prStatus → defaultBranch → manual-step collection up to the gated openPr.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 
     expect(h.spy.openPrCalls).toHaveLength(1); // exactly one openPr, no double-open
     expect(h.spy.prStatusCalls).toHaveLength(1); // and no double prStatus
@@ -1126,5 +1126,67 @@ describe("#1838 open-time rebase — pre-warm-adopted landing PR (adoptOpenLandi
     expect(h.notifyCalls).toHaveLength(1);
     expect(h.notifyCalls[0]!.kind).toBe("landing_conflict");
     expect(h.notifyCalls[0]!.landingPr).toBe(702);
+  });
+});
+
+describe("landing PR carries the children's manual steps (#3103)", () => {
+  const fence = (lines: string) => "```shepherd:manual-steps\n" + lines + "\n```";
+  /** Serve PR bodies by number via prReviewMeta (absent from the base fake forge). */
+  const withBodies = (h: Harness, bodies: Record<number, string>) => {
+    h.spy.forge.prReviewMeta = async (n: number) => ({
+      body: bodies[n] ?? "",
+      baseRefName: "x",
+      isCrossRepository: false,
+      state: "merged",
+    });
+  };
+
+  test("opened landing body aggregates ≥2 children's steps + persists the aggregate", async () => {
+    const h = makeHarness({ subIssues: [], noEpicRun: true });
+    seedCompleted(h, [320, 321]);
+    withBodies(h, {
+      9320: fence("- [ ] Set VERCEL_TOKEN\n- [x] Rotate Blob key"),
+      9321: fence("- [ ] set vercel_token\n- [ ] POST-MERGE: Trello webhook"),
+    });
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls[0]!.body).toContain(
+      "- [ ] Set VERCEL_TOKEN (from #9320, #9321)\n- [x] Rotate Blob key (from #9320)\n- [ ] POST-MERGE: Trello webhook (from #9321)",
+    );
+    expect(h.store.getEpicLandingManualSteps(REPO, PARENT).map((s) => s.text)).toEqual([
+      "Set VERCEL_TOKEN",
+      "Rotate Blob key",
+      "Trello webhook",
+    ]);
+  });
+
+  test("draft refresh keeps a step the operator ticked in the landing PR body", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: async () =>
+        ({
+          state: "open",
+          number: 42,
+          url: "https://github.com/o/r/pull/42",
+          isDraft: true,
+          checks: "none",
+          deployConfigured: false,
+        }) as PrStatus,
+    });
+    seedCompleted(h, [320, 321]);
+    withBodies(h, {
+      9320: fence("- [ ] Set VERCEL_TOKEN"),
+      9321: fence("- [ ] Trello webhook"),
+      42: fence("- [ ] Set VERCEL_TOKEN (from #9320)\n- [x] Trello webhook (from #9321)"),
+    });
+
+    await h.drain.tick();
+
+    expect(h.spy.editPrCalls[0]!.o.body).toContain(
+      "- [ ] Set VERCEL_TOKEN (from #9320)\n- [x] Trello webhook (from #9321)",
+    );
   });
 });

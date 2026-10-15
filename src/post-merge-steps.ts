@@ -72,6 +72,9 @@ export class PostMergeStepsService {
    * @param prTitle  the merged PR title (from the git event), denormalized onto the record.
    */
   async onMerged(session: Session, prNumber: number | null, prTitle = ""): Promise<void> {
+    // A landing-repair session's PR IS the epic landing PR, whose steps the epic's own Owed record
+    // owns (#3103, src/epic-landing-steps.ts) — materializing here too would list them twice.
+    if (session.landingRepair) return;
     const forge = this.deps.resolveForge(session.repoPath);
     const steps = await this.resolveSteps(session, prNumber, forge);
     if (steps.length === 0) return;

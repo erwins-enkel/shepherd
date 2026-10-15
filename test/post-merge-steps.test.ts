@@ -248,3 +248,11 @@ test("no forge → still materializes locally (no outbound), never throws", asyn
   await makeService(store, null).onMerged(store.get(s.id)!, 7, "t");
   expect(store.listOutstandingPostMergeSteps().length).toBe(1);
 });
+
+test("skips a landing-repair session — the epic landing record owns its PR's steps (#3103)", async () => {
+  const store = newStore();
+  const s = newSession(store, { landingRepair: true });
+  store.setSessionManualSteps(s.id, STEPS);
+  await makeService(store, fakeForge()).onMerged(store.get(s.id)!, 75, "Land epic");
+  expect(store.listOutstandingPostMergeSteps()).toEqual([]);
+});

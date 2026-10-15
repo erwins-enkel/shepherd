@@ -220,6 +220,21 @@ Raising the cap costs:
 - **Usage drains faster.** More agents at once reach the usage ceiling sooner, and new spawns pause
   there until usage drops.
 
+## Manual steps from child PRs
+
+Child PRs merge into the epic branch, not main, so the manual steps they declare (a
+`shepherd:manual-steps` block) are carried forward. The landing PR body lists them all
+in one `shepherd:manual-steps` block:
+
+- **Deduplicated.** A step declared by several children appears once, with each origin:
+  `(from #12, #15)`.
+- **Done stays done.** A step ticked in its child PR, in that child's **Owed** card, or in the
+  landing PR body itself is listed as `- [x]`. A body refresh keeps those ticks.
+
+When the landing PR merges, its open steps become one **Owed** card for the epic (`EPIC-<n>`),
+with done steps already ticked. The child Owed cards those steps cover are cleared, so nothing is
+listed twice.
+
 ## When the landing PR's CI is red
 
 A red landing PR is not your turn straight away. The epic's card on the **Epics to land** band

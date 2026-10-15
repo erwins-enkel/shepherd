@@ -7,6 +7,7 @@ import {
   type OperatorAssistantArgvOpts,
 } from "../src/operator-assistant-core";
 import { operatorLanguageBlock } from "../src/operator-language";
+import { ASSISTANT_ACTION_GROUPS } from "../src/operator-assistant-permissions";
 
 const BASE: OperatorAssistantArgvOpts = {
   installRoot: "/opt/shepherd",
@@ -84,11 +85,18 @@ test("argv: no skip-permissions, no agent skills, no prompt positional", () => {
   expect(positional).toEqual([]);
 });
 
-test("permissions: exact shape — MCP the only allow, Bash asks, edits and credentials denied", () => {
+test("permissions: exact shape — the read tools by name the only allow, edits and credentials denied", () => {
   expect(operatorAssistantPermissions()).toEqual({
     defaultMode: "default",
-    allow: ["mcp__shepherd"],
-    ask: ["Bash"],
+    // By name, never the `mcp__shepherd` prefix: that would also allow every action tool. The shell
+    // and the action groups live in the dynamic settings.local.json (assistantPermissionRules).
+    allow: [
+      "mcp__shepherd__herd_status",
+      "mcp__shepherd__repo_automation",
+      "mcp__shepherd__system_health",
+      "mcp__shepherd__logs_tail",
+    ],
+    ask: [],
     deny: [
       "Edit",
       "Write",
@@ -168,9 +176,18 @@ test("brief covers the five #1446 symptoms", () => {
   expect(b).toContain("Repo automation settings → Auto-Drain"); // the real UI path
 });
 
+test("brief names every action tool and the setting that governs it", () => {
+  const b = brief();
+  for (const tool of Object.values(ASSISTANT_ACTION_GROUPS).flat()) expect(b).toContain(tool);
+  expect(b).toContain("Settings → Assistant");
+});
+
 test("brief carries the guardrails", () => {
   const b = brief();
-  expect(b).toContain("Read-only");
+  expect(b).toContain("File edits are denied");
+  expect(b).toContain("Act only when the operator asks");
+  expect(b).toContain("Never work around it");
+  expect(b).toContain("merge_confirm_required");
   expect(b).toContain("⟦UNTRUSTED:");
   expect(b).toContain("designation");
 });

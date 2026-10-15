@@ -55,6 +55,15 @@ import {
   OPERATOR_DIAG_TOOLS,
   type OperatorDiagDeps,
 } from "./operator-assistant-tools";
+import {
+  applyOperatorAction,
+  OPERATOR_ACTION_TOOLS,
+  type OperatorActionDeps,
+} from "./operator-assistant-actions";
+import {
+  ASSISTANT_ACTION_GROUPS,
+  type AssistantActionTool,
+} from "./operator-assistant-permissions";
 import type { PrCache } from "./pr-poller";
 import type { SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, Session } from "./types";
@@ -84,6 +93,8 @@ export interface AgentControlDeps {
   loginWaitMs?: number;
   /** The Operator Assistant's diagnostic reads (#1446); absent ⇒ its tools answer "unavailable". */
   operatorDiag?: OperatorDiagDeps;
+  /** The Operator Assistant's actions (Settings → Assistant); absent ⇒ they answer "unavailable". */
+  operatorActions?: OperatorActionDeps;
 }
 
 /** Transport-neutral outcome of an applier: the REST route renders it as a Response, the MCP
@@ -553,6 +564,9 @@ export interface AgentCapabilities {
   browserLogin: boolean;
   /** The Operator Assistant's diagnostic tools (#1446) — that session only, and nothing else. */
   operatorDiag: boolean;
+  /** The Operator Assistant's action tools (steer, session control, approve and merge,
+   *  automation) — that session only. No herd agent ever gets an approve or merge tool. */
+  operatorActions: boolean;
 }
 
 /** An unknown session's capabilities: none. */
@@ -562,13 +576,16 @@ const NO_CAPABILITIES: AgentCapabilities = {
   sessionRead: false,
   browserLogin: false,
   operatorDiag: false,
+  operatorActions: false,
 };
 
-/** The Operator Assistant's capabilities: its diagnostic tools and nothing else — no queue, epic,
- *  browser or `sessions_*` tools. Shared by the spawn path (no row yet) and the row path. */
+/** The Operator Assistant's capabilities: its diagnostic and action tools and nothing else — no
+ *  queue, epic, browser or `sessions_*` tools. Shared by the spawn path (no row yet) and the row
+ *  path. */
 export const OPERATOR_ASSISTANT_CAPABILITIES: AgentCapabilities = {
   ...NO_CAPABILITIES,
   operatorDiag: true,
+  operatorActions: true,
 };
 
 /**
@@ -602,6 +619,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.sessionRead) tools.push(SESSIONS_LIST, SESSIONS_SHOW, SELF_STATUS);
   if (caps.browserLogin) tools.push(BROWSER_REQUEST_LOGIN);
   if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
+  if (caps.operatorActions) tools.push(...OPERATOR_ACTION_TOOLS);
   return tools;
 }
 
@@ -638,6 +656,7 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
       session.sandboxApplied,
     ),
     operatorDiag: false,
+    operatorActions: false,
   };
 }
 
@@ -722,6 +741,14 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   repo_automation: (deps, _id, args) => applyRepoAutomation(deps, args),
   system_health: (deps) => applySystemHealth(deps),
   logs_tail: (deps, _id, args) => applyLogsTail(deps, args),
+  ...Object.fromEntries(
+    Object.values(ASSISTANT_ACTION_GROUPS)
+      .flat()
+      .map((tool): [string, ToolHandler] => [
+        tool,
+        (deps, _id, args) => applyOperatorAction(deps, tool as AssistantActionTool, args),
+      ]),
+  ),
 };
 
 /** Run one `tools/call`. A tool the session isn't entitled to is a protocol error (-32602); an

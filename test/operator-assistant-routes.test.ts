@@ -92,7 +92,12 @@ test("GET reports available with no session before the first open", async () => 
   const { app } = setup();
   const res = await app.fetch(new Request("http://localhost/api/operator-assistant"));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ available: true, reason: null, session: null });
+  expect(await res.json()).toEqual({
+    available: true,
+    reason: null,
+    session: null,
+    permissions: config.assistantPermissions,
+  });
 });
 
 test("GET returns the live assistant row once it exists", async () => {
@@ -113,7 +118,12 @@ test("POST ensures the assistant and emits operator-assistant:update with it", a
   const { session } = await res.json();
   expect(session.operatorAssistant).toBe(true);
   expect(calls).toEqual(["ensure"]);
-  expect(emitted).toEqual([{ event: "operator-assistant:update", data: { session } }]);
+  expect(emitted).toEqual([
+    {
+      event: "operator-assistant:update",
+      data: { session, permissions: config.assistantPermissions },
+    },
+  ]);
   expect(emitted.some((e) => e.event === "session:new")).toBe(false);
 });
 
@@ -123,7 +133,12 @@ test("POST /reset starts a new conversation and emits the update", async () => {
   expect(res.status).toBe(200);
   const { session } = await res.json();
   expect(calls).toEqual(["reset"]);
-  expect(emitted).toEqual([{ event: "operator-assistant:update", data: { session } }]);
+  expect(emitted).toEqual([
+    {
+      event: "operator-assistant:update",
+      data: { session, permissions: config.assistantPermissions },
+    },
+  ]);
 });
 
 const UNAVAILABLE: [string, DiagnosticCheck[]][] = [
@@ -154,7 +169,12 @@ for (const [reason, checks] of UNAVAILABLE) {
     const get = await (
       await app.fetch(new Request("http://localhost/api/operator-assistant"))
     ).json();
-    expect(get).toEqual({ available: false, reason, session: null });
+    expect(get).toEqual({
+      available: false,
+      reason,
+      session: null,
+      permissions: config.assistantPermissions,
+    });
     for (const path of ["/api/operator-assistant", "/api/operator-assistant/reset"]) {
       const res = await app.fetch(post(path));
       expect(res.status).toBe(503);
@@ -289,4 +309,118 @@ test("the assistant's MCP endpoint reads the real services: drain, epic diagnosi
   const tail = await tool("logs_tail", { source: "shepherd" });
   expect(tail).toMatchObject({ path: log, found: true, lines: 2 });
   expect(tail.text).not.toContain("hunter2");
+});
+
+/** A herd session the assistant's actions may target. */
+function workerRow(store: SessionStore): Session {
+  return store.create({
+    name: "worker",
+    prompt: "p",
+    repoPath: "/r/alpha",
+    baseBranch: "main",
+    branch: "shepherd/worker",
+    worktreePath: "/wt",
+    isolated: false,
+    herdrSession: "default",
+    herdrAgentId: "term_w",
+    claudeSessionId: "claude-w",
+    model: null,
+  });
+}
+
+/** One `tools/call` on the assistant's MCP endpoint: the tool result's payload and isError. */
+async function callTool(
+  app: ReturnType<typeof makeApp>,
+  sessionId: string,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const res = await app.fetch(
+    new Request(`http://localhost/api/sessions/${sessionId}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
+    }),
+  );
+  const body = (await res.json()) as {
+    result: { content: { text: string }[]; isError?: boolean };
+  };
+  return { isError: body.result.isError ?? false, data: JSON.parse(body.result.content[0]!.text) };
+}
+
+test("assistant actions run the operator's own routes in-process: interrupt and steer reach the service", async () => {
+  const saved = config.assistantPermissions;
+  restore = () => (config.assistantPermissions = saved);
+  config.assistantPermissions = { ...saved, steer: "ask", sessions: "allow" };
+  const { deps, store } = setup();
+  const seen: string[] = [];
+  deps.service = {
+    interrupt: async (id: string) => (seen.push(`interrupt ${id}`), true),
+    operatorReply: async (id: string, text: string) => (seen.push(`reply ${id} ${text}`), true),
+  } as unknown as SessionService;
+  const assistant = assistantRow(store);
+  const worker = workerRow(store);
+  const app = makeApp(deps);
+
+  const interrupted = await callTool(app, assistant.id, "session_interrupt", {
+    desig: worker.desig,
+  });
+  expect(interrupted).toEqual({
+    isError: false,
+    data: { ok: true, action: "session_interrupt", target: worker.desig },
+  });
+  const steered = await callTool(app, assistant.id, "session_steer", {
+    desig: worker.desig,
+    text: "rebase please",
+  });
+  expect(steered.isError).toBe(false);
+  expect(seen).toEqual([`interrupt ${worker.id}`, `reply ${worker.id} rebase please`]);
+});
+
+test("an action of a group turned off never reaches its route, even with the route's service wired", async () => {
+  const saved = config.assistantPermissions;
+  restore = () => (config.assistantPermissions = saved);
+  config.assistantPermissions = { ...saved, sessions: "off" };
+  const { deps, store } = setup();
+  let interrupts = 0;
+  deps.service = { interrupt: async () => (interrupts++, true) } as unknown as SessionService;
+  const assistant = assistantRow(store);
+  const worker = workerRow(store);
+  const out = await callTool(makeApp(deps), assistant.id, "session_interrupt", {
+    desig: worker.desig,
+  });
+  expect(out.isError).toBe(true);
+  expect(out.data.error).toContain("turned off in Settings → Assistant");
+  expect(interrupts).toBe(0);
+});
+
+test("the agent ingress serves the assistant's actions only on the assistant's own MCP endpoint", async () => {
+  const { deps, store } = setup();
+  let interrupts = 0;
+  deps.service = { interrupt: async () => (interrupts++, true) } as unknown as SessionService;
+  const worker = workerRow(store);
+  const ingress = makeAgentIngressApp(deps);
+  // A herd agent calling an action tool on its own endpoint: the entitlement error.
+  const res = await ingress.fetch(
+    new Request(`http://localhost/api/sessions/${worker.id}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "session_interrupt", arguments: { desig: worker.desig } },
+      }),
+    }),
+  );
+  expect(((await res.json()) as { error: { code: number } }).error.code).toBe(-32602);
+  // And the operator route itself stays off the ingress.
+  const direct = await ingress.fetch(post(`/api/sessions/${worker.id}/interrupt`));
+  expect(direct.status).toBe(404);
+  expect(interrupts).toBe(0);
 });

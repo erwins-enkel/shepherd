@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -23,6 +31,7 @@ import {
   operatorAssistantBrief,
   operatorAssistantPermissions,
 } from "./operator-assistant-core";
+import { assistantPermissionRules } from "./operator-assistant-permissions";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { singleFlight } from "./single-flight";
 import {
@@ -3594,6 +3603,7 @@ export class SessionService {
       sessionRead: !input.plain,
       browserLogin: browserLoginAllowed(repoConfig.sharedBrowserEnabled, input.plain, profile),
       operatorDiag: false,
+      operatorActions: false,
     };
     this.pushAgentMcpFlag(argv, sessionId, baseUrl, caps);
     // Serve the endpoint until the row exists; `create` clears this however the spawn ends.
@@ -4639,12 +4649,40 @@ export class SessionService {
     }
   }
 
+  /**
+   * Write the operator's Settings → Assistant rules (assistantPermissionRules) into the assistant's
+   * `.claude/settings.local.json`. Its spawn reads that source (`--setting-sources project,local`)
+   * and Claude re-reads it mid-session, so a change reaches the running conversation. Called on
+   * every spawn and resume, at boot (an assistant started by an older build carries the broad
+   * `mcp__shepherd` allow — the ask/deny rules here outrank it) and on every settings change.
+   * Atomic (temp + rename) so a reload never reads half a file. No dir → no assistant yet → nothing
+   * to write. Best-effort: the action tools enforce `off` server-side either way.
+   */
+  syncOperatorAssistantPermissions(
+    dir: string = this.deps.operatorAssistantDir ?? config.operatorAssistantDir,
+  ): void {
+    if (!existsSync(dir)) return;
+    try {
+      const claudeDir = join(dir, ".claude");
+      mkdirSync(claudeDir, { recursive: true, mode: 0o700 });
+      const dest = join(claudeDir, "settings.local.json");
+      const tmp = `${dest}.${process.pid}.tmp`;
+      const body = { permissions: assistantPermissionRules(config.assistantPermissions) };
+      writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
+      renameSync(tmp, dest);
+    } catch (err) {
+      console.warn(`[operator-assistant] could not write permissions in ${dir}:`, err);
+    }
+  }
+
   /** The assistant's inner argv, fresh (`--session-id`) or resumed (`--resume`) — one builder for
-   *  create and resume so the two can't drift. */
+   *  create and resume so the two can't drift. Syncs its permission file first, for the same
+   *  reason. */
   private operatorAssistantArgv(
     s: Pick<Session, "id" | "worktreePath" | "claudeSessionId" | "model" | "effort">,
     resume: boolean,
   ): string[] {
+    this.syncOperatorAssistantPermissions(s.worktreePath);
     const baseUrl = this.resolveSpawnBaseUrl("trusted", s.worktreePath);
     return buildOperatorAssistantArgv({
       installRoot: SHEPHERD_INSTALL_ROOT,

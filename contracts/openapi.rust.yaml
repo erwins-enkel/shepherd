@@ -377,6 +377,8 @@ components:
           enum:
             - en
             - de
+        assistantPermissions:
+          $ref: "#/components/schemas/AssistantPermissions"
         envTokenActive:
           type: boolean
         hasApiKey:
@@ -2007,7 +2009,7 @@ components:
     OperatorAssistantState:
       type: object
       additionalProperties: true
-      description: Whether the Operator Assistant can run, why not (read off Settings → Diagnose), and its live row (null before the first open).
+      description: Whether the Operator Assistant can run, why not (read off Settings → Diagnose), its live row (null before the first open) and what the operator lets it do (Settings → Assistant).
       required:
         - available
         - reason
@@ -2023,6 +2025,8 @@ components:
           allOf:
             - $ref: "#/components/schemas/Session"
           nullable: true
+        permissions:
+          $ref: "#/components/schemas/AssistantPermissions"
     OperatorAssistantSession:
       type: object
       additionalProperties: true
@@ -2031,6 +2035,70 @@ components:
       properties:
         session:
           $ref: "#/components/schemas/Session"
+    OperatorAssistantUpdateEvent:
+      type: object
+      additionalProperties: true
+      description: The assistant's live row (null when none is live) and its current permissions (absent from servers before Settings → Assistant).
+      required:
+        - session
+      properties:
+        session:
+          allOf:
+            - $ref: "#/components/schemas/Session"
+          nullable: true
+        permissions:
+          $ref: "#/components/schemas/AssistantPermissions"
+    AssistantShellLevel:
+      type: string
+      description: off · ask (every command asks) · read (read-only commands run, the rest asks) · all.
+      enum:
+        - off
+        - ask
+        - read
+        - all
+    AssistantActionLevel:
+      type: string
+      enum:
+        - off
+        - ask
+        - allow
+    AssistantPermissions:
+      type: object
+      additionalProperties: false
+      description: What the Operator Assistant may do (Settings → Assistant) — the shell, and one level per action group.
+      required:
+        - shell
+        - steer
+        - sessions
+        - approve
+        - automation
+      properties:
+        shell:
+          $ref: "#/components/schemas/AssistantShellLevel"
+        steer:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        sessions:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        approve:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        automation:
+          $ref: "#/components/schemas/AssistantActionLevel"
+    AssistantPermissionsPatch:
+      type: object
+      additionalProperties: false
+      description: Any subset of AssistantPermissions; merged into the current set.
+      minProperties: 1
+      properties:
+        shell:
+          $ref: "#/components/schemas/AssistantShellLevel"
+        steer:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        sessions:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        approve:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        automation:
+          $ref: "#/components/schemas/AssistantActionLevel"
     OperatorAssistantUnavailable:
       type: object
       additionalProperties: true
@@ -6186,12 +6254,16 @@ components:
           type: string
         anthropicApiKey:
           type: string
+        assistantPermissions:
+          $ref: "#/components/schemas/AssistantPermissionsPatch"
       minProperties: 1
       maxProperties: 1
     SettingsPatchResult:
       type: object
       additionalProperties: true
       properties:
+        assistantPermissions:
+          $ref: "#/components/schemas/AssistantPermissions"
         remoteControlAtStartup:
           type: boolean
         reducedPushMode:
@@ -12035,9 +12107,9 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/SessionEgressDropEvent"
   operator-assistant:update:
-    description: The Operator Assistant's row was created, resumed or replaced. Deliberately not session:new, so the row never joins the herd; its status changes still arrive as session:status.
+    description: The Operator Assistant's row was created, resumed or replaced, or the operator changed its permissions (Settings → Assistant). Deliberately not session:new, so the row never joins the herd; its status changes still arrive as session:status.
     schema:
-      $ref: "#/components/schemas/OperatorAssistantSession"
+      $ref: "#/components/schemas/OperatorAssistantUpdateEvent"
   remote:sessions:
     description: Replaces the sessions mirrored from one connected machine (every one carries `host` and `connection`). Not sent on a `host=local` socket.
     schema:

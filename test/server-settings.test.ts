@@ -15,6 +15,10 @@ import {
 import type { AuthMode } from "../src/auth-mode";
 import { EFFORTS } from "../src/types";
 import { OPERATOR_LANGUAGES, normalizeOperatorLanguage } from "../src/operator-language";
+import {
+  DEFAULT_ASSISTANT_PERMISSIONS,
+  type AssistantPermissions,
+} from "../src/operator-assistant-permissions";
 
 let tmp: string;
 let savedRoot: string;
@@ -1591,5 +1595,61 @@ test("PUT upNextReadiness rejects non-booleans", async () => {
     expect(store.getSetting("upNextReadiness")).toBeNull();
   } finally {
     config.upNextReadiness = prev;
+  }
+});
+
+// ── assistantPermissions (Settings → Assistant) ─────────────────────────────
+
+test("assistantPermissions: GET reports the set; a partial PUT/PATCH merges, persists, syncs, emits", async () => {
+  const saved = config.assistantPermissions;
+  try {
+    config.assistantPermissions = { ...DEFAULT_ASSISTANT_PERMISSIONS };
+    const store = new SessionStore(":memory:");
+    const events = new EventHub();
+    const frames: { event: string; data: any }[] = [];
+    events.subscribe((event, data) => frames.push({ event, data }));
+    let syncs = 0;
+    const app = makeApp({
+      store,
+      events,
+      service: { syncOperatorAssistantPermissions: () => syncs++ } as any,
+      usageLimits: { limits: () => ({}) } as any,
+    });
+    const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(got.assistantPermissions).toEqual(DEFAULT_ASSISTANT_PERMISSIONS);
+
+    const res = await put(app, { assistantPermissions: { steer: "allow" } });
+    expect(res.status).toBe(200);
+    const merged: AssistantPermissions = { ...DEFAULT_ASSISTANT_PERMISSIONS, steer: "allow" };
+    expect((await res.json()).assistantPermissions).toEqual(merged);
+    expect(config.assistantPermissions).toEqual(merged); // live
+    expect(JSON.parse(store.getSetting("assistantPermissions")!)).toEqual(merged); // persisted
+    expect(syncs).toBe(1); // the running assistant's file is rewritten
+    expect(frames.at(-1)).toEqual({
+      event: "operator-assistant:update",
+      data: { session: null, permissions: merged },
+    });
+
+    const res2 = await patch(app, { assistantPermissions: { shell: "all" } });
+    expect(res2.status).toBe(200);
+    expect(config.assistantPermissions).toEqual({ ...merged, shell: "all" });
+  } finally {
+    config.assistantPermissions = saved;
+  }
+});
+
+test("assistantPermissions: an invalid patch is a 400 and changes nothing", async () => {
+  const saved = config.assistantPermissions;
+  try {
+    config.assistantPermissions = { ...DEFAULT_ASSISTANT_PERMISSIONS };
+    const { app, store } = harness();
+    for (const bad of [{}, { files: "allow" }, { steer: "read" }, "allow", null]) {
+      const res = await put(app, { assistantPermissions: bad });
+      expect(res.status).toBe(400);
+    }
+    expect(config.assistantPermissions).toEqual(DEFAULT_ASSISTANT_PERMISSIONS);
+    expect(store.getSetting("assistantPermissions")).toBeNull();
+  } finally {
+    config.assistantPermissions = saved;
   }
 });

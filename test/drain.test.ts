@@ -357,6 +357,20 @@ test("spawn fills to cap: 3 labeled issues, maxAuto 2 → creates exactly 2 auto
   expect(h.statuses.at(-1)?.inFlight).toBe(2);
 });
 
+test("#3105: an actively-bootstrapping repo spawns nothing and reports bootstrap_incomplete", async () => {
+  const h = makeHarness({ issues: [issue(1)] });
+  h.store.setRepoBootstrap(REPO, { state: "active", phase: 2 });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(0);
+  expect(h.statuses.at(-1)?.paused).toBe(true);
+  expect(h.statuses.at(-1)?.reason).toBe("bootstrap_incomplete");
+  expect(h.statuses.at(-1)?.detail).toBe("P2,P3,P4");
+  // The operator override releases the drain.
+  h.store.setRepoBootstrapOverride(REPO, true);
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(1);
+});
+
 test("ChatGPT auth clamps a blocked Codex global default before drain create", async () => {
   const savedProvider = config.defaultAgentProvider;
   const savedCodexModel = config.defaultCodexModel;

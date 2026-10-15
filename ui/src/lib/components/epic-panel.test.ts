@@ -75,6 +75,12 @@ describe("epicHoldLine", () => {
     expect(line).toContain("epic/1757-critic");
   });
 
+  it("bootstrap_incomplete names what is missing (#3105)", () => {
+    expect(
+      epicHoldLine(drain({ reason: "bootstrap_incomplete", detail: "P1,P2" }), true, [...READY]),
+    ).toBe(m.epic_hold_bootstrap_incomplete({ missing: "P1, P2" }));
+  });
+
   it("epic_unreadable explains the stall", () => {
     expect(epicHoldLine(drain({ reason: "epic_unreadable" }), true, [...READY])).toBe(
       m.epic_hold_epic_unreadable(),

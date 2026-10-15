@@ -7,6 +7,8 @@ struct SessionCardView: View {
     var selected = false
     var serverName: String?
     var rowID: String?
+    /// The member's place in its epic; nil outside an epic group or before the epic loaded.
+    var chain: EpicChain? = nil
     let select: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -32,6 +34,10 @@ struct SessionCardView: View {
                     }
                 }
                 if !card.heartbeat.isEmpty { heartbeat.padding(.leading, 22) }
+                if let chain {
+                    IOSEpicChainStrip(chain: chain)
+                        .padding(.leading, typeSize.isAccessibilitySize ? 0 : 22)
+                }
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .center) { metadata; Spacer(minLength: 6); progress }
                     VStack(alignment: .leading, spacing: 5) { metadata; progress }
@@ -136,7 +142,8 @@ struct SessionCardView: View {
          card.metadata, serverName.map { L.t("native_ios_server_hint", $0) } ?? "", card.progress.accessibilityLabel,
          card.heartbeat.isEmpty ? "" : L.t("heartbeat_pop_intro") + ": " +
             (card.heartbeat.contains { $0.error } ? L.t("heartbeat_legend_error_label")
-                : card.heartbeat.contains { $0.level > 0 } ? L.t("heartbeat_legend_active_label") : L.t("heartbeat_legend_idle_label"))]
+                : card.heartbeat.contains { $0.level > 0 } ? L.t("heartbeat_legend_active_label") : L.t("heartbeat_legend_idle_label")),
+         chain.map(IOSEpicChainStrip.accessibilityText) ?? ""]
             .filter { !$0.isEmpty }.joined(separator: ". ")
     }
 }

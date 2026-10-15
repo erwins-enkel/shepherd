@@ -80,6 +80,21 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertNil(IOSEpicCopy.forecast(epic))
     }
 
+    func testChainStripReadsAsOneSentence() throws {
+        let epic = try JSONDecoder().decode(Epic.self, from: Data(#"""
+            {"repoPath":"/repos/app","parentIssueNumber":100,"parentTitle":"Epic: Ship","source":"native",
+            "children":[
+            {"number":101,"title":"A","url":"https://x/101","order":0,"body":"","blockedBy":[],"state":"running","sessionId":"a","prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":true},
+            {"number":102,"title":"B","url":"https://x/102","order":1,"body":"","blockedBy":[101],"state":"blocked","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false},
+            {"number":103,"title":"C","url":"https://x/103","order":2,"body":"","blockedBy":[101],"state":"blocked","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false}],
+            "warnings":[],"run":{"repoPath":"/repos/app","parentIssueNumber":100,"mode":"auto","status":"running"}}
+            """#.utf8))
+        let chain = try XCTUnwrap(EpicDigest(epic).chain(101))
+        XCTAssertEqual(IOSEpicChainStrip.accessibilityText(chain), L.t("native_ios_epic_chain_aria",
+            L.t("native_ios_epic_needs_none"), "1", "2", "101",
+            "#102, #103, " + L.t("native_ios_epic_parallel", "2")))
+    }
+
     private func profile(_ name: String) -> ServerProfile {
         .init(name: name, baseURL: URL(string: "https://\(name).fixture.invalid")!, mode: .remote, credentialKey: name)
     }

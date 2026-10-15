@@ -27,6 +27,10 @@ public typealias SlashCommand = Components.Schemas.SlashCommand
 public typealias CommandListing = Components.Schemas.CommandListing
 public typealias EpicSummary = Components.Schemas.EpicSummary
 public typealias EpicListing = Components.Schemas.EpicListing
+public typealias Epic = Components.Schemas.Epic
+public typealias EpicChild = Components.Schemas.EpicChild
+public typealias EpicTiming = Components.Schemas.EpicTiming
+public typealias EpicForecast = Components.Schemas.EpicForecast
 
 extension Components.Schemas.SpawnPhase: OpenEnum {}
 
@@ -37,6 +41,9 @@ extension Components.Schemas.IssueFetchTransport: OpenEnum {}
 
 extension Components.Schemas.SlashCommandScope: OpenEnum {}
 extension Components.Schemas.SlashCommandKind: OpenEnum {}
+extension Components.Schemas.EpicChildState: OpenEnum {}
+extension Components.Schemas.EpicRunStatus: OpenEnum {}
+extension Components.Schemas.EpicForecastConfidence: OpenEnum {}
 extension Components.Schemas.IssueFetchAttempt.ReasonPayload: OpenEnum {}
 
 public typealias ComposeSteer = Components.Schemas.ComposeSteer
@@ -269,6 +276,21 @@ extension ShepherdClient {
             }
         } catch { throw ShepherdError.from(error, route: "listEpics") }
     }
+
+    public func epic(repoPath: String, parent: Int) async throws -> Epic {
+        do {
+            switch try await generated.getEpic(.init(query: .init(repo: repoPath, parent: parent))) {
+            case .ok(let ok): return try ok.body.json
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .notFound: throw ShepherdError.notFound
+            case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
+            case .undocumented(let statusCode, _):
+                throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getEpic")
+            }
+        } catch { throw ShepherdError.from(error, route: "getEpic") }
+    }
+
     public func branches(repoPath: String) async throws -> BranchListing {
         do {
             switch try await generated.listBranches(.init(query: .init(repo: repoPath))) {

@@ -12770,6 +12770,8 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientLongRunningTests.swift\",\"ShepherdClientLongRunningTests\",\"ordinaryAttemptBudget() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"activationUsesPlatformClientFactory() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientLongRunningTests.swift\",\"ShepherdClientLongRunningTests\",\"boundedReadsKeepWriteTimeouts() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"apnsRelayFields() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"apnsRelayFields() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"epic() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"epicErrors(status: Int) async throws\"]"
   ]
 }

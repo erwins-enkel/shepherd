@@ -155,6 +155,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/sessions/clear-merged"),
   get("/api/repos"),
   get("/api/repo-config", `/api/repo-config?repo=${r}`),
+  get("/api/repo-bootstrap", `/api/repo-bootstrap?repo=${r}`),
   get("/api/commands", `/api/commands?repo=${r}`),
   get("/api/todo", `/api/todo?repo=${r}`),
   get("/api/manual-steps/outstanding"),
@@ -262,6 +263,13 @@ const INVENTORY: readonly Entry[] = [
 
   // mutations the demo flow really performs
   { method: "PUT", path: "/api/settings", body: { defaultModel: "opus" } },
+  {
+    method: "PUT",
+    path: "/api/repo-bootstrap",
+    url: `/api/repo-bootstrap?repo=${r}`,
+    body: { state: "active" },
+  },
+  post("/api/repo-bootstrap/override", `/api/repo-bootstrap/override?repo=${r}`, { on: true }),
   post("/api/sessions", "/api/sessions", { repoPath: REPO, prompt: "add a thing" }),
   post("/api/sessions/clear-merged", "/api/sessions/clear-merged", { ids: [] }),
   post("/api/projects", "/api/projects", { name: "checkout-svc", createRemote: false }),

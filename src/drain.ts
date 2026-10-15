@@ -19,6 +19,7 @@ import {
   type DrainRepoState,
   type RunSummary,
 } from "./drain-core";
+import { bootstrapMissing, bootstrapMustHavesMissing } from "./bootstrap";
 import { assembleEpic } from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
 import { forecastEpic } from "./epic-forecast";
@@ -278,6 +279,7 @@ export interface DrainDeps {
     | "get"
     | "list"
     | "getRepoConfig"
+    | "getRepoBootstrap"
     | "getReview"
     | "archive"
     | "getEpicRun"
@@ -1036,6 +1038,10 @@ export class DrainService {
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
         epicUnreadable: stall.epicUnreadable,
+        bootstrapMissing: bootstrapMissing(
+          this.deps.store.getRepoBootstrap(repoPath),
+          bootstrapMustHavesMissing(),
+        ),
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -1516,6 +1522,8 @@ export class DrainService {
         "epic_base_unavailable",
         // A running epic the forge can't be read for — stuck until the listing recovers.
         "epic_unreadable",
+        // #3105: the repo is still bootstrapping — nothing spawns until it is done or overridden.
+        "bootstrap_incomplete",
       ].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {

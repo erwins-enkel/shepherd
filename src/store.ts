@@ -90,6 +90,7 @@ import {
 import type { EpicLandingState } from "./completed-epic";
 import { epicParentFromBranch } from "./epic-branch";
 import { normalizeRule } from "./learning-rule";
+import { BOOTSTRAP_OFF, type RepoBootstrap } from "./bootstrap";
 import { trimRuleToLimit } from "./learning-shape";
 import type { GitState, WorkflowJob } from "./forge/types";
 
@@ -1522,6 +1523,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       updatedAt INTEGER NOT NULL)`);
     this.migrateRepoConfigColumns();
     this.migrateFirstRunMarker();
+    // Project-bootstrap state (#3105). Its own table, NOT repo_config columns: creating a
+    // repo_config row for a new project would flip automationRowExists and skip the new-repo
+    // default seeding. `off` = no row, so the table holds only bootstrapped repos (no prune).
+    this.db.run(`CREATE TABLE IF NOT EXISTS repo_bootstrap (
+      repoPath TEXT PRIMARY KEY, state TEXT NOT NULL, phase INTEGER NOT NULL DEFAULT 1,
+      overrideAt INTEGER, updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS local_prs (
       number    INTEGER PRIMARY KEY AUTOINCREMENT,
       repoPath  TEXT NOT NULL,
@@ -2435,6 +2442,44 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath: string;
     }[];
     return new Set(rows.map((r) => r.repoPath));
+  }
+
+  // ── project bootstrap (#3105) ─────────────────────────────────────────────
+
+  getRepoBootstrap(repoPath: string): RepoBootstrap {
+    const r = this.db
+      .query(`SELECT state, phase, overrideAt FROM repo_bootstrap WHERE repoPath = ?`)
+      .get(repoPath) as { state: string; phase: number; overrideAt: number | null } | null;
+    if (!r || (r.state !== "active" && r.state !== "done")) return { ...BOOTSTRAP_OFF };
+    return { state: r.state, phase: r.phase, overrideAt: r.overrideAt ?? null };
+  }
+
+  /** Set the bootstrap state + phase. `off` deletes the row. A state change clears any override,
+   *  so an override never outlives the bootstrap run it was granted for. */
+  setRepoBootstrap(repoPath: string, next: { state: RepoBootstrap["state"]; phase: number }): void {
+    if (next.state === "off") {
+      this.db.run(`DELETE FROM repo_bootstrap WHERE repoPath = ?`, [repoPath]);
+      return;
+    }
+    const cur = this.getRepoBootstrap(repoPath);
+    const overrideAt = cur.state === next.state ? cur.overrideAt : null;
+    this.db.run(
+      `INSERT INTO repo_bootstrap (repoPath, state, phase, overrideAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(repoPath) DO UPDATE SET state = excluded.state, phase = excluded.phase,
+         overrideAt = excluded.overrideAt, updatedAt = excluded.updatedAt`,
+      [repoPath, next.state, next.phase, overrideAt, Date.now()],
+    );
+  }
+
+  /** Grant (on) or revoke (off) the operator override of the bootstrap drain hold. No-op unless
+   *  the repo is in active bootstrap. Returns whether a row was changed. */
+  setRepoBootstrapOverride(repoPath: string, on: boolean): boolean {
+    const res = this.db.run(
+      `UPDATE repo_bootstrap SET overrideAt = ?, updatedAt = ? WHERE repoPath = ? AND state = 'active'`,
+      [on ? Date.now() : null, Date.now(), repoPath],
+    );
+    return res.changes > 0;
   }
 
   // ── automation-confirmation (issue #1025) ────────────────────────────────

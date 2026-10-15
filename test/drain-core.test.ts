@@ -1051,3 +1051,45 @@ describe("buildRunSummary", () => {
     expect(r.after).toEqual([]);
   });
 });
+
+// ── #3105: bootstrap_incomplete hold ───────────────────────────────────────────────────────────
+
+describe("computeNext: bootstrap_incomplete (#3105)", () => {
+  test("an actively-bootstrapping repo holds, naming what is missing (label drain)", () => {
+    const d = computeNext(state({ candidates: [issue(1)], bootstrapMissing: ["P2", "P3", "P4"] }));
+    expect(d).toEqual({
+      kind: "hold",
+      reason: { code: "bootstrap_incomplete", detail: "P2,P3,P4" },
+    });
+  });
+
+  test("holds an epic drain too", () => {
+    const d = computeNext(
+      state({
+        candidates: [issue(1)],
+        epicIntegrationBranch: "epic/9-thing",
+        bootstrapMissing: ["P1"],
+      }),
+    );
+    expect(d.kind === "hold" && d.reason.code).toBe("bootstrap_incomplete");
+  });
+
+  test("not bootstrapping / overridden (null) or nothing missing → spawns as before", () => {
+    for (const bootstrapMissing of [null, undefined, []]) {
+      expect(computeNext(state({ candidates: [issue(1)], bootstrapMissing })).kind).toBe("spawn");
+    }
+  });
+
+  test("a retireable PR still retires; a disabled drain still reads disabled", () => {
+    const retire = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "ok", issueNumber: 2, git: MERGEABLE })],
+        candidates: [issue(1)],
+        bootstrapMissing: ["P1"],
+      }),
+    );
+    expect(retire.kind).toBe("retire");
+    const off = computeNext(state({ enabled: false, bootstrapMissing: ["P1"] }));
+    expect(off).toEqual({ kind: "hold", reason: { code: "disabled" } });
+  });
+});

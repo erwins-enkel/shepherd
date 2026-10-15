@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { parseManualSteps } from "../src/manual-steps";
+import { parseManualSteps, parseManualStepChecklist } from "../src/manual-steps";
 import { MANUAL_STEPS_NOTICE } from "../src/service";
 
 const block = (lines: string) => "Some PR prose.\n\n```shepherd:manual-steps\n" + lines + "\n```\n";
@@ -91,6 +91,31 @@ describe("parseManualSteps — manual-operator-step carrier parsing (#1059)", ()
     expect(parseManualSteps(MANUAL_STEPS_NOTICE)).toEqual([
       { id: "ms1", text: "Set the FEATURE_X env var in production", postMerge: false },
       { id: "ms2", text: "Run the data backfill once the PR is live", postMerge: true },
+    ]);
+  });
+});
+
+describe("parseManualStepChecklist — keeps checkbox state (#3103)", () => {
+  test("[x] / [X] → done, [ ] and trailers → not done; output otherwise matches parseManualSteps", () => {
+    const body =
+      block("- [x] ticked\n- [ ] open\n- [X] POST-MERGE: upper ticked") +
+      "\nManual-Step: trailer\n";
+    expect(parseManualStepChecklist(body)).toEqual([
+      { id: "ms1", text: "ticked", postMerge: false, done: true },
+      { id: "ms2", text: "open", postMerge: false, done: false },
+      { id: "ms3", text: "upper ticked", postMerge: true, done: true },
+      { id: "ms4", text: "trailer", postMerge: false, done: false },
+    ]);
+    expect(parseManualSteps(body)).toEqual(
+      parseManualStepChecklist(body).map(({ id, text, postMerge }) => ({ id, text, postMerge })),
+    );
+  });
+
+  test("a duplicate ticked anywhere marks the deduped step done", () => {
+    const body =
+      block("- [ ] same step") + "\nManual-Step: Same  Step\n" + block("- [x] same step");
+    expect(parseManualStepChecklist(body)).toEqual([
+      { id: "ms1", text: "same step", postMerge: false, done: true },
     ]);
   });
 });

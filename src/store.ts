@@ -89,6 +89,7 @@ import {
   type EpicSettings,
 } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
+import type { LandingManualStep } from "./epic-landing";
 import { epicParentFromBranch } from "./epic-branch";
 import { normalizeRule } from "./learning-rule";
 import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
@@ -3339,6 +3340,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     })();
   }
 
+  /** The landing facts of a completed epic, regardless of dismissedAt — read after the parent-close
+   *  dismissal to materialize its manual steps (#3103). */
+  getEpicCompletedLanding(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { parentTitle: string; childrenJson: string; landingPrNumber: number | null } | null {
+    return this.db
+      .query(
+        `SELECT parentTitle, childrenJson, landingPrNumber FROM epic_completed
+         WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber) as {
+      parentTitle: string;
+      childrenJson: string;
+      landingPrNumber: number | null;
+    } | null;
+  }
+
   /** True if an epic_completed row exists for this key, regardless of dismissedAt.
    *  Used by the backfill pre-check so a dismissed-but-idle run isn't re-backfilled. */
   hasEpicCompleted(repoPath: string, parentIssueNumber: number): boolean {
@@ -3449,6 +3468,34 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           [Date.now(), repoPath, parentIssueNumber],
         );
     })();
+  }
+
+  /** Persist the children's aggregated manual steps last written into the landing PR (#3103). */
+  setEpicLandingManualSteps(
+    repoPath: string,
+    parentIssueNumber: number,
+    steps: LandingManualStep[],
+  ): void {
+    this.db.run(
+      `UPDATE epic_completed SET manualStepsJson = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [JSON.stringify(steps), repoPath, parentIssueNumber],
+    );
+  }
+
+  /** The aggregate {@link setEpicLandingManualSteps} wrote; [] when none / unparseable. Ignores
+   *  `dismissedAt` — a landed epic's row may be dismissed before the Owed record is written. */
+  getEpicLandingManualSteps(repoPath: string, parentIssueNumber: number): LandingManualStep[] {
+    const r = this.db
+      .query(
+        `SELECT manualStepsJson FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber) as { manualStepsJson: string | null } | null;
+    try {
+      const parsed: unknown = JSON.parse(r?.manualStepsJson ?? "[]");
+      return Array.isArray(parsed) ? (parsed as LandingManualStep[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   /** Write rebase-state fields onto a completed epic's row (#1071). Only updates the fields
@@ -5180,6 +5227,29 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return rows.map(hydratePostMergeSteps);
   }
 
+  /** Every post-merge record (cleared or not) materialized for one PR of a repo (#3103). */
+  listPostMergeStepsForPr(repoPath: string, prNumber: number): PostMergeSteps[] {
+    const rows = this.db
+      .query(
+        `SELECT ${this.POST_MERGE_COLS} FROM post_merge_steps WHERE repoPath = ? AND prNumber = ?`,
+      )
+      .all(repoPath, prNumber) as PostMergeStepsRow[];
+    return rows.map(hydratePostMergeSteps);
+  }
+
+  /** Manual steps stored on the newest session that worked `issueNumber` in `repoPath` and has
+   *  any (archived included) — the fallback when its PR body can't be re-fetched (#3103). */
+  latestSessionManualStepsForIssue(repoPath: string, issueNumber: number): ManualStep[] {
+    const r = this.db
+      .query(
+        `SELECT manualStepsJson FROM sessions
+         WHERE repoPath = ? AND issueNumber = ? AND manualStepsJson IS NOT NULL AND manualStepsJson != '[]'
+         ORDER BY createdAt DESC LIMIT 1`,
+      )
+      .get(repoPath, issueNumber) as { manualStepsJson: string | null } | null;
+    return parseManualStepsJson(r?.manualStepsJson);
+  }
+
   /** Tick (or un-tick) one step. Recomputes clearedAt: stamped when every step is done, cleared
    *  again if any is re-opened. Returns the updated record, or null if no row / unknown step. */
   setPostMergeStepDone(sessionId: string, stepId: string, done: boolean): PostMergeSteps | null {
@@ -6628,6 +6698,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // outside a conflict pause) — the stale-conflict chip/push clock.
     add("landingConflictSince", `landingConflictSince INTEGER`);
     add("landingConflictEscalatedAt", `landingConflictEscalatedAt INTEGER`);
+    // #3103: the children's manual steps as last aggregated into the landing PR body (JSON
+    // LandingManualStep[]). Nullable: absence = never aggregated. Read back at landing merge when
+    // the landing PR body itself can't be fetched, so the Owed record never loses them.
+    add("manualStepsJson", `manualStepsJson TEXT`);
   }
 
   /** Retained first-push CI columns (#2159) for a DB created before they existed. Both are

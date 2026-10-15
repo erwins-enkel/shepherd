@@ -6669,5 +6669,7 @@
   "epic_hold_epic_predecessor_unlanded": "Pausiert: Die Landung von Epic {epics} ist noch offen. Dieses Epic startet, sobald sie gemergt ist, damit es auf dieser Arbeit aufbaut.",
   "epic_base_resolve": "Konflikt lösen",
   "epic_base_continue": "Trotzdem fortfahren",
-  "epic_base_action_failed": "Die Pause des Epics ließ sich nicht ändern."
+  "epic_base_action_failed": "Die Pause des Epics ließ sich nicht ändern.",
+  "gitrail_merge_failed_base_merged": "Merge blockiert: Der Base-Branch des PRs ist bereits gemergt. PR auf den Branch umstellen, in den er gemergt wurde, dann erneut versuchen.",
+  "prspanel_merge_failed_base_merged": "Merge blockiert: Base-Branch bereits gemergt — PR umstellen"
 }

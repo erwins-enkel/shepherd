@@ -100,7 +100,41 @@ To clear it, for each stranded child either:
 
 Re-targeting a stranded PR **without** merging it does not help: Shepherd decides an epic child's
 merge base from the base its *session* was spawned on, and that is fixed when the session is
-created. The epic warning names the two remedies above for exactly this reason.
+created. The epic warning names the two remedies above for exactly this reason. The one exception
+is the next section: once the branch a child was spawned on has itself landed on the epic branch,
+Shepherd re-targets the child for you.
+
+## When a predecessor lands before its successor opens a PR
+
+A child is spawned on its predecessor's branch while the predecessor's PR is open. If the
+predecessor merges into the epic branch **before** the child opens its own PR, there is nothing to
+stack yet, so the predecessor lands on its own — and the child's PR is then opened against a branch
+that has already merged. That branch will never be merged again, so work merged into it is lost to
+the epic.
+
+Shepherd handles this in three places:
+
+- **It re-targets the child.** On the next drain pass, a child whose spawn branch belongs to an
+  integrated sibling has its PR re-pointed at the epic's integration branch, and its session is
+  moved onto that branch too. From then on it retires — and stacks with the layers above it — like
+  any other child. If you re-targeted the PR yourself, Shepherd adopts that without another write.
+  A predecessor that has *not* integrated is left alone: re-targeting then would land the
+  predecessor's ungated commits on the epic branch. So is a child whose branch does not contain the
+  predecessor's **final** commit (it was cut before the predecessor's last rework): landing it
+  would bring back anything that rework removed. Rebase such a child onto the epic branch (or merge
+  the predecessor's final branch into it); once its head contains either tip, Shepherd moves it.
+- **It refuses manual merges into a dead base.** The Merge buttons on a session and in the Backlog
+  PR list answer `base_already_merged` when a PR's base is the branch of a session whose own PR
+  already merged, and name the branch to re-target onto. Merges made directly on GitHub cannot be
+  stopped, which is why the re-target above happens on its own.
+- **It never closes such a child's issue.** When an epic child's PR merges anywhere other than the
+  epic branch, nothing is recorded as integrated and the issue stays open (the claim is kept, so it
+  does not re-spawn). The epic shows a **blocking warning** naming the child and the branch its
+  session was based on: land that work on the epic branch yourself, then close the issue.
+
+After re-targeting, the PR's diff can show the predecessor's changes again — they were squashed
+into the epic branch, so their original commits are not recognised as already merged. Squash-merging
+the child is normally still clean.
 
 ## Known gaps
 

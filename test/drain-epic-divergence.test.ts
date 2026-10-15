@@ -241,4 +241,34 @@ describe("epic-branch host divergence scan (#645 signal c)", () => {
     expect(divWarn).toHaveLength(1);
     expect(divWarn[0]).toContain("epic/efi-valuemap-327");
   });
+
+  // #3102: aetherial #63 — the child's PR merged out of band into a landed sibling's branch.
+  test("an archived `merged` child that never integrated surfaces the off-epic warning", async () => {
+    const { store, drain } = makeHarness({ branches: [PINNED], calls: 0 }, { t: 1_000 });
+    const s = store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: "shepherd/auto-319",
+      branch: "shepherd/auto-320",
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: 320,
+      epicParent: PARENT,
+    });
+    store.archive(s.id, "merged");
+
+    const e = await drain.buildEpic(REPO, store.getEpicRun(REPO)!);
+    const w = e!.warnings.filter((x) => x.includes("merged outside the epic branch"));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("child #320");
+
+    // Once integrated (the operator landed it on the epic branch), the warning is gone.
+    store.recordEpicIntegrated(REPO, PARENT, 320, { number: 9, url: "" }, PINNED);
+    const e2 = await drain.buildEpic(REPO, store.getEpicRun(REPO)!);
+    expect(e2!.warnings.some((x) => x.includes("merged outside the epic branch"))).toBe(false);
+  });
 });

@@ -253,6 +253,20 @@ describe("epic-branch divergence warnings (#645)", () => {
     expect(w).not.toContain("gh pr edit");
   });
 
+  // (#3102) a child's PR merged into a non-epic branch — its work never reached the epic.
+  test("off-epic merge → blocking warning naming the spawn base and a hand-landing remedy", () => {
+    const e = assembleEpic(
+      input({ offEpicMerges: [{ childNumber: 320, spawnBase: "shepherd/auto-319" }] }),
+    );
+    const w = e.warnings.find((x) => x.includes("child #320"))!;
+    expect(w).toBeDefined();
+    expect(w).toContain("`shepherd/auto-319`");
+    expect(w).toContain("epic/327-epic"); // the pinned branch
+    expect(w).toContain("close #320");
+    expect(w).toContain("epic blocked until fixed");
+    expect(w).not.toContain("gh pr edit"); // already merged: re-targeting cannot help
+  });
+
   test("stack wedge suppresses the base-mismatch warning for the children it stranded", () => {
     const e = assembleEpic(
       input({

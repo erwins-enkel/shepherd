@@ -60,9 +60,17 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge {
   };
 }
 
-function makeDeps(resolveForge: AppDeps["resolveForge"]): AppDeps {
+function makeDeps(
+  resolveForge: AppDeps["resolveForge"],
+  storeOver: Partial<SessionStore> = {},
+): AppDeps {
   return {
-    store: { isEpicIntegratedChild: () => false } as unknown as SessionStore,
+    store: {
+      isEpicIntegratedChild: () => false,
+      list: () => [],
+      getEpicIntegrationBranch: () => null,
+      ...storeOver,
+    } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,
     usageLimits: { limits: () => ({}) } as never,
@@ -162,6 +170,51 @@ test("POST /api/prs/merge merges the PR by number, defaulting method + deleteBra
   expect(merged!.number).toBe(12);
   // allowStacked: this endpoint is operator-initiated, so a stacked PR is landed, not refused (#2059).
   expect(merged!.opts).toEqual({ method: "squash", deleteBranch: true, allowStacked: true });
+});
+
+test("POST /api/prs/merge into a landed epic child's branch → 409 base_already_merged (#3102)", async () => {
+  let merged = false;
+  const forge = fakeForge({
+    listPullRequests: async () => [{ ...PR, headRefName: "shepherd/m0-6" }],
+    prStatus: async () =>
+      ({
+        state: "open",
+        number: 12,
+        checks: "success",
+        deployConfigured: false,
+        baseRefName: "shepherd/m0-5",
+      }) as PrStatus,
+    merge: async () => {
+      merged = true;
+    },
+  });
+  // The base's session retired into the epic (archived `drain`, recorded integrated).
+  const pred = {
+    id: "p",
+    repoPath: repoDir,
+    branch: "shepherd/m0-5",
+    baseBranch: "epic/54-m0",
+    status: "archived",
+    archiveReason: "drain",
+    issueNumber: 3,
+    epicParent: 54,
+  };
+  const app = makeApp(
+    makeDeps(() => forge, {
+      list: (() => [pred]) as never,
+      isEpicIntegratedChild: (_r: string, n: number) => n === 3,
+      getEpicIntegrationBranch: () => "epic/54-m0",
+    }),
+  );
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(409);
+  const body = await res.json();
+  expect(body).toMatchObject({
+    code: "base_already_merged",
+    base: "shepherd/m0-5",
+    mergedInto: "epic/54-m0",
+  });
+  expect(merged).toBe(false);
 });
 
 test("POST /api/prs/merge refreshes the backlog for the repo so counters/headline drop the PR", async () => {

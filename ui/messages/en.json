@@ -6669,5 +6669,7 @@
   "epic_hold_epic_predecessor_unlanded": "Paused: the landing of epic {epics} is still open. This epic starts once it is merged, so it builds on that work.",
   "epic_base_resolve": "Resolve conflict",
   "epic_base_continue": "Continue anyway",
-  "epic_base_action_failed": "Could not change the epic's hold."
+  "epic_base_action_failed": "Could not change the epic's hold.",
+  "gitrail_merge_failed_base_merged": "Merge blocked: the PR's base branch already merged. Re-target the PR onto the branch it merged into, then retry.",
+  "prspanel_merge_failed_base_merged": "merge blocked: base branch already merged — re-target the PR"
 }

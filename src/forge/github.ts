@@ -2751,6 +2751,33 @@ export class GithubForge implements GitForge {
     ]).finally(() => this.invalidatePrs());
   }
 
+  /** Point an open pull request at a different base branch (#3102). Mutation — errors propagate. */
+  async retargetPr(prNumber: number, base: string): Promise<void> {
+    await this.run([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${this.slug}/pulls/${prNumber}`,
+      "-f",
+      `base=${base}`,
+    ]).finally(() => this.invalidatePrs());
+  }
+
+  /** Is `ref`'s tip contained in `headSha`? The compare API reports `ahead` / `identical` exactly
+   *  when the base is an ancestor of (or equal to) the head. Both values go into the path, so both
+   *  are shape-checked first; an unaddressable one answers false (the caller holds). */
+  async branchContains(ref: string, headSha: string): Promise<boolean> {
+    if (!isPathSafeRef(ref) || !/^[0-9a-f]{7,40}$/i.test(headSha)) return false;
+    const out = await this.run([
+      "api",
+      `repos/${this.slug}/compare/${ref}...${headSha}`,
+      "--jq",
+      ".status",
+    ]);
+    const status = out.trim();
+    return status === "ahead" || status === "identical";
+  }
+
   /** Stack membership, head SHA and the stack's trunk in one REST call, narrowed with `--jq` so
    *  the payload stays small. The trunk rides along for free: `.stack` is taken wholesale and
    *  GitHub puts `base: { ref, sha }` on it.

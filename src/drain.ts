@@ -45,6 +45,7 @@ import { decomposeEpicChains } from "./epic-chains";
 import {
   bottomMostUnmergedPr,
   buildStackSpawnPlan,
+  deadStackBaseAction,
   detectStackWedge,
   epicChildBaseOk,
   hasLiveStackedSuccessor,
@@ -291,6 +292,28 @@ function sessionEpicParent(s: Pick<Session, "epicParent" | "baseBranch">): numbe
   return s.epicParent ?? epicParentFromBranch(s.baseBranch);
 }
 
+/** #3102: children of `parent` whose PR merged out of band into a non-epic branch — an archived
+ *  `merged` session for a not-integrated child that has no live session now. Store-only. */
+function offEpicMerges(
+  repoPath: string,
+  parent: number,
+  all: Session[],
+  integrated: ReadonlySet<number>,
+): { childNumber: number; spawnBase: string }[] {
+  const mine = all.filter(
+    (x) =>
+      x.repoPath === repoPath && x.auto && x.issueNumber != null && sessionEpicParent(x) === parent,
+  );
+  const live = new Set(mine.filter((x) => x.status !== "archived").map((x) => x.issueNumber));
+  const out = new Map<number, string>();
+  for (const x of mine) {
+    if (x.archiveReason !== "merged" || x.status !== "archived") continue;
+    if (integrated.has(x.issueNumber!) || live.has(x.issueNumber)) continue;
+    out.set(x.issueNumber!, x.baseBranch);
+  }
+  return [...out].map(([childNumber, spawnBase]) => ({ childNumber, spawnBase }));
+}
+
 /** One queued backlog issue behind {@link DrainStatus.queued} — the rows the
  *  client's queue popover renders. */
 export interface QueuedItem {
@@ -315,6 +338,7 @@ export interface DrainDeps {
     | "getEpicClock"
     | "listDeliveryFactsForIssues"
     | "listMergedDeliveryFacts"
+    | "setSessionBaseBranch"
     | "recordEpicFirstFinish"
     | "listEpicLandingDurations"
     | "listEpicQueue"
@@ -501,6 +525,11 @@ export class DrainService {
   // In-memory on purpose: a restart composes on the next tick and the pass is idempotent.
   private epicStackComposedAt = new Map<string, number>();
   private epicStackInFlight = new Set<string>();
+  // #3102: sessionId → when its dead-base candidate was last probed WITHOUT being re-targeted (a
+  // hold, a no-op or a failure); re-probed after EPIC_BASE_RECHECK_TTL_MS so a candidate that
+  // cannot move costs at most one forge round per minute. In-memory: the pass is idempotent, so a
+  // restart only costs one early re-probe.
+  private deadBaseCheckedAt = new Map<string, number>();
   // #2070: repoPath → sessionId → when its live-stack confirmation REFUSED at retire (a layer below
   // it is not a landed epic child). The persisted rows cannot predict that answer, so without this
   // the session would be re-selected and consume the pump's one retire attempt every tick, starving
@@ -725,6 +754,8 @@ export class DrainService {
       repoPath,
       run.parentIssueNumber,
     );
+    // (#3102) children whose PR merged out of band into a non-epic branch.
+    const recordedOffEpic = offEpicMerges(repoPath, run.parentIssueNumber, all, integrated);
     const base = {
       repoPath,
       run,
@@ -763,10 +794,16 @@ export class DrainService {
     // `integrationMerged || issueClosed`, so derive the same done-set from the assembled children
     // (no forge call), clear markers for any now-done child, and surface only the still-blocked
     // ones. Idempotent (runs every build) and fail-safe.
-    const probe = assembleEpic({ ...base, baseMismatches: recordedMismatches });
+    const probe = assembleEpic({
+      ...base,
+      baseMismatches: recordedMismatches,
+      offEpicMerges: recordedOffEpic,
+    });
     const doneInEpic = new Set(
       probe.children.filter((c) => c.integrationMerged || c.issueClosed).map((c) => c.number),
     );
+    // An operator who landed the work by hand and closed the issue resolves the warning.
+    const liveOffEpic = recordedOffEpic.filter((o) => !doneInEpic.has(o.childNumber));
     const liveMismatches = recordedMismatches.filter((mm) => {
       if (doneInEpic.has(mm.childNumber)) {
         this.deps.store.clearEpicBaseMismatch(repoPath, run.parentIssueNumber, mm.childNumber);
@@ -776,9 +813,10 @@ export class DrainService {
     });
     // No swept markers → the probe is already correct; reuse it rather than re-assembling.
     const epic =
-      liveMismatches.length === recordedMismatches.length
+      liveMismatches.length === recordedMismatches.length &&
+      liveOffEpic.length === recordedOffEpic.length
         ? probe
-        : assembleEpic({ ...base, baseMismatches: liveMismatches });
+        : assembleEpic({ ...base, baseMismatches: liveMismatches, offEpicMerges: liveOffEpic });
     const runEnd = this.deps.store.getEpicRunEnd(repoPath, run.parentIssueNumber);
     return this.timeEpic(repoPath, runEnd ? { ...epic, runEnd } : epic, all, integratedDetails);
   }
@@ -1110,6 +1148,127 @@ export class DrainService {
     const b = this.deps.store.getRepoBootstrap(repoPath);
     if (b.state !== "active") return null;
     return bootstrapMissing(b, this.deps.bootstrapMustHaves?.(repoPath) ?? []);
+  }
+
+  /** #3102: re-target a stacked child whose predecessor already landed onto the epic branch.
+   *
+   *  The race: a child is spawned on its predecessor's head while that PR is open, the predecessor
+   *  then retires (squash into the epic branch) BEFORE the child opens its own PR, and the child's
+   *  PR is opened against a branch that has already merged. Composition will not seed a stack on it
+   *  and the retire gate refuses it forever — the only exit left was an out-of-band merge into the
+   *  dead branch, which is how aetherial's M0 epic lost #63/#64/#67/#69.
+   *
+   *  Store-first: only a live child on a STACKED base whose predecessor (the session owning that
+   *  branch) is an integrated child of the same epic costs a forge call at all. Keyed on branch
+   *  shape, not `epicStacksEnabled` — a child spawned stacked stays stacked after an opt-out. Once
+   *  the session's base is flipped to the pinned branch, it is an ordinary epic child and every
+   *  existing rule (retire fast path, stack composition, wedge clearing) takes over.
+   *
+   *  Only a child whose head CONTAINS the landed predecessor's final tip is moved. Its verdict and
+   *  CI were judged against that tip (the dead base), and the epic already holds the same content
+   *  squashed, so landing it on the epic adds exactly the reviewed diff. A child cut from an EARLIER
+   *  predecessor head is held: a 3-way squash would resurrect anything the predecessor's later
+   *  rework removed, unreviewed. It stays blocked, as before, until its branch absorbs that tip —
+   *  or is rebased onto the epic branch: a head that contains the PINNED tip squashes to exactly its
+   *  own (CI'd, reviewed) content. That second test is what makes the logged remedy work at all: the
+   *  epic holds the predecessor only as a squash commit, so a rebased head never contains the dead
+   *  branch's tip. */
+  private async retargetDeadStackBasesForRepo(repoPath: string): Promise<void> {
+    try {
+      const forge = this.deps.resolveForge(repoPath);
+      if (!forge?.retargetPr || !forge.prReviewMeta || !forge.branchContains) return;
+      if (forge.kind === "github" && this.deps.restWritesBlocked?.()) return;
+      const sessions = this.deps.store.list().filter((s) => s.repoPath === repoPath);
+      const snap = this.deps.prCache.snapshot();
+      for (const s of sessions) {
+        const pinned = this.landedStackBasePinned(s, sessions);
+        const pr = snap[s.id];
+        if (!pinned || pr?.state !== "open" || pr.number == null) continue; // no PR yet — next tick
+        if (!this.deadBaseProbeDue(s.id)) continue;
+        if (await this.retargetDeadStackBase(forge, s, pr, pinned)) {
+          this.deadBaseCheckedAt.delete(s.id);
+        } else {
+          this.deadBaseCheckedAt.set(s.id, this.now());
+        }
+      }
+    } catch (err) {
+      console.warn(`[drain] dead stack-base retarget pass failed for ${repoPath}:`, err);
+    }
+  }
+
+  /** #3102: may this candidate be probed now? See {@link deadBaseCheckedAt}. */
+  private deadBaseProbeDue(sessionId: string): boolean {
+    const at = this.deadBaseCheckedAt.get(sessionId);
+    return at === undefined || this.now() - at >= EPIC_BASE_RECHECK_TTL_MS;
+  }
+
+  /** #3102: the pinned branch of `s`'s epic when `s` is a live stacked child whose spawn branch
+   *  belongs to an integrated sibling (its base has landed), else null. Store-only. */
+  private landedStackBasePinned(s: Session, repoSessions: Session[]): string | null {
+    if (s.status === "archived" || !s.auto || s.issueNumber == null) return null;
+    const parent = sessionEpicParent(s);
+    if (parent == null) return null;
+    const pinned = this.deps.store.getEpicIntegrationBranch(s.repoPath, parent);
+    if (!pinned || !isStackedBase(s.baseBranch, pinned)) return null;
+    const pred = repoSessions.find((p) => p.branch === s.baseBranch && p.issueNumber != null);
+    if (!pred) return null;
+    return this.deps.store.listEpicIntegrated(s.repoPath, parent).has(pred.issueNumber!)
+      ? pinned
+      : null;
+  }
+
+  /** #3102: may a head land on the epic without carrying unreviewed content? Yes when it contains
+   *  the landed predecessor's final tip (`deadBase`) or the epic branch's tip (`pinned`). */
+  private async headSafeOnEpic(
+    forge: GitForge,
+    headSha: string,
+    deadBase: string,
+    pinned: string,
+  ): Promise<boolean> {
+    return (
+      (await forge.branchContains!(deadBase, headSha)) ||
+      (await forge.branchContains!(pinned, headSha))
+    );
+  }
+
+  /** One candidate: probe, then move it. True only when the session was moved onto `pinned`. */
+  private async retargetDeadStackBase(
+    forge: GitForge,
+    s: Session,
+    pr: GitState,
+    pinned: string,
+  ): Promise<boolean> {
+    const prNumber = pr.number!;
+    try {
+      const prBase = (await forge.prReviewMeta!(prNumber))?.baseRefName ?? null;
+      const action = deadStackBaseAction({
+        sessionBase: s.baseBranch,
+        pinnedBranch: pinned,
+        predecessorIntegrated: true,
+        prBase,
+      });
+      if (action === "none") return false;
+      // The dead base is kept on the remote (keepBranchForStackedSuccessor), so its tip IS the
+      // predecessor's merged head. Unknown head ⇒ cannot vouch ⇒ hold.
+      if (!pr.headSha || !(await this.headSafeOnEpic(forge, pr.headSha, s.baseBranch, pinned))) {
+        if (!this.deadBaseCheckedAt.has(s.id)) {
+          console.log(
+            `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed, but the branch contains neither its final tip nor \`${pinned}\` — holding (rebase it onto \`${pinned}\`)`,
+          );
+        }
+        return false;
+      }
+      if (action === "retarget") await forge.retargetPr!(prNumber, pinned);
+      this.deps.store.setSessionBaseBranch(s.id, pinned);
+      this.deps.store.clearEpicBaseMismatch(s.repoPath, sessionEpicParent(s)!, s.issueNumber!);
+      console.log(
+        `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed — ${action === "retarget" ? "re-targeted onto" : "adopted"} \`${pinned}\``,
+      );
+      return true;
+    } catch (err) {
+      console.warn(`[drain] re-target of pr#${prNumber} onto ${pinned} failed:`, err);
+      return false;
+    }
   }
 
   /** #2069: link an epic's child PRs into a GitHub stack rooted at its pinned integration branch,
@@ -4751,6 +4910,10 @@ export class DrainService {
       // earlier this tick is already out of the live set) and BEFORE the pump, so a stack composed
       // now is visible to this tick's spawn decisions. Flag-gated + running-only + throttled →
       // zero forge calls in steady state; self-guarding like its neighbours.
+      // #3102: BEFORE composition, so a child just re-targeted off a landed predecessor's branch
+      // can seed/extend a stack this same tick. Store-first → zero forge calls for repos with no
+      // candidate; a candidate that cannot move is re-probed at most once a minute.
+      await this.retargetDeadStackBasesForRepo(repoPath);
       await this.composeEpicStacksForRepo(repoPath);
       // #1841: rebase a running epic's integration branch onto the default branch in a quiescent
       // window (no child in flight). BEFORE the pump so a child spawned this tick is cut from the

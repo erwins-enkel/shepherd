@@ -1,4 +1,4 @@
-import { epicParentFromBranch } from "./epic-branch";
+import { epicParentFromBranch, isEpicChild } from "./epic-branch";
 import type { GitForge } from "./forge/types";
 import type { Session, SessionArchiveReason } from "./types";
 import type { SessionStore } from "./store";
@@ -139,7 +139,11 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
   // whether on a poller-observed merge mid-archive (the race) or on the archive-failure recovery
   // path — would close the child out of band, violating that invariant. Archive + retain the
   // claim (the still-open issue's label is what stops a re-spawn) and skip closeIssue entirely.
-  if (s.auto && s.issueNumber != null && deps.isIntegratedEpicChild(s)) {
+  // #3102: the same holds for an epic child that is NOT integrated — its PR merged somewhere other
+  // than the epic branch (a landed sibling's branch, say), so its work never reached the epic.
+  // Closing it would count it done and let the epic land without that work; keeping it open (claim
+  // retained, no re-spawn) leaves the epic incomplete, where the off-epic-merge warning names it.
+  if (s.auto && s.issueNumber != null && (deps.isIntegratedEpicChild(s) || isEpicChild(s))) {
     deps.retainClaim(s.id);
     await deps.archive(s.id, "merged");
     deps.dropPrCache(s.id);

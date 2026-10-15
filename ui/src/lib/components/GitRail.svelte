@@ -11,6 +11,7 @@
     isPlanReviewError,
     planReviewStarted,
     MergeRefusedError,
+    ApiError,
   } from "#lib/api.js";
   import type { DrainStatus, GitState, Session, SessionStatus } from "#lib/types.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -361,11 +362,13 @@
         if (e instanceof MergeRefusedError) throw e; // the dialog re-states and stays open
         // prefer the known local cause over a raw server string
         err =
-          git?.checks === "failure"
-            ? m.gitrail_merge_failed_checks()
-            : git && isConflicting(git)
-              ? m.gitrail_merge_failed_unmergeable()
-              : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
+          e instanceof ApiError && e.code === "base_already_merged"
+            ? m.gitrail_merge_failed_base_merged()
+            : git?.checks === "failure"
+              ? m.gitrail_merge_failed_checks()
+              : git && isConflicting(git)
+                ? m.gitrail_merge_failed_unmergeable()
+                : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
         retry = () => doMerge();
       } finally {
         busy = false;

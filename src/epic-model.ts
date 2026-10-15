@@ -57,6 +57,10 @@ export interface AssembleInput {
    *  the drain dissolved the stack outright; the layers above the lost one keep their branches and
    *  are stuck until an operator acts. Each entry surfaces a BLOCKING warning. */
   stackWedges?: { childNumber: number; stranded: number[] }[];
+  /** #3102: children whose PR merged OUT OF BAND into a branch other than the pinned epic branch
+   *  (a landed sibling's head, say). Nothing was integrated and the issue stays open, so the epic
+   *  cannot complete — each entry surfaces a BLOCKING warning naming the branch it was based on. */
+  offEpicMerges?: { childNumber: number; spawnBase: string }[];
   /** #1757: false when the repo's forge cannot create branches (no `ensureBranch` — Gitea, local).
    *  Such an epic runs WITHOUT an integration branch: every child bases on the default branch and
    *  merges straight into it, one at a time (the epic still progresses — a merged child closes its
@@ -222,6 +226,8 @@ function divergenceWarnings(input: AssembleInput): string[] {
   const wedges = input.stackWedges ?? [];
   const stranded = new Set(wedges.flatMap((w) => w.stranded));
   out.push(...wedges.map((w) => stackWedgeWarning(w, pinned)));
+  // (#3102) a child's PR merged somewhere its work never reaches the epic.
+  out.push(...(input.offEpicMerges ?? []).map((o) => offEpicMergeWarning(o, pinned)));
   // (Task 2) base-mismatch. A stranded child ALSO trips the base gate (its session was spawned on a
   // branch that is no longer part of any stack), but the generic remedy is wrong for it — see
   // stackWedgeWarning — so the wedge warning replaces it rather than sitting next to it.
@@ -236,14 +242,23 @@ function divergenceWarnings(input: AssembleInput): string[] {
 /** (#2070) One blocking mid-stack-loss warning.
  *
  *  The remedy deliberately does NOT say "re-target the PR": Shepherd decides an epic child's merge
- *  base from the SESSION's spawn base, which is never updated after create — so `gh pr edit --base`
- *  leaves the child just as un-retirable as before. The two things that do restore progress are
+ *  base from the SESSION's spawn base, which is not updated after create (unless its spawn branch
+ *  itself landed — #3102) — so `gh pr edit --base` leaves the child just as un-retirable as before. The two things that do restore progress are
  *  abandoning the stranded children (each re-spawns onto the pinned branch) and merging their PRs
  *  by hand onto the pinned branch, which the merge-teardown path records as an integration. */
 function stackWedgeWarning(w: { childNumber: number; stranded: number[] }, pinned: string): string {
   const one = w.stranded.length === 1;
   const list = w.stranded.length ? `#${w.stranded.join(", #")}` : "the other layers";
   return `stacked child #${w.childNumber} lost its pull request, so the whole stack was dissolved (GitHub cannot drop one layer) — ${list} ${one ? "is" : "are"} left on a sibling's branch that will never land; abandon ${one ? "it" : "them"} to re-spawn on \`${pinned}\`, or merge ${one ? "its PR" : "their PRs"} onto \`${pinned}\` yourself — epic blocked until fixed`;
+}
+
+/** (#3102) One blocking off-epic-merge warning. Re-targeting cannot help any more — the PR is
+ *  merged — so the remedy is landing the work on the epic branch by hand. */
+function offEpicMergeWarning(
+  o: { childNumber: number; spawnBase: string },
+  pinned: string,
+): string {
+  return `child #${o.childNumber}'s PR merged outside the epic branch \`${pinned}\` (its session was based on \`${o.spawnBase}\`) — its work never reached the epic; land it on \`${pinned}\` yourself, then close #${o.childNumber} — epic blocked until fixed`;
 }
 
 /** (Task 2) One actionable base-mismatch warning: names the wrong base + the exact `gh pr edit`

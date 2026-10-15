@@ -51,6 +51,27 @@ test("integrated epic child: archives + retains claim, NEVER closes the issue (#
   expect((d.archive as any).mock.calls).toEqual([["s1", "merged"]]);
 });
 
+test("NON-integrated epic child merged off-epic: archives + retains claim, NEVER closes (#3102)", async () => {
+  // aetherial #63: merged into a landed sibling's branch, so the integration was (rightly) not
+  // recorded — closing the issue would have counted the child done and landed the epic without it.
+  const close = mock(async () => {});
+  const d = deps({ resolveForge: () => ({ closeIssue: close }) as any });
+  await settleMergedSession(
+    {
+      id: "s1",
+      auto: true,
+      issueNumber: 62,
+      repoPath: "/r",
+      epicParent: 54,
+      baseBranch: "shepherd/m0-projektgeruest-60",
+    } as any,
+    d,
+  );
+  expect(close.mock.calls.length).toBe(0);
+  expect((d.retainClaim as any).mock.calls).toEqual([["s1"]]);
+  expect((d.archive as any).mock.calls).toEqual([["s1", "merged"]]);
+});
+
 test("manual session (no issue): archives, no close, no retain", async () => {
   const close = mock(async () => {});
   const d = deps({ resolveForge: () => ({ closeIssue: close }) as any });

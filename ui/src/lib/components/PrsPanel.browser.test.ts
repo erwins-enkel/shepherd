@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { PullRequest } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
-import { listPullRequests } from "#lib/api.js";
+import { ApiError, listPullRequests, mergeBacklogPr } from "#lib/api.js";
 
 // Mock the API so the panel never hits the network; each test seeds the result.
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -257,6 +257,21 @@ describe("PrsPanel launch-train toolbar", () => {
       .element(page.getByText(m.prspanel_selected_count({ count: 1 })))
       .toBeInTheDocument();
     await expect.element(launchBtn()).toBeDisabled();
+  });
+
+  it("names a refused merge into an already-merged base instead of a generic failure (#3102)", async () => {
+    seed([pr(1)]);
+    vi.mocked(mergeBacklogPr).mockRejectedValueOnce(
+      new ApiError(409, "base already merged", "base_already_merged"),
+    );
+    render(PrsPanel, { repoPath: "/repo", onreview: noop, onlaunchtrain: noop });
+    await page.getByRole("button", { name: m.prspanel_merge_button(), exact: true }).click();
+    await page.getByRole("button", { name: m.mergeconfirm_confirm(), exact: true }).click();
+
+    await expect.element(page.getByText(m.prspanel_merge_failed_base_merged())).toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.prspanel_merge_failed(), { exact: true }))
+      .not.toBeInTheDocument();
   });
 
   it("shows the in-train badge and disables merge only for PRs in the train set", async () => {

@@ -6515,5 +6515,19 @@
   "drain_paused_bootstrap": "Pausiert: Projekt-Bootstrap unvollständig — es fehlt {missing}",
   "epic_hold_bootstrap_incomplete": "Angehalten: Der Projekt-Bootstrap ist unvollständig (es fehlt {missing}). Der Drain startet, sobald er abgeschlossen ist oder der Halt in den Automatisierungs-Einstellungen des Repos übergangen wird.",
   "feat_project_bootstrap_title": "Projekt-Bootstrap-Modus",
-  "feat_project_bootstrap_body": "Neue Projekte starten jetzt im Bootstrap-Modus: Der Drain wartet, bis das Fundament (Stack, Gerüst, CI, Backlog) steht. Für andere Repos einschalten — oder den Halt protokolliert übergehen — in den Automatisierungs-Einstellungen des Repos."
+  "feat_project_bootstrap_body": "Neue Projekte starten jetzt im Bootstrap-Modus: Der Drain wartet, bis das Fundament (Stack, Gerüst, CI, Backlog) steht. Für andere Repos einschalten — oder den Halt protokolliert übergehen — in den Automatisierungs-Einstellungen des Repos.",
+  "newtask_mode_bootstrap": "Bootstrap",
+  "newtask_prompt_placeholder_bootstrap": "Was soll das neue Projekt werden? Der Agent liest PRD und Design-Export, klärt mit dir die Gerüst-Entscheidungen und baut es dann…",
+  "newtask_house_stack_unresolved": "Bootstrap nicht gestartet: Shepherd konnte die aktuellen Versionen deines House-Stacks nicht abfragen ({detail}). Prüfe die Paketnamen unter Einstellungen → Workspace → House-Stack und versuche es erneut.",
+  "keymap_mode_bootstrap": "Modus Bootstrap",
+  "tooltip_mode_bootstrap_title": "Bootstrap-Modus",
+  "tooltip_mode_bootstrap_summary": "Macht aus PRD und Design-Export ein lauffähiges Gerüst mit allen Leitplanken, als ein Pull Request auf den Standard-Branch.",
+  "tooltip_mode_bootstrap_output": "Liefert",
+  "tooltip_mode_bootstrap_output_body": "Einen PR: gepinntes Framework, Design-Tokens, App-Shell, i18n-Katalog, Hooks, CI und eine CLAUDE.md mit deinen Entscheidungen.",
+  "tooltip_mode_bootstrap_pins": "Versionen",
+  "tooltip_mode_bootstrap_pins_body": "Jede Version stammt aus deinem House-Stack, beim Start in den Paket-Registries nachgeschlagen. Schlägt eine Abfrage fehl, startet die Aufgabe nicht.",
+  "tooltip_mode_bootstrap_guards": "Schutzmechanismen",
+  "tooltip_mode_bootstrap_guards_body": "Kein Plan-Gate und kein Autopilot: Der Agent klärt die Gerüst-Entscheidungen selbst mit dir. Die autonome Sandbox ist nicht verfügbar, weil der Agent die Paket-Registries braucht.",
+  "feat_bootstrap_task_title": "Neues Projekt bootstrappen",
+  "feat_bootstrap_task_body": "Neue Aufgabe hat einen Bootstrap-Modus. Eine begleitete Session liest PRD und Design-Export, klärt mit dir die Entscheidungen, die das Gerüst prägen, und öffnet dann einen Pull Request mit gepinntem Stack, App-Shell, i18n, Hooks und CI. Jede Version stammt aus deinem House-Stack."
 }

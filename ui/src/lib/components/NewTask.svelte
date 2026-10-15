@@ -80,6 +80,7 @@
   import {
     epicModeExplanation,
     plainModeExplanation,
+    bootstrapModeExplanation,
     researchModeExplanation,
     runOnExplanation,
   } from "#lib/tooltips/explanations.js";
@@ -160,6 +161,7 @@
     initialResearch = false,
     initialEpicAuthoring = false,
     initialPlain = false,
+    initialBootstrap = false,
     usageLimits = null,
     holdLikely = false,
     fableAvailable = true,
@@ -231,6 +233,7 @@
     initialResearch?: boolean;
     initialEpicAuthoring?: boolean;
     initialPlain?: boolean;
+    initialBootstrap?: boolean;
     usageLimits?: UsageLimits | null;
     holdLikely?: boolean;
     fableAvailable?: boolean;
@@ -348,6 +351,9 @@
   // Plain task kind: the agent without guards — worktree, branch and tab only.
   // svelte-ignore state_referenced_locally
   let plain = $state(draft?.plain ?? initialPlain);
+  // Bootstrap task kind (#3109): pinned stack + scaffold + guardrails as one PR to main.
+  // svelte-ignore state_referenced_locally
+  let bootstrap = $state(draft?.bootstrap ?? initialBootstrap);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
   // svelte-ignore state_referenced_locally
   let sandboxProfile = $state<"default" | SandboxProfile>(
@@ -395,6 +401,7 @@
         research,
         epicAuthoring,
         plain,
+        bootstrap,
         modeTouched,
         designPreselected,
         sandboxProfile,
@@ -1092,12 +1099,22 @@
 
   // Guards are a Code-mode concern: every non-code mode (research, epic authoring, plain)
   // replaces the plan-gate/autopilot toggles with a sentence saying why there are none.
-  const modeLocked = $derived(research || epicAuthoring || plain);
-  // Research and epic authoring need open web egress, so they also lock the autonomous
-  // sandbox; a plain task has no such need.
-  const sandboxLocked = $derived(research || epicAuthoring);
+  // Bootstrap is a code task, but attended: its own P1 questions replace the plan gate and
+  // autopilot, so it locks them like the non-code modes.
+  const modeLocked = $derived(research || epicAuthoring || plain || bootstrap);
+  // Research, epic authoring and bootstrap need open web egress (bootstrap resolves package
+  // registries), so they also lock the autonomous sandbox; a plain task has no such need.
+  const sandboxLocked = $derived(research || epicAuthoring || bootstrap);
   const mode = $derived<ComposeMode>(
-    research ? "research" : epicAuthoring ? "epic" : plain ? "plain" : "code",
+    research
+      ? "research"
+      : epicAuthoring
+        ? "epic"
+        : plain
+          ? "plain"
+          : bootstrap
+            ? "bootstrap"
+            : "code",
   );
   // The empty prompt says what THIS mode wants written — a research question is not a fix.
   const promptPlaceholder = $derived(
@@ -1106,6 +1123,7 @@
       research: m.newtask_prompt_placeholder_research,
       epic: m.newtask_prompt_placeholder_epic,
       plain: m.newtask_prompt_placeholder_plain,
+      bootstrap: m.newtask_prompt_placeholder_bootstrap,
     }[mode](),
   );
   // True once the operator picked a mode by hand — the `/design` pre-selection below then
@@ -1120,6 +1138,7 @@
     research = next === "research";
     epicAuthoring = next === "epic";
     plain = next === "plain";
+    bootstrap = next === "bootstrap";
     if (next !== "code") {
       planGate = false;
       planGateTouched = true;
@@ -1957,6 +1976,7 @@
         autopilotChecked: autopilot,
         epicAuthoringChecked: epicAuthoring,
         plainChecked: plain,
+        bootstrapChecked: bootstrap,
       },
       planGateEnabled: planGateFlag(planGateTouched, planGate),
       autopilotEnabled: automationFlag(autopilotTouched, autopilot),
@@ -1964,6 +1984,7 @@
       research,
       epicAuthoring,
       plain,
+      bootstrap,
       force: force || undefined,
       target: runOnAvailable && pickedId !== null ? { instanceId: pickedId } : undefined,
       requirements: runOnAvailable && requirements.length > 0 ? [...requirements] : undefined,
@@ -2051,6 +2072,12 @@
     } else if (err instanceof ApiError && err.code === "herdr_restart_required") {
       herdrRepairRequired = true;
       error = m.newtask_herdr_restart();
+    } else if (err instanceof ApiError && err.code === "house_stack_unresolved") {
+      // Bootstrap (#3109): no pin is guessed, so the start was refused. The packages are data.
+      error = m.newtask_house_stack_unresolved({
+        detail: err.message.replace(/^house stack unresolved: /, ""),
+      });
+      retry = () => doSpawn(force, uploadQueueRevision);
     } else if (isPreviewBlocked(err)) {
       error = (err as Error).message;
     } else {
@@ -3268,6 +3295,21 @@
           ctx={keymapCtx}
           tight
           flash={hold.flash === "mode-plain"}
+        />{/if}</button
+    >
+    <button
+      type="button"
+      class="seg-btn"
+      class:seg-active={mode === "bootstrap"}
+      aria-pressed={mode === "bootstrap"}
+      use:statusTip={{ text: bootstrapModeExplanation(), ...modeTip }}
+      aria-keyshortcuts={shortcutAttr("mode-bootstrap")}
+      onclick={() => setMode("bootstrap")}
+      >{m.newtask_mode_bootstrap()}{#if held}<Keycap
+          id="mode-bootstrap"
+          ctx={keymapCtx}
+          tight
+          flash={hold.flash === "mode-bootstrap"}
         />{/if}</button
     >
   </div>

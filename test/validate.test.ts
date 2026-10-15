@@ -1569,6 +1569,52 @@ test("validateRelaunchOverrides: plain is accepted and forwarded, absent is not 
   expect(bad.ok).toBe(false);
 });
 
+// ── bootstrap: P1+P2 scaffold session (#3109) ─────────────────────────────────
+
+test("bootstrap: true accepted, absent → false, non-boolean rejected", () => {
+  const go = { repoPath: validRepo, baseBranch: "main", prompt: "go" };
+  const r = validateCreate({ ...go, bootstrap: true }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.bootstrap).toBe(true);
+  const absent = validateCreate(go, root);
+  if (absent.ok && absent.value.terminal !== true) expect(absent.value.bootstrap).toBe(false);
+  const bad = validateCreate({ ...go, bootstrap: null }, root);
+  expect(bad.ok).toBe(false);
+  if (!bad.ok) expect(bad.error).toMatch(/bootstrap/);
+});
+
+test("bootstrap: cannot be combined with another task kind", () => {
+  const go = { repoPath: validRepo, baseBranch: "main", prompt: "go", bootstrap: true };
+  for (const kind of ["research", "epicAuthoring", "plain"]) {
+    const r = validateCreate({ ...go, [kind]: true }, root);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/bootstrap cannot be combined/);
+  }
+});
+
+test("validateRelaunchOverrides + launchUiState carry bootstrap", () => {
+  const r = validateRelaunchOverrides({ bootstrap: true }, homedir());
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.bootstrap).toBe(true);
+  const ui = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      launchUiState: {
+        researchChecked: false,
+        planGateChecked: false,
+        autopilotChecked: false,
+        bootstrapChecked: true,
+      },
+    },
+    root,
+  );
+  expect(ui.ok).toBe(true);
+  if (ui.ok && ui.value.terminal !== true)
+    expect(ui.value.launchUiState?.bootstrapChecked).toBe(true);
+});
+
 test("launchUiState accepts an optional plainChecked flag", () => {
   const r = validateCreate(
     {

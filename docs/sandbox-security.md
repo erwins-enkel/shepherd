@@ -273,7 +273,10 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   **epic-authoring** session (`input.epicAuthoring`, #1507), which likewise needs
   open web/repo egress to shape a draft — though unlike research it creates **no
   GitHub issues itself**: the hard write-gate is that only the server-side approve
-  route materializes the draft. It is operator-_created_ (cannot be
+  route materializes the draft. A **bootstrap** session (`input.bootstrap`, #3109) is
+  downgraded too: it installs from the package registries and scaffolds a new project.
+  Unlike research it is never autopilot-steerable — the service forces autopilot off.
+  It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
   `src/autopilot.ts`, dispatched from the steer loop). It ingests **untrusted web**

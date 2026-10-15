@@ -40,11 +40,28 @@ export function isForgeCheckId(v: unknown): v is ForgeCheckId {
 
 const PR_EVENTS = new Set(["pull_request", "pull_request_target"]);
 
-/** True when a workflow's `on:` (string / list / map) includes a PR event. */
-function triggersOnPr(on: unknown): boolean {
+/** Filters that make a PR workflow skip some PRs; a check it reports would then stay Pending
+ *  forever on those PRs once required. */
+const PR_FILTERS = ["paths", "paths-ignore", "branches", "branches-ignore"];
+
+/** True when a PR-event config (`pull_request:` value) runs on every PR push: no path/branch
+ *  filter, and `types` (if set) covers both `opened` and `synchronize`. */
+function runsOnEveryPr(cfg: unknown): boolean {
+  if (cfg === null || cfg === undefined) return true;
+  if (typeof cfg !== "object" || Array.isArray(cfg)) return false;
+  const c = cfg as Record<string, unknown>;
+  if (PR_FILTERS.some((k) => k in c)) return false;
+  if (c.types === undefined) return true;
+  const types = Array.isArray(c.types) ? c.types : [c.types];
+  return types.includes("opened") && types.includes("synchronize");
+}
+
+/** True when a workflow's `on:` (string / list / map) runs on every pull request. */
+function triggersOnEveryPr(on: unknown): boolean {
   if (typeof on === "string") return PR_EVENTS.has(on);
   if (Array.isArray(on)) return on.some((e) => typeof e === "string" && PR_EVENTS.has(e));
-  if (on && typeof on === "object") return Object.keys(on).some((e) => PR_EVENTS.has(e));
+  if (on && typeof on === "object")
+    return Object.entries(on).some(([e, cfg]) => PR_EVENTS.has(e) && runsOnEveryPr(cfg));
   return false;
 }
 
@@ -60,7 +77,7 @@ function jobContext(id: string, job: unknown): string | null {
 }
 
 /** Required-check contexts derived from the repo's workflow files: every predictable job of a
- *  workflow that runs on pull requests. Deduped, sorted; unparseable files are skipped. */
+ *  workflow that runs on every pull request (filtered PR triggers are skipped). Deduped, sorted; unparseable files are skipped. */
 export function deriveRequiredChecks(workflowTexts: string[]): string[] {
   const out = new Set<string>();
   for (const text of workflowTexts) {
@@ -72,7 +89,7 @@ export function deriveRequiredChecks(workflowTexts: string[]): string[] {
     }
     if (!doc || typeof doc !== "object") continue;
     const wf = doc as { on?: unknown; jobs?: unknown };
-    if (!triggersOnPr(wf.on) || !wf.jobs || typeof wf.jobs !== "object") continue;
+    if (!triggersOnEveryPr(wf.on) || !wf.jobs || typeof wf.jobs !== "object") continue;
     for (const [id, job] of Object.entries(wf.jobs)) {
       const ctx = jobContext(id, job);
       if (ctx) out.add(ctx);

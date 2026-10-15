@@ -43,6 +43,27 @@ jobs:
     ]);
   });
 
+  test("skips PR triggers that don't run on every PR", () => {
+    const wf = (trigger: string) => `on:\n  pull_request:\n${trigger}jobs:\n  ci: {}\n`;
+    for (const filter of [
+      "    paths: [native/**]\n",
+      "    paths-ignore: [docs/**]\n",
+      "    branches: [main]\n",
+      "    branches-ignore: [release]\n",
+      "    types: [labeled]\n",
+      "    types: [opened]\n",
+    ])
+      expect(deriveRequiredChecks([wf(filter)])).toEqual([]);
+    expect(deriveRequiredChecks([wf("    types: [opened, synchronize, reopened]\n")])).toEqual([
+      "ci",
+    ]);
+    expect(deriveRequiredChecks([wf("")])).toEqual(["ci"]);
+    // One unfiltered PR event is enough.
+    const mixed =
+      "on:\n  pull_request: {paths: [a/**]}\n  pull_request_target: {}\njobs:\n  ci: {}\n";
+    expect(deriveRequiredChecks([mixed])).toEqual(["ci"]);
+  });
+
   test("string trigger and dedupe", () => {
     const a = "on: pull_request\njobs:\n  lint: {}\n";
     expect(deriveRequiredChecks([a, a])).toEqual(["lint"]);

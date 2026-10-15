@@ -4,6 +4,7 @@ import {
   collectLandingManualSteps,
   landingStepsRecordId,
   materializeLandingManualSteps,
+  materializeLandingOnClear,
 } from "../src/epic-landing-steps";
 import { buildLandingPrBody } from "../src/epic-landing";
 import type { GitForge } from "../src/forge/types";
@@ -15,17 +16,13 @@ const fence = (lines: string) => "Prose.\n\n```shepherd:manual-steps\n" + lines 
 function forgeWith(
   bodies: Record<number, string>,
   calls: number[] = [],
+  state: "open" | "merged" = "merged",
 ): Pick<GitForge, "prReviewMeta"> {
   return {
     prReviewMeta: async (n: number) => {
       calls.push(n);
       if (!(n in bodies)) throw new Error(`gh: pr ${n} unavailable`);
-      return {
-        body: bodies[n]!,
-        baseRefName: "epic/55-x",
-        isCrossRepository: false,
-        state: "merged",
-      };
+      return { body: bodies[n]!, baseRefName: "epic/55-x", isCrossRepository: false, state };
     },
   };
 }
@@ -214,5 +211,62 @@ describe("materializeLandingManualSteps (#3103)", () => {
   test("record id is URL-safe and per-repo", () => {
     expect(landingStepsRecordId("/a/b c", 55)).toMatch(/^epic-landing-55-[0-9a-f]{8}$/);
     expect(landingStepsRecordId("/x", 55)).not.toBe(landingStepsRecordId("/y", 55));
+  });
+});
+
+describe("materializeLandingOnClear (#3103) — landing merged on GitHub, row dismissed on parent close", () => {
+  const landingBody = fence("- [ ] Set VERCEL_TOKEN (from #70)");
+  const seed = (store: SessionStore, landingPrNumber: number | null) => {
+    store.recordEpicCompleted({
+      repoPath: REPO,
+      parentIssueNumber: 55,
+      parentTitle: "E",
+      completedAt: 1,
+      childrenJson: JSON.stringify(CHILDREN),
+    });
+    if (landingPrNumber != null)
+      store.setEpicLandingPr(REPO, 55, {
+        state: "open",
+        prNumber: landingPrNumber,
+        prUrl: null,
+        attempts: 0,
+      });
+    store.dismissEpicCompleted(REPO, 55); // the parent-close dismissal
+  };
+  const clear = (store: SessionStore, forge: Pick<GitForge, "prReviewMeta">) =>
+    materializeLandingOnClear({
+      forge,
+      store,
+      repoPath: REPO,
+      parentIssueNumber: 55,
+      emitChange: () => {},
+    });
+
+  test("open row whose landing PR merged → epic Owed record + covered child dismissed", async () => {
+    const store = new SessionStore(":memory:");
+    const child = childRecord(store, 70, [{ text: "Set VERCEL_TOKEN", done: false }]);
+    seed(store, 75);
+    await clear(store, forgeWith({ 75: landingBody }));
+    const rec = store.getPostMergeSteps(landingStepsRecordId(REPO, 55))!;
+    expect(rec.steps.map((s) => s.text)).toEqual(["Set VERCEL_TOKEN (from #70)"]);
+    expect(rec.prTitle).toBe("feat: e (epic #55)");
+    expect(store.getPostMergeSteps(child)!.clearedAt).not.toBeNull();
+  });
+
+  test("landing PR not merged (closed / dismissed by hand) or unreadable → nothing written", async () => {
+    const store = new SessionStore(":memory:");
+    seed(store, 75);
+    await clear(store, forgeWith({ 75: landingBody }, [], "open"));
+    await clear(store, forgeWith({}));
+    expect(store.getPostMergeSteps(landingStepsRecordId(REPO, 55))).toBeNull();
+  });
+
+  test("no landing PR / no row → no forge call", async () => {
+    const store = new SessionStore(":memory:");
+    const calls: number[] = [];
+    await clear(store, forgeWith({}, calls));
+    seed(store, null);
+    await clear(store, forgeWith({}, calls));
+    expect(calls).toEqual([]);
   });
 });

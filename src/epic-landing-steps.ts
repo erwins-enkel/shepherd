@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import type { CompletedEpicChild } from "./completed-epic";
 import {
+  buildLandingPrTitle,
   mergeLandingManualSteps,
   parseLandingManualSteps,
   type LandingManualStep,
@@ -36,6 +37,7 @@ type LandingStepsStore = CollectStepsStore &
     | "getPostMergeSteps"
     | "materializePostMergeSteps"
     | "dismissPostMergeSteps"
+    | "getEpicCompletedLanding"
   >;
 
 type Child = Pick<CompletedEpicChild, "number" | "prNumber">;
@@ -110,24 +112,29 @@ export async function collectLandingManualSteps(input: {
 }
 
 /** The landed PR's steps: its body's fence merged with the persisted aggregate (either may be
- *  missing — a failed fetch, or a landing opened before #3103). */
+ *  missing — a failed fetch, or a landing opened before #3103). `requireMerged` (the caller has
+ *  not seen the merge itself) → null unless the forge confirms the landing PR merged. */
 async function landedSteps(
   forge: Pick<GitForge, "prReviewMeta">,
   store: LandingStepsStore,
   repoPath: string,
   parentIssueNumber: number,
   landingPrNumber: number,
-): Promise<LandingManualStep[]> {
+  requireMerged: boolean,
+): Promise<LandingManualStep[] | null> {
   let fromBody: LandingManualStep[] = [];
+  let merged = false;
   try {
     const meta = await forge.prReviewMeta?.(landingPrNumber);
     fromBody = parseLandingManualSteps(meta?.body ?? "");
+    merged = meta?.state === "merged";
   } catch (err) {
     console.warn(
       `[epic-landing-steps] ${repoPath} landing pr#${landingPrNumber} fetch failed:`,
       err,
     );
   }
+  if (requireMerged && !merged) return null;
   return mergeLandingManualSteps([
     fromBody,
     store.getEpicLandingManualSteps(repoPath, parentIssueNumber),
@@ -172,13 +179,22 @@ export async function materializeLandingManualSteps(input: {
   landingPrTitle: string;
   children: Child[];
   emitChange: () => void;
+  /** Set when the caller hasn't observed the merge (parent-close dismissal): verify it first. */
+  requireMerged?: boolean;
 }): Promise<void> {
   const { forge, store, repoPath, parentIssueNumber, landingPrNumber, children } = input;
   const sessionId = landingStepsRecordId(repoPath, parentIssueNumber);
   try {
     if (store.getPostMergeSteps(sessionId)) return;
-    const collected = await landedSteps(forge, store, repoPath, parentIssueNumber, landingPrNumber);
-    if (collected.length === 0) return;
+    const collected = await landedSteps(
+      forge,
+      store,
+      repoPath,
+      parentIssueNumber,
+      landingPrNumber,
+      input.requireMerged ?? false,
+    );
+    if (!collected?.length) return;
     const doneKeys = new Set<string>();
     for (const c of children)
       if (c.prNumber != null)
@@ -213,4 +229,35 @@ export async function materializeLandingManualSteps(input: {
       err,
     );
   }
+}
+
+/** A completed-epic row was cleared — notably the parent-close dismissal after a landing PR merged
+ *  straight on GitHub, which never flips the row to `merged` (auto-merge off, or a
+ *  migration-bearing epic). If the forge confirms its landing PR merged, materialize as on a
+ *  merged emit. A row that is gone (restart) or never got a landing PR is a no-op. Never throws. */
+export async function materializeLandingOnClear(input: {
+  forge: Pick<GitForge, "prReviewMeta">;
+  store: LandingStepsStore;
+  repoPath: string;
+  parentIssueNumber: number;
+  emitChange: () => void;
+}): Promise<void> {
+  const { store, repoPath, parentIssueNumber } = input;
+  let children: Child[];
+  let row: ReturnType<LandingStepsStore["getEpicCompletedLanding"]>;
+  try {
+    row = store.getEpicCompletedLanding(repoPath, parentIssueNumber);
+    if (row?.landingPrNumber == null) return;
+    children = JSON.parse(row.childrenJson) as Child[];
+  } catch (err) {
+    console.warn(`[epic-landing-steps] clear for ${repoPath} epic #${parentIssueNumber}:`, err);
+    return;
+  }
+  await materializeLandingManualSteps({
+    ...input,
+    landingPrNumber: row.landingPrNumber,
+    landingPrTitle: buildLandingPrTitle(parentIssueNumber, row.parentTitle),
+    children,
+    requireMerged: true,
+  });
 }

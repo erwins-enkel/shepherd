@@ -3340,6 +3340,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     })();
   }
 
+  /** The landing facts of a completed epic, regardless of dismissedAt — read after the parent-close
+   *  dismissal to materialize its manual steps (#3103). */
+  getEpicCompletedLanding(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { parentTitle: string; childrenJson: string; landingPrNumber: number | null } | null {
+    return this.db
+      .query(
+        `SELECT parentTitle, childrenJson, landingPrNumber FROM epic_completed
+         WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber) as {
+      parentTitle: string;
+      childrenJson: string;
+      landingPrNumber: number | null;
+    } | null;
+  }
+
   /** True if an epic_completed row exists for this key, regardless of dismissedAt.
    *  Used by the backfill pre-check so a dismissed-but-idle run isn't re-backfilled. */
   hasEpicCompleted(repoPath: string, parentIssueNumber: number): boolean {

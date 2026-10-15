@@ -231,7 +231,8 @@ in one `shepherd:manual-steps` block:
 - **Done stays done.** A step ticked in its child PR, in that child's **Owed** card, or in the
   landing PR body itself is listed as `- [x]`. A body refresh keeps those ticks.
 
-When the landing PR merges, its open steps become one **Owed** card for the epic (`EPIC-<n>`),
+When the landing PR merges (from Shepherd, or directly on GitHub once the closed parent clears the
+epic), its open steps become one **Owed** card for the epic (`EPIC-<n>`),
 with done steps already ticked. The child Owed cards those steps cover are cleared, so nothing is
 listed twice.
 

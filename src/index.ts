@@ -249,7 +249,7 @@ import { NetnsDevForwarder } from "./netns-dev-forward";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
-import { materializeLandingManualSteps } from "./epic-landing-steps";
+import { materializeLandingManualSteps, materializeLandingOnClear } from "./epic-landing-steps";
 import { buildLandingPrTitle } from "./epic-landing";
 import type { CompletedEpic } from "./completed-epic";
 import { DeliveryFactsService } from "./delivery";
@@ -2400,10 +2400,25 @@ onSessionGit(({ id, git }) => {
     .catch((err) => console.warn("[post-merge-steps] onMerged failed:", err));
 });
 // Epic landing (#3103): the landing PR is session-less, so the session:git hook above never sees
-// it. When it lands, freeze the children's manual steps it carries into one Owed record for the
+// it. When it lands (merged emit, or the parent-close clear), freeze the children's manual steps it carries into one Owed record for the
 // epic and dismiss the child records it covers. `epic:completed` is emitted by BOTH landing writers
 // (drain resolveLanding + the "Land epic" route); idempotent on the record id, never throws.
 events.subscribe((event, data) => {
+  if (event === "epic:completed-cleared") {
+    // A landing PR merged straight on GitHub (auto-merge off / migration-bearing epic) never flips
+    // the row to merged; its parent-close dismissal is the only edge. Verifies the merge first.
+    const k = data as { repoPath: string; parentIssueNumber: number };
+    const forge = resolveForge(k.repoPath);
+    if (!forge) return;
+    void materializeLandingOnClear({
+      forge,
+      store,
+      repoPath: k.repoPath,
+      parentIssueNumber: k.parentIssueNumber,
+      emitChange: () => events.emit("post-merge-steps:changed", {}),
+    });
+    return;
+  }
   if (event !== "epic:completed") return;
   const e = data as CompletedEpic;
   if (e.landingState !== "merged" || e.landingPrNumber == null) return;

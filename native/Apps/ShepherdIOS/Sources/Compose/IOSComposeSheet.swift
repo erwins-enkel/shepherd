@@ -158,6 +158,7 @@ struct IOSComposeContent: View {
             .task(id: model.deriveKey) { if current { await model.deriveRequirements() } }
             .onChange(of: store.repos) { _, _ in seedRepo() }
             .onChange(of: model.repoPath, initial: true) { _, path in repoCatalogue?.repoChanged(path) }
+            .task(id: model.repoPath) { await loadRepoSandboxDefault() }
             .onChange(of: model.attachments.inFlight) { _, inFlight in if inFlight { autoStart.clearAborted() } }
             .onAppear { seedRepo(); audioEngine?.probeWhisper() }
             .onDisappear { audioEngine?.stopWhisperProbe(); voice.teardown(); submission.teardown(); autoStart.teardown(); model.teardown() }
@@ -165,6 +166,13 @@ struct IOSComposeContent: View {
                 Button(L.t("native_compose_voice_allow")) { audioEngine?.resolveAppleServerConsent(true) }
                 Button(L.t("common_cancel"), role: .cancel) { audioEngine?.resolveAppleServerConsent(false) }
             } message: { Text(verbatim: L.t("native_compose_voice_apple_disclosure")) }
+    }
+    /// Resolves what "Repo default" means, so the sandbox chip names the profile the run gets.
+    private func loadRepoSandboxDefault() async {
+        let path = model.repoPath
+        guard !path.isEmpty, let config = try? await store.client.getRepoConfig(repo: path),
+              !Task.isCancelled, model.repoPath == path else { return }
+        model.repoSandboxDefault = Components.Schemas.SandboxProfile(rawValue: config.sandboxProfile)
     }
     private var formContent: some View {
                 VStack(alignment: .leading, spacing: 12) {
@@ -229,14 +237,31 @@ struct IOSComposeContent: View {
                 }.accessibilityIdentifier("compose.engine.open")
             }.buttonStyle(ComposeControlStyle()).font(.system(.caption, design: .monospaced))
             modeBar
-            HStack {
-                Button { promptFocused = false; options = .issues } label: { Text(verbatim: model.activeIssue.map { "#\($0.number) · \($0.title)" } ?? L.t("native_compose_issue_choose")).lineLimit(1) }
-                    .buttonStyle(ComposeControlStyle()).font(.system(.caption, design: .monospaced)).accessibilityIdentifier("compose.issues.open")
-                if model.activeIssue != nil {
-                    Button { model.removeIssue() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel(L.t("newtask_issue_remove_aria"))
+            contextLayout {
+                HStack {
+                    Button { promptFocused = false; options = .issues } label: { Text(verbatim: model.activeIssue.map { "#\($0.number) · \($0.title)" } ?? L.t("native_compose_issue_choose")).lineLimit(1) }
+                        .buttonStyle(ComposeControlStyle()).font(.system(.caption, design: .monospaced)).accessibilityIdentifier("compose.issues.open")
+                    if model.activeIssue != nil {
+                        Button { model.removeIssue() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel(L.t("newtask_issue_remove_aria"))
+                    }
                 }
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                sandboxChip
             }
         }
+    }
+    /// The run's effective sandbox at a glance; the engine sheet holds the override picker.
+    private var sandboxChip: some View {
+        let profile = model.effectiveSandboxProfile
+        let label = ComposeSandboxCopy.chip(profile)
+        return Button { promptFocused = false; options = .engine } label: {
+            HStack(spacing: 6) {
+                Image(systemName: profile == .trusted ? "shield.slash" : "shield").accessibilityHidden(true)
+                Text(verbatim: "\(label) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+            }
+        }.buttonStyle(ComposeControlStyle()).font(.system(.caption, design: .monospaced))
+            .accessibilityIdentifier("compose.sandbox.open")
+            .accessibilityLabel(L.t("newtask_sandbox_label")).accessibilityValue(label)
     }
     /// One tap opens the repo list itself; ImageRenderer cannot draw a Menu, so renders get the bare chip.
     @ViewBuilder private var repoChip: some View {

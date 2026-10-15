@@ -110,6 +110,25 @@ extension CoreSeamTests {
             #expect(model.effectivePlanGate == false && model.effectiveAutopilot == true)
         }
 
+        @Test func effectiveSandboxResolvesRepoDefaultOverrideAndResearchDowngrade() throws {
+            let model = ComposeModelTests.composer()
+            defer { model.teardown() }
+            model.repoBranches.allowsStatusProbe = false
+            model.repoPath = "/first"; model.prompt = "Task"
+            #expect(model.effectiveSandboxProfile == nil)
+            model.repoSandboxDefault = .autonomous
+            #expect(model.inheritedSandboxProfile == .autonomous && model.effectiveSandboxProfile == .autonomous)
+            model.sandboxProfile = .trusted
+            #expect(model.effectiveSandboxProfile == .trusted)
+            #expect(try #require(model.createRequest(baseBranch: "main")).sandboxProfile == .trusted)
+            model.sandboxProfile = nil
+            model.setMode(.research)
+            #expect(model.inheritedSandboxProfile == .standard && model.effectiveSandboxProfile == .standard)
+            #expect(try #require(model.createRequest(baseBranch: "main")).sandboxProfile == nil)
+            model.repoPath = "/second"
+            #expect(model.repoSandboxDefault == nil && model.effectiveSandboxProfile == nil)
+        }
+
         private func withApp(_ run: (AppModel) async throws -> Void) async throws {
             let suite = "ComposeHandoverTests.\(UUID())"
             let defaults = try #require(UserDefaults(suiteName: suite))

@@ -623,6 +623,11 @@
 "native_compose_repo_all" = "Alle Repos";
 "native_compose_repo_default_unknown" = "Repo-Standard nicht verfügbar";
 "native_compose_repo_recent" = "Zuletzt benutzt";
+"native_compose_sandbox_chip_autonomous" = "Sandbox: Autonom";
+"native_compose_sandbox_chip_default" = "Sandbox";
+"native_compose_sandbox_chip_standard" = "Sandbox: Standard";
+"native_compose_sandbox_chip_trusted" = "Keine Sandbox";
+"native_compose_sandbox_default_resolved" = "Repo-Standard · %1$@";
 "native_compose_share_prompt" = "Prompt teilen";
 "native_compose_start" = "Starten";
 "native_compose_steer_down" = "Steer nach unten verschieben";

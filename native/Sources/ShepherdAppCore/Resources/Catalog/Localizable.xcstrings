@@ -10722,6 +10722,92 @@
         }
       }
     },
+    "native_compose_sandbox_chip_autonomous": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Autonom"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Autonomous"
+          }
+        }
+      }
+    },
+    "native_compose_sandbox_chip_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        }
+      }
+    },
+    "native_compose_sandbox_chip_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox: Standard"
+          }
+        }
+      }
+    },
+    "native_compose_sandbox_chip_trusted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sandbox"
+          }
+        }
+      }
+    },
+    "native_compose_sandbox_default_resolved": {
+      "comment": "%1$@ = profile",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Standard · %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo default · %1$@"
+          }
+        }
+      }
+    },
     "native_compose_share_prompt": {
       "extractionState": "manual",
       "localizations": {

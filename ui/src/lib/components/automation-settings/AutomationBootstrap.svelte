@@ -18,7 +18,7 @@
 
   const view = $derived(repoBootstrap.viewFor(repoPath));
   const on = $derived(view?.state === "active");
-  const busy = $derived(!!repoBootstrap.busy[repoPath]);
+  const busy = $derived(repoBootstrap.busyFor(repoPath));
 </script>
 
 {#if view}

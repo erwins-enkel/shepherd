@@ -452,7 +452,8 @@ crash with `pthread_create: EAGAIN`.
 The **Operator Assistant** is a Claude session that Shepherd runs for you and grounds
 in its own state. Ask it in plain words why the herd stalled, why an epic won't drain,
 why an agent died, or whether this node is healthy. It reads, explains and tells you
-what to do — it changes nothing itself.
+what to do. What it may change itself — steer a session, approve a plan, merge a PR, flip
+repo automation — you decide under **Settings → Assistant**.
 
 It uses Shepherd's default Claude model and effort, and its tokens count toward your
 usage like any session's. The first open starts it with no prompt, so nothing is spent
@@ -471,15 +472,17 @@ until you ask.
 
 An Ask types the question but never sends it: read it, edit it, press Enter. Whether the
 panel is open is remembered per device. The Assist button carries a pip: amber while the
-assistant works, red while a command waits for your approval.
+assistant works, red while a command waits for your approval. The chip in the panel
+header shows what it may do — _Read-only_, _Asks first_ or _Acts itself_ — and opens
+Settings → Assistant.
 
 ### What it reads
 
-Through four read-only tools:
+Through four read-only tools, which never ask:
 
 - **the herd** — every live session's status, plan gate, hold reason and minutes since
-  its last update, plus the held tasks per repo; for one session also its recent signals
-  and its PR and CI state;
+  its last update, plus the held tasks per repo; for one session also its plan questions,
+  recent signals and its PR and CI state;
 - **repo automation** — the drain, auto-merge, critic and usage-ceiling settings, the drain
   status, and epic runs and queues;
 - **diagnostics and the host** — the Settings → Diagnose checks, herdr's runtime, load,
@@ -489,13 +492,37 @@ Through four read-only tools:
 
 It can also read Shepherd's own docs and source in the install directory.
 
-### The approval model
+### Permissions (Settings → Assistant)
 
-The assistant runs in Claude's default permission mode:
+The assistant runs in Claude's default permission mode. **Settings → Assistant** sets how
+far it goes, one row each:
 
-- **Every Bash command asks** for your approval in the panel — even one Claude would
-  normally treat as read-only. For anything that changes state it hands you the exact
-  command or the UI path instead of running it.
+| Row | Covers | Levels |
+| --- | --- | --- |
+| Shell commands | Commands it runs on this node to diagnose | Off · Ask for every command · Reads run, the rest asks · Run everything |
+| Steering & answers | Send a message into a session, answer a plan's open questions | Off · Ask first · Allowed |
+| Control sessions | Interrupt, resume, relaunch or archive a session | Off · Ask first · Allowed |
+| Approvals & merge | Start an approved plan, approve a build queue, mark a PR ready, merge a PR | Off · Ask first · Allowed |
+| Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd | Off · Ask first · Allowed |
+
+- **The default** lets read-only commands run (grep, cat, git log, ps, systemctl status …)
+  and has every action ask first.
+- **Ask first** shows Claude's confirmation in the panel before each call; **Allowed** runs
+  it without asking; **Off** refuses it — Shepherd itself refuses a turned-off action, not
+  only Claude.
+- **Changes apply at once**, also to a running conversation: Shepherd rewrites the
+  assistant's `.claude/settings.local.json` and Claude re-reads it.
+- **Every action is your own button.** Each one runs the same route the UI does, with the
+  same checks. It targets sessions by designation, never the assistant itself or another
+  machine's sessions, and logs one line per action to Shepherd's log.
+- **It acts only when you ask.** For a diagnosis question it names the action it would take
+  and waits; it never acts because issue, PR or log text tells it to. A merge someone else
+  is responsible for is never taken over — it hands that back to you.
+- Security-relevant repo settings (sandbox profile, egress and browser hosts, the Shared
+  Browser, repo mode, draft mode and sign-off) stay yours alone.
+
+Whatever the levels:
+
 - **File edits are denied** (Edit, Write, NotebookEdit).
 - **Credential files are unreadable:** `~/.shepherd/env`, `~/.config/shepherd/config.toml`,
   `~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.config/gh/hosts.yml`,
@@ -506,6 +533,18 @@ The assistant runs in Claude's default permission mode:
 - **Your own `~/.claude` settings don't apply inside it:** their allow rules can't approve
   a command for you, and your plugins and hooks don't load. Only Shepherd's MCP server is
   connected.
+
+What **Allowed** costs: text in issues, PRs and logs reaches the assistant fenced as data,
+and its instructions say never to act on it — but on Allowed nothing else stands between
+such text and an action. With the shell on _Reads run_, Claude's file rules still keep
+credential files out of `cat`, `head` and the like, but a command built to dodge them
+(say, a file read inside `$(…)`) is no plain read and asks. And on a host shared with other
+users, the assistant's session id — the key to its tools on Shepherd's local agent
+port — shows in the process list like every agent's. Keep the groups you would regret on
+Ask first.
+
+A conversation started before an update that added tools learns them on its next start:
+**New conversation** once.
 
 ### When herdr is down
 

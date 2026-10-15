@@ -1,15 +1,22 @@
 # Stage 2: agent instructions (CLAUDE.md)
 
-Write (greenfield) or upgrade (existing) the repo's `CLAUDE.md`. This is the
-"teach the agents how we work here" deliverable. Scope it precisely — most generic
-guidance is already in every agent's prompt, so restating it is pure no-op cost.
+Check the repo's `CLAUDE.md` against this contract. It is the "teach the agents how
+we work here" artifact. Scope it precisely — most generic guidance is already in
+every agent's prompt, so restating it is pure no-op cost.
+
+**You don't write it in this session** — an epic-authoring session edits no files and
+opens no PR. After Bootstrap P1–P3 the `CLAUDE.md` (stack pins, foundation decisions)
+usually already meets the contract: leave it alone. If it is missing or falls short,
+draft the proposed content (or, for an existing file, the surgical diff) and make it
+the **first child slice** of the epic, so it lands as a normal PR before the rest.
 
 ## What the CLAUDE.md owns
 
 Write these, under their own headings:
 
 - `## Project orientation` — what the project is, its stack, domain vocabulary, and
-  how to run/build/verify it.
+  how to run/build/verify it. Concrete versions live **here only** (as the pinned
+  stack) — issues refer to "the pinned stack in CLAUDE.md", never to a version.
 - `## How work flows here` — the **repo-specific** Shepherd work-contract: that work
   lives as issues/epics; what a tracer-bullet vertical slice looks like _in this
   codebase_ (name a concrete example seam); what "done" means here (e.g. which gate
@@ -47,13 +54,13 @@ to invoke it — so the convention reaches the turn that needs it either way.
 
 Not just write-vs-merge:
 
-- **Greenfield** — the repo has no real stack/run/verify facts yet. Record the
-  **intended** stack and conventions, and explicitly **defer** concrete
-  run/build/verify commands to the first bootstrapping slice (note in CLAUDE.md that
-  they'll be filled in then).
+- **Greenfield** — normally Bootstrap already wrote the pinned stack, run/build/verify
+  commands and foundation decisions; only check for the work-contract section. If no
+  scaffold exists yet, point the operator at Bootstrap instead of drafting stack facts.
 - **Existing** — record the **actual** surveyed stack and the real run/build/verify
   commands. If a `CLAUDE.md` already exists, merge **surgically**: add the missing
   `## How work flows here` section and fill gaps; never clobber existing content.
 
-**Completion criterion:** `CLAUDE.md` carries project orientation + the
-repo-specific work-contract, with none of the forbidden content above.
+**Completion criterion:** either `CLAUDE.md` already carries project orientation + the
+repo-specific work-contract with none of the forbidden content above, or the fix is
+drafted as the epic's first child slice.

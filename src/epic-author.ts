@@ -93,6 +93,60 @@ export function validateEpicDraft(content: EpicDraftContent): ValidateResult {
   return { ok: true, value: { parent: content.parent, children: ordered } };
 }
 
+/** Stack names that, followed by a number, read as a version pin ("SvelteKit 2", "Node.js 22").
+ *  Curated rather than "any word + number" so ordinary criteria ("200 ok", "Stage 4") pass;
+ *  plain-English homographs ("next", "go", "express", "solid", "spring") are left out. */
+const STACK_NAMES = (
+  "node\\.js nodejs node bun deno typescript python ruby rails golang rust java kotlin " +
+  "swift php laravel django flask fastapi react next\\.js nextjs vue nuxt sveltekit " +
+  "svelte angular astro remix tailwindcss tailwind vite vitest jest playwright eslint " +
+  "prettier prisma drizzle postgresql postgres mysql redis mongodb sqlite " +
+  "tokio axum actix dotnet \\.net"
+).split(" ");
+
+const VERSION_PATTERNS: RegExp[] = [
+  /[\w./-]+@[\^~]?\d+(?:\.\d+)*/i, // svelte@5, @sveltejs/kit@2.1
+  /(?<![\w.])v\d+(?:\.\d+)*\b/i, // v2, v1.4
+  /(?<![\w.])\d+\.\d+\.\d+\b/, // 3.0.1
+  new RegExp(
+    `(?<![\\w.])(?:${STACK_NAMES.join("|")})[ -]?(?:\\^|~|>=?)?\\s?v?\\d+(?:\\.(?:\\d+|x))*\\b`,
+    "i",
+  ),
+];
+
+/** The first version-pin token in `text`, or null. Acceptance criteria must not pin versions
+ *  (issue #3111): an issue can sit for weeks and the pin goes stale — the repo's CLAUDE.md
+ *  carries the pinned stack instead. */
+export function findPinnedVersion(text: string): string | null {
+  for (const re of VERSION_PATTERNS) {
+    const m = re.exec(text);
+    if (m) return m[0];
+  }
+  return null;
+}
+
+/** Error naming the first acceptance criterion (parent or child) that pins a version, or null. */
+export function pinnedVersionError(content: EpicDraftContent): string | null {
+  const sources: Array<[string, string[]]> = [
+    ["parent", content.parent.acceptanceCriteria ?? []],
+    ...content.children.map((c): [string, string[]] => [
+      `child "${c.key}"`,
+      c.acceptanceCriteria ?? [],
+    ]),
+  ];
+  for (const [where, criteria] of sources) {
+    for (const criterion of criteria) {
+      const token = findPinnedVersion(criterion);
+      if (token)
+        return (
+          `${where} acceptance criterion pins a version (${JSON.stringify(token)}) — acceptance ` +
+          `criteria never carry version numbers; refer to "the pinned stack in CLAUDE.md" instead`
+        );
+    }
+  }
+  return null;
+}
+
 /** Render a `- ` bullet list from non-blank trimmed lines, or "" when none. */
 function bullets(items: string[]): string {
   const rows = (items ?? []).map((s) => s.trim()).filter(Boolean);

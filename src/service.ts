@@ -1284,6 +1284,8 @@ export function epicAuthoringDirective(args: {
     "(e.g. Goal, Confirmed decisions) — the review builds its table of contents from them — keep " +
     "paragraphs short, and write labelled points as `- **Label:** text`. Acceptance criteria and " +
     "non-goals belong in their own fields, not in the body.\n" +
+    '- Acceptance criteria NEVER carry version numbers (no "SvelteKit 2", no `pkg@5`): refer to ' +
+    '"the pinned stack in CLAUDE.md" instead. The server rejects a draft that pins one.\n' +
     "- You are attended: when a product/requirements decision is unresolved, ask the user ONE " +
     "focused question at a time. Research discoverable facts from the repo yourself instead of " +
     "asking.\n" +

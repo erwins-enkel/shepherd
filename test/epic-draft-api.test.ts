@@ -128,6 +128,25 @@ test("PUT rejects a dependency cycle (semantic)", async () => {
   expect(res.status).toBe(400);
 });
 
+test("PUT rejects a version number in acceptance criteria (#3111)", async () => {
+  const { app, store } = harness(fakeForge().forge);
+  const s = makeSession(store);
+  const res = await putDraft(app, s.id, {
+    parent: draftBody.parent,
+    children: [
+      {
+        key: "c1",
+        title: "Scaffold",
+        body: "",
+        acceptanceCriteria: ["Uses SvelteKit 2"],
+        blockedBy: [],
+      },
+    ],
+  });
+  expect(res.status).toBe(400);
+  expect(((await res.json()) as { error: string }).error).toContain("CLAUDE.md");
+});
+
 test("PUT stores a valid draft and emits session:epic-draft", async () => {
   const { app, store, emitted } = harness(fakeForge().forge);
   const s = makeSession(store);

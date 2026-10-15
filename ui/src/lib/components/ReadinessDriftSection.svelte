@@ -98,6 +98,7 @@
         {/if}
         <div class="warning-actions">
           {#if data.openStory}
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
             <a
               class="story-link"
               href={data.openStory.url}
@@ -106,6 +107,7 @@
             >
               {m.readiness_drift_open_story({ number: data.openStory.number })}
             </a>
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
           {:else if data.canCreateStory}
             <button class="cta" type="button" disabled={filing.has(repoPath)} onclick={fileStory}>
               {m.readiness_drift_create_story()}
@@ -130,6 +132,7 @@
               {/if}
             </div>
             {#each r.dependabot as b (b.number)}
+              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
               <a class="row-hint" href={b.url} target="_blank" rel="noopener noreferrer">
                 {m.readiness_drift_dependabot({ number: b.number, to: b.to })}
               </a>

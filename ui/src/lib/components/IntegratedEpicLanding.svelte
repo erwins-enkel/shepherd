@@ -366,7 +366,7 @@
         {/if}
       {:else if (status.situation === "ci-retrying" || status.situation === "ci-failed") && checksUrl}
         <!-- No agent repair here (rerun in flight, or a non-GitHub forge): checks are the action. -->
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
         <a
           class="gbtn"
           class:primary={status.situation === "ci-failed"}
@@ -374,6 +374,7 @@
           target="_blank"
           rel="noopener noreferrer">{m.integrated_epics_view_checks()}</a
         >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
       {:else if status.situation === "repairing" && repairSessionId}
         <button class="gbtn" type="button" onclick={() => onopensession(repairSessionId)}
           >{m.integrated_epics_open_session()}</button

@@ -790,6 +790,8 @@ components:
           type: boolean
         plain:
           type: boolean
+        bootstrap:
+          type: boolean
         terminal:
           type: boolean
         operatorAssistant:
@@ -1003,6 +1005,9 @@ components:
         epicAuthoring:
           type: boolean
           description: Start in epic-authoring mode.
+        bootstrap:
+          type: boolean
+          description: Start in bootstrap mode — pinned stack, scaffold and guardrails as one PR.
         attachmentNames:
           type: array
           items:
@@ -1950,7 +1955,7 @@ components:
     LaunchUiState:
       type: object
       additionalProperties: false
-      description: CreateSessionRequest.launchUiState — composer checkbox state replayed onto the relaunch sheet. validateLaunchUiState (src/validate.ts) requires the three original booleans, accepts the two newer optional booleans, and rejects unknown keys.
+      description: CreateSessionRequest.launchUiState — composer checkbox state replayed onto the relaunch sheet. validateLaunchUiState (src/validate.ts) requires the three original booleans, accepts the three newer optional booleans, and rejects unknown keys.
       required:
         - researchChecked
         - planGateChecked
@@ -1965,6 +1970,8 @@ components:
         epicAuthoringChecked:
           type: boolean
         plainChecked:
+          type: boolean
+        bootstrapChecked:
           type: boolean
     PrHandoff:
       anyOf:
@@ -3284,6 +3291,9 @@ components:
         epicAuthoring:
           type: boolean
           description: Start in epic-authoring mode.
+        bootstrap:
+          type: boolean
+          description: Start in bootstrap mode — pinned stack, scaffold and guardrails as one PR.
         attachmentNames:
           type: array
           items:
@@ -5152,6 +5162,9 @@ components:
         epicAuthoring:
           type: boolean
           description: Start in epic-authoring mode.
+        bootstrap:
+          type: boolean
+          description: Start in bootstrap mode — pinned stack, scaffold and guardrails as one PR.
         attachmentNames:
           type: array
           items:

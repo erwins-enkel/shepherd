@@ -6,6 +6,7 @@ import type { PromptBlockMeasure } from "./prompt-budget";
 import type { TaskAmendment } from "./task-amendments";
 import type { Capability } from "./remote-instances/capabilities";
 import type { Placement } from "./remote-instances/placement";
+import type { ResolvedHouseStack } from "./house-stack";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -127,6 +128,10 @@ export interface Session {
    *  rides it. The fourth non-code mode (see `isNonCodeMode`). Optional like `terminal` so the
    *  many hand-built `Session` fixtures need not spell it out — absent and false are equivalent. */
   plain?: boolean;
+  /** True for a BOOTSTRAP session (#3109): attended P1+P2 — pinned stack, scaffold and every
+   *  guardrail as one PR to the default branch. Plan gate + autopilot forced off. Optional like
+   *  `plain`; the store derives it from the persisted resolved stack. */
+  bootstrap?: boolean;
   /** True for a clean-terminal session: a bare operator shell in the repo's MAIN checkout
    *  (pane-direct — no herdr agent, no worktree, no prompt). Fenced out of every agent-input
    *  and agent-lifecycle flow; its pane target lives in terminalTabId/terminalPaneId.
@@ -278,6 +283,8 @@ export interface LaunchUiState {
   epicAuthoringChecked?: boolean;
   /** Plain-mode segment state at submit time; absent on legacy rows. */
   plainChecked?: boolean;
+  /** Bootstrap-mode segment state at submit time; absent on legacy rows. */
+  bootstrapChecked?: boolean;
 }
 
 export interface LaunchAttachmentMetadata {
@@ -373,6 +380,11 @@ export interface StandardCreateInput {
   landingRepair?: boolean;
   /** Plain task kind; absent → false. Forces the plan gate and autopilot OFF for this session. */
   plain?: boolean;
+  /** Bootstrap task kind (#3109); absent → false. Forces the plan gate and autopilot OFF. */
+  bootstrap?: boolean;
+  /** The House Stack resolved for a bootstrap spawn. Set ONLY by the service at create time (no
+   *  HTTP route passes it) and persisted so a resume re-renders the same pins. */
+  bootstrapStack?: ResolvedHouseStack;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
   /** #2770: capabilities this instance must have — sorted, deduplicated, never empty. Checked by a
@@ -428,6 +440,8 @@ export interface RelaunchOverrides {
   landingRepair?: boolean;
   /** Plain task kind override; absent → keep original. */
   plain?: boolean;
+  /** Bootstrap task kind override; absent → keep original. */
+  bootstrap?: boolean;
   /** #2225: carry the original's standing operator task amendments onto the replacement. Defaults
    *  to TRUE — a relaunch continues the SAME task, so the operator's amendments still apply.
    *  `startVariant` sets it false: a variant is a comparison arm and must run the ORIGINAL task, or

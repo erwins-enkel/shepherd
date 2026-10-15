@@ -142,6 +142,7 @@
     composeResearch,
     composeEpicAuthoring,
     composePlain,
+    composeBootstrap,
     usageLimits = null,
     holdLikely,
     onnewclose,
@@ -284,6 +285,7 @@
     composeResearch: boolean;
     composeEpicAuthoring: boolean;
     composePlain: boolean;
+    composeBootstrap: boolean;
     usageLimits?: UsageLimits | null;
     holdLikely: boolean;
     onnewclose: () => void;
@@ -639,6 +641,7 @@
         initialResearch={composeResearch}
         initialEpicAuthoring={composeEpicAuthoring}
         initialPlain={composePlain}
+        initialBootstrap={composeBootstrap}
         {usageLimits}
         defaultAgentProvider={newTaskDefaultAgentProvider}
         defaultModel={settings?.defaultModel}

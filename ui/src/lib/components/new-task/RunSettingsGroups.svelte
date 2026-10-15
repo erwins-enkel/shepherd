@@ -73,7 +73,7 @@
     autopilot: boolean;
     /** Any non-code mode: that mode has no guards, so the whole guards block is omitted. */
     modeLocked: boolean;
-    /** Research/epic mode: the autonomous sandbox is locked (they need open web egress). */
+    /** Research/epic/bootstrap mode: the autonomous sandbox is locked (they need open egress). */
     sandboxLocked: boolean;
     planGateLoading: boolean;
     autopilotLoading: boolean;

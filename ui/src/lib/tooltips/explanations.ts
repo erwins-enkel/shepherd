@@ -352,6 +352,19 @@ export function plainModeExplanation(): TooltipExplanation {
   };
 }
 
+/** New Task "Bootstrap" mode button (#3109): what one bootstrap session delivers and what it needs. */
+export function bootstrapModeExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_mode_bootstrap_title(),
+    summary: m.tooltip_mode_bootstrap_summary(),
+    sections: [
+      { label: m.tooltip_mode_bootstrap_output(), text: m.tooltip_mode_bootstrap_output_body() },
+      { label: m.tooltip_mode_bootstrap_pins(), text: m.tooltip_mode_bootstrap_pins_body() },
+      { label: m.tooltip_mode_bootstrap_guards(), text: m.tooltip_mode_bootstrap_guards_body() },
+    ],
+  };
+}
+
 /** New Task per-task sandbox select: what each profile confines. */
 export function sandboxOverrideExplanation(): TooltipExplanation {
   return {

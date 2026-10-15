@@ -60,6 +60,7 @@ const ALLOWED_KEYS = new Set([
   "research",
   "epicAuthoring",
   "plain",
+  "bootstrap",
   "mergeTrainPrs",
   "baseCommit",
   "requirements",
@@ -747,6 +748,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   research: boolean;
   epicAuthoring: boolean;
   plain: boolean;
+  bootstrap: boolean;
   mergeTrainPrs: number[] | undefined;
   baseCommit: string | undefined;
   requirements: Capability[] | undefined;
@@ -770,6 +772,9 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   const plain = validatePlain(obj.plain);
   if (!plain.ok) return plain;
 
+  const bootstrap = validateBootstrap(obj.bootstrap, [research, epicAuthoring, plain]);
+  if (!bootstrap.ok) return bootstrap;
+
   const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
   if (!mergeTrainPrs.ok) return mergeTrainPrs;
 
@@ -787,6 +792,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     research: research.value,
     epicAuthoring: epicAuthoring.value,
     plain: plain.value,
+    bootstrap: bootstrap.value,
     mergeTrainPrs: mergeTrainPrs.value,
     baseCommit: baseCommit.value,
     requirements,
@@ -840,43 +846,63 @@ function validatePlain(value: unknown): Field<boolean> {
   return err("plain must be a boolean or absent");
 }
 
+const BOOTSTRAP_KIND_CONFLICT =
+  "bootstrap cannot be combined with research, epicAuthoring or plain";
+
+/** The task kinds a bootstrap session must not share. */
+type TaskKinds = {
+  bootstrap?: boolean;
+  research?: boolean;
+  epicAuthoring?: boolean;
+  plain?: boolean;
+};
+
+/** Bootstrap (#3109) carries its own directive, so it is exclusive with the other task kinds.
+ *  Returns the error, or null. Shared by create and relaunch (which checks the MERGED kinds). */
+export function taskKindConflict(k: TaskKinds): string | null {
+  return k.bootstrap && (k.research || k.epicAuthoring || k.plain) ? BOOTSTRAP_KIND_CONFLICT : null;
+}
+
+/** The kinds a relaunch spawns: each present override replaces the original's flag. */
+export function relaunchKinds(original: TaskKinds, o: RelaunchOverrides | null): TaskKinds {
+  return {
+    bootstrap: o?.bootstrap ?? original.bootstrap,
+    research: o?.research ?? original.research,
+    epicAuthoring: o?.epicAuthoring ?? original.epicAuthoring,
+    plain: o?.plain ?? original.plain,
+  };
+}
+
+/** bootstrap (#3109) — optional plain boolean like `plain`; exclusive with `others` (research,
+ *  epicAuthoring, plain — see {@link taskKindConflict}). */
+function validateBootstrap(value: unknown, others: Field<boolean>[] = []): Field<boolean> {
+  if (value === undefined) return field(false);
+  if (typeof value !== "boolean") return err("bootstrap must be a boolean or absent");
+  if (value && others.some((o) => o.ok && o.value)) return err(BOOTSTRAP_KIND_CONFLICT);
+  return field(value);
+}
+
+/** launchUiState keys: the three original booleans are required, the newer ones optional. */
+const LAUNCH_UI_REQUIRED = ["researchChecked", "planGateChecked", "autopilotChecked"];
+const LAUNCH_UI_OPTIONAL = ["epicAuthoringChecked", "plainChecked", "bootstrapChecked"];
+const LAUNCH_UI_KEYS = [...LAUNCH_UI_REQUIRED, ...LAUNCH_UI_OPTIONAL];
+
 function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined> {
   if (value === undefined) return field(undefined);
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return err("launchUiState must be an object or absent");
   const obj = value as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    if (
-      ![
-        "researchChecked",
-        "planGateChecked",
-        "autopilotChecked",
-        "epicAuthoringChecked",
-        "plainChecked",
-      ].includes(key)
-    )
-      return err(`launchUiState unknown key: ${key}`);
-  }
-  if (typeof obj.researchChecked !== "boolean")
-    return err("launchUiState.researchChecked must be a boolean");
-  if (typeof obj.planGateChecked !== "boolean")
-    return err("launchUiState.planGateChecked must be a boolean");
-  if (typeof obj.autopilotChecked !== "boolean")
-    return err("launchUiState.autopilotChecked must be a boolean");
-  // epicAuthoringChecked is optional (absent on legacy/most rows); validate only when present.
-  if (obj.epicAuthoringChecked !== undefined && typeof obj.epicAuthoringChecked !== "boolean")
-    return err("launchUiState.epicAuthoringChecked must be a boolean");
-  if (obj.plainChecked !== undefined && typeof obj.plainChecked !== "boolean")
-    return err("launchUiState.plainChecked must be a boolean");
-  return field({
-    researchChecked: obj.researchChecked,
-    planGateChecked: obj.planGateChecked,
-    autopilotChecked: obj.autopilotChecked,
-    ...(obj.epicAuthoringChecked !== undefined
-      ? { epicAuthoringChecked: obj.epicAuthoringChecked }
-      : {}),
-    ...(obj.plainChecked !== undefined ? { plainChecked: obj.plainChecked } : {}),
-  });
+  const unknownKey = Object.keys(obj).find((key) => !LAUNCH_UI_KEYS.includes(key));
+  if (unknownKey !== undefined) return err(`launchUiState unknown key: ${unknownKey}`);
+  // An optional flag (absent on legacy/most rows) is validated only when present.
+  const bad = LAUNCH_UI_KEYS.find(
+    (key) =>
+      (obj[key] !== undefined || LAUNCH_UI_REQUIRED.includes(key)) && typeof obj[key] !== "boolean",
+  );
+  if (bad !== undefined) return err(`launchUiState.${bad} must be a boolean`);
+  const out: Record<string, boolean> = {};
+  for (const key of LAUNCH_UI_KEYS) if (obj[key] !== undefined) out[key] = obj[key] as boolean;
+  return field(out as unknown as LaunchUiState);
 }
 
 /** mergeTrainPrs — optional array of positive integers; absent → undefined (store defaults null). */
@@ -905,6 +931,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "research",
   "epicAuthoring",
   "plain",
+  "bootstrap",
   "images",
   "attachmentNames",
   "launchUiState",
@@ -951,6 +978,7 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "research", apply: () => validateResearch(obj.research) },
     { key: "epicAuthoring", apply: () => validateEpicAuthoring(obj.epicAuthoring) },
     { key: "plain", apply: () => validatePlain(obj.plain) },
+    { key: "bootstrap", apply: () => validateBootstrap(obj.bootstrap) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
     { key: "images", apply: () => validateImages(obj.images, root) },
     {

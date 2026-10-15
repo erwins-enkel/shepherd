@@ -428,6 +428,30 @@ export interface RepoMergeSettings {
   canAdminister: boolean;
 }
 
+/** See {@link GitForge.repoForgeSettings} (Readiness → Forge settings, #3106). */
+export interface RepoForgeSettings {
+  defaultBranch: string;
+  /** Which merge methods the repo allows; null when the host did not say. */
+  mergeMethods: Record<MergeMethod, boolean> | null;
+  /** Host auto-merge allowed; null when the host did not say. */
+  autoMergeAllowed: boolean | null;
+  /** Head branches are deleted after merge; null when the host did not say. */
+  deleteBranchOnMerge: boolean | null;
+  /** Required status-check contexts on the default branch (rulesets ∪ classic protection);
+   *  null when unreadable. */
+  requiredChecks: string[] | null;
+  /** The asked-for label exists in the repo. */
+  labelExists: boolean;
+  canAdminister: boolean;
+  canPush: boolean;
+}
+
+/** Repo settings {@link GitForge.patchRepoSettings} may change. */
+export interface RepoSettingsPatch {
+  mergeMethods?: Record<MergeMethod, boolean>;
+  deleteBranchOnMerge?: boolean;
+}
+
 export interface MergeInput {
   method: MergeMethod;
   deleteBranch: boolean;
@@ -685,6 +709,15 @@ export interface GitForge {
   /** How the default branch takes changes, for the roles panel: whether it requires a PR and
    *  whether the repo allows host auto-merge. Optional: hosts without these APIs omit it. */
   repoMergeSettings?(): Promise<RepoMergeSettings>;
+  /** Readiness → Forge settings snapshot (#3106): merge methods, auto-merge, branch cleanup,
+   *  required checks and whether `label` exists. Optional: GitHub only. */
+  repoForgeSettings?(label: string): Promise<RepoForgeSettings>;
+  /** Change repo merge settings (needs admin). Optional, same gating as {@link repoForgeSettings}. */
+  patchRepoSettings?(patch: RepoSettingsPatch): Promise<void>;
+  /** Add a ruleset requiring `contexts` on the default branch (needs admin). Optional, same gating. */
+  createRequiredChecksRuleset?(contexts: string[]): Promise<void>;
+  /** Create a repo label (needs push). Optional, same gating. */
+  createRepoLabel?(name: string): Promise<void>;
   /** Arm the host's auto-merge on a PR so it lands once its required checks pass
    *  (`gh pr merge --auto`). Optional: hosts without auto-merge omit it. */
   enableAutoMerge?(prNumber: number, method: MergeMethod): Promise<void>;

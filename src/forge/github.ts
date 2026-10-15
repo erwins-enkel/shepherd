@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
 import { mapBounded } from "../map-bounded";
@@ -75,7 +78,9 @@ import type {
   PullRequest,
   RedeployInput,
   RepoCounts,
+  RepoForgeSettings,
   RepoMergeSettings,
+  RepoSettingsPatch,
   RollupEntry,
   StackInfo,
   SubIssueRef,
@@ -403,6 +408,11 @@ function copyIssues(issues: Issue[]): Issue[] {
 
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
+
+/** A `gh api` rejection for a missing resource (HTTP 404). */
+function isGhNotFound(e: unknown): boolean {
+  return /HTTP 404|Not Found/.test(String((e as { stderr?: unknown })?.stderr ?? e));
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -2463,6 +2473,148 @@ export class GithubForge implements GitForge {
       `repos/${this.slug}`,
       "-F",
       "allow_auto_merge=true",
+    ]);
+  }
+
+  async repoForgeSettings(label: string): Promise<RepoForgeSettings> {
+    const repo = JSON.parse((await this.run(["api", `repos/${this.slug}`])) || "{}") as {
+      allow_merge_commit?: unknown;
+      allow_squash_merge?: unknown;
+      allow_rebase_merge?: unknown;
+      allow_auto_merge?: unknown;
+      delete_branch_on_merge?: unknown;
+      default_branch?: string;
+      permissions?: { admin?: boolean; push?: boolean };
+    };
+    const branch = repo.default_branch || (await this.defaultBranch());
+    const flags = [repo.allow_merge_commit, repo.allow_squash_merge, repo.allow_rebase_merge];
+    const bool = (v: unknown) => (typeof v === "boolean" ? v : null);
+    const [requiredChecks, labelExists] = await Promise.all([
+      this.requiredChecks(branch),
+      this.labelExists(label),
+    ]);
+    return {
+      defaultBranch: branch,
+      mergeMethods: flags.every((f) => typeof f === "boolean")
+        ? { merge: flags[0] as boolean, squash: flags[1] as boolean, rebase: flags[2] as boolean }
+        : null,
+      autoMergeAllowed: bool(repo.allow_auto_merge),
+      deleteBranchOnMerge: bool(repo.delete_branch_on_merge),
+      requiredChecks,
+      labelExists,
+      canAdminister: repo.permissions?.admin === true,
+      canPush: repo.permissions?.push === true,
+    };
+  }
+
+  /** Required status-check contexts on `branch` from active rulesets plus classic branch
+   *  protection; null when either is unreadable. */
+  private async requiredChecks(branch: string): Promise<string[] | null> {
+    const ref = encodeURIComponent(branch);
+    try {
+      const [rules, classic] = await Promise.all([
+        this.rulesetChecks(ref),
+        this.classicChecks(ref),
+      ]);
+      return [...new Set([...rules, ...classic])].sort();
+    } catch {
+      return null;
+    }
+  }
+
+  private async rulesetChecks(ref: string): Promise<string[]> {
+    const rules = JSON.parse(
+      (await this.run(["api", `repos/${this.slug}/rules/branches/${ref}?per_page=100`])) || "[]",
+    ) as { type?: string; parameters?: { required_status_checks?: { context?: string }[] } }[];
+    return rules
+      .filter((r) => r.type === "required_status_checks")
+      .flatMap((r) => r.parameters?.required_status_checks ?? [])
+      .flatMap((c) => (c.context ? [c.context] : []));
+  }
+
+  /** Classic branch-protection contexts; a 404 (branch unprotected) means none. */
+  private async classicChecks(ref: string): Promise<string[]> {
+    try {
+      const out = await this.run([
+        "api",
+        `repos/${this.slug}/branches/${ref}/protection/required_status_checks`,
+      ]);
+      return (JSON.parse(out || "{}") as { contexts?: string[] }).contexts ?? [];
+    } catch (e) {
+      if (isGhNotFound(e)) return [];
+      throw e;
+    }
+  }
+
+  private async labelExists(label: string): Promise<boolean> {
+    try {
+      await this.run(["api", `repos/${this.slug}/labels/${encodeURIComponent(label)}`]);
+      return true;
+    } catch (e) {
+      if (isGhNotFound(e)) return false;
+      throw e;
+    }
+  }
+
+  async patchRepoSettings(patch: RepoSettingsPatch): Promise<void> {
+    const fields: string[] = [];
+    const m = patch.mergeMethods;
+    if (m) {
+      fields.push(`allow_merge_commit=${m.merge}`, `allow_squash_merge=${m.squash}`);
+      fields.push(`allow_rebase_merge=${m.rebase}`);
+    }
+    if (patch.deleteBranchOnMerge !== undefined)
+      fields.push(`delete_branch_on_merge=${patch.deleteBranchOnMerge}`);
+    if (!fields.length) return;
+    await this.run([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${this.slug}`,
+      ...fields.flatMap((f) => ["-F", f]),
+    ]);
+  }
+
+  async createRequiredChecksRuleset(contexts: string[]): Promise<void> {
+    const body = {
+      name: "shepherd-required-checks",
+      target: "branch",
+      enforcement: "active",
+      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+      // Repo admins may bypass, so a release/bot PR whose checks never report can still land.
+      bypass_actors: [{ actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" }],
+      rules: [
+        {
+          type: "required_status_checks",
+          parameters: {
+            strict_required_status_checks_policy: false,
+            required_status_checks: contexts.map((context) => ({ context })),
+          },
+        },
+      ],
+    };
+    // Nested arrays of objects don't survive gh's -F flag syntax; send the JSON as a file.
+    const dir = await mkdtemp(join(tmpdir(), "shepherd-ruleset-"));
+    try {
+      const file = join(dir, "ruleset.json");
+      await writeFile(file, JSON.stringify(body));
+      await this.run(["api", "--method", "POST", `repos/${this.slug}/rulesets`, "--input", file]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  async createRepoLabel(name: string): Promise<void> {
+    await this.run([
+      "label",
+      "create",
+      name,
+      "--repo",
+      this.slug,
+      "--color",
+      "0e8a16",
+      "--description",
+      "Picked up by Shepherd's auto-drain",
     ]);
   }
 

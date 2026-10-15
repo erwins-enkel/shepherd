@@ -61,6 +61,7 @@ import type {
   WorkflowRun,
   WorkflowJob,
   ReadinessReport,
+  ForgeReadiness,
   RepoRoles,
   InstalledPlugin,
   DocAgentRun,
@@ -481,6 +482,21 @@ export const demoState = {
   /** GET /api/actions/run-jobs?repo=&runId= — one run's per-job breakdown. */
   runJobs: (repoPath: string, runId: number): { jobs: WorkflowJob[] } => ({
     jobs: world.runJobs[repoPath]?.[runId] ?? [],
+  }),
+
+  /** GET /api/readiness/forge?repo= — the Readiness tab's Forge settings section (#3106). Every
+   *  check already matches, so no Apply button shows: the demo has no host to write to. */
+  forgeReadiness: (): ForgeReadiness => ({
+    supported: true,
+    defaultBranch: "main",
+    autoLabel: "shepherd:auto",
+    checks: [
+      { id: "merge_methods", state: "ok", current: ["squash"], target: ["squash"] },
+      { id: "auto_merge", state: "ok", current: true, target: true },
+      { id: "delete_branch_on_merge", state: "ok", current: true, target: true },
+      { id: "required_checks", state: "ok", current: ["ci"], target: ["ci"] },
+      { id: "auto_label", state: "ok", current: true, target: true },
+    ],
   }),
 
   /** GET /api/readiness?repo= — the Backlog Readiness tab. An unseeded repo answers

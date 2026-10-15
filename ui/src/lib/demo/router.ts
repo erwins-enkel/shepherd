@@ -228,6 +228,7 @@ const repoLensGetRoutes: Record<string, GetHandler> = {
   "/api/actions/run-jobs": (url) =>
     json(demoState.runJobs(repoParam(url), Number(url.searchParams.get("runId") ?? "0"))),
   "/api/readiness": (url) => json(demoState.readiness(repoParam(url))),
+  "/api/readiness/forge": () => json(demoState.forgeReadiness()),
   "/api/repo-web": (url) => json(demoState.repoWeb(repoParam(url))),
   "/api/repo-roles": (url) => json(demoState.repoRoles(repoParam(url))),
   "/api/repo-collaborators": (url) => json(demoState.repoCollaborators(repoParam(url))),

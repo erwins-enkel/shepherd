@@ -77,6 +77,8 @@ import {
   validatePlacementPreview,
   validateRequirementsDerive,
   validateRelaunchOverrides,
+  relaunchKinds,
+  taskKindConflict,
   validateModelChoice,
   validateReplaceAgentChoice,
   validateCloneUrl,
@@ -5673,6 +5675,9 @@ async function handleSessionRelaunch({ req, parts, deps, token }: Ctx): Promise<
     const parsed = await parseRelaunchOverrides(req);
     if ("error" in parsed) return parsed.error;
     const { overrides } = parsed;
+    // Exclusivity is a property of the RELAUNCHED task: the overrides merged over the original.
+    const kindErr = taskKindConflict(relaunchKinds(original, overrides));
+    if (kindErr) return json({ error: kindErr }, 400);
     const targetRepo = overrides?.repoPath ?? original.repoPath;
     const repoErr = repositoryInputError(token, {
       repoPath: targetRepo,
@@ -9660,7 +9665,7 @@ function driftRoute(method: string, parts: string[]): "read" | "story" | null {
 function driftDeps(dir: string, deps: Ctx["deps"]): DriftDeps {
   const epicRun = deps.store.getEpicRun(dir);
   return {
-    resolver: deps.houseStackResolver ?? defaultHouseStackResolver,
+    resolver: deps.houseStackResolver ?? sharedHouseStackResolver,
     forge: deps.resolveForge?.(dir) ?? null,
     houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
     autoLabel: deps.store.getRepoConfig(dir).autoLabel,

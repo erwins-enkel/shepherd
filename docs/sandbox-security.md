@@ -273,10 +273,7 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   **epic-authoring** session (`input.epicAuthoring`, #1507), which likewise needs
   open web/repo egress to shape a draft — though unlike research it creates **no
   GitHub issues itself**: the hard write-gate is that only the server-side approve
-  route materializes the draft. A **bootstrap** session (`input.bootstrap`, #3109) is
-  downgraded too: it installs from the package registries and scaffolds a new project.
-  Unlike research it is never autopilot-steerable — the service forces autopilot off.
-  It is operator-_created_ (cannot be
+  route materializes the draft. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
   `src/autopilot.ts`, dispatched from the steer loop). It ingests **untrusted web**
@@ -287,6 +284,18 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   **Compensating factors:** the downgrade is explicit and warns once; research
   delivers a **report PR or GitHub issue only, never a code PR**
   (`RESEARCH_PROCEED_STEER`, `src/autopilot.ts`). The residual is **accepted**.
+
+- **Bootstrap is downgraded the same way, and DOES open a code PR.** A bootstrap
+  session (`input.bootstrap`, #3109) that would resolve to `autonomous` also gets
+  `standard` (`researchSafeProfileOverride`), because it installs from the package
+  registries and searches the web while scaffolding a new project. Unlike research its
+  deliverable **is a code PR**, so it runs with open egress and the readable gh token
+  while writing code. **Why the residual is accepted:** it is operator-_created_ only
+  (no drain path sets it; `standard` refuses auto-spawn), the service forces autopilot
+  **off** (`resolveCreateLaunch`), so it never runs unattended — the operator answers its
+  P1 questions in the live pane; it targets an **empty** project (nothing to exfiltrate
+  beyond the PRD/design it was given); and its one PR goes through CI, the critic and a
+  human merge like any other.
 
 ## Shared browser
 

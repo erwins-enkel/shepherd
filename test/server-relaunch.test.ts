@@ -246,6 +246,14 @@ test("archived original → 409, nothing spawned", async () => {
   expect(h.calls.relaunch).toHaveLength(0);
 });
 
+test("bootstrap override on a research original → 400, nothing spawned (#3109)", async () => {
+  const h = harness({ original: { research: true } });
+  const res = await h.app.fetch(relaunchReq("orig", { bootstrap: true }));
+  expect(res.status).toBe(400);
+  expect(((await res.json()) as { error: string }).error).toMatch(/bootstrap cannot be combined/);
+  expect(h.calls.relaunch).toHaveLength(0);
+});
+
 test("issue-linked original re-resolves and threads issueRef into service.relaunch", async () => {
   const h = harness({
     original: { issueNumber: 42 },

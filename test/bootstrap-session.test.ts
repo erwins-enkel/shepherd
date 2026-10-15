@@ -210,3 +210,20 @@ test("bootstrapDirective: codex asks in chat; a missing stack fails closed", () 
   expect(none).toContain("relaunch the task");
   expect(none).not.toMatch(/\d+\.\d+\.\d+/);
 });
+
+test("relaunch rejects a merged kind conflict, allows an explicit switch", async () => {
+  const store = new SessionStore(":memory:");
+  const captured = { worktrees: 0 } as { argv?: string[]; worktrees: number };
+  const svc = new SessionService(deps(store, captured) as any);
+  const boot = await svc.create(input);
+  await expect(svc.relaunch(boot.id, undefined, { plain: true })).rejects.toThrow(
+    /bootstrap cannot be combined/,
+  );
+  const research = await svc.create({ ...input, bootstrap: false, research: true });
+  await expect(svc.relaunch(research.id, undefined, { bootstrap: true })).rejects.toThrow(
+    /bootstrap cannot be combined/,
+  );
+  const switched = await svc.relaunch(research.id, undefined, { bootstrap: true, research: false });
+  expect(store.get(switched.id)?.bootstrap).toBe(true);
+  expect(store.get(switched.id)?.research).toBe(false);
+});

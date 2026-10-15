@@ -15,6 +15,8 @@ import {
   parseTermDims,
   validateEgressExtraHosts,
   validateRelaunchOverrides,
+  relaunchKinds,
+  taskKindConflict,
   validateModelChoice,
   validateReplaceAgentChoice,
 } from "../src/validate";
@@ -1590,6 +1592,19 @@ test("bootstrap: cannot be combined with another task kind", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/bootstrap cannot be combined/);
   }
+});
+
+test("taskKindConflict checks the relaunch's merged kinds", () => {
+  expect(taskKindConflict(relaunchKinds({ bootstrap: true }, { plain: true }))).toMatch(
+    /bootstrap/,
+  );
+  expect(taskKindConflict(relaunchKinds({ research: true }, { bootstrap: true }))).toMatch(
+    /bootstrap/,
+  );
+  expect(
+    taskKindConflict(relaunchKinds({ research: true }, { bootstrap: true, research: false })),
+  ).toBeNull();
+  expect(taskKindConflict(relaunchKinds({ bootstrap: true }, null))).toBeNull();
 });
 
 test("validateRelaunchOverrides + launchUiState carry bootstrap", () => {

@@ -131,7 +131,7 @@ import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { SHELLS } from "./json-tolerant";
 import { resumeThenSteer } from "./resume-then-steer";
-import { MAX_IMAGES, type HandoffMode } from "./validate";
+import { MAX_IMAGES, relaunchKinds, taskKindConflict, type HandoffMode } from "./validate";
 import {
   resolveProfile,
   detectBackend as detectSandboxBackend,
@@ -4832,6 +4832,9 @@ export class SessionService {
     //     The composer already seeded the carried originals into overrides.images (via
     //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
     //     re-merging here would double the carried uploads.
+    // The route 400s this first; a direct caller must not spawn a two-kind session either.
+    const kindErr = taskKindConflict(relaunchKinds(s, overrides ?? null));
+    if (kindErr) throw new Error(kindErr);
     const images = this.carryRelaunchImages(s, overrides, originalId);
     const attachmentNames = this.carryRelaunchAttachmentNames(s, overrides, images);
     // #2225: resolved ONCE, then threaded to BOTH the spawn prompt (so the new agent reads the

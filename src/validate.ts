@@ -846,13 +846,39 @@ function validatePlain(value: unknown): Field<boolean> {
   return err("plain must be a boolean or absent");
 }
 
-/** bootstrap (#3109) — optional plain boolean like `plain`; it carries its own directive, so it
- *  cannot be combined with another task kind (`others`: research, epicAuthoring, plain). */
+const BOOTSTRAP_KIND_CONFLICT =
+  "bootstrap cannot be combined with research, epicAuthoring or plain";
+
+/** The task kinds a bootstrap session must not share. */
+type TaskKinds = {
+  bootstrap?: boolean;
+  research?: boolean;
+  epicAuthoring?: boolean;
+  plain?: boolean;
+};
+
+/** Bootstrap (#3109) carries its own directive, so it is exclusive with the other task kinds.
+ *  Returns the error, or null. Shared by create and relaunch (which checks the MERGED kinds). */
+export function taskKindConflict(k: TaskKinds): string | null {
+  return k.bootstrap && (k.research || k.epicAuthoring || k.plain) ? BOOTSTRAP_KIND_CONFLICT : null;
+}
+
+/** The kinds a relaunch spawns: each present override replaces the original's flag. */
+export function relaunchKinds(original: TaskKinds, o: RelaunchOverrides | null): TaskKinds {
+  return {
+    bootstrap: o?.bootstrap ?? original.bootstrap,
+    research: o?.research ?? original.research,
+    epicAuthoring: o?.epicAuthoring ?? original.epicAuthoring,
+    plain: o?.plain ?? original.plain,
+  };
+}
+
+/** bootstrap (#3109) — optional plain boolean like `plain`; exclusive with `others` (research,
+ *  epicAuthoring, plain — see {@link taskKindConflict}). */
 function validateBootstrap(value: unknown, others: Field<boolean>[] = []): Field<boolean> {
   if (value === undefined) return field(false);
   if (typeof value !== "boolean") return err("bootstrap must be a boolean or absent");
-  if (value && others.some((o) => o.ok && o.value))
-    return err("bootstrap cannot be combined with research, epicAuthoring or plain");
+  if (value && others.some((o) => o.ok && o.value)) return err(BOOTSTRAP_KIND_CONFLICT);
   return field(value);
 }
 

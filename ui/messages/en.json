@@ -6677,5 +6677,8 @@
   "automergebanner_no_ci": "this repo has no CI, so nothing checked the PR. Add a workflow, turn on “Merge without CI”, or merge yourself",
   "integrated_epics_land_no_ci": "Auto-land held: no CI",
   "feat_merge_without_ci_title": "No CI, no silent auto-merge",
-  "feat_merge_without_ci_body": "In a GitHub repo without CI workflows, the merge train and epic auto-land now hold instead of merging unchecked PRs. Add CI, merge yourself, or turn on “Merge without CI” in the repo's automation settings."
+  "feat_merge_without_ci_body": "In a GitHub repo without CI workflows, the merge train and epic auto-land now hold instead of merging unchecked PRs. Add CI, merge yourself, or turn on “Merge without CI” in the repo's automation settings.",
+  "newtask_prompt_file_delivery": "Will be passed in full as a file.",
+  "feat_long_task_prompts_title": "Long tasks without splitting",
+  "feat_long_task_prompts_body": "Tasks longer than 8,000 characters are automatically passed in full as a file to Claude Code or Codex. A hint by the character count shows when file delivery is used."
 }

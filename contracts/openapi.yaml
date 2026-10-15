@@ -747,7 +747,7 @@ components:
             freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when
             it cannot be used. baseBranch stays the PR target. null or absent = resolve from
             baseBranch.
-        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        prompt: { type: string, minLength: 1 }
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
@@ -2378,7 +2378,7 @@ components:
       properties:
         repoPath: { type: string }
         baseBranch: { type: string }
-        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        prompt: { type: string, minLength: 1 }
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
@@ -3847,7 +3847,7 @@ components:
             freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when
             it cannot be used. baseBranch stays the PR target. null or absent = resolve from
             baseBranch.
-        prompt: { "type": "string", "minLength": 1, "maxLength": 8000 }
+        prompt: { "type": "string", "minLength": 1 }
         agentProvider: { "$ref": "#/components/schemas/AgentProvider" }
         model: { "type": ["string", "null"] }
         effort: { "oneOf": [{ "$ref": "#/components/schemas/Effort" }, { "type": "null" }] }

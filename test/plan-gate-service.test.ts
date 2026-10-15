@@ -1,5 +1,5 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PlanGateService, shouldConsiderOnSettle } from "../src/plan-gate";
 import { CodexRolloutResolver } from "../src/codex-activity";
@@ -4017,3 +4017,34 @@ test("after cancel, auto consider on the same plan is skipped; a changed plan or
   expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
   expect(h.started).toHaveLength(3);
 });
+
+for (const provider of ["claude", "codex"] as const) {
+  test(`plan reviewer ${provider}: long task uses its own complete file without clamping the plan`, async () => {
+    const worktreePath = mkdtempSync("/tmp/shepherd-plan-long-");
+    const prompt = `${"ä🙂".repeat(50_000)}\nFINAL REQUIREMENT`;
+    try {
+      const h = harness({
+        env: () => ({ provider, model: null, effort: null }),
+        worktree: {
+          createDetached: async () => ({ worktreePath, branch: "main" }),
+          remove: () => {},
+          gitCommonDir: () => "/fake-git-common",
+        },
+      });
+      expect(await h.svc.consider({ ...planningSession(), prompt } as any)).toBe("started");
+      expect(h.started).toHaveLength(1);
+      const files = readdirSync(worktreePath).filter(
+        (f) => f.startsWith(".shepherd-task-") && f.endsWith(".txt"),
+      );
+      expect(files).toHaveLength(1);
+      expect(readFileSync(join(worktreePath, files[0]!), "utf8")).toBe(prompt);
+      const argv = h.started[0]!.argv as string[];
+      expect(argv.join(" ")).toContain(join(worktreePath, files[0]!));
+      expect(argv.join(" ")).not.toContain(prompt);
+      expect(argv.at(-1)).toContain("PLAN TEXT");
+      expect(h.notices.size).toBe(0);
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  });
+}

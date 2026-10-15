@@ -10605,6 +10605,25 @@ interface SavedEpicRunPatch {
   promoted: number | null;
 }
 
+/** A start over `leader` with requeueLeader: the superseded epic goes to the queue's head with its
+ *  settings, so it resumes once the epic that took over completes or is stopped. */
+function requeueSuperseded(store: AppDeps["store"], leader: EpicRun, started: EpicRun): void {
+  if (started.status !== "running" || leader.parentIssueNumber === started.parentIssueNumber)
+    return;
+  const { repoPath, parentIssueNumber, mode, agentProvider, model, effort } = leader;
+  store.enqueueEpic(
+    { repoPath, parentIssueNumber, mode, agentProvider, model, effort },
+    { head: true },
+  );
+  store.deleteEpicSettings(repoPath, parentIssueNumber);
+}
+
+/** The leader a start supersedes, when requeueLeader=1 asks to put it at the queue's head
+ *  instead of dropping it. */
+function requeuedLeader(url: URL, leader: EpicRun | null): EpicRun | null {
+  return url.searchParams.get("requeueLeader") === "1" ? leader : null;
+}
+
 function saveEpicRunPatch(
   store: AppDeps["store"],
   drain: NonNullable<AppDeps["drain"]>,
@@ -10612,6 +10631,7 @@ function saveEpicRunPatch(
   patch: EpicRunPatch,
   place: EpicSettingsPlace,
   via: string | null,
+  requeue: EpicRun | null,
 ): SavedEpicRunPatch {
   if (patch.status === undefined && place !== "run") {
     if (place === "queue") store.updateEpicQueueSettings(merged);
@@ -10622,6 +10642,7 @@ function saveEpicRunPatch(
   const endsLeader =
     place === "run" && merged.status === "idle" && !!leadingRun(store, merged.repoPath);
   store.setEpicRun(merged, { via });
+  if (requeue) requeueSuperseded(store, requeue, merged);
   const cleared =
     merged.status === "running" &&
     store.clearEpicCompletedOnRestart(merged.repoPath, merged.parentIssueNumber);
@@ -10680,7 +10701,8 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
   if (merged instanceof Response) return merged;
   const leader = leadingRun(deps.store, dir);
   const via = requestTokenName(deps.store, token);
-  const saved = saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via);
+  const requeue = requeuedLeader(url, leader);
+  const saved = saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via, requeue);
   if (saved.cleared)
     deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parentNumber });
   const epic = await deps.drain.buildEpic(dir, merged);

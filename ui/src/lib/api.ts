@@ -3495,12 +3495,18 @@ export async function updateEpic(
   patch: Partial<
     Pick<EpicRun, "mode" | "status" | "agentProvider" | "model" | "effort" | "ignoreUsageCeiling">
   >,
+  /** `requeueLeader`: a start that supersedes another epic puts it at the head of the epic queue. */
+  opts: { requeueLeader?: boolean } = {},
 ): Promise<Epic> {
-  const r = await fetch(`/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(patch),
-  });
+  const requeue = opts.requeueLeader ? "&requeueLeader=1" : "";
+  const r = await fetch(
+    `/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}${requeue}`,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  );
   if (!r.ok) throw await failed(r, "update epic");
   return r.json();
 }

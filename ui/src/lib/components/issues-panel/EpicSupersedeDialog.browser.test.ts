@@ -96,10 +96,35 @@ describe("EpicSupersedeDialog (#2623)", () => {
     await expect
       .element(page.getByText(m.epic_supersede_finishes({ inflight: "#11" })))
       .toBeInTheDocument();
+    // Requeued by default: nothing stays behind.
+    await expect
+      .element(page.getByText(m.epic_supersede_requeue_body({ leader: A, epic: B })))
+      .toBeInTheDocument();
+    expect(
+      page.getByText(m.epic_supersede_left_behind({ count: 2, list: "#12, #13" })).query(),
+    ).toBeNull();
+    expect(api.getEpic).toHaveBeenCalledWith("/repo/shop", A);
+  });
+
+  it("Requeue is ticked by default; unticked, the leader's unstarted tasks stay behind", async () => {
+    api.getEpic.mockResolvedValue(leaderEpic);
+    const p = props();
+    render(EpicSupersedeDialog, p);
+
+    const box = page.getByRole("checkbox", { name: m.epic_supersede_requeue({ leader: A }) });
+    await expect.element(box).toBeChecked();
+    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
+    expect(p.onconfirm).toHaveBeenLastCalledWith(true);
+
+    await box.click();
     await expect
       .element(page.getByText(m.epic_supersede_left_behind({ count: 2, list: "#12, #13" })))
       .toBeInTheDocument();
-    expect(api.getEpic).toHaveBeenCalledWith("/repo/shop", A);
+    expect(
+      page.getByText(m.epic_supersede_requeue_body({ leader: A, epic: B })).query(),
+    ).toBeNull();
+    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
+    expect(p.onconfirm).toHaveBeenLastCalledWith(false);
   });
 
   it("blurs what's behind it", async () => {

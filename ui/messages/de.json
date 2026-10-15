@@ -4936,7 +4936,7 @@
   "tooltip_epic_lead_title": "Pro Repo führt ein Epic",
   "tooltip_epic_lead_summary": "Nur das führende Epic startet neue Aufgaben. Reihe ein anderes Epic ein, damit es von selbst startet, sobald alle Kinder des führenden gemergt sind — oder starte es, damit es jetzt führt.",
   "tooltip_epic_lead_previous": "Wenn du ein anderes Epic startest",
-  "tooltip_epic_lead_previous_body": "Das bisherige läuft aus: Laufende Aufgaben werden fertig, unbegonnene bleiben liegen, bis es wieder führt.",
+  "tooltip_epic_lead_previous_body": "Das bisherige läuft aus: Laufende Aufgaben werden fertig, danach wartet es vorn in der Warteschlange und läuft weiter, sobald das neue Epic vollständig ist — außer du entfernst den Haken bei „Einreihen“; dann bleiben unbegonnene Aufgaben liegen, bis es wieder führt.",
   "tooltip_epic_lead_slots": "Geteilte Plätze",
   "tooltip_epic_lead_slots_body": "Alle Epics teilen sich die Agenten-Plätze des Repos. Die nächste Aufgabe des führenden Epics wartet, bis ein Platz frei ist.",
   "tooltip_epic_lead_queue": "Warteschlange",
@@ -6677,5 +6677,9 @@
   "automergebanner_no_ci": "dieses Repo hat keine CI, also hat niemand den PR geprüft. Lege einen Workflow an, schalte „Ohne CI mergen“ ein oder merge selbst",
   "integrated_epics_land_no_ci": "Auto-Landing angehalten: keine CI",
   "feat_merge_without_ci_title": "Ohne CI kein stilles Auto-Merge",
-  "feat_merge_without_ci_body": "In einem GitHub-Repo ohne CI-Workflows halten Merge-Train und Epic-Auto-Landing jetzt an, statt ungeprüfte PRs zu mergen. Richte CI ein, merge selbst oder schalte „Ohne CI mergen“ in den Automatisierungs-Einstellungen des Repos ein."
+  "feat_merge_without_ci_body": "In einem GitHub-Repo ohne CI-Workflows halten Merge-Train und Epic-Auto-Landing jetzt an, statt ungeprüfte PRs zu mergen. Richte CI ein, merge selbst oder schalte „Ohne CI mergen“ in den Automatisierungs-Einstellungen des Repos ein.",
+  "epic_supersede_requeue": "#{leader} als Nächstes einreihen",
+  "epic_supersede_requeue_body": "#{leader} rückt an den Anfang der Epic-Warteschlange und läuft von selbst weiter, sobald #{epic} vollständig ist — nichts bleibt liegen.",
+  "feat_epic_supersede_requeue_title": "Epics: ein abgelöstes Epic reiht sich als Nächstes ein",
+  "feat_epic_supersede_requeue_body": "Startest du ein Epic, während ein anderes führt, rückt das bisherige jetzt an den Anfang der Warteschlange: Es läuft von selbst und mit seinen eigenen Einstellungen weiter, sobald das neue Epic vollständig ist. Entferne in der Rückfrage den Haken bei „Einreihen“, um es wie bisher liegen zu lassen."
 }

@@ -176,7 +176,12 @@ describe("EpicRunControl — acceptance scenario (#2620)", () => {
       .toBeInTheDocument();
     expect(api.updateEpic).not.toHaveBeenCalled();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", A, { status: "running" });
+    expect(api.updateEpic).toHaveBeenCalledWith(
+      "/repo",
+      A,
+      { status: "running" },
+      { requeueLeader: true },
+    );
     expect(page.getByRole("dialog").query()).toBeNull();
     expect(page.getByRole("button", { name: m.epic_start() }).query()).toBeNull();
   });
@@ -249,7 +254,12 @@ describe("EpicRunControl actions", () => {
     expect(page.getByRole("button", { name: m.epic_run_more() }).query()).toBeNull();
     await page.getByRole("button", { name: m.epic_start() }).click();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
+    expect(api.updateEpic).toHaveBeenCalledWith(
+      "/repo",
+      99,
+      { status: "running" },
+      { requeueLeader: true },
+    );
   });
 
   it("⋯ ends the epic and — attended — approves the next task", async () => {
@@ -555,8 +565,33 @@ describe("EpicRunControl epic queue (#2624)", () => {
     await expect.element(page.getByRole("dialog")).toBeInTheDocument();
     expect(page.getByRole("radio").query()).toBeNull();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
+    expect(api.updateEpic).toHaveBeenCalledWith(
+      "/repo",
+      99,
+      { status: "running" },
+      { requeueLeader: true },
+    );
     expect(api.queueEpic).not.toHaveBeenCalled();
+  });
+
+  it("unticking Requeue supersedes without queueing the leader", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain(),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await page.getByRole("checkbox", { name: m.epic_supersede_requeue({ leader: B }) }).click();
+    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith(
+      "/repo",
+      99,
+      { status: "running" },
+      { requeueLeader: false },
+    );
   });
 
   it("a queued epic shows its place, what it waits for, and 'Remove from queue'", async () => {
@@ -604,7 +639,12 @@ describe("EpicRunControl — Start before the run picture loads (#2972)", () => 
     expect(api.getDrain).toHaveBeenCalledTimes(1);
     expect(api.updateEpic).not.toHaveBeenCalled();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
+    expect(api.updateEpic).toHaveBeenCalledWith(
+      "/repo",
+      99,
+      { status: "running" },
+      { requeueLeader: true },
+    );
   });
 
   it("starts directly when the repo has no drain status (nothing leads)", async () => {

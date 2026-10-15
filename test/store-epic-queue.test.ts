@@ -14,6 +14,24 @@ test("enqueueEpic appends to the tail, per repo", () => {
   expect(parents(s, "/b")).toEqual([5]);
 });
 
+test("enqueueEpic with head puts the epic in front; reorder and shift still follow it", () => {
+  const s = new SessionStore(":memory:");
+  s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 9 }, { head: true });
+  expect(parents(s, "/a")).toEqual([9]);
+  s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 30 });
+  s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 10 }, { head: true });
+  s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 11 }, { head: true });
+  expect(parents(s, "/a")).toEqual([11, 10, 9, 30]);
+  // Already queued: keeps its place.
+  s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 30 }, { head: true });
+  expect(parents(s, "/a")).toEqual([11, 10, 9, 30]);
+  expect(s.reorderEpicQueue("/a", [30, 9, 10, 11])).toBe(true);
+  expect(parents(s, "/a")).toEqual([30, 9, 10, 11]);
+  s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 12 }, { head: true });
+  expect(s.shiftEpicQueue("/a")!.parentIssueNumber).toBe(12);
+  expect(parents(s, "/a")).toEqual([30, 9, 10, 11]);
+});
+
 test("re-enqueueing a queued epic keeps its position and settings", () => {
   const s = new SessionStore(":memory:");
   s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 1, mode: "attended" });

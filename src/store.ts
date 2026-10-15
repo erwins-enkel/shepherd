@@ -2897,11 +2897,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   // ── epic queue (#2624): epics waiting behind the leading one ─────────────
-  /** Append an epic to its repo's queue. Already queued → no-op (it keeps its position). */
-  enqueueEpic(e: Omit<EpicQueueEntry, "position" | "createdAt">): void {
+  /** Append an epic to its repo's queue — or, with `head`, put it in front of every queued epic.
+   *  Already queued → no-op (it keeps its position). */
+  enqueueEpic(
+    e: Omit<EpicQueueEntry, "position" | "createdAt">,
+    opts: { head?: boolean } = {},
+  ): void {
+    const position = opts.head
+      ? "COALESCE(MIN(position), 1) - 1"
+      : "COALESCE(MAX(position), 0) + 1";
     this.db.run(
       `INSERT INTO epic_queue (repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, createdAt)
-      VALUES (?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM epic_queue WHERE repoPath = ?), ?, ?, ?, ?, ?)
+      VALUES (?, ?, (SELECT ${position} FROM epic_queue WHERE repoPath = ?), ?, ?, ?, ?, ?)
       ON CONFLICT(repoPath, parentIssueNumber) DO NOTHING`,
       [
         e.repoPath,

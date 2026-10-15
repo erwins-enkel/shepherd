@@ -200,9 +200,12 @@
     else setStatus("running");
   }
 
-  function supersede() {
+  // `requeue`: the superseded leader goes to the head of the epic queue instead of being dropped.
+  function supersede(requeue: boolean) {
     confirming = null;
-    setStatus("running");
+    updateEpic(repoPath, parent, { status: "running" }, { requeueLeader: requeue }).catch(
+      updateFailed,
+    );
   }
 
   // Queue behind the leader (#2624) — starts on its own once the epic ahead is complete.

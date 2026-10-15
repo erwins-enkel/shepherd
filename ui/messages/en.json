@@ -4936,7 +4936,7 @@
   "tooltip_epic_lead_title": "One epic leads per repo",
   "tooltip_epic_lead_summary": "Only the leading epic starts new tasks. Queue another epic to have it start on its own once the leader's children are all merged — or start it to take the lead now.",
   "tooltip_epic_lead_previous": "When you start another epic",
-  "tooltip_epic_lead_previous_body": "The previous one winds down: its running tasks finish, its unstarted tasks stay behind until it leads again.",
+  "tooltip_epic_lead_previous_body": "The previous one winds down: its running tasks finish, then it waits at the front of the queue and resumes once the new epic is complete — unless you untick “Requeue”, which leaves its unstarted tasks behind until it leads again.",
   "tooltip_epic_lead_slots": "Shared slots",
   "tooltip_epic_lead_slots_body": "All epics share the repo's agent slots. The leading epic's next task waits until a slot is free.",
   "tooltip_epic_lead_queue": "Queue",
@@ -6677,5 +6677,9 @@
   "automergebanner_no_ci": "this repo has no CI, so nothing checked the PR. Add a workflow, turn on “Merge without CI”, or merge yourself",
   "integrated_epics_land_no_ci": "Auto-land held: no CI",
   "feat_merge_without_ci_title": "No CI, no silent auto-merge",
-  "feat_merge_without_ci_body": "In a GitHub repo without CI workflows, the merge train and epic auto-land now hold instead of merging unchecked PRs. Add CI, merge yourself, or turn on “Merge without CI” in the repo's automation settings."
+  "feat_merge_without_ci_body": "In a GitHub repo without CI workflows, the merge train and epic auto-land now hold instead of merging unchecked PRs. Add CI, merge yourself, or turn on “Merge without CI” in the repo's automation settings.",
+  "epic_supersede_requeue": "Requeue #{leader} next",
+  "epic_supersede_requeue_body": "#{leader} goes to the front of the epic queue and resumes on its own once #{epic} is complete — nothing stays behind.",
+  "feat_epic_supersede_requeue_title": "Epics: a superseded epic queues up next",
+  "feat_epic_supersede_requeue_body": "Starting an epic while another leads now puts the previous one at the front of the queue: it resumes on its own, with its own settings, once the new epic is complete. Untick “Requeue” in the confirmation to leave it behind as before."
 }

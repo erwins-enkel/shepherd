@@ -202,6 +202,8 @@ import {
 } from "./github-access";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
+import { applyForgeCheck, ForgeCheckNotApplicableError, forgeReadiness } from "./readiness-forge";
+import { isForgeCheckId } from "./readiness-forge-core";
 import { composeTaskBrief } from "./intent-shape";
 import { normalizeRound } from "./task-shape";
 import { listCommands } from "./commands";
@@ -9464,6 +9466,36 @@ async function handleReadiness({ req, parts, url }: Ctx): Promise<Response | nul
   return json(analyzeReadiness(dir));
 }
 
+// Readiness → Forge settings (#3106). GET /api/readiness/forge?repo= lists the host-setting checks;
+// POST /api/readiness/forge/apply?repo= {check} fixes one through the forge API and re-checks.
+async function handleReadinessForge({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "readiness" || parts[2] !== "forge" || parts[4])
+    return null;
+  const apply = parts[3] === "apply";
+  if ((parts[3] && !apply) || req.method !== (apply ? "POST" : "GET")) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  const autoLabel = deps.store.getRepoConfig(dir).autoLabel;
+  if (!apply) return forgeRoute("read", () => forgeReadiness(dir, forge, autoLabel));
+  const body = (await req.json().catch(() => null)) as { check?: unknown } | null;
+  const check = body?.check;
+  if (!isForgeCheckId(check)) return json({ error: "invalid check" }, 400);
+  return forgeRoute("apply", () => applyForgeCheck(dir, forge, autoLabel, check));
+}
+
+/** Run a Forge-settings read/apply; map failures to generic bodies — raw gh/stack text never
+ *  reaches the client (CodeQL js/stack-trace-exposure). */
+async function forgeRoute(op: "read" | "apply", fn: () => Promise<unknown>): Promise<Response> {
+  try {
+    return json(await fn());
+  } catch (e) {
+    if (e instanceof ForgeCheckNotApplicableError) return json({ error: "not_applicable" }, 409);
+    console.error(`[readiness-forge] ${op} failed:`, e);
+    return json({ error: `${op}_failed` }, 502);
+  }
+}
+
 // POST /api/adopt-gitignore?repo= — open a PR adding the managed .shepherd-* ignore
 // block to the repo's committed .gitignore. Modelled on the promote route.
 async function handleAdoptGitignore({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -11024,6 +11056,7 @@ const ROUTE_HANDLERS = [
   handleShape,
   handleShapeBrief,
   handleReadiness,
+  handleReadinessForge,
   handleAdoptGitignore,
   handleBacklog,
   handleTodo,

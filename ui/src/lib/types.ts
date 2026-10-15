@@ -2674,6 +2674,24 @@ export interface ReadinessReport {
   issueTemplate: string;
 }
 
+// ── Readiness → Forge settings (#3106); mirrors src/readiness-forge-core.ts ──
+export type ForgeCheckId =
+  "merge_methods" | "auto_merge" | "delete_branch_on_merge" | "required_checks" | "auto_label";
+/** ok = matches; fix = Apply offered; hint = mismatch without Apply; unknown = host withheld it. */
+export type ForgeCheckState = "ok" | "fix" | "hint" | "unknown";
+export type ForgeCheckReason = "no_admin" | "no_push" | "no_ci";
+export interface ForgeCheck {
+  id: ForgeCheckId;
+  state: ForgeCheckState;
+  /** Enabled merge methods, a boolean, or required check contexts; null when unknown. */
+  current: string[] | boolean | null;
+  target: string[] | boolean;
+  reason?: ForgeCheckReason;
+}
+export type ForgeReadiness =
+  | { supported: false }
+  | { supported: true; defaultBranch: string; autoLabel: string; checks: ForgeCheck[] };
+
 // ── New Task "shape this" round (issue #2158) ───────────────────────────────
 /** The four sections the shaping helper drafts; mirrors the server's TaskBriefDraft. */
 export interface TaskBriefDraft {

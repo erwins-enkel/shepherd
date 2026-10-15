@@ -6,6 +6,7 @@
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { SvelteSet } from "svelte/reactivity";
   import { adoptList, haveList, scoreBand, buildAdoptPrompt } from "./readiness-view";
+  import ReadinessForgeSection from "./ReadinessForgeSection.svelte";
 
   let {
     repoPath,
@@ -325,6 +326,16 @@
         {/if}
         <pre class="claudemd">{report.issueTemplate}</pre>
       </div>
+
+      <ReadinessForgeSection {repoPath} />
+    </div>
+  {/if}
+
+  <!-- Forge settings (#3106) need only repoPath, so they also show when the scorecard is
+       not applicable or failed to load. -->
+  {#if !loading && (loadError || !report || !report.applicable)}
+    <div class="forge-wrap">
+      <ReadinessForgeSection {repoPath} />
     </div>
   {/if}
 
@@ -600,6 +611,13 @@
   .claudemd::-webkit-scrollbar-thumb {
     background: var(--color-faint);
     border-radius: 2px;
+  }
+
+  .forge-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 14px;
+    border-top: 1px solid var(--color-line);
   }
 
   /* ── always-visible .gitignore adoption footer ── */

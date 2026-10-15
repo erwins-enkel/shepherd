@@ -58,6 +58,8 @@ import type {
   RepoRolesPending,
   RepoRolesResult,
   ReadinessReport,
+  ForgeCheckId,
+  ForgeReadiness,
   DrainStatus,
   AutoMergeStatus,
   QueuedItem,
@@ -2810,6 +2812,25 @@ export async function getBacklog(): Promise<BacklogPayload> {
 
 export async function getReadiness(repoPath: string): Promise<ReadinessReport> {
   return getJson(`/api/readiness?repo=${encodeURIComponent(repoPath)}`, "readiness");
+}
+
+/** Readiness → Forge settings checks (#3106); `{supported:false}` off GitHub. */
+export async function getForgeReadiness(repoPath: string): Promise<ForgeReadiness> {
+  return getJson(`/api/readiness/forge?repo=${encodeURIComponent(repoPath)}`, "readiness-forge");
+}
+
+/** Fix one Forge-settings check through the host API; resolves to the re-checked state. */
+export async function applyForgeCheck(
+  repoPath: string,
+  check: ForgeCheckId,
+): Promise<ForgeReadiness> {
+  const r = await fetch(`/api/readiness/forge/apply?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ check }),
+  });
+  if (!r.ok) throw await failed(r, "readiness-forge-apply");
+  return r.json();
 }
 
 /** Open a PR adding Shepherd's `.shepherd-*` session artifacts to the repo's

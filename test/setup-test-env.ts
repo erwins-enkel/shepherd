@@ -94,3 +94,12 @@ afterAll(() => {
 // at launch.
 process.env.SHEPHERD_REPO_ROOT = join(runTmpRoot, "repo-root");
 mkdirSync(process.env.SHEPHERD_REPO_ROOT);
+
+// ── Per-run Operator Assistant dir ───────────────────────────────────────────
+//
+// `config.operatorAssistantDir` defaults to `<db dir>/assistant` — with SHEPHERD_DB unset, the
+// operator's REAL `~/.shepherd/assistant`. Every settings change rewrites that dir's
+// `.claude/settings.local.json`, which a live assistant re-reads mid-session, so a test changing
+// the assistant's permissions through a real SessionService would change the operator's running
+// assistant. Pin it inside the run root. Not created: "no dir yet" is a state the tests rely on.
+process.env.SHEPHERD_ASSISTANT_DIR = join(runTmpRoot, "assistant");

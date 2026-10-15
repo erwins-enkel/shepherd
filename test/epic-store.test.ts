@@ -21,6 +21,7 @@ describe("epic_run", () => {
       agentProvider: null,
       model: null,
       effort: null,
+      ignoreUsageCeiling: false,
     });
     s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 400, mode: "auto", status: "idle" }); // replaces
     expect(s.getEpicRun("/repo")!.parentIssueNumber).toBe(400);
@@ -55,6 +56,50 @@ describe("epic_run", () => {
       agentProvider: null,
       model: null,
       effort: null,
+    });
+  });
+});
+
+describe("epic_run.ignoreUsageCeiling", () => {
+  const run = (extra: Partial<EpicRun> = {}): EpicRun => ({
+    repoPath: "/repo",
+    parentIssueNumber: 327,
+    mode: "auto",
+    status: "running",
+    ...extra,
+  });
+
+  test("defaults to false", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run());
+    expect(s.getEpicRun("/repo")!.ignoreUsageCeiling).toBe(false);
+  });
+
+  test("round-trips as a boolean while the run is running", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run({ ignoreUsageCeiling: true }));
+    expect(s.getEpicRun("/repo")!.ignoreUsageCeiling).toBe(true);
+    expect(s.listEpicRuns()[0]!.ignoreUsageCeiling).toBe(true);
+    s.setEpicRun(run({ ignoreUsageCeiling: false }));
+    expect(s.getEpicRun("/repo")!.ignoreUsageCeiling).toBe(false);
+  });
+
+  test("any write that leaves running clears it", () => {
+    for (const status of ["paused", "idle"] as const) {
+      const s = new SessionStore(":memory:");
+      s.setEpicRun(run({ ignoreUsageCeiling: true }));
+      s.setEpicRun(run({ status, ignoreUsageCeiling: true }));
+      expect(s.getEpicRun("/repo")!.ignoreUsageCeiling).toBe(false);
+    }
+  });
+
+  test("another epic taking the run row does not inherit it", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run({ ignoreUsageCeiling: true }));
+    s.setEpicRun(run({ parentIssueNumber: 400 }));
+    expect(s.getEpicRun("/repo")).toMatchObject({
+      parentIssueNumber: 400,
+      ignoreUsageCeiling: false,
     });
   });
 });

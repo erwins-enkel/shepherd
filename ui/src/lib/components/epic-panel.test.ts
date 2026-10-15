@@ -13,6 +13,7 @@ import {
   slotHeldBy,
   stateLabel,
   supersedeImpact,
+  usageOverride,
 } from "./epic-panel";
 import { m } from "#lib/paraglide/messages.js";
 import type {
@@ -438,5 +439,37 @@ describe("supersedeImpact", () => {
 
   it("no holders of the leader → empty list", () => {
     expect(supersedeImpact(B, epicB(), summary()).holders).toEqual([]);
+  });
+});
+
+describe("usageOverride", () => {
+  const run = (status: EpicRunStatus, ignoreUsageCeiling?: boolean) => ({
+    run: {
+      repoPath: "/r",
+      parentIssueNumber: 42,
+      mode: "auto" as const,
+      status,
+      ignoreUsageCeiling,
+    },
+  });
+  const usage = drain({ paused: true, reason: "usage", detail: "81", usageCeilingPct: 80 });
+
+  it("offers lifting the ceiling while the running epic halts on it", () => {
+    expect(usageOverride(run("running"), 42, usage)).toBe("offer");
+  });
+
+  it("shows the lifted state while the running epic carries the override", () => {
+    expect(usageOverride(run("running", true), 42, drain({}))).toBe("active");
+  });
+
+  it("nothing for another hold, another epic's drain, or no drain", () => {
+    expect(usageOverride(run("running"), 42, drain({ reason: "credits" }))).toBeNull();
+    expect(usageOverride(run("running"), 42, { ...usage, epicParent: 7 })).toBeNull();
+    expect(usageOverride(run("running"), 42, null)).toBeNull();
+  });
+
+  it("nothing for a run that is not running", () => {
+    expect(usageOverride(run("paused"), 42, usage)).toBeNull();
+    expect(usageOverride(run("idle", true), 42, usage)).toBeNull();
   });
 });

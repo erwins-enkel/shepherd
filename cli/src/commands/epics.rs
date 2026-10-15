@@ -181,6 +181,7 @@ async fn start(ctx: &mut Ctx<'_>, repo: String, args: EpicStartArgs) -> Result<(
         agent_provider: args.provider,
         model: args.model,
         effort: args.effort.map(|e| e.to_string()),
+        ..Default::default()
     };
     patch_run(ctx, repo, args.parent, patch, EPICS_START).await
 }

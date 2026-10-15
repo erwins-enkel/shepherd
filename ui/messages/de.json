@@ -6438,5 +6438,14 @@
   "native_runner_runtime_ready": "Bereit",
   "native_runner_runtime_restart": "Neustart erforderlich",
   "native_runner_runtime_offline": "Offline",
-  "native_runner_runtime_unknown": "Unbekannt"
+  "native_runner_runtime_unknown": "Unbekannt",
+  "drain_paused_usage_ceiling": "Pausiert: Auslastung {pct} % ≥ Grenze {ceiling} %",
+  "epic_usage_ignore": "Nutzungsgrenze ignorieren",
+  "epic_usage_ignored_note": "Die Nutzungsgrenze wird für diesen Lauf ignoriert.",
+  "epic_usage_respect": "Wieder beachten",
+  "drain_usage_ignore": "Für Epic #{epic} ignorieren",
+  "drain_usage_ignored": "Grenze ignoriert · Epic #{epic}",
+  "drain_usage_respect": "Grenze beachten",
+  "feat_epic_usage_override_title": "Einen Epic über die Nutzungsgrenze laufen lassen",
+  "feat_epic_usage_override_body": "Hält ein Epic an der Nutzungsgrenze des Repos an, kannst du die Grenze jetzt für diesen Epic-Lauf aufheben — in der Epic-Abarbeitung oder direkt am Pausiert-Banner in der Repo-Leiste. Das gilt nur für diesen Lauf und endet, sobald du den Epic pausierst oder beendest; die Extra-Guthaben-Grenze greift weiterhin. Das Banner nennt jetzt außerdem deine Auslastung und die Grenze, mit der sie verglichen wurde."
 }

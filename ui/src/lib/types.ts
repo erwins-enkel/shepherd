@@ -1234,6 +1234,10 @@ export interface DrainStatus {
   inFlight: number;
   max: number;
   epicParent: number | null;
+  /** The repo's usage ceiling (%) the `usage` hold compares against; optional on the wire. */
+  usageCeilingPct?: number;
+  /** The running epic's run lifted the usage ceiling (`EpicRun.ignoreUsageCeiling`). */
+  usageCeilingIgnored?: boolean;
   /** Read-only run picture; optional on the wire (src/drain-core.ts → RunSummary). */
   runSummary?: DrainRunSummary;
 }
@@ -1299,6 +1303,8 @@ export interface EpicRun {
   agentProvider?: AgentProvider | null;
   model?: string | null;
   effort?: string | null;
+  /** The operator lifted the repo's usage ceiling for this run; only ever true while running. */
+  ignoreUsageCeiling?: boolean;
 }
 export interface Epic {
   repoPath: string;

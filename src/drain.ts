@@ -252,9 +252,19 @@ export interface DrainStatus {
   max: number;
   /** Parent issue number when an epic is running; null in label-mode. */
   epicParent: number | null;
+  /** The repo's usage ceiling (%) the `usage` hold compares against. */
+  usageCeilingPct: number;
+  /** The running epic's run lifted the usage ceiling (`epic_run.ignoreUsageCeiling`). */
+  usageCeilingIgnored: boolean;
   /** Read-only run picture (leading / winding-down epics, slot holders, next). Optional on the
    *  wire; the drain always sets it. */
   runSummary?: RunSummary;
+}
+
+/** True while the repo's epic run is running with the usage ceiling lifted. A paused or idle row
+ *  never carries the flag (the store clears it), but the status check keeps that explicit here. */
+function usageCeilingLifted(run: EpicRun | null): boolean {
+  return run?.status === "running" && run.ignoreUsageCeiling === true;
 }
 
 /** The epic a session is a child of: its persisted stamp, else (legacy unstamped row) the parent
@@ -1016,6 +1026,7 @@ export class DrainService {
         signoffAuthority: cfg.signoffAuthority,
         maxAuto: cfg.maxAuto,
         usageCeilingPct: cfg.usageCeilingPct,
+        usageCeilingIgnored: usageCeilingLifted(epicRun),
         usagePct,
         // Extra-credit cost guard: paid overage accrued since the current weekly window began
         // (0 when credits is null/stale/post-reset — fail-safe), against the account-wide live
@@ -1528,6 +1539,8 @@ export class DrainService {
       inFlight: slotHolders(state.autoSessions).length,
       max: state.maxAuto,
       epicParent: state.epicParent,
+      usageCeilingPct: state.usageCeilingPct,
+      usageCeilingIgnored: !!state.usageCeilingIgnored,
       runSummary: state.runSummary,
     };
   }

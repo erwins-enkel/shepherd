@@ -119,6 +119,10 @@ export interface DrainRepoState {
   signoffAuthority: SignoffAuthority;
   maxAuto: number;
   usageCeilingPct: number;
+  /** The operator lifted `usageCeilingPct` for the running epic's run (`epic_run.ignoreUsageCeiling`).
+   *  Skips only the usage-percentage hold; the extra-credit guard still applies. Never set in
+   *  label mode. */
+  usageCeilingIgnored?: boolean;
   /** The worse of the 5h / weekly usage windows, 0–100. */
   usagePct: number;
   /** Paid extra-credit spend accrued since the current WEEKLY subscription window began
@@ -297,8 +301,8 @@ function capHold(state: DrainRepoState): HoldReason | null {
 
 function usageHold(state: DrainRepoState): HoldReason | null {
   if (!usageGuardsApply(state)) return null;
-  // Claude usage ceiling.
-  if (state.usagePct >= state.usageCeilingPct) {
+  // Claude usage ceiling — unless the operator lifted it for the running epic.
+  if (!state.usageCeilingIgnored && state.usagePct >= state.usageCeilingPct) {
     return { code: "usage", detail: String(state.usagePct) };
   }
   // Extra-credit cost guard: never keep spending NEW real pay-as-you-go money unattended.

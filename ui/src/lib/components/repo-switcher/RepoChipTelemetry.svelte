@@ -2,7 +2,8 @@
   import type { DrainStatus, QueuedItem } from "#lib/types.js";
   import type { RepoChip } from "../queue-strip";
   import { m } from "#lib/paraglide/messages.js";
-  import { getDrainQueue } from "#lib/api.js";
+  import { getDrainQueue, updateEpic } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
   import { basename } from "../learnings-drawer";
   import { queueOpenable, pausedText } from "../queue-strip";
 
@@ -41,6 +42,13 @@
     }
   }
 
+  // Lift (or restore) the repo's usage ceiling for the epic the drain is running.
+  function setIgnoreCeiling(d: DrainStatus, epic: number, ignoreUsageCeiling: boolean) {
+    updateEpic(d.repoPath, epic, { ignoreUsageCeiling }).catch(() =>
+      toasts.info(m.epic_update_failed(), { alert: true, key: "epic-update-fail" }),
+    );
+  }
+
   function onWindowKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") expandedRepo = null;
   }
@@ -76,6 +84,19 @@
 
   {#if d?.paused}
     <span class="rs-pause" title={pausedText(d)}>{pausedText(d)}</span>
+    {#if d.reason === "usage" && d.epicParent != null}
+      {@const epic = d.epicParent}
+      <button type="button" class="rs-text-btn" onclick={() => setIgnoreCeiling(d, epic, true)}>
+        {m.drain_usage_ignore({ epic })}
+      </button>
+    {/if}
+  {/if}
+  {#if d?.usageCeilingIgnored && d.epicParent != null}
+    {@const epic = d.epicParent}
+    <span class="rs-ceiling-off">{m.drain_usage_ignored({ epic })}</span>
+    <button type="button" class="rs-text-btn" onclick={() => setIgnoreCeiling(d, epic, false)}>
+      {m.drain_usage_respect()}
+    </button>
   {/if}
 </div>
 
@@ -132,7 +153,8 @@
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
   }
-  .rs-queued-btn {
+  .rs-queued-btn,
+  .rs-text-btn {
     font: inherit;
     letter-spacing: inherit;
     text-transform: inherit;
@@ -144,9 +166,20 @@
     text-decoration: underline dotted;
     text-underline-offset: 2px;
   }
+  .rs-text-btn {
+    color: inherit;
+  }
   .rs-queued-btn:hover,
-  .rs-queued-btn:focus-visible {
+  .rs-queued-btn:focus-visible,
+  .rs-text-btn:hover,
+  .rs-text-btn:focus-visible {
     color: var(--color-ink-bright);
+  }
+  /* the epic is running over the usage ceiling on the operator's say-so: amber, not alarm-red */
+  .rs-ceiling-off {
+    color: var(--color-amber);
+    text-transform: none;
+    letter-spacing: 0.04em;
   }
   /* a paused drain is the loud thing in the detail line: red, reason inline */
   .rs-pause {
@@ -226,7 +259,8 @@
   /* Coarse pointers: ≥44px tap targets on the inline action buttons
      (mirrors the QueueStrip / TopBar coarse-pointer pattern). */
   @media (pointer: coarse) {
-    .rs-queued-btn {
+    .rs-queued-btn,
+    .rs-text-btn {
       min-height: 44px;
       display: inline-flex;
       align-items: center;

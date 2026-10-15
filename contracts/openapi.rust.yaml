@@ -4083,6 +4083,12 @@ components:
         epicParent:
           type: integer
           nullable: true
+        usageCeilingPct:
+          description: The repo's usage ceiling (%) the usage hold compares against. Always sent by the current server; optional so an older server stays valid.
+          type: integer
+        usageCeilingIgnored:
+          description: "The running epic's run lifted the usage ceiling (EpicRun.ignoreUsageCeiling): it spawns over the ceiling, the extra-credit guard still applies. Always sent by the current server; optional so an older server stays valid."
+          type: boolean
         runSummary:
           $ref: "#/components/schemas/DrainRunSummary"
     DrainRunSummary:
@@ -5394,6 +5400,9 @@ components:
         effort:
           type: string
           nullable: true
+        ignoreUsageCeiling:
+          type: boolean
+          description: The operator lifted the repo's usage ceiling for this run. Only ever true while status is running; any write that leaves running clears it.
     Epic:
       type: object
       additionalProperties: true
@@ -5608,7 +5617,7 @@ components:
     EpicRunPatch:
       type: object
       additionalProperties: false
-      description: PUT /api/epic body (validateEpicRunPatch in src/validate.ts). Every field optional; absent keeps the stored value. model/effort null or "default" clear back to the provider default; model is checked against agentProvider when both are sent.
+      description: PUT /api/epic body (validateEpicRunPatch in src/validate.ts). Every field optional; absent keeps the stored value. model/effort null or "default" clear back to the provider default; model is checked against agentProvider when both are sent. ignoreUsageCeiling true lifts the repo's usage ceiling for this run and needs the resulting run to be running.
       properties:
         mode:
           type: string
@@ -5631,6 +5640,8 @@ components:
         effort:
           type: string
           nullable: true
+        ignoreUsageCeiling:
+          type: boolean
     EpicUpdateResult:
       description: "PUT /api/epic and POST /api/epic/approve-next answer the re-assembled Epic, or `{ok: true}` when the drain can no longer assemble it (the run was still saved / approved)."
       oneOf:
@@ -10440,7 +10451,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: 'error is "another epic leads": status idle or paused for an epic that does not lead while another one runs or is paused.'
+          description: 'error is "another epic leads": status idle or paused for an epic that does not lead while another one runs or is paused; or "epic not running": ignoreUsageCeiling true while the resulting run is not running.'
           content:
             application/json:
               schema:

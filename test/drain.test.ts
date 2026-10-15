@@ -688,6 +688,8 @@ test("usage ceiling hold → status paused (usage banner reachable)", async () =
   expect(last.reason).toBe("usage");
   expect(last.paused).toBe(true);
   expect(last.detail).toBe("92");
+  expect(last.usageCeilingPct).toBe(80);
+  expect(last.usageCeilingIgnored).toBe(false);
 });
 
 test("label drain with global Codex default bypasses Claude usage ceiling", async () => {
@@ -1521,6 +1523,7 @@ describe("drain epic mode", () => {
       agentProvider?: AgentProvider;
       model?: string | null;
       effort?: string | null;
+      ignoreUsageCeiling?: boolean;
     } = {},
   ) {
     const subIssues: SubIssueRef[] = [
@@ -1559,6 +1562,7 @@ describe("drain epic mode", () => {
       agentProvider: opts.agentProvider,
       model: opts.model,
       effort: opts.effort,
+      ignoreUsageCeiling: opts.ignoreUsageCeiling,
     });
     return h;
   }
@@ -1592,6 +1596,40 @@ describe("drain epic mode", () => {
     const last = h.statuses.at(-1)!;
     expect(last.paused).toBe(false);
     expect(last.reason).not.toBe("usage");
+  });
+
+  test("running Claude epic holds at the usage ceiling and reports it", async () => {
+    const h = epicHarness("running", "auto", { usagePct: 92, usageCeilingPct: 80 });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+    const last = h.statuses.at(-1)!;
+    expect(last).toMatchObject({
+      paused: true,
+      reason: "usage",
+      detail: "92",
+      epicParent: PARENT,
+      usageCeilingPct: 80,
+      usageCeilingIgnored: false,
+    });
+  });
+
+  test("running Claude epic with the ceiling lifted spawns over it", async () => {
+    const h = epicHarness("running", "auto", {
+      usagePct: 92,
+      usageCeilingPct: 80,
+      ignoreUsageCeiling: true,
+    });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.issueRef?.number).toBe(CHILD);
+    const last = h.statuses.at(-1)!;
+    expect(last.paused).toBe(false);
+    expect(last.reason).not.toBe("usage");
+    expect(last).toMatchObject({
+      epicParent: PARENT,
+      usageCeilingPct: 80,
+      usageCeilingIgnored: true,
+    });
   });
 
   test("running epic inheriting global Codex default spawns despite Claude usage ceiling", async () => {
@@ -1928,6 +1966,7 @@ describe("drain epic mode", () => {
       agentProvider: "claude",
       model: "opus",
       effort: "high",
+      ignoreUsageCeiling: false,
     });
     expect(h.store.listEpicQueue(REPO).map((e) => e.parentIssueNumber)).toEqual([600]);
     // The leader's completion is still recorded, and the status already names the new leader.
@@ -2004,6 +2043,7 @@ describe("drain epic mode", () => {
       agentProvider: "claude",
       model: "opus",
       effort: "high",
+      ignoreUsageCeiling: false,
     });
     expect(h.store.listEpicQueue(REPO)).toEqual([]);
     await h.drain.pump(REPO);

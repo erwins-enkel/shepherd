@@ -136,6 +136,21 @@ function parseStrandedChildren(raw: string | null | undefined): number[] {
   return Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n)) : [];
 }
 
+const EPIC_RUN_COLUMNS =
+  "repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling";
+
+/** An `epic_run` row as SQLite returns it: the ceiling override is a 0/1 integer. */
+type EpicRunRow = Omit<EpicRun, "ignoreUsageCeiling"> & { ignoreUsageCeiling: number };
+
+function epicRunFromRow(row: EpicRunRow): EpicRun {
+  return { ...row, ignoreUsageCeiling: row.ignoreUsageCeiling === 1 };
+}
+
+/** The persisted override: only a running run may lift the ceiling, so every other write clears it. */
+function epicRunCeilingColumn(r: EpicRun): 0 | 1 {
+  return r.status === "running" && r.ignoreUsageCeiling ? 1 : 0;
+}
+
 const PERSISTED_GIT_KINDS = new Set<unknown>(["github", "gitea", "local"]);
 const PERSISTED_PR_STATES = new Set<unknown>(["none", "open", "merged", "closed"]);
 const PERSISTED_CHECK_STATES = new Set<unknown>(["none", "pending", "success", "failure"]);
@@ -1829,7 +1844,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run (
       repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
       mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
-    this.addMissingColumns("epic_run", { agentProvider: "TEXT", model: "TEXT", effort: "TEXT" });
+    this.addMissingColumns("epic_run", {
+      agentProvider: "TEXT",
+      model: "TEXT",
+      effort: "TEXT",
+      ignoreUsageCeiling: "INTEGER NOT NULL DEFAULT 0",
+    });
     // #2624: epics queued behind the repo's leading epic, promoted in `position` order when the
     // leader completes — each with its own settings, so a promotion never resets them to defaults.
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_queue (
@@ -2579,22 +2599,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   // ── epic run (one active epic per repo) ──────────────────────────────────
   getEpicRun(repoPath: string): EpicRun | null {
-    return (
-      (this.db
-        .query(
-          `SELECT repoPath, parentIssueNumber, mode, status, agentProvider, model, effort FROM epic_run WHERE repoPath = ?`,
-        )
-        .get(repoPath) as EpicRun | null) ?? null
-    );
+    const row = this.db
+      .query(`SELECT ${EPIC_RUN_COLUMNS} FROM epic_run WHERE repoPath = ?`)
+      .get(repoPath) as EpicRunRow | null;
+    return row ? epicRunFromRow(row) : null;
   }
 
   /** All persisted epic_run rows (one per repo). Mirrors getEpicRun's row shape. */
   listEpicRuns(): EpicRun[] {
-    return this.db
-      .query(
-        `SELECT repoPath, parentIssueNumber, mode, status, agentProvider, model, effort FROM epic_run`,
-      )
-      .all() as EpicRun[];
+    return (this.db.query(`SELECT ${EPIC_RUN_COLUMNS} FROM epic_run`).all() as EpicRunRow[]).map(
+      epicRunFromRow,
+    );
   }
 
   /** Persist the repo's run. When the row passes to another epic, the previous epic's settings
@@ -2626,8 +2641,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       if (prev && prev.parentIssueNumber !== r.parentIssueNumber) this.setEpicSettings(prev);
       this.deleteEpicSettings(r.repoPath, r.parentIssueNumber);
       this.db.run(
-        `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, updatedAt) VALUES (?,?,?,?,?,?,?,?)
-        ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, updatedAt=excluded.updatedAt`,
+        `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, updatedAt) VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, ignoreUsageCeiling=excluded.ignoreUsageCeiling, updatedAt=excluded.updatedAt`,
         [
           r.repoPath,
           r.parentIssueNumber,
@@ -2636,6 +2651,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           r.agentProvider ?? null,
           r.agentProvider ? (r.model ?? null) : null,
           r.agentProvider ? (r.effort ?? null) : null,
+          epicRunCeilingColumn(r),
           Date.now(),
         ],
       );

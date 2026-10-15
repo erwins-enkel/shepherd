@@ -247,6 +247,42 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "hold", reason: { code: "usage", detail: "92" } });
   });
 
+  test("usage ceiling ignored for the epic run → spawn despite usage over the ceiling", () => {
+    const i = issue(2);
+    const d = computeNext(
+      state({ usagePct: 92, usageCeilingPct: 80, usageCeilingIgnored: true, candidates: [i] }),
+    );
+    expect(d).toEqual({ kind: "spawn", issue: i });
+  });
+
+  test("usage ceiling ignored still honors the extra-credit guard", () => {
+    const d = computeNext(
+      state({
+        usagePct: 92,
+        usageCeilingPct: 80,
+        usageCeilingIgnored: true,
+        creditSpent: 1,
+        creditSpendCeiling: 0,
+        candidates: [issue(2)],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "credits", detail: "1" } });
+  });
+
+  test("usage ceiling ignored still holds at the agent cap", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 1,
+        usagePct: 92,
+        usageCeilingPct: 80,
+        usageCeilingIgnored: true,
+        autoSessions: [autoSession()],
+        candidates: [issue(2)],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "cap", detail: "1" } });
+  });
+
   test("blocked auto session → hold blocked with desig", () => {
     const d = computeNext(
       state({

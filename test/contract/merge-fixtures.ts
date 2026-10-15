@@ -19,6 +19,8 @@ export const drain: DrainStatus = {
   inFlight: 1,
   max: 2,
   epicParent: 200,
+  usageCeilingPct: 80,
+  usageCeilingIgnored: false,
   runSummary: {
     leadingEpic: 200,
     windingDown: [{ epic: 100, inFlight: [101] }],

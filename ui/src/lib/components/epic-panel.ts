@@ -214,6 +214,19 @@ export function epicRunState(
   return { ...base, kind: "running", tone: "run" };
 }
 
+/** The epic detail's usage-ceiling control: `offer` lifting it while the running run halts on the
+ *  ceiling, `active` while the run carries the override, else null. Only a running run can carry
+ *  it — the server clears it whenever the run leaves running. */
+export function usageOverride(
+  epic: Pick<Epic, "run">,
+  parent: number,
+  drain: DrainStatus | null | undefined,
+): "offer" | "active" | null {
+  if (epic.run.status !== "running") return null;
+  if (epic.run.ignoreUsageCeiling) return "active";
+  return drain?.epicParent === parent && drain.reason === "usage" ? "offer" : null;
+}
+
 /** A run that was ended or superseded says so until it leads again, not "not started". */
 function stoppedKind(runEnd: EpicRunEnd | undefined): "ended" | "superseded" | "idle" {
   const cause = runEnd?.cause;

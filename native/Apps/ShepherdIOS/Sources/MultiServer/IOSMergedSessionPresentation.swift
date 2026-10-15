@@ -47,6 +47,17 @@ enum IOSMergedSessionPresentation {
         let host: SessionHost
         let connection: SessionConnection
         let rows: [Row]
+        /// The connected server these sessions come through (`über <Server>` in the header).
+        var via: ServerProfile { rows[0].profile }
+        var id: String { host.instanceId }
+    }
+    /// One machine a connected server mirrors, as the server list shows it under that server.
+    struct MirroredMachine: Identifiable, Equatable {
+        let host: SessionHost
+        let connection: SessionConnection
+        /// The machine is itself a connected server, so its own connection shows its sessions
+        /// and this server's copy is hidden (`Ownership`).
+        let direct: Bool
         var id: String { host.instanceId }
     }
     struct EpicGroup: Identifiable {
@@ -220,8 +231,39 @@ enum IOSMergedSessionPresentation {
             repos: repos, tallies: tallies)
     }
 
+    /// The machines each connected server mirrors, keyed by that server's profile, in the order
+    /// its mirrored sessions list them. Only machines with at least one mirrored session show up:
+    /// the data is the `host` of those sessions.
+    static func mirroredMachines(_ sources: [Source]) -> [UUID: [MirroredMachine]] {
+        let ownership = Ownership(sources)
+        let instances = Set(sources.compactMap(\.instanceID))
+        var result: [UUID: [MirroredMachine]] = [:]
+        for source in sources {
+            var order: [String] = []
+            var byMachine: [String: [Session]] = [:]
+            for session in source.remote {
+                guard let host = session.host, session.connection != nil,
+                      host.instanceId != source.instanceID else { continue }
+                if byMachine[host.instanceId] == nil { order.append(host.instanceId) }
+                byMachine[host.instanceId, default: []].append(session)
+            }
+            let machines = order.compactMap { id -> MirroredMachine? in
+                guard let sessions = byMachine[id], let host = sessions[0].host,
+                      let connection = sessions[0].connection else { return nil }
+                return MirroredMachine(host: host, connection: connection,
+                    direct: instances.contains(id) || sessions.allSatisfy(ownership.ownedDirectly))
+            }
+            if !machines.isEmpty { result[source.profile.id] = machines }
+        }
+        return result
+    }
+
     @MainActor static func snapshot(_ hub: IOSServerHub) -> Snapshot {
-        let sources = hub.connected.compactMap { app -> Source? in
+        merge(sources(hub), selectedRepos: hub.selectedRepos)
+    }
+
+    @MainActor static func sources(_ hub: IOSServerHub) -> [Source] {
+        hub.connected.compactMap { app -> Source? in
             guard let profile = app.activeProfile, let sidebar = app.extension(SidebarModel.self) else { return nil }
             let sessions = app.store?.sessions ?? []
             return Source(profile: profile, groups: sidebar.groups, sessions: sessions,
@@ -231,6 +273,5 @@ enum IOSMergedSessionPresentation {
                 instanceID: app.extension(IOSInstanceIdentity.self)?.instanceID,
                 remote: app.store?.remoteSessions ?? [])
         }
-        return merge(sources, selectedRepos: hub.selectedRepos)
     }
 }

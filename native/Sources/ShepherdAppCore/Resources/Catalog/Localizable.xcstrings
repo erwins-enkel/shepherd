@@ -13553,6 +13553,93 @@
         }
       }
     },
+    "native_ios_server_mirror_add": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinterlegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        }
+      }
+    },
+    "native_ios_server_mirror_add_aria": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ als Server hinterlegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %1$@ as a server"
+          }
+        }
+      }
+    },
+    "native_ios_server_mirror_direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "direkt hinterlegt · Kopie ausgeblendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "added directly · copy hidden"
+          }
+        }
+      }
+    },
+    "native_ios_server_mirror_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nur gespiegelt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mirrored only"
+          }
+        }
+      }
+    },
+    "native_ios_server_mirror_via": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "über %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "via %1$@"
+          }
+        }
+      }
+    },
     "native_ios_session_age": {
       "comment": "%1$@ = age",
       "extractionState": "manual",

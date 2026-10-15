@@ -28,6 +28,13 @@ enum SessionListStyle {
         }
     }
 
+    /// A mirrored machine's colour, stable per instance ID across launches and servers.
+    static func machineTint(_ instanceID: String) -> Color {
+        let palette: [UInt32] = [0xa69ae0, 0x5cbfca, 0xd68fc4, 0xd9b26a, 0x8fc98a, 0xe0907a]
+        let hash = instanceID.utf8.reduce(UInt32(2_166_136_261)) { ($0 ^ UInt32($1)) &* 16_777_619 }
+        return color(palette[Int(hash % UInt32(palette.count))])
+    }
+
     private static func color(_ rgb: UInt32) -> Color {
         Color(red: Double((rgb >> 16) & 255) / 255,
             green: Double((rgb >> 8) & 255) / 255, blue: Double(rgb & 255) / 255)

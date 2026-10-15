@@ -789,6 +789,11 @@
 "native_ios_server_disconnect" = "Disconnect";
 "native_ios_server_disconnected" = "Disconnected";
 "native_ios_server_hint" = "Server: %1$@";
+"native_ios_server_mirror_add" = "Add";
+"native_ios_server_mirror_add_aria" = "Add %1$@ as a server";
+"native_ios_server_mirror_direct" = "added directly · copy hidden";
+"native_ios_server_mirror_only" = "mirrored only";
+"native_ios_server_mirror_via" = "via %1$@";
 "native_ios_session_age" = "Age: %1$@";
 "native_ios_steers_add" = "New steer";
 "native_ios_steers_all" = "All steers";

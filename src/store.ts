@@ -1910,6 +1910,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
       branch TEXT NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
+    this.migrateEpicBranchColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_integrated (
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       createdAt INTEGER NOT NULL,
@@ -3019,6 +3020,57 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(`SELECT branch FROM epic_branch WHERE repoPath = ? AND parentIssueNumber = ?`)
       .get(repoPath, parentIssueNumber) as { branch: string } | null;
     return row?.branch ?? null;
+  }
+
+  /** #3101: the pinned epic branch's base-freshness facts; null when the epic has no pin. */
+  getEpicBaseFreshness(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { behindSince: number | null; conflictSince: number | null; reworkCount: number } | null {
+    const row = this.db
+      .query(
+        `SELECT baseBehindSince, baseConflictSince, baseReworkCount FROM epic_branch
+         WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber) as {
+      baseBehindSince: number | null;
+      baseConflictSince: number | null;
+      baseReworkCount: number;
+    } | null;
+    if (!row) return null;
+    return {
+      behindSince: row.baseBehindSince,
+      conflictSince: row.baseConflictSince,
+      reworkCount: row.baseReworkCount,
+    };
+  }
+
+  /** #3101: update the pinned epic branch's base-freshness facts (only the given fields). A no-op
+   *  for an unpinned epic. */
+  setEpicBaseFreshness(
+    repoPath: string,
+    parentIssueNumber: number,
+    patch: { behindSince?: number | null; conflictSince?: number | null; reworkCount?: number },
+  ): void {
+    const cols: string[] = [];
+    const vals: (number | null)[] = [];
+    if (patch.behindSince !== undefined) {
+      cols.push("baseBehindSince = ?");
+      vals.push(patch.behindSince);
+    }
+    if (patch.conflictSince !== undefined) {
+      cols.push("baseConflictSince = ?");
+      vals.push(patch.conflictSince);
+    }
+    if (patch.reworkCount !== undefined) {
+      cols.push("baseReworkCount = ?");
+      vals.push(patch.reworkCount);
+    }
+    if (cols.length === 0) return;
+    this.db.run(
+      `UPDATE epic_branch SET ${cols.join(", ")} WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [...vals, repoPath, parentIssueNumber],
+    );
   }
 
   /** Record that a child PR was squash-merged into the epic integration branch.
@@ -6645,6 +6697,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
     const facts = this.listDeliveryFactsForIssues(repoPath, [...issues]);
     return [...sessions, ...facts].map((x) => x.createdAt);
+  }
+
+  /** #3101: base-freshness columns on `epic_branch` — when the running epic's integration branch
+   *  was first seen behind the default branch (drives the `epic_base_stale` hold), when a cadence
+   *  rebase last hit a genuine conflict (`epic_base_conflict` hold), and the lifetime auto
+   *  base-rework count. Durable so a restart cannot reset the stale clock. */
+  private migrateEpicBranchColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(epic_branch)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE epic_branch ADD COLUMN ${ddl}`);
+    };
+    add("baseBehindSince", `baseBehindSince INTEGER`);
+    add("baseConflictSince", `baseConflictSince INTEGER`);
+    add("baseReworkCount", `baseReworkCount INTEGER NOT NULL DEFAULT 0`);
   }
 
   /** Columns added to `epic_clock` after it first shipped. */

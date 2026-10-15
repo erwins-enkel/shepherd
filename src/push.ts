@@ -38,6 +38,7 @@ export interface PushPayload {
     | "backup_stale"
     | "onboarding_stale"
     | "landing_conflict"
+    | "epic_base_conflict"
     | "judge_ceiling"
     | "login_request"
     | "bootstrap_next"
@@ -76,6 +77,8 @@ const KIND_CATEGORY: Record<NotifyInput["kind"], PushCategory> = {
   onboarding_stale: "agent",
   // Epic-global merge/land attention; ride the "ci" toggle like merge_attention/manual_steps.
   landing_conflict: "ci",
+  // #3101: a running epic's integration branch can't follow the default branch; same toggle.
+  epic_base_conflict: "ci",
   // Host-global spend alert (#2369); rides the "agent" toggle like usage_limit/extra_credits.
   judge_ceiling: "agent",
   // An agent waiting on the operator's Handoff Login (#2882) — a needs-you, like blocked.
@@ -104,6 +107,7 @@ export interface NotifyInput {
     | "backup_stale"
     | "onboarding_stale"
     | "landing_conflict"
+    | "epic_base_conflict"
     | "judge_ceiling"
     | "login_request"
     | "bootstrap_next";
@@ -141,7 +145,7 @@ export interface NotifyInput {
    *  snapshot / completed run (for the body copy). For "landing_conflict": set only on a stale
    *  re-escalation (#1841) — whole hours the conflict pause has stood unresolved. */
   staleHours?: number;
-  /** For kind "landing_conflict": the epic's parent issue number (subject of the body). */
+  /** For kinds "landing_conflict"/"epic_base_conflict": the epic's parent issue number. */
   epicNumber?: number;
   /** For kind "landing_conflict": the epic's landing PR number (subject of the body). */
   landingPr?: number;
@@ -243,6 +247,9 @@ const NOTIFY_TEXT = {
       pr !== null
         ? `Epic #${epic}'s landing PR #${pr} is still conflicted after ~${h}h — over to you.`
         : `Epic #${epic}'s landing PR is still conflicted after ~${h}h — over to you.`,
+    epicBaseConflictTitle: "Epic base needs rework",
+    epicBaseConflictBody: (epic: number) =>
+      `Epic #${epic}'s integration branch conflicts with the default branch — no new children start until it is resolved.`,
     judgeCeilingTitle: "Judge daily limit reached",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `The stop classifier spent ${spent} of its ${ceiling} daily limit and is back on the agent spawn. Nothing is blocked.`,
@@ -322,6 +329,9 @@ const NOTIFY_TEXT = {
       pr !== null
         ? `Der Landing-PR #${pr} von Epic #${epic} hat seit ~${h}h einen ungelösten Konflikt — du bist dran.`
         : `Der Landing-PR von Epic #${epic} hat seit ~${h}h einen ungelösten Konflikt — du bist dran.`,
+    epicBaseConflictTitle: "Epic-Basis braucht Überarbeitung",
+    epicBaseConflictBody: (epic: number) =>
+      `Der Integrationsbranch von Epic #${epic} hat einen Konflikt mit dem Standard-Branch — bis zur Lösung starten keine neuen Kinder.`,
     judgeCeilingTitle: "Judge-Tageslimit erreicht",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `Der Stop-Klassifikator hat ${spent} von ${ceiling} Tagesbudget verbraucht und läuft wieder über den Agent-Spawn. Es ist nichts blockiert.`,
@@ -458,6 +468,10 @@ const PARTS_BY_KIND: Partial<
   backup_stale: stalenessParts,
   onboarding_stale: stalenessParts,
   landing_conflict: landingConflictParts,
+  epic_base_conflict: (t, input) => ({
+    title: t.epicBaseConflictTitle,
+    body: t.epicBaseConflictBody(input.epicNumber ?? 0),
+  }),
   judge_ceiling: judgeCeilingParts,
   bootstrap_next: (t, input) => ({
     title: t.bootstrapNextTitle(input.name),

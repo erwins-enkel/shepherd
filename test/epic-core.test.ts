@@ -4,6 +4,8 @@ import {
   computeEpicOthersFlags,
   deriveChildState,
   epicQuiescentForCadenceRebase,
+  unlandedPredecessorEpics,
+  epicNotYetStarted,
   selectEpicCandidates,
   type EpicChild,
   type EpicStackContext,
@@ -372,5 +374,30 @@ describe("epicRunEnding", () => {
     expect(epicRunEnding(r(1, "running"), r(1, "paused"))).toBeNull();
     expect(epicRunEnding(r(1, "paused"), r(1, "running"))).toBeNull();
     expect(epicRunEnding(r(1, "running"), r(1, "running"))).toBeNull();
+  });
+});
+
+describe("unlandedPredecessorEpics (#3101)", () => {
+  test("other epics with a pending/open/error landing; never self, never merged/none", () => {
+    const rows = [
+      { parentIssueNumber: 1, landingState: "open" },
+      { parentIssueNumber: 2, landingState: "merged" },
+      { parentIssueNumber: 3, landingState: "pending" },
+      { parentIssueNumber: 4, landingState: "none" },
+      { parentIssueNumber: 5, landingState: "error" },
+      { parentIssueNumber: 9, landingState: "open" },
+    ];
+    expect(unlandedPredecessorEpics(rows, 9)).toEqual([1, 3, 5]);
+  });
+});
+
+describe("epicNotYetStarted (#3101)", () => {
+  test("nothing integrated + nothing in flight → true", () => {
+    expect(epicNotYetStarted([{ state: "ready" }, { state: "blocked" }], 0)).toBe(true);
+  });
+  test("integrated child or child in flight → false", () => {
+    expect(epicNotYetStarted([{ state: "ready" }], 1)).toBe(false);
+    expect(epicNotYetStarted([{ state: "running" }], 0)).toBe(false);
+    expect(epicNotYetStarted([{ state: "in-review" }], 0)).toBe(false);
   });
 });

@@ -31,6 +31,8 @@ import {
 } from "./epic-branch";
 import {
   epicQuiescentForCadenceRebase,
+  epicNotYetStarted,
+  unlandedPredecessorEpics,
   queuedEpicRun,
   selectEpicCandidates,
   type Epic,
@@ -83,7 +85,7 @@ import {
 } from "./forge/types";
 import { readEpicStructureByParts } from "./forge/epic-structure";
 import { config } from "./config";
-import { rebaseLandingBranch, isUnionDriverReady } from "./landing-rebase";
+import { rebaseLandingBranch, isUnionDriverReady, branchBehindDefault } from "./landing-rebase";
 import { LandingPrReads } from "./landing-pr-reads";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { NotifyInput } from "./push";
@@ -177,9 +179,23 @@ const LANDING_CONFLICT_REWORK_CAP = 1;
  *  (and only in a quiescent window — see epicQuiescentForCadenceRebase), keeping drift small so the
  *  landing-time rebase stays a rebase, not a rework. */
 const CADENCE_REBASE_INTERVAL_MS = 60 * 60_000;
-/** #1841: after a mid-epic cadence rebase hits a genuine conflict, wait this long before retrying.
- *  Nothing is paused or surfaced — the landing-time rebase/rework/escalation path owns a conflict. */
-const CADENCE_REBASE_CONFLICT_BACKOFF_MS = 6 * 60 * 60_000;
+/** #3101: a running epic's integration branch first seen behind the default branch this long ago
+ *  holds new spawns (`epic_base_stale`) until the epic is quiescent and the rebase can run. */
+const BASE_STALE_HOLD_MS = 4 * 60 * 60_000;
+/** #3101: auto base-rework agents per conflict episode of a running epic's integration branch (the
+ *  episode ends when the branch follows the default branch again). The manual dispatch bypasses it. */
+const EPIC_BASE_REWORK_CAP = 1;
+
+/** #3101: the running epic a base-freshness pass acts on. */
+interface EpicBaseTarget {
+  key: string;
+  parent: number;
+  parentTitle: string;
+  branch: string;
+  defaultBranch: string;
+  /** No child running/in review and no session based on the branch — safe to force-push. */
+  quiescent: boolean;
+}
 
 /** Outcome of the operator-triggered {@link DrainService.repairLandingCi} (#2872). */
 export type RepairLandingCiResult =
@@ -305,6 +321,8 @@ export interface DrainDeps {
     | "shiftEpicQueue"
     | "getOrInitEpicIntegrationBranch"
     | "getEpicIntegrationBranch"
+    | "getEpicBaseFreshness"
+    | "setEpicBaseFreshness"
     | "listEpicIntegrated"
     | "isEpicIntegratedChild"
     | "recordEpicIntegrated"
@@ -381,6 +399,8 @@ export interface DrainDeps {
   /** #1071: injectable seam for rebaseLandingBranch (tests inject a fake). Defaults to the real
    *  impl (src/landing-rebase.ts) in the constructor. */
   rebaseLandingBranch?: typeof rebaseLandingBranch;
+  /** #3101: injectable seam for branchBehindDefault (tests inject a fake). */
+  branchBehindDefault?: typeof branchBehindDefault;
   /** #1071: injectable seam for the driver-pause fast-path re-probe (tests inject a fake).
    *  Defaults to the real isUnionDriverReady (src/landing-rebase.ts) in the constructor. */
   isDriverRegistered?: (repoPath: string) => Promise<boolean>;
@@ -492,6 +512,15 @@ export class DrainService {
   // #1841: `${repoPath}#${parentIssueNumber}` → earliest next cadence-rebase attempt. In-memory on
   // purpose: a restart re-attempts once (a no-op `current` when nothing moved), then re-throttles.
   private cadenceRebaseNextAt = new Map<string, number>();
+  // #3101: `${repoPath}#${parent}` → last fetched default-branch head, and the head an operator
+  // "continue anyway" was given at (the base override lapses when the default branch moves). The
+  // predecessor override holds for the epic until restart. In-memory on purpose: restart re-holds.
+  private lastDefaultSha = new Map<string, string>();
+  private epicBaseOverride = new Map<string, string>();
+  private predecessorOverride = new Set<string>();
+  // #3101: epics whose last base pass found them behind but busy — the only ones an armed stale
+  // hold re-checks every tick (see cadenceRebaseTarget). Cleared by any pass that runs.
+  private awaitingQuiescence = new Set<string>();
   private lastEpicSig = new Map<string, string>();
   // #1401: `${repoPath}#${parentIssueNumber}` → last reconcile-sweep timestamp. In-memory on
   // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
@@ -531,6 +560,8 @@ export class DrainService {
   private issuesTtlMs: number;
   /** #1071: injectable seam; defaults to the real rebaseLandingBranch import. */
   private rebaseLandingBranch: typeof rebaseLandingBranch;
+  /** #3101: injectable seam; defaults to the real branchBehindDefault import. */
+  private branchBehindDefault: typeof branchBehindDefault;
   /** #1071: injectable seam; defaults to the real isUnionDriverReady import. */
   private isDriverRegistered: (repoPath: string) => Promise<boolean>;
   /** #2873: the landing passes' shared landing-PR read (one per tick; settled PRs left alone). */
@@ -551,6 +582,7 @@ export class DrainService {
         this.landingPrs.invalidate(repoPath, branch),
       );
     this.isDriverRegistered = deps.isDriverRegistered ?? isUnionDriverReady;
+    this.branchBehindDefault = deps.branchBehindDefault ?? branchBehindDefault;
   }
 
   /** Operator approves the next epic-attended spawn for the given repo. */
@@ -1056,6 +1088,7 @@ export class DrainService {
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
         epicUnreadable: stall.epicUnreadable,
+        ...this.epicBaseHoldState(repoPath, builtEpic, epicIntegrationBranch),
         bootstrapMissing: this.bootstrapHoldFor(repoPath),
         runSummary: buildRunSummary({
           leadingEpic,
@@ -1543,6 +1576,10 @@ export class DrainService {
         // #1757: the epic can't base its children — genuinely stuck until the forge recovers, so it
         // reads as a paused banner (amber), not a quiet idle state.
         "epic_base_unavailable",
+        // #3101: base freshness — the epic waits on a rebase, a conflict, or a predecessor landing.
+        "epic_base_stale",
+        "epic_base_conflict",
+        "epic_predecessor_unlanded",
         // A running epic the forge can't be read for — stuck until the listing recovers.
         "epic_unreadable",
         // #3105: the repo is still bootstrapping — nothing spawns until it is done or overridden.
@@ -2348,12 +2385,17 @@ export class DrainService {
    * the landing PR's open-time rebase only ever replays a small delta. Children are never rebased —
    * quiescence means no live branch is built on the head being rewritten.
    *
+   * #3101: a busy epic is never quiescent, so the opportunistic rebase alone let a branch drift for
+   * a whole run (aetherial epic/55, epic/169). Each due pass therefore also probes whether the branch
+   * is behind; the first sighting is stamped durably (`baseBehindSince`) and, once it is
+   * {@link BASE_STALE_HOLD_MS} old, the drain holds new spawns (`epic_base_stale`) until in-flight
+   * children finish and the rebase can run. A genuine conflict holds too (`epic_base_conflict`) and
+   * dispatches one base-rework agent per conflict episode; with none dispatched it notifies.
+   *
    * Engaged-only (running, non-draft-mode), GitHub-only (the seam force-pushes to origin),
    * repair-fenced, holds the repo's `pumping` slot (no spawn mid-rewrite), `landingInFlight`-
-   * serialized, and throttled per epic (1h; 6h after a conflict).
-   * A genuine conflict is left un-pushed by the seam and only logged: NO store row, NO notify —
-   * the landing-time rebase → conflict pause → rework/escalation path owns it. Whole body wrapped:
-   * tick() calls its passes unguarded.
+   * serialized, and throttled per epic (1h) — except while a stale hold waits for quiescence, which
+   * re-checks quiescence every tick (no fetch). Whole body wrapped: tick() calls its passes unguarded.
    */
   private async cadenceRebaseEpicBranchForRepo(repoPath: string): Promise<void> {
     // Hold the repo's pump slot for the whole pass (quiescence check → force-push): an
@@ -2364,19 +2406,11 @@ export class DrainService {
     try {
       const target = await this.cadenceRebaseTarget(repoPath);
       if (!target) return;
-      const { key, branch, defaultBranch } = target;
-      this.landingInFlight.add(key);
+      this.landingInFlight.add(target.key);
       try {
-        const res = await this.rebaseLandingBranch(repoPath, branch, defaultBranch);
-        const conflict = res.kind === "conflict";
-        this.cadenceRebaseNextAt.set(
-          key,
-          this.now() + (conflict ? CADENCE_REBASE_CONFLICT_BACKOFF_MS : CADENCE_REBASE_INTERVAL_MS),
-        );
-        if (res.kind !== "current")
-          console.warn(`[drain] cadence rebase of \`${branch}\` for ${key}: ${res.kind}`);
+        await this.refreshEpicBase(repoPath, target);
       } finally {
-        this.landingInFlight.delete(key);
+        this.landingInFlight.delete(target.key);
       }
     } catch (err) {
       console.warn(`[drain] cadenceRebaseEpicBranchForRepo failed for ${repoPath}:`, err);
@@ -2386,29 +2420,301 @@ export class DrainService {
   }
 
   /** The gates of {@link cadenceRebaseEpicBranchForRepo}, cheapest first (store reads before any
-   *  forge call). Returns the epic to rebase, or null to skip this tick. */
-  private async cadenceRebaseTarget(
-    repoPath: string,
-  ): Promise<{ key: string; branch: string; defaultBranch: string } | null> {
+   *  forge call). Returns the epic to probe/rebase, or null to skip this tick. */
+  private async cadenceRebaseTarget(repoPath: string): Promise<EpicBaseTarget | null> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
     const er = this.deps.store.getEpicRun(repoPath);
     if (cfg.draftMode || er?.status !== "running") return null;
     const parent = er.parentIssueNumber;
     const key = `${repoPath}#${parent}`;
-    if (this.now() < (this.cadenceRebaseNextAt.get(key) ?? 0)) return null;
+    const due = this.now() >= (this.cadenceRebaseNextAt.get(key) ?? 0);
+    // #3101 fast path: an armed stale hold that a busy epic made wait re-checks quiescence every
+    // tick, so the rebase runs the moment the last child lets go. Never for a recorded conflict, and
+    // only until one attempt has run — a failed rebase falls back to the hourly throttle.
+    const fastPath =
+      this.awaitingQuiescence.has(key) &&
+      this.epicBaseStaleArmed(repoPath, parent) &&
+      this.deps.store.getEpicBaseFreshness(repoPath, parent)?.conflictSince == null;
+    if (!due && !fastPath) return null;
     if (this.landingInFlight.has(key)) return null;
     const forge = this.deps.resolveForge(repoPath);
     if (!forge || forge.kind !== "github") return null;
-    // Nothing merged into the branch yet ⇒ it IS the default branch; nothing to replay.
-    if (this.deps.store.listEpicIntegratedDetails(repoPath, parent).length === 0) return null;
     // READ-ONLY getter (never INSERT a title-drifted pin from here). Null ⇒ unpinned ⇒ skip.
+    // #3101: no "nothing integrated yet" skip — a pinned branch left over from an earlier run can be
+    // far behind with no child merged; the probe is a `current` no-op for a fresh one.
     const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
     if (!branch || this.hasLiveRepairSession(repoPath, branch)) return null;
     const epic = await this.buildEpic(repoPath, er);
     if (!epic) return null;
-    if (!epicQuiescentForCadenceRebase(epic.children, this.deps.store.list(), repoPath, branch))
-      return null;
-    return { key, branch, defaultBranch: await forge.defaultBranch() };
+    const quiescent = this.epicBaseQuiescent(repoPath, epic.children, branch);
+    // The fast path only acts on quiescence; the hourly probe runs either way (it keeps the stale
+    // clock and an operator override's default-branch head current while the epic is busy).
+    if (!due && !quiescent) return null;
+    return {
+      key,
+      parent,
+      parentTitle: epic.parentTitle,
+      branch,
+      defaultBranch: await forge.defaultBranch(),
+      quiescent,
+    };
+  }
+
+  /** #3101: {@link epicQuiescentForCadenceRebase}, minus repair sessions — a LIVE one already fences
+   *  the pass ({@link hasLiveRepairSession}); a finished one is never archived by autopilot and would
+   *  otherwise keep the epic "busy" (and its base holds armed) until the stale sweep. */
+  private epicBaseQuiescent(repoPath: string, children: EpicChild[], branch: string): boolean {
+    const sessions = this.deps.store.list().filter((s) => !s.landingRepair);
+    return epicQuiescentForCadenceRebase(children, sessions, repoPath, branch);
+  }
+
+  /** #3101: one due base-freshness pass — probe, stamp/clear the stale clock, rebase when
+   *  quiescent, and route a genuine conflict into the conflict hold. */
+  private async refreshEpicBase(repoPath: string, t: EpicBaseTarget): Promise<void> {
+    const { key, parent, branch, defaultBranch } = t;
+    const now = this.now();
+    this.cadenceRebaseNextAt.set(key, now + CADENCE_REBASE_INTERVAL_MS);
+    this.awaitingQuiescence.delete(key);
+    const probe = await this.branchBehindDefault(repoPath, branch, defaultBranch);
+    if (probe.kind === "transient") return;
+    this.lastDefaultSha.set(key, probe.defaultSha);
+    if (probe.kind === "current") return this.clearEpicBaseHolds(repoPath, parent);
+    if (this.deps.store.getEpicBaseFreshness(repoPath, parent)?.behindSince == null)
+      this.deps.store.setEpicBaseFreshness(repoPath, parent, { behindSince: now });
+    if (!t.quiescent) {
+      this.awaitingQuiescence.add(key); // arms the fast path once the stale hold is armed
+      return;
+    }
+    const res = await this.rebaseLandingBranch(repoPath, branch, defaultBranch);
+    if (res.kind !== "current")
+      console.warn(`[drain] cadence rebase of \`${branch}\` for ${key}: ${res.kind}`);
+    if (res.kind === "rebased" || res.kind === "current")
+      return this.clearEpicBaseHolds(repoPath, parent);
+    if (res.kind === "conflict") await this.enterEpicBaseConflict(repoPath, t);
+  }
+
+  /** #3101: the integration branch follows the default branch again — drop both base holds, the
+   *  operator's override, and the per-episode rework count. */
+  private clearEpicBaseHolds(repoPath: string, parent: number): void {
+    this.deps.store.setEpicBaseFreshness(repoPath, parent, {
+      behindSince: null,
+      conflictSince: null,
+      reworkCount: 0,
+    });
+    this.epicBaseOverride.delete(`${repoPath}#${parent}`);
+  }
+
+  /** #3101: a genuine cadence-rebase conflict — stamp the conflict hold, then hand it to ONE auto
+   *  base-rework agent per episode; with none dispatched (cap spent, auto-drain off, spawn refused),
+   *  push the operator (cooldown-keyed, so a retry each interval does not re-notify). Skipped while
+   *  the operator has overridden the hold. */
+  private async enterEpicBaseConflict(repoPath: string, t: EpicBaseTarget): Promise<void> {
+    const { key, parent } = t;
+    if (this.deps.store.getEpicBaseFreshness(repoPath, parent)?.conflictSince == null)
+      this.deps.store.setEpicBaseFreshness(repoPath, parent, { conflictSince: this.now() });
+    if (this.epicBaseOverridden(key)) return;
+    if (await this.dispatchEpicBaseRework(repoPath, t, false)) {
+      // Re-probe as soon as the rework session lets go of the branch (the repair fence skips us
+      // while it lives).
+      this.cadenceRebaseNextAt.set(key, 0);
+      return;
+    }
+    try {
+      void Promise.resolve(
+        this.deps.notify?.({
+          kind: "epic_base_conflict",
+          sessionId: "",
+          tag: `epic-base-conflict:${key}`,
+          name: "epic",
+          epicNumber: parent,
+          cooldownKey: `epic_base_conflict:${key}`,
+        }),
+      ).catch((err) => console.warn(`[drain] epic_base_conflict notify failed for ${key}:`, err));
+    } catch (err) {
+      console.warn(`[drain] epic_base_conflict notify threw for ${key}:`, err);
+    }
+  }
+
+  /** #3101: the task prompt for a base-rework session — like {@link conflictReworkPrompt}, but for a
+   *  RUNNING epic's integration branch, which has no landing PR yet. */
+  private epicBaseReworkPrompt(o: {
+    parent: number;
+    parentTitle: string;
+    branch: string;
+    defaultBranch: string;
+  }): string {
+    const { branch, defaultBranch } = o;
+    return (
+      `Bring the integration branch of epic #${o.parent} ("${o.parentTitle}") up to date with ` +
+      `\`${defaultBranch}\`. Rebasing \`${branch}\` onto \`${defaultBranch}\` hits a genuine ` +
+      `conflict, so no new child of the epic starts until it is resolved. ` +
+      `You are working in a scratch branch cut from \`${branch}\` (it has no commits of its own).\n` +
+      `1. Run \`git fetch origin\` and record the integration branch head: ` +
+      `\`git rev-parse origin/${branch}\` — call it <lease-sha>. Then \`git reset --hard <lease-sha>\`.\n` +
+      `2. Rebase onto the default branch: \`git rebase origin/${defaultBranch}\`. Resolve every ` +
+      `conflict so BOTH the epic's intent and \`${defaultBranch}\`'s changes survive — never just ` +
+      `take one side.\n` +
+      `3. Adapt the epic's work to \`${defaultBranch}\`'s advancements even where git reports no ` +
+      `textual conflict (renamed APIs, moved files, changed types or behaviour).\n` +
+      `4. Run the repo's own lint/type-check/tests and fix what the rebase broke.\n` +
+      `5. Publish with exactly: \`git push --force-with-lease=${branch}:<lease-sha> origin HEAD:${branch}\`. ` +
+      `If the lease is rejected, someone else pushed — start again from step 1; never drop the lease.\n` +
+      `Do NOT open a pull request — the push is the whole deliverable.`
+    );
+  }
+
+  /** #3101: dispatch ONE base-rework `landingRepair` session for a conflict-held running epic. Auto
+   *  respects autoDrainEnabled + {@link EPIC_BASE_REWORK_CAP} per conflict episode; `manual` (the
+   *  epic panel's "Resolve conflict") bypasses both and the spawn back-off. Always refused while a
+   *  live repair session holds the branch. True iff a session was spawned. */
+  private async dispatchEpicBaseRework(
+    repoPath: string,
+    t: Pick<EpicBaseTarget, "parent" | "parentTitle" | "branch" | "defaultBranch">,
+    manual: boolean,
+  ): Promise<boolean> {
+    const fresh = this.deps.store.getEpicBaseFreshness(repoPath, t.parent);
+    if (!fresh) return false;
+    if (!manual) {
+      if (!this.deps.store.getRepoConfig(repoPath).autoDrainEnabled) return false;
+      if (fresh.reworkCount >= EPIC_BASE_REWORK_CAP) return false;
+    }
+    if (this.hasLiveRepairSession(repoPath, t.branch)) return false;
+    const key = `${repoPath}#${t.parent}`;
+    const spawned = await this.spawnLandingRepairSession({
+      repoPath,
+      branch: t.branch,
+      head: this.lastDefaultSha.get(key) ?? "",
+      prompt: this.epicBaseReworkPrompt(t),
+      capacityKey: `drain:epic-base-rework:${repoPath}:${t.parent}`,
+      cooldownKey: `epic-base:${key}`,
+      what: "epic base-rework",
+      ignoreCooldown: manual,
+    });
+    if (!spawned) return false;
+    this.deps.store.setEpicBaseFreshness(repoPath, t.parent, {
+      reworkCount: fresh.reworkCount + 1,
+    });
+    console.warn(`[drain] dispatched ${manual ? "manual" : "auto"} epic base-rework for ${key}`);
+    return true;
+  }
+
+  /** #3101: is a stale hold armed — the branch first seen behind at least BASE_STALE_HOLD_MS ago? */
+  private epicBaseStaleArmed(repoPath: string, parent: number): boolean {
+    const since = this.deps.store.getEpicBaseFreshness(repoPath, parent)?.behindSince;
+    return since != null && this.now() - since >= BASE_STALE_HOLD_MS;
+  }
+
+  /** #3101: the operator chose "continue anyway" and the default branch has not moved since. */
+  private epicBaseOverridden(key: string): boolean {
+    return (
+      this.epicBaseOverride.has(key) &&
+      this.epicBaseOverride.get(key) === this.lastDefaultSha.get(key)
+    );
+  }
+
+  /** #3101: the base-freshness facts {@link computeNext} reads for the RUNNING epic — conflict,
+   *  stale, and (for an epic not yet begun) other epics whose landing is still open. */
+  private epicBaseHoldState(
+    repoPath: string,
+    epic: Epic | null,
+    branch: string | null,
+  ): Pick<DrainRepoState, "epicBaseConflict" | "epicBaseStale" | "epicPredecessorUnlanded"> {
+    const er = this.deps.store.getEpicRun(repoPath);
+    if (!epic || !branch || er?.status !== "running") return {};
+    const parent = er.parentIssueNumber;
+    const key = `${repoPath}#${parent}`;
+    const fresh = this.deps.store.getEpicBaseFreshness(repoPath, parent);
+    const overridden = this.epicBaseOverridden(key);
+    const integrated = this.deps.store.listEpicIntegratedDetails(repoPath, parent).length;
+    const predecessors =
+      !this.predecessorOverride.has(key) && epicNotYetStarted(epic.children, integrated)
+        ? unlandedPredecessorEpics(this.deps.store.listEpicCompleted(repoPath), parent)
+        : [];
+    return {
+      epicBaseConflict: !overridden && fresh?.conflictSince != null ? branch : null,
+      epicBaseStale: !overridden && this.epicBaseStaleArmed(repoPath, parent) ? branch : null,
+      epicPredecessorUnlanded: predecessors.length ? predecessors : null,
+    };
+  }
+
+  /**
+   * #3101: operator "continue anyway" for the running epic's base hold. `base` (stale/conflict)
+   * lifts both base holds until the default branch moves again (keyed to its freshly-fetched head);
+   * `predecessor` lifts the unlanded-predecessor hold for this epic. In-memory: a restart
+   * re-evaluates. Never throws.
+   */
+  async overrideEpicBaseHold(
+    repoPath: string,
+    parent: number,
+    kind: "base" | "predecessor",
+  ): Promise<{ ok: true } | { ok: false; error: "no-epic" | "transient" }> {
+    try {
+      const er = this.deps.store.getEpicRun(repoPath);
+      if (er?.status !== "running" || er.parentIssueNumber !== parent)
+        return { ok: false, error: "no-epic" };
+      const key = `${repoPath}#${parent}`;
+      if (kind === "predecessor") {
+        this.predecessorOverride.add(key);
+      } else {
+        const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+        const forge = this.deps.resolveForge(repoPath);
+        if (!branch || !forge) return { ok: false, error: "no-epic" };
+        const probe = await this.branchBehindDefault(repoPath, branch, await forge.defaultBranch());
+        if (probe.kind === "transient") return { ok: false, error: "transient" };
+        this.lastDefaultSha.set(key, probe.defaultSha);
+        this.epicBaseOverride.set(key, probe.defaultSha);
+      }
+      void this.pump(repoPath);
+      return { ok: true };
+    } catch (err) {
+      console.warn(`[drain] overrideEpicBaseHold failed for ${repoPath}#${parent}:`, err);
+      return { ok: false, error: "transient" };
+    }
+  }
+
+  /**
+   * #3101: operator "Resolve conflict" for a conflict-held running epic — dispatches a base-rework
+   * session, bypassing autoDrainEnabled, the per-episode cap and the spawn back-off. Serialized with
+   * the cadence pass via landingInFlight. Never throws.
+   */
+  async resolveEpicBaseConflict(
+    repoPath: string,
+    parent: number,
+  ): Promise<
+    { ok: true } | { ok: false; error: "no-epic" | "not-conflicting" | "busy" | "spawn-failed" }
+  > {
+    const key = `${repoPath}#${parent}`;
+    if (this.landingInFlight.has(key)) return { ok: false, error: "busy" };
+    this.landingInFlight.add(key);
+    try {
+      const er = this.deps.store.getEpicRun(repoPath);
+      const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+      const forge = this.deps.resolveForge(repoPath);
+      if (er?.status !== "running" || er.parentIssueNumber !== parent || !branch || !forge)
+        return { ok: false, error: "no-epic" };
+      if (this.deps.store.getEpicBaseFreshness(repoPath, parent)?.conflictSince == null)
+        return { ok: false, error: "not-conflicting" };
+      if (this.hasLiveRepairSession(repoPath, branch)) return { ok: false, error: "busy" };
+      const epic = await this.buildEpic(repoPath, er);
+      const ok = await this.dispatchEpicBaseRework(
+        repoPath,
+        {
+          parent,
+          parentTitle: epic?.parentTitle ?? "",
+          branch,
+          defaultBranch: await forge.defaultBranch(),
+        },
+        true,
+      );
+      if (!ok) return { ok: false, error: "spawn-failed" };
+      this.cadenceRebaseNextAt.set(key, 0);
+      return { ok: true };
+    } catch (err) {
+      console.warn(`[drain] resolveEpicBaseConflict failed for ${key}:`, err);
+      return { ok: false, error: "spawn-failed" };
+    } finally {
+      this.landingInFlight.delete(key);
+    }
   }
 
   /**
@@ -3913,6 +4219,27 @@ export class DrainService {
     this.retainArchivedClaim(decision.sessionId);
   }
 
+  /** #3101: `ensureBranch` never moves an EXISTING branch, so an integration branch pinned by an
+   *  earlier (superseded) run of this epic would base its first child on a stale default branch.
+   *  While nothing is integrated and no session is based on it, bring it to `origin/<default>`
+   *  first (a fast-forward in practice). Best-effort: a failure only logs — the cadence pass and
+   *  its holds own any remaining drift. GitHub-only, like every integration-branch force-push. */
+  private async freshenUnstartedEpicBase(
+    repoPath: string,
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+    def: string,
+  ): Promise<void> {
+    const branch = decision.integrationBranch;
+    if (!branch || decision.epicParent == null || forge.kind !== "github") return;
+    if (this.deps.store.listEpicIntegratedDetails(repoPath, decision.epicParent).length > 0) return;
+    if (this.hasLiveRepairSession(repoPath, branch)) return;
+    if (!this.epicBaseQuiescent(repoPath, [], branch)) return;
+    const res = await this.rebaseLandingBranch(repoPath, branch, def);
+    if (res.kind !== "current")
+      console.warn(`[drain] pre-spawn refresh of \`${branch}\` for ${repoPath}: ${res.kind}`);
+  }
+
   /**
    * Resolve the base branch + agent prompt for a spawn. Epic children base on (and ensure on
    * the host) the integration branch — so each builds on its predecessors' merged work — and
@@ -3938,6 +4265,7 @@ export class DrainService {
    *    (assembleEpic → EpicPanel), so it is visible rather than a server-side console.warn.
    */
   private async resolveSpawnBase(
+    repoPath: string,
     forge: GitForge,
     decision: Extract<DrainDecision, { kind: "spawn" }>,
   ): Promise<{ base: string; prompt: string; epicParent: number | null }> {
@@ -3978,6 +4306,13 @@ export class DrainService {
     // The directive rides AFTER the templated title so a `/`-leading title can't reach argv
     // position 0 and be parsed as a slash command (issueSpawnPrompt).
     const usingEpicBase = !!decision.integrationBranch && base === decision.integrationBranch;
+    if (usingEpicBase) {
+      try {
+        await this.freshenUnstartedEpicBase(repoPath, forge, decision, def);
+      } catch (err) {
+        console.warn(`[drain] pre-spawn refresh failed for ${repoPath}:`, err);
+      }
+    }
     const task = issueSpawnPrompt(number, title);
     const prompt = usingEpicBase ? `${task}\n\n${epicBaseDirective(base)}` : task;
     // Stamp epic-child identity (#2067) ONLY for a child that actually got the integration branch.
@@ -4083,7 +4418,7 @@ export class DrainService {
     // sub-issue) session never appears until a full page reload.
     let session: Session | undefined;
     try {
-      const { base, prompt, epicParent } = await this.resolveSpawnBase(forge, decision);
+      const { base, prompt, epicParent } = await this.resolveSpawnBase(repoPath, forge, decision);
       const epicSettings = decision.epicProviderSettings;
       // Auto-spawns honor an explicit operator default-model — the repo override
       // wins over the global default; when both are unset ("inherit"/"auto") they

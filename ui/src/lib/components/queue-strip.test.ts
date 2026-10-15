@@ -118,6 +118,18 @@ describe("pausedText", () => {
     ).toContain("epic/9-x");
   });
 
+  it("maps the base-freshness holds (#3101)", () => {
+    expect(pausedText(drain({ paused: true, reason: "epic_base_stale", detail: "epic/9-x" }))).toBe(
+      m.drain_paused_epic_base_stale({ branch: "epic/9-x" }),
+    );
+    expect(
+      pausedText(drain({ paused: true, reason: "epic_base_conflict", detail: "epic/9-x" })),
+    ).toBe(m.drain_paused_epic_base_conflict({ branch: "epic/9-x" }));
+    expect(
+      pausedText(drain({ paused: true, reason: "epic_predecessor_unlanded", detail: "#5" })),
+    ).toBe(m.drain_paused_epic_predecessor({ epics: "#5" }));
+  });
+
   it("maps bootstrap_incomplete with a readable missing list (#3105)", () => {
     expect(
       pausedText(drain({ paused: true, reason: "bootstrap_incomplete", detail: "P2,P3,P4" })),

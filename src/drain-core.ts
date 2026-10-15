@@ -39,6 +39,9 @@ export interface HoldReason {
     | "awaiting_signoff" // draftMode: a retireable PR is held at cap, awaiting its sign-off
     | "awaiting_approval" // epicAttended: next spawn held until operator approves
     | "epic_base_unavailable" // epic: the forge's ensureBranch threw — can't base the child on the integration branch (#1757)
+    | "epic_base_stale" // epic: integration branch behind the default branch too long — no spawn until it can rebase (#3101)
+    | "epic_base_conflict" // epic: rebasing the integration branch onto the default branch conflicts (#3101)
+    | "epic_predecessor_unlanded" // epic: another epic's landing PR is still open — don't cut from a stale default (#3101)
     | "bootstrap_incomplete" // repo in active project-bootstrap (#3105); detail = missing phases/must-haves
     | "epic_unreadable" // epic: the forge's open-issue listing failed (e.g. a rate limit) — no epic this round, retrying
     | "empty"; // no eligible backlog item
@@ -169,6 +172,14 @@ export interface DrainRepoState {
    *  that degrades to the default branch and the epic still progresses; it surfaces as an epic
    *  warning instead of a hold. */
   epicBaseUnavailable?: string | null;
+  /** #3101: the running epic's integration branch while a base-freshness hold applies — `Conflict`
+   *  when its rebase onto the default branch conflicts, `Stale` when it has been behind for too long
+   *  and the epic is not quiescent. Null/undefined otherwise (incl. an operator override). */
+  epicBaseConflict?: string | null;
+  epicBaseStale?: string | null;
+  /** #3101: other epics whose landing PR is still open, while THIS epic has not begun; null when
+   *  none, the epic is under way, or the operator overrode it. */
+  epicPredecessorUnlanded?: readonly number[] | null;
   /** True when a running epic could not be assembled because the forge's open-issue listing
    *  failed (e.g. a GitHub rate limit). Its children's states are unknown, so nothing is spawned
    *  or judged done; the listing is retried on the next pump. */
@@ -354,32 +365,9 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   const trouble = troubleHold(state);
   if (trouble) return { kind: "hold", reason: trouble };
 
-  // 2a. Epic unreadable: the epic could not be assembled because the open-issue listing failed.
-  // Without this the stall reads as an empty backlog (`empty`) and the operator never learns why
-  // the epic stopped moving. A ready PR still retires above; the listing is retried next pump.
-  if (state.epicUnreadable) return { kind: "hold", reason: { code: "epic_unreadable" } };
-
-  // 2b. Epic base unavailable (#1757): the forge's `ensureBranch` THREW for a child spawn, so the
-  // integration branch could not be ensured. Basing the child on the default branch instead would
-  // silently mix bases mid-epic — the merge train would land that one child on main (it is not
-  // excluded from full-auto: a child that did NOT get the integration branch carries no `epicParent`
-  // stamp, so `isEpicChild` is false for it) while its siblings integrate on the epic branch.
-  // So fail closed and hold. Gated on an active epic run, so
-  // it can never fire in label-mode drain; while an epic runs the candidate set IS that epic's
-  // children, and every sibling would fail identically, so pausing new spawns is exactly right.
-  // Placed AFTER the retire gate (a ready PR still retires) and BEFORE the cap. The marker is
-  // cooldown-fresh (see Drain.buildState), so this self-heals: it lapses, the spawn retries.
-  //
-  // The marker must name THIS epic's branch. The failure map is keyed per repo+issue, not per epic,
-  // so a failure recorded for epic A survives its cooldown window into a DIFFERENT epic started in
-  // the same repo minutes later — holding epic B while the banner names epic A's branch. Comparing
-  // the two makes a stale cross-epic marker inert (and it ages out of the map on its own).
-  if (state.epicIntegrationBranch && state.epicBaseUnavailable === state.epicIntegrationBranch) {
-    return {
-      kind: "hold",
-      reason: { code: "epic_base_unavailable", detail: state.epicBaseUnavailable },
-    };
-  }
+  // 2a–2c. Epic holds: unreadable, base unavailable, base freshness (see epicHold).
+  const epic = epicHold(state);
+  if (epic) return { kind: "hold", reason: epic };
 
   // 3. Concurrency cap. In draftMode, if a session is retireable-but-unsigned it's the reason
   //    the slot stays taken — relabel the hold `awaiting_signoff` (with that session's desig) so
@@ -410,6 +398,50 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     epicProviderSettings: state.epicProviderSettings ?? undefined,
     stackedBase: state.epicStackBases?.get(next.number),
   };
+}
+
+/** The epic-only holds of {@link computeNext}, in priority order (after retire, trouble and
+ *  bootstrap; before the cap). */
+function epicHold(state: DrainRepoState): HoldReason | null {
+  // 2a. Epic unreadable: the epic could not be assembled because the open-issue listing failed.
+  // Without this the stall reads as an empty backlog (`empty`) and the operator never learns why
+  // the epic stopped moving. A ready PR still retires above; the listing is retried next pump.
+  if (state.epicUnreadable) return { code: "epic_unreadable" };
+
+  // 2b. Epic base unavailable (#1757): the forge's `ensureBranch` THREW for a child spawn, so the
+  // integration branch could not be ensured. Basing the child on the default branch instead would
+  // silently mix bases mid-epic — the merge train would land that one child on main (it is not
+  // excluded from full-auto: a child that did NOT get the integration branch carries no `epicParent`
+  // stamp, so `isEpicChild` is false for it) while its siblings integrate on the epic branch.
+  // So fail closed and hold. Gated on an active epic run, so
+  // it can never fire in label-mode drain; while an epic runs the candidate set IS that epic's
+  // children, and every sibling would fail identically, so pausing new spawns is exactly right.
+  // Placed AFTER the retire gate (a ready PR still retires) and BEFORE the cap. The marker is
+  // cooldown-fresh (see Drain.buildState), so this self-heals: it lapses, the spawn retries.
+  //
+  // The marker must name THIS epic's branch. The failure map is keyed per repo+issue, not per epic,
+  // so a failure recorded for epic A survives its cooldown window into a DIFFERENT epic started in
+  // the same repo minutes later — holding epic B while the banner names epic A's branch. Comparing
+  // the two makes a stale cross-epic marker inert (and it ages out of the map on its own).
+  if (state.epicIntegrationBranch && state.epicBaseUnavailable === state.epicIntegrationBranch)
+    return { code: "epic_base_unavailable", detail: state.epicBaseUnavailable };
+
+  // 2c. Epic base freshness (#3101): no NEW child while the integration branch cannot follow the
+  // default branch (conflict) or has drifted too long (stale), and no first child while another
+  // epic's landing is still open. After the retire gate — in-flight children still integrate.
+  return epicBaseHold(state);
+}
+
+function epicBaseHold(state: DrainRepoState): HoldReason | null {
+  if (!state.epicIntegrationBranch) return null;
+  if (state.epicBaseConflict) return { code: "epic_base_conflict", detail: state.epicBaseConflict };
+  if (state.epicBaseStale) return { code: "epic_base_stale", detail: state.epicBaseStale };
+  if (state.epicPredecessorUnlanded?.length)
+    return {
+      code: "epic_predecessor_unlanded",
+      detail: state.epicPredecessorUnlanded.map((n) => `#${n}`).join(", "),
+    };
+  return null;
 }
 
 /** An auto session as the run picture shows it. */

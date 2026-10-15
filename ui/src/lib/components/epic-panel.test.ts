@@ -14,6 +14,7 @@ import {
   stateLabel,
   supersedeImpact,
   usageOverride,
+  epicBaseActions,
 } from "./epic-panel";
 import { m } from "#lib/paraglide/messages.js";
 import type {
@@ -74,6 +75,18 @@ describe("epicHoldLine", () => {
       [...READY],
     );
     expect(line).toContain("epic/1757-critic");
+  });
+
+  it("base-freshness holds name the branch / the predecessor epics (#3101)", () => {
+    expect(epicHoldLine(drain({ reason: "epic_base_stale", detail: "epic/1-a" }), true, [])).toBe(
+      m.epic_hold_epic_base_stale({ branch: "epic/1-a" }),
+    );
+    expect(
+      epicHoldLine(drain({ reason: "epic_base_conflict", detail: "epic/1-a" }), true, []),
+    ).toBe(m.epic_hold_epic_base_conflict({ branch: "epic/1-a" }));
+    expect(
+      epicHoldLine(drain({ reason: "epic_predecessor_unlanded", detail: "#55" }), true, []),
+    ).toBe(m.epic_hold_epic_predecessor_unlanded({ epics: "#55" }));
   });
 
   it("bootstrap_incomplete names what is missing (#3105)", () => {
@@ -477,5 +490,36 @@ describe("usageOverride", () => {
   it("nothing for a run that is not running", () => {
     expect(usageOverride(run("paused"), 42, usage)).toBeNull();
     expect(usageOverride(run("idle", true), 42, usage)).toBeNull();
+  });
+});
+
+describe("epicBaseActions (#3101)", () => {
+  const run = (status: EpicRunStatus) => ({
+    run: { repoPath: "/r", parentIssueNumber: 42, mode: "auto" as const, status },
+  });
+  it("conflict → resolve + base override", () => {
+    expect(epicBaseActions(run("running"), 42, drain({ reason: "epic_base_conflict" }))).toEqual({
+      resolve: true,
+      override: "base",
+    });
+  });
+  it("stale → base override only; predecessor → predecessor override", () => {
+    expect(epicBaseActions(run("running"), 42, drain({ reason: "epic_base_stale" }))).toEqual({
+      resolve: false,
+      override: "base",
+    });
+    expect(
+      epicBaseActions(run("running"), 42, drain({ reason: "epic_predecessor_unlanded" })),
+    ).toEqual({ resolve: false, override: "predecessor" });
+  });
+  it("nothing for another hold, another epic, or a run not running", () => {
+    expect(epicBaseActions(run("running"), 42, drain({ reason: "cap" }))).toBeNull();
+    expect(
+      epicBaseActions(run("running"), 42, {
+        ...drain({ reason: "epic_base_stale" }),
+        epicParent: 7,
+      }),
+    ).toBeNull();
+    expect(epicBaseActions(run("paused"), 42, drain({ reason: "epic_base_stale" }))).toBeNull();
   });
 });

@@ -858,6 +858,21 @@ export interface AppDeps {
       repoPath: string,
       parent: number,
     ): Promise<import("./drain").ResolveLandingConflictResult>;
+    /** #3101: operator "continue anyway" for a running epic's base hold
+     *  (POST /api/epic/base-override). Optional — absent in tests that don't need it. */
+    overrideEpicBaseHold?(
+      repoPath: string,
+      parent: number,
+      kind: "base" | "predecessor",
+    ): Promise<{ ok: true } | { ok: false; error: "no-epic" | "transient" }>;
+    /** #3101: operator-triggered base rework for a conflict-held running epic
+     *  (POST /api/epic/base-rework). Optional — absent in tests that don't need it. */
+    resolveEpicBaseConflict?(
+      repoPath: string,
+      parent: number,
+    ): Promise<
+      { ok: true } | { ok: false; error: "no-epic" | "not-conflicting" | "busy" | "spawn-failed" }
+    >;
     /** #2872: operator-triggered CI repair for a red epic landing PR
      *  (POST /api/epics/completed/repair-ci). Optional — absent in tests that don't need it. */
     repairLandingCi?(
@@ -10783,6 +10798,62 @@ async function handleEpicApproveNext({ req, parts, url, deps }: Ctx): Promise<Re
   return json(epic ?? { ok: true });
 }
 
+// #3101: shared validation of the running-epic base-hold actions — POST /api/epic/<action>
+// ?repo=&parent=. Null when the request is not this route.
+function epicBaseActionTarget(
+  { req, parts, url }: Ctx,
+  action: string,
+): { dir: string; parent: number } | Response | null {
+  if (!(req.method === "POST" && parts[0] === "api" && parts[1] === "epic" && parts[2] === action))
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parent = parseInt(url.searchParams.get("parent") ?? "", 10);
+  if (!Number.isInteger(parent) || parent <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  return { dir, parent };
+}
+
+// #3101: result code → HTTP status + constant client message (no forge/spawn error text).
+const EPIC_BASE_ERRORS = {
+  "no-epic": { status: 404, message: "no running epic with that parent" },
+  transient: { status: 502, message: "could not read the default branch, retry shortly" },
+  "not-conflicting": { status: 409, message: "epic base is not conflicting" },
+  busy: { status: 409, message: "epic base busy, retry shortly" },
+  "spawn-failed": { status: 502, message: "base rework could not be started" },
+} as const;
+
+// POST /api/epic/base-override?repo=&parent=&kind=base|predecessor — #3101 "continue anyway": lift
+// the running epic's stale/conflict hold until the default branch moves (`base`), or its
+// unlanded-predecessor hold (`predecessor`). 200 · 400 bad input · 404 no such running epic ·
+// 502 default branch unreadable · 503 no drain.
+async function handleEpicBaseOverride(ctx: Ctx): Promise<Response | null> {
+  const target = epicBaseActionTarget(ctx, "base-override");
+  if (!target || target instanceof Response) return target;
+  const kind = ctx.url.searchParams.get("kind");
+  if (kind !== "base" && kind !== "predecessor")
+    return json({ error: "kind must be base or predecessor" }, 400);
+  if (!ctx.deps.drain?.overrideEpicBaseHold) return json({ error: "drain unavailable" }, 503);
+  const r = await ctx.deps.drain.overrideEpicBaseHold(target.dir, target.parent, kind);
+  if (r.ok) return json({ ok: true });
+  const e = EPIC_BASE_ERRORS[r.error];
+  return json({ error: e.message, reason: r.error }, e.status);
+}
+
+// POST /api/epic/base-rework?repo=&parent= — #3101: dispatch a base-rework session for a
+// conflict-held running epic (rebase its integration branch onto the default branch, resolve,
+// force-with-lease push). Manual: bypasses auto-drain + the per-episode cap; refused while a repair
+// session is live. 202 · 400 · 404 · 409 not-conflicting/busy · 502 spawn failed · 503 no drain.
+async function handleEpicBaseRework(ctx: Ctx): Promise<Response | null> {
+  const target = epicBaseActionTarget(ctx, "base-rework");
+  if (!target || target instanceof Response) return target;
+  if (!ctx.deps.drain?.resolveEpicBaseConflict) return json({ error: "drain unavailable" }, 503);
+  const r = await ctx.deps.drain.resolveEpicBaseConflict(target.dir, target.parent);
+  if (r.ok) return json({ ok: true }, 202);
+  const e = EPIC_BASE_ERRORS[r.error];
+  return json({ error: e.message, reason: r.error }, e.status);
+}
+
 // POST /api/epic/import?repo=&parent= — import markdown epic links as native sub-issues.
 async function handleEpicImport({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(
@@ -11282,6 +11353,8 @@ const ROUTE_HANDLERS = [
   handleEpicsCompletedRepairCi,
   handleEpicsCompletedList,
   handleEpicApproveNext,
+  handleEpicBaseOverride,
+  handleEpicBaseRework,
   handleEpicImport,
   handleEpicGet,
   handleEpicDiagnose,

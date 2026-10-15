@@ -7,10 +7,19 @@
     EpicSummary,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { updateEpic, approveEpicNext, queueEpic, unqueueEpic, getDrain } from "#lib/api.js";
+  import {
+    updateEpic,
+    approveEpicNext,
+    queueEpic,
+    unqueueEpic,
+    getDrain,
+    overrideEpicBaseHold,
+    reworkEpicBase,
+  } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { epicRunStateExplanation } from "#lib/tooltips/explanations.js";
   import {
+    epicBaseActions,
     epicRole,
     epicRunState,
     epicRunStateLabel,
@@ -68,6 +77,8 @@
   const position = $derived(queuePosition(drain?.runSummary, parent));
   // Lifting the repo's usage ceiling for this run: offered while it halts there, else revocable.
   const ceiling = $derived(usageOverride(epic, parent, drain));
+  // #3101: the run holds for its integration branch's base — resolve a conflict or continue anyway.
+  const baseActions = $derived(epicBaseActions(epic, parent, drain));
 
   const inFlightText = $derived.by(() => {
     if (runState.inFlight.length) return runState.inFlight.map((n) => `#${n}`).join(", ");
@@ -150,6 +161,10 @@
 
   function setIgnoreCeiling(ignoreUsageCeiling: boolean) {
     updateEpic(repoPath, parent, { ignoreUsageCeiling }).catch(updateFailed);
+  }
+
+  function baseHoldFailed() {
+    toasts.info(m.epic_base_action_failed(), { alert: true, key: "epic-base-fail" });
   }
 
   // Starting (or re-leading) while another epic leads supersedes it (the server keeps one epic
@@ -356,6 +371,26 @@
       <p class="note alert">{m.epic_usage_ignored_note()}</p>
       <button class="gbtn" type="button" onclick={() => setIgnoreCeiling(false)}
         >{m.epic_usage_respect()}</button
+      >
+    </div>
+  {/if}
+
+  {#if baseActions}
+    <div class="ceiling">
+      {#if baseActions.resolve}
+        <button
+          class="gbtn"
+          type="button"
+          onclick={() => reworkEpicBase(repoPath, parent).catch(baseHoldFailed)}
+          >{m.epic_base_resolve()}</button
+        >
+      {/if}
+      <button
+        class="gbtn"
+        type="button"
+        onclick={() =>
+          overrideEpicBaseHold(repoPath, parent, baseActions.override).catch(baseHoldFailed)}
+        >{m.epic_base_continue()}</button
       >
     </div>
   {/if}

@@ -3546,6 +3546,29 @@ export async function approveEpicNext(repoPath: string, parent: number): Promise
   return r.json();
 }
 
+/** #3101: "continue anyway" for the running epic's base hold — `base` lifts the stale/conflict
+ *  hold until the default branch moves, `predecessor` the unlanded-predecessor hold. */
+export async function overrideEpicBaseHold(
+  repoPath: string,
+  parent: number,
+  kind: "base" | "predecessor",
+): Promise<void> {
+  const r = await fetch(
+    `/api/epic/base-override?repo=${encodeURIComponent(repoPath)}&parent=${parent}&kind=${kind}`,
+    { method: "POST" },
+  );
+  if (!r.ok) throw await failed(r, "override epic base hold");
+}
+
+/** #3101: dispatch a base-rework agent for a conflict-held running epic. */
+export async function reworkEpicBase(repoPath: string, parent: number): Promise<void> {
+  const r = await fetch(
+    `/api/epic/base-rework?repo=${encodeURIComponent(repoPath)}&parent=${parent}`,
+    { method: "POST" },
+  );
+  if (!r.ok) throw await failed(r, "rework epic base");
+}
+
 export async function importEpic(
   repoPath: string,
   parent: number,

@@ -6660,5 +6660,14 @@
   "tooltip_bootstrap_seq_start": "Who starts a step",
   "tooltip_bootstrap_seq_start_body": "You do — one click opens New Task preset for the step. Shepherd never spawns these sessions on its own.",
   "feat_bootstrap_sequencer_title": "Bootstrap a project from PRD + design",
-  "feat_bootstrap_sequencer_body": "New Project can import your PRD and design export. Shepherd then leads the project phase by phase — scaffold, gap sweep, backlog — and the Backlog shows the checklist with the next step."
+  "feat_bootstrap_sequencer_body": "New Project can import your PRD and design export. Shepherd then leads the project phase by phase — scaffold, gap sweep, backlog — and the Backlog shows the checklist with the next step.",
+  "drain_paused_epic_base_stale": "Paused: epic branch {branch} has fallen behind main — rebasing once running tasks finish",
+  "drain_paused_epic_base_conflict": "Paused: epic branch {branch} conflicts with main",
+  "drain_paused_epic_predecessor": "Paused: waiting for epic {epics} to land",
+  "epic_hold_epic_base_stale": "Paused: the epic branch {branch} has been behind the main branch for hours. No new child starts; once the running children finish, it is rebased and the run continues.",
+  "epic_hold_epic_base_conflict": "Paused: rebasing the epic branch {branch} onto the main branch conflicts. No new child starts until it is resolved — an agent works on it, or start one yourself.",
+  "epic_hold_epic_predecessor_unlanded": "Paused: the landing of epic {epics} is still open. This epic starts once it is merged, so it builds on that work.",
+  "epic_base_resolve": "Resolve conflict",
+  "epic_base_continue": "Continue anyway",
+  "epic_base_action_failed": "Could not change the epic's hold."
 }

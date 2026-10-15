@@ -6,9 +6,9 @@ import ShepherdKit
 
 @MainActor
 final class IOSServerHubTests: XCTestCase {
-    private func fixture() throws -> (IOSLaunchEnvironment, IOSServerHub, ServerProfile, ServerProfile) {
+    private func fixture(restored: Bool = false) throws -> (IOSLaunchEnvironment, IOSServerHub, ServerProfile, ServerProfile) {
         let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
-        let hub = IOSServerHub(defaults: launch.defaults, catalogue: launch.makeModel(activeProfileKey: "catalogue")) { id in
+        let makeModel: (UUID) -> AppModel = { id in
             let app = launch.makeModel(activeProfileKey: "active.\(id)", persistsProfileCatalogue: false)
             app.liveRequestAudit = nil
             app.makeClient = { profile, credentials, audit in
@@ -19,6 +19,7 @@ final class IOSServerHubTests: XCTestCase {
             }
             return app
         }
+        let hub = IOSServerHub(defaults: launch.defaults, catalogue: launch.makeModel(activeProfileKey: "catalogue"), makeModel: makeModel)
         let run = UUID().uuidString.lowercased()
         let a = try hub.catalogue.addRemoteProfile(name: "Studio", address: "https://a-\(run).multi.fixture.invalid")
         let b = try hub.catalogue.addRemoteProfile(name: "Laptop", address: "https://b-\(run).multi.fixture.invalid")
@@ -26,16 +27,20 @@ final class IOSServerHubTests: XCTestCase {
         for profile in [a, b] {
             try launch.credentials.save(.init(token: "fixture-token", tokenId: "fixture"), for: profile.credentialKey)
         }
+        if restored {
+            launch.defaults.set([a.id.uuidString, b.id.uuidString], forKey: IOSServerHub.connectedKey)
+            return (launch, IOSServerHub(defaults: launch.defaults, catalogue: hub.catalogue, makeModel: makeModel), a, b)
+        }
         return (launch, hub, a, b)
     }
     private func stop(_ hub: IOSServerHub) { for id in hub.connectedIDs { hub.disconnect(id) } }
 
     func testUnavailableFirstServerDoesNotOwnHealthyFocusOrCompose() async throws {
-        let (_, hub, dead, live) = try fixture()
+        let (_, hub, dead, live) = try fixture(restored: true)
         defer { stop(hub) }
         IOSMultiServerFixtureTransport.setUnavailable(true, for: dead.baseURL)
         IOSMultiServerFixtureTransport.set([PreviewData.session(id: "healthy", desig: "TASK-1", status: .init(known: .running))], for: live.baseURL)
-        await hub.connect(dead); await hub.connect(live)
+        await hub.start(launch: try IOSLaunchEnvironment(configuration: .init()))
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while (!hub.hasLoadedList || hub.models[dead.id]?.store?.connection == .connecting || hub.models[live.id]?.store?.connection != .live), ContinuousClock.now < deadline { await Task.yield() }
         XCTAssertTrue(hub.hasLoadedList)
@@ -52,6 +57,42 @@ final class IOSServerHubTests: XCTestCase {
         let deadline = ContinuousClock.now.advanced(by: .seconds(15))
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
         XCTAssertTrue(condition())
+    }
+
+    func testImplicitFocusFallsBackWhenItsServerBecomesUnavailable() async throws {
+        let (_, hub, a, b) = try fixture(restored: true)
+        defer { stop(hub) }
+        await hub.start(launch: try IOSLaunchEnvironment(configuration: .init()))
+        await settle { hub.connected.allSatisfy(hub.isLive) }
+        XCTAssertEqual(hub.focusedID, a.id)
+        IOSMultiServerFixtureTransport.setUnavailable(true, for: a.baseURL)
+        hub.refreshServers()
+        await settle { hub.unavailableIDs.contains(a.id) }
+        XCTAssertEqual(hub.focusedID, b.id)
+        XCTAssertEqual(IOSComposeTarget(hub: hub).profileID, b.id)
+    }
+
+    func testExplicitConnectFocusAndSelectionSurviveUnavailableServer() async throws {
+        let (_, hub, dead, live) = try fixture()
+        defer { stop(hub) }
+        IOSMultiServerFixtureTransport.setUnavailable(true, for: dead.baseURL)
+        await hub.connect(live)
+        await settle { hub.models[live.id].map(hub.isLive) == true }
+        await hub.connect(dead)
+        XCTAssertEqual(hub.focusedID, dead.id, "Connect wins even before the first snapshot")
+        await settle { hub.unavailableIDs.contains(dead.id) }
+        XCTAssertEqual(hub.focusedID, dead.id)
+        XCTAssertEqual(IOSComposeTarget(hub: hub).profileID, dead.id)
+        hub.focus(live.id)
+        await hub.connect(dead)
+        XCTAssertEqual(hub.focusedID, dead.id, "Connecting an existing profile also focuses it")
+        hub.focus(live.id)
+        hub.focus(dead.id)
+        XCTAssertEqual(hub.focusedID, dead.id)
+        hub.select(.init(profileID: live.id, sessionID: "fixture"))
+        hub.select(.init(profileID: dead.id, sessionID: "fixture"))
+        hub.focused.selectedSessionID = nil
+        XCTAssertEqual(hub.focusedID, dead.id, "Closing detail does not undo explicit focus")
     }
 
     func testHangingPeerCannotDelayHealthyListRefreshComposeOrNotification() async throws {
@@ -410,6 +451,7 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(shared.paths, [a.id: "/studio/shepherd", b.id: "/laptop/code/shepherd"])
 
         await settle { hub.models[a.id].map(hub.isLive) == true && hub.models[b.id].map(hub.isLive) == true }
+        hub.focus(a.id)
         let target = IOSComposeTarget(hub: hub)
         XCTAssertEqual(target.profileID, a.id)
         XCTAssertEqual(target.servers(in: hub), [a.id, b.id])

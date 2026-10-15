@@ -309,9 +309,11 @@ Retired models with pending sign-ins remain reachable for profile-removal cleanu
 Sign-out and login share a per-profile credential queue across model replacements;
 a late sign-out can disconnect only the model that started it.
 
-Focus and the default compose target prefer a live server, then a server without
-an outage while its socket reconnects. An explicitly selected
-session or composer keeps its server; offline servers remain selectable. Switching
+Restored focus and the default compose target prefer a live server, then a server
+without an outage while its socket reconnects. Pairing, Connect, focus and session
+selection explicitly keep their server, including while it connects or is offline;
+closing its sheet or detail does not undo that choice. Disconnecting the focused
+server restores automatic fallback. An opened composer keeps its server. Switching
 servers retains prompt text and resets server-specific repository, branch and upload state.
 
 Normal and isolated live launches bound ordinary GETs to eight seconds without

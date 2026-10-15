@@ -130,6 +130,7 @@ final class IOSRunOnTests: XCTestCase {
         let (_, hub, a, b) = try fixture()
         defer { stop(hub) }
         await hub.connect(a); await hub.connect(b)
+        hub.focus(a.id)
         let target = IOSComposeTarget(hub: hub)
         XCTAssertEqual(target.profileID, a.id)
         let carry = IOSRunOnCarry(pick: "mac", requirements: ["xcode"], touched: true)

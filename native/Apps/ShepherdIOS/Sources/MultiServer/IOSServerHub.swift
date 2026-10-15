@@ -17,15 +17,19 @@ final class IOSServerHub {
     private(set) var models: [UUID: AppModel] = [:]
     private(set) var connectedIDs: [UUID] = []
     private var requestedFocusID: UUID?
+    private var hasExplicitFocus = false
     private(set) var focusedID: UUID? {
         get {
             if let id = requestedFocusID, let model = models[id],
-                model.selectedSessionID != nil || model.sheet != nil || isLive(model) { return id }
+                hasExplicitFocus || model.selectedSessionID != nil || model.sheet != nil || isLive(model) { return id }
             return connectedIDs.first { models[$0].map(isLive) == true }
                 ?? connectedIDs.first { models[$0].map { $0.store != nil && !isUnavailable($0) } == true }
                 ?? requestedFocusID
         }
-        set { requestedFocusID = newValue }
+        set {
+            requestedFocusID = newValue
+            hasExplicitFocus = true
+        }
     }
     private(set) var unavailableIDs: Set<UUID> = []
     private var noticeIDs: Set<UUID> = []
@@ -84,7 +88,7 @@ final class IOSServerHub {
             models[id] = model
             watchConnection(id, model: model)
         }
-        focusedID = connectedIDs.first
+        requestedFocusID = connectedIDs.first
     }
 
     convenience init(launch: IOSLaunchEnvironment) {
@@ -129,6 +133,7 @@ final class IOSServerHub {
     func connect(_ profile: ServerProfile, login: Bool = false) async {
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id }) else { return }
         if let model = models[profile.id] {
+            focus(profile.id)
             if login || model.store?.connection == .needsLogin {
                 model.sheet = .login(profile)
             } else if !loadingIDs.contains(profile.id), model.store == nil, model.sheet == nil {
@@ -147,7 +152,7 @@ final class IOSServerHub {
         models[profile.id] = model
         watchConnection(profile.id, model: model)
         connectedIDs.append(profile.id)
-        if focusedID == nil { focusedID = profile.id }
+        focus(profile.id)
         persist()
         if login { model.sheet = .login(profile); return }
         loadingIDs.insert(profile.id)
@@ -171,6 +176,7 @@ final class IOSServerHub {
             try await model.pair(link: link, deviceName: deviceName)
             guard models[profile.id] === model, !removing.contains(profile.id) else { throw CancellationError() }
             if !connectedIDs.contains(profile.id) { connectedIDs.append(profile.id) }
+            if existing == nil { watchConnection(profile.id, model: model) }
             focusedID = profile.id
             managingServers = false
             persist()
@@ -189,7 +195,8 @@ final class IOSServerHub {
         models[profile.id] = model
         watchConnection(profile.id, model: model)
         if !connectedIDs.contains(profile.id) { connectedIDs.append(profile.id) }
-        focusedID = profile.id
+        requestedFocusID = profile.id
+        hasExplicitFocus = false
         persist()
     }
 
@@ -207,7 +214,10 @@ final class IOSServerHub {
         unavailableIDs.remove(profileID); noticeIDs.remove(profileID); dismissedIDs.remove(profileID)
         loadingIDs.remove(profileID)
         connectedIDs.removeAll { $0 == profileID }
-        if requestedFocusID == profileID { focusedID = connectedIDs.first }
+        if requestedFocusID == profileID {
+            requestedFocusID = connectedIDs.first
+            hasExplicitFocus = false
+        }
         persist()
     }
 
@@ -242,16 +252,19 @@ final class IOSServerHub {
         for model in connected { model.reloadProfiles() }
     }
 
-    /// Default to a live server; offline targets remain explicitly selectable.
+    /// Honor an explicit focus; otherwise default to a live server.
     var composeModel: AppModel? {
         let candidates = ([focused] + connected.filter { $0 !== focused }).filter { $0.store != nil && $0.liveRequestAudit == nil }
+        if hasExplicitFocus, let model = candidates.first(where: { $0 === focused }) { return model }
         return candidates.first(where: isLive) ?? candidates.first { !isUnavailable($0) } ?? candidates.first
     }
 
     @discardableResult
     func openComposer() -> Bool {
         guard let model = composeModel else { return false }
-        return IOSComposer.open(model)
+        guard IOSComposer.open(model) else { return false }
+        if let id = connectedIDs.first(where: { models[$0] === model }) { focus(id) }
+        return true
     }
 
     /// A no-store login has no automatic lookup left to finish after dismissal.

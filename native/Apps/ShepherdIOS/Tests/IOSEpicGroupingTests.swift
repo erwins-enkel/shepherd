@@ -21,6 +21,51 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertNotEqual(group.fingerprint, moved.fingerprint)
     }
 
+    func testDirectoryKeepsTheFullEpicAndRereadsWhenAMemberMoves() async throws {
+        URLProtocol.registerClass(IOSMultiServerFixtureTransport.self)
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let hub = IOSServerHub(launch: launch)
+        let profile = try hub.catalogue.addRemoteProfile(name: "Epics", address: "https://epics-full.multi.fixture.invalid")
+        try launch.credentials.save(.init(token: "fixture", tokenId: "fixture"), for: profile.credentialKey)
+        IOSMultiServerFixtureTransport.set([], for: profile.baseURL)
+        await hub.connect(profile)
+        defer { hub.disconnect(profile.id) }
+        let owner = try XCTUnwrap(hub.models[profile.id])
+        try await owner.store?.bootstrap()
+        let epic = try JSONDecoder().decode(Epic.self, from: Data(#"""
+            {"repoPath":"/repos/app","parentIssueNumber":100,"parentTitle":"Epic: Ship","source":"native",
+            "children":[{"number":101,"title":"First","url":"https://x/101","order":0,"body":"","blockedBy":[],
+            "state":"running","sessionId":"a","prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":true},
+            {"number":102,"title":"Second","url":"https://x/102","order":1,"body":"","blockedBy":[101],
+            "state":"blocked","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false}],
+            "warnings":[],"run":{"repoPath":"/repos/app","parentIssueNumber":100,"mode":"auto","status":"running"}}
+            """#.utf8))
+        var epicReads = 0
+        var failEpic = false
+        let directory = IOSEpicDirectory(read: { _, _ in .init(epics: [], subIssues: []) }, readEpic: { _, path, parent in
+            epicReads += 1
+            XCTAssertEqual(path, "/repos/app")
+            XCTAssertEqual(parent, 100)
+            if failEpic { throw URLError(.notConnectedToInternet) }
+            return epic
+        })
+        let running = IOSMergedSessionPresentation.merge([source(profile,
+            active: [session("a", parent: 100, issue: 101)])], selectedRepos: []).epicGroups
+        await directory.load(running, owners: hub.models, fallback: owner)
+        await directory.load(running, owners: hub.models, fallback: owner)
+        XCTAssertEqual(epicReads, 1)
+        XCTAssertEqual(try XCTUnwrap(directory.digest(running[0], owner: owner)).chain(101)?.unlocks, [102])
+        // The member moves to Ready: the fingerprint changes and the epic is read again.
+        let moved = IOSMergedSessionPresentation.merge([source(profile, active: [],
+            ready: [session("a", parent: 100, issue: 101)])], selectedRepos: []).epicGroups
+        failEpic = true
+        await directory.load(moved, owners: hub.models, fallback: owner)
+        XCTAssertEqual(epicReads, 2)
+        XCTAssertNotNil(directory.digest(moved[0], owner: owner), "a failed re-read keeps the last known epic")
+        hub.disconnect(profile.id)
+        XCTAssertNil(directory.digest(moved[0], owner: owner))
+    }
+
     private func profile(_ name: String) -> ServerProfile {
         .init(name: name, baseURL: URL(string: "https://\(name).fixture.invalid")!, mode: .remote, credentialKey: name)
     }

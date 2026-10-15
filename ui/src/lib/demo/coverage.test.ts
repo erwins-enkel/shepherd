@@ -224,6 +224,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/actions/run-jobs", `/api/actions/run-jobs?repo=${r}&runId=77061`),
   get("/api/readiness", `/api/readiness?repo=${r}`),
   get("/api/readiness/forge", `/api/readiness/forge?repo=${r}`),
+  get("/api/readiness/drift", `/api/readiness/drift?repo=${r}`),
   get("/api/readiness/greenfield", `/api/readiness/greenfield?repo=${r}`),
   get("/api/repo-web", `/api/repo-web?repo=${r}`),
   get("/api/repo-roles", `/api/repo-roles?repo=${r}`),
@@ -390,6 +391,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/up-next/refresh",
     // Every seeded Forge-settings check is already "ok", so no Apply button renders.
     "/api/readiness/forge/apply",
+    // The seeded Framework-majors view can't file a story (canCreateStory: false), so no button.
+    "/api/readiness/drift/story",
     "/api/up-next/start",
     "/api/prs/merge",
     "/api/prs/dependabot-rebase",

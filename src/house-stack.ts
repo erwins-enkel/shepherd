@@ -270,7 +270,7 @@ export class HouseStackResolver {
 const PACKAGE_MANAGERS = ["bun", "pnpm", "npm", "yarn"];
 
 /** The pinned line: the major, or major.minor for a 0.x package (where minors break). */
-function pinOf(version: string): string {
+export function pinOf(version: string): string {
   const [major, minor] = version.split(".");
   return major === "0" ? `${major}.${minor}` : major!;
 }

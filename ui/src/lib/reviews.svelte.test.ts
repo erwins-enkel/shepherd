@@ -44,6 +44,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   autoOptimizeFlagged: false,
   manualStepsIssueEnabled: false,
   preWarmEpicLandingCi: false,
+  mergeWithoutCi: false,
   epicStacksEnabled: false,
   sharedBrowserEnabled: false,
   browserAllowedHosts: [],

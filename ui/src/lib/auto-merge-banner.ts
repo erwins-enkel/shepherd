@@ -43,6 +43,7 @@ const OPERATOR_CODES: ReadonlySet<MergeWaitCode> = new Set([
   "stacked",
   "signoff",
   "protection_blocked",
+  "no_ci",
 ]);
 
 /** Who owns the next move for `code`. Critic findings are Shepherd's only when auto-address

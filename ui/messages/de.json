@@ -6671,5 +6671,11 @@
   "epic_base_continue": "Trotzdem fortfahren",
   "epic_base_action_failed": "Die Pause des Epics ließ sich nicht ändern.",
   "gitrail_merge_failed_base_merged": "Merge blockiert: Der Base-Branch des PRs ist bereits gemergt. PR auf den Branch umstellen, in den er gemergt wurde, dann erneut versuchen.",
-  "prspanel_merge_failed_base_merged": "Merge blockiert: Base-Branch bereits gemergt — PR umstellen"
+  "prspanel_merge_failed_base_merged": "Merge blockiert: Base-Branch bereits gemergt — PR umstellen",
+  "automation_merge_without_ci_name": "Ohne CI mergen",
+  "automation_merge_without_ci_desc": "Betrifft nur GitHub-Repos ohne CI-Workflows. Aus: Merge-Train und Epic-Auto-Landing halten PRs an, die keine CI geprüft hat. An: Sie mergen, sobald die übrigen Prüfungen bestanden sind.",
+  "automergebanner_no_ci": "dieses Repo hat keine CI, also hat niemand den PR geprüft. Lege einen Workflow an, schalte „Ohne CI mergen“ ein oder merge selbst",
+  "integrated_epics_land_no_ci": "Auto-Landing angehalten: keine CI",
+  "feat_merge_without_ci_title": "Ohne CI kein stilles Auto-Merge",
+  "feat_merge_without_ci_body": "In einem GitHub-Repo ohne CI-Workflows halten Merge-Train und Epic-Auto-Landing jetzt an, statt ungeprüfte PRs zu mergen. Richte CI ein, merge selbst oder schalte „Ohne CI mergen“ in den Automatisierungs-Einstellungen des Repos ein."
 }

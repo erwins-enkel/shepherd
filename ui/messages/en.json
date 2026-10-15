@@ -6671,5 +6671,11 @@
   "epic_base_continue": "Continue anyway",
   "epic_base_action_failed": "Could not change the epic's hold.",
   "gitrail_merge_failed_base_merged": "Merge blocked: the PR's base branch already merged. Re-target the PR onto the branch it merged into, then retry.",
-  "prspanel_merge_failed_base_merged": "merge blocked: base branch already merged — re-target the PR"
+  "prspanel_merge_failed_base_merged": "merge blocked: base branch already merged — re-target the PR",
+  "automation_merge_without_ci_name": "Merge without CI",
+  "automation_merge_without_ci_desc": "Only matters for GitHub repos with no CI workflows. Off: the merge train and epic auto-land hold PRs that no CI checked. On: they merge once the other checks pass.",
+  "automergebanner_no_ci": "this repo has no CI, so nothing checked the PR. Add a workflow, turn on “Merge without CI”, or merge yourself",
+  "integrated_epics_land_no_ci": "Auto-land held: no CI",
+  "feat_merge_without_ci_title": "No CI, no silent auto-merge",
+  "feat_merge_without_ci_body": "In a GitHub repo without CI workflows, the merge train and epic auto-land now hold instead of merging unchecked PRs. Add CI, merge yourself, or turn on “Merge without CI” in the repo's automation settings."
 }

@@ -2261,6 +2261,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],
@@ -2625,6 +2626,25 @@ test("PUT /api/repo-config rejects non-boolean preWarmEpicLandingCi", async () =
   const deps = makeDeps();
   const app = makeApp(deps);
   const res = await putRepoConfig(app, validRepo, { preWarmEpicLandingCi: "yes" });
+  expect(res.status).toBe(400);
+});
+
+// ── mergeWithoutCi repo-config (#3104) ──────────────────────────────────────
+
+test("PUT /api/repo-config accepts mergeWithoutCi true → 200 and persists it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).mergeWithoutCi).toBe(false); // default off
+  const res = await putRepoConfig(app, validRepo, { mergeWithoutCi: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).mergeWithoutCi).toBe(true);
+  expect(deps.store.getRepoConfig(validRepo).mergeWithoutCi).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean mergeWithoutCi", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { mergeWithoutCi: "yes" });
   expect(res.status).toBe(400);
 });
 

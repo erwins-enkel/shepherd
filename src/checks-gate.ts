@@ -26,6 +26,17 @@ export function checksCleared(checks: ChecksState, noCi: boolean): boolean {
   return checks === "success" || (noCi && checks === "none");
 }
 
+/** #3104: an autonomous merge into the default branch (epic auto-land) is held when the repo has
+ *  no CI and the PR therefore carries no checks at all — `checksCleared` lets that PR through, but
+ *  nothing verified it. The operator lifts the hold by adding CI or opting in (`mergeWithoutCi`). */
+export function noCiMergeHeld(
+  checks: ChecksState,
+  noCi: boolean,
+  mergeWithoutCi: boolean,
+): boolean {
+  return noCi && checks === "none" && !mergeWithoutCi;
+}
+
 const CACHE_TTL_MS = 60_000;
 const countCache = new Map<string, { at: number; count: number }>();
 

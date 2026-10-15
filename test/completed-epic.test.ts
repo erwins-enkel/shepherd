@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildRollup,
   computeLandingConflictStranded,
+  computeLandingNoCiHold,
   computeLandingReady,
   computeLandingStranded,
   enrichLandingEpics,
@@ -380,6 +381,31 @@ describe("enrichLandingEpics", () => {
     expect(rows[0]?.landingStranded).toBe(true);
   });
 
+  // "/repo/a" has no .github/workflows on disk → a github forge reads it as a no-CI repo.
+  it("#3104: no-CI github repo, auto-merge on, no opt-in → landingNoCiHold", async () => {
+    const rows = [baseEpic()];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({ kind: "github", prStatus: async () => prStatus({ checks: "none" }) }),
+      hasLiveRepairSession: () => false,
+      repoConfig: () => ({ draftMode: false, autoMergeEnabled: true, mergeWithoutCi: false }),
+      now: 2_000,
+    });
+    expect(rows[0]?.landingReady).toBe(true); // manual Land CTA stays enabled
+    expect(rows[0]?.landingNoCiHold).toBe(true);
+  });
+
+  it("#3104: without the repoConfig dep → landingNoCiHold undefined", async () => {
+    const rows = [baseEpic()];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({ kind: "github", prStatus: async () => prStatus({ checks: "none" }) }),
+      hasLiveRepairSession: () => false,
+      now: 2_000,
+    });
+    expect(rows[0]?.landingNoCiHold).toBeUndefined();
+  });
+
   it("an injected prStatus read replaces the forge's own", async () => {
     const rows = [baseEpic()];
     const seen: Array<[string, string]> = [];
@@ -484,5 +510,28 @@ describe("enrichLandingEpics", () => {
     });
     expect(rows[0]?.landingReady).toBeUndefined();
     expect(rows[0]?.landingChecks).toBeUndefined();
+  });
+});
+
+describe("computeLandingNoCiHold (#3104)", () => {
+  const on = { draftMode: false, autoMergeEnabled: true, mergeWithoutCi: false };
+  it("ready + no CI + auto-merge on + no opt-in → held", () => {
+    expect(computeLandingNoCiHold({ checks: "none" }, true, true, on)).toBe(true);
+  });
+  it("opt-in lifts it", () => {
+    expect(
+      computeLandingNoCiHold({ checks: "none" }, true, true, { ...on, mergeWithoutCi: true }),
+    ).toBe(false);
+  });
+  it("repo with CI, green checks, not ready, auto-merge off or draft mode → not held", () => {
+    expect(computeLandingNoCiHold({ checks: "none" }, true, false, on)).toBe(false);
+    expect(computeLandingNoCiHold({ checks: "success" }, true, true, on)).toBe(false);
+    expect(computeLandingNoCiHold({ checks: "none" }, false, true, on)).toBe(false);
+    expect(
+      computeLandingNoCiHold({ checks: "none" }, true, true, { ...on, autoMergeEnabled: false }),
+    ).toBe(false);
+    expect(computeLandingNoCiHold({ checks: "none" }, true, true, { ...on, draftMode: true })).toBe(
+      false,
+    );
   });
 });

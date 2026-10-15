@@ -55,6 +55,7 @@ describe("waitOwner", () => {
     "stacked",
     "signoff",
     "protection_blocked",
+    "no_ci",
   ])("%s needs the operator", (code) => expect(waitOwner(code, true)).toBe("operator"));
 
   it("critic findings are Shepherd's only under auto-address", () => {

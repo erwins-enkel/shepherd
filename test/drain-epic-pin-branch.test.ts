@@ -91,6 +91,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],

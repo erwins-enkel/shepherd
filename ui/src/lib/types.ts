@@ -1163,6 +1163,9 @@ export interface RepoConfig {
   /** Opens the epic's landing PR early as a draft during drain so each child merge re-runs
    *  landing CI against main (#1664). Default off — opt-in. */
   preWarmEpicLandingCi: boolean;
+  /** Let the merge train and epic auto-land merge in a GitHub repo with zero workflows (#3104).
+   *  Default off — without CI those autonomous merges hold. */
+  mergeWithoutCi: boolean;
   /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
    *  merge (#2069). GitHub-only. Default off — opt-in. */
   epicStacksEnabled: boolean;
@@ -1212,7 +1215,8 @@ export type MergeWaitCode =
   | "critic_error"
   | "critic_pending"
   | "stacked"
-  | "manual_steps";
+  | "manual_steps"
+  | "no_ci";
 
 /** One held full-auto PR on {@link AutoMergeStatus.waiting}. */
 export interface AutoMergeWait {
@@ -1478,6 +1482,8 @@ export interface CompletedEpic {
   landingMergeable?: boolean | null;
   landingReady?: boolean;
   landingStranded?: boolean;
+  /** #3104: ready, auto-merge on, but auto-land holds — the repo has no CI and no mergeWithoutCi opt-in. */
+  landingNoCiHold?: boolean;
   // When the auto-rebase pass is paused and operator action is needed (#1071); null when not paused.
   landingRebasePauseReason?: "cap" | "conflict" | "driver" | null;
   /** When the current conflict pause began (#1841); null/absent outside a conflict pause. */

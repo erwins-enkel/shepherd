@@ -270,3 +270,22 @@ describe("AutomationSettings — browser allowed hosts", () => {
     expect(puts).toEqual([]);
   });
 });
+
+describe("AutomationSettings — merge without CI (#3104)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    repoConfig.mergeWithoutCi = {};
+  });
+
+  const toggle = () => page.getByRole("switch", { name: m.automation_merge_without_ci_name() });
+
+  it("reflects the repo flag (default off) and toggles it on click", async () => {
+    const spy = vi.spyOn(repoConfig, "toggleMergeWithoutCi").mockResolvedValue(undefined);
+    await mount();
+    await expect.element(toggle()).toHaveAttribute("aria-checked", "false");
+    repoConfig.mergeWithoutCi = { "/tmp/repo": true };
+    await expect.element(toggle()).toHaveAttribute("aria-checked", "true");
+    (toggle().element() as HTMLButtonElement).click();
+    expect(spy).toHaveBeenCalledWith("/tmp/repo");
+  });
+});

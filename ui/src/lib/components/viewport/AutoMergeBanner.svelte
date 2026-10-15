@@ -87,6 +87,8 @@
         return m.automergebanner_stacked();
       case "signoff":
         return m.automergebanner_signoff();
+      case "no_ci":
+        return m.automergebanner_no_ci();
     }
   }
 

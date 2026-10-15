@@ -400,6 +400,7 @@ class RepoConfigStore {
   autoOptimize = $state<Record<string, boolean>>({}); // auto-optimize flagged rules (default off)
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
   preWarmEpicLandingCi = $state<Record<string, boolean>>({}); // pre-warm epic landing CI via early draft PR (default off, #1664)
+  mergeWithoutCi = $state<Record<string, boolean>>({}); // autonomous merges in a no-CI repo (default off, #3104)
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
@@ -443,6 +444,7 @@ class RepoConfigStore {
       ...this.preWarmEpicLandingCi,
       [repoPath]: c.preWarmEpicLandingCi,
     };
+    this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: c.mergeWithoutCi };
     this.epicStacks = { ...this.epicStacks, [repoPath]: c.epicStacksEnabled };
     this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: c.sharedBrowserEnabled };
     this.browserAllowedHosts = {
@@ -539,6 +541,7 @@ class RepoConfigStore {
         | "autoOptimizeFlagged"
         | "manualStepsIssueEnabled"
         | "preWarmEpicLandingCi"
+        | "mergeWithoutCi"
         | "epicStacksEnabled"
         | "sharedBrowserEnabled"
         | "browserAllowedHosts"
@@ -795,6 +798,15 @@ class RepoConfigStore {
     });
   }
 
+  async toggleMergeWithoutCi(repoPath: string) {
+    const prev = this.mergeWithoutCi[repoPath];
+    const next = !this.mergeWithoutCiOn(repoPath);
+    this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { mergeWithoutCi: next }, () => {
+      this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: prev };
+    });
+  }
+
   async toggleEpicStacks(repoPath: string) {
     const prev = this.epicStacks[repoPath];
     const next = !this.epicStacksOn(repoPath);
@@ -896,6 +908,10 @@ class RepoConfigStore {
 
   preWarmEpicLandingCiOn(repoPath: string): boolean {
     return this.preWarmEpicLandingCi[repoPath] ?? false;
+  }
+
+  mergeWithoutCiOn(repoPath: string): boolean {
+    return this.mergeWithoutCi[repoPath] ?? false;
   }
 
   epicStacksOn(repoPath: string): boolean {

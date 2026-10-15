@@ -2959,6 +2959,7 @@ export async function putRepoConfig(
       | "criticSmellLensEnabled"
       | "manualStepsIssueEnabled"
       | "preWarmEpicLandingCi"
+      | "mergeWithoutCi"
       | "epicStacksEnabled"
       | "sharedBrowserEnabled"
       | "browserAllowedHosts"

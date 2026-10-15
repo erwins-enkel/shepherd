@@ -607,6 +607,9 @@ export interface RepoConfig {
   /** Pre-warm epic landing CI by opening the landing PR as an early draft during the drain
    *  (#1664). Default OFF — explicit opt-in. */
   preWarmEpicLandingCi: boolean;
+  /** Let the merge train and epic auto-land merge into the default branch in a GitHub repo that
+   *  defines zero workflows (#3104). Default OFF — without CI those autonomous merges hold. */
+  mergeWithoutCi: boolean;
   /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
    *  merge (#2069, epic #2063). GitHub-only (the stacked-PR API is a GitHub preview). Default
    *  OFF — an autonomous retire cannot merge a stacked PR until #2070 lands, so enabling this
@@ -1030,6 +1033,7 @@ type RepoCfgRow = {
   autoOptimizeFlagged: number;
   manualStepsIssueEnabled: number;
   preWarmEpicLandingCi: number;
+  mergeWithoutCi: number;
   epicStacksEnabled: number;
   sharedBrowserEnabled: number;
   browserAllowedHosts: string | null;
@@ -1225,6 +1229,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
+      mergeWithoutCi: false,
       epicStacksEnabled: false,
       sharedBrowserEnabled: false,
       browserAllowedHosts: [],
@@ -1258,6 +1263,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
+    mergeWithoutCi: !!r.mergeWithoutCi,
     epicStacksEnabled: !!r.epicStacksEnabled,
     sharedBrowserEnabled: !!r.sharedBrowserEnabled,
     browserAllowedHosts: parseHostListJson(r.browserAllowedHosts),
@@ -1294,6 +1300,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.autoOptimizeFlagged)),
     Number(Boolean(cfg.manualStepsIssueEnabled)),
     Number(Boolean(cfg.preWarmEpicLandingCi)),
+    Number(Boolean(cfg.mergeWithoutCi)),
     Number(Boolean(cfg.epicStacksEnabled)),
     Number(Boolean(cfg.sharedBrowserEnabled)),
     JSON.stringify(cfg.browserAllowedHosts ?? []),
@@ -2431,7 +2438,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2444,8 +2451,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2469,6 +2476,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
+         mergeWithoutCi = excluded.mergeWithoutCi,
          epicStacksEnabled = excluded.epicStacksEnabled,
          sharedBrowserEnabled = excluded.sharedBrowserEnabled,
          browserAllowedHosts = excluded.browserAllowedHosts,
@@ -6599,6 +6607,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; pre-warm epic landing CI via an early draft landing PR (#1664)
     add("preWarmEpicLandingCi", `preWarmEpicLandingCi INTEGER NOT NULL DEFAULT 0`);
+    // default OFF — opt-in; let autonomous merges land in a repo with no CI (#3104)
+    add("mergeWithoutCi", `mergeWithoutCi INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; stack epic children onto their predecessor's PR branch (#2069)
     add("epicStacksEnabled", `epicStacksEnabled INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; per-repo Shared Browser (agents can read every login in its profile)

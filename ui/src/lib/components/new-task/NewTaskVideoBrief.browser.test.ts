@@ -63,6 +63,7 @@ function cfg(): RepoConfig & { automationConfirmed: boolean; automationRowExists
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],

@@ -39,6 +39,9 @@ export interface MergeSessionView {
   /** True when the repo has no CI to wait on (GitHub + zero workflows): a terminal checks:"none"
    *  counts as cleared for merge. Projected from the cached GitState's noCi. */
   noCi: boolean;
+  /** True when the repo has no CI AND the operator has not opted in to merging without it
+   *  (`mergeWithoutCi`, #3104): a cleared checks:"none" PR is otherwise ready but held as `no_ci`. */
+  noCiHold: boolean;
   /** null = host still computing; treat as not-yet-mergeable. */
   mergeable: boolean | null;
   /** GitHub branch-protection merge state; absent on forges that do not supply it. */
@@ -147,7 +150,8 @@ function readyExceptManualSteps(
  *    `changes_requested` (auto-address — or the operator — answers the critic).
  *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
  *    `stacked`, `signoff`, `protection_blocked` (branch protection holds a green PR — typically a
- *    required human approval, which Shepherd never gives). */
+ *    required human approval, which Shepherd never gives), `no_ci` (a GitHub repo with zero
+ *    workflows and no `mergeWithoutCi` opt-in, #3104). */
 export type MergeWaitCode =
   | "merge_backoff"
   | "conflict"
@@ -162,7 +166,8 @@ export type MergeWaitCode =
   | "critic_error"
   | "critic_pending"
   | "stacked"
-  | "manual_steps";
+  | "manual_steps"
+  | "no_ci";
 
 /** The first readiness gate this PR fails, as a wait code — or null when it passes every gate of
  *  readyExceptManualSteps (which is literally `readyGateFailure(...) === null`, so the reported
@@ -184,7 +189,12 @@ function readyGateFailure(
   if (forge) return forge;
   if (s.behind !== false) return "behind"; // true=stale, null=unknown → not now
   if (draftMode && !signedOff(authority, signoffView(s))) return "signoff"; // backstop: never merge an unsigned draft
-  return verdictGateFailure(s, criticEnabled);
+  const verdict = verdictGateFailure(s, criticEnabled);
+  if (verdict) return verdict;
+  // #3104: a no-CI repo's checks:"none" clears every gate above, but nothing verified the PR —
+  // hold it until the operator adds CI or opts in. Last, so more actionable gates read first.
+  if (s.noCiHold && s.checks === "none") return "no_ci";
+  return null;
 }
 
 /** The forge half of the gate: green CI, host-mergeable, not branch-protection blocked. */

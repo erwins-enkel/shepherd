@@ -2464,6 +2464,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "autoOptimizeFlagged",
   "manualStepsIssueEnabled",
   "preWarmEpicLandingCi",
+  "mergeWithoutCi",
   "epicStacksEnabled",
   "sharedBrowserEnabled",
   "hidden",
@@ -2484,6 +2485,7 @@ type RepoCfgBody = {
   autoOptimizeFlagged?: unknown;
   manualStepsIssueEnabled?: unknown;
   preWarmEpicLandingCi?: unknown;
+  mergeWithoutCi?: unknown;
   epicStacksEnabled?: unknown;
   sharedBrowserEnabled?: unknown;
   hidden?: unknown;
@@ -2594,6 +2596,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       autoOptimizeFlagged?: boolean;
       manualStepsIssueEnabled?: boolean;
       preWarmEpicLandingCi?: boolean;
+      mergeWithoutCi?: boolean;
       epicStacksEnabled?: boolean;
       sharedBrowserEnabled?: boolean;
       hidden?: boolean;
@@ -2671,6 +2674,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     autoOptimizeFlagged: body.autoOptimizeFlagged as boolean | undefined,
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
     preWarmEpicLandingCi: body.preWarmEpicLandingCi as boolean | undefined,
+    mergeWithoutCi: body.mergeWithoutCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
     sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
     hidden: body.hidden as boolean | undefined,
@@ -11046,6 +11050,7 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
     prStatus: (repoPath, branch) => landingPrStatus(deps, repoPath, branch),
     automation: (repoPath, integrationBranch) =>
       landingAutomationContext(deps, repoPath, integrationBranch, nowMs),
+    repoConfig: (repoPath) => deps.store.getRepoConfig(repoPath),
     now: nowMs,
   });
 

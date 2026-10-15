@@ -1201,6 +1201,23 @@
         }
       }
     },
+    "childrun_step_unlocks": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gibt frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlocks"
+          }
+        }
+      }
+    },
     "clearmerged_confirm": {
       "comment": "%1$@ = count",
       "extractionState": "manual",
@@ -4663,6 +4680,96 @@
         }
       }
     },
+    "epic_group_cue_blocked": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ brauchen dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ need you"
+          }
+        }
+      }
+    },
+    "epic_group_cue_changes_requested": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ mit angeforderten Änderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ with requested changes"
+          }
+        }
+      }
+    },
+    "epic_group_cue_ci_failed": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ CI fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ failing CI"
+          }
+        }
+      }
+    },
+    "epic_group_cue_merge_blocked": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Merge blockiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ merge blocked"
+          }
+        }
+      }
+    },
+    "epic_group_cue_ready": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ bereit zum Mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ready to merge"
+          }
+        }
+      }
+    },
     "epic_group_expand_aria": {
       "comment": "%1$@ = number",
       "extractionState": "manual",
@@ -4677,6 +4784,281 @@
           "stringUnit": {
             "state": "translated",
             "value": "Expand epic #%1$@"
+          }
+        }
+      }
+    },
+    "epic_role_leading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "führt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "leads"
+          }
+        }
+      }
+    },
+    "epic_state_in_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in Überprüfung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in review"
+          }
+        }
+      }
+    },
+    "epic_state_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "running"
+          }
+        }
+      }
+    },
+    "epic_tip_confidence_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hoch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "high"
+          }
+        }
+      }
+    },
+    "epic_tip_confidence_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gering"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "low"
+          }
+        }
+      }
+    },
+    "epic_tip_confidence_medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mittel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "medium"
+          }
+        }
+      }
+    },
+    "epic_tip_confidence_repo_only": {
+      "comment": "%1$@ = word",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · nur Repo-Median"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · repo median only"
+          }
+        }
+      }
+    },
+    "epic_tip_confidence_very_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sehr gering"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "very low"
+          }
+        }
+      }
+    },
+    "epicflow_legend_active": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "running"
+          }
+        }
+      }
+    },
+    "epicflow_legend_merged": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zusammengeführt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "merged"
+          }
+        }
+      }
+    },
+    "epicflow_legend_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ready"
+          }
+        }
+      }
+    },
+    "epicflow_legend_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting"
+          }
+        }
+      }
+    },
+    "epicflow_merged": {
+      "comment": "%1$@ = merged, %2$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ von %2$@ zusammengeführt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ merged"
+          }
+        }
+      }
+    },
+    "epicflow_stage_first": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 · zuerst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 · first"
+          }
+        }
+      }
+    },
+    "epicflow_stage_parallel": {
+      "comment": "%1$@ = stage",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · parallel möglich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · parallel possible"
+          }
+        }
+      }
+    },
+    "epicflow_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablauf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flow"
           }
         }
       }
@@ -12628,6 +13010,431 @@
           "stringUnit": {
             "state": "translated",
             "value": "Task ID"
+          }
+        }
+      }
+    },
+    "native_ios_epic_after": {
+      "comment": "%1$@ = deps",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nach %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_chain_aria": {
+      "comment": "%1$@ = needs, %2$@ = stage, %3$@ = total, %4$@ = number, %5$@ = unlocks",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht %1$@. Stufe %2$@ von %3$@: #%4$@. Gibt frei: %5$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %1$@. Stage %2$@ of %3$@: #%4$@. Unlocks %5$@."
+          }
+        }
+      }
+    },
+    "native_ios_epic_fold_next_after": {
+      "comment": "%1$@ = deps",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "als Nächstes nach %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "next after %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_fold_ready": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ready"
+          }
+        }
+      }
+    },
+    "native_ios_epic_frees": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gibt %1$@ frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "frees %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_in_flight": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in Arbeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in progress"
+          }
+        }
+      }
+    },
+    "native_ios_epic_lands": {
+      "comment": "%1$@ = when, %2$@ = word",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "landet ~%1$@ · Sicherheit %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lands ~%1$@ · confidence %2$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_lands_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dann landet das Epic"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "then the epic lands"
+          }
+        }
+      }
+    },
+    "native_ios_epic_more_steps": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weitere Schritte (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More steps (%1$@)"
+          }
+        }
+      }
+    },
+    "native_ios_epic_need_open": {
+      "comment": "%1$@ = deps",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ open"
+          }
+        }
+      }
+    },
+    "native_ios_epic_needs": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs"
+          }
+        }
+      }
+    },
+    "native_ios_epic_needs_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nichts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing"
+          }
+        }
+      }
+    },
+    "native_ios_epic_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now"
+          }
+        }
+      }
+    },
+    "native_ios_epic_open_aria": {
+      "comment": "%1$@ = number, %2$@ = merged, %3$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ öffnen, %2$@ von %3$@ zusammengeführt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open epic #%1$@, %2$@ of %3$@ merged"
+          }
+        }
+      }
+    },
+    "native_ios_epic_open_web": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Browser öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in browser"
+          }
+        }
+      }
+    },
+    "native_ios_epic_parallel": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ parallel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in parallel"
+          }
+        }
+      }
+    },
+    "native_ios_epic_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pausiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paused"
+          }
+        }
+      }
+    },
+    "native_ios_epic_remaining": {
+      "comment": "%1$@ = duration",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noch ~%1$@ ab Fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%1$@ left once resumed"
+          }
+        }
+      }
+    },
+    "native_ios_epic_since": {
+      "comment": "%1$@ = duration",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seit %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "for %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_slots_hint": {
+      "comment": "%1$@ = stage",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr Agenten-Plätze helfen erst ab Stufe %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More agent slots only help from stage %1$@."
+          }
+        }
+      }
+    },
+    "native_ios_epic_stage": {
+      "comment": "%1$@ = stage, %2$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stufe %1$@/%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stage %1$@/%2$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_stage_after": {
+      "comment": "%1$@ = stage, %2$@ = deps",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stufe %1$@ · nach %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stage %1$@ · after %2$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_stage_only": {
+      "comment": "%1$@ = stage",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stufe %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stage %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_unlocks_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nichts wartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing waits"
           }
         }
       }

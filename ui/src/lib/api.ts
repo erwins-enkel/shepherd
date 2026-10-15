@@ -61,6 +61,8 @@ import type {
   ReadinessReport,
   ForgeCheckId,
   ForgeReadiness,
+  FrameworkDrift,
+  UpgradeStoryResult,
   GreenfieldReport,
   DrainStatus,
   AutoMergeStatus,
@@ -2846,6 +2848,20 @@ export async function applyForgeCheck(
     body: JSON.stringify({ check }),
   });
   if (!r.ok) throw await failed(r, "readiness-forge-apply");
+  return r.json();
+}
+
+/** Readiness "Framework majors" (#3113): pinned-stack packages vs the registries' stable lines. */
+export async function getFrameworkDrift(repoPath: string): Promise<FrameworkDrift> {
+  return getJson(`/api/readiness/drift?repo=${encodeURIComponent(repoPath)}`, "readiness-drift");
+}
+
+/** File the upgrade story (or get the open one back). */
+export async function createUpgradeStory(repoPath: string): Promise<UpgradeStoryResult> {
+  const r = await fetch(`/api/readiness/drift/story?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw await failed(r, "readiness-drift-story");
   return r.json();
 }
 

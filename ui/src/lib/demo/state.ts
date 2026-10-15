@@ -62,6 +62,7 @@ import type {
   WorkflowJob,
   ReadinessReport,
   ForgeReadiness,
+  FrameworkDrift,
   GreenfieldReport,
   RepoRoles,
   InstalledPlugin,
@@ -498,6 +499,38 @@ export const demoState = {
       { id: "required_checks", state: "ok", current: ["ci"], target: ["ci"] },
       { id: "auto_label", state: "ok", current: true, target: true },
     ],
+  }),
+
+  /** GET /api/readiness/drift?repo= — the Readiness tab's Framework majors section (#3113). Every
+   *  package is on the current line and no story can be filed: the demo has no forge to write to. */
+  frameworkDrift: (): FrameworkDrift => ({
+    rows: [
+      {
+        ecosystem: "npm",
+        name: "@sveltejs/kit",
+        installed: "2",
+        latest: "2.70.0",
+        target: "2",
+        state: "ok",
+        manifests: ["package.json"],
+        dependabot: [],
+      },
+      {
+        ecosystem: "npm",
+        name: "svelte",
+        installed: "5",
+        latest: "5.40.1",
+        target: "5",
+        state: "ok",
+        manifests: ["package.json"],
+        dependabot: [],
+      },
+    ],
+    resolver: "ok",
+    epicBranches: [],
+    runningEpic: null,
+    canCreateStory: false,
+    openStory: null,
   }),
 
   /** GET /api/readiness/greenfield?repo= — the bootstrap checklist (#3107): an empty project

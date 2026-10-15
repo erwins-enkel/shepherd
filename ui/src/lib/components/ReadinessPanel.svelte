@@ -7,6 +7,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { adoptList, haveList, scoreBand, buildAdoptPrompt } from "./readiness-view";
   import ReadinessForgeSection from "./ReadinessForgeSection.svelte";
+  import ReadinessDriftSection from "./ReadinessDriftSection.svelte";
   import ReadinessGreenfieldSection from "./ReadinessGreenfieldSection.svelte";
   import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
 
@@ -338,14 +339,16 @@
         <pre class="claudemd">{report.issueTemplate}</pre>
       </div>
 
+      <ReadinessDriftSection {repoPath} />
       <ReadinessForgeSection {repoPath} />
     </div>
   {/if}
 
-  <!-- Forge settings (#3106) need only repoPath, so they also show when the scorecard is
-       not applicable or failed to load. -->
+  <!-- Framework majors (#3113) and Forge settings (#3106) need only repoPath, so they also show
+       when the scorecard is not applicable or failed to load. -->
   {#if !loading && (loadError || !report || !report.applicable)}
     <div class="forge-wrap">
+      <ReadinessDriftSection {repoPath} />
       <ReadinessForgeSection {repoPath} />
     </div>
   {/if}

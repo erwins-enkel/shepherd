@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  admitsLine,
   claudeMdPins,
   compareLine,
   dependabotBumps,
@@ -36,6 +37,31 @@ describe("lowestLine", () => {
   );
 });
 
+describe("admitsLine", () => {
+  test.each([
+    ["^8.57.0 || ^9.0.0", "9"],
+    [">=5", "7"],
+    ["> 4", "5"],
+    [">=1.2, <3.1", "3"],
+    ["<=3 >=2", "3"],
+    ["1.2.3 - 3.0.0", "3"],
+    ["^3.0.0", "3"],
+    ["3.x", "3"],
+    ["~0.4.1", "0.4"],
+    ["0.x", "0.7"],
+  ])("%s admits %s", (range, target) => expect(admitsLine(range, target)).toBe(true));
+
+  test.each([
+    ["^8.57.0", "9"],
+    ["~2", "3"],
+    [">=5 <9", "9"],
+    [">=5 <9.0.0", "9"],
+    ["1.2.3 - 2.9.0", "3"],
+    ["^0.4.1", "0.5"],
+    ["^4", "3"],
+  ])("%s does not admit %s", (range, target) => expect(admitsLine(range, target)).toBe(false));
+});
+
 describe("compareLine", () => {
   test("majors and 0.x minors", () => {
     expect(compareLine("2", "3")).toBeLessThan(0);
@@ -54,10 +80,16 @@ describe("parsePackageJson", () => {
       packageManager: "bun@1.2.3+sha256.abc",
     });
     expect(parsePackageJson(text, "ui/package.json")).toEqual([
-      { ecosystem: "npm", name: "svelte", line: "4", manifest: "ui/package.json" },
-      { ecosystem: "npm", name: "@sveltejs/kit", line: "2", manifest: "ui/package.json" },
-      { ecosystem: "npm", name: "vite", line: "5", manifest: "ui/package.json" },
-      { ecosystem: "npm", name: "bun", line: "1", manifest: "ui/package.json" },
+      { ecosystem: "npm", name: "svelte", line: "4", spec: "^4.2.0", manifest: "ui/package.json" },
+      {
+        ecosystem: "npm",
+        name: "@sveltejs/kit",
+        line: "2",
+        spec: "^2.70.0",
+        manifest: "ui/package.json",
+      },
+      { ecosystem: "npm", name: "vite", line: "5", spec: ">=5", manifest: "ui/package.json" },
+      { ecosystem: "npm", name: "bun", line: "1", spec: "1.2.3", manifest: "ui/package.json" },
     ]);
   });
 
@@ -112,10 +144,10 @@ describe("trackedDeclared", () => {
     const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: ["zod"], crates: [] });
     const out = trackedDeclared(
       [
-        { ecosystem: "npm", name: "svelte", line: "4", manifest: "a" },
-        { ecosystem: "npm", name: "lodash", line: "4", manifest: "a" },
-        { ecosystem: "npm", name: "zod", line: "3", manifest: "a" },
-        { ecosystem: "npm", name: "svelte", line: "5", manifest: "b" },
+        { ecosystem: "npm", name: "svelte", line: "4", spec: "^4", manifest: "a" },
+        { ecosystem: "npm", name: "lodash", line: "4", spec: "^4", manifest: "a" },
+        { ecosystem: "npm", name: "zod", line: "3", spec: "^3", manifest: "a" },
+        { ecosystem: "npm", name: "svelte", line: "5", spec: "^5", manifest: "b" },
       ],
       tracked,
     );
@@ -148,10 +180,22 @@ describe("dependabotBumps", () => {
 describe("driftRows", () => {
   const pkgs = trackedDeclared(
     [
-      { ecosystem: "npm", name: "@sveltejs/kit", line: "2", manifest: "ui/package.json" },
-      { ecosystem: "npm", name: "@sveltejs/kit", line: "3", manifest: "site/package.json" },
-      { ecosystem: "npm", name: "svelte", line: "5", manifest: "ui/package.json" },
-      { ecosystem: "npm", name: "vite", line: "6", manifest: "ui/package.json" },
+      {
+        ecosystem: "npm",
+        name: "@sveltejs/kit",
+        line: "2",
+        spec: "^2",
+        manifest: "ui/package.json",
+      },
+      {
+        ecosystem: "npm",
+        name: "@sveltejs/kit",
+        line: "3",
+        spec: "^3",
+        manifest: "site/package.json",
+      },
+      { ecosystem: "npm", name: "svelte", line: "5", spec: "^5", manifest: "ui/package.json" },
+      { ecosystem: "npm", name: "vite", line: "6", spec: "^6", manifest: "ui/package.json" },
     ],
     trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [] }),
   );
@@ -172,6 +216,34 @@ describe("driftRows", () => {
     expect(rows[0]!.manifests).toEqual(["ui/package.json"]);
     expect(rows[0]!.dependabot).toEqual([bump]);
     expect(resolverState(rows)).toBe("partial");
+  });
+
+  test("a range already admitting the target line is not behind (peer || / open >=)", () => {
+    const decl = (spec: string, line: string, manifest: string) => ({
+      ecosystem: "npm" as const,
+      name: "vite",
+      line,
+      spec,
+      manifest,
+    });
+    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [] });
+    const latest = new Map([["npm:vite", "9.1.0"]]);
+    const peers = trackedDeclared(
+      [decl("^8.57.0 || ^9.0.0", "8", "package.json"), decl("^9", "9", "package.json")],
+      tracked,
+    );
+    expect(driftRows(peers, latest, new Map())[0]).toMatchObject({ state: "ok" });
+    const open = trackedDeclared([decl(">=5", "5", "package.json")], tracked);
+    expect(driftRows(open, latest, new Map())[0]).toMatchObject({ state: "ok" });
+    const capped = trackedDeclared(
+      [decl(">=5 <9", "5", "a/package.json"), decl("^8 || ^9", "8", "b/package.json")],
+      tracked,
+    );
+    expect(driftRows(capped, latest, new Map())[0]).toMatchObject({
+      state: "behind",
+      installed: "5",
+      manifests: ["a/package.json"],
+    });
   });
 
   test("all lookups failed → offline, nothing behind", () => {

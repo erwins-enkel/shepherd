@@ -8,11 +8,13 @@ import { pinOf, type HouseStack } from "./house-stack";
 
 export type DriftEcosystem = "npm" | "crates";
 
-/** One package declaration found in one manifest. `line` = major, or `0.minor` for 0.x. */
+/** One package declaration found in one manifest. `line` = the lowest line (major, or `0.minor`
+ *  for 0.x) the declared `spec` admits. */
 export interface DeclaredDep {
   ecosystem: DriftEcosystem;
   name: string;
   line: string;
+  spec: string;
   manifest: string;
 }
 
@@ -29,7 +31,8 @@ export type DriftState = "ok" | "behind" | "unknown";
 export interface DriftRow {
   ecosystem: DriftEcosystem;
   name: string;
-  /** Lowest declared line across the repo's manifests. */
+  /** Behind: the lowest line among declarations that don't admit `target`. Otherwise the lowest
+   *  declared line. */
   installed: string;
   /** Registry's current stable version; null when the lookup failed. */
   latest: string | null;
@@ -75,18 +78,78 @@ export function compareLine(a: string, b: string): number {
   return am - bm || an - bn;
 }
 
-/** The lowest line one `||` alternative admits; null when it has no lower bound we can read. */
-function alternativeLine(alt: string): string | null {
-  const comparators = alt
+/** One `||` alternative split into comparators (`>= 2` → `>=2`). */
+function comparators(alt: string): string[] {
+  return alt
     .replace(/([<>=^~]+)\s+/g, "$1")
     .split(/[\s,]+/)
-    .filter((c) => c && !c.startsWith("<") && c !== "-");
-  const m = comparators[0] ? BOUND_RE.exec(comparators[0]) : null;
+    .filter(Boolean);
+}
+
+/** The line a version token sits on; null when it isn't one. */
+function tokenLine(token: string): string | null {
+  const m = BOUND_RE.exec(token);
   if (!m) return null;
   const major = Number(m[1]);
   if (major !== 0) return String(major);
   const minor = Number(m[2]);
   return `0.${Number.isInteger(minor) ? minor : 0}`;
+}
+
+/** The lowest line one `||` alternative admits; null when it has no lower bound we can read. */
+function alternativeLine(alt: string): string | null {
+  const lower = comparators(alt).find((c) => !c.startsWith("<") && c !== "-");
+  return lower ? tokenLine(lower) : null;
+}
+
+/** Whether an exclusive upper bound `<X` still admits the line `X` sits on (`<3.1` does, `<3`
+ *  and `<3.0.0` don't). */
+function exclusiveAdmitsOwnLine(bound: string): boolean {
+  const parts = bound.replace(/^<v?/, "").split(".").slice(1).map(Number);
+  return tokenLine(bound.slice(1))?.startsWith("0.")
+    ? (parts[1] ?? 0) > 0
+    : parts.some((n) => n > 0);
+}
+
+/** Whether `target` lies at or below an alternative's upper bound(s). */
+function belowUpper(uppers: string[], target: string): boolean {
+  return uppers.every((u) => {
+    const inclusive = u.startsWith("<=");
+    const line = tokenLine(u.slice(inclusive ? 2 : 1));
+    if (!line) return false;
+    const cmp = compareLine(target, line);
+    return cmp < 0 || (cmp === 0 && (inclusive || exclusiveAdmitsOwnLine(u)));
+  });
+}
+
+/** Whether one `||` alternative admits some version on the `target` line. */
+function alternativeAdmits(alt: string, target: string): boolean {
+  const cs = comparators(alt);
+  if (cs.length === 3 && cs[1] === "-")
+    return belowUpper([`<=${cs[2]}`], target) && admitsFrom(cs[0]!, target);
+  const lower = cs.find((c) => !c.startsWith("<"));
+  if (!lower || !admitsFrom(lower, target)) return false;
+  const uppers = cs.filter((c) => c.startsWith("<"));
+  // `>=`/`>` without an upper bound is open-ended: every later line is admitted.
+  if (lower.startsWith(">")) return belowUpper(uppers, target);
+  return compareLine(tokenLine(lower)!, target) === 0 || wildcardZero(lower, target);
+}
+
+/** `target` is at or above the lower bound's line. */
+function admitsFrom(lower: string, target: string): boolean {
+  const line = tokenLine(lower);
+  return line !== null && compareLine(target, line) >= 0;
+}
+
+/** `0`, `0.x`, `0.*` admit every 0.x line. */
+function wildcardZero(lower: string, target: string): boolean {
+  return /^[=^~]?v?0(\.[xX*])?$/.test(lower) && target.startsWith("0.");
+}
+
+/** Whether a semver range (npm or Cargo) admits a version on the `target` line — some `||`
+ *  alternative reaches it. `^8 || ^9` and `>=5` admit 9; `^8` and `>=5 <9` don't. */
+export function admitsLine(range: string, target: string): boolean {
+  return range.split("||").some((alt) => alternativeAdmits(alt.trim(), target));
 }
 
 /** The lowest line a semver range (npm or Cargo) admits. Non-version specs (`workspace:`,
@@ -122,7 +185,7 @@ export function parsePackageJson(text: string, manifest: string): DeclaredDep[] 
   const out: DeclaredDep[] = [];
   const add = (name: string, spec: unknown) => {
     const line = typeof spec === "string" ? lowestLine(spec) : null;
-    if (line) out.push({ ecosystem: "npm", name, line, manifest });
+    if (line) out.push({ ecosystem: "npm", name, line, spec: spec as string, manifest });
   };
   for (const section of NPM_SECTIONS) {
     const deps = d[section];
@@ -164,7 +227,7 @@ export function parseCargoToml(text: string, manifest: string): DeclaredDep[] {
     for (const [key, spec] of Object.entries(table)) {
       const { name, version } = cargoDep(key, spec);
       const line = typeof version === "string" ? lowestLine(version) : null;
-      if (line) out.push({ ecosystem: "crates", name, line, manifest });
+      if (line) out.push({ ecosystem: "crates", name, line, spec: version as string, manifest });
     }
   }
   return out;
@@ -197,7 +260,7 @@ export function trackedKeys(
 export interface DeclaredPackage {
   ecosystem: DriftEcosystem;
   name: string;
-  declarations: { manifest: string; line: string }[];
+  declarations: { manifest: string; line: string; spec: string }[];
 }
 
 /** Tracked packages the repo declares, grouped per package, sorted by name. */
@@ -207,7 +270,7 @@ export function trackedDeclared(declared: DeclaredDep[], tracked: Set<string>): 
     const key = driftKey(d.ecosystem, d.name);
     if (!tracked.has(key)) continue;
     const g = groups.get(key) ?? { ecosystem: d.ecosystem, name: d.name, declarations: [] };
-    g.declarations.push({ manifest: d.manifest, line: d.line });
+    g.declarations.push({ manifest: d.manifest, line: d.line, spec: d.spec });
     groups.set(key, g);
   }
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -241,28 +304,27 @@ function lowestOf(lines: string[]): string {
 }
 
 /** One row per declared tracked package. `latest` maps a {@link driftKey} to the registry
- *  version, or null when the lookup failed (→ `unknown`, never `behind`). */
+ *  version, or null when the lookup failed (→ `unknown`, never `behind`). A declaration is behind
+ *  only when its range admits no version on the target line — a range like `^8 || ^9` or `>=5`
+ *  already covers the current major, and narrowing it would drop support for the older one. */
 export function driftRows(
   packages: DeclaredPackage[],
   latest: Map<string, string | null>,
   bumps: Map<string, DependabotBump[]>,
 ): DriftRow[] {
   return packages.map((p) => {
-    const installed = lowestOf(p.declarations.map((d) => d.line));
     const version = latest.get(driftKey(p.ecosystem, p.name)) ?? null;
     const target = version ? pinOf(version) : null;
-    const behind = target !== null && compareLine(installed, target) < 0;
-    const manifests = p.declarations
-      .filter((d) => !behind || compareLine(d.line, target!) < 0)
-      .map((d) => d.manifest);
+    const lagging = target ? p.declarations.filter((d) => !admitsLine(d.spec, target)) : [];
+    const shown = lagging.length ? lagging : p.declarations;
     return {
       ecosystem: p.ecosystem,
       name: p.name,
-      installed,
+      installed: lowestOf(shown.map((d) => d.line)),
       latest: version,
       target,
-      state: target === null ? "unknown" : behind ? "behind" : "ok",
-      manifests: [...new Set(manifests)],
+      state: target === null ? "unknown" : lagging.length ? "behind" : "ok",
+      manifests: [...new Set(shown.map((d) => d.manifest))],
       dependabot: bumps.get(p.name) ?? [],
     };
   });

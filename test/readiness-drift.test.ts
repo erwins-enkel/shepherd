@@ -116,6 +116,21 @@ describe("frameworkDrift", () => {
     expect(out.runningEpic).toBe(9);
   });
 
+  test("library peer range admitting the current major → no warning", async () => {
+    write("package.json", {
+      peerDependencies: { eslint: "^8.57.0 || ^9.0.0", vite: ">=5" },
+      devDependencies: { eslint: "^9.0.0", vite: "^7.0.0" },
+    });
+    const out = await frameworkDrift(
+      dir,
+      deps({ resolver: resolver({ eslint: "9.30.0", vite: "7.1.0" }) }),
+    );
+    expect(out.rows.map((r) => [r.name, r.state])).toEqual([
+      ["eslint", "ok"],
+      ["vite", "ok"],
+    ]);
+  });
+
   test("up to date → no behind rows", async () => {
     write("package.json", { dependencies: { "@sveltejs/kit": "^3.0.0" } });
     const out = await frameworkDrift(dir, deps());

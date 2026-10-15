@@ -4656,7 +4656,9 @@ export class SessionService {
    * every spawn and resume, at boot (an assistant started by an older build carries the broad
    * `mcp__shepherd` allow — the ask/deny rules here outrank it) and on every settings change.
    * Atomic (temp + rename) so a reload never reads half a file. No dir → no assistant yet → nothing
-   * to write. Best-effort: the action tools enforce `off` server-side either way.
+   * to write. Best-effort: the action tools enforce `off` server-side either way. Shepherd owns the
+   * whole file: a rule Claude adds to it ("don't ask again" in the panel) lasts until the next
+   * sync — Settings → Assistant is where a lasting choice goes.
    */
   syncOperatorAssistantPermissions(
     dir: string = this.deps.operatorAssistantDir ?? config.operatorAssistantDir,

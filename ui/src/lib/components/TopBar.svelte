@@ -1231,10 +1231,16 @@
      off-centre in the corner. */
   .hud.mobile .conn {
     order: -1;
-    /* Same 44px cell as the Assist + gear ghost buttons beside it, so the three glyphs share
-       one rhythm instead of the dot hugging its neighbour. */
-    min-width: 44px;
+    /* Half of the Assist + gear 44px ghost cell: the dot sits 22px left of the right edge, so
+       the three glyphs share one rhythm. The left half would be dead space — the dot is not a
+       button (no touch floor) and a full cell pushed the cluster to line 2 on phones. */
     min-height: 44px;
+    padding-inline-end: 22px;
+  }
+  /* Zero-width box centred on that point; the glyph overflows into the row gap. */
+  .hud.mobile .conn .dot {
+    width: 0;
+    display: inline-flex;
     justify-content: center;
   }
   .hud.mobile .rightside {

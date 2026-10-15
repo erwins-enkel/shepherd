@@ -3665,12 +3665,32 @@ describe("TopBar — Operator Assistant entry points", () => {
     expect(getComputedStyle(chip).borderTopColor).toBe(
       getComputedStyle(document.querySelector(".gear")!).borderTopColor,
     );
-    const [conn, assist, gear] = [".conn", "#topbar-assist", ".gear"].map((s) =>
+    const [conn, dot, assist, gear] = [".conn", ".conn .dot", "#topbar-assist", ".gear"].map((s) =>
       document.querySelector(s)!.getBoundingClientRect(),
     );
-    for (const r of [conn, assist, gear]) expect(r.width).toBeCloseTo(44, 0);
-    expect(assist.left - conn.right).toBeCloseTo(gear.left - assist.right, 0);
+    for (const r of [assist, gear]) expect(r.width).toBeCloseTo(44, 0);
+    // The dot is informational, not a button: half a cell, no dead left half.
+    expect(conn.width).toBeLessThanOrEqual(24);
+    const mid = (r: DOMRect) => r.left + r.width / 2;
+    expect(mid(assist) - mid(dot)).toBeCloseTo(mid(gear) - mid(assist), 0);
     expect(assist.top + assist.height / 2).toBeCloseTo(conn.top + conn.height / 2, 0);
+  });
+
+  it("phone: the ● ✦ ⚙ cluster stays on the logo + tallies row", async () => {
+    // Test fonts run narrower than a real phone's, so a narrow viewport stands in for the
+    // ~411px device where a 142px cluster wrapped to line 2.
+    await page.viewport(345, 844);
+    document.body.style.width = "345px";
+    const sessions = [
+      ...Array.from({ length: 3 }, (_, i) => ({ id: `r${i}`, status: "running" })),
+      { id: "i0", status: "idle" },
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `d${i}`, status: "done" })),
+    ] as unknown as Session[];
+    render(TopBar, props({ onassistant: vi.fn(), mobile: true, touch: true, sessions }));
+    await expect.element(toggle()).toBeVisible();
+    const logo = document.querySelector(".logo")!.getBoundingClientRect();
+    const gear = document.querySelector(".gear")!.getBoundingClientRect();
+    expect(gear.top).toBeLessThan(logo.bottom);
   });
 
   it("phone: the pip follows the assistant's status", async () => {

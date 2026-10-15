@@ -12747,6 +12747,23 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"confirmedDiscardStillRefusesPromotionAfterAnEditToLive() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"dirtyCheckoutExplainsDeletionAndDoesNotCallUpdater() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"dirtyFleetHandoffNeverUsesPendingDiscardConfirmation() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"discardIsOfferedOnlyForDirtyManagedUpdatesAndHasLocalizedCopy()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"discardIsOfferedOnlyForDirtyManagedUpdatesAndHasLocalizedCopy()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"backendFlagsControlActionsWithoutVersionComparisons() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"doneBeforeHTTPFailureRemainsAuthoritative() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"independentFailureDoesNotHideOtherRunner() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"logsAreBoundedAndMalformedEventsDoNotClearStatus() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"lostCodexDoneIsUncertainNotSuccessOrForeverBusy() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"modernHerdrRecoversPersistedCompletionAndRejectsOlderRevision() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"newerEventWinsOverSuspendedHTTPAndTeardown() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"screenshotUpdatesAreVisibleWithoutOpeningSettings() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunnerUpdatesModelTests.swift\",\"RunnerUpdatesModelTests\",\"teardownDiscardsAReadAlreadyInFlight() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRunnerUpdatesTests.swift\",\"ShepherdClientRunnerUpdatesTests\",\"actionsUseExistingRoutesAndRestartUsesDisplayedRuntime() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRunnerUpdatesTests.swift\",\"ShepherdClientRunnerUpdatesTests\",\"alreadyRunning409HasOnlyOkAndOldEndpointIsUnavailable() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRunnerUpdatesTests.swift\",\"ShepherdClientRunnerUpdatesTests\",\"errorsAreNotAcceptedAsSuccess(_ status: Int) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRunnerUpdatesTests.swift\",\"ShepherdClientRunnerUpdatesTests\",\"readsNullableStatusAndReleaseNotes() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRunnerUpdatesTests.swift\",\"ShepherdClientRunnerUpdatesTests\",\"updateEventsReachTheExistingStreamTap() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/RunnerUpdatesTests.swift\",\"MacSeamTests.RunnerUpdatesTests\",\"screenshotIndicatorsAndDetailsUseLocalizedCopy() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/RunnerUpdatesTests.swift\",\"MacSeamTests.RunnerUpdatesTests\",\"settingsOwnsUpdatesAcrossProfileSwitchAndTeardown() async throws\"]",
+    "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/RunnerUpdatesUITests.swift\",\"RunnerUpdatesUITests\",\"testBothUpdatesAppearBeforeOpeningSettingsAndOpenNativeDetails() throws\"]"
   ]
 }

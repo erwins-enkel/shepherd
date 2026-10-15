@@ -23,6 +23,7 @@ struct SettingsReads: Sendable {
     }
 }
 @Observable @MainActor public final class SettingsModel: AppExtension {
+    public private(set) var runnerUpdates: RunnerUpdatesModel?
     public private(set) var snapshot: SettingsSnapshot?
     public private(set) var error: String?
     public private(set) var busy = false
@@ -220,7 +221,13 @@ struct SettingsReads: Sendable {
         default: break
         }
     }
+    /// macOS mounts the update UI; the settings activation owns its model and cleanup.
+    public func installRunnerUpdates(store: SessionStore, app: AppModel) {
+        guard !stopped, runnerUpdates == nil else { return }
+        runnerUpdates = RunnerUpdatesModel(store: store, app: app)
+    }
     public func teardown() {
+        runnerUpdates?.teardown(); runnerUpdates = nil
         stopped = true; generation &+= 1
         cancelWorkspaceAction(); forkTarget = ""
         wake?.finish(); wake = nil

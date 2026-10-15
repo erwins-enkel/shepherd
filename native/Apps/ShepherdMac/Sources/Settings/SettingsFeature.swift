@@ -41,7 +41,14 @@ struct SettingsPaneEntry: SettingsPane {
             } else if availability != .localOffline, id != "notifications", let model = app.extension(SettingsModel.self), let store = app.store {
                 switch id {
                 case "workspace": SettingsWorkspaceView(model:model,client:store.client)
-                case "clis": SettingsGeneralView(model:model,client:store.client,cli:true)
+                case "clis":
+                    ScrollView {
+                        if let updates = model.runnerUpdates {
+                            RunnerUpdatesView(model: updates, serverName: app.activeProfile?.name ?? "",
+                                sessions: RunnerUpdatesView.runningSessions(store.sessions))
+                        }
+                        SettingsGeneralView(model:model,client:store.client,cli:true)
+                    }.task { model.installRunnerUpdates(store: store, app: app) }
                 case "access": SettingsAccessView(app:app,settings:model)
                 case "diagnose": SettingsDiagnoseView(model:model,client:store.client)
                 default: EmptyView()

@@ -341,7 +341,9 @@ import Testing
       let size = try? FileManager.default.attributesOfItem(atPath: log.path)[.size] as? NSNumber
       return (size?.uint64Value ?? UInt64.max) < LocalServerLogTail.maxFileBytes
     }
-    try await Task.sleep(for: .milliseconds(200))
+    try await waitUntil {
+      (try? String(contentsOf: log, encoding: .utf8))?.contains("continued") == true
+    }
     #expect(try String(contentsOf: log, encoding: .utf8).contains("continued"))
     await next.stop(gracePeriod: 0.3)
   }

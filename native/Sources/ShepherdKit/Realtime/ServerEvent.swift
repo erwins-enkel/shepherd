@@ -96,7 +96,8 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
     case .usage_colon_limits:
       self = payload(Components.Schemas.UsageLimits.self).map(ServerEvent.usageLimits)
         ?? .unknown(name: name.rawValue, payload: rawPayload())
-    case nil:
+    case .herdrUpdate_colon_status, .herdrUpdate_colon_log, .herdrUpdate_colon_done,
+         .codexUpdate_colon_status, .codexUpdate_colon_log, .codexUpdate_colon_done, nil:
       self = .unknown(name: name.rawValue, payload: rawPayload())
     }
 

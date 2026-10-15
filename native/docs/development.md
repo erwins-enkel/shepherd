@@ -130,6 +130,21 @@ First complete [setup, build and connection](getting-started.md).
    [Parallel streams: seams and rules](#parallel-streams-seams-and-rules) before editing any
    shared file.
 
+### Runner update UI fixture
+
+For the native herdr/Codex update indicators, run `bun test/fixtures/runner-updates-ui-server.ts`
+in this worktree. It prints its loopback URL and uses the contract fixture password
+`operator-password`; updater actions are stubs and never install or restart anything.
+Set `SHEPHERD_LIVE_BASE_URL` to that URL, `SHEPHERD_LIVE_PASSWORD=operator-password`,
+`SHEPHERD_RUNNER_UPDATE_FIXTURE=1` and their `TEST_RUNNER_` equivalents, then run:
+
+```
+native/scripts/uitest-lock.sh native/scripts/test-app.sh -only-testing:ShepherdUITests/RunnerUpdatesUITests
+```
+
+The app uses the existing isolated launch and owned-token cleanup handshake. Stop the fixture
+with Ctrl-C afterwards to remove its temporary repository and database.
+
 ### Package resolution without Keychain prompts
 
 Every worktree builds with its own `-derivedDataPath .build`, so each fresh one resolves the

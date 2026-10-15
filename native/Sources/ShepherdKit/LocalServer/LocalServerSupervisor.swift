@@ -537,8 +537,9 @@ public actor LocalServerSupervisor {
       }
       if stillOwns(pid) {
         deliver(SIGKILL, to: pid)
-        await reap(pid)
       }
+      // A graceful exit can leave a zombie before Foundation reaps it.
+      await reap(pid)
       // The leader dying is not the group dying. SIGTERM went to the whole
       // group, so a member that ignored it is still there — and the loop above
       // ends the moment the leader goes, which used to mean `kill(pid, 0) != 0`
@@ -611,7 +612,8 @@ public actor LocalServerSupervisor {
   private func reap(_ pid: Int32) async {
     var status: Int32 = 0
     for _ in 0..<10 {
-      if waitpid(pid, &status, WNOHANG) == pid { return }
+      let result = waitpid(pid, &status, WNOHANG)
+      if result == pid || (result == -1 && errno == ECHILD) { return }
       try? await Task.sleep(for: .milliseconds(20))
     }
   }

@@ -2726,6 +2726,40 @@ export type ForgeReadiness =
   | { supported: false }
   | { supported: true; defaultBranch: string; autoLabel: string; checks: ForgeCheck[] };
 
+// ── Readiness → Framework majors (#3113); mirrors src/readiness-drift-core.ts ──
+export type DriftState = "ok" | "behind" | "unknown";
+export interface DependabotBump {
+  number: number;
+  url: string;
+  from: string;
+  to: string;
+}
+export interface DriftRow {
+  ecosystem: "npm" | "crates";
+  name: string;
+  /** Lowest declared line (major, or `0.minor`) across the repo's manifests. */
+  installed: string;
+  /** Registry's current stable version; null when the lookup failed. */
+  latest: string | null;
+  target: string | null;
+  state: DriftState;
+  manifests: string[];
+  dependabot: DependabotBump[];
+}
+export interface FrameworkDrift {
+  rows: DriftRow[];
+  resolver: "ok" | "partial" | "offline" | "none";
+  epicBranches: string[];
+  runningEpic: number | null;
+  canCreateStory: boolean;
+  openStory: { number: number; url: string } | null;
+}
+export interface UpgradeStoryResult {
+  status: "created" | "exists";
+  number: number;
+  url: string;
+}
+
 // ── New Task "shape this" round (issue #2158) ───────────────────────────────
 /** The four sections the shaping helper drafts; mirrors the server's TaskBriefDraft. */
 export interface TaskBriefDraft {

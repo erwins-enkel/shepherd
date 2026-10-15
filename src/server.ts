@@ -212,6 +212,12 @@ import { analyzeReadiness } from "./readiness";
 import { applyForgeCheck, ForgeCheckNotApplicableError, forgeReadiness } from "./readiness-forge";
 import type { GreenfieldService } from "./greenfield";
 import { isForgeCheckId } from "./readiness-forge-core";
+import {
+  createUpgradeStory,
+  frameworkDrift,
+  UpgradeStoryNotApplicableError,
+  type DriftDeps,
+} from "./readiness-drift";
 import { composeTaskBrief } from "./intent-shape";
 import { normalizeRound } from "./task-shape";
 import { listCommands } from "./commands";
@@ -9622,6 +9628,44 @@ async function handleReadinessForge({ req, parts, url, deps }: Ctx): Promise<Res
   return forgeRoute("apply", () => applyForgeCheck(dir, forge, autoLabel, check));
 }
 
+// Readiness → Framework majors (#3113). GET /api/readiness/drift?repo= compares the pinned-stack
+// packages the repo declares with the registries; POST /api/readiness/drift/story?repo= files the
+// upgrade story (or returns the open one).
+async function handleReadinessDrift({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  const route = driftRoute(req.method, parts);
+  if (!route) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const story = route === "story";
+  try {
+    return json(await (story ? createUpgradeStory : frameworkDrift)(dir, driftDeps(dir, deps)));
+  } catch (e) {
+    if (e instanceof UpgradeStoryNotApplicableError) return json({ error: e.message }, 409);
+    // Generic body — raw gh/stack text never reaches the client.
+    console.error(`[readiness-drift] ${route} failed:`, e);
+    return json({ error: `${route}_failed` }, 502);
+  }
+}
+
+/** `read` for GET /api/readiness/drift, `story` for POST …/drift/story, else null. */
+function driftRoute(method: string, parts: string[]): "read" | "story" | null {
+  if (parts[0] !== "api" || parts[1] !== "readiness" || parts[2] !== "drift" || parts[4])
+    return null;
+  if (!parts[3]) return method === "GET" ? "read" : null;
+  return parts[3] === "story" && method === "POST" ? "story" : null;
+}
+
+function driftDeps(dir: string, deps: Ctx["deps"]): DriftDeps {
+  const epicRun = deps.store.getEpicRun(dir);
+  return {
+    resolver: deps.houseStackResolver ?? defaultHouseStackResolver,
+    forge: deps.resolveForge?.(dir) ?? null,
+    houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
+    autoLabel: deps.store.getRepoConfig(dir).autoLabel,
+    runningEpic: epicRun?.status === "running" ? epicRun.parentIssueNumber : null,
+  };
+}
+
 /** Run a Forge-settings read/apply; map failures to generic bodies — raw gh/stack text never
  *  reaches the client (CodeQL js/stack-trace-exposure). */
 async function forgeRoute(op: "read" | "apply", fn: () => Promise<unknown>): Promise<Response> {
@@ -11197,6 +11241,7 @@ const ROUTE_HANDLERS = [
   handleReadiness,
   handleReadinessGreenfield,
   handleReadinessForge,
+  handleReadinessDrift,
   handleAdoptGitignore,
   handleBacklog,
   handleTodo,

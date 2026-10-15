@@ -12778,6 +12778,15 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"noChildrenNoStages()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"selfReferencesOutsideEdgesAndDuplicatesAreIgnored() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"stagesFollowTheLongestBlockerPath() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"withinAStageChildrenFollowTheirBlockersRows() throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"withinAStageChildrenFollowTheirBlockersRows() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"aMergedPredecessorIsMarkedAndTheFanOutCounts() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"anOutOfOrderStartShowsTheOpenBlocker() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"aNumberOutsideTheEpicHasNoChain() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"meterTonesFollowEpicOrder() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"numberListsShowTwoThenACount()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"theClockSubtractsPausesAndStandsStillWhilePaused() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"theFirstChildNeedsNothingAndFreesTwoInParallel() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"theLastChildIsMarkedOnceEveryOtherOneMerged() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"titlesDropRedundantPrefixes()\"]"
   ]
 }

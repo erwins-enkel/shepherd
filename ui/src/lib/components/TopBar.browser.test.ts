@@ -374,6 +374,44 @@ describe("TopBar — no overflow, controls stay hittable", () => {
   }
 });
 
+describe("TopBar — badge labels never wrap", () => {
+  // A flex badge whose label could wrap absorbed the overflow as a second text line
+  // ("WHAT'S / NEW"), so the bar never measured as overflowing and never compacted.
+  // At every common desktop width each rendered label stays on ONE line.
+  const textLines = (el: Element) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const tops = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+    return tops.size;
+  };
+  for (const width of [1100, 1180, 1236, 1280, 1322, 1366, 1436]) {
+    it(`desktop ${width} — update + herdr + what's new`, async () => {
+      await page.viewport(width, 900);
+      document.body.style.width = `${width}px`;
+      render(
+        TopBar,
+        baseProps({
+          name: "",
+          mode: "desktop",
+          width,
+          props: {
+            update: { behind: 4 } as UpdateStatus,
+            herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
+            whatsNew: true,
+            ...sessionsProp(0),
+          },
+        }),
+      );
+      const hud = document.querySelector<HTMLElement>(".hud")!;
+      await drainFrames(hud);
+      await waitNoOverflow(hud);
+      for (const label of hud.querySelectorAll(".up-label, .wn-label")) {
+        expect(textLines(label), `"${label.textContent}" wraps at ${width}px`).toBe(1);
+      }
+    });
+  }
+});
+
 describe("TopBar — touch-desktop (unfolded fold) overflow is measurement-driven", () => {
   // Unfolded foldables are touch + wider-than-768px → "touch-desktop", but at WILDLY
   // varying widths (a fold ~800px vs an iPad landscape ~1366px). The old count-based

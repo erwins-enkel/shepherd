@@ -217,6 +217,10 @@
     font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
+    /* never wrap/shrink: a wrapped label absorbs overflow, so the bar never
+       measures as overflowing and never compacts to icons */
+    white-space: nowrap;
+    flex-shrink: 0;
     border-radius: var(--radius-chip);
     animation: update-pulse 2.4s ease-in-out infinite;
   }
@@ -277,6 +281,10 @@
     font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
+    /* never wrap/shrink: a wrapped label absorbs overflow, so the bar never
+       measures as overflowing and never compacts to icons */
+    white-space: nowrap;
+    flex-shrink: 0;
     border-radius: var(--radius-chip);
   }
   .whatsnew-badge:hover {

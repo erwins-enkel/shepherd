@@ -97,6 +97,7 @@
   import AutoMergeBanner from "./viewport/AutoMergeBanner.svelte";
   import { ciBannerState } from "#lib/ci-banner.js";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
+  import ViewportFootHints from "./viewport/ViewportFootHints.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import BrowserPanel from "./viewport/BrowserPanel.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
@@ -561,14 +562,6 @@
   let codexQuestions = $state(false);
   let uploading = $state(false);
   let uploadFailed = $state(false);
-  // platform-correct modifier for the "force local selection" hint: xterm uses
-  // Shift on Linux/Windows, Option (⌥) on macOS while the agent holds the mouse.
-  // Guarded for SSR (no navigator) → renders the Shift glyph, corrects on hydrate.
-  const isMac = $derived(
-    typeof navigator !== "undefined" &&
-      /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent),
-  );
-
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
   // foldables). Drops secondary fields + wraps so the trailing actions never clip.
   const compact = $derived(mobile || touch);
@@ -3461,28 +3454,9 @@
        swipe-up-from-the-bottom-edge compose gesture lands on it (the footer would
        otherwise sit below the row and swallow the gesture's start on foldables). -->
   {#if !compact && !assistant}
-    <div class="vp-foot">
-      <span>{m.viewport_type_steer_hint()}</span>
-      <span class="sep">·</span>
-      <span>{m.viewport_detach_hint()}</span>
-      <span class="sep">·</span>
-      <span
-        class="hint-help"
-        title={m.viewport_select_hint_title({ key: isMac ? "Option (⌥)" : "Shift (⇧)" })}
-      >
-        {m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" })}
-      </span>
-      <span class="sep">·</span>
-      <span>{m.viewport_keynav_hint()}</span>
-      <span class="sep">·</span>
-      <span>{m.viewport_commandbar_hint({ key: isMac ? "⌘K" : "Ctrl+K" })}</span>
-      <!-- Enter only hands focus back on the terminal tab (focusTerminal
-           no-ops elsewhere), so don't advertise it on other tabs -->
-      {#if tab === "term"}
-        <span class="sep">·</span>
-        <span>{m.viewport_keynav_enter_hint()}</span>
-      {/if}
-    </div>
+    <!-- Enter only hands focus back on the terminal tab (focusTerminal
+         no-ops elsewhere), so don't advertise it on other tabs -->
+    <ViewportFootHints showEnter={tab === "term"} />
   {/if}
 </div>
 
@@ -4481,29 +4455,12 @@
     border-color: var(--color-red);
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
   }
-  .vp-foot {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
-    background: var(--color-head);
-    border-top: 1px solid var(--color-line);
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    flex-shrink: 0;
-  }
   /* the assistant's lone touch Esc, styled as the steer row it stands in for (SteerBar .steer-row) */
   .vp-esc-row {
     display: flex;
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
     flex-shrink: 0;
-  }
-
-  .hint-help {
-    cursor: help;
-    text-decoration: underline dotted;
-    text-underline-offset: 0.2em;
   }
 
   .term-mount.dragging {

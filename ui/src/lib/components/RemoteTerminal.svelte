@@ -43,6 +43,10 @@
     parked = false;
     conn?.takeover();
   }
+  /** Hand the keyboard to the terminal — the page's Enter after plain-key navigation. */
+  export function focus() {
+    termRef?.focus();
+  }
 
   $effect(() => {
     const { state, since } = session.connection;
@@ -167,8 +171,8 @@
     position: relative;
     display: flex;
     flex: 1 1 auto;
-    min-height: 240px;
-    border: 1px solid var(--color-line);
+    /* the detail's body owns the floor and the frame, as the Viewport's .vp-body does */
+    min-height: 0;
     background: var(--color-inset);
   }
   .mount {

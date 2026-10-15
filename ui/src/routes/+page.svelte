@@ -1519,6 +1519,10 @@
   // bind:this on the desktop Viewport, so the Enter shortcut can hand the
   // keyboard back to the terminal that plain-key navigation kept it out of.
   let viewportRef: Viewport | undefined = $state();
+  // …and on the desktop detail of a session on a connected machine, which stands in its place.
+  let remoteDetailRef: RemoteSessionDetail | undefined = $state();
+  // That detail's compact layout, as the Viewport derives its own from mobile + touch.
+  const remoteDetailCompact = $derived(mobile.current || touch.current);
 
   // toDetail=false re-targets the selection WITHOUT opening the mobile detail screen —
   // used when the switch is a side effect of another action (e.g. a repo-filter change)
@@ -1965,6 +1969,7 @@
         if (e.target === document.body) {
           e.preventDefault();
           viewportRef?.focusTerminal();
+          remoteDetailRef?.focusTerminal();
         }
         break;
       default:
@@ -3517,6 +3522,7 @@
             {nowMs}
             terminalOwners={store.terminalOwners}
             previewTick={store.remotePreviewTick[selectedRemote.id]}
+            compact={remoteDetailCompact}
             onback={() => (mobileScreen = "list")}
             ondecommission={onarchive}
             onedit={openSteersEditor}
@@ -3697,10 +3703,12 @@
           {/if}
         {:else if selectedRemote}
           <RemoteSessionDetail
+            bind:this={remoteDetailRef}
             session={selectedRemote}
             {nowMs}
             terminalOwners={store.terminalOwners}
             previewTick={store.remotePreviewTick[selectedRemote.id]}
+            compact={remoteDetailCompact}
             ondecommission={onarchive}
             onedit={openSteersEditor}
           />

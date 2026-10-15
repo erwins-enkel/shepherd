@@ -16,6 +16,10 @@ enum SessionListStyle {
     static let blue = color(0x4a90d9)
     static let slate = color(0x566460)
 
+    /// Epic blue at 30 % over `line`: the web's `color-mix(in srgb, blue 30%, line)` for the
+    /// epic header rule and the rail tying member rows to it.
+    static let epicRail = color(0x294459)
+
     static func badgeTint(_ tint: Color) -> Color {
         switch tint {
         case .green: green

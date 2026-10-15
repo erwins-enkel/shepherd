@@ -66,6 +66,20 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertNil(directory.digest(moved[0], owner: owner))
     }
 
+    func testEpicCopyNamesRunClockAndStage() throws {
+        let epic = try JSONDecoder().decode(Epic.self, from: Data(#"""
+            {"repoPath":"/repos/app","parentIssueNumber":100,"parentTitle":"Epic: Ship","source":"native",
+            "children":[{"number":101,"title":"First","url":"https://x/101","order":0,"body":"","blockedBy":[],
+            "state":"running","sessionId":"a","prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":true}],
+            "warnings":[],"run":{"repoPath":"/repos/app","parentIssueNumber":100,"mode":"auto","status":"running"},
+            "timing":{"startedAt":0,"pausedAt":null,"pausedMs":0,"landingStartedAt":null,"landedAt":null,"agentMs":0,"idleMs":0}}
+            """#.utf8))
+        XCTAssertEqual(IOSEpicCopy.runChip(epic), L.t("epic_role_leading"))
+        XCTAssertEqual(IOSEpicCopy.clock(epic, now: 10_020_000), L.t("native_ios_epic_since", "2h 47m"))
+        XCTAssertEqual(IOSEpicCopy.stage(EpicDigest(epic)), L.t("native_ios_epic_stage", "1", "1"))
+        XCTAssertNil(IOSEpicCopy.forecast(epic))
+    }
+
     private func profile(_ name: String) -> ServerProfile {
         .init(name: name, baseURL: URL(string: "https://\(name).fixture.invalid")!, mode: .remote, credentialKey: name)
     }

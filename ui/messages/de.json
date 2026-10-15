@@ -6450,5 +6450,7 @@
   "feat_epic_usage_override_body": "Hält ein Epic an der Nutzungsgrenze des Repos an, kannst du die Grenze jetzt für diesen Epic-Lauf aufheben — in der Epic-Abarbeitung oder direkt am Pausiert-Banner in der Repo-Leiste. Das gilt nur für diesen Lauf und endet, sobald du den Epic pausierst oder beendest; die Extra-Guthaben-Grenze greift weiterhin. Das Banner nennt jetzt außerdem deine Auslastung und die Grenze, mit der sie verglichen wurde.",
   "native_ios_server_unavailable": "{server} ist gerade nicht erreichbar",
   "native_ios_push_relay_hint": "Benachrichtigungen für Rechner, die dieser Server spiegelt. Rechner, die du hier direkt hinterlegt hast, melden sich selbst, nie doppelt.",
-  "native_ios_push_relay_toggle": "Gespiegelte Rechner über {server}"
+  "native_ios_push_relay_toggle": "Gespiegelte Rechner über {server}",
+  "feat_herdr_095_title": "herdr 0.9.5 wird unterstützt",
+  "feat_herdr_095_body": "Du kannst herdr in Shepherd jetzt bis Version 0.9.5 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.9.4 und 0.9.5 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin."
 }

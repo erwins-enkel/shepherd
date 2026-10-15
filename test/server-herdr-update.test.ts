@@ -62,8 +62,8 @@ test("herdr GET describes an already installed but incomplete update", async () 
 
 test("herdr restart route rejects unsupported and unknown runtimes without mutation", async () => {
   for (const runtime of [
-    { state: "ready" as const, installedVersion: "0.9.5", serverVersion: "0.9.5" },
-    { state: "restart_required" as const, installedVersion: "0.9.5", serverVersion: "0.9.2" },
+    { state: "ready" as const, installedVersion: "0.9.6", serverVersion: "0.9.6" },
+    { state: "restart_required" as const, installedVersion: "0.9.6", serverVersion: "0.9.2" },
     { state: "unknown" as const, installedVersion: "0.9.0", serverVersion: null },
   ]) {
     let mutations = 0;

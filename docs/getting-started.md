@@ -33,9 +33,9 @@ exists. It also invokes upstream installers it does not control — specifically
 highest release Shepherd supports — verifies it reports that version, and installs it to
 `~/.local/bin`. That release binary is still third-party code fetched and executed on your machine.
 
-> **Shepherd supports herdr up to 0.9.4.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
-> Shepherd drives it through a CLI external-registration path, and 0.9.4 (protocol 22) keeps that
-> path. Schema, CLI, lifecycle and terminal compatibility are checked against 0.9.4;
+> **Shepherd supports herdr up to 0.9.5.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
+> Shepherd drives it through a CLI external-registration path, and 0.9.5 (protocol 22) keeps that
+> path. Schema, CLI, lifecycle and terminal compatibility are checked against 0.9.5;
 > the sandbox idle-status advisory still applies. Shepherd warns at startup and blocks its in-app
 > herdr updater on any newer, untested version. How a new herdr release gets verified and the
 > ceiling moves is a standing procedure: see

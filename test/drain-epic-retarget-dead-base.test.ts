@@ -43,6 +43,7 @@ const NO_USAGE: UsageLimitsType = {
 interface ForgeRec {
   merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];
   retargets: { prNumber: number; base: string }[];
+  containsChecks: { ref: string; headSha: string }[];
   reviewMetaCalls: number;
   /** #2069: PRs the gate asked the host to resolve a stack for. */
   stackReads: number[];
@@ -58,6 +59,8 @@ interface ForgeOpts {
   /** Drop the retarget capability (Gitea/Local). */
   noRetarget?: boolean;
   retargetFails?: boolean;
+  /** Does the child's head contain the dead base's tip? Default: yes. */
+  contains?: boolean;
 }
 
 function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
@@ -106,6 +109,10 @@ function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
     f.createStack = async (prNumbers: number[]) => ({ number: 7, baseRef: EPIC_BRANCH, prNumbers });
     f.addToStack = async () => {};
   }
+  f.branchContains = async (ref: string, headSha: string) => {
+    rec.containsChecks.push({ ref, headSha });
+    return opts.contains ?? true;
+  };
   if (!opts.noRetarget) {
     f.retargetPr = async (prNumber: number, base: string) => {
       if (opts.retargetFails) throw new Error("HTTP 422");
@@ -181,7 +188,13 @@ function makeHarness(
     status: "running",
   });
 
-  const forgeRec: ForgeRec = { merges: [], retargets: [], reviewMetaCalls: 0, stackReads: [] };
+  const forgeRec: ForgeRec = {
+    merges: [],
+    retargets: [],
+    containsChecks: [],
+    reviewMetaCalls: 0,
+    stackReads: [],
+  };
   const forge = fakeForge(forgeRec, opts);
 
   const prCache: Record<string, GitState> = {};
@@ -425,6 +438,77 @@ describe("dead stacked base → re-target onto the epic branch (#3102)", () => {
     now += 61_000;
     await retargetPass(h);
     expect(h.forgeRec.reviewMetaCalls).toBe(2);
+  });
+
+  test("child cut from an EARLIER predecessor head: held, never re-targeted (critic #1)", async () => {
+    // The predecessor was reworked after the child branched; landing the child on the epic would
+    // resurrect whatever that rework removed. It must stay blocked.
+    const h = makeHarness({ baseRefName: PRED_BRANCH, contains: false });
+    pinned(h);
+    seedLandedPredecessor(h);
+    const s = seedStackedChild(h);
+
+    await retargetPass(h);
+
+    expect(h.forgeRec.containsChecks).toEqual([{ ref: PRED_BRANCH, headSha: `sha-${PR}` }]);
+    expect(h.forgeRec.retargets).toHaveLength(0);
+    expect(h.store.get(s.id)?.baseBranch).toBe(PRED_BRANCH);
+    await h.drain.pump(REPO);
+    expect(h.forgeRec.merges).toHaveLength(0);
+  });
+
+  test("operator re-targeted a child that lacks the final tip: NOT adopted", async () => {
+    const h = makeHarness({ baseRefName: EPIC_BRANCH, contains: false });
+    pinned(h);
+    seedLandedPredecessor(h);
+    const s = seedStackedChild(h);
+
+    await retargetPass(h);
+
+    expect(h.store.get(s.id)?.baseBranch).toBe(PRED_BRANCH);
+  });
+
+  test("unknown head SHA: held without a compare call", async () => {
+    const h = makeHarness({ baseRefName: PRED_BRANCH });
+    pinned(h);
+    seedLandedPredecessor(h);
+    const s = seedStackedChild(h);
+    h.prCache[s.id] = { ...h.prCache[s.id]!, headSha: undefined };
+
+    await retargetPass(h);
+
+    expect(h.forgeRec.containsChecks).toHaveLength(0);
+    expect(h.store.get(s.id)?.baseBranch).toBe(PRED_BRANCH);
+  });
+
+  test("a candidate that cannot move is re-probed at most once a minute (critic #2)", async () => {
+    let now = 1_000_000;
+    // PR moved to some third branch → `none` every time.
+    const h = makeHarness({ baseRefName: "main", now: () => now });
+    pinned(h);
+    seedLandedPredecessor(h);
+    seedStackedChild(h);
+
+    await retargetPass(h);
+    await retargetPass(h);
+    await retargetPass(h);
+    expect(h.forgeRec.reviewMetaCalls).toBe(1);
+
+    now += 61_000;
+    await retargetPass(h);
+    expect(h.forgeRec.reviewMetaCalls).toBe(2);
+  });
+
+  test("a held candidate is throttled too", async () => {
+    const h = makeHarness({ baseRefName: PRED_BRANCH, contains: false, now: () => 1_000 });
+    pinned(h);
+    seedLandedPredecessor(h);
+    seedStackedChild(h);
+
+    await retargetPass(h);
+    await retargetPass(h);
+
+    expect(h.forgeRec.containsChecks).toHaveLength(1);
   });
 
   test("child without a PR yet: waits", async () => {

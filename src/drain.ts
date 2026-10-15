@@ -525,10 +525,11 @@ export class DrainService {
   // In-memory on purpose: a restart composes on the next tick and the pass is idempotent.
   private epicStackComposedAt = new Map<string, number>();
   private epicStackInFlight = new Set<string>();
-  // #3102: sessionId → when its dead-base retarget last FAILED; retried after
-  // EPIC_BASE_RECHECK_TTL_MS so a rejecting host is not hit every tick. In-memory: the pass is
-  // idempotent, so a restart only costs one early retry.
-  private deadBaseRetargetFailedAt = new Map<string, number>();
+  // #3102: sessionId → when its dead-base candidate was last probed WITHOUT being re-targeted (a
+  // hold, a no-op or a failure); re-probed after EPIC_BASE_RECHECK_TTL_MS so a candidate that
+  // cannot move costs at most one forge round per minute. In-memory: the pass is idempotent, so a
+  // restart only costs one early re-probe.
+  private deadBaseCheckedAt = new Map<string, number>();
   // #2070: repoPath → sessionId → when its live-stack confirmation REFUSED at retire (a layer below
   // it is not a landed epic child). The persisted rows cannot predict that answer, so without this
   // the session would be re-selected and consume the pump's one retire attempt every tick, starving
@@ -1161,26 +1162,40 @@ export class DrainService {
    *  branch) is an integrated child of the same epic costs a forge call at all. Keyed on branch
    *  shape, not `epicStacksEnabled` — a child spawned stacked stays stacked after an opt-out. Once
    *  the session's base is flipped to the pinned branch, it is an ordinary epic child and every
-   *  existing rule (retire fast path, stack composition, wedge clearing) takes over. */
+   *  existing rule (retire fast path, stack composition, wedge clearing) takes over.
+   *
+   *  Only a child whose head CONTAINS the landed predecessor's final tip is moved. Its verdict and
+   *  CI were judged against that tip (the dead base), and the epic already holds the same content
+   *  squashed, so landing it on the epic adds exactly the reviewed diff. A child cut from an EARLIER
+   *  predecessor head is held: a 3-way squash would resurrect anything the predecessor's later
+   *  rework removed, unreviewed. It stays blocked, as before, until its branch absorbs that tip. */
   private async retargetDeadStackBasesForRepo(repoPath: string): Promise<void> {
     try {
       const forge = this.deps.resolveForge(repoPath);
-      if (!forge?.retargetPr || !forge.prReviewMeta) return;
+      if (!forge?.retargetPr || !forge.prReviewMeta || !forge.branchContains) return;
       if (forge.kind === "github" && this.deps.restWritesBlocked?.()) return;
       const sessions = this.deps.store.list().filter((s) => s.repoPath === repoPath);
       const snap = this.deps.prCache.snapshot();
       for (const s of sessions) {
         const pinned = this.landedStackBasePinned(s, sessions);
-        if (!pinned) continue;
         const pr = snap[s.id];
-        if (pr?.state !== "open" || pr.number == null) continue; // no PR yet — next tick
-        const failedAt = this.deadBaseRetargetFailedAt.get(s.id);
-        if (failedAt !== undefined && this.now() - failedAt < EPIC_BASE_RECHECK_TTL_MS) continue;
-        await this.retargetDeadStackBase(forge, s, pr.number, pinned);
+        if (!pinned || pr?.state !== "open" || pr.number == null) continue; // no PR yet — next tick
+        if (!this.deadBaseProbeDue(s.id)) continue;
+        if (await this.retargetDeadStackBase(forge, s, pr, pinned)) {
+          this.deadBaseCheckedAt.delete(s.id);
+        } else {
+          this.deadBaseCheckedAt.set(s.id, this.now());
+        }
       }
     } catch (err) {
       console.warn(`[drain] dead stack-base retarget pass failed for ${repoPath}:`, err);
     }
+  }
+
+  /** #3102: may this candidate be probed now? See {@link deadBaseCheckedAt}. */
+  private deadBaseProbeDue(sessionId: string): boolean {
+    const at = this.deadBaseCheckedAt.get(sessionId);
+    return at === undefined || this.now() - at >= EPIC_BASE_RECHECK_TTL_MS;
   }
 
   /** #3102: the pinned branch of `s`'s epic when `s` is a live stacked child whose spawn branch
@@ -1198,12 +1213,14 @@ export class DrainService {
       : null;
   }
 
+  /** One candidate: probe, then move it. True only when the session was moved onto `pinned`. */
   private async retargetDeadStackBase(
     forge: GitForge,
     s: Session,
-    prNumber: number,
+    pr: GitState,
     pinned: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    const prNumber = pr.number!;
     try {
       const prBase = (await forge.prReviewMeta!(prNumber))?.baseRefName ?? null;
       const action = deadStackBaseAction({
@@ -1212,17 +1229,27 @@ export class DrainService {
         predecessorIntegrated: true,
         prBase,
       });
-      if (action === "none") return;
+      if (action === "none") return false;
+      // The dead base is kept on the remote (keepBranchForStackedSuccessor), so its tip IS the
+      // predecessor's merged head. Unknown head ⇒ cannot vouch ⇒ hold.
+      if (!pr.headSha || !(await forge.branchContains!(s.baseBranch, pr.headSha))) {
+        if (!this.deadBaseCheckedAt.has(s.id)) {
+          console.log(
+            `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed, but the branch does not contain its final tip — holding (rebase it onto \`${pinned}\`)`,
+          );
+        }
+        return false;
+      }
       if (action === "retarget") await forge.retargetPr!(prNumber, pinned);
       this.deps.store.setSessionBaseBranch(s.id, pinned);
       this.deps.store.clearEpicBaseMismatch(s.repoPath, sessionEpicParent(s)!, s.issueNumber!);
-      this.deadBaseRetargetFailedAt.delete(s.id);
       console.log(
         `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed — ${action === "retarget" ? "re-targeted onto" : "adopted"} \`${pinned}\``,
       );
+      return true;
     } catch (err) {
-      this.deadBaseRetargetFailedAt.set(s.id, this.now());
       console.warn(`[drain] re-target of pr#${prNumber} onto ${pinned} failed:`, err);
+      return false;
     }
   }
 
@@ -4866,7 +4893,8 @@ export class DrainService {
       // now is visible to this tick's spawn decisions. Flag-gated + running-only + throttled →
       // zero forge calls in steady state; self-guarding like its neighbours.
       // #3102: BEFORE composition, so a child just re-targeted off a landed predecessor's branch
-      // can seed/extend a stack this same tick. Store-first → zero forge calls in steady state.
+      // can seed/extend a stack this same tick. Store-first → zero forge calls for repos with no
+      // candidate; a candidate that cannot move is re-probed at most once a minute.
       await this.retargetDeadStackBasesForRepo(repoPath);
       await this.composeEpicStacksForRepo(repoPath);
       // #1841: rebase a running epic's integration branch onto the default branch in a quiescent

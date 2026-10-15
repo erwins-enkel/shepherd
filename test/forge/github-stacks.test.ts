@@ -197,3 +197,33 @@ test("retargetPr: a host rejection propagates", async () => {
   const { forge } = harness([["pulls/63", boom]]);
   await expect(forge.retargetPr(63, TRUNK)).rejects.toThrow("503");
 });
+
+test("branchContains: ahead / identical mean the ref's tip is contained (#3102)", async () => {
+  for (const [status, want] of [
+    ["ahead", true],
+    ["identical", true],
+    ["behind", false],
+    ["diverged", false],
+  ] as const) {
+    const { forge, calls } = harness([["compare/", () => `${status}\n`]]);
+    expect(await forge.branchContains("shepherd/m0-5", "abc1234")).toBe(want);
+    expect(calls[0]).toEqual([
+      "api",
+      "repos/o/r/compare/shepherd/m0-5...abc1234",
+      "--jq",
+      ".status",
+    ]);
+  }
+});
+
+test("branchContains: an unaddressable ref or sha answers false without a call", async () => {
+  const { forge, calls } = harness([]);
+  expect(await forge.branchContains("../x", "abc1234")).toBe(false);
+  expect(await forge.branchContains("shepherd/a", "not-a-sha")).toBe(false);
+  expect(calls).toHaveLength(0);
+});
+
+test("branchContains: a host error propagates", async () => {
+  const { forge } = harness([["compare/", boom]]);
+  await expect(forge.branchContains("shepherd/a", "abc1234")).rejects.toThrow("503");
+});

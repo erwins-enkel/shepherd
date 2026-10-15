@@ -873,6 +873,10 @@ export interface GitForge {
   /** Re-point an open pull request at another base branch (#3102: a stacked child whose
    *  predecessor already landed). Mutation — errors propagate. GitHub only. */
   retargetPr?(prNumber: number, base: string): Promise<void>;
+  /** Does commit `headSha` contain the tip of branch `ref` (i.e. is that tip an ancestor of it, or
+   *  the same commit)? #3102: decides whether a stacked child may move off a landed predecessor's
+   *  branch. Errors propagate; a ref/sha that is not safe to address answers false. GitHub only. */
+  branchContains?(ref: string, headSha: string): Promise<boolean>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

@@ -119,7 +119,9 @@ Shepherd handles this in three places:
   moved onto that branch too. From then on it retires — and stacks with the layers above it — like
   any other child. If you re-targeted the PR yourself, Shepherd adopts that without another write.
   A predecessor that has *not* integrated is left alone: re-targeting then would land the
-  predecessor's ungated commits on the epic branch.
+  predecessor's ungated commits on the epic branch. So is a child whose branch does not contain the
+  predecessor's **final** commit (it was cut before the predecessor's last rework): landing it
+  would bring back anything that rework removed. Rebase such a child onto the epic branch.
 - **It refuses manual merges into a dead base.** The Merge buttons on a session and in the Backlog
   PR list answer `base_already_merged` when a PR's base is the branch of a session whose own PR
   already merged, and name the branch to re-target onto. Merges made directly on GitHub cannot be

@@ -7,7 +7,8 @@ vi.mock("./api", async (importOriginal) => {
 });
 
 const { ApiError, ensureOperatorAssistant, resetOperatorAssistant } = await import("./api");
-const { AssistantLifecycle, assistantPanelView } = await import("./operator-assistant.svelte");
+const { AssistantLifecycle, assistantMode, assistantPanelView } =
+  await import("./operator-assistant.svelte");
 
 const row = { id: "oa-1", desig: "TASK-90", operatorAssistant: true } as Session;
 
@@ -93,5 +94,26 @@ describe("assistantPanelView", () => {
     expect(assistantPanelView({ ...base, session: null, failed: "ensure" })).toBe("error");
     expect(assistantPanelView({ ...base, available: false, failed: "ensure" })).toBe("unavailable");
     expect(assistantPanelView({ ...base, available: false })).toBe("unavailable");
+  });
+});
+
+describe("assistantMode", () => {
+  const off = {
+    shell: "ask",
+    steer: "off",
+    sessions: "off",
+    approve: "off",
+    automation: "off",
+  } as const;
+  it("is readonly while no action group is on, whatever the read shell", () => {
+    expect(assistantMode(off)).toBe("readonly");
+    expect(assistantMode({ ...off, shell: "read" })).toBe("readonly");
+  });
+  it("asks when a group asks and nothing runs unasked", () => {
+    expect(assistantMode({ ...off, shell: "read", steer: "ask" })).toBe("asks");
+  });
+  it("acts when a group is allowed or the whole shell runs", () => {
+    expect(assistantMode({ ...off, automation: "allow" })).toBe("acts");
+    expect(assistantMode({ ...off, shell: "all" })).toBe("acts");
   });
 });

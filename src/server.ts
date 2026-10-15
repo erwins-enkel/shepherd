@@ -331,6 +331,8 @@ import {
 } from "./agent-control";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import type { OperatorDiagDeps } from "./operator-assistant-tools";
+import type { OperatorActionDeps } from "./operator-assistant-actions";
+import { parseAssistantPermissionsPatch } from "./operator-assistant-permissions";
 import {
   anyLiveRepairSession,
   computeLandingReady,
@@ -5992,19 +5994,54 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   return json(outcome.body, outcome.status);
 }
 
-/** The control plane's deps: AppDeps plus the Operator Assistant's diagnostic reads and the Shared
- *  Browser tab opener `browser_request_login` needs (a tab remembered as the session's, so Browser
- *  View preselects it). */
+/** The control plane's deps: AppDeps plus the Operator Assistant's diagnostic reads and actions,
+ *  and the Shared Browser tab opener `browser_request_login` needs (a tab remembered as the
+ *  session's, so Browser View preselects it). */
 function mcpDeps(deps: AppDeps): AgentControlDeps {
   const browser = deps.sharedBrowser;
   return {
     ...deps,
     operatorDiag: operatorDiagDeps(deps),
+    operatorActions: operatorActionDeps(deps),
     ...(browser && {
       openLoginTab: async (repoPath: string, url: string, sessionId: string) => {
         await browser.open(repoPath, url, { sessionId });
       },
     }),
+  };
+}
+
+/** One full app per deps, for the assistant's in-process route calls. */
+const internalApps = new WeakMap<AppDeps, ReturnType<typeof makeApp>>();
+
+/**
+ * The Operator Assistant's actions (Settings → Assistant): its current permissions, and each action
+ * run as the operator's own route through the FULL app, in-process — the same guards, events and
+ * error codes as the button, so the two cannot drift. Built like the agent ingress
+ * (`skipAuth`: no cookie, token null = no repository restriction, operator-equivalent) but without
+ * the ingress allowlist; the gate is the action catalog (src/operator-assistant-actions.ts), which
+ * only the assistant's session is served. `agentIngress: true` in the route context only fences
+ * other machines' sessions, which the actions never address. No Origin header, so checkOrigin
+ * passes as it does for an agent.
+ */
+function operatorActionDeps(deps: AppDeps): OperatorActionDeps {
+  return {
+    permissions: () => config.assistantPermissions,
+    async dispatch({ method, path, body }) {
+      let app = internalApps.get(deps);
+      if (!app) {
+        app = makeApp(deps, { skipAuth: true });
+        internalApps.set(deps, app);
+      }
+      const res = await app.fetch(
+        new Request(`http://shepherd.internal${path}`, {
+          method,
+          headers: { "content-type": "application/json" },
+          ...(body !== undefined && { body: JSON.stringify(body) }),
+        }),
+      );
+      return { status: res.status, body: await res.json().catch(() => null) };
+    },
   };
 }
 
@@ -6065,7 +6102,8 @@ async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Respo
   if (req.method === "GET" && !reset) {
     const reason = await operatorAssistantUnavailable(deps);
     const session = deps.store.getLiveOperatorAssistant();
-    return json({ available: reason === null, reason, session });
+    const permissions = config.assistantPermissions;
+    return json({ available: reason === null, reason, session, permissions });
   }
   if (req.method !== "POST") return null;
   const reason = await operatorAssistantUnavailable(deps);
@@ -6074,7 +6112,10 @@ async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Respo
     const session = reset
       ? await deps.service.resetOperatorAssistant()
       : await deps.service.ensureOperatorAssistant();
-    deps.events.emit("operator-assistant:update", { session });
+    deps.events.emit("operator-assistant:update", {
+      session,
+      permissions: config.assistantPermissions,
+    });
     return json({ session });
   } catch (e) {
     return createErrorResponse(e);
@@ -7605,6 +7646,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // The platform order the machine choice ranks fitting machines by (#2772); Linux first.
       machinePlatformOrder: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
       reducedPushMode: config.reducedPushMode,
+      // What the Operator Assistant may do (Settings → Assistant).
+      assistantPermissions: config.assistantPermissions,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
       autoReviveEnabled: config.autoReviveEnabled,
       prReviewCyclesCap: config.prReviewCyclesCap,
@@ -7786,6 +7829,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["operatorLanguage", putOperatorLanguage],
+  ["assistantPermissions", putAssistantPermissions],
   ["anthropicApiKey", putAnthropicApiKey],
   ["usageHoldEnabled", putUsageHoldEnabled],
   ["usageHoldPct", putUsageHoldPct],
@@ -8035,6 +8079,23 @@ function putOperatorLanguage(value: unknown, deps: Ctx["deps"]): Response {
   config.operatorLanguage = v; // live: next spawn picks it up
   deps.store.setSetting("operatorLanguage", v); // persist across restarts
   return json({ operatorLanguage: config.operatorLanguage });
+}
+
+// What the Operator Assistant may do (Settings → Assistant): a partial patch, merged. Live: the
+// assistant's .claude/settings.local.json is rewritten for the running conversation, the action
+// tools read config per call, and `operator-assistant:update` carries the new set to every client
+// (the panel chip). Must never reach the agent ingress: /api/settings is not an agent route.
+function putAssistantPermissions(value: unknown, deps: Ctx["deps"]): Response {
+  const parsed = parseAssistantPermissionsPatch(value);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  config.assistantPermissions = { ...config.assistantPermissions, ...parsed.patch };
+  deps.store.setSetting("assistantPermissions", JSON.stringify(config.assistantPermissions));
+  deps.service.syncOperatorAssistantPermissions();
+  deps.events.emit("operator-assistant:update", {
+    session: deps.store.getLiveOperatorAssistant(),
+    permissions: config.assistantPermissions,
+  });
+  return json({ assistantPermissions: config.assistantPermissions });
 }
 
 /**

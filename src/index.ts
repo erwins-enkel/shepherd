@@ -241,6 +241,7 @@ import { shouldDowngrade } from "./usage-downgrade";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
+import { normalizeStoredAssistantPermissions } from "./operator-assistant-permissions";
 import { EgressWatcher } from "./egress-watch";
 import { NetnsDevForwarder } from "./netns-dev-forward";
 import { detectEgressHostLoopback } from "./egress";
@@ -544,6 +545,11 @@ if (savedOl !== null) {
   const v = normalizeOperatorLanguage(savedOl);
   if (v !== null) config.operatorLanguage = v;
 }
+// The Operator Assistant's permissions (Settings → Assistant); absent or corrupt fields keep their
+// defaults one by one.
+config.assistantPermissions = normalizeStoredAssistantPermissions(
+  store.getSetting("assistantPermissions"),
+);
 // a UI-set telemetry consent (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedTc = store.getSetting("telemetryConsent");
 if (savedTc !== null) {
@@ -1071,6 +1077,9 @@ const service = new SessionService({
   },
   telemetry,
 });
+// A live assistant spawned by an older build re-reads this file mid-session: bring its rules up to
+// date before any of its tool calls reach this server.
+service.syncOperatorAssistantPermissions();
 
 // Deep modules for the learnings + repo-config route seams (#1092). Singletons so every
 // route + every background onChange below emit through the SAME instance; the server's

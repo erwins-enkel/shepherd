@@ -35,6 +35,7 @@ import type {
   LoginRequest,
   OperatorAssistantState,
   OperatorAssistantUnavailableReason,
+  AssistantPermissions,
   RemoteDispatch,
 } from "./types";
 import type { BlockState } from "./triage";
@@ -78,6 +79,10 @@ export class HerdStore {
   assistantAvailable = $state<boolean | null>(null);
   /** Why it can't run (`assistantAvailable === false`); null otherwise. */
   assistantUnavailableReason = $state<OperatorAssistantUnavailableReason | null>(null);
+  /** What the operator lets the assistant do (Settings → Assistant): seeded by the bootstrap GET
+   *  and replaced by `operator-assistant:update`, which every save in Settings emits. null until
+   *  known. */
+  assistantPermissions = $state<AssistantPermissions | null>(null);
   /** Sessions mirrored from connected machines (#2762), held apart from `sessions` so nothing
    *  that acts on a local session — or keys a side map by its id — ever sees one. Only the herd's
    *  view (which joins them into its lifecycle groups, #3055), the jump to the next waiting session
@@ -225,6 +230,7 @@ export class HerdStore {
     this.assistant = state.session;
     this.assistantAvailable = state.available;
     this.assistantUnavailableReason = state.available ? null : state.reason;
+    if (state.permissions) this.assistantPermissions = state.permissions;
   }
   /** Replace the assistant's row (`operator-assistant:update`, or an ensure/reset response). The
    *  server only hands one out after it spawned or resumed it, so a row also proves availability. */
@@ -1010,6 +1016,7 @@ export class HerdStore {
         return true;
       case "operator-assistant:update":
         this.setAssistant(ev.data.session);
+        if (ev.data.permissions) this.assistantPermissions = ev.data.permissions;
         return true;
     }
     return false;

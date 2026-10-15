@@ -1645,6 +1645,12 @@
     settingsDeepLink = true;
     showSettings = true;
   }
+  /** The assistant panel's mode chip: Settings at what the assistant may do. */
+  function openAssistantSettings() {
+    settingsTab = "assistant";
+    settingsDeepLink = true;
+    showSettings = true;
+  }
 
   // A global session jump must leave the target visible in the herd, even when a lens or
   // repo/status filter currently hides it. Shared by the command bar and auto-merge strip.
@@ -3286,6 +3292,8 @@
     onreset={resetAssistant}
     onclose={closeAssistant}
     ondiagnose={openDiagnose}
+    permissions={store.assistantPermissions}
+    onpermissions={openAssistantSettings}
   />
 {/snippet}
 

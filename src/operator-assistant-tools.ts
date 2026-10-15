@@ -28,7 +28,7 @@ import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "./host-parse
 import { probeHerdrRuntime, type HerdrRuntimeStatus } from "./herdr-runtime";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { redactSecretText } from "./redact";
-import type { HoldReason, PlanGate, Session } from "./types";
+import type { HeldTask, HoldReason, PlanGate, Session } from "./types";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { SHEPHERD_VERSION } from "./version";
 
@@ -81,6 +81,7 @@ const MAX_REPOS = 50;
 const MAX_SIGNALS = 20;
 const MAX_LIST = 20;
 const MAX_TEXT_CHARS = 500;
+const MAX_TITLE_CHARS = 120;
 const LOG_TAIL_BYTES = 1024 * 1024;
 const LOG_DEFAULT_LINES = 80;
 const LOG_MAX_LINES = 400;
@@ -115,8 +116,9 @@ const UNAVAILABLE = fail(503, "operator diagnostics unavailable");
 
 // ── herd_status ──────────────────────────────────────────────────────────────
 
-/** A herd session: live, an agent (not a clean terminal) and not the assistant itself. */
-function isHerdSession(s: Session): boolean {
+/** A herd session: live, an agent (not a clean terminal) and not the assistant itself. Also the
+ *  only sessions the action tools may target (src/operator-assistant-actions.ts). */
+export function isHerdSession(s: Session): boolean {
   return s.status !== "archived" && !s.terminal && !isOperatorAssistant(s);
 }
 
@@ -165,19 +167,48 @@ function herdRow(deps: DiagDeps, s: Session, holds: Record<string, HoldReason>, 
   };
 }
 
-/** The held-task queue per repo: how many tasks wait and why. Never the task prompts. */
-function heldByRepo(deps: DiagDeps) {
-  const byRepo = new Map<string, { usage: number; capacity: number }>();
-  for (const h of deps.store.listHeldTasks()) {
-    const counts = byRepo.get(h.repoPath) ?? { usage: 0, capacity: 0 };
-    counts[h.reason] += 1;
-    byRepo.set(h.repoPath, counts);
+/** The plan gate's question-form questions, addressed the way `plan_answer` takes them. Prompts and
+ *  options are the planning agent's text, so fenced; options carry their index. */
+function planQuestions(gate: PlanGate, fence: Fence) {
+  const answered = new Set(gate.answeredQuestionKeys ?? []);
+  const out = [];
+  for (const b of gate.blocks ?? []) {
+    if (b.type !== "question-form") continue;
+    for (const q of b.questions) {
+      out.push({
+        blockId: b.id,
+        questionId: q.id,
+        kind: q.kind,
+        prompt: fence("plan question", q.prompt),
+        options: fence("plan options", (q.options ?? []).map((o, i) => `${i}: ${o}`).join("\n")),
+        answered: answered.has(`${b.id} ${q.id}`),
+      });
+    }
   }
-  return [...byRepo].map(([repoPath, reasons]) => ({
+  return out.slice(0, MAX_LIST);
+}
+
+/** The held-task queue per repo: how many tasks wait and why, and each task's id (what `held_task`
+ *  takes) with its prompt's first line, fenced and clipped — never the whole prompt. */
+function heldByRepo(deps: DiagDeps, fence: Fence) {
+  const byRepo = new Map<string, HeldTask[]>();
+  for (const h of deps.store.listHeldTasks()) {
+    byRepo.set(h.repoPath, [...(byRepo.get(h.repoPath) ?? []), h]);
+  }
+  return [...byRepo].map(([repoPath, tasks]) => ({
     repo: basename(repoPath),
     repoPath,
-    count: reasons.usage + reasons.capacity,
-    reasons,
+    count: tasks.length,
+    reasons: {
+      usage: tasks.filter((t) => t.reason === "usage").length,
+      capacity: tasks.filter((t) => t.reason === "capacity").length,
+    },
+    tasks: tasks.slice(0, MAX_LIST).map((t) => ({
+      heldId: t.id,
+      reason: t.reason,
+      createdAt: iso(t.createdAt),
+      title: fence("held task", (t.input.prompt ?? "").split("\n")[0]!, MAX_TITLE_CHARS),
+    })),
   }));
 }
 
@@ -213,6 +244,7 @@ function herdDetail(deps: DiagDeps, s: Session, holds: Record<string, HoldReason
       approved: gate.approved,
       summaryCode: gate.summaryCode ?? null,
       summary: fence("plan gate summary", gate.summary),
+      questions: planQuestions(gate, fence),
     },
     signals: deps.store.listSessionSignals(s.id, MAX_SIGNALS).map((sig) => ({
       kind: sig.kind,
@@ -238,14 +270,14 @@ export function applyHerdStatus(
   return ok({
     sessions: live.slice(0, MAX_SESSIONS).map((s) => herdRow(deps, s, holds, fence)),
     omittedSessions: Math.max(0, live.length - MAX_SESSIONS),
-    held: heldByRepo(deps),
+    held: heldByRepo(deps, fence),
   });
 }
 
 // ── repo_automation ──────────────────────────────────────────────────────────
 
 /** `repo` as a full path or a unique basename, else the error the agent should correct. */
-function resolveRepos(known: string[], repo: unknown): string[] | ApplyResult<unknown> {
+export function resolveRepos(known: string[], repo: unknown): string[] | ApplyResult<unknown> {
   if (typeof repo !== "string" || repo === "") return known;
   if (known.includes(repo)) return [repo];
   const matches = known.filter((p) => basename(p) === repo);
@@ -624,8 +656,9 @@ const HERD_STATUS: McpTool = {
   description:
     "First stop for a stuck or stalled herd. Every live session: status, auto, plan phase, " +
     "plan-gate decision/round/open questions, hold reason and minutes since its last update; plus " +
-    "the held-task queue per repo. With a desig: that session's plan-gate summary, last 20 " +
-    "signals and PR/CI state." +
+    "the held-task queue per repo (each task's heldId and first prompt line). With a desig: that " +
+    "session's plan-gate summary and questions (blockId, questionId, kind, indexed options), " +
+    "last 20 signals and PR/CI state." +
     DIAG_READ_NOTE,
   inputSchema: {
     type: "object",

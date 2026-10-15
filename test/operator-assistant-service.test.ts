@@ -1,13 +1,17 @@
 // Operator Assistant lifecycle (#1446): ensure / reset / resume through the SessionService with a
 // fake herdr, the 0700 assistant dir, the read-only argv, and the per-task verb fences.
 import { test, expect } from "bun:test";
-import { mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { OperatorAssistantSessionError, SessionService } from "../src/service";
 import { OPERATOR_ASSISTANT_CAPABILITIES, type AgentCapabilities } from "../src/agent-control";
 import { operatorAssistantPermissions } from "../src/operator-assistant-core";
+import {
+  assistantPermissionRules,
+  DEFAULT_ASSISTANT_PERMISSIONS,
+} from "../src/operator-assistant-permissions";
 import { SESSION_MARKER_ENV } from "../src/process-reaper";
 import { config } from "../src/config";
 import type { HerdrAgent } from "../src/herdr";
@@ -190,6 +194,43 @@ test("ensure resumes a gone pane in place with --resume", async () => {
   expect(argv).not.toContain("--dangerously-skip-permissions");
   expect(after(argv, "--permission-mode")).toBe("default");
   expect(store.get(s.id)!.herdrAgentId).toBe("term_2");
+});
+
+/** The assistant's dynamic permission file, parsed. */
+const localSettings = (dir: string) =>
+  JSON.parse(readFileSync(join(dir, ".claude", "settings.local.json"), "utf8"));
+
+test("spawn, resume and every sync write the Settings → Assistant rules, 0600", async () => {
+  const saved = config.assistantPermissions;
+  try {
+    config.assistantPermissions = { ...DEFAULT_ASSISTANT_PERMISSIONS };
+    const { svc, dir, fake } = harness();
+    await svc.ensureOperatorAssistant();
+    const file = join(dir, ".claude", "settings.local.json");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(localSettings(dir)).toEqual({
+      permissions: assistantPermissionRules(DEFAULT_ASSISTANT_PERMISSIONS),
+    });
+
+    // A settings change reaches the running conversation through the same file.
+    config.assistantPermissions = { ...DEFAULT_ASSISTANT_PERMISSIONS, steer: "allow" };
+    svc.syncOperatorAssistantPermissions();
+    expect(localSettings(dir).permissions.allow).toContain("mcp__shepherd__session_steer");
+
+    // A resume rewrites it from the current settings too.
+    config.assistantPermissions = { ...DEFAULT_ASSISTANT_PERMISSIONS, steer: "off" };
+    fake.agents = [];
+    await svc.ensureOperatorAssistant();
+    expect(localSettings(dir).permissions.deny).toContain("mcp__shepherd__session_steer");
+  } finally {
+    config.assistantPermissions = saved;
+  }
+});
+
+test("sync writes nothing before an assistant dir exists", () => {
+  const { svc, dir } = harness();
+  svc.syncOperatorAssistantPermissions();
+  expect(existsSync(dir)).toBe(false);
 });
 
 test("plugin onSpawn hooks never patch the assistant's argv or env, on create or resume", async () => {

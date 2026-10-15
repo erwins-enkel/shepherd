@@ -18,6 +18,7 @@ import {
   type AgentControlDeps,
   type GithubBackoff,
 } from "../src/agent-control";
+import { ASSISTANT_ACTION_GROUPS } from "../src/operator-assistant-permissions";
 import { SessionStore } from "../src/store";
 import type { RateLimitSnapshot } from "../src/forge/rate-limit";
 import type { GitState } from "../src/forge/types";
@@ -179,10 +180,11 @@ test("an unknown session gets no tools", () => {
     sessionRead: false,
     browserLogin: false,
     operatorDiag: false,
+    operatorActions: false,
   });
 });
 
-test("the Operator Assistant gets only operatorDiag — no queue, epic, browser or sessions_* tools", () => {
+test("the Operator Assistant gets only its diagnostic and action tools — no queue, epic, browser or sessions_* tools", () => {
   const { deps, sessionId } = harness({
     operatorAssistant: true,
     buildQueue: true,
@@ -195,6 +197,7 @@ test("the Operator Assistant gets only operatorDiag — no queue, epic, browser 
     sessionRead: false,
     browserLogin: false,
     operatorDiag: true,
+    operatorActions: true,
   });
   expect(hasAgentTools(sessionCapabilities(deps, sessionId))).toBe(true);
   const names = agentTools(deps, sessionId).map((t) => t.name);
@@ -208,16 +211,18 @@ test("the Operator Assistant gets only operatorDiag — no queue, epic, browser 
     expect(names).not.toContain(t);
 });
 
-test("no other session ever gets operatorDiag", () => {
+test("no other session ever gets operatorDiag or operatorActions", () => {
   for (const opts of [{}, { plain: true }, { research: true }, { buildQueue: true }]) {
     const { deps, sessionId } = harness(opts);
     expect(sessionCapabilities(deps, sessionId).operatorDiag).toBe(false);
+    expect(sessionCapabilities(deps, sessionId).operatorActions).toBe(false);
   }
 });
 
 const DIAG_TOOLS = ["herd_status", "repo_automation", "system_health", "logs_tail"];
+const ACTION_TOOLS = Object.values(ASSISTANT_ACTION_GROUPS).flat();
 
-test("the Operator Assistant's tools/list is exactly the four diagnostic tools", async () => {
+test("the Operator Assistant's tools/list is the four diagnostic tools, then every action tool", async () => {
   const { deps, sessionId } = harness({ operatorAssistant: true, buildQueue: true });
   const out = await handleMcpRequest(deps, sessionId, {
     jsonrpc: "2.0",
@@ -226,8 +231,26 @@ test("the Operator Assistant's tools/list is exactly the four diagnostic tools",
   });
   const tools = (out.body as { result: { tools: { name: string; description: string }[] } }).result
     .tools;
-  expect(tools.map((t) => t.name)).toEqual(DIAG_TOOLS);
-  for (const t of tools) expect(t.description).toContain("Read-only.");
+  expect(tools.map((t) => t.name)).toEqual([...DIAG_TOOLS, ...ACTION_TOOLS]);
+  for (const t of tools.slice(0, DIAG_TOOLS.length)) expect(t.description).toContain("Read-only.");
+  for (const t of tools.slice(DIAG_TOOLS.length)) {
+    expect(t.description).toContain("Settings → Assistant");
+  }
+});
+
+test("no herd session ever sees or calls an action tool: approve and merge stay human gates", async () => {
+  for (const opts of [{}, { plain: true }, { buildQueue: true, sharedBrowser: true }]) {
+    const { deps, sessionId } = harness(opts);
+    const names = agentTools(deps, sessionId).map((t) => t.name);
+    for (const t of ACTION_TOOLS) expect(names).not.toContain(t);
+  }
+  const { deps, sessionId } = harness();
+  for (const name of ACTION_TOOLS) {
+    const body = (await call(deps, sessionId, name, { desig: "TASK-01" })).body as {
+      error: { code: number };
+    };
+    expect(body.error.code).toBe(-32602);
+  }
 });
 
 test("normal and plain sessions never see the diagnostic tools", () => {

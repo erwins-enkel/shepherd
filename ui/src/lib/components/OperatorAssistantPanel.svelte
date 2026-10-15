@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {
+    AssistantPermissions,
     OperatorAssistantUnavailableReason,
     Session,
     TerminalClientInfo,
@@ -8,7 +9,12 @@
   import { modelLabel } from "#lib/model-label.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { operatorAssistantExplanation } from "#lib/tooltips/explanations.js";
-  import { assistantPanelView, type AssistantAction } from "#lib/operator-assistant.svelte.js";
+  import {
+    assistantMode,
+    assistantPanelView,
+    type AssistantAction,
+  } from "#lib/operator-assistant.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import AssistantGlyph from "./AssistantGlyph.svelte";
   import Viewport from "./Viewport.svelte";
 
@@ -38,6 +44,8 @@
     onreset,
     onclose,
     ondiagnose,
+    permissions = null,
+    onpermissions,
   }: {
     /** The assistant's live row (store.assistant); null until one is spawned. */
     session: Session | null;
@@ -74,10 +82,20 @@
     onclose: () => void;
     /** Open Settings at its Diagnose section. */
     ondiagnose: () => void;
+    /** What the operator lets the assistant do (store.assistantPermissions); null until known. */
+    permissions?: AssistantPermissions | null;
+    /** Open Settings at its Assistant section (the mode chip). */
+    onpermissions?: () => void;
   } = $props();
 
   const view = $derived(assistantPanelView({ session, available, pending, failed }));
   const model = $derived(session?.model ? modelLabel(session.model) : null);
+  const mode = $derived(permissions ? assistantMode(permissions) : null);
+  const MODE_LABEL = {
+    readonly: m.operator_assistant_readonly,
+    asks: m.operator_assistant_mode_asks,
+    acts: m.operator_assistant_mode_acts,
+  };
 
   const UNAVAILABLE: Record<OperatorAssistantUnavailableReason, () => string> = {
     claude_missing: m.operator_assistant_unavailable_claude_missing,
@@ -165,9 +183,24 @@
       {/if}
     </div>
     <div class="oap-row oap-meta">
-      <span class="badge" use:statusTip={{ text: operatorAssistantExplanation() }}
-        >{m.operator_assistant_readonly()}</span
-      >
+      <!-- The mode chip: what Settings → Assistant lets it do; a click opens that section. Absent
+           until the permissions are known (bootstrap, or an older server). -->
+      {#if mode}
+        <button
+          type="button"
+          class="badge oap-mode"
+          class:acts={mode === "acts"}
+          use:statusTip={{
+            text: operatorAssistantExplanation(permissions, true),
+            stopClickPropagation: false,
+            pinOnClick: false,
+          }}
+          use:coachTarget={"assistant-permissions"}
+          onclick={() => onpermissions?.()}
+        >
+          {MODE_LABEL[mode]()}
+        </button>
+      {/if}
       {#if model}<span class="badge">{model}</span>{/if}
       <button
         type="button"
@@ -295,6 +328,21 @@
     border-radius: 2px;
     color: var(--color-muted);
     white-space: nowrap;
+  }
+  .oap-mode {
+    background: none;
+    font-family: inherit;
+    line-height: inherit;
+    cursor: pointer;
+  }
+  .oap-mode:hover,
+  .oap-mode:focus-visible {
+    border-color: var(--color-muted);
+    color: var(--color-ink);
+  }
+  /* Something runs without asking: worth noticing, not alarming. */
+  .oap-mode.acts {
+    color: var(--color-amber);
   }
   /* Button recipe (/design-system .gbtn). */
   .gbtn {

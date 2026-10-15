@@ -30,6 +30,7 @@
   import SettingsWorkspacePanel from "#lib/components/settings/SettingsWorkspacePanel.svelte";
   import SettingsCodingCliPanel from "#lib/components/settings/SettingsCodingCliPanel.svelte";
   import SettingsSessionPanel from "#lib/components/settings/SettingsSessionPanel.svelte";
+  import SettingsAssistantPanel from "#lib/components/settings/SettingsAssistantPanel.svelte";
   import SettingsDevicePanel from "#lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsNotificationsPanel from "#lib/components/settings/SettingsNotificationsPanel.svelte";
   import SettingsAccessPanel from "#lib/components/settings/SettingsAccessPanel.svelte";
@@ -344,6 +345,8 @@
         return m.settings_tab_plugins();
       case "session":
         return m.settings_tab_session();
+      case "assistant":
+        return m.settings_tab_assistant();
       case "notifications":
         return m.settings_tab_notifications();
       case "device":
@@ -535,6 +538,16 @@
           {fableAvailableBusy}
           onToggleFable={toggleFableAvailable}
         />
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-assistant"
+        aria-label={m.settings_tab_assistant()}
+        hidden={active !== "assistant"}
+      >
+        <SettingsAssistantPanel {payload} {query} />
       </div>
 
       <div

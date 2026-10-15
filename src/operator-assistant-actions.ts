@@ -1,0 +1,477 @@
+/**
+ * The Operator Assistant's action tools (Settings → Assistant): steering, session control,
+ * approvals and merge, automation. Served on the assistant's own MCP endpoint and nobody else's
+ * (`AgentCapabilities.operatorActions`, src/agent-control.ts) — no herd agent ever gets an approve
+ * or merge tool.
+ *
+ * Each tool is a thin, declarative mapping onto an EXISTING operator route, dispatched in-process
+ * through the full app (`OperatorActionDeps.dispatch`, wired in src/server.ts). So an action runs
+ * the very guards, events and error codes the operator's own button does, and cannot drift from
+ * it. What this module adds on top:
+ *  - the gate: a group set to `off` is refused here, per call, before anything is dispatched —
+ *    whatever Claude's own permission rules say or how fast it re-reads them;
+ *  - target resolution: sessions by desig, and only herd sessions (live, an agent, not the
+ *    assistant itself, never another machine's); repos by path or unique basename;
+ *  - bounded answers: never a route's body (session rows carry ids and prompts), only whitelisted
+ *    scalars, and route errors redacted and clipped;
+ *  - one audit line per action in Shepherd's log.
+ *
+ * `ask` vs `allow` is Claude's business (its confirmation prompt); the server can't tell whether
+ * the operator confirmed, so it only enforces `off`.
+ *
+ * Agent-facing English, no i18n — same precedent as the other tool descriptions.
+ */
+import { basename } from "node:path";
+import type { AgentControlDeps, ApplyResult, McpTool } from "./agent-control";
+import {
+  actionGroupOf,
+  type AssistantActionTool,
+  type AssistantPermissions,
+} from "./operator-assistant-permissions";
+import { isHerdSession, resolveRepos } from "./operator-assistant-tools";
+import { redactSecretText } from "./redact";
+
+export interface OperatorActionRequest {
+  method: "POST" | "PUT" | "DELETE";
+  /** Path plus query, e.g. `/api/repo-config?repo=%2Fr%2Falpha`. */
+  path: string;
+  /** JSON body; absent ⇒ no body. */
+  body?: unknown;
+}
+
+/** What the action tools need beyond the store: the operator's current settings, and a way to run
+ *  an operator route in-process. Absent ⇒ every action answers "unavailable". */
+export interface OperatorActionDeps {
+  permissions(): AssistantPermissions;
+  dispatch(req: OperatorActionRequest): Promise<{ status: number; body: unknown }>;
+  /** The audit line sink; default `console.info` (Shepherd's log). */
+  log?: (line: string) => void;
+}
+
+type ActionDeps = Pick<AgentControlDeps, "store" | "operatorActions" | "operatorDiag">;
+
+type Fail = { ok: false; status: number; error: string };
+const fail = (status: number, error: string): Fail => ({ ok: false, status, error });
+
+/** A built action: the request(s) to run in order, the target named in answers and the log, and
+ *  any argument echo for the answer. */
+interface Built {
+  requests: OperatorActionRequest[];
+  target: string;
+  echo?: Record<string, unknown>;
+}
+
+interface Resolve {
+  session(desig: unknown): { id: string; desig: string } | Fail;
+  repo(repo: unknown): string | Fail;
+  held(id: unknown): string | Fail;
+}
+
+type Builder = (args: Record<string, unknown>, resolve: Resolve) => Built | Fail;
+
+const MAX_ERROR_CHARS = 500;
+/** Scalars a route answer may carry back: counts and the plan-answer delivery flag. Nothing else of
+ *  a route's body reaches the agent. */
+const ANSWER_FIELDS = ["delivered", "halted", "resumed", "steered", "total"] as const;
+const REPO_AUTOMATION_FIELDS = [
+  "autoDrainEnabled",
+  "autoMergeEnabled",
+  "maxAuto",
+  "autoLabel",
+  "criticEnabled",
+  "usageCeilingPct",
+] as const;
+
+const sessionPath = (id: string, sub = "") => `/api/sessions/${id}${sub ? `/${sub}` : ""}`;
+const isFail = (x: unknown): x is Fail =>
+  typeof x === "object" && x !== null && (x as Fail).ok === false;
+
+/** A one-request action on one session. */
+function onSession(
+  method: OperatorActionRequest["method"],
+  sub: string,
+  body?: (args: Record<string, unknown>) => unknown | Fail,
+): Builder {
+  return (args, resolve) => {
+    const s = resolve.session(args.desig);
+    if (isFail(s)) return s;
+    const payload = body?.(args);
+    if (isFail(payload)) return payload;
+    return {
+      requests: [{ method, path: sessionPath(s.id, sub), ...(body && { body: payload }) }],
+      target: s.desig,
+    };
+  };
+}
+
+function nonEmptyText(value: unknown, name: string): string | Fail {
+  return typeof value === "string" && value.trim() !== ""
+    ? value
+    : fail(400, `${name} must be a non-empty string`);
+}
+
+const toggle = (v: unknown) => v === true || v === false || v === null;
+
+const ACTIONS: Record<AssistantActionTool, Builder> = {
+  // ── steer ──
+  session_steer: onSession("POST", "reply", (a) => {
+    const text = nonEmptyText(a.text, "text");
+    return isFail(text) ? text : { text };
+  }),
+  plan_answer: onSession("POST", "answer-plan-questions", (a) =>
+    Array.isArray(a.answers) && a.answers.length > 0
+      ? { answers: a.answers }
+      : fail(400, "answers must be a non-empty array"),
+  ),
+
+  // ── sessions ──
+  session_interrupt: onSession("POST", "interrupt"),
+  session_resume: onSession("POST", "resume", () => ({})),
+  // No body: the quick relaunch (same prompt, model and settings).
+  session_relaunch: onSession("POST", "relaunch"),
+  // No `reap`: the archive never kills the session's leftover processes on the agent's say-so.
+  session_archive: onSession("DELETE", ""),
+
+  // ── approve ──
+  plan_release: onSession("POST", "go"),
+  queue_approve: onSession("POST", "queue/approve"),
+  pr_ready: onSession("POST", "git/ready"),
+  // Never a `confirm`: taking over a merge someone else is responsible for stays the operator's
+  // decision, so the route answers merge_confirm_required and the agent hands it back.
+  pr_merge: onSession("POST", "git/merge", () => ({})),
+
+  // ── automation ──
+  repo_automation_set: (args, resolve) => {
+    const repo = resolve.repo(args.repo);
+    if (isFail(repo)) return repo;
+    const extra = Object.keys(args).filter(
+      (k) => k !== "repo" && !(REPO_AUTOMATION_FIELDS as readonly string[]).includes(k),
+    );
+    if (extra.length > 0) {
+      return fail(
+        400,
+        `not settable here: ${extra.join(", ")} — only ${REPO_AUTOMATION_FIELDS.join(", ")}`,
+      );
+    }
+    const patch = Object.fromEntries(
+      REPO_AUTOMATION_FIELDS.filter((k) => args[k] !== undefined).map((k) => [k, args[k]]),
+    );
+    if (Object.keys(patch).length === 0) {
+      return fail(400, `set at least one of ${REPO_AUTOMATION_FIELDS.join(", ")}`);
+    }
+    return {
+      requests: [
+        { method: "PUT", path: `/api/repo-config?repo=${encodeURIComponent(repo)}`, body: patch },
+      ],
+      target: basename(repo),
+      echo: { set: patch },
+    };
+  },
+  session_automation_set: (args, resolve) => {
+    const s = resolve.session(args.desig);
+    if (isFail(s)) return s;
+    const requests: OperatorActionRequest[] = [];
+    const echo: Record<string, unknown> = {};
+    for (const [arg, sub] of [
+      ["autopilot", "autopilot"],
+      ["autoMerge", "automerge"],
+    ] as const) {
+      if (args[arg] === undefined) continue;
+      if (!toggle(args[arg])) return fail(400, `${arg} must be true, false or null`);
+      requests.push({ method: "PUT", path: sessionPath(s.id, sub), body: { enabled: args[arg] } });
+      echo[arg] = args[arg];
+    }
+    if (requests.length === 0) return fail(400, "set autopilot, autoMerge or both");
+    return { requests, target: s.desig, echo: { set: echo } };
+  },
+  epic_run_set: (args, resolve) => {
+    const repo = resolve.repo(args.repo);
+    if (isFail(repo)) return repo;
+    const parent = args.epicParent;
+    if (!Number.isInteger(parent) || (parent as number) < 1) {
+      return fail(400, "epicParent must be a positive issue number");
+    }
+    if (args.status !== "running" && args.status !== "paused") {
+      return fail(400, 'status must be "running" or "paused"');
+    }
+    return {
+      requests: [
+        {
+          method: "PUT",
+          path: `/api/epic?repo=${encodeURIComponent(repo)}&parent=${parent as number}`,
+          body: { status: args.status },
+        },
+      ],
+      target: `${basename(repo)}#${parent as number}`,
+      echo: { status: args.status },
+    };
+  },
+  held_task: (args, resolve) => {
+    const id = resolve.held(args.heldId);
+    if (isFail(id)) return id;
+    const path = `/api/held/${encodeURIComponent(id)}`;
+    if (args.action === "spawn") {
+      return { requests: [{ method: "POST", path: `${path}/spawn` }], target: id };
+    }
+    if (args.action === "discard") return { requests: [{ method: "DELETE", path }], target: id };
+    return fail(400, 'action must be "spawn" or "discard"');
+  },
+  herd_halt: () => ({ requests: [{ method: "POST", path: "/api/halt" }], target: "herd" }),
+  herd_retry: (args, resolve) => {
+    if (!Array.isArray(args.desigs) || args.desigs.length === 0) {
+      return fail(400, "desigs must be a non-empty array");
+    }
+    const ids: string[] = [];
+    const desigs: string[] = [];
+    for (const d of args.desigs) {
+      const s = resolve.session(d);
+      if (isFail(s)) return s;
+      ids.push(s.id);
+      desigs.push(s.desig);
+    }
+    const text = typeof args.text === "string" ? args.text : "";
+    return {
+      requests: [{ method: "POST", path: "/api/retry", body: { text, ids } }],
+      target: desigs.join(","),
+    };
+  },
+};
+
+function resolver(deps: ActionDeps): Resolve {
+  return {
+    session(desig) {
+      const s = typeof desig === "string" ? deps.store.getByDesig(desig) : null;
+      if (!s || !isHerdSession(s)) return fail(404, `session "${String(desig)}" not found`);
+      return { id: s.id, desig: s.desig };
+    },
+    repo(repo) {
+      if (typeof repo !== "string" || repo === "") return fail(400, "repo is required");
+      const known = deps.operatorDiag?.repos() ?? [];
+      const resolved = resolveRepos(known, repo);
+      if (!Array.isArray(resolved)) {
+        return resolved.ok
+          ? fail(500, "repo resolution failed")
+          : fail(resolved.status, resolved.error);
+      }
+      return resolved[0]!;
+    },
+    held(id) {
+      return typeof id === "string" && deps.store.listHeldTasks().some((h) => h.id === id)
+        ? id
+        : fail(404, `held task "${String(id)}" not found — herd_status lists held tasks`);
+    },
+  };
+}
+
+/** A route's refusal as the agent reads it: `code: error`, redacted and clipped. */
+function routeError(status: number, body: unknown): string {
+  const b = (body ?? {}) as { error?: unknown; code?: unknown };
+  const error = typeof b.error === "string" ? b.error : `HTTP ${status}`;
+  const text = typeof b.code === "string" ? `${b.code}: ${error}` : error;
+  const clean = redactSecretText(text);
+  return clean.length > MAX_ERROR_CHARS ? `${clean.slice(0, MAX_ERROR_CHARS)}…` : clean;
+}
+
+/** The whitelisted scalars of a route's answer — never the body itself. */
+function answerFields(body: unknown): Record<string, unknown> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return {};
+  const out: Record<string, unknown> = {};
+  for (const k of ANSWER_FIELDS) {
+    const v = (body as Record<string, unknown>)[k];
+    if (typeof v === "boolean" || typeof v === "number") out[k] = v;
+  }
+  return out;
+}
+
+export async function applyOperatorAction(
+  deps: ActionDeps,
+  tool: AssistantActionTool,
+  args: Record<string, unknown>,
+): Promise<ApplyResult<unknown>> {
+  const actions = deps.operatorActions;
+  if (!actions) return fail(503, "operator actions unavailable");
+  const group = actionGroupOf(tool)!;
+  if (actions.permissions()[group] === "off") {
+    return fail(
+      403,
+      `${group} actions are turned off in Settings → Assistant — tell the operator that setting ` +
+        "would allow it; do not work around it",
+    );
+  }
+  const built = ACTIONS[tool](args, resolver(deps));
+  if (isFail(built)) return built;
+  const log = actions.log ?? ((line: string) => console.info(line));
+  let last: unknown = null;
+  for (const req of built.requests) {
+    const res = await actions.dispatch(req);
+    log(`[operator-assistant] ${tool} ${built.target} → ${res.status}`);
+    if (res.status >= 400) return fail(res.status, routeError(res.status, res.body));
+    last = res.body;
+  }
+  return {
+    ok: true,
+    data: { ok: true, action: tool, target: built.target, ...built.echo, ...answerFields(last) },
+  };
+}
+
+// ── tool catalog ─────────────────────────────────────────────────────────────
+
+const NOTE =
+  " Acts exactly like the operator's own button. Use only when the operator asked for this " +
+  "change; a group turned off in Settings → Assistant answers so — never work around it.";
+
+const DESIG = { type: "string", description: 'Session designation, e.g. "TASK-07" or "7".' };
+const REPO = { type: "string", description: "A repo's full path or its unique basename." };
+const TOGGLE = {
+  type: ["boolean", "null"],
+  description: "true or false overrides the repo default; null inherits it.",
+};
+
+const desigTool = (name: string, group: string, what: string): McpTool => ({
+  name,
+  description: `[${group}] ${what}${NOTE}`,
+  inputSchema: {
+    type: "object",
+    properties: { desig: DESIG },
+    required: ["desig"],
+    additionalProperties: false,
+  },
+});
+
+/** The assistant's action catalog, in group order (ASSISTANT_ACTION_GROUPS; a test pins the two). */
+export const OPERATOR_ACTION_TOOLS: McpTool[] = [
+  {
+    name: "session_steer",
+    description: `[steer] Send a message into a session's agent, as the operator's steer.${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: { desig: DESIG, text: { type: "string", description: "The message." } },
+      required: ["desig", "text"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "plan_answer",
+    description:
+      "[steer] Answer a planning session's open plan questions (herd_status with a desig lists " +
+      "them: blockId, questionId, kind, options). single: one optionIndices entry; multi: any " +
+      `number; freeform: text.${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        desig: DESIG,
+        answers: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            properties: {
+              blockId: { type: "string" },
+              questionId: { type: "string" },
+              optionIndices: { type: "array", items: { type: "integer", minimum: 0 } },
+              text: { type: "string" },
+            },
+            required: ["blockId", "questionId"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["desig", "answers"],
+      additionalProperties: false,
+    },
+  },
+  desigTool("session_interrupt", "sessions", "Interrupt a working session's agent (a lone Esc)."),
+  desigTool("session_resume", "sessions", "Resume a session whose agent is gone."),
+  desigTool(
+    "session_relaunch",
+    "sessions",
+    "Archive a session and start a fresh one with the same task and settings.",
+  ),
+  desigTool("session_archive", "sessions", "Archive (stop and close) a session."),
+  desigTool(
+    "plan_release",
+    "approve",
+    "Release a planning session whose plan the reviewer approved into execution (Go).",
+  ),
+  desigTool("queue_approve", "approve", "Approve a session's build queue."),
+  desigTool("pr_ready", "approve", "Mark a session's draft PR ready for review."),
+  desigTool(
+    "pr_merge",
+    "approve",
+    "Merge a session's PR. Never takes over a merge someone else is responsible for: " +
+      "merge_confirm_required goes back to the operator.",
+  ),
+  {
+    name: "repo_automation_set",
+    description: `[automation] Change a repo's automation settings (what repo_automation reports).${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: REPO,
+        autoDrainEnabled: { type: "boolean" },
+        autoMergeEnabled: { type: "boolean" },
+        maxAuto: { type: "integer", minimum: 1, maximum: 20 },
+        autoLabel: { type: "string" },
+        criticEnabled: { type: "boolean" },
+        usageCeilingPct: { type: "number", minimum: 0, maximum: 100 },
+      },
+      required: ["repo"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "session_automation_set",
+    description: `[automation] Set a session's autopilot and/or auto-merge override.${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: { desig: DESIG, autopilot: TOGGLE, autoMerge: TOGGLE },
+      required: ["desig"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "epic_run_set",
+    description: `[automation] Pause or resume an epic's run.${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: REPO,
+        epicParent: { type: "integer", minimum: 1, description: "The epic's parent issue." },
+        status: { type: "string", enum: ["running", "paused"] },
+      },
+      required: ["repo", "epicParent", "status"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "held_task",
+    description: `[automation] Start or discard a held task (herd_status lists them with heldId).${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        heldId: { type: "string" },
+        action: { type: "string", enum: ["spawn", "discard"] },
+      },
+      required: ["heldId", "action"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "herd_halt",
+    description: `[automation] Halt the whole herd: interrupt every working session.${NOTE}`,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "herd_retry",
+    description: `[automation] Resume halted sessions and steer them with text.${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        desigs: { type: "array", minItems: 1, items: { type: "string" } },
+        text: { type: "string", description: "The steer each resumed session gets." },
+      },
+      required: ["desigs"],
+      additionalProperties: false,
+    },
+  },
+];

@@ -1,4 +1,9 @@
-import type { OperatorAssistantUnavailableReason, Session } from "./types";
+import {
+  ASSISTANT_ACTION_GROUPS,
+  type AssistantPermissions,
+  type OperatorAssistantUnavailableReason,
+  type Session,
+} from "./types";
 import {
   ensureOperatorAssistant,
   operatorAssistantUnavailableReason,
@@ -69,4 +74,15 @@ export function assistantPanelView(s: {
   if (s.failed) return "error";
   if (!s.session || s.pending === "reset") return "spawning";
   return "live";
+}
+
+/** The panel chip's one-word mode — the server's rule (src/operator-assistant-permissions.ts):
+ *  acts = something runs without asking (an allowed group, or the whole shell); readonly = no
+ *  action group is on; asks = everything else. */
+export type AssistantMode = "readonly" | "asks" | "acts";
+
+export function assistantMode(p: AssistantPermissions): AssistantMode {
+  if (p.shell === "all" || ASSISTANT_ACTION_GROUPS.some((g) => p[g] === "allow")) return "acts";
+  if (ASSISTANT_ACTION_GROUPS.every((g) => p[g] === "off")) return "readonly";
+  return "asks";
 }

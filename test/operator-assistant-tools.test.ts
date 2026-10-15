@@ -25,6 +25,12 @@ function expectFenced(text: string) {
   expect(text.split("⟦/UNTRUSTED:").length).toBe(2);
 }
 
+/** `fenced` is untrusted-fenced data carrying `text`. */
+function expectFencedText(fenced: string, text: string) {
+  expect(fenced.startsWith("⟦UNTRUSTED:")).toBe(true);
+  expect(fenced).toContain(text);
+}
+
 function addSession(
   store: SessionStore,
   opts: { name: string; repoPath?: string; terminal?: boolean; operatorAssistant?: boolean },
@@ -124,7 +130,11 @@ function herd() {
   store.addHeldTask({
     id: "h1",
     repoPath: "/r/alpha",
-    input: { repoPath: "/r/alpha", baseBranch: "main", prompt: "a held secret prompt" } as never,
+    input: {
+      repoPath: "/r/alpha",
+      baseBranch: "main",
+      prompt: "a held task\nwith a secret second line",
+    } as never,
     createdAt: 1,
     reason: "usage",
   });
@@ -156,9 +166,20 @@ test("herd_status lists live herd sessions only — never archived, terminal or 
   expectFenced(row.hold.params.question);
   expect(out.sessions[1].hold).toEqual({ code: "plan-rework", params: { round: 2, cap: 5 } });
   expect(out.sessions[1].planGate).toBeNull();
-  expect(out.held).toEqual([
-    { repo: "alpha", repoPath: "/r/alpha", count: 2, reasons: { usage: 1, capacity: 1 } },
+  expect(out.held).toMatchObject([
+    {
+      repo: "alpha",
+      repoPath: "/r/alpha",
+      count: 2,
+      reasons: { usage: 1, capacity: 1 },
+      tasks: [
+        { heldId: "h1", reason: "usage", createdAt: new Date(1).toISOString() },
+        { heldId: "h2", reason: "capacity" },
+      ],
+    },
   ]);
+  // A held task's first prompt line only, fenced: what `held_task` needs to pick one.
+  expectFencedText(out.held[0].tasks[0].title, "a held task");
   const text = JSON.stringify(out);
   for (const s of [planning, plain, gone, shell, assistant]) expect(text).not.toContain(s.id);
   expect(text).not.toContain("secret");
@@ -193,6 +214,13 @@ test("herd_status with a desig adds the plan-gate summary, last signals and PR/C
   expect(out.desig).toBe(planning.desig);
   expect(out.planGate).toMatchObject({ decision: "changes_requested", approved: false, round: 2 });
   expectFenced(out.planGate.summary);
+  // The questions, addressed the way plan_answer takes them; options indexed.
+  expect(out.planGate.questions).toMatchObject([
+    { blockId: "qf", questionId: "q1", kind: "single", answered: true },
+    { blockId: "qf", questionId: "q2", kind: "single", answered: false },
+  ]);
+  expectFencedText(out.planGate.questions[1].prompt, "Where?");
+  expectFencedText(out.planGate.questions[1].options, "0: c\n1: d");
   expect(out.signals).toHaveLength(20);
   for (const s of out.signals) {
     expect(s.kind).toBe("block");

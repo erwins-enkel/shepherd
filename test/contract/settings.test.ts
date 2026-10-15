@@ -383,6 +383,23 @@ test("approved core PATCH exception writes one field, preserves GET and refuses 
     config.reducedPushMode = saved;
   }
 });
+test("PATCH assistantPermissions merges a partial set, GET and the assistant state report it", async () => {
+  const saved = config.assistantPermissions;
+  try {
+    const result = (await request("PATCH", "/api/settings", 200, {
+      assistantPermissions: { steer: "allow" },
+    })) as { assistantPermissions: { steer: string; shell: string } };
+    expect(result.assistantPermissions).toEqual({ ...saved, steer: "allow" });
+    const settings = (await request("GET", "/api/settings", 200)) as {
+      assistantPermissions: unknown;
+    };
+    expect(settings.assistantPermissions).toEqual({ ...saved, steer: "allow" });
+    await request("PATCH", "/api/settings", 400, { assistantPermissions: { steer: "read" } });
+    await request("PATCH", "/api/settings", 400, { assistantPermissions: { files: "allow" } });
+  } finally {
+    config.assistantPermissions = saved;
+  }
+});
 test("native iOS registration: 503 without an APNs key, 400 on a bad token, 200 once configured", async () => {
   const device = { token: "ab".repeat(32), environment: "production", locale: "de" };
   const saved = s.deps.push;

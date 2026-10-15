@@ -118,6 +118,12 @@ describe("pausedText", () => {
     ).toContain("epic/9-x");
   });
 
+  it("maps bootstrap_incomplete with a readable missing list (#3105)", () => {
+    expect(
+      pausedText(drain({ paused: true, reason: "bootstrap_incomplete", detail: "P2,P3,P4" })),
+    ).toBe(m.drain_paused_bootstrap({ missing: "P2, P3, P4" }));
+  });
+
   it("maps epic_unreadable to its own copy, not the generic pause", () => {
     expect(pausedText(drain({ paused: true, reason: "epic_unreadable" }))).toBe(
       m.drain_paused_epic_unreadable(),

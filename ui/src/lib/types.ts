@@ -342,6 +342,9 @@ export interface Settings {
   /** The platform order the machine choice ranks fitting machines by (#2772), Linux first by
    *  default; this instance's own. Absent from older servers. */
   machinePlatformOrder?: string[];
+  /** The operator's House Stack (#3108): packages a project bootstrap pins to current stable.
+   *  Absent from older servers. */
+  houseStack?: HouseStack;
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
@@ -1712,6 +1715,9 @@ export interface Session {
   /** Plain task kind: the agent without guards — no plan gate, autopilot or build queue. Optional
    *  like the server mirror — absent and false are equivalent. */
   plain?: boolean;
+  /** Bootstrap task kind (#3109): pinned stack, scaffold and guardrails as one PR. Optional like
+   *  the server mirror — absent and false are equivalent. */
+  bootstrap?: boolean;
   /** True when the network-egress allowlist was applied (autonomous sessions only). */
   egressApplied: boolean;
   /** True when the egress backend was unavailable — outbound is unrestricted despite autonomous profile. */
@@ -2662,7 +2668,7 @@ export interface GuardrailCheck {
 /** Which stack the repo matched, or null when it matches no supported ecosystem. */
 export type Ecosystem = "js-ts" | "rust";
 export interface ReadinessReport {
-  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml) — the baseline is N/A. */
+  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml within two levels) — the baseline is N/A. */
   applicable: boolean;
   /** The matched ecosystem, or null on the not-applicable path. */
   ecosystem: Ecosystem | null;
@@ -2677,6 +2683,92 @@ export interface ReadinessReport {
   /** The prescribed intent-shaped issue template (#2158) — same sections as a shaped task brief.
    *  Verbatim artifact, exempt from i18n; "" on the not-applicable path. */
   issueTemplate: string;
+}
+
+// ── Readiness → greenfield profile (#3107); mirrors src/greenfield-core.ts ──
+export type GreenfieldItemId =
+  | "stack_pinned"
+  | "scaffold_builds"
+  | "ci_on_main"
+  | "hooks_pre_push"
+  | "dead_code_audit"
+  | "forge_settings"
+  | "prd"
+  | "design_export"
+  | "foundation_decisions"
+  | "issue_templates"
+  | "env_schema"
+  | "dependency_automation";
+/** must = bootstrap exit predicate (holds the drain); nice = scored, never blocking. */
+export type GreenfieldTier = "must" | "nice";
+export interface GreenfieldItem {
+  id: GreenfieldItemId;
+  tier: GreenfieldTier;
+  present: boolean;
+  /** Matched markers — verbatim, not translated. */
+  evidence: string[];
+}
+export interface GreenfieldReport {
+  /** Scaffold ecosystem once a manifest exists; null before. */
+  ecosystem: Ecosystem | null;
+  /** Weighted 0–100 (must 3, nice 1). */
+  score: number;
+  items: GreenfieldItem[];
+  /** Red must-haves — what the bootstrap gate still waits for. */
+  mustHavesMissing: GreenfieldItemId[];
+  checkedAt: number;
+}
+
+// ── Readiness → Forge settings (#3106); mirrors src/readiness-forge-core.ts ──
+export type ForgeCheckId =
+  "merge_methods" | "auto_merge" | "delete_branch_on_merge" | "required_checks" | "auto_label";
+/** ok = matches; fix = Apply offered; hint = mismatch without Apply; unknown = host withheld it. */
+export type ForgeCheckState = "ok" | "fix" | "hint" | "unknown";
+export type ForgeCheckReason = "no_admin" | "no_push" | "no_ci";
+export interface ForgeCheck {
+  id: ForgeCheckId;
+  state: ForgeCheckState;
+  /** Enabled merge methods, a boolean, or required check contexts; null when unknown. */
+  current: string[] | boolean | null;
+  target: string[] | boolean;
+  reason?: ForgeCheckReason;
+}
+export type ForgeReadiness =
+  | { supported: false }
+  | { supported: true; defaultBranch: string; autoLabel: string; checks: ForgeCheck[] };
+
+// ── Readiness → Framework majors (#3113); mirrors src/readiness-drift-core.ts ──
+export type DriftState = "ok" | "behind" | "unknown";
+export interface DependabotBump {
+  number: number;
+  url: string;
+  from: string;
+  to: string;
+}
+export interface DriftRow {
+  ecosystem: "npm" | "crates";
+  name: string;
+  /** Lowest declared line (major, or `0.minor`) across the repo's manifests. */
+  installed: string;
+  /** Registry's current stable version; null when the lookup failed. */
+  latest: string | null;
+  target: string | null;
+  state: DriftState;
+  manifests: string[];
+  dependabot: DependabotBump[];
+}
+export interface FrameworkDrift {
+  rows: DriftRow[];
+  resolver: "ok" | "partial" | "offline" | "none";
+  epicBranches: string[];
+  runningEpic: number | null;
+  canCreateStory: boolean;
+  openStory: { number: number; url: string } | null;
+}
+export interface UpgradeStoryResult {
+  status: "created" | "exists";
+  number: number;
+  url: string;
 }
 
 // ── New Task "shape this" round (issue #2158) ───────────────────────────────
@@ -2970,6 +3062,7 @@ export type WsEvent =
   | { event: "codex-update:done"; data: CodexUpdateResult }
   | { event: "plugin-update:status"; data: PluginUpdatesStatus }
   | { event: "project-icons:update"; data: ProjectIcons }
+  | { event: "repo-bootstrap:update"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
@@ -3083,6 +3176,7 @@ export interface LaunchUiState {
   autopilotChecked: boolean;
   epicAuthoringChecked?: boolean;
   plainChecked?: boolean;
+  bootstrapChecked?: boolean;
 }
 
 export interface LaunchAttachmentMetadata {
@@ -3151,6 +3245,7 @@ export interface StandardCreateInput {
   research?: boolean; // research task kind; absent → false
   epicAuthoring?: boolean; // epic-authoring task kind; absent → false (guided EPIC-draft shaping)
   plain?: boolean; // plain task kind; absent → false (agent without guards)
+  bootstrap?: boolean; // bootstrap task kind (#3109); absent → false (scaffold + guardrails PR)
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
   /** The machine to run on (#2763), overriding the automatic choice (#2772); absent → chosen by
    *  the server while a machine is connected, else this machine. */
@@ -3470,3 +3565,21 @@ export interface Leftover {
   startTicks?: number;
   command?: { bin: string; args: string[] };
 }
+
+/** House Stack setting (#3108) — mirrors `HouseStack` in src/house-stack.ts. */
+export interface HouseStack {
+  npm: string[];
+  crates: string[];
+  rustToolchain: boolean;
+}
+
+/** GET /api/house-stack/resolve — all-or-nothing: versions for every entry, or per-entry errors. */
+export type HouseStackResolution =
+  | {
+      ok: true;
+      resolvedAt: string;
+      npm: { name: string; version: string }[];
+      crates: { name: string; version: string }[];
+      rustToolchain: string | null;
+    }
+  | { ok: false; errors: { ecosystem: "npm" | "crates" | "rust"; name: string; reason: string }[] };

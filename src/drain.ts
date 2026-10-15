@@ -19,6 +19,7 @@ import {
   type DrainRepoState,
   type RunSummary,
 } from "./drain-core";
+import { bootstrapMissing } from "./bootstrap";
 import { assembleEpic } from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
 import { forecastEpic } from "./epic-forecast";
@@ -288,6 +289,7 @@ export interface DrainDeps {
     | "get"
     | "list"
     | "getRepoConfig"
+    | "getRepoBootstrap"
     | "getReview"
     | "archive"
     | "getEpicRun"
@@ -344,6 +346,9 @@ export interface DrainDeps {
   dropPrCache: (id: string) => void;
   /** → events.emit("epic:update", epic). Optional — absent in tests that don't need it. */
   emitEpic?: (epic: Epic) => void;
+  /** #3107: an ACTIVE bootstrap repo's red must-haves (`GreenfieldService.mustHavesMissing`).
+   *  Absent → none, so the gate hinges on the phases alone. */
+  bootstrapMustHaves?: (repoPath: string) => string[];
   /** → events.emit("epic:completed", e). Optional — absent in tests that don't need it. */
   emitEpicCompleted?: (epic: CompletedEpic) => void;
   /** → events.emit("epic:completed-cleared", key). Optional — absent in tests that don't need it. */
@@ -1047,6 +1052,7 @@ export class DrainService {
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
         epicUnreadable: stall.epicUnreadable,
+        bootstrapMissing: this.bootstrapHoldFor(repoPath),
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -1059,6 +1065,14 @@ export class DrainService {
       },
       epic: builtEpic,
     };
+  }
+
+  /** #3105/#3107: what holds this repo's drain for bootstrap. Must-haves are read (and scanned)
+   *  only for an active repo — every other repo never touches the greenfield scan. */
+  private bootstrapHoldFor(repoPath: string): string[] | null {
+    const b = this.deps.store.getRepoBootstrap(repoPath);
+    if (b.state !== "active") return null;
+    return bootstrapMissing(b, this.deps.bootstrapMustHaves?.(repoPath) ?? []);
   }
 
   /** #2069: link an epic's child PRs into a GitHub stack rooted at its pinned integration branch,
@@ -1527,6 +1541,8 @@ export class DrainService {
         "epic_base_unavailable",
         // A running epic the forge can't be read for — stuck until the listing recovers.
         "epic_unreadable",
+        // #3105: the repo is still bootstrapping — nothing spawns until it is done or overridden.
+        "bootstrap_incomplete",
       ].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {

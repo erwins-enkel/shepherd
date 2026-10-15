@@ -23,6 +23,8 @@ export type NewTaskDraft = {
   research: boolean;
   epicAuthoring: boolean;
   plain: boolean;
+  /** Bootstrap mode (#3109); optional so older drafts/fixtures stay valid. */
+  bootstrap?: boolean;
   modeTouched: boolean;
   designPreselected: boolean;
   sandboxProfile: "default" | SandboxProfile;

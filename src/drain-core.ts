@@ -39,6 +39,7 @@ export interface HoldReason {
     | "awaiting_signoff" // draftMode: a retireable PR is held at cap, awaiting its sign-off
     | "awaiting_approval" // epicAttended: next spawn held until operator approves
     | "epic_base_unavailable" // epic: the forge's ensureBranch threw — can't base the child on the integration branch (#1757)
+    | "bootstrap_incomplete" // repo in active project-bootstrap (#3105); detail = missing phases/must-haves
     | "epic_unreadable" // epic: the forge's open-issue listing failed (e.g. a rate limit) — no epic this round, retrying
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
@@ -182,6 +183,10 @@ export interface DrainRepoState {
    *  starving a later-created chain's bottom layer, which is the one thing that could unblock it.
    *  Empty for every non-stacked repo. */
   stackHeldSessions?: ReadonlySet<string>;
+  /** #3105: what still holds an ACTIVE project-bootstrap repo's drain (incomplete phases, then
+   *  red must-haves); null/undefined when the repo is not bootstrapping, is done, or the operator
+   *  overrode the hold. See src/bootstrap.ts → bootstrapMissing. */
+  bootstrapMissing?: readonly string[] | null;
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -290,6 +295,11 @@ function troubleHold(state: DrainRepoState): HoldReason | null {
   return err ? { code: "error", detail: err.desig } : null;
 }
 
+function bootstrapHold(state: DrainRepoState): HoldReason | null {
+  const missing = state.bootstrapMissing;
+  return missing?.length ? { code: "bootstrap_incomplete", detail: missing.join(",") } : null;
+}
+
 function capHold(state: DrainRepoState): HoldReason | null {
   const holding = slotHolders(state.autoSessions);
   if (holding.length < state.maxAuto) return null;
@@ -333,6 +343,12 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // un-retired-and-un-merged on a maxAuto slot and deadlocking the drain.
   const retire = retireDecision(state);
   if (retire) return retire;
+
+  // 1a. Project bootstrap (#3105): an actively-bootstrapping repo spawns nothing — epic or label
+  // drain — until P1–P4 are done and the must-haves are green, or the operator overrides (which
+  // nulls bootstrapMissing upstream). After the retire gate, so a ready PR still hands off.
+  const bootstrap = bootstrapHold(state);
+  if (bootstrap) return { kind: "hold", reason: bootstrap };
 
   // 2. Trouble → halt new spawns (in-flight agents keep running; retires above still pass).
   const trouble = troubleHold(state);

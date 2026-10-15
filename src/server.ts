@@ -38,6 +38,14 @@ import { LearningsService } from "./learnings-service";
 import { isRelevanceMode } from "./house-rules-relevance";
 import { RepoConfigService } from "./repo-config-service";
 import {
+  BOOTSTRAP_LAST_PHASE,
+  bootstrapExitReached,
+  bootstrapMissing,
+  isBootstrapPhase,
+} from "./bootstrap";
+import { advanceAfterEpicApproved, buildRepoBootstrapView } from "./bootstrap-phases";
+import { parseProjectDocs, type ProjectDoc } from "./project-docs";
+import {
   BLOCK_JUDGE_MODES,
   EFFORTS,
   isBlockJudgeMode,
@@ -70,6 +78,8 @@ import {
   validatePlacementPreview,
   validateRequirementsDerive,
   validateRelaunchOverrides,
+  relaunchKinds,
+  taskKindConflict,
   validateModelChoice,
   validateReplaceAgentChoice,
   validateCloneUrl,
@@ -120,6 +130,14 @@ import {
   setInstanceName,
 } from "./remote-instances/identity";
 import { type Capability, describeMissing } from "./remote-instances/capabilities";
+import {
+  HOUSE_STACK_SETTING,
+  type HouseStackResolver,
+  HouseStackUnresolvedError,
+  parseHouseStack,
+  sharedHouseStackResolver,
+  storedHouseStack,
+} from "./house-stack";
 import {
   type MachineView,
   type Placement,
@@ -196,6 +214,15 @@ import {
 } from "./github-access";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
+import { applyForgeCheck, ForgeCheckNotApplicableError, forgeReadiness } from "./readiness-forge";
+import type { GreenfieldService } from "./greenfield";
+import { isForgeCheckId } from "./readiness-forge-core";
+import {
+  createUpgradeStory,
+  frameworkDrift,
+  UpgradeStoryNotApplicableError,
+  type DriftDeps,
+} from "./readiness-drift";
 import { composeTaskBrief } from "./intent-shape";
 import { normalizeRound } from "./task-shape";
 import { listCommands } from "./commands";
@@ -718,6 +745,8 @@ export interface AppDeps {
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
   verifyKey?: () => Promise<VerifyKeyResult>;
+  /** House Stack version resolver (#3108); defaults to the process-wide registry-backed one. */
+  houseStackResolver?: Pick<HouseStackResolver, "resolve">;
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
   /** Read a repo's committed `.shepherd/roles.json` (#2299). Seam over `readRepoRoles` so the
@@ -795,6 +824,11 @@ export interface AppDeps {
   gitignoreAdopter?: {
     adopt: (repoPath: string) => Promise<import("./gitignore-adopt").AdoptResult>;
   };
+  /** Readiness greenfield profile + bootstrap must-haves (#3107); absent → no must-haves gate. */
+  greenfield?: Pick<GreenfieldService, "refresh" | "mustHavesMissing">;
+  /** #3112: a bootstrap repo's phase moved forward (`phase` = the new one) because of `sessionId`'s
+   *  work — proposes the next attended session to the operator (push). Absent in tests. */
+  onBootstrapAdvance?: (repoPath: string, phase: number, sessionId: string) => void;
   /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
   drain?: {
     snapshot(): Promise<DrainStatus[]>;
@@ -2668,6 +2702,101 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   return json(r.config);
 }
 
+// ── project bootstrap (#3105) ─────────────────────────────────────────────────────────────────
+// GET  /api/repo-bootstrap?repo=           → RepoBootstrapView
+// PUT  /api/repo-bootstrap?repo=           body { state?: "off"|"active", phase?: 1..5 }
+// POST /api/repo-bootstrap/override?repo=  body { on: boolean } — logged operator override
+// `done` is never set directly: only the exit predicate (P1–P4 complete + must-haves green) gets
+// there. Every mutation kicks the drain so the bootstrap_incomplete hold appears/clears at once.
+
+/** The red must-haves of `dir` (#3107) — none when the greenfield service isn't wired. */
+function bootstrapMustHaves(deps: AppDeps, dir: string): string[] {
+  return deps.greenfield?.mustHavesMissing(dir) ?? [];
+}
+
+function repoBootstrapView(deps: AppDeps, dir: string) {
+  return buildRepoBootstrapView(deps.store, dir, bootstrapMustHaves(deps, dir));
+}
+
+function parseRepoBootstrapPut(
+  body: unknown,
+): { state?: "off" | "active"; phase?: number } | string {
+  if (!body || typeof body !== "object") return "body must be an object";
+  const { state, phase } = body as { state?: unknown; phase?: unknown };
+  if (state !== undefined && state !== "off" && state !== "active")
+    return 'state must be "off" or "active"';
+  if (phase !== undefined && !isBootstrapPhase(phase)) return "phase must be an integer 1–5";
+  if (state === undefined && phase === undefined) return "body must set state and/or phase";
+  return { state, phase };
+}
+
+function applyRepoBootstrapPut(
+  deps: AppDeps,
+  dir: string,
+  patch: { state?: "off" | "active"; phase?: number },
+): string | null {
+  const { store } = deps;
+  const cur = store.getRepoBootstrap(dir);
+  if (patch.state === "off") {
+    store.setRepoBootstrap(dir, { state: "off", phase: 1 });
+    return null;
+  }
+  // Entering active restarts at P1 unless a phase is given; a phase alone needs a bootstrap run.
+  const entering = patch.state === "active" && cur.state !== "active";
+  if (!entering && cur.state !== "active") return "repo is not bootstrapping";
+  const phase = patch.phase ?? (entering ? 1 : cur.phase);
+  store.setRepoBootstrap(dir, { state: "active", phase });
+  // #3107: entering active scans the greenfield profile at once (its exit check runs on landing).
+  if (entering) void deps.greenfield?.refresh(dir).catch(() => {});
+  const next = store.getRepoBootstrap(dir);
+  if (bootstrapExitReached(next, bootstrapMustHaves(deps, dir)))
+    store.setRepoBootstrap(dir, { state: "done", phase: BOOTSTRAP_LAST_PHASE });
+  return null;
+}
+
+async function handleRepoBootstrap({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-bootstrap")) return null;
+  const leaf = parts[2] ?? "";
+  if (parts[3] || (leaf !== "" && leaf !== "override")) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const route = `${req.method} ${leaf}`;
+  if (route === "GET ") return json(await repoBootstrapView(deps, dir));
+  if (route !== "PUT " && route !== "POST override") return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as unknown;
+  const err =
+    route === "PUT " ? putRepoBootstrap(deps, dir, body) : overrideRepoBootstrap(deps, dir, body);
+  if (err) return err;
+  if (deps.drain) kickDrain(deps.drain, "bootstrap");
+  deps.events?.emit("repo-bootstrap:update", { repoPath: dir });
+  return json(await repoBootstrapView(deps, dir));
+}
+
+function putRepoBootstrap(deps: AppDeps, dir: string, body: unknown): Response | null {
+  const patch = parseRepoBootstrapPut(body);
+  if (typeof patch === "string") return json({ error: patch }, 400);
+  const conflict = applyRepoBootstrapPut(deps, dir, patch);
+  return conflict ? json({ error: conflict }, 409) : null;
+}
+
+function overrideRepoBootstrap(deps: AppDeps, dir: string, body: unknown): Response | null {
+  const on = (body as { on?: unknown } | null)?.on;
+  if (typeof on !== "boolean") return json({ error: "on must be a boolean" }, 400);
+  const missing = bootstrapMissing(
+    { ...deps.store.getRepoBootstrap(dir), overrideAt: null },
+    bootstrapMustHaves(deps, dir),
+  );
+  if (!deps.store.setRepoBootstrapOverride(dir, on))
+    return json({ error: "repo is not bootstrapping" }, 409);
+  // The override is deliberately loud: it lets the drain run on an unfinished bootstrap.
+  console.warn(
+    `[bootstrap] operator override ${on ? "ON" : "OFF"} repo=${dir} missing=${(missing ?? []).join(",") || "-"}`,
+  );
+  return null;
+}
+
 /** The tab URL for the operator "Open": the session's real dev origin when it has a dev server
  *  (never the preview slot — cookies must be set for the origin agents drive), else about:blank. */
 async function sharedBrowserOpenUrl(
@@ -3497,6 +3626,9 @@ function createErrorResponse(e: unknown): Response {
   // steps around that, so this is a conflict the operator resolves by retrying (which re-runs
   // selection), not a server fault — hence 409 rather than the 502 below.
   if (e instanceof WorktreeOccupiedError) return json({ error: e.message }, 409);
+  // A bootstrap spawn whose House Stack did not resolve (#3109): the UI names the packages.
+  if (e instanceof HouseStackUnresolvedError)
+    return json({ error: e.message, code: "house_stack_unresolved", errors: e.errors }, 502);
   const msg = e instanceof Error ? e.message : "create failed";
   const taken = /agent_name_taken/.test(msg);
   return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
@@ -5546,6 +5678,9 @@ async function handleSessionRelaunch({ req, parts, deps, token }: Ctx): Promise<
     const parsed = await parseRelaunchOverrides(req);
     if ("error" in parsed) return parsed.error;
     const { overrides } = parsed;
+    // Exclusivity is a property of the RELAUNCHED task: the overrides merged over the original.
+    const kindErr = taskKindConflict(relaunchKinds(original, overrides));
+    if (kindErr) return json({ error: kindErr }, 400);
     const targetRepo = overrides?.repoPath ?? original.repoPath;
     const repoErr = repositoryInputError(token, {
       repoPath: targetRepo,
@@ -5943,6 +6078,7 @@ async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
     }
     deps.store.setEpicDraftApproved(id, result.parentNumber, result.parentUrl);
     deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
+    advanceBootstrapAfterEpic(deps, session);
     return json({ ...result, epic });
   } catch (e) {
     // On error revert materializing → draft (retaining the persisted partial map) so an explicit
@@ -5951,6 +6087,18 @@ async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
     deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
     return json({ error: e instanceof Error ? e.message : "epic materialize failed" }, 500);
   }
+}
+
+/** #3112: the P4 epic just materialized — an active-bootstrap repo at P4 moves to P5, whose exit
+ *  check runs on the re-scan. Same tick as the approve write, so no crash window between them
+ *  (boot reconcile heals the rest). */
+function advanceBootstrapAfterEpic(deps: AppDeps, session: Session): void {
+  const dir = session.repoPath;
+  if (!advanceAfterEpicApproved(deps.store, dir)) return;
+  deps.onBootstrapAdvance?.(dir, BOOTSTRAP_LAST_PHASE, session.id);
+  deps.events?.emit("repo-bootstrap:update", { repoPath: dir });
+  void deps.greenfield?.refresh(dir).catch(() => {});
+  if (deps.drain) kickDrain(deps.drain, "bootstrap");
 }
 
 // /api/sessions/:id/epic-draft[/approve]
@@ -7447,18 +7595,58 @@ const PROJECT_ERROR_STATUS: Record<string, number> = {
   newproject_failed_git: 422,
   newproject_failed_timeout: 504,
   newproject_failed_generic: 422,
+  newproject_failed_docs: 400,
+  newproject_failed_docs_size: 413,
 };
 
-async function createProjectFromRequest(req: Request, ghRunner?: GhRunner): Promise<Response> {
+/** The create body: JSON, or (#3112) multipart with the JSON in `project` plus the imported
+ *  `prd` / `design` files. */
+async function readProjectRequest(
+  req: Request,
+): Promise<Response | { body: unknown; docs: ProjectDoc[] }> {
+  const type = req.headers.get("content-type")?.split(";")[0]?.trim();
+  if (type !== "multipart/form-data") {
+    const ctErr = requireJsonContentType(req);
+    if (ctErr) return ctErr;
+    return { body: (await req.json().catch(() => null)) as unknown, docs: [] };
+  }
+  const form = await req.formData().catch(() => null);
+  const project = form?.get("project");
+  if (!form || typeof project !== "string")
+    return json({ error: "newproject_failed_generic" }, 400);
+  const docs = await parseProjectDocs(form);
+  if (!docs.ok) return json({ error: docs.error }, PROJECT_ERROR_STATUS[docs.error] ?? 400);
+  let body: unknown = null;
+  try {
+    body = JSON.parse(project);
+  } catch {
+    /* validateNewProject rejects null */
+  }
+  return { body, docs: docs.docs };
+}
+
+async function createProjectFromRequest(
+  req: Request,
+  store: AppDeps["store"],
+  ghRunner?: GhRunner,
+  greenfield?: AppDeps["greenfield"],
+): Promise<Response> {
   const b = firstRunBlock();
   if (b) return b;
-  const ctErr = requireJsonContentType(req);
-  if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as unknown;
-  const parsed = validateNewProject(body, config.repoRoot);
+  const read = await readProjectRequest(req);
+  if (read instanceof Response) return read;
+  const parsed = validateNewProject(read.body, config.repoRoot);
   if (!parsed.ok) return json({ error: parsed.error }, PROJECT_ERROR_STATUS[parsed.error] ?? 400);
-  const r = await createProject(parsed.value, config.repoRoot, ghRunner);
+  const r = await createProject(parsed.value, config.repoRoot, ghRunner, undefined, read.docs);
   if (!r.ok) return json({ error: r.error }, PROJECT_ERROR_STATUS[r.error] ?? 422);
+  // #3105: a new project starts in project-bootstrap mode (P1), so no drain runs on it before its
+  // scaffold exists. Keyed by the same resolved dir the drain and repo-config use. The local repo
+  // exists even when the remote step only warned.
+  const dir = safeRepoDir(r.entry.path, config.repoRoot);
+  if (dir) {
+    store.setRepoBootstrap(dir, { state: "active", phase: 1 });
+    void greenfield?.refresh(dir).catch(() => {});
+  }
   return json(r.warning ? { ...r.entry, warning: r.warning } : r.entry, 201);
 }
 
@@ -7515,7 +7703,8 @@ async function handleRepos({ req, parts, deps, token }: Ctx): Promise<Response |
 // POST /api/projects — bootstrap a new git project (git init + optional GitHub remote).
 async function handleProjects({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "projects" && !parts[2]) {
-    if (req.method === "POST") return createProjectFromRequest(req, deps.newProjectGhRunner);
+    if (req.method === "POST")
+      return createProjectFromRequest(req, deps.store, deps.newProjectGhRunner, deps.greenfield);
   }
   return null;
 }
@@ -7645,6 +7834,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       envTokenActive: config.token !== null,
       // The platform order the machine choice ranks fitting machines by (#2772); Linux first.
       machinePlatformOrder: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
+      // the operator's House Stack (#3108); the default list when unset.
+      houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
       reducedPushMode: config.reducedPushMode,
       // What the Operator Assistant may do (Settings → Assistant).
       assistantPermissions: config.assistantPermissions,
@@ -7847,7 +8038,27 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
   ["machinePlatformOrder", putMachinePlatformOrder],
+  ["houseStack", putHouseStack],
 ];
+
+/** The operator's House Stack (#3108): packages whose current stable versions a bootstrap pins. */
+function putHouseStack(value: unknown, deps: Ctx["deps"]): Response {
+  const parsed = parseHouseStack(value);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  deps.store.setSetting(HOUSE_STACK_SETTING, JSON.stringify(parsed.value));
+  return json({ houseStack: parsed.value });
+}
+
+// ── House Stack: resolve the current setting against the registries (#3108) ──
+// GET /api/house-stack/resolve → 200 {ok:true,…versions} | 502 {ok:false,errors} (never partial).
+async function handleHouseStackResolve({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "house-stack" && parts[2] === "resolve" && !parts[3]))
+    return null;
+  if (req.method !== "GET") return null;
+  const stack = storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING));
+  const resolved = await (deps.houseStackResolver ?? sharedHouseStackResolver).resolve(stack);
+  return json(resolved, resolved.ok ? 200 : 502);
+}
 
 /** The platform order of the machine choice (#2772): this instance's own. A task lands on the same
  *  machine wherever it is submitted only while every connected Shepherd uses the same order. */
@@ -9492,6 +9703,90 @@ async function handleReadiness({ req, parts, url }: Ctx): Promise<Response | nul
   return json(analyzeReadiness(dir));
 }
 
+// Readiness → greenfield profile (#3107). GET /api/readiness/greenfield?repo= re-scans now (tab open)
+// and returns the checklist; 503 when the service isn't wired.
+async function handleReadinessGreenfield({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "readiness") return null;
+  if (parts[2] !== "greenfield" || parts[3]) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!deps.greenfield) return json({ error: "greenfield unavailable" }, 503);
+  try {
+    return json(await deps.greenfield.refresh(dir));
+  } catch (e) {
+    console.error("[greenfield] scan failed:", e);
+    return json({ error: "scan_failed" }, 500);
+  }
+}
+
+// Readiness → Forge settings (#3106). GET /api/readiness/forge?repo= lists the host-setting checks;
+// POST /api/readiness/forge/apply?repo= {check} fixes one through the forge API and re-checks.
+async function handleReadinessForge({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "readiness" || parts[2] !== "forge" || parts[4])
+    return null;
+  const apply = parts[3] === "apply";
+  if ((parts[3] && !apply) || req.method !== (apply ? "POST" : "GET")) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  const autoLabel = deps.store.getRepoConfig(dir).autoLabel;
+  if (!apply) return forgeRoute("read", () => forgeReadiness(dir, forge, autoLabel));
+  const body = (await req.json().catch(() => null)) as { check?: unknown } | null;
+  const check = body?.check;
+  if (!isForgeCheckId(check)) return json({ error: "invalid check" }, 400);
+  return forgeRoute("apply", () => applyForgeCheck(dir, forge, autoLabel, check));
+}
+
+// Readiness → Framework majors (#3113). GET /api/readiness/drift?repo= compares the pinned-stack
+// packages the repo declares with the registries; POST /api/readiness/drift/story?repo= files the
+// upgrade story (or returns the open one).
+async function handleReadinessDrift({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  const route = driftRoute(req.method, parts);
+  if (!route) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const story = route === "story";
+  try {
+    return json(await (story ? createUpgradeStory : frameworkDrift)(dir, driftDeps(dir, deps)));
+  } catch (e) {
+    if (e instanceof UpgradeStoryNotApplicableError) return json({ error: e.message }, 409);
+    // Generic body — raw gh/stack text never reaches the client.
+    console.error(`[readiness-drift] ${route} failed:`, e);
+    return json({ error: `${route}_failed` }, 502);
+  }
+}
+
+/** `read` for GET /api/readiness/drift, `story` for POST …/drift/story, else null. */
+function driftRoute(method: string, parts: string[]): "read" | "story" | null {
+  if (parts[0] !== "api" || parts[1] !== "readiness" || parts[2] !== "drift" || parts[4])
+    return null;
+  if (!parts[3]) return method === "GET" ? "read" : null;
+  return parts[3] === "story" && method === "POST" ? "story" : null;
+}
+
+function driftDeps(dir: string, deps: Ctx["deps"]): DriftDeps {
+  const epicRun = deps.store.getEpicRun(dir);
+  return {
+    resolver: deps.houseStackResolver ?? sharedHouseStackResolver,
+    forge: deps.resolveForge?.(dir) ?? null,
+    houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
+    autoLabel: deps.store.getRepoConfig(dir).autoLabel,
+    runningEpic: epicRun?.status === "running" ? epicRun.parentIssueNumber : null,
+  };
+}
+
+/** Run a Forge-settings read/apply; map failures to generic bodies — raw gh/stack text never
+ *  reaches the client (CodeQL js/stack-trace-exposure). */
+async function forgeRoute(op: "read" | "apply", fn: () => Promise<unknown>): Promise<Response> {
+  try {
+    return json(await fn());
+  } catch (e) {
+    if (e instanceof ForgeCheckNotApplicableError) return json({ error: "not_applicable" }, 409);
+    console.error(`[readiness-forge] ${op} failed:`, e);
+    return json({ error: `${op}_failed` }, 502);
+  }
+}
+
 // POST /api/adopt-gitignore?repo= — open a PR adding the managed .shepherd-* ignore
 // block to the repo's committed .gitignore. Modelled on the promote route.
 async function handleAdoptGitignore({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -10989,6 +11284,7 @@ const ROUTE_HANDLERS = [
   handleEpicQueue,
   handleEpicQueueReorder,
   handleRepoConfig,
+  handleRepoBootstrap,
   handleRepoBrowserOpen,
   handleRepoRoles,
   handleRepoRolesAutoMerge,
@@ -11036,6 +11332,7 @@ const ROUTE_HANDLERS = [
   handleGitCredentials,
   handleSettingsVerifyKey,
   handleSettings,
+  handleHouseStackResolve,
   handleSteers,
   handleProjectIcons,
   handleBroadcast,
@@ -11068,6 +11365,9 @@ const ROUTE_HANDLERS = [
   handleShape,
   handleShapeBrief,
   handleReadiness,
+  handleReadinessGreenfield,
+  handleReadinessForge,
+  handleReadinessDrift,
   handleAdoptGitignore,
   handleBacklog,
   handleTodo,
@@ -11469,6 +11769,8 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   // running. Bun's maximum: a longer hand-off loses only the answer, never the dispatch.
   if (/^\/api\/sessions\/?$/.test(url.pathname)) return 255;
   if (url.pathname === "/api/uploads") return 120;
+  // A create may carry the PRD + design import (#3112) and waits on `gh repo create --push`.
+  if (url.pathname === "/api/projects") return 120;
   if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
   if (url.pathname === "/api/prs/merge") return MERGE_ROUTE_TIMEOUT_SEC;
   if (/^\/api\/sessions\/[^/]+\/git\/merge$/.test(url.pathname)) return MERGE_ROUTE_TIMEOUT_SEC;

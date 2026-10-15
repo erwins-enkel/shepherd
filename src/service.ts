@@ -12,6 +12,15 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { claudeTranscriptExists } from "./usage";
+import { bootstrapDirective, bootstrapP3Directive } from "./bootstrap-directive";
+import { bootstrapSessionPhase } from "./bootstrap";
+import {
+  HOUSE_STACK_SETTING,
+  type HouseStackResolver,
+  HouseStackUnresolvedError,
+  sharedHouseStackResolver,
+  storedHouseStack,
+} from "./house-stack";
 import type { RepoConfig, SessionStore } from "./store";
 import { TERMINAL_CLAIM_TTL_MS } from "./store";
 import { detectedHerdrVersion, herdrPaneControlSupported } from "./herdr-capabilities";
@@ -132,7 +141,7 @@ import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { SHELLS } from "./json-tolerant";
 import { resumeThenSteer } from "./resume-then-steer";
-import { MAX_IMAGES, type HandoffMode } from "./validate";
+import { MAX_IMAGES, relaunchKinds, taskKindConflict, type HandoffMode } from "./validate";
 import {
   resolveProfile,
   detectBackend as detectSandboxBackend,
@@ -294,6 +303,8 @@ function usedBaseCommit(input: StandardCreateInput, wt: WorktreeResult): string 
 }
 
 export interface ServiceDeps {
+  /** House Stack version resolver for bootstrap spawns (#3109); defaults to the shared one. */
+  houseStackResolver?: Pick<HouseStackResolver, "resolve">;
   /** Filesystem seam for persisted conversation availability; defaults to the real transcript file check. */
   transcriptExists?: (path: string) => boolean;
   capacity?: (session: Session) => Promise<boolean>;
@@ -962,13 +973,18 @@ const ENGINEERING_POSTURE =
  * sure is current, so it doesn't fire a search on every trivial edit or well-known pattern. WebSearch
  * is already allowed for task agents, so this adds no new permission prompt. Agent-facing prompt text
  * (not operator UI), so fixed English — same precedent as the other notices.
+ *
+ * The well-established exception explicitly excludes framework majors (#3108): an agent once kept a
+ * new scaffold on SvelteKit 2 from memory, weeks after 3.0 shipped, costing a 208-file upgrade.
  */
 const RESEARCH_FIRST_NOTICE =
   "Before writing non-trivial code against an external library, framework, or API — especially one " +
   "you're not certain is current — do a quick web search to confirm the present best approach, then " +
   "note in one or two lines what you found and why you chose it. Skip this for trivial edits and " +
   "well-established patterns you're already confident about; it exists to stop you scaffolding many " +
-  "files against a stale or assumed API with no human to correct course.";
+  "files against a stale or assumed API with no human to correct course. A framework or library " +
+  "MAJOR version is never a well-established pattern: whenever you choose, pin or keep one, confirm " +
+  "the current stable major from the package registry or official docs — never from memory.";
 
 /**
  * Rides every spawn whose MCP config carries `self_status` — Claude-family, non-plain (issue #2860).
@@ -1288,6 +1304,8 @@ export function epicAuthoringDirective(args: {
     "(e.g. Goal, Confirmed decisions) — the review builds its table of contents from them — keep " +
     "paragraphs short, and write labelled points as `- **Label:** text`. Acceptance criteria and " +
     "non-goals belong in their own fields, not in the body.\n" +
+    '- Acceptance criteria NEVER carry version numbers (no "SvelteKit 2", no `pkg@5`): refer to ' +
+    '"the pinned stack in CLAUDE.md" instead. The server rejects a draft that pins one.\n' +
     "- You are attended: when a product/requirements decision is unresolved, ask the user ONE " +
     "focused question at a time. Research discoverable facts from the repo yourself instead of " +
     "asking.\n" +
@@ -1858,6 +1876,7 @@ function primaryDirectiveBlock(
   opts: {
     research?: boolean;
     epicAuthoring?: string | null;
+    bootstrap?: string | null;
     landingRepair?: boolean;
     planGate?: "interactive" | "auto";
     operatorLanguage?: OperatorLanguage;
@@ -1871,6 +1890,11 @@ function primaryDirectiveBlock(
   }
   if (opts.research) {
     return taggedBlock("research-directive", researchDirective(agentProvider));
+  }
+  // Bootstrap (#3109) replaces plan-gate/autopilot too: its P1 grilling IS the planning step. The
+  // pre-baked text (resolved pins) is composed by directiveBlocks, mirroring epicAuthoring.
+  if (opts.bootstrap) {
+    return taggedBlock("bootstrap-directive", opts.bootstrap);
   }
   // Landing repair (Task 5's drain-spawned CI-fix session) is the same priority tier as research:
   // it replaces plan-gate/autopilot (its deliverable is a push, not a planned-then-implemented PR).
@@ -2004,6 +2028,9 @@ export interface ComposeSystemPromptOptions {
   /** Plain task kind; absent/false → off. Suppresses the same blocks as the other non-code modes
    *  and adds no directive of its own — the agent runs as the bare CLI would. */
   plain?: boolean;
+  /** Pre-baked bootstrap directive text (resolved pins, #3109), or null/absent when off. A CODE
+   *  mode (it opens a PR), so unlike the kinds above it suppresses only plan-gate/autopilot. */
+  bootstrap?: string | null;
   planGate?: "interactive" | "auto";
   buildQueue?: string | null;
   previewHint?: boolean;
@@ -3460,7 +3487,16 @@ export class SessionService {
   private directiveBlocks(
     input: Pick<
       StandardCreateInput,
-      "repoPath" | "prompt" | "auto" | "research" | "epicAuthoring" | "landingRepair" | "plain"
+      | "repoPath"
+      | "prompt"
+      | "auto"
+      | "research"
+      | "epicAuthoring"
+      | "landingRepair"
+      | "plain"
+      | "bootstrap"
+      | "bootstrapStack"
+      | "bootstrapPhase"
     >,
     ctx: {
       sessionId: string;
@@ -3501,9 +3537,24 @@ export class SessionService {
           agentProvider: ctx.agentProvider,
         })
       : null;
+    // Bootstrap directive (#3109): the pins resolved at spawn ride the create input; a resume (input
+    // is the stored row) reads the same persisted resolution back. A P3 session (#3110) runs the gap
+    // sweep instead, whose pins already live in the project's CLAUDE.md.
+    const bootstrapPhase = input.bootstrap
+      ? (input.bootstrapPhase ?? this.deps.store.getBootstrapPhase(sessionId))
+      : null;
+    const bootstrap = !input.bootstrap
+      ? null
+      : bootstrapPhase === 3
+        ? bootstrapP3Directive({ agentProvider: ctx.agentProvider })
+        : bootstrapDirective({
+            stack: input.bootstrapStack ?? this.deps.store.getBootstrapStack(sessionId),
+            agentProvider: ctx.agentProvider,
+          });
     return composeSystemPromptBlocks(ctx.houseRules, autopilotActive, {
       research: input.research,
       epicAuthoring,
+      bootstrap,
       landingRepair: input.landingRepair,
       plain: input.plain,
       planGate,
@@ -3949,8 +4000,15 @@ export class SessionService {
       repoConfig.sandboxProfile,
       config.sandboxDefaultProfile,
     );
-    if ((input.research || input.epicAuthoring) && effectiveProfile === "autonomous") {
-      const kind = input.research ? "research" : "epic-authoring";
+    if (
+      (input.research || input.epicAuthoring || input.bootstrap) &&
+      effectiveProfile === "autonomous"
+    ) {
+      const kind = input.research
+        ? "research"
+        : input.epicAuthoring
+          ? "epic-authoring"
+          : "bootstrap";
       console.warn(
         `[sandbox] ${kind} ${sessionId}: downgrading autonomous → standard ` +
           `(needs open web/repo egress; the autonomous egress firewall would block web search)`,
@@ -3972,7 +4030,8 @@ export class SessionService {
    * to plan with). A plain task is exempt by definition: it is the agent without guards.
    */
   private resolvePlanGateOn(input: StandardCreateInput, repoConfig: RepoConfig): boolean {
-    if (isNonCodeMode(input)) return false;
+    // Bootstrap (#3109) runs its own P1 decision grilling — the plan gate would be a second one.
+    if (isNonCodeMode(input) || input.bootstrap) return false;
     return input.planGateEnabled ?? repoConfig.planGateEnabled;
   }
 
@@ -4094,7 +4153,12 @@ export class SessionService {
     // A plain session never runs on autopilot — that is the mode's contract, regardless of the
     // per-task override or the repo default. Forced here, on the ONE input every downstream
     // consumer (argv, build-queue pre-approval, the persisted row) reads.
-    const spawnInput = modelInput.plain ? { ...modelInput, autopilotEnabled: false } : modelInput;
+    // A bootstrap session (#3109) is attended for the same reason: autopilot would steer through
+    // its P1 operator questions.
+    const spawnInput =
+      modelInput.plain || modelInput.bootstrap
+        ? { ...modelInput, autopilotEnabled: false }
+        : modelInput;
     if (model !== null && spawnModel === null)
       console.warn(
         `[spawn] codex model "${model}" unsupported by ChatGPT-account auth — using account default`,
@@ -4288,13 +4352,34 @@ export class SessionService {
     if (input.terminal === true) return this.createTerminalSession(input);
     const phases = tracker ?? new SpawnPhaseTracker();
     try {
-      const session = await this.createAgentSession(input, phases);
+      const session = await this.createAgentSession(await this.withBootstrapStack(input), phases);
       phases.finish("ok");
       return session;
     } catch (e) {
       phases.finish(e instanceof SpawnCanceled ? "canceled" : "failed");
       throw e;
     }
+  }
+
+  /**
+   * A bootstrap create picks its phase from the repo's bootstrap state (#3110): P3 (the gap sweep)
+   * once the repo reached it, else P1+P2. A P1+P2 create (#3109) resolves the operator's House
+   * Stack BEFORE anything is created, so an unresolvable package refuses the start with nothing to
+   * roll back — no pin is ever guessed. P3 needs no resolution. Every other input passes through
+   * untouched. Re-picked on each create (relaunch included); the registry cache keeps that cheap.
+   */
+  private async withBootstrapStack(input: StandardCreateInput): Promise<StandardCreateInput> {
+    if (!input.bootstrap) return input;
+    const phase =
+      input.bootstrapPhase ??
+      bootstrapSessionPhase(this.deps.store.getRepoBootstrap(input.repoPath));
+    if (phase === 3 || input.bootstrapStack) return { ...input, bootstrapPhase: phase };
+    const stack = storedHouseStack(this.deps.store.getSetting(HOUSE_STACK_SETTING));
+    const resolved = await (this.deps.houseStackResolver ?? sharedHouseStackResolver).resolve(
+      stack,
+    );
+    if (!resolved.ok) throw new HouseStackUnresolvedError(resolved.errors);
+    return { ...input, bootstrapPhase: phase, bootstrapStack: resolved };
   }
 
   /** The pre-de-dupe session name: the namer's slug, with the issue number folded in when the
@@ -4408,6 +4493,8 @@ export class SessionService {
         epicAuthoring: spawnInput.epicAuthoring ?? false,
         landingRepair: spawnInput.landingRepair ?? false,
         plain: spawnInput.plain ?? false,
+        bootstrapStack: spawnInput.bootstrapStack,
+        bootstrapPhase: spawnInput.bootstrapPhase,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
         launchMetadata: this.buildLaunchMetadata({
           input,
@@ -4799,6 +4886,9 @@ export class SessionService {
     //     The composer already seeded the carried originals into overrides.images (via
     //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
     //     re-merging here would double the carried uploads.
+    // The route 400s this first; a direct caller must not spawn a two-kind session either.
+    const kindErr = taskKindConflict(relaunchKinds(s, overrides ?? null));
+    if (kindErr) throw new Error(kindErr);
     const images = this.carryRelaunchImages(s, overrides, originalId);
     const attachmentNames = this.carryRelaunchAttachmentNames(s, overrides, images);
     // #2225: resolved ONCE, then threaded to BOTH the spawn prompt (so the new agent reads the
@@ -4912,6 +5002,8 @@ export class SessionService {
       landingRepair: pickOverride(overrides?.landingRepair, original.landingRepair),
       // Carry the plain flag so a relaunch stays guard-free.
       plain: pickOverride(overrides?.plain, original.plain),
+      // Carry the bootstrap flag; the relaunch's create re-resolves the House Stack (#3109).
+      bootstrap: pickOverride(overrides?.bootstrap, original.bootstrap),
       epicParent: carriedEpicParent(original, overrides),
       // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.
       carriedAmendments,
@@ -4971,6 +5063,10 @@ export class SessionService {
       research: s.research,
       epicAuthoring: s.epicAuthoring,
       landingRepair: s.landingRepair,
+      // The replacement keeps the pins this session was bootstrapped with (#3109).
+      bootstrap: s.bootstrap,
+      bootstrapStack: this.deps.store.getBootstrapStack(s.id) ?? undefined,
+      bootstrapPhase: this.deps.store.getBootstrapPhase(s.id) ?? undefined,
       auto: false,
       // #2225: replace REUSES this session's row, so its amendments (and the rows its critic
       // reads) are already in place — but the fresh agent has never seen them. Fold the same

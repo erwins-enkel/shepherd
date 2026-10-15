@@ -40,6 +40,7 @@ import type {
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
+import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { reviews, planGates, spawnNotices } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { amendments } from "./amendments.svelte";
@@ -1031,6 +1032,9 @@ export class HerdStore {
     switch (ev.event) {
       case "project-icons:update":
         projectIcons.apply(ev.data);
+        break;
+      case "repo-bootstrap:update":
+        repoBootstrap.refresh(ev.data.repoPath);
         break;
       case "learnings:update":
         learnings.apply(ev.data);

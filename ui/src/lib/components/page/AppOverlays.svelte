@@ -142,6 +142,7 @@
     composeResearch,
     composeEpicAuthoring,
     composePlain,
+    composeBootstrap,
     usageLimits = null,
     holdLikely,
     onnewclose,
@@ -211,6 +212,7 @@
     onpr,
     onadopt,
     ondraftepic,
+    onbootstrapstep,
     onlaunchtrain,
     onaddclone,
     onaddfork,
@@ -284,6 +286,7 @@
     composeResearch: boolean;
     composeEpicAuthoring: boolean;
     composePlain: boolean;
+    composeBootstrap: boolean;
     usageLimits?: UsageLimits | null;
     holdLikely: boolean;
     onnewclose: () => void;
@@ -372,6 +375,8 @@
     onadopt: (repoPath: string, prompt: string) => void;
     /** The Issues overview's "Draft epic" (#2638): New Task set to epic authoring. */
     ondraftepic: (repoPath: string) => void;
+    /** The Backlog's bootstrap checklist (#3112): New Task set to the repo's next bootstrap step. */
+    onbootstrapstep: (repoPath: string, kind: "bootstrap" | "epic") => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onaddclone: () => void;
     onaddfork: () => void;
@@ -639,6 +644,7 @@
         initialResearch={composeResearch}
         initialEpicAuthoring={composeEpicAuthoring}
         initialPlain={composePlain}
+        initialBootstrap={composeBootstrap}
         {usageLimits}
         defaultAgentProvider={newTaskDefaultAgentProvider}
         defaultModel={settings?.defaultModel}
@@ -796,6 +802,7 @@
     sessionInfo={backlogSessionInfo}
     issueSession={backlogIssueSession}
     {ondraftepic}
+    {onbootstrapstep}
     epics={store.epics}
     {inTrainPrs}
     target={epicTarget}

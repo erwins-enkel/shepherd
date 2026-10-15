@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { amendments } from "./amendments.svelte";
 import { HerdStore } from "./store.svelte";
+import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
 import { motionSettle } from "./motion-settle";
@@ -629,6 +630,13 @@ test("setDrain hydrates the drain map from a list", () => {
   const s = new HerdStore();
   s.setDrain([DRAIN]);
   expect(s.drain["/r"]?.queued).toBe(2);
+});
+
+test("repo-bootstrap:update re-reads that repo's bootstrap view (#3112)", () => {
+  const refresh = vi.spyOn(repoBootstrap, "refresh").mockImplementation(() => {});
+  new HerdStore().apply({ event: "repo-bootstrap:update", data: { repoPath: "/r" } });
+  expect(refresh).toHaveBeenCalledWith("/r");
+  refresh.mockRestore();
 });
 
 test("drain:status merges into the drain map", () => {

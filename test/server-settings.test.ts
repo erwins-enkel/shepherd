@@ -19,6 +19,7 @@ import {
   DEFAULT_ASSISTANT_PERMISSIONS,
   type AssistantPermissions,
 } from "../src/operator-assistant-permissions";
+import { DEFAULT_HOUSE_STACK, type HouseStack, type HouseStackResolver } from "../src/house-stack";
 
 let tmp: string;
 let savedRoot: string;
@@ -1652,4 +1653,57 @@ test("assistantPermissions: an invalid patch is a 400 and changes nothing", asyn
   } finally {
     config.assistantPermissions = saved;
   }
+});
+
+test("houseStack: default on GET, PATCH validates + persists, resolve route reports ok/errors", async () => {
+  const store = new SessionStore(":memory:");
+  let result: Awaited<ReturnType<HouseStackResolver["resolve"]>> = {
+    ok: true,
+    resolvedAt: "2026-10-15T00:00:00.000Z",
+    npm: [{ name: "svelte", version: "5.40.1" }],
+    crates: [],
+    rustToolchain: null,
+  };
+  const seen: HouseStack[] = [];
+  const app = makeApp({
+    store,
+    events: new EventHub(),
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+    readCodexAuthMode: () => "unknown",
+    houseStackResolver: {
+      resolve: async (s) => {
+        seen.push(s);
+        return result;
+      },
+    },
+  });
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.houseStack).toEqual(DEFAULT_HOUSE_STACK);
+
+  const bad = await patch(app, {
+    houseStack: { npm: ["Not A Name"], crates: [], rustToolchain: true },
+  });
+  expect(bad.status).toBe(400);
+  expect(store.getSetting("houseStack")).toBeNull();
+
+  const value = { npm: ["svelte", " svelte "], crates: ["serde"], rustToolchain: false };
+  const ok = await patch(app, { houseStack: value });
+  expect(ok.status).toBe(200);
+  const normalized = { npm: ["svelte"], crates: ["serde"], rustToolchain: false };
+  expect(await ok.json()).toEqual({ houseStack: normalized });
+  expect(JSON.parse(store.getSetting("houseStack")!)).toEqual(normalized);
+  expect((await (await app.fetch(new Request("http://x/api/settings"))).json()).houseStack).toEqual(
+    normalized,
+  );
+
+  const resolveRes = await app.fetch(new Request("http://x/api/house-stack/resolve"));
+  expect(resolveRes.status).toBe(200);
+  expect(await resolveRes.json()).toEqual(result);
+  expect(seen).toEqual([normalized]);
+
+  result = { ok: false, errors: [{ ecosystem: "npm", name: "svelte", reason: "timed out" }] };
+  const failRes = await app.fetch(new Request("http://x/api/house-stack/resolve"));
+  expect(failRes.status).toBe(502);
+  expect(await failRes.json()).toEqual(result);
 });

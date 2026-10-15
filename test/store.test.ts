@@ -2828,6 +2828,44 @@ test("hasInflightReviewerSpawn ignores a row spawned before the window", () => {
   expect(s.hasInflightReviewerSpawn(a.id, 0)).toBe(true); // still unfinished, just not recent
 });
 
+test("session: bootstrap derives from the persisted resolved stack (#3109)", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(s.get(a.id)?.bootstrap).toBe(false);
+  expect(s.getBootstrapStack(a.id)).toBeNull();
+  const stack = {
+    ok: true as const,
+    resolvedAt: "2026-10-15T00:00:00.000Z",
+    npm: [{ name: "svelte", version: "5.1.0" }],
+    crates: [],
+    rustToolchain: null,
+  };
+  const b = s.create({ ...base, herdrAgentId: "t2", bootstrapStack: stack });
+  expect(b.bootstrap).toBe(true);
+  const got = s.get(b.id);
+  expect(got?.bootstrap).toBe(true);
+  expect(got && "bootstrapStackJson" in got).toBe(false);
+  expect(s.getBootstrapStack(b.id)).toEqual(stack);
+});
+
+test("session: a P3 bootstrap row has no stack but is bootstrap (#3110)", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(s.getBootstrapPhase(a.id)).toBeNull();
+  const p3 = s.create({ ...base, herdrAgentId: "t2", bootstrapPhase: 3 });
+  expect(p3.bootstrap).toBe(true);
+  expect(s.get(p3.id)?.bootstrap).toBe(true);
+  expect(s.getBootstrapPhase(p3.id)).toBe(3);
+  expect(s.getBootstrapStack(p3.id)).toBeNull();
+  // A legacy P1+P2 row (stack, no phase) reads as phase 1.
+  const legacy = s.create({
+    ...base,
+    herdrAgentId: "t3",
+    bootstrapStack: { ok: true, resolvedAt: "x", npm: [], crates: [], rustToolchain: null },
+  });
+  expect(s.getBootstrapPhase(legacy.id)).toBe(1);
+});
+
 test("session: plain defaults false, round-trips via create + get", () => {
   const s = mk();
   const a = s.create(base);

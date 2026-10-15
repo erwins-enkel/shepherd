@@ -539,6 +539,28 @@ test("push administration is cookie-admin only and never returns the key", async
     s.deps.store.deletePushSub(ios);
   }
 });
+test("repo bootstrap state, phase and logged override (#3105)", async () => {
+  const q = `?repo=${encodeURIComponent(s.validRepo)}`;
+  const base = "/api/repo-bootstrap",
+    ovr = "/api/repo-bootstrap/override";
+  await request("GET", base, 200, undefined, base + q);
+  await request("GET", base, 400, undefined, base + "?repo=/outside");
+  await request("PUT", base, 409, { phase: 2 }, base + q);
+  await request("POST", ovr, 409, { on: true }, ovr + q);
+  await request("PUT", base, 400, { state: "done" }, base + q);
+  const frames = await collectEvents(s, token, async () => {
+    const view = (await request("PUT", base, 200, { state: "active" }, base + q)) as {
+      next: unknown;
+    };
+    expect(view.next).toEqual({ kind: "bootstrap", phase: 1, sessionId: null });
+  });
+  const frame = frames.find((f) => f.event === "repo-bootstrap:update");
+  expect(frame).toBeDefined();
+  validateEvent("repo-bootstrap:update", frame!.data);
+  await request("POST", ovr, 400, { on: "yes" }, ovr + q);
+  await request("POST", ovr, 200, { on: false }, ovr + q);
+  await request("PUT", base, 200, { state: "off" }, base + q);
+});
 test("existing token contract is cookie-admin only", async () => {
   const admin = { cookie };
   await request("GET", "/api/access-tokens", 200, undefined, undefined, admin);
@@ -713,6 +735,7 @@ test("settings owns a full unauthenticated sweep and its exception coverage", as
   }
   expect(OPS.length).toBeGreaterThan(35);
   expect(EVENTS).toContain("diagnostics:status");
+  expect(EVENTS).toContain("repo-bootstrap:update");
   expect(EVENTS.filter((event) => event.includes("-update:"))).toHaveLength(6);
   const seen = coverage();
   expect(OPS.filter((o) => !seen.operations.has(o))).toEqual([]);

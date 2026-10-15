@@ -15,6 +15,7 @@
   import ActionsPanel from "../ActionsPanel.svelte";
   import ReadinessPanel from "../ReadinessPanel.svelte";
   import AutomationSettings from "../AutomationSettings.svelte";
+  import BootstrapChecklist from "../BootstrapChecklist.svelte";
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
 
@@ -41,6 +42,8 @@
     sessionInfo = undefined,
     issueSession = undefined,
     ondraftepic = undefined,
+    onbootstrapstep = undefined,
+    onopenreadiness = undefined,
   }: {
     activeTab: Tab;
     selectedPath: string;
@@ -65,8 +68,15 @@
     issueSession?: (repoPath: string, issue: number) => Session | null;
     /** Open the New Task composer set to draft an epic for a repo (Issues overview). */
     ondraftepic?: (repoPath: string) => void;
+    /** The bootstrap checklist's start (#3112): New Task set to the repo's next bootstrap step. */
+    onbootstrapstep?: (repoPath: string, kind: "bootstrap" | "epic") => void;
+    /** Switch to the Readiness tab (the bootstrap exit's must-haves live there). */
+    onopenreadiness?: () => void;
   } = $props();
 </script>
+
+<!-- #3112: an active-bootstrap repo shows where it stands and its next step above every tab. -->
+<BootstrapChecklist repoPath={selectedPath} {onbootstrapstep} {onopensession} {onopenreadiness} />
 
 {#if activeTab === "issues"}
   <IssuesPanel

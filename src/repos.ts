@@ -20,6 +20,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { expandHome, safeRepoDir } from "./validate";
 import { sanitizeDetail } from "./forge/gh-attempt";
+import type { ProjectDoc } from "./project-docs";
 
 /** Shape of Node child_process exec errors (code / signal / killed / stderr). */
 interface ExecLikeError {
@@ -615,6 +616,7 @@ export async function createProject(
   repoRoot: string,
   ghRunner?: GhRunner,
   _identityCheck?: () => boolean,
+  docs: readonly ProjectDoc[] = [],
 ): Promise<{ ok: true; entry: RepoEntry; warning?: string } | { ok: false; error: string }> {
   const runner = ghRunner ?? defaultGhRunner;
   const identityOk = _identityCheck ?? gitIdentityPresent;
@@ -631,7 +633,7 @@ export async function createProject(
   if (!identityOk()) return { ok: false, error: "newproject_failed_identity" };
 
   // Steps 3–7: fs mutations (mkdir, git init, write files, git add + commit)
-  const localResult = bootstrapLocalRepo(input, target);
+  const localResult = bootstrapLocalRepo(input, target, docs);
   if (!localResult.ok) return localResult;
 
   // Step 8: build RepoEntry
@@ -657,11 +659,13 @@ export async function createProject(
 function bootstrapLocalRepo(
   input: { name: string; idea: string },
   target: string,
+  docs: readonly ProjectDoc[],
 ): { ok: true } | { ok: false; error: string } {
   try {
     mkdirSync(target, { recursive: false });
     execFileSync("git", ["init", "-b", "main"], { cwd: target, stdio: "pipe", timeout: 30_000 });
     writeBootstrapFiles(input, target);
+    writeProjectDocs(target, docs);
     execFileSync("git", ["add", "-A"], { cwd: target, stdio: "pipe", timeout: 30_000 });
     execFileSync("git", ["commit", "-m", "chore: project bootstrap"], {
       cwd: target,
@@ -679,6 +683,16 @@ function bootstrapLocalRepo(
     return { ok: false, error: classifyProjectError(e) };
   }
   return { ok: true };
+}
+
+/** #3112: the imported PRD + design export, under `docs/<area>/` — paths are pre-validated by
+ *  `parseProjectDocs` (src/project-docs.ts), so the join can't leave the area. */
+function writeProjectDocs(target: string, docs: readonly ProjectDoc[]): void {
+  for (const d of docs) {
+    const file = join(target, "docs", d.area, ...d.relPath.split("/"));
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, d.data);
+  }
 }
 
 /** Write README.md, .gitignore, and CLAUDE.md into the newly-created project directory. */

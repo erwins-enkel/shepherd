@@ -26,6 +26,8 @@ import type {
   PrStatus,
   MergeMethod,
   Settings,
+  HouseStack,
+  HouseStackResolution,
   DirListing,
   ScratchListing,
   UpdateStatus,
@@ -57,6 +59,11 @@ import type {
   RepoRolesPending,
   RepoRolesResult,
   ReadinessReport,
+  ForgeCheckId,
+  ForgeReadiness,
+  FrameworkDrift,
+  UpgradeStoryResult,
+  GreenfieldReport,
   DrainStatus,
   AutoMergeStatus,
   QueuedItem,
@@ -798,14 +805,34 @@ export async function syncFork(repoPath: string): Promise<{ branch?: string }> {
  *  On any hard failure throws with `err.message` set to the server's `error` field
  *  (a `newproject_failed_*` code) so the modal can strip the `newproject_failed_`
  *  prefix and map to its `msg(code)` switch — exactly the same contract as `cloneRepo`. */
-export async function createProject(input: {
-  name: string;
-  idea: string;
-  createRemote: boolean;
-  visibility: "private" | "public";
-  owner?: string;
-}): Promise<RepoEntry & { warning?: string }> {
-  return postJson<RepoEntry & { warning?: string }>("/api/projects", input, "newproject");
+export async function createProject(
+  input: {
+    name: string;
+    idea: string;
+    createRemote: boolean;
+    visibility: "private" | "public";
+    owner?: string;
+  },
+  docs?: ProjectDocFiles,
+): Promise<RepoEntry & { warning?: string }> {
+  if (!docs || (docs.prd.length === 0 && docs.design.length === 0))
+    return postJson<RepoEntry & { warning?: string }>("/api/projects", input, "newproject");
+  // #3112: the PRD + design import rides as multipart; each file's name is its path under
+  // docs/<area>/ (the server re-validates every one).
+  const fd = new FormData();
+  fd.append("project", JSON.stringify(input));
+  for (const area of ["prd", "design"] as const)
+    for (const d of docs[area]) fd.append(area, d.file, d.path);
+  // no content-type header: the browser sets the multipart boundary
+  const r = await fetch("/api/projects", { method: "POST", body: fd });
+  if (!r.ok) throw await failed(r, "newproject");
+  return r.json() as Promise<RepoEntry & { warning?: string }>;
+}
+
+/** Files to import into a new project (#3112), each with its path relative to `docs/<area>/`. */
+export interface ProjectDocFiles {
+  prd: { file: File; path: string }[];
+  design: { file: File; path: string }[];
 }
 
 /** GitHub owners a new repo can be created under: the authenticated login plus the
@@ -1026,6 +1053,17 @@ export async function deriveRequirements(
 export const putMachinePlatformOrder = (
   order: string[],
 ): Promise<{ machinePlatformOrder: string[] }> => patchSettings({ machinePlatformOrder: order });
+
+/** The operator's House Stack (#3108); the server validates and normalizes it. */
+export const putHouseStack = (houseStack: HouseStack): Promise<{ houseStack: HouseStack }> =>
+  patchSettings({ houseStack });
+
+/** Resolve the saved House Stack against the registries. A 502 carries per-package errors. */
+export async function resolveHouseStack(): Promise<HouseStackResolution> {
+  const r = await fetch("/api/house-stack/resolve");
+  if (r.ok || r.status === 502) return r.json();
+  throw await failed(r, "resolve house stack");
+}
 
 /** A refused connection keeps the server's machine codes so the form can say what to fix. */
 export type ConnectMachineResult =
@@ -2806,6 +2844,47 @@ export async function getReadiness(repoPath: string): Promise<ReadinessReport> {
   return getJson(`/api/readiness?repo=${encodeURIComponent(repoPath)}`, "readiness");
 }
 
+/** Readiness → greenfield profile (#3107): re-scans the repo's bootstrap checklist. */
+export async function getGreenfieldReadiness(repoPath: string): Promise<GreenfieldReport> {
+  return getJson(
+    `/api/readiness/greenfield?repo=${encodeURIComponent(repoPath)}`,
+    "readiness-greenfield",
+  );
+}
+
+/** Readiness → Forge settings checks (#3106); `{supported:false}` off GitHub. */
+export async function getForgeReadiness(repoPath: string): Promise<ForgeReadiness> {
+  return getJson(`/api/readiness/forge?repo=${encodeURIComponent(repoPath)}`, "readiness-forge");
+}
+
+/** Fix one Forge-settings check through the host API; resolves to the re-checked state. */
+export async function applyForgeCheck(
+  repoPath: string,
+  check: ForgeCheckId,
+): Promise<ForgeReadiness> {
+  const r = await fetch(`/api/readiness/forge/apply?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ check }),
+  });
+  if (!r.ok) throw await failed(r, "readiness-forge-apply");
+  return r.json();
+}
+
+/** Readiness "Framework majors" (#3113): pinned-stack packages vs the registries' stable lines. */
+export async function getFrameworkDrift(repoPath: string): Promise<FrameworkDrift> {
+  return getJson(`/api/readiness/drift?repo=${encodeURIComponent(repoPath)}`, "readiness-drift");
+}
+
+/** File the upgrade story (or get the open one back). */
+export async function createUpgradeStory(repoPath: string): Promise<UpgradeStoryResult> {
+  const r = await fetch(`/api/readiness/drift/story?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw await failed(r, "readiness-drift-story");
+  return r.json();
+}
+
 /** Open a PR adding Shepherd's `.shepherd-*` session artifacts to the repo's
  *  `.gitignore` (only for repos you can push to; otherwise they're already hidden
  *  locally via git exclude). Resolves to the server's outcome:
@@ -2896,6 +2975,62 @@ export async function putRepoConfig(
     body: JSON.stringify(patch),
   });
   if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
+  return r.json();
+}
+
+/** Project-bootstrap state of a repo (#3105) — mirrors the server's RepoBootstrapView. */
+export interface RepoBootstrapView {
+  state: "off" | "active" | "done";
+  /** Current phase 1–5; every phase below it is complete. */
+  phase: number;
+  /** When the operator overrode the drain hold; null when no override is in force. */
+  overrideAt: number | null;
+  /** What still holds the drain (phases `P<n>`, then must-haves), even while overridden. */
+  missing: string[];
+  /** Off and the repo root has no package.json / Cargo.toml — offer bootstrap mode. */
+  suggested: boolean;
+  /** The proposed next attended step (#3112); null when off or done. Absent on old servers. */
+  next?: RepoBootstrapNextStep | null;
+}
+
+/** What the operator starts next in a bootstrap (#3112): a bootstrap session (P1+P2 below phase
+ *  3, else P3), the P4 epic authoring, or — phases done — the Readiness must-haves. */
+export interface RepoBootstrapNextStep {
+  kind: "bootstrap" | "epic" | "readiness";
+  phase: number;
+  /** A live session already on this step; the UI opens it instead of starting another. */
+  sessionId: string | null;
+}
+
+export async function getRepoBootstrap(repoPath: string): Promise<RepoBootstrapView> {
+  return getJson(`/api/repo-bootstrap?repo=${encodeURIComponent(repoPath)}`, "repo-bootstrap");
+}
+
+/** Switch bootstrap mode on/off (or move its phase). `done` is reached only via the exit check. */
+export async function putRepoBootstrap(
+  repoPath: string,
+  patch: { state?: "off" | "active"; phase?: number },
+): Promise<RepoBootstrapView> {
+  const r = await fetch(`/api/repo-bootstrap?repo=${encodeURIComponent(repoPath)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw await failed(r, "repo-bootstrap put");
+  return r.json();
+}
+
+/** Grant (on) or revoke the logged operator override of the bootstrap drain hold. */
+export async function overrideRepoBootstrap(
+  repoPath: string,
+  on: boolean,
+): Promise<RepoBootstrapView> {
+  const r = await fetch(`/api/repo-bootstrap/override?repo=${encodeURIComponent(repoPath)}`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ on }),
+  });
+  if (!r.ok) throw await failed(r, "repo-bootstrap override");
   return r.json();
 }
 

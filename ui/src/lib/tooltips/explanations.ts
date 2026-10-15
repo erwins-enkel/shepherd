@@ -106,6 +106,19 @@ export function upNextReadinessExplanation(): TooltipExplanation {
   };
 }
 
+/** Settings → Workspace "House Stack" (#3108) — what the list feeds and why a failure pins nothing. */
+export function houseStackExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_house_stack_title(),
+    summary: m.tooltip_house_stack_summary(),
+    sections: [
+      { label: m.tooltip_house_stack_does(), text: m.tooltip_house_stack_does_body() },
+      { label: m.tooltip_house_stack_pins(), text: m.tooltip_house_stack_pins_body() },
+      { label: m.tooltip_house_stack_failure(), text: m.tooltip_house_stack_failure_body() },
+    ],
+  };
+}
+
 /** Review banner "Hold" — what holding an in-flight review does and what it costs. */
 export function reviewHoldExplanation(): TooltipExplanation {
   return {
@@ -335,6 +348,20 @@ export function plainModeExplanation(): TooltipExplanation {
     sections: [
       { label: m.tooltip_mode_plain_kept(), text: m.tooltip_mode_plain_kept_body() },
       { label: m.tooltip_mode_plain_dropped(), text: m.tooltip_mode_plain_dropped_body() },
+    ],
+  };
+}
+
+/** New Task "Bootstrap" mode button (#3109): what one bootstrap session delivers and what it needs. */
+export function bootstrapModeExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_mode_bootstrap_title(),
+    summary: m.tooltip_mode_bootstrap_summary(),
+    sections: [
+      { label: m.tooltip_mode_bootstrap_output(), text: m.tooltip_mode_bootstrap_output_body() },
+      { label: m.tooltip_mode_bootstrap_pins(), text: m.tooltip_mode_bootstrap_pins_body() },
+      { label: m.tooltip_mode_bootstrap_guards(), text: m.tooltip_mode_bootstrap_guards_body() },
+      { label: m.tooltip_mode_bootstrap_phases(), text: m.tooltip_mode_bootstrap_phases_body() },
     ],
   };
 }
@@ -655,6 +682,32 @@ export function remoteFactsExplanation(
       ...(session.sandboxDegraded
         ? [{ label: m.remote_detail_sandbox(), text: m.session_sandbox_degraded_label() }]
         : []),
+    ],
+  };
+}
+
+/** Backlog bootstrap checklist (#3112): how the phases advance and who starts each step. */
+export function bootstrapSequencerExplanation(): TooltipExplanation {
+  return {
+    title: m.bootstrap_checklist_title(),
+    summary: m.tooltip_bootstrap_seq_summary(),
+    sections: [
+      { label: m.tooltip_bootstrap_seq_advance(), text: m.tooltip_bootstrap_seq_advance_body() },
+      { label: m.tooltip_bootstrap_seq_start(), text: m.tooltip_bootstrap_seq_start_body() },
+      { label: m.tooltip_bootstrap_exit(), text: m.tooltip_bootstrap_exit_body() },
+    ],
+  };
+}
+
+/** Project bootstrap (#3105): what the hold stops, when it ends, what the override costs. */
+export function bootstrapExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_bootstrap_title(),
+    summary: m.tooltip_bootstrap_summary(),
+    sections: [
+      { label: m.tooltip_bootstrap_hold(), text: m.tooltip_bootstrap_hold_body() },
+      { label: m.tooltip_bootstrap_exit(), text: m.tooltip_bootstrap_exit_body() },
+      { label: m.tooltip_bootstrap_override(), text: m.tooltip_bootstrap_override_body() },
     ],
   };
 }

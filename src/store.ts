@@ -2,6 +2,7 @@ import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { GithubCacheKind, GithubCacheRow } from "./github-read-cache";
 import { RELEVANCE_DROP_BELOW } from "./house-rules-relevance";
+import type { ResolvedHouseStack } from "./house-stack";
 import type {
   BlockJudgeLogRow,
   Session,
@@ -90,6 +91,7 @@ import {
 import type { EpicLandingState } from "./completed-epic";
 import { epicParentFromBranch } from "./epic-branch";
 import { normalizeRule } from "./learning-rule";
+import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
 import { trimRuleToLimit } from "./learning-shape";
 import type { GitState, WorkflowJob } from "./forge/types";
 
@@ -744,6 +746,12 @@ type NewSession = Omit<
   epicAuthoring?: boolean;
   landingRepair?: boolean;
   plain?: boolean;
+  /** Bootstrap spawn (#3109): the resolved House Stack its directive pins. Persisted as
+   *  `bootstrapStackJson`; `Session.bootstrap` is derived from its presence. */
+  bootstrapStack?: ResolvedHouseStack;
+  /** The bootstrap phase this session runs (#3110): 1 = P1+P2, 3 = P3 gap sweep. Persisted as
+   *  `bootstrapPhase`; a P3 session has no stack, so `Session.bootstrap` also derives from it. */
+  bootstrapPhase?: BootstrapSessionPhase;
   mergeTrainPrs?: number[];
   launchMetadata?: SessionLaunchMetadata | null;
 };
@@ -773,7 +781,13 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * fresh row starts NULL ("not observed yet" / "never parked") on its own. Keeping them out of
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
-const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt`;
+const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
+  (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+
+/** A bootstrap spawn: P1+P2 carries its resolved stack, P3 (#3110) only its phase. */
+function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">): boolean {
+  return Boolean(input.bootstrapStack || input.bootstrapPhase);
+}
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -827,6 +841,7 @@ type SessionRow = {
   epicAuthoring: number;
   landingRepair: number;
   plain: number;
+  bootstrap: number;
   terminal: number;
   terminalTabId: string | null;
   terminalPaneId: string | null;
@@ -1537,6 +1552,22 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       updatedAt INTEGER NOT NULL)`);
     this.migrateRepoConfigColumns();
     this.migrateFirstRunMarker();
+    // Project-bootstrap state (#3105). Its own table, NOT repo_config columns: creating a
+    // repo_config row for a new project would flip automationRowExists and skip the new-repo
+    // default seeding. `off` = no row, so the table holds only bootstrapped repos (no prune).
+    this.db.run(`CREATE TABLE IF NOT EXISTS repo_bootstrap (
+      repoPath TEXT PRIMARY KEY, state TEXT NOT NULL, phase INTEGER NOT NULL DEFAULT 1,
+      overrideAt INTEGER, updatedAt INTEGER NOT NULL)`);
+    // #3112: when the CURRENT phase began — boot reconcile only counts facts newer than it, so a
+    // re-activated repo never advances on an older run's merges. Legacy rows backfill updatedAt.
+    if (
+      !(this.db.query(`PRAGMA table_info(repo_bootstrap)`).all() as { name: string }[]).some(
+        (c) => c.name === "phaseAt",
+      )
+    ) {
+      this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN phaseAt INTEGER`);
+      this.db.run(`UPDATE repo_bootstrap SET phaseAt = updatedAt`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS local_prs (
       number    INTEGER PRIMARY KEY AUTOINCREMENT,
       repoPath  TEXT NOT NULL,
@@ -2455,6 +2486,91 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath: string;
     }[];
     return new Set(rows.map((r) => r.repoPath));
+  }
+
+  // ── project bootstrap (#3105) ─────────────────────────────────────────────
+
+  getRepoBootstrap(repoPath: string): RepoBootstrap {
+    const r = this.db
+      .query(`SELECT state, phase, overrideAt FROM repo_bootstrap WHERE repoPath = ?`)
+      .get(repoPath) as { state: string; phase: number; overrideAt: number | null } | null;
+    if (!r || (r.state !== "active" && r.state !== "done")) return { ...BOOTSTRAP_OFF };
+    return { state: r.state, phase: r.phase, overrideAt: r.overrideAt ?? null };
+  }
+
+  /** Set the bootstrap state + phase. `off` deletes the row. A state change clears any override,
+   *  so an override never outlives the bootstrap run it was granted for. */
+  setRepoBootstrap(repoPath: string, next: { state: RepoBootstrap["state"]; phase: number }): void {
+    if (next.state === "off") {
+      this.db.run(`DELETE FROM repo_bootstrap WHERE repoPath = ?`, [repoPath]);
+      return;
+    }
+    const cur = this.getRepoBootstrap(repoPath);
+    const overrideAt = cur.state === next.state ? cur.overrideAt : null;
+    const now = Date.now();
+    // A new phase (or entering active) restarts the phase clock; anything else keeps it.
+    const restart = cur.phase !== next.phase || (next.state === "active" && cur.state !== "active");
+    this.db.run(
+      `INSERT INTO repo_bootstrap (repoPath, state, phase, overrideAt, updatedAt, phaseAt)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(repoPath) DO UPDATE SET state = excluded.state, phase = excluded.phase,
+         overrideAt = excluded.overrideAt, updatedAt = excluded.updatedAt,
+         phaseAt = CASE WHEN ? THEN excluded.phaseAt ELSE COALESCE(phaseAt, excluded.phaseAt) END`,
+      [repoPath, next.state, next.phase, overrideAt, now, now, restart ? 1 : 0],
+    );
+  }
+
+  /** Every repo in ACTIVE bootstrap with its phase clock — the boot reconcile's work list (#3112). */
+  listActiveRepoBootstraps(): { repoPath: string; phase: number; phaseAt: number }[] {
+    return this.db
+      .query(
+        `SELECT repoPath, phase, COALESCE(phaseAt, updatedAt) AS phaseAt FROM repo_bootstrap
+         WHERE state = 'active'`,
+      )
+      .all() as { repoPath: string; phase: number; phaseAt: number }[];
+  }
+
+  /** When the first bootstrap session of `sessionPhase` (1 = P1+P2, legacy stack rows count as 1;
+   *  3 = P3) in `repoPath` merged at or after `since`; null when none did. Boot-reconcile fact
+   *  (#3112) — the time chains into the next step, as the live advance restarts the phase clock. */
+  bootstrapSessionMergedAt(
+    repoPath: string,
+    sessionPhase: BootstrapSessionPhase,
+    since: number,
+  ): number | null {
+    const phaseCond =
+      sessionPhase === 3
+        ? `bootstrapPhase = 3`
+        : `(bootstrapPhase = 1 OR (bootstrapPhase IS NULL AND bootstrapStackJson IS NOT NULL))`;
+    const r = this.db
+      .query(
+        `SELECT MIN(archivedAt) AS at FROM sessions WHERE repoPath = ? AND archiveReason = 'merged'
+         AND archivedAt >= ? AND ${phaseCond}`,
+      )
+      .get(repoPath, since) as { at: number | null } | null;
+    return r?.at ?? null;
+  }
+
+  /** When the first epic draft of a session in `repoPath` was approved (issues materialized) at or
+   *  after `since`; null when none was. Boot-reconcile fact for P4 → P5 (#3112). */
+  epicDraftApprovedAt(repoPath: string, since: number): number | null {
+    const r = this.db
+      .query(
+        `SELECT MIN(e.updatedAt) AS at FROM epic_draft e JOIN sessions s ON s.id = e.sessionId
+         WHERE s.repoPath = ? AND e.status = 'approved' AND e.updatedAt >= ?`,
+      )
+      .get(repoPath, since) as { at: number | null } | null;
+    return r?.at ?? null;
+  }
+
+  /** Grant (on) or revoke (off) the operator override of the bootstrap drain hold. No-op unless
+   *  the repo is in active bootstrap. Returns whether a row was changed. */
+  setRepoBootstrapOverride(repoPath: string, on: boolean): boolean {
+    const res = this.db.run(
+      `UPDATE repo_bootstrap SET overrideAt = ?, updatedAt = ? WHERE repoPath = ? AND state = 'active'`,
+      [on ? Date.now() : null, Date.now(), repoPath],
+    );
+    return res.changes > 0;
   }
 
   // ── automation-confirmation (issue #1025) ────────────────────────────────
@@ -3525,6 +3641,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       epicAuthoring: Boolean(input.epicAuthoring),
       landingRepair: Boolean(input.landingRepair),
       plain: Boolean(input.plain),
+      bootstrap: isBootstrapInput(input),
       terminal: Boolean(input.terminal),
       terminalTabId: strOrNull(input.terminalTabId),
       terminalPaneId: strOrNull(input.terminalPaneId),
@@ -3628,8 +3745,45 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           strOrNull(s.baseCommit), // the worktree's HEAD at create (#2761); null without one
         ],
       );
+      this.setBootstrap(s.id, input);
       return s;
     })();
+  }
+
+  /** The House Stack a bootstrap session (#3109) was spawned with; null for every other session. */
+  getBootstrapStack(id: string): ResolvedHouseStack | null {
+    const r = this.db.query(`SELECT bootstrapStackJson FROM sessions WHERE id = ?`).get(id) as {
+      bootstrapStackJson: string | null;
+    } | null;
+    if (!r?.bootstrapStackJson) return null;
+    try {
+      return JSON.parse(r.bootstrapStackJson) as ResolvedHouseStack;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The phase a bootstrap session runs (#3110); null for every other session. A legacy bootstrap
+   *  row (stack, no phase) predates P3 and ran P1+P2. */
+  getBootstrapPhase(id: string): BootstrapSessionPhase | null {
+    const r = this.db
+      .query(`SELECT bootstrapPhase, bootstrapStackJson FROM sessions WHERE id = ?`)
+      .get(id) as { bootstrapPhase: number | null; bootstrapStackJson: string | null } | null;
+    if (r?.bootstrapPhase === 3) return 3;
+    return r?.bootstrapPhase === 1 || r?.bootstrapStackJson ? 1 : null;
+  }
+
+  /** Persist a bootstrap session's resolved stack + phase; no-op for every other session. */
+  private setBootstrap(
+    id: string,
+    input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">,
+  ): void {
+    if (!isBootstrapInput(input)) return;
+    this.db.run(`UPDATE sessions SET bootstrapStackJson = ?, bootstrapPhase = ? WHERE id = ?`, [
+      input.bootstrapStack ? JSON.stringify(input.bootstrapStack) : null,
+      input.bootstrapPhase ?? null,
+      id,
+    ]);
   }
 
   get(id: string): Session | null {
@@ -6161,6 +6315,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("landingRepair", `landingRepair INTEGER NOT NULL DEFAULT 0`);
     // plain task kind (agent without guards): default 0 (false) for pre-existing rows.
     add("plain", `plain INTEGER NOT NULL DEFAULT 0`);
+    // bootstrap task kind (#3109): the resolved House Stack its directive pins; null on every
+    // other row, so `bootstrap` is derived from presence (see READ_COLS).
+    add("bootstrapStackJson", `bootstrapStackJson TEXT`);
+    // bootstrap phase (#3110): 1 = P1+P2, 3 = P3 gap sweep; null on every non-bootstrap row.
+    add("bootstrapPhase", `bootstrapPhase INTEGER`);
     // clean-terminal task kind (bare shell in the main checkout): default 0 for pre-existing rows.
     add("terminal", `terminal INTEGER NOT NULL DEFAULT 0`);
     // clean-terminal pane target (pane-direct, no agent): tab to close on decommission + the
@@ -7882,6 +8041,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       epicAuthoring: !!r.epicAuthoring,
       landingRepair: !!r.landingRepair,
       plain: !!r.plain,
+      bootstrap: !!r.bootstrap,
       terminal: !!r.terminal,
       terminalTabId: strOrNull(r.terminalTabId),
       terminalPaneId: strOrNull(r.terminalPaneId),

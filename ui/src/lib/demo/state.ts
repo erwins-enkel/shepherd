@@ -61,6 +61,9 @@ import type {
   WorkflowRun,
   WorkflowJob,
   ReadinessReport,
+  ForgeReadiness,
+  FrameworkDrift,
+  GreenfieldReport,
   RepoRoles,
   InstalledPlugin,
   DocAgentRun,
@@ -482,6 +485,73 @@ export const demoState = {
   runJobs: (repoPath: string, runId: number): { jobs: WorkflowJob[] } => ({
     jobs: world.runJobs[repoPath]?.[runId] ?? [],
   }),
+
+  /** GET /api/readiness/forge?repo= — the Readiness tab's Forge settings section (#3106). Every
+   *  check already matches, so no Apply button shows: the demo has no host to write to. */
+  forgeReadiness: (): ForgeReadiness => ({
+    supported: true,
+    defaultBranch: "main",
+    autoLabel: "shepherd:auto",
+    checks: [
+      { id: "merge_methods", state: "ok", current: ["squash"], target: ["squash"] },
+      { id: "auto_merge", state: "ok", current: true, target: true },
+      { id: "delete_branch_on_merge", state: "ok", current: true, target: true },
+      { id: "required_checks", state: "ok", current: ["ci"], target: ["ci"] },
+      { id: "auto_label", state: "ok", current: true, target: true },
+    ],
+  }),
+
+  /** GET /api/readiness/drift?repo= — the Readiness tab's Framework majors section (#3113). Every
+   *  package is on the current line and no story can be filed: the demo has no forge to write to. */
+  frameworkDrift: (): FrameworkDrift => ({
+    rows: [
+      {
+        ecosystem: "npm",
+        name: "@sveltejs/kit",
+        installed: "2",
+        latest: "2.70.0",
+        target: "2",
+        state: "ok",
+        manifests: ["package.json"],
+        dependabot: [],
+      },
+      {
+        ecosystem: "npm",
+        name: "svelte",
+        installed: "5",
+        latest: "5.40.1",
+        target: "5",
+        state: "ok",
+        manifests: ["package.json"],
+        dependabot: [],
+      },
+    ],
+    resolver: "ok",
+    epicBranches: [],
+    runningEpic: null,
+    canCreateStory: false,
+    openStory: null,
+  }),
+
+  /** GET /api/readiness/greenfield?repo= — the bootstrap checklist (#3107): an empty project
+   *  with its inputs (PRD, design) in place and nothing else yet. */
+  greenfieldReadiness: (): GreenfieldReport => {
+    const items: GreenfieldReport["items"] = [
+      { id: "stack_pinned", tier: "must", present: false, evidence: [] },
+      { id: "scaffold_builds", tier: "must", present: false, evidence: [] },
+      { id: "ci_on_main", tier: "must", present: false, evidence: [] },
+      { id: "hooks_pre_push", tier: "must", present: false, evidence: [] },
+      { id: "dead_code_audit", tier: "must", present: false, evidence: [] },
+      { id: "forge_settings", tier: "must", present: true, evidence: ["5 forge checks ok"] },
+      { id: "prd", tier: "nice", present: true, evidence: ["docs/prd/"] },
+      { id: "design_export", tier: "nice", present: true, evidence: ["docs/design/"] },
+      { id: "foundation_decisions", tier: "nice", present: false, evidence: [] },
+      { id: "issue_templates", tier: "nice", present: false, evidence: [] },
+      { id: "dependency_automation", tier: "nice", present: false, evidence: [] },
+    ];
+    const missing = items.filter((i) => i.tier === "must" && !i.present).map((i) => i.id);
+    return { ecosystem: null, score: 22, items, mustHavesMissing: missing, checkedAt: 0 };
+  },
 
   /** GET /api/readiness?repo= — the Backlog Readiness tab. An unseeded repo answers
    *  `applicable:false`, the server's own "matches no supported ecosystem" path, which the

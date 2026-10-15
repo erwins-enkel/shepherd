@@ -471,6 +471,7 @@
           {onsaved}
           {onclose}
           {query}
+          {payload}
         />
       </div>
 

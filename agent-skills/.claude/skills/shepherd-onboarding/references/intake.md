@@ -21,16 +21,18 @@ git remote -v                      # is there a GitHub remote?
 gh auth status 2>/dev/null         # is gh usable?
 ```
 
-A working GitHub remote + `gh` ⇒ **GitHub-native**: you can create issues, and the
-operator can run the epic link import (Stage 5). Otherwise treat the repo as
-**local/lightweight**: programmatic issue creation is unavailable and epic import has
-no forge to write to, so the backlog will be left as importable markdown (Stage 5).
+A working GitHub remote + `gh` ⇒ **GitHub-native**: the backlog goes to Shepherd as
+an epic draft and the server creates the issues on approval (Stage 5). Otherwise treat
+the repo as **local/lightweight**: there is no forge to create issues on, so the
+backlog will be left as importable markdown (Stage 5).
 
 **Intent source:**
 
 - Existing: `README`, any `docs/`, stated goals from the operator, and the current
   issue list (`gh issue list --limit 50` if GitHub-native).
-- Greenfield: a PRD/spec doc in the repo (look in the root and `docs/`).
+- Greenfield: a PRD/spec doc in the repo (look in the root and `docs/`), plus the
+  foundation decisions Bootstrap P3 recorded (in the PRD and `CLAUDE.md`) —
+  including its list of **M0 candidates** (app shell, shared components).
 
 If **greenfield and no PRD/spec exists**, do **not** run a full interview and do
 **not** send the operator to another tool. State plainly that a short intent doc is
@@ -49,8 +51,17 @@ confirmed.
 
 ## 1. Brief
 
-Read the intent. For an existing repo, also survey the codebase (entry points, build
-manifest, test setup, domain terms). Produce a short brief (~10 lines): what this
+Read the intent, then survey the **scaffold that actually exists** — never guess it:
+
+```bash
+cat package.json 2>/dev/null; cat Cargo.toml 2>/dev/null   # manifest, scripts, deps
+ls .github/workflows 2>/dev/null                           # CI present?
+git ls-files | grep -Ei 'routes?/|pages?/|app\.' | head -40 # routes + app shell
+```
+
+Note the routes, app shell, shared components, test setup, domain terms, and the
+stack pins in `CLAUDE.md`. If a manifest that builds and CI on `main` already exist,
+Bootstrap P2 ran: record that — the decomposition must not re-scaffold. Produce a short brief (~10 lines): what this
 project is, its stack, its domain vocabulary, and what "shipped" means here. Every
 later decision is judged against this brief, so it is written once and reused.
 
@@ -69,19 +80,30 @@ Break the intent into a backlog of **tracer-bullet vertical slices**. The method
   **epic** — split it into child slices.
 - Each issue gets a crisp title and a body stating the goal, the vertical cut, and a
   checkable acceptance criterion.
+- **Acceptance criteria never contain version numbers** — write "on the pinned stack
+  in CLAUDE.md". Shepherd rejects a draft that pins one.
+- **Cut against the real scaffold** from the brief: extend the routes, shell and
+  components that exist; name them as anchors.
+- **No "project scaffold" slice** when Bootstrap P2 ran (manifest + CI on `main`).
+  Only an unscaffolded existing repo might need one — and then point at Readiness /
+  Bootstrap instead of drafting tooling yourself.
+- **Start from P3's M0 candidates** when present (app shell, shared components): they
+  become the first slices / the first milestone, ahead of feature slices that use them.
 - **Don't bake concrete file paths into an issue body.** An issue can sit in the
   backlog for weeks before it drains, and paths named in it may have moved or been
   renamed by then — the draining agent then follows a stale map. Point at stable
   anchors (a module/feature name, an exported symbol, a glob) and let the agent
   locate the current files when it picks the issue up.
 
-Express dependencies with an `epic-dag` fence — the exact grammar is in `SKILL.md`
-under **Gate rules**: members are `#<n>` lines inside the fenced block, and an edge is
-`#<dependent> <- #<blocker>[, #<blocker>…]`.
+Express dependencies as edges between children: give each child a short stable
+`key` (e.g. `c1`) and list the keys it is `blockedBy`. Don't write issue numbers or an
+`epic-dag` fence — the server builds the fence from real numbers when it creates the
+issues.
 
-**Draft the entire tree as markdown** — parent epic(s) with their dependency fence,
-and each child issue's title + body. This markdown is both the approval artifact and
-the format the importer consumes, so it doubles as the local/lightweight fallback.
+**Draft the entire tree as markdown** — parent epic with goal, acceptance criteria
+and non-goals, and each child's key, title, body, acceptance criteria and blockers.
+It is the approval artifact (Stage 4), maps 1:1 onto the `epic_draft` submission, and
+doubles as the local/lightweight `BACKLOG.md` fallback.
 
-**Completion criterion:** a complete markdown draft of every epic + issue with
-dependencies, sized one-PR-each.
+**Completion criterion:** a complete markdown draft of the epic + every child with
+dependencies, sized one-PR-each, no versions in any acceptance criterion.

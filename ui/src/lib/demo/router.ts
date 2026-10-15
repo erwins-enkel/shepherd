@@ -27,6 +27,16 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+/** Project bootstrap (#3105): no seeded repo is bootstrapping, nor offered it. */
+const DEMO_BOOTSTRAP = {
+  state: "off",
+  phase: 1,
+  overrideAt: null,
+  missing: [],
+  suggested: false,
+  next: null,
+};
+
 /** Marks a response that NO handler produced — see the fallthrough comment in `handleApi`.
  *  `"1"` = nothing matched the route; `"error"` = a handler matched but threw. Kept distinct
  *  so a throwing handler can never be mistaken for a matching one. `coverage.test.ts` reads
@@ -102,6 +112,7 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   // Done lens (#Task 8): archived sessions, distinct from the live `sessions` list.
   "/api/sessions/done": () => json(demoState.doneSessions()),
   "/api/repo-config": (url) => json(demoState.repoConfig(repoParam(url))),
+  "/api/repo-bootstrap": () => json(DEMO_BOOTSTRAP),
   // The repo index. Fired on mount by `repos.load()`; without it `listRepos()` saw the
   // permissive `{}` tail and `entries` became undefined, which threw inside Svelte's
   // flush and aborted the whole batch (#1800).
@@ -228,6 +239,9 @@ const repoLensGetRoutes: Record<string, GetHandler> = {
   "/api/actions/run-jobs": (url) =>
     json(demoState.runJobs(repoParam(url), Number(url.searchParams.get("runId") ?? "0"))),
   "/api/readiness": (url) => json(demoState.readiness(repoParam(url))),
+  "/api/readiness/forge": () => json(demoState.forgeReadiness()),
+  "/api/readiness/drift": () => json(demoState.frameworkDrift()),
+  "/api/readiness/greenfield": () => json(demoState.greenfieldReadiness()),
   "/api/repo-web": (url) => json(demoState.repoWeb(repoParam(url))),
   "/api/repo-roles": (url) => json(demoState.repoRoles(repoParam(url))),
   "/api/repo-collaborators": (url) => json(demoState.repoCollaborators(repoParam(url))),
@@ -590,10 +604,20 @@ function handleRepoMutation(method: string, path: string, body: unknown): Respon
   return null;
 }
 
+/** Project bootstrap writes (#3105): the demo persists none, so it answers the unchanged `off`
+ *  view — a correctly-shaped RepoBootstrapView, never the generic success stub. */
+function handleRepoBootstrapMutation(method: string, path: string): Response | null {
+  const write =
+    (method === "PUT" && path === "/api/repo-bootstrap") ||
+    (method === "POST" && path === "/api/repo-bootstrap/override");
+  return write ? json(DEMO_BOOTSTRAP) : null;
+}
+
 function handleMutation(method: string, path: string, url: URL, body: unknown): Response | null {
   return (
     handleSettingsMutation(method, path, body) ??
     handleRepoMutation(method, path, body) ??
+    handleRepoBootstrapMutation(method, path) ??
     handleSessionMutation(method, path, url, body) ??
     handleEpicQueueMutation(method, path, url, body) ??
     handleHeldMutation(method, path) ??

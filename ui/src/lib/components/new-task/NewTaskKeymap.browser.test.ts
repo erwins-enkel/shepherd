@@ -273,7 +273,7 @@ describe("aria-keyshortcuts", () => {
     const modes = Array.from(document.querySelectorAll(".seg-btn")).map((el) =>
       el.getAttribute("aria-keyshortcuts"),
     );
-    expect(modes).toEqual(["Alt+1", "Alt+2", "Alt+3", "Alt+4"]);
+    expect(modes).toEqual(["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5"]);
   });
 
   it("covers every anchored control, not just the ones carrying a chord", async () => {

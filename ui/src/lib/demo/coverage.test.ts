@@ -155,6 +155,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/sessions/clear-merged"),
   get("/api/repos"),
   get("/api/repo-config", `/api/repo-config?repo=${r}`),
+  get("/api/repo-bootstrap", `/api/repo-bootstrap?repo=${r}`),
   get("/api/commands", `/api/commands?repo=${r}`),
   get("/api/todo", `/api/todo?repo=${r}`),
   get("/api/manual-steps/outstanding"),
@@ -222,6 +223,9 @@ const INVENTORY: readonly Entry[] = [
   get("/api/actions/history", `/api/actions/history?repo=${r}&workflowId=9001&limit=10`),
   get("/api/actions/run-jobs", `/api/actions/run-jobs?repo=${r}&runId=77061`),
   get("/api/readiness", `/api/readiness?repo=${r}`),
+  get("/api/readiness/forge", `/api/readiness/forge?repo=${r}`),
+  get("/api/readiness/drift", `/api/readiness/drift?repo=${r}`),
+  get("/api/readiness/greenfield", `/api/readiness/greenfield?repo=${r}`),
   get("/api/repo-web", `/api/repo-web?repo=${r}`),
   get("/api/repo-roles", `/api/repo-roles?repo=${r}`),
   get("/api/repo-collaborators", `/api/repo-collaborators?repo=${r}`),
@@ -261,6 +265,13 @@ const INVENTORY: readonly Entry[] = [
 
   // mutations the demo flow really performs
   { method: "PUT", path: "/api/settings", body: { defaultModel: "opus" } },
+  {
+    method: "PUT",
+    path: "/api/repo-bootstrap",
+    url: `/api/repo-bootstrap?repo=${r}`,
+    body: { state: "active" },
+  },
+  post("/api/repo-bootstrap/override", `/api/repo-bootstrap/override?repo=${r}`, { on: true }),
   post("/api/sessions", "/api/sessions", { repoPath: REPO, prompt: "add a thing" }),
   post("/api/sessions/clear-merged", "/api/sessions/clear-merged", { ids: [] }),
   post("/api/projects", "/api/projects", { name: "checkout-svc", createRemote: false }),
@@ -378,6 +389,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/epics/completed/resolve-conflicts",
     "/api/epics/completed/repair-ci",
     "/api/up-next/refresh",
+    // Every seeded Forge-settings check is already "ok", so no Apply button renders.
+    "/api/readiness/forge/apply",
+    // The seeded Framework-majors view can't file a story (canCreateStory: false), so no button.
+    "/api/readiness/drift/story",
     "/api/up-next/start",
     "/api/prs/merge",
     "/api/prs/dependabot-rebase",
@@ -433,6 +448,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/push/devices/:p",
     "/api/push/devices/:p/test",
     "/api/settings/verify-key",
+    // House Stack check (#3108) queries the live package registries; the demo has no server
+    "/api/house-stack/resolve",
     "/api/plugins/manage/install",
     "/api/plugins/manage/activate",
     "/api/plugins/manage/installed/:p",

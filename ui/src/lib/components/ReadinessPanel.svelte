@@ -6,6 +6,10 @@
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { SvelteSet } from "svelte/reactivity";
   import { adoptList, haveList, scoreBand, buildAdoptPrompt } from "./readiness-view";
+  import ReadinessForgeSection from "./ReadinessForgeSection.svelte";
+  import ReadinessDriftSection from "./ReadinessDriftSection.svelte";
+  import ReadinessGreenfieldSection from "./ReadinessGreenfieldSection.svelte";
+  import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
 
   let {
     repoPath,
@@ -45,6 +49,12 @@
         loading = false;
       });
   });
+
+  // #3107: an actively-bootstrapping repo shows its greenfield checklist above the scorecard too.
+  $effect(() => {
+    void repoBootstrap.load(repoPath);
+  });
+  let bootstrapping = $derived(repoBootstrap.viewFor(repoPath)?.state === "active");
 
   let adopt = $derived(report ? adoptList(report) : []);
   let have = $derived(report ? haveList(report) : []);
@@ -229,12 +239,15 @@
   {:else if loadError}
     <div class="muted error">{m.readiness_load_error()}</div>
   {:else if !report || !report.applicable}
-    <div class="na">
-      <div class="na-title">{m.readiness_not_applicable_title()}</div>
-      <div class="na-body">{m.readiness_not_applicable_body()}</div>
+    <!-- #3107: no manifest yet → the greenfield profile instead of "unsupported". -->
+    <div class="scroll">
+      <ReadinessGreenfieldSection {repoPath} intro />
     </div>
   {:else}
     <div class="scroll">
+      {#if bootstrapping}
+        <ReadinessGreenfieldSection {repoPath} />
+      {/if}
       <!-- score header -->
       <div class="score-head">
         <div class="score-ring {band}">
@@ -325,6 +338,18 @@
         {/if}
         <pre class="claudemd">{report.issueTemplate}</pre>
       </div>
+
+      <ReadinessDriftSection {repoPath} />
+      <ReadinessForgeSection {repoPath} />
+    </div>
+  {/if}
+
+  <!-- Framework majors (#3113) and Forge settings (#3106) need only repoPath, so they also show
+       when the scorecard is not applicable or failed to load. -->
+  {#if !loading && (loadError || !report || !report.applicable)}
+    <div class="forge-wrap">
+      <ReadinessDriftSection {repoPath} />
+      <ReadinessForgeSection {repoPath} />
     </div>
   {/if}
 
@@ -363,22 +388,6 @@
   }
   .muted.error {
     color: var(--color-red);
-  }
-
-  .na {
-    padding: 16px 14px;
-  }
-  .na-title {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    margin-bottom: 6px;
-  }
-  .na-body {
-    font-size: var(--fs-base);
-    color: var(--color-faint);
-    line-height: 1.5;
   }
 
   .scroll {
@@ -600,6 +609,13 @@
   .claudemd::-webkit-scrollbar-thumb {
     background: var(--color-faint);
     border-radius: 2px;
+  }
+
+  .forge-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 14px;
+    border-top: 1px solid var(--color-line);
   }
 
   /* ── always-visible .gitignore adoption footer ── */

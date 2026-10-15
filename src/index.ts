@@ -13,7 +13,7 @@ import {
 } from "./codex-capacity";
 import { mkdirSync, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { scrubAgentShellEnv } from "./agent-shell-env";
 import {
@@ -162,6 +162,8 @@ import { GithubReadCache } from "./github-read-cache";
 import { BacklogPoller, reposUsedSince } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
+import { GreenfieldService } from "./greenfield";
+import { reconcileBootstrapPhases } from "./bootstrap-phases";
 import {
   ProcessReaper,
   reapDeletedWorktreeOrphans,
@@ -2776,11 +2778,36 @@ events.subscribe((event, data) => {
   autopilot.forget((data as { id: string }).id);
 });
 
+// Readiness greenfield profile (#3107): scans an active-bootstrap repo's must-haves for the drain
+// gate. A changed gate (or the exit to `done`) kicks a drain tick; `drain` is declared below and
+// only read when a scan lands, long after construction.
+const greenfield = new GreenfieldService({
+  store,
+  resolveForge,
+  onChange: (dir) => {
+    events.emit("repo-bootstrap:update", { repoPath: dir });
+    void drain.tick().catch((err) => console.warn("[greenfield] tick:", err));
+  },
+});
+
+// #3112: a bootstrap phase moved forward — propose the next attended session (never spawn it).
+function onBootstrapAdvance(repoPath: string, phase: number, sessionId: string): void {
+  void push.notify({
+    kind: "bootstrap_next",
+    sessionId,
+    tag: `bootstrap:${repoPath}`,
+    name: basename(repoPath),
+    bootstrapPhase: phase,
+    cooldownKey: `bootstrap_next:${repoPath}:${phase}`,
+  });
+}
+
 // Self-draining work queue (#222): when an auto session's PR merges, archive it and
 // spawn the next labeled backlog issue, bounded by the per-repo rails. Pure decision
 // core (computeNext) with side effects here; driven off the same poller events.
 const drain = new DrainService({
   capacity: capacityCheck,
+  bootstrapMustHaves: (repoPath) => greenfield.mustHavesMissing(repoPath),
   store,
   readCodexAuthMode,
   service,
@@ -2818,11 +2845,31 @@ events.subscribe((event, data) => {
   if (event === "session:archived") {
     const { id } = data as { id: string };
     void drain.onArchived(id).catch((err) => console.warn("[drain] onArchived:", err));
+    // #3107: a merged PR in an active-bootstrap repo re-scans its greenfield readiness; a bootstrap
+    // session's merge also advances the repo's phase (#3110).
+    const s = store.get(id);
+    if (s?.archiveReason === "merged") {
+      const before = store.getRepoBootstrap(s.repoPath).phase;
+      // onMerged writes the phase synchronously, before its first await.
+      void greenfield
+        .onMerged(s.repoPath, s.bootstrap ? store.getBootstrapPhase(id) : null)
+        .catch((err) => console.warn("[greenfield]:", err));
+      const after = store.getRepoBootstrap(s.repoPath);
+      if (after.state === "active" && after.phase > before)
+        onBootstrapAdvance(s.repoPath, after.phase, id);
+    }
   } else if (event === "session:review") {
     const { id } = data as { id: string };
     void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
   }
 });
+
+// #3112: heal every bootstrap phase advance a restart lost (a merge or epic approval persisted, the
+// phase write not). Before the first drain tick reads the gate; the re-scan runs the exit check.
+for (const { repoPath } of reconcileBootstrapPhases(store)) {
+  events.emit("repo-bootstrap:update", { repoPath });
+  void greenfield.refresh(repoPath).catch((err) => console.warn("[greenfield]:", err));
+}
 
 // #1094: one ordered "what happens next" seam. `session:status`/`session:git` used to fan out to
 // two fire-and-forget subscriptions (drain retire + autopilot steer) that interleaved within a
@@ -4170,6 +4217,8 @@ const appDeps: AppDeps = {
     snapshot: () => maintainService.snapshot(),
   },
   gitignoreAdopter,
+  greenfield,
+  onBootstrapAdvance,
   drain: {
     snapshot: () => drain.snapshot(),
     queue: (repoPath) => drain.queue(repoPath),

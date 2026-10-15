@@ -47,12 +47,6 @@
     ondonelens,
     onowedlens,
     chooseUsage,
-    learningsPresent,
-    learnings,
-    learningsCurate,
-    learningsLabel,
-    learningsCount,
-    chooseLearnings,
     onMenuKey,
     onFeedback,
     pluginItems = [],
@@ -102,12 +96,6 @@
      *  three. Absent on desktop, where the lens strip still carries it. */
     onowedlens?: () => void;
     chooseUsage: () => void;
-    learningsPresent: boolean;
-    learnings: number;
-    learningsCurate: number;
-    learningsLabel: string;
-    learningsCount: number;
-    chooseLearnings: () => void;
     onMenuKey: (e: KeyboardEvent) => void;
     onFeedback: (kind: FeedbackKind) => void;
     pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
@@ -217,17 +205,6 @@
 
       <!-- Workspace rows -->
       <div class="grp">
-        {#if learningsPresent}
-          <GearRow
-            glyph="✦"
-            label={learningsLabel}
-            meta={String(learningsCount)}
-            ariaLabel={learnings > 0
-              ? m.learnings_open_aria({ count: learnings })
-              : m.learnings_open_curate_aria({ count: learningsCurate })}
-            onclick={chooseLearnings}
-          />
-        {/if}
         <GearRow
           glyph="⚙"
           label={m.settings_title()}

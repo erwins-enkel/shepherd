@@ -1,13 +1,12 @@
 ---
 title: Review policy (REVIEW.md)
-description: How a repository steers Shepherd's PR critic with a version-controlled REVIEW.md, why the file is read from the base commit rather than the pull request, and how the repo's own house rules now reach the reviewer.
+description: How a repository steers Shepherd's PR critic with a version-controlled REVIEW.md, and why the file is read from the base commit rather than the pull request.
 ---
 
 Shepherd's PR critic runs a fixed set of built-in review lenses. A repository can **add** to them
-with a version-controlled policy file, and the house rules Shepherd already injects into the agent
-that *writes* the code are now also shown to the agent that *reviews* it.
+with a version-controlled policy file.
 
-Neither is a setting. There is nothing to switch on: commit the file, and the next review reads it.
+It is not a setting. There is nothing to switch on: commit the file, and the next review reads it.
 
 ## `REVIEW.md`
 
@@ -92,25 +91,3 @@ rule, or catalog requirement) or `scope`. It is classification only: nothing gat
 A repository's policy can state which classes of issue matter more here, but it cannot change what
 the two severities mean, and an exclusion still may never suppress a verified correctness or
 security defect.
-
-## House rules reach the reviewer
-
-Shepherd injects a repository's curated **house rules** into the system prompt of every agent that
-works in it. The critic is now shown that same body of rules as the repository's standard, so it can
-judge a pull request against the conventions the repo actually holds itself to. They are scoped to
-the files the pull request touches, and they follow the repository's existing **Learnings**
-setting — with learnings off, no rules are injected anywhere.
-
-The set the critic sees is **planned fresh for that review**, from the rules active at the time and
-the files the diff touches. It is not a replay of what any particular agent was given, and it is not
-limited to pull requests Shepherd wrote: a third-party or fork pull request is reviewed against the
-same repository standard. Where Shepherd's own session critic reviews a PR one of its agents wrote,
-the critic is additionally told so — a rule the author was handed and ignored is worth catching —
-but the rules apply either way.
-
-House rules are distilled from past sessions, so they are treated as guidance rather than law: a
-**clear, unambiguous** violation is a blocking finding; anything softer is reported as a
-non-blocking note. A rule that has gone stale can slow a review down; it cannot deadlock one.
-
-Reviewer-side injection does not count toward a rule's usage statistics — the helpfulness record
-that retires an underperforming rule is still kept by the sessions that *write* code.

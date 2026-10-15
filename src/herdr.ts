@@ -1678,7 +1678,7 @@ export class HerdrDriver implements IHerdrDriver {
    * when it would be the last tab in its workspace — see {@link isLastTabInWorkspace}.
    *
    * Serialized, and that is load-bearing rather than tidiness: every reaper is launched
-   * fire-and-forget with `void` (`distiller`, `merge-suggest`, `optimizer`, `standalone-critic`), so
+   * fire-and-forget with `void` (`standalone-critic`, the boot label reaps), so
    * several run concurrently at boot. On a workspace down to its final two tabs, an unserialized
    * read-then-close lets both observers see two tabs, both conclude they are not closing the last
    * one, and together delete the workspace. Chaining makes the check and the close atomic, so the

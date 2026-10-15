@@ -47,8 +47,7 @@
     project.path.replace(/\/+$/, "").split("/").pop() || project.slug || project.display,
   );
 
-  // Repo identity glyph, same recipe as the New Task repo picker (RepoSelect) and
-  // the learnings drawer's repo groups: the configured project emoji when set,
+  // Repo identity glyph, same recipe as the New Task repo picker (RepoSelect): the configured project emoji when set,
   // else the ▣ marker so every row's name starts on the same column.
   const repoIcon = $derived(projectIcons.iconFor(project.path));
 

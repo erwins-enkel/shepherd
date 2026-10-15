@@ -524,8 +524,8 @@ describe("the surfaces this screen is built from also clear the floor", () => {
       target: host,
       props: {
         chips: [
-          { repoPath: "/repo/alpha", count: 2, drain: null, insights: 0, curate: 0 },
-          { repoPath: "/repo/beta", count: 1, drain: null, insights: 0, curate: 0 },
+          { repoPath: "/repo/alpha", count: 2, drain: null },
+          { repoPath: "/repo/beta", count: 1, drain: null },
         ],
         repoFilter: new Set<string>(),
         onrepofilter: () => {},

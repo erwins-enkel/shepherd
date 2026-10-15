@@ -4,7 +4,6 @@
     putRoleModel,
     putRoleEffort,
     putRoleCli,
-    putDistillerIntervalDays,
     putUpnextSkipCliPicker,
     putDefaultEffort,
     putEngineEffort,
@@ -130,11 +129,6 @@
   let verifyMsg = $state("");
   let upnextSkipCliPicker = $state(false);
   let upnextSkipCliPickerBusy = $state(false);
-  let distillerIntervalDays = $state(1);
-  let distillerIntervalDaysSaved = 1;
-  let distillerIntervalDaysMin = $state(1);
-  let distillerIntervalDaysMax = $state(14);
-  let distillerIntervalBusy = $state(false);
 
   const ROLE_CLI_SEED: Record<RoleBase, string> = {
     planner: "inherit",
@@ -143,9 +137,6 @@
     recap: "claude",
     namer: "claude",
     autopilot: "claude",
-    distiller: "inherit",
-    optimizer: "inherit",
-    mergeSuggest: "inherit",
   };
   const ROLE_MODEL_SEED: Record<RoleBase, string> = {
     planner: "default",
@@ -154,9 +145,6 @@
     recap: "sonnet",
     namer: "haiku",
     autopilot: "haiku",
-    distiller: "default",
-    optimizer: "default",
-    mergeSuggest: "default",
   };
   const ROLE_EFFORT_SEED: Record<RoleBase, string> = {
     planner: "default",
@@ -165,9 +153,6 @@
     recap: "low",
     namer: "low",
     autopilot: "low",
-    distiller: "default",
-    optimizer: "default",
-    mergeSuggest: "default",
   };
   let roleCli = $state<Record<RoleBase, string>>({ ...ROLE_CLI_SEED });
   let roleCliSaved: Record<RoleBase, string> = { ...ROLE_CLI_SEED };
@@ -178,15 +163,7 @@
   let roleBusy = $state<Record<RoleBase, boolean>>(
     Object.fromEntries(ROLE_BASES.map((r) => [r, false])) as Record<RoleBase, boolean>,
   );
-  const ROLE_PRIMARY: RoleBase[] = [
-    "planner",
-    "critic",
-    "docAgent",
-    "recap",
-    "distiller",
-    "optimizer",
-    "mergeSuggest",
-  ];
+  const ROLE_PRIMARY: RoleBase[] = ["planner", "critic", "docAgent", "recap"];
   const ROLE_CLASSIFIERS: RoleBase[] = ["namer", "autopilot"];
 
   // Seed once from the parent's single getSettings() payload. Falls back to
@@ -210,10 +187,6 @@
       authModeSaved = s.authMode;
       hasApiKey = s.hasApiKey;
       upnextSkipCliPicker = s.upnextSkipCliPicker;
-      distillerIntervalDays = s.distillerIntervalDays ?? 1;
-      distillerIntervalDaysSaved = distillerIntervalDays;
-      distillerIntervalDaysMin = s.distillerIntervalDaysMin ?? 1;
-      distillerIntervalDaysMax = s.distillerIntervalDaysMax ?? 14;
       const sr = s as unknown as Record<string, unknown>;
       for (const role of ROLE_BASES) {
         const cli = sr[`${role}Cli`];
@@ -397,31 +370,6 @@
         key: `role-effort-${role}`,
         alert: true,
       });
-    }
-  }
-
-  async function saveDistillerInterval() {
-    if (distillerIntervalBusy) return;
-    distillerIntervalBusy = true;
-    const value = Math.min(
-      distillerIntervalDaysMax,
-      Math.max(
-        distillerIntervalDaysMin,
-        Math.round(Number(distillerIntervalDays)) || distillerIntervalDaysMin,
-      ),
-    );
-    try {
-      const r = await putDistillerIntervalDays(value);
-      distillerIntervalDays = r.distillerIntervalDays;
-      distillerIntervalDaysSaved = r.distillerIntervalDays;
-    } catch {
-      distillerIntervalDays = distillerIntervalDaysSaved;
-      toasts.info(m.settings_distiller_interval_save_failed(), {
-        key: "distiller-interval",
-        alert: true,
-      });
-    } finally {
-      distillerIntervalBusy = false;
     }
   }
 
@@ -952,28 +900,6 @@
       model={roleGuidanceModel(role)}
       context={roleGuidanceContext(role)}
     />
-    {#if role === "distiller"}
-      <label class="cycles">
-        <span class="cycles-label">{m.settings_distiller_interval_label()}</span>
-        <input
-          class="set-num"
-          type="number"
-          min={distillerIntervalDaysMin}
-          max={distillerIntervalDaysMax}
-          step="1"
-          disabled={distillerIntervalBusy}
-          bind:value={distillerIntervalDays}
-          aria-label={m.settings_distiller_interval_label()}
-          onchange={saveDistillerInterval}
-        />
-      </label>
-      <p class="rhint">
-        {m.settings_distiller_interval_hint({
-          min: distillerIntervalDaysMin,
-          max: distillerIntervalDaysMax,
-        })}
-      </p>
-    {/if}
   </div>
 {/snippet}
 
@@ -1211,21 +1137,6 @@
   .role-advanced > summary:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .cycles {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    align-self: flex-start;
-  }
-  .cycles-label {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--color-ink-bright);
-  }
-  .cycles :global(.set-num) {
-    width: 4.5em;
   }
 
   @media (max-width: 768px) {

@@ -129,7 +129,6 @@ interface Scenario {
 }
 
 const allBadges = {
-  learnings: 3,
   update: { behind: 4 } as UpdateStatus,
   herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
   whatsNew: true,
@@ -156,22 +155,15 @@ const SCENARIOS: Scenario[] = [
     props: { ...allBadges, ...sessionsProp(2) },
   },
   {
-    name: "touch-desktop 1000 — dual-update + learnings + whatsNew",
+    name: "touch-desktop 1000 — dual-update + whatsNew",
     mode: "touch-desktop",
     width: 1000,
     props: {
-      learnings: 2,
       update: { behind: 1 },
       herdrUpdate: { updateAvailable: true },
       whatsNew: true,
       ...sessionsProp(0),
     },
-  },
-  {
-    name: "touch-desktop 1000 — lone learnings (#322 regression)",
-    mode: "touch-desktop",
-    width: 1000,
-    props: { learnings: 4, ...sessionsProp(0) },
   },
   {
     name: "touch-desktop 960 — all badges (bracket)",
@@ -247,14 +239,13 @@ const SCENARIOS: Scenario[] = [
     name: "desktop 1322 — 2 full-label badges + gauges (1366px laptop, measured compaction)",
     mode: "desktop",
     width: 1322,
-    props: { learnings: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
+    props: { update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
   },
   {
     name: "desktop 1322 — 3 badges + gauges (1366px laptop, measured compaction)",
     mode: "desktop",
     width: 1322,
     props: {
-      learnings: 2,
       update: { behind: 2 },
       herdrUpdate: { updateAvailable: true },
       limits: fullLimits,
@@ -265,14 +256,13 @@ const SCENARIOS: Scenario[] = [
     name: "desktop 1236 — 2 full-label badges + gauges (1280px window, measured compaction)",
     mode: "desktop",
     width: 1236,
-    props: { learnings: 2, update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
+    props: { update: { behind: 3 }, limits: fullLimits, ...sessionsProp(0) },
   },
   {
     name: "desktop 1236 — 3 badges + gauges (1280px window, measured compaction)",
     mode: "desktop",
     width: 1236,
     props: {
-      learnings: 2,
       update: { behind: 2 },
       herdrUpdate: { updateAvailable: true },
       limits: fullLimits,
@@ -319,8 +309,7 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()
 // stale measuring frame remains queued. Bounded so a genuinely oscillating bar can't
 // hang the test.
 async function drainFrames(bar: HTMLElement, maxFrames = 20) {
-  // .search (TopBarSearch) always renders on desktop/touch-desktop (unlike the old
-  // learnings badge, which was conditional on learnings/learningsCurate > 0), so it's
+  // .search (TopBarSearch) always renders on desktop/touch-desktop, so it's
   // a reliable universal signal for "has the measured-compaction pass settled".
   const read = () => bar.querySelector(".search")?.classList.contains("compact");
   let prev = read();
@@ -2864,119 +2853,24 @@ describe("TopBar — mobile gear sheet stays open on in-sheet clicks (dismissOnO
   });
 });
 
-describe("TopBar — search pill replaces the docs link + learnings badge on desktop", () => {
+describe("TopBar — search pill replaces the docs link on desktop", () => {
   const idleSession = [{ id: "d1", status: "done" }] as unknown as Session[];
 
-  it("desktop: renders the search pill and calls oncommandbar; no learnings badge even with learnings pending", async () => {
+  it("desktop: renders the search pill and calls oncommandbar", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
     const oncommandbar = vi.fn();
-    const onlearnings = vi.fn();
     render(TopBar, {
       nowMs: 1_700_000_000_000,
       connected: true,
       ...FLAGS.desktop,
       sessions: idleSession,
-      learnings: 3,
-      learningsCurate: 2,
-      onlearnings,
       oncommandbar,
     });
     const search = page.getByRole("button", { name: m.topbar_search_aria() });
     await expect.element(search).toBeVisible();
     await search.click();
     expect(oncommandbar).toHaveBeenCalledTimes(1);
-
-    const hud = document.querySelector<HTMLElement>(".hud");
-    expect(hud, "TopBar .hud mounted").not.toBeNull();
-    expect(
-      hud!.querySelector(".learnings-btn"),
-      "no learnings badge on desktop — Learnings now lives in the command bar",
-    ).toBeNull();
-    expect(onlearnings).not.toHaveBeenCalled();
-  });
-});
-
-describe("TopBar — mobile learnings sheet row", () => {
-  const idleSession = [{ id: "d1", status: "done" }] as unknown as Session[];
-
-  it("mobile sheet: learnings row appears after opening gear sheet and calls onlearnings", async () => {
-    await page.viewport(390, 800);
-    document.body.style.width = "390px";
-    const onlearnings = vi.fn();
-    render(TopBar, {
-      nowMs: 1_700_000_000_000,
-      connected: true,
-      ...FLAGS.mobile,
-      sessions: idleSession,
-      learnings: 2,
-      onlearnings,
-    });
-    // Open the sheet by clicking the gear
-    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
-    // The sheet should contain the learnings row
-    const learningsBtn = page.getByRole("button", { name: m.learnings_open_aria({ count: 2 }) });
-    await expect.element(learningsBtn).toBeInTheDocument();
-    await learningsBtn.click();
-    expect(onlearnings).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("TopBar — desktop learnings menu row", () => {
-  it("idle desktop: learnings opens the menu, calls onlearnings, and closes", async () => {
-    await page.viewport(1280, 900);
-    document.body.style.width = "1280px";
-    const onlearnings = vi.fn();
-    render(TopBar, {
-      nowMs: 1_700_000_000_000,
-      connected: true,
-      ...FLAGS.desktop,
-      sessions: [{ id: "d1", status: "done" }] as unknown as Session[],
-      learnings: 2,
-      onlearnings,
-    });
-
-    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
-    const learningsItem = page.getByRole("button", {
-      name: m.learnings_open_aria({ count: 2 }),
-    });
-    await expect.element(learningsItem).toBeInTheDocument();
-    await learningsItem.click();
-    expect(onlearnings).toHaveBeenCalledTimes(1);
-    await expect.element(learningsItem).not.toBeInTheDocument();
-  });
-
-  it("desktop menu: choosing learnings disarms the halt action", async () => {
-    await page.viewport(1280, 900);
-    document.body.style.width = "1280px";
-    const onhalt = vi.fn();
-    render(TopBar, {
-      nowMs: 1_700_000_000_000,
-      connected: true,
-      ...FLAGS.desktop,
-      sessions: sessions(1),
-      learnings: 2,
-      onhalt,
-    });
-
-    const menuItem = (name: string) =>
-      [...document.querySelectorAll<HTMLButtonElement>("[data-gear-row]")].find(
-        (item) => item.getAttribute("aria-label") === name,
-      );
-    const gear = document.querySelector<HTMLButtonElement>(".gear")!;
-
-    gear.click();
-    await Promise.resolve();
-    menuItem(m.halt_all_aria({ count: 1 }))!.click();
-    menuItem(m.learnings_open_aria({ count: 2 }))!.click();
-    await Promise.resolve();
-
-    gear.click();
-    await Promise.resolve();
-    const haltItem = menuItem(m.halt_all_aria({ count: 1 }));
-    expect(haltItem, "halt action is unarmed after choosing Learnings").toBeDefined();
-    haltItem!.click();
-    expect(onhalt).not.toHaveBeenCalled();
   });
 });
 

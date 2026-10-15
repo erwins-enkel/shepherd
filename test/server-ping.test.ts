@@ -31,7 +31,7 @@ function makeDeps(): AppDeps {
     }),
     projections: () => [],
   };
-  return { store, service, events, usageLimits, distiller: { distillNow: async () => {} } };
+  return { store, service, events, usageLimits };
 }
 
 const harness = () => makeApp(makeDeps());

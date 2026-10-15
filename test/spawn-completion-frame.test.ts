@@ -47,7 +47,6 @@ function makeDeps(create: (input: unknown, tracker?: SpawnPhaseTracker) => Promi
       }),
       projections: () => [],
     },
-    distiller: { distillNow: () => {} },
   } as unknown as AppDeps;
   return { deps, emitted };
 }

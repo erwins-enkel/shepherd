@@ -20,8 +20,8 @@
  *
  * This module is the only place that reads `config.authMode` /
  * `config.authApiKeyHelperPath` for spawning — service.ts, review.ts,
- * plan-gate.ts, and the four never-membraned spawns (namer, classifier, recap,
- * distiller) all route through it so the wiring can't drift.
+ * plan-gate.ts, and the never-membraned spawns (namer, classifier, recap) all route through it so
+ * the wiring can't drift.
  */
 
 import { homedir } from "node:os";

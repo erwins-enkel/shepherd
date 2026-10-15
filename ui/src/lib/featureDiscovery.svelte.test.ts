@@ -48,19 +48,19 @@ test("hydrate reads lastSeenVersion from storage", () => {
 });
 
 test("hydrate reads seen blob from storage", () => {
-  store[KEY_SEEN] = JSON.stringify({ critic: true, learnings: true });
+  store[KEY_SEEN] = JSON.stringify({ critic: true, "plan-gate": true });
   featureDiscovery.hydrate();
   expect(featureDiscovery.isSeen("critic")).toBe(true);
-  expect(featureDiscovery.isSeen("learnings")).toBe(true);
+  expect(featureDiscovery.isSeen("plan-gate")).toBe(true);
   expect(featureDiscovery.isSeen("auto-address")).toBe(false);
 });
 
 test("hydrate reads both keys independently", () => {
   store[KEY_VERSION] = "1.10.0";
-  store[KEY_SEEN] = JSON.stringify({ learnings: true });
+  store[KEY_SEEN] = JSON.stringify({ "plan-gate": true });
   featureDiscovery.hydrate();
   expect(featureDiscovery.lastSeenVersion).toBe("1.10.0");
-  expect(featureDiscovery.isSeen("learnings")).toBe(true);
+  expect(featureDiscovery.isSeen("plan-gate")).toBe(true);
 });
 
 test("corrupt seen JSON leaves lastSeenVersion intact", () => {
@@ -97,18 +97,18 @@ test("markSeen sets the flag in memory", () => {
 });
 
 test("markSeen persists the seen blob to localStorage", () => {
-  featureDiscovery.markSeen("learnings");
+  featureDiscovery.markSeen("plan-gate");
   featureDiscovery.markSeen("auto-address");
   const persisted = JSON.parse(store[KEY_SEEN]);
-  expect(persisted["learnings"]).toBe(true);
+  expect(persisted["plan-gate"]).toBe(true);
   expect(persisted["auto-address"]).toBe(true);
 });
 
 test("markSeen does not overwrite other seen entries", () => {
   featureDiscovery.markSeen("critic");
-  featureDiscovery.markSeen("learnings");
+  featureDiscovery.markSeen("plan-gate");
   expect(featureDiscovery.isSeen("critic")).toBe(true);
-  expect(featureDiscovery.isSeen("learnings")).toBe(true);
+  expect(featureDiscovery.isSeen("plan-gate")).toBe(true);
 });
 
 test("lastSeenVersion setter persists to localStorage", () => {

@@ -56,17 +56,7 @@ export function matchCount(rows: string[][], query: string): number {
   return rows.filter((row) => row.some((t) => t.toLowerCase().includes(q))).length;
 }
 
-export const ROLE_BASES = [
-  "planner",
-  "critic",
-  "docAgent",
-  "recap",
-  "distiller",
-  "optimizer",
-  "mergeSuggest",
-  "namer",
-  "autopilot",
-] as const;
+export const ROLE_BASES = ["planner", "critic", "docAgent", "recap", "namer", "autopilot"] as const;
 export type RoleBase = (typeof ROLE_BASES)[number];
 
 export function roleTitle(role: RoleBase): string {
@@ -83,12 +73,6 @@ export function roleTitle(role: RoleBase): string {
       return m.settings_role_model_namer_title();
     case "autopilot":
       return m.settings_role_model_autopilot_title();
-    case "distiller":
-      return m.settings_role_model_distiller_title();
-    case "optimizer":
-      return m.settings_role_model_optimizer_title();
-    case "mergeSuggest":
-      return m.settings_role_model_merge_suggest_title();
   }
 }
 
@@ -106,12 +90,6 @@ export function roleHint(role: RoleBase): string {
       return m.settings_role_model_namer_hint();
     case "autopilot":
       return m.settings_role_model_autopilot_hint();
-    case "distiller":
-      return m.settings_role_model_distiller_hint();
-    case "optimizer":
-      return m.settings_role_model_optimizer_hint();
-    case "mergeSuggest":
-      return m.settings_role_model_merge_suggest_hint();
   }
 }
 
@@ -215,13 +193,6 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
       m.settings_block_judge_label(),
       m.settings_block_judge_hint(),
       m.settings_block_judge_no_key_hint(),
-    ],
-    // Carries BOTH hint variants: the row renders whichever matches the key state, and a row counts
-    // once however many of its strings hit.
-    [
-      m.settings_house_rule_relevance_label(),
-      m.settings_house_rule_relevance_hint(),
-      m.settings_house_rule_relevance_no_key_hint(),
     ],
     [
       m.settings_up_next_readiness_label(),

@@ -67,7 +67,6 @@ schema and deliberately absent from this page.
 | `SHEPHERD_USAGE_DOWNGRADE_ENABLED` | `false` | Companion to the usage hold: when on, every newly spawned agent (main task agents **and** the role agents) runs on `SHEPHERD_USAGE_DOWNGRADE_MODEL` instead of its configured model once usage reaches the downgrade threshold — work keeps flowing, just cheaper. Opt-in (no behavior change when off); set `1`/`true` to enable |
 | `SHEPHERD_USAGE_DOWNGRADE_PCT` | `70` | Downgrade threshold: when the higher of the 5-hour / weekly usage window reaches this percent, new spawns are downgraded. Range `0`–`100`; default `70` is deliberately **below** `SHEPHERD_USAGE_HOLD_PCT` (`80`) so usage downgrades first and only later holds |
 | `SHEPHERD_USAGE_DOWNGRADE_MODEL` | `haiku` | Model the downgrade routes spawns to while active — a default-model setting (`auto` / `default` / `<alias>`) |
-| `SHEPHERD_HOUSE_RULES_BUDGET_CHARS` | `4000` | Character budget for the house-rules block prepended to every agent prompt. Active and promoted rules fill it greedily by most-recently-effective priority until the cap is reached; the remainder stay visible-but-uninjected in the Learnings drawer for the operator to prune. Only an unusually large curated rule set ever reaches this |
 | `SHEPHERD_STANDARD_COMMAND` | _(bundled German prompt)_ | Legacy seed for the backlog quick-launch **Standard** issue action. Quick-launch actions now live in the editable steers list, so this value only seeds (or migrates) that one default entry the first time the steers are read; a previously customized `standardCommand` setting takes precedence over it |
 | `SHEPHERD_REMOTE_CONTROL_AT_STARTUP` | `0` (off) | Set `1` to inject `remoteControlAtStartup` into every spawned agent's `--settings`, which **overrides** the operator's own `~/.claude/settings.json`. Default off suppresses Claude Code Remote Control's auto-start and its notification noise for agent sessions; `/remote-control` (`/rc`) still enables it per session from the terminal. UI-configurable + persisted |
 | `SHEPHERD_PROFILE_LOOP` | `0` (off) | Set `1` to enable event-loop-lag sampling and per-call timing. Diagnostic only, and zero-cost when unset — the instrumentation short-circuits rather than being compiled out, so it can be turned on for one restart without a rebuild |
@@ -131,7 +130,7 @@ seeds a fresh DB and an absent or invalid value falls back to the default shown.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_DEFAULT_AGENT_PROVIDER` | `claude` | Coding CLI newly spawned task sessions use — `claude` or `codex`. Note this also reaches the **role agents**: every role seeded `inherit` (below) follows it, so flipping it globally re-points the critic, planner, distiller, optimizer and merge-suggest too |
+| `SHEPHERD_DEFAULT_AGENT_PROVIDER` | `claude` | Coding CLI newly spawned task sessions use — `claude` or `codex`. Note this also reaches the **role agents**: every role seeded `inherit` (below) follows it, so flipping it globally re-points the critic and planner too |
 | `SHEPHERD_DEFAULT_MODEL` | `auto` | Default Claude model. `auto` means "no stored preference": the New Task picker falls back to its client-side promo suggestion and drain spawns emit no `--model` at all. Any explicit alias applies to both the picker and drain/autopilot auto-spawns |
 | `SHEPHERD_DEFAULT_CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex sessions, kept separate because the alias spaces do not overlap. `default` emits no `--model` flag and lets Codex choose |
 | `SHEPHERD_DEFAULT_EFFORT` | `default` | Default reasoning effort. `default` emits no effort flag; the tiers are `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. There is no `auto` tier — unlike the model setting, effort has no promo fallback to defer to |
@@ -168,8 +167,8 @@ The engine's default is what you get in these places:
   again. Everything started in that window runs on the substitute's **own** default — not on the
   effort you meant for the engine it stands in for. Settings names it in the note under
   **Default coding CLI**.
-- **Role agents** on CLI `inherit` with effort `default` (distiller, optimizer, merge suggester)
-  follow the effort of the engine they run on.
+- **Role agents** on CLI `inherit` with effort `default` follow the effort of the engine they
+  run on.
 
 ## Role agents
 
@@ -205,16 +204,6 @@ maintain loop's own triples live with their features, further down this page.
 | `SHEPHERD_AUTOPILOT_MODEL` | `haiku` | Pinned cheap for the same reason as the namer: it runs on a fixed cadence for the life of every autonomous session |
 | `SHEPHERD_AUTOPILOT_EFFORT` | `low` | As above |
 | `SHEPHERD_AUTOPILOT_STEP_CAP` | `10` | Runaway guard: auto-steers autopilot may spend on one session before it stops and waits for the operator. It bounds cost on a session that is looping rather than progressing. Separately, and not configurable, autopilot hands a Claude session back after two nudges in a row that the agent answered without using a tool |
-| `SHEPHERD_DISTILLER_CLI` | `inherit` | **Distiller** — turns captured session learnings into proposed house rules |
-| `SHEPHERD_DISTILLER_MODEL` | `default` | Model the distiller runs on |
-| `SHEPHERD_DISTILLER_EFFORT` | `default` | Effort tier for the distiller |
-| `SHEPHERD_DISTILLER_INTERVAL_DAYS` | `1` | Per-repository throttle on **automatic** distiller runs; a manual run ignores it. Clamped to `1`–`14`: an out-of-range number snaps to the nearest bound (`30` gives you `14`, not the default), and only a non-numeric value falls back to `1` — the throttle cannot be turned off by setting a silly value |
-| `SHEPHERD_OPTIMIZER_CLI` | `inherit` | **Optimizer** — the one-click improvement pass over a repo's own agent instructions |
-| `SHEPHERD_OPTIMIZER_MODEL` | `default` | Model the optimizer runs on |
-| `SHEPHERD_OPTIMIZER_EFFORT` | `default` | Effort tier for the optimizer |
-| `SHEPHERD_MERGE_SUGGEST_CLI` | `inherit` | **Merge suggester** — proposes a merge order for the open PR queue |
-| `SHEPHERD_MERGE_SUGGEST_MODEL` | `default` | Model the merge suggester runs on |
-| `SHEPHERD_MERGE_SUGGEST_EFFORT` | `default` | Effort tier for the merge suggester |
 
 ## Review rounds, merge train and spend
 
@@ -230,39 +219,6 @@ human. Both are clamped, UI-configurable and persisted, with the env seeding a f
 | `SHEPHERD_EXTRA_CREDITS_DRAIN_CEILING` | `0` | Account-wide **extra-credit** (pay-as-you-go overage) ceiling, in account currency units, that autonomous drain and autopilot may run past; they pause once measured spend strictly exceeds it. The default `0` means pause on *any* overage spend, which is the conservative reading — raise it deliberately. Negative and unparseable values clamp to `0`. Persisted + UI-configurable |
 | `SHEPHERD_PUSH_COOLDOWN_MS` | `120000` (2 min) | Collapses repeat web pushes from the same session inside this window, so one busy session cannot flood a phone. `0` disables the coalescing entirely |
 | `SHEPHERD_REDUCED_PUSH_MODE` | `0` (off) | Set `1` for quieter devices: the push layer then sends only `ready` notifications plus cost alerts, dropping the rest. Global (not per-device); UI-configurable + persisted |
-
-## Learnings lifecycle
-
-The admission and retirement machinery behind distilled house rules, which move
-**proposed → trial → active → retired** under a background sweep. Two conventions run
-through the table: *N* is the number of observations backing a rule, and every
-`MAX_…_PER_SWEEP` bounds one pass of the sweep, not the total — a large backlog drains over
-several sweeps by design.
-
-These knobs change **when** a rule moves, never what it says. All are env-only, and all are
-read **once at startup** rather than per sweep, so a change needs a restart to take effect.
-The injection-driven passes (trial, reap, retire) stay dormant for a repository with
-learnings disabled; the proposed-prune below is the deliberate exception and runs regardless.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SHEPHERD_LEARNINGS_AUTO_TRIAL` | `true` | Kill switch for promoting qualifying proposed learnings into active trials. `0` leaves promotion entirely manual — the admission gate the automation exists to unblock |
-| `SHEPHERD_LEARNINGS_TRIAL_NMIN` | `4` | Strength gate: observations a proposed learning needs before it may enter trial at all |
-| `SHEPHERD_LEARNINGS_TRIAL_SESSION_FLOOR` | `2` | Hard floor on distinct contributing sessions. No single-session rule is ever trialled, however much evidence one session produced — one session's quirk is not a house rule |
-| `SHEPHERD_LEARNINGS_TRIAL_MIN_KINDS` | `2` | Breadth gate, first path: distinct *kinds* of evidence behind the rule |
-| `SHEPHERD_LEARNINGS_TRIAL_MIN_SESSIONS` | `3` | Breadth gate, second path: distinct sessions. A candidate that clears the strength gate and the session floor qualifies on **either** breadth path — enough kinds, or enough sessions — so raising one alone does not tighten admission |
-| `SHEPHERD_LEARNINGS_MAX_TRIAL_PER_SWEEP` | `3` | Promotions per sweep |
-| `SHEPHERD_LEARNINGS_TRIAL_REAP_NMIN` | `8` | Trial reaper, evidence branch: injections a trial must have had before it can be judged inert |
-| `SHEPHERD_LEARNINGS_TRIAL_REAP_DAYS` | `21` | Trial age, in days, that the same evidence branch also requires. Both conditions must hold |
-| `SHEPHERD_LEARNINGS_TRIAL_REAP_MAX_DAYS` | `60` | Time branch: a trial older than this is reaped regardless of how rarely it was injected. It is the anti-zombie fallback for a rule that never got its chance because the house-rules budget kept crowding it out. A trial that was ever marked helpful is exempt from **both** branches |
-| `SHEPHERD_LEARNINGS_TRIAL_RELEVANCE_MIN_JUDGED` | `8` | Relevance branch ([#2382](https://github.com/erwins-enkel/shepherd/issues/2382)): sessions the relevance judge must have ruled on a trial — finding it relevant in **none** of them — before that alone fails the trial. Unlike the other two branches this measures whether the rule would ever have *fired*, not how much exposure it got, so under `enforce` it is the only branch that can reach a rule the judge keeps out of the prompt (uninjected ⇒ `SHEPHERD_LEARNINGS_TRIAL_REAP_NMIN` is never met). Inert unless `SHEPHERD_HOUSE_RULE_RELEVANCE` is armed: with no verdicts a rule reads `0` judged, which means "nobody asked" and never "never relevant". The helpful-trial exemption applies here too |
-| `SHEPHERD_LEARNINGS_MAX_REAP_PER_SWEEP` | `5` | Trial reaps per sweep |
-| `SHEPHERD_LEARNINGS_PRUNE_DAYS` | `3` | Permanently deletes **proposed** learnings whose newest evidence is older than this. Applied in full each sweep — no cap and no exemption — and it ignores the repository's learnings toggle, because it is status- and age-based rather than injection-driven. Zero, negative and unparseable values are refused with a warning and the default is used, so the prune cannot be silently disabled by a typo ([#1794](https://github.com/erwins-enkel/shepherd/issues/1794)) |
-| `SHEPHERD_LEARNINGS_WILSON_Z` | `1.96` | *z* for the Wilson lower bound used to score a rule's help rate; `1.96` is the conventional 95% value. The bound is a confidence-discounted rate rather than the raw ratio — the fewer injections a rule has, the further below its observed ratio it scores, which is why the low-evidence case is guarded separately by `SHEPHERD_LEARNINGS_RETIRE_NMIN`. Raising *z* widens the interval and pushes the bound down, so rules retire **more** readily; lowering it moves the score back toward the observed ratio |
-| `SHEPHERD_LEARNINGS_RETIRE_NMIN` | `8` | Injections an active rule needs before auto-retire considers it at all. A rule with no recorded ineffective outcome is never retired regardless of this |
-| `SHEPHERD_LEARNINGS_BASE_RATE` | `0.5` | The bar a rule's Wilson lower bound is compared against while the repository has too little history to measure one — retirement means "demonstrably worse than its peers", so a bar is needed before peers exist |
-| `SHEPHERD_LEARNINGS_BASE_RATE_MIN_N` | `20` | Injections across the repository's proven rules before that measured peer rate replaces the assumed `SHEPHERD_LEARNINGS_BASE_RATE` |
-| `SHEPHERD_LEARNINGS_MAX_RETIRE_PER_SWEEP` | `3` | Auto-retirements per sweep |
 
 ## Live preview
 
@@ -557,36 +513,6 @@ the same `JEV_API_KEY`, the same model and the same daily ceiling, so its calls 
 | --- | --- | --- |
 | `SHEPHERD_BLOCK_JUDGE` | `off` | `off` \| `shadow` \| `armed`. Inert without `JEV_API_KEY`. Anything unrecognised reads as `off`. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
 | `SHEPHERD_BLOCK_JUDGE_LOG_RETENTION_DAYS` | `14` | How many days of backstop decision rows the daily sweep keeps (1–365). Shorter than the spend table's window because these rows carry terminal tails |
-
-### House rules for this task only
-
-A third place the decision model can be pointed at, and also off by default. Shepherd injects
-this repo's **house rules** into every agent's system prompt. Rules that carry a file-scope pattern
-are already filtered against the files the task names; a rule with no pattern is sent to every
-session whether or not it has anything to do with the request. With this on, Shepherd asks the
-decision model — once per session, one request covering every candidate rule at once — which rules
-the request is actually about, and leaves the rest out.
-
-It can only **subtract**. A rule the file-scope filter already gated out stays gated; a rule the
-model is unsure about is sent. On any failure — unarmed, over the daily ceiling, a transport error,
-a timeout — the full set is sent, which is exactly the behaviour without the feature.
-
-What leaves the machine is the same class of thing the stop classifier already sends: the task
-prompt, the attached issue's title and body, the file paths named in them, and each candidate
-rule's one-line text — clipped, and only to the configured `SHEPHERD_JUDGE_BASE_URL`. No file
-contents and no diff.
-
-Start on `shadow`: it asks and records the verdicts without acting on any of them, so the numbers
-that justify turning on `enforce` come from your own sessions. Each rule's running hit rate shows
-up in the **Learnings drawer** beside its help rate, and every verdict's raw probability is stored,
-so the drop threshold can be re-tuned against history rather than guessed again.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SHEPHERD_HOUSE_RULE_RELEVANCE` | `off` | `off` \| `shadow` (ask + record, change nothing) \| `enforce` (drop the rules judged irrelevant). Needs the judge armed. Anything other than `off` also arms the trial reaper's relevance branch (`SHEPHERD_LEARNINGS_TRIAL_RELEVANCE_MIN_JUDGED`), so setting this back to `off` withdraws that signal and stops acting on it. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
-| `SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW` | `0.35` | Drop a rule only when the probability the request is about it falls **below** this. Asymmetric on purpose — uncertainty keeps the rule. Clamped to `[0,1]`, so a percent-for-probability typo (`35`) cannot put the threshold above every possible probability and empty the block |
-| `SHEPHERD_LEARNINGS_RELEVANCE_MAX` | `32` | Most candidate rules one call may ask about. Overflow is injected unjudged, never dropped |
-| `SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS` | `90` | How many days of relevance verdicts the daily sweep keeps (1–3650). They deliberately outlive their session, so this sweep is the only thing that removes one |
 
 ### Up Next readiness
 

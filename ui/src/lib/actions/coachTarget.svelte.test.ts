@@ -24,10 +24,10 @@ test("registers multiple nodes with distinct ids", () => {
   const a = fakeNode();
   const b = fakeNode();
   const actionA = coachTarget(a, "critic");
-  const actionB = coachTarget(b, "learnings");
+  const actionB = coachTarget(b, "plan-gate");
 
   expect(coachTargets.get("critic")).toBe(a);
-  expect(coachTargets.get("learnings")).toBe(b);
+  expect(coachTargets.get("plan-gate")).toBe(b);
   expect(coachTargets.size).toBe(2);
 
   actionA.destroy();
@@ -49,12 +49,12 @@ test("destroy only removes its own entry, not others", () => {
   const a = fakeNode();
   const b = fakeNode();
   const actionA = coachTarget(a, "critic");
-  const actionB = coachTarget(b, "learnings");
+  const actionB = coachTarget(b, "plan-gate");
 
   actionA.destroy();
 
   expect(coachTargets.has("critic")).toBe(false);
-  expect(coachTargets.get("learnings")).toBe(b);
+  expect(coachTargets.get("plan-gate")).toBe(b);
 
   actionB.destroy();
 });
@@ -65,10 +65,10 @@ test("update with a new id moves the entry to the new key", () => {
 
   expect(coachTargets.get("critic")).toBe(node);
 
-  action.update("learnings");
+  action.update("plan-gate");
 
   expect(coachTargets.has("critic")).toBe(false);
-  expect(coachTargets.get("learnings")).toBe(node);
+  expect(coachTargets.get("plan-gate")).toBe(node);
 
   action.destroy();
 });

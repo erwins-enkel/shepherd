@@ -8,7 +8,7 @@ import type { AgentProvider } from "./types";
 /**
  * One home for the transient-`claude` argv shape that 10 spawn sites used to re-assemble
  * byte-for-byte (issue #1093). A transient agent is a short-lived, non-interactive-to-the-operator
- * `claude` spawned in a herdr pane to do one unattended job (review, name, classify, distill,
+ * `claude` spawned in a herdr pane to do one unattended job (review, name, classify,
  * recap, …) and then be torn down. They all share the SAME hard-won invocation posture; only the
  * tool allowlist and MCP isolation vary, and that variation is captured in {@link PRESETS}.
  *
@@ -114,8 +114,8 @@ export interface TransientAgentArgvOptions {
   effort?: string | null;
   /** OPT-IN: emit the Codex `-o` last-message file so the CLI captures the agent's final message even
    *  when it answers in chat instead of writing the result file (see codex-last-message.ts). Set ONLY
-   *  by roles that actually READ that fallback (recap, autopilot, distiller, optimizer,
-   *  merge-suggest, and the reviewers). Roles that read only their own sentinel/result file — the
+   *  by roles that actually READ that fallback (recap, autopilot,
+   *  and the reviewers). Roles that read only their own sentinel/result file — the
    *  namer (`.shepherd-name`), verify-key (`.shepherd-verify`), doc-agent (edits + sentinel) — leave
    *  it unset so they carry NO `-o`, and thus no Codex `-o`/version-floor dependency they don't need
    *  (nor, for the checkout-running kinds, a fixed `-o` target a committed symlink could redirect).
@@ -171,7 +171,7 @@ interface KindPreset {
  *  - `doc`       UNTRUSTED input (recent source history). Same posture as reviewer; the ONLY widening
  *                is bare `Edit` — it edits existing prose pages. NO git mutation / gh / network / general
  *                Bash; all publishing is done by the trusted server, never the agent.
- *  - `writer-ro` UNTRUSTED input (agent/repo text: learnings, agent-authored rule text). Read-only
+ *  - `writer-ro` UNTRUSTED input (agent/repo text, operator attachments). Read-only
  *                inspection + bare `Write`. Not mcpIsolated: runs in a scratch dir with no project
  *                .mcp.json, so the MCP gate never arises.
  *  - `writer-only` MIXED trust — do NOT assume untrusted input here. Some callers pass the operator's

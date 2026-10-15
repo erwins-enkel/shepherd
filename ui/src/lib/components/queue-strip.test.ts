@@ -5,8 +5,6 @@ import {
   chipHasTelemetry,
   chipRailVisible,
   enabledDrains,
-  firstCurateRepo,
-  globalLearningsCounts,
   mergeTrainIsAttention,
   mergeTrainLabel,
   pausedText,
@@ -20,14 +18,7 @@ import {
 } from "./queue-strip";
 import type { RepoChip } from "./queue-strip";
 import type { BlockState } from "../triage";
-import type {
-  AutoMergeStatus,
-  DrainStatus,
-  InjectableRule,
-  Learning,
-  RepoInjectable,
-  Session,
-} from "../types";
+import type { AutoMergeStatus, DrainStatus, Session } from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {
@@ -40,47 +31,6 @@ function drain(over: Partial<DrainStatus>): DrainStatus {
     inFlight: 0,
     max: 1,
     epicParent: null,
-    ...over,
-  };
-}
-
-function learning(over: Partial<Learning>): Learning {
-  return {
-    id: "l1",
-    repoPath: "/repos/a",
-    rule: "r",
-    rationale: "",
-    evidence: [],
-    status: "proposed",
-    evidenceCount: 0,
-    ineffectiveCount: 0,
-    helpfulCount: 0,
-    injectedCount: 0,
-    lastUsedAt: null,
-    retiredAt: null,
-    retiredReason: null,
-    scopeGlobs: [],
-    createdAt: 0,
-    updatedAt: 0,
-    lastEvidenceAt: null,
-    promotedPrUrl: null,
-    ...over,
-  };
-}
-
-function rule(injected: boolean, scoped = false): InjectableRule {
-  return { ...learning({}), injected, scoped, relevanceJudged: 0, relevanceRelevant: 0 };
-}
-
-function injectable(over: Partial<RepoInjectable>): RepoInjectable {
-  return {
-    repoPath: "/repos/a",
-    enabled: true,
-    budgetChars: 100,
-    usedChars: 0,
-    rules: [],
-    retired: [],
-    unseenRetired: 0,
     ...over,
   };
 }
@@ -313,7 +263,7 @@ function session(over: Partial<Session>): Session {
 
 describe("repoChipRows", () => {
   it("returns empty array when sessions list is empty", () => {
-    expect(repoChipRows([], {}, [], [])).toEqual([]);
+    expect(repoChipRows([], {})).toEqual([]);
   });
 
   it("excludes archived sessions; repo with only archived sessions gets no chip", () => {
@@ -323,8 +273,6 @@ describe("repoChipRows", () => {
         session({ id: "s2", repoPath: "/repos/b", status: "running" }),
       ],
       {},
-      [],
-      [],
     );
     expect(chips.map((c) => c.repoPath)).toEqual(["/repos/b"]);
   });
@@ -339,8 +287,6 @@ describe("repoChipRows", () => {
         session({ id: "s5", repoPath: "/repos/a", status: "archived" }), // excluded
       ],
       {},
-      [],
-      [],
     );
     expect(chips).toHaveLength(1);
     expect(chips[0].count).toBe(4);
@@ -353,8 +299,6 @@ describe("repoChipRows", () => {
         a: drain({ repoPath: "/repos/a", enabled: true, inFlight: 2 }),
         b: drain({ repoPath: "/repos/b", enabled: false, inFlight: 5 }),
       },
-      [],
-      [],
     );
     const a = chips.find((c) => c.repoPath === "/repos/a")!;
     const b = chips.find((c) => c.repoPath === "/repos/b")!;
@@ -362,65 +306,10 @@ describe("repoChipRows", () => {
     expect(b.drain).toBeNull();
   });
 
-  it("insights counts Learning items per repo", () => {
-    const chips = repoChipRows(
-      [session({ repoPath: "/repos/a" })],
-      {},
-      [learning({ id: "l1", repoPath: "/repos/a" }), learning({ id: "l2", repoPath: "/repos/a" })],
-      [],
-    );
-    expect(chips[0]).toMatchObject({ insights: 2, curate: 0 });
-  });
-
-  it("curate shows over-budget count only when insights === 0", () => {
-    const chips = repoChipRows(
-      [session({ repoPath: "/repos/a" })],
-      {},
-      [],
-      [injectable({ repoPath: "/repos/a", rules: [rule(true), rule(false), rule(false)] })],
-    );
-    expect(chips[0]).toMatchObject({ insights: 0, curate: 2 });
-  });
-
-  it("curate is 0 when insights > 0 (proposals suppress the curate fallback)", () => {
-    const chips = repoChipRows(
-      [session({ repoPath: "/repos/a" })],
-      {},
-      [learning({ repoPath: "/repos/a" })],
-      [injectable({ repoPath: "/repos/a", rules: [rule(false)] })],
-    );
-    expect(chips[0]).toMatchObject({ insights: 1, curate: 0 });
-  });
-
-  it("a disabled injectable repo never contributes curate", () => {
-    const chips = repoChipRows(
-      [session({ repoPath: "/repos/a" })],
-      {},
-      [],
-      [injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] })],
-    );
-    expect(chips[0]).toMatchObject({ insights: 0, curate: 0 });
-  });
-
-  it("learnings for repo B do not inflate repo A's insights", () => {
-    const chips = repoChipRows(
-      [session({ id: "s1", repoPath: "/repos/a" }), session({ id: "s2", repoPath: "/repos/b" })],
-      {},
-      [learning({ id: "l1", repoPath: "/repos/b" })],
-      [],
-    );
-    const a = chips.find((c) => c.repoPath === "/repos/a")!;
-    const b = chips.find((c) => c.repoPath === "/repos/b")!;
-    expect(a.insights).toBe(0);
-    expect(b.insights).toBe(1);
-  });
-
   it("sorted ascending by repoPath", () => {
     const chips = repoChipRows(
       [session({ id: "s1", repoPath: "/repos/z" }), session({ id: "s2", repoPath: "/repos/a" })],
       {},
-      [],
-      [],
     );
     expect(chips.map((c) => c.repoPath)).toEqual(["/repos/a", "/repos/z"]);
   });
@@ -430,7 +319,7 @@ describe("repoChipRows", () => {
 
 describe("chipRailVisible", () => {
   function chip(repoPath: string): RepoChip {
-    return { repoPath, count: 1, drain: null, insights: 0, curate: 0 };
+    return { repoPath, count: 1, drain: null };
   }
   const none: ReadonlySet<string> = new Set();
 
@@ -475,7 +364,7 @@ describe("chipRailVisible", () => {
 
 describe("chipHasTelemetry", () => {
   function chip(over: Partial<RepoChip>): RepoChip {
-    return { repoPath: "/repos/a", count: 1, drain: null, insights: 0, curate: 0, ...over };
+    return { repoPath: "/repos/a", count: 1, drain: null, ...over };
   }
 
   it("false when no drain", () => {
@@ -496,16 +385,6 @@ describe("chipHasTelemetry", () => {
 
   it("true when drain is paused", () => {
     expect(chipHasTelemetry(chip({ drain: drain({ paused: true }) }))).toBe(true);
-  });
-
-  // learnings no longer surface on the detail line (they live on the chip ✦ mark + the
-  // gear menu), so insights/curate alone do not warrant a telemetry band.
-  it("false when only insights > 0 (no drain)", () => {
-    expect(chipHasTelemetry(chip({ insights: 1 }))).toBe(false);
-  });
-
-  it("false when only curate > 0 (no drain)", () => {
-    expect(chipHasTelemetry(chip({ curate: 2 }))).toBe(false);
   });
 });
 
@@ -560,7 +439,7 @@ describe("nextRepoFilter", () => {
 
 describe("staleFilterRepos", () => {
   function chip(repoPath: string): RepoChip {
-    return { repoPath, count: 1, drain: null, insights: 0, curate: 0 };
+    return { repoPath, count: 1, drain: null };
   }
 
   it("empty when no filter is active", () => {
@@ -638,91 +517,6 @@ describe("followRepoFilter", () => {
     const f = new Set(["/repos/a"]);
     expect(followRepoFilter(f, "/repos/a")).toBe(false);
     expect([...f]).toEqual(["/repos/a"]);
-  });
-});
-
-// ─── globalLearningsCounts ────────────────────────────────────────────────────
-
-describe("globalLearningsCounts", () => {
-  it("returns zeros for empty inputs", () => {
-    expect(globalLearningsCounts([], [])).toEqual({ proposed: 0, curate: 0 });
-  });
-
-  it("proposed equals items.length regardless of repoPath", () => {
-    const items = [
-      learning({ id: "l1", repoPath: "/repos/a" }),
-      learning({ id: "l2", repoPath: "/repos/b" }),
-      learning({ id: "l3", repoPath: "/repos/c" }),
-    ];
-    expect(globalLearningsCounts(items, [])).toEqual({ proposed: 3, curate: 0 });
-  });
-
-  it("curate sums non-injected rules across enabled injectables", () => {
-    const injectables = [
-      injectable({ repoPath: "/repos/a", rules: [rule(true), rule(false), rule(false)] }), // 2 over-budget
-      injectable({ repoPath: "/repos/b", rules: [rule(false)] }), // 1 over-budget
-    ];
-    expect(globalLearningsCounts([], injectables)).toEqual({ proposed: 0, curate: 3 });
-  });
-
-  it("disabled injectable contributes 0 to curate even with non-injected rules", () => {
-    const injectables = [
-      injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false), rule(false)] }),
-    ];
-    expect(globalLearningsCounts([], injectables)).toEqual({ proposed: 0, curate: 0 });
-  });
-
-  it("injected rules (injected=true) do not count toward curate", () => {
-    const injectables = [
-      injectable({ repoPath: "/repos/a", rules: [rule(true), rule(true)] }), // all injected → 0 over-budget
-    ];
-    expect(globalLearningsCounts([], injectables)).toEqual({ proposed: 0, curate: 0 });
-  });
-
-  it("combines proposed and curate independently", () => {
-    const items = [learning({ id: "l1" }), learning({ id: "l2" })];
-    const injectables = [injectable({ rules: [rule(false)] })];
-    expect(globalLearningsCounts(items, injectables)).toEqual({ proposed: 2, curate: 1 });
-  });
-});
-
-// ─── firstCurateRepo ──────────────────────────────────────────────────────────
-
-describe("firstCurateRepo", () => {
-  it("returns null for empty list", () => {
-    expect(firstCurateRepo([])).toBeNull();
-  });
-
-  it("returns null when no repo has over-budget rules", () => {
-    const injectables = [
-      injectable({ repoPath: "/repos/a", rules: [rule(true), rule(true)] }),
-      injectable({ repoPath: "/repos/b", rules: [rule(true)] }),
-    ];
-    expect(firstCurateRepo(injectables)).toBeNull();
-  });
-
-  it("returns the repoPath of the first repo with ≥1 over-budget rule", () => {
-    const injectables = [
-      injectable({ repoPath: "/repos/a", rules: [rule(true)] }), // all injected
-      injectable({ repoPath: "/repos/b", rules: [rule(true), rule(false)] }), // 1 over-budget
-      injectable({ repoPath: "/repos/c", rules: [rule(false), rule(false)] }), // 2 over-budget
-    ];
-    expect(firstCurateRepo(injectables)).toBe("/repos/b");
-  });
-
-  it("returns null when the only over-budget repo is disabled", () => {
-    const injectables = [
-      injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] }),
-    ];
-    expect(firstCurateRepo(injectables)).toBeNull();
-  });
-
-  it("skips disabled repos and returns the first enabled over-budget repo", () => {
-    const injectables = [
-      injectable({ repoPath: "/repos/a", enabled: false, rules: [rule(false)] }), // disabled → skip
-      injectable({ repoPath: "/repos/b", enabled: true, rules: [rule(false)] }), // enabled → match
-    ];
-    expect(firstCurateRepo(injectables)).toBe("/repos/b");
   });
 });
 

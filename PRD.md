@@ -39,8 +39,7 @@ API key — the no-train-by-default path.
 - Enforce engineering best practices across the herd, automated per repo: Plan gate (adversarial
   plan review before an autonomous run) → Critic (PR review on CI-green) → Merge train (a PR
   behind its base is rebased + re-verified before merge), plus Readiness (guardrail scoring for
-  JS/TS repos before agents are pointed at them), Learnings (approved house rules injected into new
-  sessions) and hygiene gates.
+  JS/TS repos before agents are pointed at them) and hygiene gates.
 
 **Non-goals (v1)**
 

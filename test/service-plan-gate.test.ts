@@ -7,18 +7,18 @@ import {
 } from "../src/service";
 
 test("plan-gate interactive directive replaces autopilot directive", () => {
-  const p = composeSystemPrompt(null, true, { planGate: "interactive" });
+  const p = composeSystemPrompt(true, { planGate: "interactive" });
   expect(p).toContain("plan-gate-directive");
   expect(p).toContain(".shepherd-plan.md");
   expect(p).not.toContain("autopilot-directive"); // suppressed during planning
 });
 test("plan-gate auto variant skips human Q&A", () => {
-  const p = composeSystemPrompt(null, true, { planGate: "auto" });
+  const p = composeSystemPrompt(true, { planGate: "auto" });
   expect(p).toContain(PLAN_GATE_DIRECTIVE_AUTO.slice(0, 24));
   expect(p).not.toContain("autopilot-directive");
 });
 test("no plan gate → unchanged autopilot behavior", () => {
-  const p = composeSystemPrompt(null, true);
+  const p = composeSystemPrompt(true);
   expect(p).toContain("autopilot-directive");
   expect(p).not.toContain("plan-gate-directive");
 });
@@ -99,15 +99,15 @@ test("agentProvider:'claude' is byte-identical to the default (Claude regression
     { planGate: "auto" as const },
     {},
   ]) {
-    expect(composeSystemPrompt(null, true, { ...opts, agentProvider: "claude" })).toBe(
-      composeSystemPrompt(null, true, opts),
+    expect(composeSystemPrompt(true, { ...opts, agentProvider: "claude" })).toBe(
+      composeSystemPrompt(true, opts),
     );
   }
 });
 
 test("codex research directive drops the 'sub-agents' phrasing; claude keeps it", () => {
-  const codex = composeSystemPrompt(null, false, { research: true, agentProvider: "codex" });
-  const claude = composeSystemPrompt(null, false, { research: true, agentProvider: "claude" });
+  const codex = composeSystemPrompt(false, { research: true, agentProvider: "codex" });
+  const claude = composeSystemPrompt(false, { research: true, agentProvider: "claude" });
   expect(codex).toContain("<research-directive>");
   expect(codex).toContain("attended RESEARCH task");
   expect(codex).not.toContain("sub-agents");
@@ -115,7 +115,7 @@ test("codex research directive drops the 'sub-agents' phrasing; claude keeps it"
 });
 
 test("codex interactive plan-gate hardens the stop clause and omits AskUserQuestion", () => {
-  const codex = composeSystemPrompt(null, false, {
+  const codex = composeSystemPrompt(false, {
     planGate: "interactive",
     agentProvider: "codex",
   });
@@ -126,7 +126,7 @@ test("codex interactive plan-gate hardens the stop clause and omits AskUserQuest
   expect(codex).toContain("do not ask for a generic final confirmation");
   expect(codex).toContain("write `.shepherd-plan.md` in the same turn");
   // Claude keeps the original AskUserQuestion phrasing and has no extra stop clause.
-  const claude = composeSystemPrompt(null, false, {
+  const claude = composeSystemPrompt(false, {
     planGate: "interactive",
     agentProvider: "claude",
   });
@@ -135,14 +135,14 @@ test("codex interactive plan-gate hardens the stop clause and omits AskUserQuest
 });
 
 test("codex auto plan-gate also gets the hardened stop clause (unattended path, no human backstop)", () => {
-  const codex = composeSystemPrompt(null, false, { planGate: "auto", agentProvider: "codex" });
+  const codex = composeSystemPrompt(false, { planGate: "auto", agentProvider: "codex" });
   expect(codex).toContain("<plan-gate-directive>");
   expect(codex).toContain("running unattended");
   expect(codex).toContain("Do NOT write or modify ANY code this turn");
   // Claude's auto variant keeps the original phrasing — no extra stop clause.
-  expect(
-    composeSystemPrompt(null, false, { planGate: "auto", agentProvider: "claude" }),
-  ).not.toContain("Do NOT write or modify ANY code this turn");
+  expect(composeSystemPrompt(false, { planGate: "auto", agentProvider: "claude" })).not.toContain(
+    "Do NOT write or modify ANY code this turn",
+  );
 });
 
 test("planBlockInstructions(INTERACTIVE) drops AskUserQuestion for codex, keeps it for claude", () => {
@@ -165,8 +165,8 @@ test("en is byte-identical: composeSystemPrompt with/without explicit operatorLa
     { planGate: "interactive" as const, agentProvider: "codex" as const },
   ];
   for (const opts of representativeOpts) {
-    const withoutLang = composeSystemPrompt(null, false, opts);
-    const withEnLang = composeSystemPrompt(null, false, { ...opts, operatorLanguage: "en" });
+    const withoutLang = composeSystemPrompt(false, opts);
+    const withEnLang = composeSystemPrompt(false, { ...opts, operatorLanguage: "en" });
     expect(withEnLang).toBe(withoutLang);
     expect(withoutLang).not.toContain("operator-language");
     expect(withEnLang).not.toContain("operator-language");
@@ -193,8 +193,8 @@ test("import-time PLAN_GATE_DIRECTIVE constants render as 'en' regardless of env
 });
 
 test("de injects <operator-language> naming German, for both claude and codex", () => {
-  const claude = composeSystemPrompt(null, false, { operatorLanguage: "de" });
-  const codex = composeSystemPrompt(null, false, {
+  const claude = composeSystemPrompt(false, { operatorLanguage: "de" });
+  const codex = composeSystemPrompt(false, {
     operatorLanguage: "de",
     agentProvider: "codex",
   });
@@ -224,28 +224,27 @@ test("de plan sidecar instructions carry the field-discipline verbatim-fields li
 // Worktree git-stash safety notice (#1632) — a global git-mechanism invariant. Since #2002 a
 // Claude spawn gets it as a PreToolUse DENIAL instead (scripts/tool-guard.mjs, pinned in
 // test/tool-guard.test.ts); the block still rides every spawn variant the guard cannot reach —
-// Codex, and any install with SHEPHERD_TOOL_GUARD=0 — regardless of learnings / research /
+// Codex, and any install with SHEPHERD_TOOL_GUARD=0 — regardless of research /
 // plan-gate / autopilot state.
 const NO_GUARD = { toolGuard: false } as const;
 test("worktree-stash-notice rides every spawn variant the guard cannot reach", () => {
   const variants = [
-    composeSystemPrompt(null, false, NO_GUARD), // plain code spawn, no learnings
-    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false, NO_GUARD),
-    composeSystemPrompt(null, true, NO_GUARD), // autopilot
-    composeSystemPrompt(null, false, { ...NO_GUARD, research: true }), // research
-    composeSystemPrompt(null, true, { ...NO_GUARD, planGate: "interactive" }), // plan gate
-    composeSystemPrompt(null, false, { agentProvider: "codex" }), // codex: no hook mechanism
+    composeSystemPrompt(false, NO_GUARD), // plain code spawn
+    composeSystemPrompt(true, NO_GUARD), // autopilot
+    composeSystemPrompt(false, { ...NO_GUARD, research: true }), // research
+    composeSystemPrompt(true, { ...NO_GUARD, planGate: "interactive" }), // plan gate
+    composeSystemPrompt(false, { agentProvider: "codex" }), // codex: no hook mechanism
   ];
   for (const p of variants) {
     expect(p).toContain("<worktree-stash-notice>");
     expect(p).toContain("refs/stash");
   }
   // And it is GONE where the deny reaches — never both.
-  expect(composeSystemPrompt(null, false)).not.toContain("<worktree-stash-notice>");
+  expect(composeSystemPrompt(false)).not.toContain("<worktree-stash-notice>");
 });
 
 test("worktree-stash-notice recommends read-only + create/apply, never store or bare stash", () => {
-  const p = composeSystemPrompt(null, false, NO_GUARD);
+  const p = composeSystemPrompt(false, NO_GUARD);
   // Read-only inspection is the primary safe path.
   expect(p).toContain("git show <ref>:<path>");
   expect(p).toContain("git diff <ref>");
@@ -280,13 +279,12 @@ test("both plan-gate directives tell the planner to reference code by path + sym
 // exhausted inode table bricks the session regardless of which agent caused it.
 test("tmpfs-worktree-notice rides every spawn variant the guard cannot reach", () => {
   const variants = [
-    composeSystemPrompt(null, false, NO_GUARD), // plain code spawn
-    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false, NO_GUARD),
-    composeSystemPrompt(null, true, NO_GUARD), // autopilot
-    composeSystemPrompt(null, false, { ...NO_GUARD, research: true }), // research
-    composeSystemPrompt(null, true, { ...NO_GUARD, planGate: "interactive" }), // plan gate
-    composeSystemPrompt(null, false, { agentProvider: "codex" }), // codex
-    composeSystemPrompt(null, true, { agentProvider: "codex" }), // codex + autopilot
+    composeSystemPrompt(false, NO_GUARD), // plain code spawn
+    composeSystemPrompt(true, NO_GUARD), // autopilot
+    composeSystemPrompt(false, { ...NO_GUARD, research: true }), // research
+    composeSystemPrompt(true, { ...NO_GUARD, planGate: "interactive" }), // plan gate
+    composeSystemPrompt(false, { agentProvider: "codex" }), // codex
+    composeSystemPrompt(true, { agentProvider: "codex" }), // codex + autopilot
   ];
   for (const p of variants) {
     expect(p).toContain("<tmpfs-worktree-notice>");
@@ -294,17 +292,17 @@ test("tmpfs-worktree-notice rides every spawn variant the guard cannot reach", (
     expect(p).toContain("git worktree add");
     expect(p).toContain("pnpm install");
   }
-  expect(composeSystemPrompt(null, false)).not.toContain("<tmpfs-worktree-notice>");
+  expect(composeSystemPrompt(false)).not.toContain("<tmpfs-worktree-notice>");
 });
 
 test("tmpfs-worktree-notice narrows the scratchpad instruction for claude, stands alone for codex", () => {
-  const claude = composeSystemPrompt(null, false, NO_GUARD);
+  const claude = composeSystemPrompt(false, NO_GUARD);
   // Claude receives the harness "Scratchpad Directory" block, so the notice must NARROW it rather
   // than contradict it — an agent handed two conflicting absolutes picks one arbitrarily.
   expect(claude).toContain("Scratchpad Directory instruction stands for ordinary temporary files");
 
   // Codex never receives that block, so referencing it would name something the agent never saw.
-  const codex = composeSystemPrompt(null, false, { agentProvider: "codex" });
+  const codex = composeSystemPrompt(false, { agentProvider: "codex" });
   expect(codex).not.toContain("Scratchpad Directory");
   expect(codex).toContain("hard inode cap");
 });
@@ -312,18 +310,18 @@ test("tmpfs-worktree-notice narrows the scratchpad instruction for claude, stand
 test("tmpfs-worktree-notice tells claude to carry the constraint into sub-agent prompts", () => {
   // Load-bearing: a dispatched sub-agent receives Claude Code's scratchpad block but NONE of this
   // composed prompt, so without this clause the notice misses the likeliest actor entirely.
-  const claude = composeSystemPrompt(null, false, NO_GUARD);
+  const claude = composeSystemPrompt(false, NO_GUARD);
   expect(claude).toContain("Sub-agents do NOT inherit this instruction");
   expect(claude).toContain("restate this constraint in that sub-agent's prompt");
 
   // Codex spawns don't dispatch sub-agents, so the clause would be noise there.
-  const codex = composeSystemPrompt(null, false, { agentProvider: "codex" });
+  const codex = composeSystemPrompt(false, { agentProvider: "codex" });
   expect(codex).not.toContain("Sub-agents do NOT inherit");
 });
 
 test("tmpfs-worktree-notice explains the inode failure mode, not just the prohibition", () => {
   // The whole reason this is hard to diagnose: bytes look fine, inodes are gone.
-  const p = composeSystemPrompt(null, false, NO_GUARD);
+  const p = composeSystemPrompt(false, NO_GUARD);
   expect(p).toContain("ENOSPC");
   expect(p).toContain("df -i");
 });

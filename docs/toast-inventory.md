@@ -124,26 +124,6 @@ above as one of the 4 sticky / 2 promoted sites.
 | 290  | "Synced {name} with upstream" | —       | 4s       | 4s      |
 | 293  | `syncForkMsg(code)`           | alert   | 4s+alert | 12s (C) |
 
-### ui/src/lib/components/page/AppOverlays.svelte
-
-| Line | Message                                          | Signals | Today | Target |
-| ---- | ------------------------------------------------ | ------- | ----- | ------ |
-| 365  | "Distiller started for {repo}"                   | —       | 4s    | 4s     |
-| 370  | "Opened a CLAUDE.md PR for the rule"             | —       | 4s    | 4s     |
-| 373  | "Could not promote the rule; see the server log" | —       | 4s    | 4s     |
-| 376  | "Optimizing flagged rules…"                      | —       | 4s    | 4s     |
-| 377  | "Couldn’t start optimization"                    | —       | 4s    | 4s     |
-| 380  | "Optimizing flagged rules…"                      | —       | 4s    | 4s     |
-| 381  | "Couldn’t start optimization"                    | —       | 4s    | 4s     |
-| 385  | "Couldn't restore rule"                          | —       | 4s    | 4s     |
-| 389  | "Couldn't revert the trial — try again."         | key     | 4s    | 4s     |
-| 393  | "Couldn't update scope"                          | —       | 4s    | 4s     |
-| 401  | "Rules consolidated"                             | —       | 4s    | 4s     |
-| 404  | "Couldn't merge rules"                           | —       | 4s    | 4s     |
-| 412  | "Rule added to your global CLAUDE.md."           | —       | 4s    | 4s     |
-| 415  | "Couldn't write to your global CLAUDE.md."       | —       | 4s    | 4s     |
-| 418  | "Looking for rules to merge in {repo}…"          | —       | 4s    | 4s     |
-
 ### ui/src/lib/components/PlanGateBadge.svelte
 
 | Line | Message                                                                        | Signals                           | Today         | Target         |

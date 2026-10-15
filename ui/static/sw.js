@@ -55,24 +55,14 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const sessionId = event.notification.data?.sessionId;
-  const kind = event.notification.data?.kind;
-  // Learnings-retire pushes (issue #852) aren't session-scoped: open the Learnings drawer
-  // instead of selecting a session. An open (possibly backgrounded) window is reopened in
-  // place via postMessage; only when no window exists do we openWindow the URL-param route.
-  const learnings = kind === "learnings_retired";
-  const target = learnings
-    ? "/?learnings=1"
-    : sessionId
-      ? "/?session=" + encodeURIComponent(sessionId)
-      : "/";
+  const target = sessionId ? "/?session=" + encodeURIComponent(sessionId) : "/";
   event.waitUntil(
     (async () => {
       const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const c of clients) {
         if ("focus" in c) {
           await c.focus();
-          if (learnings) c.postMessage({ type: "open-learnings" });
-          else if (sessionId) c.postMessage({ type: "select-session", id: sessionId });
+          if (sessionId) c.postMessage({ type: "select-session", id: sessionId });
           return;
         }
       }

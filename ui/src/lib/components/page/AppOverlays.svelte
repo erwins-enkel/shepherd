@@ -1,30 +1,11 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte";
-  import { m } from "#lib/paraglide/messages.js";
   import { displayStatus } from "#lib/display-status.js";
-  import { learnings } from "#lib/learnings.svelte.js";
   import { repos } from "#lib/repos.svelte.js";
-  import { toasts } from "#lib/toasts.svelte.js";
   import { capacitySuggestedProvider } from "#lib/provider-capacity.js";
   import { EMPTY_REPO_FILTER } from "#lib/components/queue-strip.js";
   import { resolveFilterPaths } from "#lib/components/backlog-view.js";
-  import { basename } from "#lib/components/learnings-drawer.js";
-  import {
-    approveLearning,
-    dismissLearning,
-    distillRepo,
-    promoteLearning,
-    optimizeLearning,
-    optimizeRepoFlagged,
-    restoreLearning,
-    revertTrialLearning,
-    setLearningScope,
-    markRetiredSeen,
-    applyMergeSuggestion,
-    dismissMergeSuggestion,
-    mergeSuggestNow,
-    getPlugins,
-  } from "#lib/api.js";
+  import { getPlugins } from "#lib/api.js";
   import type { HerdStore } from "#lib/store.svelte.js";
   import type { SettingsSectionId } from "#lib/settings-search.js";
   import type {
@@ -47,7 +28,6 @@
     UsageLimits,
   } from "#lib/types.js";
   import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
-  import LearningsDrawer from "#lib/components/LearningsDrawer.svelte";
   import NewTask from "#lib/components/NewTask.svelte";
   import Settings from "#lib/components/Settings.svelte";
   import Usage from "#lib/components/Usage.svelte";
@@ -88,10 +68,6 @@
     store,
     settings,
     mobile,
-    // in-shell drawers
-    showLearnings,
-    learningsRepo,
-    onlearningsclose,
     // system / announcement modals
     showUpdate,
     deploy,
@@ -229,9 +205,6 @@
     store: HerdStore;
     settings: Settings_ | null;
     mobile: boolean;
-    showLearnings: boolean;
-    learningsRepo: string | null;
-    onlearningsclose: () => void;
     showUpdate: boolean;
     deploy: DeployState | null;
     onupdateconfirm: () => void;
@@ -479,74 +452,6 @@
     showUpdate && ((store.update?.behind ?? 0) > 0 || store.machineUpdates.length > 0),
   );
 </script>
-
-{#if showLearnings}
-  <LearningsDrawer
-    items={learnings.items}
-    injectable={learnings.injectable}
-    mergeSuggestions={learnings.mergeSuggestions}
-    focusRepo={learningsRepo}
-    onapprove={(id, rule) =>
-      approveLearning(id, rule)
-        .then(() => learnings.load())
-        .catch(() => {})}
-    ondismiss={(id) =>
-      dismissLearning(id)
-        .then(() => learnings.load())
-        .catch(() => {})}
-    ondistill={(repoPath) =>
-      distillRepo(repoPath)
-        .then(() => toasts.info(m.learnings_distill_started({ repo: basename(repoPath) })))
-        .catch(() => {})}
-    onpromote={(id) =>
-      promoteLearning(id)
-        .then(() => {
-          toasts.info(m.learnings_promote_started());
-          return learnings.load();
-        })
-        .catch(() => toasts.info(m.learnings_promote_failed()))}
-    onoptimize={(id) =>
-      optimizeLearning(id)
-        .then(() => toasts.info(m.learnings_optimize_started()))
-        .catch(() => toasts.info(m.learnings_optimize_failed()))}
-    onoptimizeall={(repoPath) =>
-      optimizeRepoFlagged(repoPath)
-        .then(() => toasts.info(m.learnings_optimize_started()))
-        .catch(() => toasts.info(m.learnings_optimize_failed()))}
-    onrestore={(id) =>
-      restoreLearning(id)
-        .then(() => learnings.load())
-        .catch(() => toasts.info(m.learnings_restore_failed()))}
-    onreverttrial={(id, target) =>
-      revertTrialLearning(id, target)
-        .then(() => learnings.load())
-        .catch(() => toasts.info(m.learnings_revert_failed(), { key: "learnings-revert" }))}
-    onscope={(id, globs) =>
-      setLearningScope(id, globs)
-        .then(() => learnings.load())
-        .catch(() => toasts.info(m.learnings_scope_failed()))}
-    onseenretired={(repoPath) =>
-      markRetiredSeen(repoPath)
-        .then(() => learnings.load())
-        .catch(() => {})}
-    onmerge={(suggestionId) =>
-      applyMergeSuggestion(suggestionId)
-        .then(() => {
-          toasts.info(m.learnings_merge_applied());
-          return learnings.load();
-        })
-        .catch(() => toasts.info(m.learnings_merge_failed()))}
-    ondismissmerge={(suggestionId) =>
-      dismissMergeSuggestion(suggestionId)
-        .then(() => learnings.load())
-        .catch(() => {})}
-    onmergenow={(repoPath) =>
-      mergeSuggestNow(repoPath)
-        .then(() => toasts.info(m.learnings_merge_now_started({ repo: basename(repoPath) })))
-        .catch(() => {})}
-    onclose={onlearningsclose}
-  />
-{/if}
 
 {#if updateOpen}
   <UpdateModal

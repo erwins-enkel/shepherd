@@ -1,7 +1,7 @@
 import type { FeatureAnnouncement } from "../../feature-announcements";
 
 // No targetId/coachmark: GitRail's only <Coachmark> host arms exclusively from
-// PILL_FEATURE_IDS (critic, auto-address, learnings), so a splitter target could
+// PILL_FEATURE_IDS (critic, auto-address), so a splitter target could
 // never fire. This feature is surfaced through the What's-New drawer only.
 const entry = {
   id: "herd-resizable",

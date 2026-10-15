@@ -114,7 +114,6 @@ function makeHarness(opts: {
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: true,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false, // keep pump() gated off → tick() exercises only landing logic
@@ -131,7 +130,6 @@ function makeHarness(opts: {
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: opts.mergeWithoutCi ?? false,

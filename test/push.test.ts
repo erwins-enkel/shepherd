@@ -385,92 +385,6 @@ test("buildPayload review kind varies copy by decision", () => {
   expect(buildPayload(noDecision, "en").body).toBe("Critic requested changes on the PR.");
 });
 
-test("buildPayload learnings_retired localizes title + body and pluralizes by count", () => {
-  const one: NotifyInput = {
-    kind: "learnings_retired",
-    sessionId: "",
-    tag: "learnings-retired",
-    name: "learnings",
-    retiredCount: 1,
-  };
-  expect(buildPayload(one, "en")).toMatchObject({
-    title: "Learnings auto-retired",
-    body: "1 rule auto-retired — tap to review.",
-  });
-  expect(buildPayload(one, "de")).toMatchObject({
-    title: "Learnings automatisch zurückgezogen",
-    body: "1 Regel zurückgezogen — zum Prüfen tippen.",
-  });
-  const many: NotifyInput = { ...one, retiredCount: 3 };
-  expect(buildPayload(many, "en").body).toBe("3 rules auto-retired — tap to review.");
-  expect(buildPayload(many, "de").body).toBe("3 Regeln zurückgezogen — zum Prüfen tippen.");
-});
-
-test("notify honors the agent category opt-out for learnings_retired", async () => {
-  const sent: string[] = [];
-  const send: SendFn = async (s) => {
-    sent.push(s.endpoint);
-    return {};
-  };
-  const { store, push } = svc(send);
-  store.putPushSub(sub("agent-on"), "");
-  store.putPushSub(sub("agent-off"), "");
-  store.setPushPrefs("agent-off", { agent: false, reviews: true, ci: true });
-  // learnings_retired is an agent-category kind → only the device that kept agent on hears it
-  await push.notify({
-    kind: "learnings_retired",
-    sessionId: "",
-    tag: "learnings-retired",
-    name: "learnings",
-    retiredCount: 2,
-  });
-  expect(sent).toEqual(["agent-on"]);
-});
-
-test("buildPayload learnings_trialed localizes title + body and pluralizes by count", () => {
-  const one: NotifyInput = {
-    kind: "learnings_trialed",
-    sessionId: "",
-    tag: "learnings-trialed",
-    name: "learnings",
-    trialedCount: 1,
-  };
-  expect(buildPayload(one, "en")).toMatchObject({
-    title: "Learnings on trial",
-    body: "1 proposal auto-promoted to trial — tap to review.",
-  });
-  expect(buildPayload(one, "de")).toMatchObject({
-    title: "Learnings im Test",
-    body: "1 Vorschlag automatisch in den Test übernommen — zum Prüfen tippen.",
-  });
-  const many: NotifyInput = { ...one, trialedCount: 3 };
-  expect(buildPayload(many, "en").body).toBe("3 proposals auto-promoted to trial — tap to review.");
-  expect(buildPayload(many, "de").body).toBe(
-    "3 Vorschläge automatisch in den Test übernommen — zum Prüfen tippen.",
-  );
-});
-
-test("notify honors the agent category opt-out for learnings_trialed", async () => {
-  const sent: string[] = [];
-  const send: SendFn = async (s) => {
-    sent.push(s.endpoint);
-    return {};
-  };
-  const { store, push } = svc(send);
-  store.putPushSub(sub("agent-on"), "");
-  store.putPushSub(sub("agent-off"), "");
-  store.setPushPrefs("agent-off", { agent: false, reviews: true, ci: true });
-  // learnings_trialed is an agent-category kind → only the device that kept agent on hears it
-  await push.notify({
-    kind: "learnings_trialed",
-    sessionId: "",
-    tag: "learnings-trialed",
-    name: "learnings",
-    trialedCount: 2,
-  });
-  expect(sent).toEqual(["agent-on"]);
-});
-
 test("attachReviewPush notifies on changes_requested and commented, ignores error/null", async () => {
   const calls: any[] = [];
   const { store, push } = svc(async () => ({}));
@@ -1221,7 +1135,7 @@ function setReducedMode(on: boolean): void {
   config.reducedPushMode = on;
 }
 
-test("reducedPushMode ON: drops blocked, done, ci, review, merge_attention, learnings_retired, learnings_trialed", async () => {
+test("reducedPushMode ON: drops blocked, done, ci, review, merge_attention", async () => {
   setReducedMode(true);
   let count = 0;
   const send: SendFn = async () => {
@@ -1242,20 +1156,6 @@ test("reducedPushMode ON: drops blocked, done, ci, review, merge_attention, lear
     name: "T",
     mergeState: "merge_error",
     desig: "T",
-  });
-  await push.notify({
-    kind: "learnings_retired",
-    sessionId: "",
-    tag: "lr",
-    name: "learnings",
-    retiredCount: 1,
-  });
-  await push.notify({
-    kind: "learnings_trialed",
-    sessionId: "",
-    tag: "lt",
-    name: "learnings",
-    trialedCount: 1,
   });
   expect(count).toBe(0);
 });

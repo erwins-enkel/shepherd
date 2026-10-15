@@ -28,8 +28,6 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
-  DISTILLER_INTERVAL_DAYS_MIN,
-  DISTILLER_INTERVAL_DAYS_MAX,
   DIAGNOSTICS_INTERVAL_MS,
   DIAGNOSTICS_RECHECK_INTERVAL_MS,
   findServedPort,
@@ -53,7 +51,6 @@ import { generateName } from "./namer";
 import { llmName } from "./namer-llm";
 import { EventHub } from "./events";
 import { SessionService } from "./service";
-import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import { AccessTokenService } from "./access-tokens";
 import { CapabilityService } from "./remote-instances/capability-probe";
@@ -147,7 +144,6 @@ import { classifyStop } from "./autopilot-llm";
 import { createTypeSafeJudge } from "./judge-typesafe";
 import { JudgeSpendLedger, dayKeyBefore } from "./judge-spend";
 import { BlockBackstop } from "./block-backstop";
-import { isRelevanceMode } from "./house-rules-relevance";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
@@ -186,16 +182,6 @@ import {
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal, reconcileRealPathsToRaw } from "./repos";
-import { DistillerService, defaultScratch } from "./distiller";
-import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
-import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
-import {
-  runAutoRetire,
-  runAutoTrial,
-  runProposedPrune,
-  runReapStaleTrials,
-} from "./learnings-lifecycle";
-import { Promoter } from "./promote";
 import { DocAgentService, SERVER_INSTALL_ROOT } from "./doc-agent";
 import { MaintainService } from "./maintain";
 import { PluginAgentService } from "./plugin-agents";
@@ -235,7 +221,6 @@ import {
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
 import {
-  engineDefaultEffortSetting,
   normalizeDefaultEffortSetting,
   normalizeProviderDefaultEffortSetting,
 } from "./default-effort";
@@ -296,7 +281,7 @@ const execFileAsync = promisify(execFile);
 // The marker means "an agent of session <id> spawned this process". If Shepherd itself is launched
 // from inside an agent session (an agent restarting the server, a dev run from a session shell), it
 // inherits that id in its own process.env — and hands it, by plain env inheritance, to every child
-// it spawns. The aux/satellite agents (critic, distiller, doc-agent, plan-gate) pass no marker of
+// it spawns. The aux/satellite agents (critic, doc-agent, plan-gate) pass no marker of
 // their own precisely so that they stay unmarked and are ALWAYS spared; a stale inherited one would
 // silently mark them with a real session id, and once that session archived the reaper would treat
 // a live critic's background work as a runaway. Delete it once, here, at the top of boot: the
@@ -461,17 +446,7 @@ for (const [key, provider] of [
 // are ignored (keep the seed rather than clobber). Each role is a PAIR: a `<role>Cli`
 // ("inherit"|<provider>) + a `<role>Model` ("default"|<alias>), resolved to a spawn environment via
 // resolveRoleEnvironment at wiring/spawn time.
-for (const role of [
-  "critic",
-  "planner",
-  "recap",
-  "docAgent",
-  "namer",
-  "autopilot",
-  "distiller",
-  "optimizer",
-  "mergeSuggest",
-] as const) {
+for (const role of ["critic", "planner", "recap", "docAgent", "namer", "autopilot"] as const) {
   const savedCli = store.getSetting(`${role}Cli`);
   if (savedCli !== null) {
     const v = normalizeRoleCli(savedCli);
@@ -488,14 +463,6 @@ for (const role of [
     if (v !== null) config[`${role}Effort`] = v;
   }
 }
-const savedDistillerIntervalDays = store.getSetting("distillerIntervalDays");
-if (savedDistillerIntervalDays !== null)
-  config.distillerIntervalDays = clampCap(
-    Number(savedDistillerIntervalDays),
-    DISTILLER_INTERVAL_DAYS_MIN,
-    DISTILLER_INTERVAL_DAYS_MAX,
-    config.distillerIntervalDays,
-  );
 const savedProvider = store.getSetting("defaultAgentProvider");
 if (savedProvider !== null) {
   const v = normalizeAgentProvider(savedProvider);
@@ -531,10 +498,6 @@ const savedJudgeUsd = store.getSetting("judgeDailyUsd");
 // handler's, so a hand-edited row cannot widen the runaway guard past what the UI allows.
 if (savedJudgeUsd !== null && savedJudgeUsd.trim() !== "" && Number.isFinite(Number(savedJudgeUsd)))
   config.judgeDailyUsd = Math.min(1000, Math.max(0, Number(savedJudgeUsd)));
-// House-rule relevance (#2376): same rule — the persisted mode wins over the env seed, and an
-// unrecognised stored value keeps the default rather than arming something unreadable.
-const savedRelevance = store.getSetting("houseRuleRelevance");
-if (isRelevanceMode(savedRelevance)) config.houseRuleRelevance = savedRelevance;
 // Up Next readiness rerank (#2535): same persisted-overrides-env rule.
 const savedUpNextReadiness = store.getSetting("upNextReadiness");
 if (savedUpNextReadiness !== null) config.upNextReadiness = savedUpNextReadiness === "1";
@@ -906,30 +869,6 @@ function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
   return env;
 }
 
-function distillerEnv(): RoleEnvironment {
-  const effort =
-    config.distillerCli === "inherit" && config.distillerEffort === "default"
-      ? engineDefaultEffortSetting(config.defaultAgentProvider, config)
-      : config.distillerEffort;
-  return roleEnv(config.distillerCli, config.distillerModel, effort);
-}
-
-function optimizerEnv(): RoleEnvironment {
-  const effort =
-    config.optimizerCli === "inherit" && config.optimizerEffort === "default"
-      ? engineDefaultEffortSetting(config.defaultAgentProvider, config)
-      : config.optimizerEffort;
-  return roleEnv(config.optimizerCli, config.optimizerModel, effort);
-}
-
-function mergeSuggestEnv(): RoleEnvironment {
-  const effort =
-    config.mergeSuggestCli === "inherit" && config.mergeSuggestEffort === "default"
-      ? engineDefaultEffortSetting(config.defaultAgentProvider, config)
-      : config.mergeSuggestEffort;
-  return roleEnv(config.mergeSuggestCli, config.mergeSuggestModel, effort);
-}
-
 // Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
 // granted consent (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set.
 // Send health is persisted (not just in-memory) so it survives the deploy restarts that
@@ -1038,11 +977,6 @@ const service = new SessionService({
   // build their own argv and bypass pushModelFlag, so they are not downgraded. See pushModelFlag in
   // service.ts + roleEnv below.
   usageDowngrade: () => usageDowngradeModel(),
-  // #2376: both thunks — the judge client and its ledger are built much further down this file, so
-  // the deps cannot capture the values, and reading them per spawn is what lets the Settings toggle
-  // take effect on the next session instead of at the next restart.
-  judge: () => armedJudge(),
-  judgeSpend: () => judgeSpend,
   detectEgressHostLoopback,
   namer: generateName,
   refineName: config.llmNaming
@@ -1086,10 +1020,9 @@ const service = new SessionService({
 // date before any of its tool calls reach this server.
 service.syncOperatorAssistantPermissions();
 
-// Deep modules for the learnings + repo-config route seams (#1092). Singletons so every
+// Deep modules for the repo-config route seam (#1092). A singleton so every
 // route + every background onChange below emit through the SAME instance; the server's
 // total accessors return these when injected via appDeps.
-const learningsSvc = new LearningsService(store, events);
 const repoConfigSvc = new RepoConfigService(store);
 
 // Minted machine bearer tokens (#2082). Constructed here so its hot-path hash map is seeded from
@@ -1971,9 +1904,6 @@ const reviewService = new ReviewService({
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.prReviewCyclesCap,
-  // #2154: same budget the AUTHOR's house-rules block is planned against, so the critic sees the
-  // block the author actually got. A thunk for the same live-read reason as `cap`.
-  houseRulesBudgetChars: () => config.houseRulesBudgetChars,
   // Hard per-run deadline (SHEPHERD_REVIEW_TIMEOUT_MS). A plain number, not a thunk: it is read
   // once at construction because it is env-seeded, not a live UI setting.
   timeoutMs: config.reviewTimeoutMs,
@@ -2000,8 +1930,6 @@ const standaloneCritic = new StandalonePrCriticService({
   // Same per-role critic environment as reviewService (read per spawn → live settings).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   timeoutMs: config.reviewTimeoutMs,
-  // #2154: same budget as the session critic — see reviewService above.
-  houseRulesBudgetChars: () => config.houseRulesBudgetChars,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   // Fresh per-sweep thunk (the service calls it each sweep, never caches) — branches
   // owned by a LIVE session, so a session-critic-owned PR is skipped when criticEnabled.
@@ -2611,12 +2539,6 @@ if (judgeClient) {
 } else if (config.judgeEnabled) {
   console.warn("[judge] SHEPHERD_JUDGE is on but no JEV_API_KEY is set — the judge stays unarmed.");
 }
-if (config.houseRuleRelevance !== "off") {
-  const armed = judgeClient !== null && config.judgeEnabled;
-  console.log(
-    `[house-rules] relevance gate ${config.houseRuleRelevance}${armed ? "" : " — INERT, the judge is not armed"}`,
-  );
-}
 
 // The judge BEHIND blocked.ts's regexes (#2375). Built whenever a key exists and gated on its own
 // mode, read live per block: deliberately independent of `judgeEnabled`, since coupling the two
@@ -3127,57 +3049,8 @@ deferredStarts.push(() => {
 // the EventHub subscribe in server.ts (ws.data.kind === "events" path), just as
 // automerge:status is — no additional forwarding needed.
 
-// Learnings flywheel: capture block/stall signals, run the distiller on a slow
-// cadence, and surface the proposed-rule count to clients.
+// Capture block/stall signals (incident metrics, maintain loop, Operator Assistant).
 attachSignalCapture(events, store);
-const distiller = new DistillerService({
-  store,
-  herdr,
-  scratch: defaultScratch,
-  environment: distillerEnv,
-  intervalDays: () => config.distillerIntervalDays,
-  onChange: () => learningsSvc.emitPending(),
-});
-deferredStarts.push(() => {
-  distiller.reapOrphans(); // issue #1135: close orphaned __distill__ tabs left by a prior lifetime
-  setInterval(() => {
-    if (maintenance.active) return;
-    void distiller.tick();
-  }, 30_000);
-});
-const promoter = new Promoter({ store, worktree, resolveForge });
-const optimizer = new OptimizerService({
-  store,
-  herdr,
-  scratch: defaultOptimizerScratch,
-  promoter,
-  environment: optimizerEnv,
-  onChange: () => learningsSvc.emitPending(),
-});
-deferredStarts.push(() => {
-  optimizer.reapOrphans(); // issue #1135: close orphaned __optimize__ tabs left by a prior lifetime
-  setInterval(() => {
-    if (maintenance.active) return;
-    void optimizer.tick();
-  }, 30_000);
-});
-// Phase 4: background merge-suggestion pass (off the hot path). consider/considerCrossRepo
-// run from the daily sweep (synchronous, non-blocking — they enqueue a detached spawn);
-// the 30s tick reaps finished/timed-out runs.
-const mergeSuggest = new MergeSuggestionService({
-  store,
-  herdr,
-  scratch: defaultMergeScratch,
-  environment: mergeSuggestEnv,
-  onChange: () => learningsSvc.emitPending(),
-});
-deferredStarts.push(() => {
-  mergeSuggest.reapOrphans(); // issue #1135: close orphaned __merge__ tabs left by a prior lifetime
-  setInterval(() => {
-    if (maintenance.active) return;
-    void mergeSuggest.tick();
-  }, 30_000);
-});
 // Issue #1136: the synchronous block-and-clean helpers (namer / autopilot / verify-key) stop their
 // spawn in a `finally`, so they leave NO husk on a CLEAN exit — but a server restart mid-poll skips
 // that finally, orphaning an interactive `claude` that idles at the prompt forever (the husk-only
@@ -3195,10 +3068,12 @@ deferredStarts.push(() => {
   void reapTransientByLabel(herdr, RECOMMEND_LABEL, new Set(), "[recommend]");
   void reapTransientByLabel(herdr, SHAPE_LABEL, new Set(), "[shape]");
   void reapTransientByLabel(herdr, REQUIREMENTS_LABEL, new Set(), "[requirements]");
+  // Retired helpers (#3139): close any tab a pre-retirement lifetime left behind.
+  for (const legacy of ["__distill__", "__optimize__", "__merge__"])
+    void reapTransientByLabel(herdr, legacy, new Set(), "[retired-helper]");
 });
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
-// Daily: prune archived sessions, prune old signals, then consider a distill per repo
-// with enough recent signal.
+// Daily: prune archived sessions, prune old signals.
 // Backups (#1080) are considered stale once the newest successful snapshot is older than this.
 // Tunable default — NOT load-bearing. Note: this is only SAMPLED once per daily sweep, so the
 // worst-case detection latency is ~24h regardless of the threshold.
@@ -3340,87 +3215,6 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   store.pruneJudgeSpend(dayKeyBefore(Date.now(), config.judgeSpendRetentionDays));
   // Backstop log (#2375): same reasoning, shorter window — these rows carry terminal tails.
   store.pruneBlockJudgeLog(Date.now() - config.blockJudgeLogRetentionDays * 24 * 60 * 60 * 1000);
-  // #1794: permanently prune stale proposed learnings (3-day default retention). Runs
-  // synchronously here — before any async distillation/merge-suggestion/auto-trial work — so
-  // the retention rule has unconditional, deterministic precedence over promotion.
-  const prunedLearnings = runProposedPrune({ store });
-  if (prunedLearnings > 0) {
-    console.log(`[learnings] permanently pruned ${prunedLearnings} stale proposed learning(s)`);
-    learningsSvc.emitPending();
-  }
-  for (const repo of listRepos(config.repoRoot)) void distiller.consider(repo.path);
-  // Phase 4 merge suggestions: per-repo near-duplicate clustering (intra) + a single global
-  // cross-repo recurrence pass. Both no-op unless the active set is large enough AND changed
-  // since the last pass, and each only enqueues (never awaited here).
-  for (const repo of listRepos(config.repoRoot)) void mergeSuggest.consider(repo.path);
-  void mergeSuggest.considerCrossRepo();
-  store.pruneOrphanMergeSuggestions();
-  // Auto-retire: soft-retire active rules whose Wilson-bounded help-rate is below the
-  // repo base rate (gated on real harm evidence). Returns the retired set so we only
-  // nudge clients (banner refresh) when something actually changed.
-  const retired = runAutoRetire({ store, optimizer });
-  if (retired.length > 0) {
-    learningsSvc.emitPending();
-    // Best-effort push so operators learn of background retirements without opening the
-    // drawer (issue #852). One summary push across all repos; suppressed while the app is
-    // active and for devices that muted the "agent" category. Guarded so a rejection can't
-    // crash the sweep — the in-drawer banner remains the durable surface either way.
-    void push
-      .notify({
-        kind: "learnings_retired",
-        sessionId: "",
-        tag: "learnings-retired",
-        name: "learnings",
-        retiredCount: retired.length,
-        cooldownKey: "learnings_retired:all",
-      })
-      .catch((err) => console.warn("[push] learnings_retired notify failed:", err));
-  }
-  // Auto-trial strong proposals (#925): promote proposals with strong, multi-source evidence
-  // to active trials (kill-switch via SHEPHERD_LEARNINGS_AUTO_TRIAL); reap inert/zombie trials.
-  // Both capped per sweep. Returns drive the client nudge + push. Stale-proposal retention is
-  // handled earlier by runProposedPrune (#1794), which emits its own pending update.
-  const trialed = runAutoTrial({ store });
-  // #2382: the relevance branch acts only while the gate that produces its verdicts is armed —
-  // turning the judge off withdraws the signal and stops acting on it. Off ⇒ no verdicts accrue
-  // anyway, so this is belt-and-braces, and it also skips the per-repo stats read.
-  const reaped = runReapStaleTrials({
-    store,
-    relevanceArmed: config.houseRuleRelevance !== "off",
-  });
-  if (trialed.length + reaped.length > 0) {
-    learningsSvc.emitPending();
-  }
-  if (reaped.length > 0) {
-    // The only visibility into an autonomous retirement — and the relevance branch acts on a
-    // freshly-armed, never-calibrated signal, so say which branch fired.
-    const byReason = new Map<string, number>();
-    for (const r of reaped) byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1);
-    const summary = [...byReason].map(([reason, n]) => `${n} ${reason}`).join(", ");
-    console.log(`[learnings] reaped ${reaped.length} trial(s): ${summary}`);
-  }
-  if (trialed.length > 0) {
-    // Best-effort push so operators learn of background trials without opening the drawer.
-    // One summary push across all repos; suppressed while active / for muted devices. Guarded
-    // so a rejection can't crash the sweep — the in-drawer surface remains durable.
-    void push
-      .notify({
-        kind: "learnings_trialed",
-        sessionId: "",
-        tag: "learnings-trialed",
-        name: "learnings",
-        trialedCount: trialed.length,
-        cooldownKey: "learnings_trialed:all",
-      })
-      .catch((err) => console.warn("[push] learnings_trialed notify failed:", err));
-  }
-  // Reclaim session_injected_learnings rows for sessions that vanished without archive()
-  // (force-removed/crashed) — archive() consumes the rest.
-  store.pruneOrphanInjectedLearnings();
-  // Relevance verdicts (#2376) deliberately outlive their session — they are the per-rule statistic
-  // the drawer reads, so they are NOT cascaded by the sessions prune (same standing as
-  // delivery_facts). That makes this age sweep the only thing that ever removes one.
-  store.pruneLearningRelevance(Date.now() - config.relevanceRetentionDays * 86_400_000);
   // Up Next readiness cache (#2535): content-addressed rows with no parent — same reasoning.
   store.pruneReadiness(Date.now() - config.upNextReadinessRetentionDays * 86_400_000);
   // Skip on the boot-time run: fireTmpSweep("boot") already ran the fallow/worktree
@@ -4118,7 +3912,6 @@ const appDeps: AppDeps = {
   },
   readCodexAuthMode,
   telemetry,
-  learnings: learningsSvc,
   repoConfig: repoConfigSvc,
   accessTokens: accessTokenSvc,
   remoteInstances,
@@ -4252,10 +4045,6 @@ const appDeps: AppDeps = {
     await backlog.refresh(listReposPathForReal(dir, config.repoRoot), "refresh-backlog");
     await broadcastBacklog();
   },
-  distiller,
-  optimizer,
-  mergeSuggest: { mergeNow: (repoPath) => mergeSuggest.mergeNow(repoPath) },
-  promoter,
   docAgent: {
     consider: (repoPath: string) => docAgent.consider(repoPath),
     isRunning: (repoPath: string) => docAgent.isRunning(repoPath),

@@ -413,8 +413,6 @@ components:
           type: number
         planReviewCyclesCap:
           type: number
-        distillerIntervalDays:
-          type: number
         extraCreditsDrainCeiling:
           type: number
         usageHoldPct:
@@ -426,8 +424,6 @@ components:
         usageDowngradeModel:
           type: string
         blockJudgeMode:
-          type: string
-        houseRuleRelevance:
           type: string
         telemetryConsent:
           type: string
@@ -454,24 +450,6 @@ components:
         docAgentModel:
           type: string
         docAgentEffort:
-          type: string
-        distillerCli:
-          type: string
-        distillerModel:
-          type: string
-        distillerEffort:
-          type: string
-        optimizerCli:
-          type: string
-        optimizerModel:
-          type: string
-        optimizerEffort:
-          type: string
-        mergeSuggestCli:
-          type: string
-        mergeSuggestModel:
-          type: string
-        mergeSuggestEffort:
           type: string
         namerCli:
           type: string
@@ -500,10 +478,6 @@ components:
         planReviewCyclesMin:
           type: integer
         planReviewCyclesMax:
-          type: integer
-        distillerIntervalDaysMin:
-          type: integer
-        distillerIntervalDaysMax:
           type: integer
         sessionRetentionDays:
           type: integer
@@ -6181,8 +6155,6 @@ components:
           type: number
         planReviewCyclesCap:
           type: number
-        distillerIntervalDays:
-          type: number
         extraCreditsDrainCeiling:
           type: number
         usageHoldPct:
@@ -6206,8 +6178,6 @@ components:
         usageDowngradeModel:
           type: string
         blockJudgeMode:
-          type: string
-        houseRuleRelevance:
           type: string
         telemetryConsent:
           type: string
@@ -6234,24 +6204,6 @@ components:
         docAgentModel:
           type: string
         docAgentEffort:
-          type: string
-        distillerCli:
-          type: string
-        distillerModel:
-          type: string
-        distillerEffort:
-          type: string
-        optimizerCli:
-          type: string
-        optimizerModel:
-          type: string
-        optimizerEffort:
-          type: string
-        mergeSuggestCli:
-          type: string
-        mergeSuggestModel:
-          type: string
-        mergeSuggestEffort:
           type: string
         namerCli:
           type: string
@@ -6307,8 +6259,6 @@ components:
           type: number
         planReviewCyclesCap:
           type: number
-        distillerIntervalDays:
-          type: number
         extraCreditsDrainCeiling:
           type: number
         usageHoldPct:
@@ -6332,8 +6282,6 @@ components:
         usageDowngradeModel:
           type: string
         blockJudgeMode:
-          type: string
-        houseRuleRelevance:
           type: string
         telemetryConsent:
           type: string
@@ -6360,24 +6308,6 @@ components:
         docAgentModel:
           type: string
         docAgentEffort:
-          type: string
-        distillerCli:
-          type: string
-        distillerModel:
-          type: string
-        distillerEffort:
-          type: string
-        optimizerCli:
-          type: string
-        optimizerModel:
-          type: string
-        optimizerEffort:
-          type: string
-        mergeSuggestCli:
-          type: string
-        mergeSuggestModel:
-          type: string
-        mergeSuggestEffort:
           type: string
         namerCli:
           type: string
@@ -6487,14 +6417,12 @@ components:
         - criticAllPrs
         - criticSmellLensEnabled
         - autoAddressEnabled
-        - learningsEnabled
         - autopilotEnabled
         - planGateEnabled
         - autoDrainEnabled
         - autoMergeEnabled
         - buildQueueEnabled
         - draftMode
-        - autoOptimizeFlagged
         - manualStepsIssueEnabled
         - preWarmEpicLandingCi
         - mergeWithoutCi
@@ -6521,8 +6449,6 @@ components:
           type: boolean
         autoAddressEnabled:
           type: boolean
-        learningsEnabled:
-          type: boolean
         autopilotEnabled:
           type: boolean
         planGateEnabled:
@@ -6534,8 +6460,6 @@ components:
         buildQueueEnabled:
           type: boolean
         draftMode:
-          type: boolean
-        autoOptimizeFlagged:
           type: boolean
         manualStepsIssueEnabled:
           type: boolean
@@ -6600,8 +6524,6 @@ components:
           type: boolean
         autoAddressEnabled:
           type: boolean
-        learningsEnabled:
-          type: boolean
         autopilotEnabled:
           type: boolean
         planGateEnabled:
@@ -6613,8 +6535,6 @@ components:
         buildQueueEnabled:
           type: boolean
         draftMode:
-          type: boolean
-        autoOptimizeFlagged:
           type: boolean
         manualStepsIssueEnabled:
           type: boolean

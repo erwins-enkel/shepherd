@@ -1799,84 +1799,33 @@ test("#2154 the review policy reaches the standalone PR critic too (repo policy,
   expect(p).toContain("Exclude src/generated/**");
 });
 
-// ── #2154 slice 2: house rules injected into the reviewer ───────────────────────────────────────
-
-const HOUSE_RULES_2154 =
-  "<shepherd-house-rules>\n- Never call execFileSync on the server loop.\n</shepherd-house-rules>";
-
-test("#2154 the house-rules block routes clear violations to findings and judgement calls to a body section", () => {
-  const p = reviewPrompt("BASE", "do the thing", [], [], null, null, {
-    houseRules: HOUSE_RULES_2154,
-  });
-  expect(p).toContain("REPO HOUSE RULES");
-  expect(p).toContain("Never call execFileSync on the server loop.");
-  // blocking only when unambiguous — everything softer gets the non-blocking body section, exactly
-  // like the scope-creep / smells / latent lenses (a "non-blocking" item in findings would loop).
-  expect(p).toContain("CLEAR, UNAMBIGUOUS violation");
-  expect(p).toContain("`House rules (non-blocking):`");
-  expect(p).toContain("can be stale or simply wrong");
-  // same placement contract as the policy block
-  expect(p.indexOf("REPO HOUSE RULES")).toBeLessThan(p.indexOf("FINDINGS ROUTING"));
-});
-
-test("#2154 the standalone critic is NOT told an agent authored the diff under these rules", () => {
-  // The standalone critic sweeps third-party and fork PRs (learningsEnabled defaults ON), where no
-  // Shepherd agent wrote the diff and nothing was injected into its author. Claiming otherwise would
-  // be a false premise — and it is the premise the blocking license would rest on. The rules still
-  // apply, as the REPO's standard.
-  const p = prReviewPrompt("BASE", "My PR", "body", null, null, { houseRules: HOUSE_RULES_2154 });
-  expect(p).toContain("REPO HOUSE RULES");
-  expect(p).toContain("curated standing rules");
-  expect(p).toContain("Never call execFileSync on the server loop.");
-  expect(p).not.toContain("A Shepherd agent wrote this diff");
-  expect(p).not.toContain("the author was handed and ignored");
-  // the repo standard still licenses a blocking finding on a clear violation
-  expect(p).toContain("CLEAR, UNAMBIGUOUS violation");
-});
-
-test("#2154 the session critic IS told, and does not claim the set reproduces what the author saw", () => {
-  const p = reviewPrompt("BASE", "do the thing", [], [], null, null, {
-    houseRules: HOUSE_RULES_2154,
-  });
-  expect(p).toContain("A Shepherd agent wrote this diff");
-  // ...but truthfully: the set is re-planned at review time (current rules, review-time scoping and
-  // recency decay), so it is NOT a reproduction of the cut the author received.
-  expect(p).toContain("re-planned for this review");
-  expect(p).not.toContain("reproduced verbatim");
-});
-
-test("#2154 both blocks are absent by default — every existing prompt stays byte-identical", () => {
+test("#2154 the policy block is absent by default — every existing prompt stays byte-identical", () => {
   const tail = (s: string) => s.slice(s.indexOf("SCOPE — "));
   // session critic
   const bare = reviewPrompt("BASE", "do the thing");
   const explicitNulls = reviewPrompt("BASE", "do the thing", [], [], null, null, {
     reviewPolicy: null,
-    houseRules: null,
   });
   expect(bare).toBe(explicitNulls);
   expect(bare).not.toContain("REPO REVIEW POLICY");
-  expect(bare).not.toContain("REPO HOUSE RULES");
   // whitespace-only is treated as absent too (no empty block, no stray delimiters)
   const blank = reviewPrompt("BASE", "do the thing", [], [], null, null, {
     reviewPolicy: "   \n",
-    houseRules: "\n",
   });
   expect(blank).toBe(bare);
   // standalone critic
   const bareStandalone = prReviewPrompt("BASE", "My PR", "body");
   const nulledStandalone = prReviewPrompt("BASE", "My PR", "body", null, null, {
     reviewPolicy: null,
-    houseRules: null,
   });
   expect(tail(nulledStandalone)).toBe(tail(bareStandalone));
 });
 
-test("#2154 both blocks together keep the shared verdict-output contract identical across critics", () => {
-  // The server-side scope backstop + verdict parser key off the output contract; neither block may
+test("#2154 the policy block keeps the shared verdict-output contract identical across critics", () => {
+  // The server-side scope backstop + verdict parser key off the output contract; the block may not
   // perturb it, for either critic.
   const opts = {
     reviewPolicy: "policy text",
-    houseRules: "<shepherd-house-rules>\n- r\n</shepherd-house-rules>",
   };
   const a = reviewPrompt("b", "task", [], [], null, null, opts);
   const b = prReviewPrompt("b", "t", "body", null, null, opts);

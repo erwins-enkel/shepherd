@@ -305,7 +305,7 @@ const shepherdTasks30d: UsageTaskBreakdown[] = [
   task({
     sessionId: "s-202",
     desig: "TASK-39",
-    name: "learnings-decay",
+    name: "epic-retry-backoff",
     model: "claude-opus-4-8",
     authoringUnits: 92_000,
     satelliteUnits: 18_500,

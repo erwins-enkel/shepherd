@@ -138,7 +138,7 @@
   --icon-btn-glyph: 18px; /* canonical inline-SVG glyph size */
 
   /* Shared height for the top bar's right-cluster boxed controls (held/
-     update/learnings badges, what's-new, docs link, gear) — single source so a
+     update badges, what's-new, docs link, gear) — single source so a
      box's glyph or padding can't drift its height (the recurring "zoo of heights").
      A fixed chrome height: NOT scaled by --ui-scale; consumers use it as a
      min-height so content can still grow under iOS Dynamic Type. The coarse-pointer

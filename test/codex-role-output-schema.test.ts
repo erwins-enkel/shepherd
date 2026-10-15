@@ -16,10 +16,6 @@ const CASES: readonly [SchemaName, string][] = [
   ["planReview", "plan-review.json"],
   ["critic", "critic.json"],
   ["criticWithPlan", "critic-with-plan.json"],
-  ["distiller", "distiller.json"],
-  ["optimizer", "optimizer.json"],
-  ["mergeIntra", "merge-intra.json"],
-  ["mergeCross", "merge-cross.json"],
   ["requirements", "requirements.json"],
 ];
 
@@ -64,7 +60,7 @@ function assertStructuredOutputSubset(node: unknown, location = "root"): void {
 }
 
 describe("Codex role output schemas", () => {
-  test("exports absolute existing paths for all ten role contracts", () => {
+  test("exports absolute existing paths for all six role contracts", () => {
     expect(Object.keys(CODEX_ROLE_OUTPUT_SCHEMAS)).toEqual(CASES.map(([name]) => name));
     for (const path of Object.values(CODEX_ROLE_OUTPUT_SCHEMAS)) {
       expect(isAbsolute(path)).toBe(true);
@@ -145,11 +141,6 @@ describe("Codex role output schemas", () => {
     recapBlocks[0]!.markdown = 42;
     expect(compiled.get("recap")!({ ...recap, blocks: recapBlocks })).toBe(false);
 
-    const merge = readJson(join(FIXTURE_DIR, "merge-intra.json")) as Record<string, unknown>;
-    const groups = structuredClone(merge.groups) as Record<string, unknown>[];
-    groups[0]!.memberIds = ["only-one"];
-    expect(compiled.get("mergeIntra")!({ ...merge, groups })).toBe(false);
-
     const requirements = readJson(join(FIXTURE_DIR, "requirements.json")) as Record<
       string,
       unknown
@@ -164,14 +155,6 @@ describe("Codex role output schemas", () => {
 
   test("enforces prompt array bounds and visual content limits", () => {
     const compiled = validators();
-    const distiller = readJson(join(FIXTURE_DIR, "distiller.json")) as Record<string, unknown>;
-    expect(
-      compiled.get("distiller")!({
-        ...distiller,
-        rules: Array.from({ length: 6 }, () => (distiller.rules as unknown[])[0]),
-      }),
-    ).toBe(false);
-
     const recap = readJson(join(FIXTURE_DIR, "recap.json")) as Record<string, unknown>;
     const blocks = structuredClone(recap.blocks) as Record<string, unknown>[];
     const mermaid = blocks.find((block) => block.type === "mermaid")!;

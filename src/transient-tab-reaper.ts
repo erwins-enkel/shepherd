@@ -4,9 +4,9 @@ import type { HerdrDriver } from "./herdr";
  * Boot reconcile for label-prefixed transient agents (issue #1135, deduped in #1093).
  *
  * This is ONE of four distinct teardown mechanisms across the transient-agent fleet, and the only
- * one whose body was byte-identical across consumers (distiller / optimizer / merge-suggest) — so
- * it was deduped here. The OTHER consumers reconcile via a different lifecycle, and forcing them
- * onto this label-prefix scan would be wrong where they already have it —
+ * one whose body was byte-identical across consumers — so it was deduped here. The OTHER consumers
+ * reconcile via a different lifecycle, and forcing them onto this label-prefix scan would be wrong
+ * where they already have it —
  *   - persisted `reviewer_spawns` rows → adoptOrphans/reapOrphans (plan-gate / review / doc-agent);
  *   - store `generating` state → reapGenerating (recap).
  * #1093 delivers the argv consolidation across all 10 plus this reaper dedup; a universal
@@ -49,7 +49,7 @@ import type { HerdrDriver } from "./herdr";
  * tell an owned live run from an orphan.
  *
  * @param ownedTerminalIds terminalIds of THIS process's live runs, which must be spared.
- * @param logTag a short bracketed tag for log lines, e.g. "[distill]".
+ * @param logTag a short bracketed tag for log lines, e.g. "[namer]".
  */
 export async function reapTransientByLabel(
   herdr: Pick<HerdrDriver, "list" | "tabsAsync" | "closeTab">,

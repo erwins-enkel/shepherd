@@ -4,7 +4,6 @@ import {
   mkdirSync,
   rmSync,
   existsSync,
-  realpathSync,
   statSync,
   readFileSync,
   writeFileSync,
@@ -98,8 +97,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
     }),
     projections: () => [],
   };
-  const distiller = { distillNow: async () => {} };
-  return { store, service, events, usageLimits, distiller };
+  return { store, service, events, usageLimits };
 }
 
 function harness() {
@@ -968,7 +966,6 @@ function harnessWithReaper(reaper: {
     service,
     events,
     usageLimits,
-    distiller: { distillNow: async () => {} },
   });
   return { app, store };
 }
@@ -1994,320 +1991,6 @@ test("GET /api/update/log with no updater → idle", async () => {
   expect((await res.json()).phase).toBe("idle");
 });
 
-// ── /api/learnings ──────────────────────────────────────────────────────────
-
-test("GET /api/learnings?repo=&status=proposed lists the repo's proposed learnings", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  // safeRepoDir realpaths the dir; store by the same value so the query key matches
-  const repo = realpathSync(validRepo);
-  deps.store.addLearning({ repoPath: repo, rule: "use bun", rationale: "", evidence: [] });
-
-  const res = await app.fetch(
-    new Request(`http://x/api/learnings?repo=${encodeURIComponent(validRepo)}&status=proposed`),
-  );
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  expect(Array.isArray(body)).toBe(true);
-  expect(body.length).toBe(1);
-  expect(body[0].rule).toBe("use bun");
-});
-
-test("POST /api/learnings/:id/approve sets status active and applies the rule override", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  const repo = realpathSync(validRepo);
-  const l = deps.store.addLearning({
-    repoPath: repo,
-    rule: "use bun",
-    rationale: "",
-    evidence: [],
-  });
-
-  const res = await app.fetch(
-    new Request(`http://x/api/learnings/${l.id}/approve`, {
-      method: "POST",
-      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
-      body: JSON.stringify({ rule: "new" }),
-    }),
-  );
-  expect(res.status).toBe(200);
-  expect(deps.store.getLearning(l.id)?.status).toBe("active");
-  expect(deps.store.getLearning(l.id)?.rule).toBe("new");
-});
-test("POST /api/learnings/:id/approve with an empty rule keeps the stored rule", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  const l = deps.store.addLearning({
-    repoPath: realpathSync(validRepo),
-    rule: "keep me",
-    rationale: "",
-    evidence: [],
-  });
-  const res = await app.fetch(
-    new Request(`http://x/api/learnings/${l.id}/approve`, {
-      method: "POST",
-      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
-      body: JSON.stringify({ rule: "   " }),
-    }),
-  );
-  expect(res.status).toBe(200);
-  expect(deps.store.getLearning(l.id)?.status).toBe("active");
-  expect(deps.store.getLearning(l.id)?.rule).toBe("keep me"); // blank edit ignored
-});
-test("POST /api/learnings/:id/approve caps an over-long rule to 240 chars", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  const l = deps.store.addLearning({
-    repoPath: realpathSync(validRepo),
-    rule: "x",
-    rationale: "",
-    evidence: [],
-  });
-  const res = await app.fetch(
-    new Request(`http://x/api/learnings/${l.id}/approve`, {
-      method: "POST",
-      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
-      body: JSON.stringify({ rule: "a".repeat(300) }),
-    }),
-  );
-  expect(res.status).toBe(200);
-  expect(deps.store.getLearning(l.id)?.rule.length).toBe(240);
-});
-
-test("POST /api/learnings/:id/dismiss sets status dismissed", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  const repo = realpathSync(validRepo);
-  const l = deps.store.addLearning({
-    repoPath: repo,
-    rule: "use bun",
-    rationale: "",
-    evidence: [],
-  });
-
-  const res = await app.fetch(
-    new Request(`http://x/api/learnings/${l.id}/dismiss`, {
-      method: "POST",
-      headers: { Origin: "http://localhost:7330" },
-    }),
-  );
-  expect(res.status).toBe(200);
-  expect(deps.store.getLearning(l.id)?.status).toBe("dismissed");
-});
-
-test("POST /api/learnings/<bogus-id>/approve returns 404", async () => {
-  const app = harness();
-  const res = await app.fetch(
-    new Request("http://x/api/learnings/does-not-exist/approve", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Origin: "http://localhost:7330",
-      },
-      body: JSON.stringify({ rule: "anything" }),
-    }),
-  );
-  expect(res.status).toBe(404);
-});
-
-test("GET /api/learnings/pending returns all proposed learnings across repos", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  deps.store.addLearning({ repoPath: "/x", rule: "p1", rationale: "", evidence: [] });
-
-  const res = await app.fetch(new Request("http://x/api/learnings/pending"));
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  expect(Array.isArray(body)).toBe(true);
-  expect(body.length).toBe(1);
-  expect(body[0].rule).toBe("p1");
-});
-
-test("GET /api/learnings/pending resolves cited evidence into kinds + source detail", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  const sess = deps.store.create({
-    name: "x",
-    prompt: "x",
-    repoPath: "/x",
-    baseBranch: "main",
-    branch: "shepherd/x",
-    worktreePath: "/wt/x",
-    isolated: true,
-    herdrSession: "default",
-    herdrAgentId: "term_z",
-  });
-  const a = deps.store.addSignal({
-    repoPath: "/x",
-    sessionId: sess.id,
-    kind: "reply",
-    payload: "use bun,\n  not npm",
-  });
-  const b = deps.store.addSignal({ repoPath: "/x", sessionId: null, kind: "critic", payload: "b" });
-  deps.store.addLearning({
-    repoPath: "/x",
-    rule: "p1",
-    rationale: "",
-    evidence: [a.id, b.id, "pruned"],
-  });
-
-  const res = await app.fetch(new Request("http://x/api/learnings/pending"));
-  const body = await res.json();
-  expect(body[0].evidenceKinds).toEqual({ reply: 1, critic: 1 });
-  // newest first; pruned id dropped; multi-line payload flattened to one line;
-  // reply resolves to its source session designation, the orphan critic to null.
-  expect(body[0].evidenceDetail).toEqual([
-    { id: b.id, kind: "critic", desig: null, excerpt: "b", ts: expect.any(Number) },
-    {
-      id: a.id,
-      kind: "reply",
-      desig: sess.desig,
-      excerpt: "use bun, not npm",
-      ts: expect.any(Number),
-    },
-  ]);
-});
-
-test("GET /api/learnings/pending excerpt truncates on code points (no split surrogate)", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  // emoji straddles the 140-unit cut: a naive slice would keep a lone surrogate
-  const payload = "x".repeat(138) + "😀yy";
-  const s = deps.store.addSignal({ repoPath: "/x", sessionId: null, kind: "reply", payload });
-  deps.store.addLearning({ repoPath: "/x", rule: "p", rationale: "", evidence: [s.id] });
-
-  const res = await app.fetch(new Request("http://x/api/learnings/pending"));
-  const body = await res.json();
-  expect(body[0].evidenceDetail[0].excerpt).toBe("x".repeat(138) + "😀…");
-});
-
-test("GET /api/learnings/injectable returns per-repo injected flags + budget numbers", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  // 40 max-ish-length active rules on /big → some over the 4000 budget.
-  for (let i = 0; i < 40; i++) {
-    const r = deps.store.addLearning({
-      repoPath: "/big",
-      rule: `R${String(i).padStart(2, "0")}-` + "x".repeat(150),
-      rationale: "",
-      evidence: [],
-    });
-    deps.store.setLearningStatus(r.id, "active");
-  }
-  // one small repo, all fit
-  const s = deps.store.addLearning({
-    repoPath: "/small",
-    rule: "tiny",
-    rationale: "",
-    evidence: [],
-  });
-  deps.store.setLearningStatus(s.id, "active");
-
-  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  expect(Array.isArray(body)).toBe(true);
-
-  const big = body.find((e: any) => e.repoPath === "/big");
-  expect(big.enabled).toBe(true);
-  expect(big.budgetChars).toBe(4000);
-  expect(big.usedChars).toBeGreaterThan(0);
-  expect(big.usedChars).toBeLessThanOrEqual(4000);
-  expect(big.rules.length).toBe(40);
-  const injected = big.rules.filter((r: any) => r.injected).length;
-  expect(injected).toBeGreaterThan(0);
-  expect(injected).toBeLessThan(40);
-  // every rule carries the injected flag
-  expect(big.rules.every((r: any) => typeof r.injected === "boolean")).toBe(true);
-
-  const small = body.find((e: any) => e.repoPath === "/small");
-  expect(small.rules.length).toBe(1);
-  expect(small.rules[0].injected).toBe(true);
-});
-
-test("GET /api/learnings/injectable marks all rules uninjected when learnings disabled", async () => {
-  const deps = makeDeps();
-  const app = makeApp(deps);
-  const r = deps.store.addLearning({
-    repoPath: "/off",
-    rule: "use bun",
-    rationale: "",
-    evidence: [],
-  });
-  deps.store.setLearningStatus(r.id, "active");
-  deps.store.setRepoConfig("/off", {
-    criticEnabled: true,
-    criticAllPrs: false,
-    criticSmellLensEnabled: false,
-    autoAddressEnabled: false,
-    learningsEnabled: false,
-    autopilotEnabled: false,
-    planGateEnabled: false,
-    autoDrainEnabled: false,
-    autoMergeEnabled: false,
-    buildQueueEnabled: false,
-    draftMode: false,
-    signoffAuthority: "human",
-    maxAuto: 1,
-    autoLabel: "shepherd:auto",
-    usageCeilingPct: 80,
-    sandboxProfile: "trusted",
-    defaultModel: "inherit",
-    defaultEffort: "inherit",
-    previewOpenMode: "ask",
-    egressExtraHosts: [],
-    repoMode: "forge",
-    autoOptimizeFlagged: false,
-    manualStepsIssueEnabled: false,
-    preWarmEpicLandingCi: false,
-    mergeWithoutCi: false,
-    epicStacksEnabled: false,
-    sharedBrowserEnabled: false,
-    browserAllowedHosts: [],
-    hidden: false,
-  });
-
-  const res = await app.fetch(new Request("http://x/api/learnings/injectable"));
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  const off = body.find((e: any) => e.repoPath === "/off");
-  expect(off.enabled).toBe(false);
-  expect(off.usedChars).toBe(0);
-  expect(off.budgetChars).toBe(4000);
-  expect(off.rules.length).toBe(1);
-  expect(off.rules[0].injected).toBe(false);
-});
-
-// ── /api/learnings/health ────────────────────────────────────────────────────
-
-test("GET /api/learnings/health returns distiller health when health() present", async () => {
-  const deps = makeDeps();
-  const unhealthy = {
-    ok: false,
-    consecutiveFailures: 3,
-    lastFailure: { reason: "spawn", at: 1, repoPath: "/r" },
-  };
-  deps.distiller = { distillNow: async () => {}, health: () => unhealthy };
-  const app = makeApp(deps);
-  const res = await app.fetch(new Request("http://x/api/learnings/health"));
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  // top-level fields are the distiller's; optimizer is additive
-  expect(body).toMatchObject(unhealthy);
-  expect(body).toHaveProperty("optimizer");
-});
-
-test("GET /api/learnings/health returns safe default when distiller lacks health()", async () => {
-  const deps = makeDeps(); // distiller = { distillNow: async () => {} } — no health
-  const app = makeApp(deps);
-  const res = await app.fetch(new Request("http://x/api/learnings/health"));
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  expect(body).toMatchObject({ ok: true, consecutiveFailures: 0, lastFailure: null });
-  expect(body).toHaveProperty("optimizer");
-});
-
 // ── clear-all-merged endpoint ────────────────────────────────────────────────
 // Build an app with a mutable stub prCache (the merged source of truth) + reaper.
 // Rows get random ids, so we create them first, then seed each session's PR state.
@@ -3076,7 +2759,6 @@ function harnessWithPreviewStop({
     service,
     events,
     usageLimits,
-    distiller: { distillNow: async () => {} },
   });
   return { app, store };
 }

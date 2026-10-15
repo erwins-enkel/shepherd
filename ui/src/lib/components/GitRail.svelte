@@ -23,7 +23,7 @@
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";
-  import { basename } from "./learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import { mergeConfirmFromGit } from "./merge-confirm";
   import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import PlanDriftNote from "./git-rail/PlanDriftNote.svelte";
@@ -214,7 +214,7 @@
     if (showAutomation) {
       showPr = false;
       showReview = false; // one popover at a time
-      // The critic/auto-address/learnings toggles now live behind this pill, so their
+      // The critic/auto-address toggles now live behind this pill, so their
       // discovery coachmarks re-home onto it: arm the first still-unseen one on open.
       armFirstUnseenAutomation();
     }
@@ -537,7 +537,7 @@
 
   // Feature ids whose controls moved behind the automation pill; their discovery
   // coachmarks now anchor on the pill instead of their (deleted) individual toggles.
-  const PILL_FEATURE_IDS = ["critic", "auto-address", "learnings"] as const;
+  const PILL_FEATURE_IDS = ["critic", "auto-address"] as const;
 
   // A passive "new" dot rides the pill while any relocated feature is still unseen.
   const automationHasUnseen = $derived(PILL_FEATURE_IDS.some((id) => !featureDiscovery.isSeen(id)));
@@ -739,7 +739,6 @@
             : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
           use:coachTarget={"critic"}
           use:coachTarget={"auto-address"}
-          use:coachTarget={"learnings"}
           onclick={toggleAutomation}
         >
           ⚙ {m.automation_pill_label()}

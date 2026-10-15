@@ -31,8 +31,6 @@ export interface PushPayload {
     | "merge_attention"
     | "usage_limit"
     | "extra_credits"
-    | "learnings_retired"
-    | "learnings_trialed"
     | "manual_steps"
     | "ready"
     | "backup_stale"
@@ -67,8 +65,6 @@ const KIND_CATEGORY: Record<NotifyInput["kind"], PushCategory> = {
   merge_attention: "ci",
   usage_limit: "agent",
   extra_credits: "agent",
-  learnings_retired: "agent",
-  learnings_trialed: "agent",
   manual_steps: "ci",
   ready: "agent",
   // Host-global operational alert; ride the "agent" toggle like usage_limit/extra_credits.
@@ -100,8 +96,6 @@ export interface NotifyInput {
     | "merge_attention"
     | "usage_limit"
     | "extra_credits"
-    | "learnings_retired"
-    | "learnings_trialed"
     | "manual_steps"
     | "ready"
     | "backup_stale"
@@ -137,10 +131,6 @@ export interface NotifyInput {
   creditCap?: number;
   /** For kind "extra_credits": currency symbol/prefix for the amounts. */
   currency?: string;
-  /** For kind "learnings_retired": how many rules the auto-retire sweep retired. */
-  retiredCount?: number;
-  /** For kind "learnings_trialed": how many proposals the auto-trial sweep promoted. */
-  trialedCount?: number;
   /** For kinds "backup_stale" / "onboarding_stale": whole hours since the newest
    *  snapshot / completed run (for the body copy). For "landing_conflict": set only on a stale
    *  re-escalation (#1841) — whole hours the conflict pause has stood unresolved. */
@@ -218,12 +208,6 @@ const NOTIFY_TEXT = {
       time ? `Approaching the usage cap — resets at ${time}.` : "Approaching the usage cap.",
     extraCreditsTitle: "Extra credits in use",
     extraCreditsBody: (amount: string) => `Now spending paid extra usage — ${amount} this period.`,
-    learningsRetiredTitle: "Learnings auto-retired",
-    learningsRetiredBody: (n: number) =>
-      `${n} ${n === 1 ? "rule" : "rules"} auto-retired — tap to review.`,
-    learningsTrialedTitle: "Learnings on trial",
-    learningsTrialedBody: (n: number) =>
-      `${n} ${n === 1 ? "proposal" : "proposals"} auto-promoted to trial — tap to review.`,
     readyTitle: (name: string) => `${name} — your turn`,
     readyBody: "Waiting on you for 5s — your turn.",
     manualStepsTitle: (name: string) => `${name} — manual steps`,
@@ -299,12 +283,6 @@ const NOTIFY_TEXT = {
     extraCreditsTitle: "Zusatzguthaben aktiv",
     extraCreditsBody: (amount: string) =>
       `Kostenpflichtige Zusatznutzung läuft — ${amount} in diesem Zeitraum.`,
-    learningsRetiredTitle: "Learnings automatisch zurückgezogen",
-    learningsRetiredBody: (n: number) =>
-      `${n} ${n === 1 ? "Regel" : "Regeln"} zurückgezogen — zum Prüfen tippen.`,
-    learningsTrialedTitle: "Learnings im Test",
-    learningsTrialedBody: (n: number) =>
-      `${n} ${n === 1 ? "Vorschlag" : "Vorschläge"} automatisch in den Test übernommen — zum Prüfen tippen.`,
     readyTitle: (name: string) => `${name} — du bist dran`,
     readyBody: "Wartet seit 5s auf dich — du bist dran.",
     manualStepsTitle: (name: string) => `${name} — manuelle Schritte`,
@@ -383,13 +361,6 @@ function autopilotBody(summary: string | undefined, fallback: string): string {
   return summary && summary.trim() ? summary : fallback;
 }
 
-/** Learnings summary title/body (auto-retire vs auto-trial) — both background sweep pushes. */
-function learningsParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
-  return input.kind === "learnings_trialed"
-    ? { title: t.learningsTrialedTitle, body: t.learningsTrialedBody(input.trialedCount ?? 0) }
-    : { title: t.learningsRetiredTitle, body: t.learningsRetiredBody(input.retiredCount ?? 0) };
-}
-
 /** Host-global staleness title/body — a timer that should have run and did not.
  *  Both kinds carry the same shape (one age in whole hours, `null` when the thing
  *  has never once succeeded), so they share an arm rather than duplicating it. */
@@ -463,8 +434,6 @@ const PARTS_BY_KIND: Partial<
   >
 > = {
   merge_attention: mergeAttentionParts,
-  learnings_retired: learningsParts,
-  learnings_trialed: learningsParts,
   backup_stale: stalenessParts,
   onboarding_stale: stalenessParts,
   landing_conflict: landingConflictParts,

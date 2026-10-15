@@ -13,7 +13,7 @@ extension CoreSeamTests {
             let body = try #require(JSONSerialization.jsonObject(with:JSONEncoder().encode(patch)) as? [String:Any])
             #expect(body.count == 1); #expect(body[field.id] != nil)
         }
-        #expect(fields.filter {$0.id.hasSuffix("Cli")}.count == 9)
+        #expect(fields.filter {$0.id.hasSuffix("Cli")}.count == 6)
         #expect(fields.contains {$0.id == "reducedPushMode"})
         #expect(fields.first {$0.id == "prReviewCyclesCap"}?.patch("not a number") == nil)
     }

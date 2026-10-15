@@ -4,7 +4,6 @@ import type {
   ClearMergedPreview,
   ClearMergedResult,
   CreateInput,
-  HouseRuleRelevanceMode,
   HeldTask,
   HeldResult,
   RepoEntry,
@@ -70,9 +69,6 @@ import type {
   BacklogPayload,
   SlashCommand,
   Leftover,
-  Learning,
-  RepoInjectable,
-  MergeSuggestion,
   ForgeKind,
   WorkflowRun,
   WorkflowJob,
@@ -91,7 +87,6 @@ import type {
   Recap,
   TaskAmendment,
   CompletedEpic,
-  DistillerHealth,
   RawAnswer,
   ShapeRound,
   DocAgentRun,
@@ -477,13 +472,6 @@ export const putBlockJudgeMode = (
   mode: "off" | "shadow" | "armed",
 ): Promise<{ blockJudgeMode: "off" | "shadow" | "armed" }> =>
   patchSettings({ blockJudgeMode: mode });
-
-// Arm the house-rule relevance gate (#2376). Takes effect on the next spawn; `shadow` records what
-// the judge would have dropped without dropping it.
-export const putHouseRuleRelevance = (
-  mode: HouseRuleRelevanceMode,
-): Promise<{ houseRuleRelevance: HouseRuleRelevanceMode }> =>
-  patchSettings({ houseRuleRelevance: mode });
 
 // Toggle the Up Next readiness rerank (#2535): reorders within each Up Next group by whether an
 // agent could finish the issue unattended in one PR. Inert unless the judge is armed.
@@ -1264,16 +1252,7 @@ export const putDefaultAgentProvider = (
 // The per-role ENVIRONMENT settings the Settings UI can override: `<role>Cli`
 // ("inherit" | "claude" | "codex"), `<role>Model` ("default" | <alias>), and `<role>Effort`.
 // The server validates + persists each independently and echoes the stored value under the same key.
-export type RoleBase =
-  | "critic"
-  | "planner"
-  | "recap"
-  | "docAgent"
-  | "namer"
-  | "autopilot"
-  | "distiller"
-  | "optimizer"
-  | "mergeSuggest";
+export type RoleBase = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot";
 export type RoleCliKey = `${RoleBase}Cli`;
 export type RoleModelKey = `${RoleBase}Model`;
 export type RoleEffortKey = `${RoleBase}Effort`;
@@ -1295,10 +1274,6 @@ export const putRoleEffort = (
   key: RoleEffortKey,
   effort: string,
 ): Promise<Partial<Record<RoleEffortKey, string>>> => patchSettings({ [key]: effort });
-
-export const putDistillerIntervalDays = (
-  days: number,
-): Promise<{ distillerIntervalDays: number }> => patchSettings({ distillerIntervalDays: days });
 
 // Switch how spawned agents authenticate (subscription OAuth vs. metered API key).
 export const putAuthMode = (mode: string): Promise<{ authMode: string; hasApiKey: boolean }> =>
@@ -2943,7 +2918,6 @@ export async function putRepoConfig(
       | "criticEnabled"
       | "criticAllPrs"
       | "autoAddressEnabled"
-      | "learningsEnabled"
       | "autopilotEnabled"
       | "autoDrainEnabled"
       | "autoMergeEnabled"
@@ -2955,7 +2929,6 @@ export async function putRepoConfig(
       | "autoLabel"
       | "usageCeilingPct"
       | "repoMode"
-      | "autoOptimizeFlagged"
       | "criticSmellLensEnabled"
       | "manualStepsIssueEnabled"
       | "preWarmEpicLandingCi"
@@ -3148,163 +3121,12 @@ export async function getAutoMerge(): Promise<AutoMergeStatus[]> {
   return getJson("/api/automerge", "automerge");
 }
 
-export async function getPendingLearnings(): Promise<Learning[]> {
-  const r = await fetch("/api/learnings/pending");
-  if (!r.ok) throw await failed(r, "learnings");
-  return r.json();
-}
-
-/** Per-repo injected/active house rules with budget meter data, for the drawer's
- *  "Injected house rules" view. One entry per repo with ≥1 active/promoted rule. */
-export async function getInjectableLearnings(): Promise<RepoInjectable[]> {
-  const r = await fetch("/api/learnings/injectable");
-  if (!r.ok) throw await failed(r, "injectable learnings");
-  return r.json();
-}
-
-export async function getLearningsHealth(): Promise<DistillerHealth> {
-  const r = await fetch("/api/learnings/health");
-  if (!r.ok) throw await failed(r, "learnings health");
-  return r.json();
-}
-
-export async function approveLearning(id: string, rule?: string): Promise<Learning> {
-  const r = await fetch(`/api/learnings/${id}/approve`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(rule !== undefined ? { rule } : {}),
-  });
-  if (!r.ok) throw await failed(r, "approve");
-  return r.json();
-}
-
-export async function dismissLearning(id: string): Promise<Learning> {
-  const r = await fetch(`/api/learnings/${id}/dismiss`, { method: "POST", headers: JSON_HEADERS });
-  if (!r.ok) throw await failed(r, "dismiss");
-  return r.json();
-}
-
-export async function distillRepo(repoPath: string): Promise<void> {
-  const r = await fetch(`/api/learnings/distill?repo=${encodeURIComponent(repoPath)}`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-  });
-  if (!r.ok) throw await failed(r, "distill");
-}
-
-/** Promote an active rule into the repo's CLAUDE.md via an auto-opened PR.
- *  Returns the PR url; the rule flips to `promoted` server-side. */
-export async function promoteLearning(id: string): Promise<{ url: string }> {
-  const r = await fetch(`/api/learnings/${id}/promote`, { method: "POST", headers: JSON_HEADERS });
-  if (!r.ok) throw await failed(r, "promote");
-  return r.json();
-}
-
 /** Snapshot of every session's build queue that has ≥1 step, keyed by session
  *  id (for the Herd list overview). Sessions with no steps are absent. */
 export async function getBuildQueues(): Promise<Record<string, BuildQueue>> {
   const r = await fetch("/api/queues");
   if (!r.ok) throw await failed(r, "build queues");
   return r.json();
-}
-
-/** Optimize a single flagged ("not working") rule via the LLM rewrite pass. Fire-and-forget;
- *  the WS learnings:update event refreshes the drawer when the run finalizes. */
-export async function optimizeLearning(id: string): Promise<void> {
-  const r = await fetch(`/api/learnings/${id}/optimize`, { method: "POST", headers: JSON_HEADERS });
-  if (!r.ok) throw await failed(r, "optimize");
-}
-
-/** Set (or clear, with `[]`) a rule's glob scope (#842). Returns the updated rule;
- *  the drawer reloads on the learnings:update event. */
-export async function setLearningScope(id: string, globs: string[]): Promise<Learning> {
-  const r = await fetch(`/api/learnings/${id}/scope`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ globs }),
-  });
-  if (!r.ok) throw await failed(r, "scope");
-  return r.json();
-}
-
-/** Restore a retired learning rule back to active. */
-export async function restoreLearning(id: string): Promise<Learning> {
-  const r = await fetch(`/api/learnings/${id}/restore`, { method: "POST", headers: JSON_HEADERS });
-  if (!r.ok) throw await failed(r, "restore");
-  return r.json();
-}
-
-/** Revert an auto-trial back to the proposed queue or dismiss it. Trial-only server-side. */
-export async function revertTrialLearning(
-  id: string,
-  target: "proposed" | "dismissed",
-): Promise<Learning> {
-  const r = await fetch(`/api/learnings/${id}/revert-trial`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ target }),
-  });
-  if (!r.ok) throw await failed(r, "revert-trial");
-  return (await r.json()) as Learning;
-}
-
-/** Mark retired learnings as seen for a repo (clears the unseen banner). */
-export async function markRetiredSeen(repoPath: string): Promise<void> {
-  const r = await fetch(`/api/learnings/seen-retired?repo=${encodeURIComponent(repoPath)}`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-  });
-  if (!r.ok) throw await failed(r, "seen-retired");
-}
-
-// ── Phase 4 merge suggestions ───────────────────────────────────────────────
-
-/** Pending background merge suggestions (intra-repo consolidation + cross-repo recurrence),
- *  each with hydrated member rules. */
-export async function getMergeSuggestions(): Promise<MergeSuggestion[]> {
-  const r = await fetch("/api/learnings/merge-suggestions");
-  if (!r.ok) throw await failed(r, "merge suggestions");
-  return r.json();
-}
-
-/** Apply an intra-repo merge suggestion: consolidate the group into its survivor and
- *  soft-retire the rest. The drawer reloads on the learnings:update event. */
-export async function applyMergeSuggestion(suggestionId: string): Promise<void> {
-  const r = await fetch(`/api/learnings/merge`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ suggestionId }),
-  });
-  if (!r.ok) throw await failed(r, "merge");
-}
-
-/** Dismiss a merge suggestion (intra or cross); the same group won't be re-suggested. */
-export async function dismissMergeSuggestion(suggestionId: string): Promise<void> {
-  const r = await fetch(`/api/learnings/merge-dismiss`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ suggestionId }),
-  });
-  if (!r.ok) throw await failed(r, "merge dismiss");
-}
-
-/** Manually trigger the background merge-suggestion pass for a repo ("Suggest merges now").
- *  Fire-and-forget; suggestions arrive via the learnings:update event. */
-export async function mergeSuggestNow(repoPath: string): Promise<void> {
-  const r = await fetch(`/api/learnings/merge-suggest?repo=${encodeURIComponent(repoPath)}`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-  });
-  if (!r.ok) throw await failed(r, "merge suggest");
-}
-
-/** Optimize ALL flagged rules in a repo. Fire-and-forget (see optimizeLearning). */
-export async function optimizeRepoFlagged(repoPath: string): Promise<void> {
-  const r = await fetch(`/api/learnings/optimize?repo=${encodeURIComponent(repoPath)}`, {
-    method: "POST",
-    headers: JSON_HEADERS,
-  });
-  if (!r.ok) throw await failed(r, "optimize");
 }
 
 export async function getBuildQueue(sessionId: string): Promise<BuildQueue> {

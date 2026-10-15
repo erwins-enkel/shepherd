@@ -34,8 +34,6 @@ export const SHEPHERD_EXCLUDE_END = "# shepherd:ignore:end";
  * Generic over the target file — used for BOTH `.git/info/exclude` (via
  * `ensureShepherdExclude`) and a committed `.gitignore` (via `GitignoreAdopter`),
  * which share the same gitignore glob syntax + managed-block markers.
- *
- * Modelled on `upsertLearningsBlock` in `src/promote.ts`.
  */
 export function upsertShepherdIgnoreBlock(existing: string): { content: string; changed: boolean } {
   const block = [SHEPHERD_EXCLUDE_START, SHEPHERD_IGNORE_GLOB, SHEPHERD_EXCLUDE_END].join("\n");

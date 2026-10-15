@@ -5,7 +5,6 @@ import { HerdrDriver } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
 import { reapOrphanTabs } from "../src/tab-reaper";
 import { reapTransientByLabel } from "../src/transient-tab-reaper";
-import { MERGE_LABEL } from "../src/merge-suggest";
 
 // ── The fixtures must keep telling the truth about herdr 0.7.5 (#2029) ────────
 //
@@ -97,7 +96,7 @@ test("reapOrphanTabs reaps a 0.7.5 husk tab and spares the live helper (#2029)",
   const r1 = await reapOrphanTabs(d);
   expect(r1.helperTabs).toBe(2);
   expect(r1.sparedLive).toBe(1); // the `review TASK-09` tab runs claude
-  expect(r1.shellOnly).toEqual(new Set(["w1:t3"])); // the `__merge__` tab is a husk
+  expect(r1.shellOnly).toEqual(new Set(["w1:t3"])); // the `__maintain__` tab is a husk
   expect(closed).toEqual([]); // first sighting only — debounce
 
   const r2 = await reapOrphanTabs(d, r1.shellOnly);
@@ -108,6 +107,6 @@ test("reapOrphanTabs reaps a 0.7.5 husk tab and spares the live helper (#2029)",
 test("reapTransientByLabel closes a 0.7.5 husk tab by its label (#2029)", async () => {
   setDetectedHerdrVersion("0.7.5");
   const closed: string[] = [];
-  await reapTransientByLabel(mkDriver(closed), MERGE_LABEL, new Set(), "[merge]");
+  await reapTransientByLabel(mkDriver(closed), "__maintain__", new Set(), "[maintain]");
   expect(closed).toEqual(["w1:t3"]);
 });

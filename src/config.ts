@@ -18,11 +18,9 @@ import {
   DEFAULT_ASSISTANT_PERMISSIONS,
   type AssistantPermissions,
 } from "./operator-assistant-permissions";
-import { normalizeRelevanceMode } from "./house-rules-relevance";
 import { thresholdsFromEnv } from "./maintain-core";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { applyHerdrSocket } from "./herdr-session";
-import { HOUSE_RULES_DEFAULT_BUDGET_CHARS } from "./house-rules";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
 // forge map sits next to the db by default; SHEPHERD_FORGES overrides the path.
@@ -159,8 +157,6 @@ export const GH_PROBE_RETRY_DELAY_MS = 250;
 // process GROUP is SIGKILLed (see diagnostics.ts runRemediation) so no reparented
 // grandchild survives to flip a later probe green behind a reported failure.
 export const REMEDIATION_TIMEOUT_MS = 120_000;
-export const DISTILLER_INTERVAL_DAYS_MIN = 1;
-export const DISTILLER_INTERVAL_DAYS_MAX = 14;
 // module-local seed defaults, used by the config seeds + boot-override fallbacks only.
 const PR_REVIEW_CYCLES_DEFAULT = 3;
 const PLAN_REVIEW_CYCLES_DEFAULT = 5;
@@ -507,9 +503,9 @@ export function parseHour(raw: string | undefined, def: number): number {
  *
  * `key` is passed separately from `raw` — rather than read from `process.env[key]` here — so the
  * literal `process.env.KEY` stays at the call site. `bun run check:env-schema` (`varlock audit`)
- * only scans literal `process.env.KEY`; a key reached through a variable (as `envNum` in
- * house-rules.ts does) drops out of the `.env.schema` drift gate and has to be catalogued under
- * `@auditIgnore`. Do not "tidy" this into `parseEnvNumber(key, def)`.
+ * only scans literal `process.env.KEY`; a key reached through a variable drops out of the
+ * `.env.schema` drift gate and has to be catalogued under `@auditIgnore`. Do not "tidy" this into
+ * `parseEnvNumber(key, def)`.
  *
  * Exported for tests.
  */
@@ -831,31 +827,6 @@ export const config = {
   docAgentCli: normalizeRoleCli(process.env.SHEPHERD_DOC_AGENT_CLI) ?? "inherit",
   docAgentModel: normalizeRoleModelToken(process.env.SHEPHERD_DOC_AGENT_MODEL) ?? "default",
   docAgentEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_DOC_AGENT_EFFORT) ?? "low",
-  // Per-role environment for the Learnings Distiller. Inherit is intentionally the default so
-  // it follows the operator's global provider/model/effort selection.
-  distillerCli: normalizeRoleCli(process.env.SHEPHERD_DISTILLER_CLI) ?? "inherit",
-  distillerModel: normalizeRoleModelToken(process.env.SHEPHERD_DISTILLER_MODEL) ?? "default",
-  distillerEffort:
-    normalizeDefaultEffortSetting(process.env.SHEPHERD_DISTILLER_EFFORT) ?? "default",
-  // Per-role environment for the Learnings Optimizer. Inherit follows the operator's global
-  // provider/model/effort selection; explicit providers keep "default" effort provider-native.
-  optimizerCli: normalizeRoleCli(process.env.SHEPHERD_OPTIMIZER_CLI) ?? "inherit",
-  optimizerModel: normalizeRoleModelToken(process.env.SHEPHERD_OPTIMIZER_MODEL) ?? "default",
-  optimizerEffort:
-    normalizeDefaultEffortSetting(process.env.SHEPHERD_OPTIMIZER_EFFORT) ?? "default",
-  // Per-role environment for the Learnings Merge Suggester. Inherit follows the live global
-  // provider/model/effort selection while explicit providers keep their natural defaults.
-  mergeSuggestCli: normalizeRoleCli(process.env.SHEPHERD_MERGE_SUGGEST_CLI) ?? "inherit",
-  mergeSuggestModel: normalizeRoleModelToken(process.env.SHEPHERD_MERGE_SUGGEST_MODEL) ?? "default",
-  mergeSuggestEffort:
-    normalizeDefaultEffortSetting(process.env.SHEPHERD_MERGE_SUGGEST_EFFORT) ?? "default",
-  // Automatic runs are throttled per repository; 1 preserves the historic daily behavior.
-  distillerIntervalDays: clampCap(
-    Number(process.env.SHEPHERD_DISTILLER_INTERVAL_DAYS ?? 1),
-    DISTILLER_INTERVAL_DAYS_MIN,
-    DISTILLER_INTERVAL_DAYS_MAX,
-    1,
-  ),
   // Local hour (0–23) at/after which the doc agent's nightly cadence sweep evaluates each doc-tree
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.
@@ -953,16 +924,6 @@ export const config = {
   namerCli: normalizeRoleCli(process.env.SHEPHERD_NAMER_CLI) ?? "claude",
   namerModel: normalizeRoleModelToken(process.env.SHEPHERD_NAMER_MODEL) ?? "haiku",
   namerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_NAMER_EFFORT) ?? "low",
-  // Char budget for the Shepherd house-rules block prepended to every agent prompt. Active+
-  // promoted rules fill greedily by most-recently-effective priority until this cap; the rest
-  // stay visible-but-uninjected in the Learnings drawer for the operator to prune. The default
-  // lives in house-rules.ts beside the planner it bounds (the reviewer-side injection falls back
-  // to it without importing this module); only an unusually large curated set is capped.
-  houseRulesBudgetChars: parseEnvNumber(
-    process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS,
-    "SHEPHERD_HOUSE_RULES_BUDGET_CHARS",
-    HOUSE_RULES_DEFAULT_BUDGET_CHARS,
-  ),
   // Max auto-steers autopilot spends per session before it pauses for the operator (runaway guard).
   autopilotStepCap: parseEnvNumber(
     process.env.SHEPHERD_AUTOPILOT_STEP_CAP,
@@ -1236,27 +1197,6 @@ export const config = {
     1,
     365,
     14,
-  ),
-  // ── House-rule relevance (issue #2376) ───────────────────────────────────────
-  // Whether the judge narrows the injected house-rules block to the rules this session's request is
-  // actually about. Three states rather than a boolean: `shadow` asks and persists the verdicts
-  // WITHOUT acting on them, so the evidence for arming `enforce` comes from real sessions instead of
-  // from flipping it on and watching. Requires the judge itself to be armed (`judgeEnabled` + a
-  // key); inert otherwise. Env seeds a fresh DB; persisted + UI-configurable.
-  houseRuleRelevance: normalizeRelevanceMode(process.env.SHEPHERD_HOUSE_RULE_RELEVANCE),
-  // How many days of relevance verdicts the daily sweep keeps. They are the per-rule statistic the
-  // drawer reads and the calibration record for the drop threshold, so this is longer than a
-  // debugging window — but they are also the only rows in the schema with no parent to cascade from
-  // and no consumer to clear them, so they do get an age bound.
-  relevanceRetentionDays: clampCap(
-    parseEnvNumber(
-      process.env.SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS,
-      "SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS",
-      90,
-    ),
-    1,
-    3650,
-    90,
   ),
   // ── Up Next readiness rerank (issue #2535) ───────────────────────────────────
   // Whether the judge's "could an agent finish this unattended in one PR?" score reorders items

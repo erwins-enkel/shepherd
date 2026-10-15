@@ -4,7 +4,7 @@
   import { getRepoWeb } from "#lib/api.js";
   import type { ForgeKind } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { basename } from "./learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { chipRailVisible, chipHasTelemetry, pausedText } from "./queue-strip";
   import RepoChipTelemetry from "./repo-switcher/RepoChipTelemetry.svelte";
@@ -165,9 +165,6 @@
         : m.repo_filter_active_aria({ repo });
     return [
       active ? activeLabel : m.repo_filter_apply_aria({ repo }),
-      chip.insights > 0 || chip.curate > 0
-        ? m.repo_chip_learnings_aria({ count: chip.insights > 0 ? chip.insights : chip.curate })
-        : "",
       pinned ? m.repo_chip_pinned_aria() : "",
     ]
       .filter(Boolean)
@@ -445,13 +442,6 @@
             {#if chip.drain?.paused}
               <span class="rs-paused-dot" aria-hidden="true">●</span>
             {/if}
-            {#if chip.insights > 0 || chip.curate > 0}
-              <!-- decorative ✦ mark: this repo has pending learnings/curate. Shown on every
-                   chip including the active one — open the learnings drawer via the gear menu. -->
-              <span class="rs-learn-mark" title={m.learnings_badge_tip()} aria-hidden="true"
-                >✦{#if chip.insights > 0}<span class="rs-learn-n">{chip.insights}</span>{/if}</span
-              >
-            {/if}
           </button>
         {/each}
       </div>
@@ -666,21 +656,6 @@
     font-size: var(--fs-micro);
     line-height: 1;
   }
-  /* display-only ✦ marker: this repo has pending learnings/curate (the actionable
-     ✦ button lives on the detail line). Decorative, on the faint/ink ramp — NOT a
-     status hue (Four-Light Rule); ✦ is not amber/green/red/slate. */
-  .rs-learn-mark {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    color: var(--color-faint);
-    font-size: var(--fs-micro);
-    line-height: 1;
-  }
-  .rs-learn-n {
-    font-variant-numeric: tabular-nums;
-  }
-
   /* visually-hidden live region (no .sr-only util in app.css) */
   .rs-live {
     position: absolute;

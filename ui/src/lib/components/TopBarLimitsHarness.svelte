@@ -20,7 +20,6 @@
     connected = false,
     mobile = false,
     touch = false,
-    learnings = 0,
     update = null,
     initialLimits = null,
     initialHeldCount = 0,
@@ -30,7 +29,6 @@
     connected?: boolean;
     mobile?: boolean;
     touch?: boolean;
-    learnings?: number;
     update?: UpdateStatus | null;
     /** Seed for the internal `limits` $state. Defaults to null so the gauge-arrival
      *  test (which flips null→populated via setLimits) is unaffected; the held test
@@ -70,17 +68,7 @@
   The host width is set by the test via document.body.style.width on this wrapper.
 -->
 <div class="shell-cap">
-  <TopBar
-    {sessions}
-    {nowMs}
-    {connected}
-    {mobile}
-    {touch}
-    {limits}
-    {learnings}
-    {update}
-    {heldCount}
-  />
+  <TopBar {sessions} {nowMs} {connected} {mobile} {touch} {limits} {update} {heldCount} />
 </div>
 
 <style>

@@ -37,7 +37,7 @@
     MergeRefusedError,
   } from "#lib/api.js";
   import { prMergeAvailable } from "./pr-badge";
-  import { basename } from "./learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import { mergeConfirmFromGit } from "./merge-confirm";
   import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";

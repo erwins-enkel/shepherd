@@ -90,7 +90,6 @@ The app is signed and notarized by Apple, and updates install automatically.
 | Make progress across several tasks | Run agents in parallel and see their status in one place.                      |
 | Spend less time chasing updates    | Find sessions that need attention and inspect their work directly.             |
 | Delegate without losing oversight  | Review plans and changes, steer live sessions and control automation per repo. |
-| Carry lessons into the next task   | Turn approved learnings into repo rules for future sessions.                   |
 | Step away from your desk           | Follow the same work from the browser on your phone.                           |
 
 Shepherd is actively developed and used in production by its authors. The browser experience

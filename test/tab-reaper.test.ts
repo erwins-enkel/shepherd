@@ -13,8 +13,6 @@ import { PROBE_NAME } from "../src/usage-probe";
 import { DOC_AGENT_LABEL } from "../src/doc-agent";
 import { MAINTAIN_AGENT_LABEL } from "../src/maintain";
 import { PLUGIN_AGENT_LABEL } from "../src/plugin-agents";
-import { DISTILL_LABEL } from "../src/distiller";
-import { OPTIMIZE_LABEL } from "../src/optimizer";
 import type { HerdrPane, HerdrTab } from "../src/herdr";
 import { SessionStore } from "../src/store";
 
@@ -189,8 +187,8 @@ test("non-helper untouched: a non-helper shell-only pane is ignored across two s
   expect(f2.closed).toEqual([]);
 });
 
-test("distiller unique label: husk tab __distill__<8hex> is reaped after two shell-only sweeps", async () => {
-  const uniqueLabel = `${DISTILL_LABEL}a1b2c3d4`;
+test("unique-label helper: husk tab __maintain__<8hex> is reaped after two shell-only sweeps", async () => {
+  const uniqueLabel = `${MAINTAIN_AGENT_LABEL}a1b2c3d4`;
   const panes = [pane("w1:p1", "w1:t1", uniqueLabel)];
   const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
 
@@ -208,8 +206,8 @@ test("distiller unique label: husk tab __distill__<8hex> is reaped after two she
   expect(f2.closed).toEqual(["w1:t1"]);
 });
 
-test("distiller unique label: tab __distill__<8hex> with live agent is spared (liveness gate)", async () => {
-  const uniqueLabel = `${DISTILL_LABEL}a1b2c3d4`;
+test("unique-label helper: tab __maintain__<8hex> with live agent is spared (liveness gate)", async () => {
+  const uniqueLabel = `${MAINTAIN_AGENT_LABEL}a1b2c3d4`;
   const panes = [pane("w1:p1", "w1:t1", uniqueLabel)];
   const procMap: Record<string, string[]> = { "w1:p1": ["claude"] };
 
@@ -292,7 +290,7 @@ test("helper tab with NO pane in pane.list is spared as undetermined, never reap
   // the classifier's loop and read as "positively shell-only".
   const orphanTab: HerdrTab = {
     tabId: "w1:t9",
-    label: `${DISTILL_LABEL}a1b2c3d4`,
+    label: `${MAINTAIN_AGENT_LABEL}a1b2c3d4`,
     agentStatus: "unknown",
     workspaceId: "w1",
   };
@@ -840,10 +838,6 @@ describe("isShepherdHelperLabel", () => {
   const trueLabels: [string, string][] = [
     // pre-existing helpers
     [PROBE_NAME, "usage probe (underscore marker)"],
-    [DISTILL_LABEL, "distiller bare prefix (underscore marker)"],
-    [`${DISTILL_LABEL}a1b2c3d4`, "distiller unique label (prefix + 8hex suffix)"],
-    [OPTIMIZE_LABEL, "optimizer bare prefix (underscore marker)"],
-    [`${OPTIMIZE_LABEL}a1b2c3d4`, "optimizer unique label (prefix + 8hex suffix)"],
     ["review TASK-09", "critic/code-review"],
     ["name TASK-09", "background namer"],
     // new helpers (#721)
@@ -877,8 +871,6 @@ describe("isShepherdHelperLabel", () => {
     ["plan-review-thing", "hyphen, no space — not a plan-review helper"],
     ["my-feature", "ordinary user session slug"],
     ["usage-probe", "slug form of PROBE_NAME — must NOT be reaped"],
-    ["distill", "slug form of DISTILL_LABEL — must NOT be reaped"],
-    ["optimize", "slug form of OPTIMIZE_LABEL — must NOT be reaped"],
     ["my-feature-branch", "ordinary user slug (no underscores)"],
     ["reviewing-pr", "starts with 'review' but no trailing space"],
     ["autopilot-mode", "hyphen instead of space — not an autopilot helper"],

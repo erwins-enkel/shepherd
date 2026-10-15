@@ -1437,8 +1437,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       // stall-signal guards: this run may write an at-cap stall row a live forced run would have
       // suppressed. Deliberate: a column + migration to suppress one row isn't worth it, and it fails
       // SAFE — after a crash "needs a human" is arguably true, and no operator is known to be present.
-      // Bounded at one row per restart per session, unreachable by clicking, so it can't walk the
-      // distiller toward its learnings-signal threshold. See escalateStallIfNeeded's guards.
+      // Bounded at one row per restart per session, unreachable by clicking, so it can't inflate
+      // the incident counts. See escalateStallIfNeeded's guards.
       forced: false,
       startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
     };
@@ -1816,9 +1816,9 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     this.deps.onChange(f.sessionId, gate);
   }
 
-  /** Emit the learnings `stall` signal when a changes-requested round can't progress on its own —
+  /** Emit the `stall` signal when a changes-requested round can't progress on its own —
    *  at/over the cap, or sub-cap with an undelivered steer (dead pane). A forced re-review suppresses
-   *  the signal so a repeat-clickable button can't spam the distiller: an at-cap RE-ENTRY
+   *  the signal so a repeat-clickable button can't spam the incident counts: an at-cap RE-ENTRY
    *  (`priorRound >= cap`) is suppressed by guard #1 below, but a forced CROSSING (`priorRound ===
    *  cap-1` whose steer lands) still signals exactly once. These two `f.forced` guards are now the
    *  ONLY behaviour keyed off `forced` — since #1759 a forced verdict is otherwise an ordinary round.
@@ -1839,7 +1839,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     }
     if (!delivered) {
       // Guard #2. Sub-cap but the steer didn't land (dead/unreachable pane): stranded like a cap stall
-      // rather than mid-revision. Escalate so it surfaces — but suppress the learnings signal on a forced
+      // rather than mid-revision. Escalate so it surfaces — but suppress the signal on a forced
       // run (clickable at will and unbounded); the console.warn + rendered verdict still surface it.
       console.warn(
         `[plan-gate] changes-requested steer did not land for ${f.sessionId}; escalating`,

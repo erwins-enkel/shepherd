@@ -14,9 +14,6 @@
  *
  * NOTE: the "cost-units" everywhere below are the RELATIVE per-Mtok cost-proxy
  * from src/pricing.ts (`weightedUnits`) — never dollars. Only ratios matter.
- *
- * Out of scope: the account-wide periodic distiller (`/tmp/shepherd-distill-*`)
- * is NOT per-task, so it is never attributed to a task here.
  */
 import { Database } from "bun:sqlite";
 import { readdirSync, statSync } from "node:fs";
@@ -850,7 +847,6 @@ const LEGEND = [
   "  CacheWcost% cache-write weighted units ÷ total authoring cost-units (cost weight of cache writes; far above their ~3% token share because write weights are 1.25×/2×; includes all records — main-thread and sidechain — unlike FullRecache)",
   "  ReviewMult  satellite cost-units ÷ authoring cost-units",
   "  *cost       RELATIVE per-Mtok cost-proxy (src/pricing.ts weightedUnits) — NOT dollars; only ratios are meaningful.",
-  "  Out of scope: account-wide periodic distiller (/tmp/shepherd-distill-*) is not per-task and is never attributed here.",
 ];
 
 function render(

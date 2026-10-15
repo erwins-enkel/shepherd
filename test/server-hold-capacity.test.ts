@@ -49,8 +49,7 @@ function makeDeps(): AppDeps {
     }),
     projections: () => [],
   };
-  const distiller = { distillNow: () => {} };
-  return { store, events, usageLimits, distiller } as unknown as AppDeps;
+  return { store, events, usageLimits } as unknown as AppDeps;
 }
 
 // ── New-Task create: plugin-refused → 200 { held:true } + capacity row ────────

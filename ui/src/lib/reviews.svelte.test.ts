@@ -26,7 +26,6 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   criticAllPrs: false,
   criticSmellLensEnabled: false,
   autoAddressEnabled: false,
-  learningsEnabled: true,
   autopilotEnabled: false,
   autoDrainEnabled: false,
   autoMergeEnabled: false,
@@ -41,7 +40,6 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   autoLabel: "shepherd:auto",
   usageCeilingPct: 80,
   repoMode: "forge",
-  autoOptimizeFlagged: false,
   manualStepsIssueEnabled: false,
   preWarmEpicLandingCi: false,
   mergeWithoutCi: false,
@@ -96,12 +94,10 @@ beforeEach(() => {
   planGates.held.map = {};
   repoConfig.enabled = {};
   repoConfig.autoAddress = {};
-  repoConfig.learnings = {};
   repoConfig.autopilot = {};
   repoConfig.autoDrain = {};
   repoConfig.autoMerge = {};
   repoConfig.buildQueue = {};
-  repoConfig.autoOptimize = {};
   repoConfig.planGate = {};
   repoConfig.draftMode = {};
   repoConfig.allPrs = {};
@@ -487,29 +483,6 @@ test("repoConfig.toggle sends only the criticEnabled field", async () => {
   expect(putRepoConfig).toHaveBeenCalledWith("/repo", { criticEnabled: false });
 });
 
-test("repoConfig.learningsOn returns true for unknown repo (default-on)", () => {
-  expect(repoConfig.learningsOn("/some/unknown/repo")).toBe(true);
-});
-
-test("repoConfig.learningsOn reflects set value", () => {
-  repoConfig.learnings = { "/repo": false };
-  expect(repoConfig.learningsOn("/repo")).toBe(false);
-});
-
-test("repoConfig.toggleLearnings flips learnings state", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ learningsEnabled: false }));
-  repoConfig.learnings = { "/repo": true };
-  await repoConfig.toggleLearnings("/repo");
-  expect(repoConfig.learningsOn("/repo")).toBe(false);
-});
-
-test("repoConfig.toggleLearnings reverts on error", async () => {
-  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
-  repoConfig.learnings = { "/repo": true };
-  await repoConfig.toggleLearnings("/repo");
-  expect(repoConfig.learningsOn("/repo")).toBe(true); // reverted to prev
-});
-
 test("repoConfig.isAutopilotEnabled defaults to false for unknown repo", () => {
   expect(repoConfig.isAutopilotEnabled("/unknown")).toBe(false);
 });
@@ -749,38 +722,6 @@ test("repoConfig.ensure caches repoMode", async () => {
   expect(repoConfig.repoModeFor("/repo")).toBe("lightweight");
 });
 
-// ── autoOptimize ───────────────────────────────────────────────────────────
-
-test("repoConfig.autoOptimizeOn defaults to false for unknown repo", () => {
-  expect(repoConfig.autoOptimizeOn("/unknown")).toBe(false);
-});
-
-test("repoConfig.autoOptimizeOn reflects set value", () => {
-  repoConfig.autoOptimize = { "/repo": true };
-  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true);
-});
-
-test("repoConfig.ensure caches autoOptimizeFlagged", async () => {
-  vi.mocked(getRepoConfig).mockResolvedValue(rc({ autoOptimizeFlagged: true }));
-  await repoConfig.ensure("/repo");
-  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true);
-});
-
-test("repoConfig.toggleAutoOptimize flips the flag and sends only that field", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ autoOptimizeFlagged: true }));
-  repoConfig.autoOptimize = { "/repo": false };
-  await repoConfig.toggleAutoOptimize("/repo");
-  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autoOptimizeFlagged: true });
-  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true);
-});
-
-test("repoConfig.toggleAutoOptimize reverts on error", async () => {
-  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
-  repoConfig.autoOptimize = { "/repo": true };
-  await repoConfig.toggleAutoOptimize("/repo");
-  expect(repoConfig.autoOptimizeOn("/repo")).toBe(true); // reverted to prev
-});
-
 // ── automationConfirmed / automationRowExists (issue #1025) ────────────────
 
 test("repoConfig.isAutomationConfirmed defaults to false for unknown repo", () => {
@@ -832,8 +773,7 @@ test("seedNewRepoDefaults seeds plan gate, auto-address, autopilot and build que
     buildQueueEnabled: true,
   });
   const f = repoConfig.flags("/repo");
-  expect([f.critic, f.planGate, f.autoAddress, f.autopilot, f.buildQueue, f.learnings]).toEqual([
-    true,
+  expect([f.critic, f.planGate, f.autoAddress, f.autopilot, f.buildQueue]).toEqual([
     true,
     true,
     true,

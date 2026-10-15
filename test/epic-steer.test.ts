@@ -118,7 +118,7 @@ describe("operatorReply", () => {
     const sigs = store.listSignals("/r");
     expect(sigs.length).toBe(1);
     expect(sigs[0]!.kind).toBe("reply");
-    expect(sigs[0]!.payload).toBe(EPIC_MSG); // raw words, so the distiller never mines the notice
+    expect(sigs[0]!.payload).toBe(EPIC_MSG); // raw words, so the steer history never carries the notice
     expect(sigs[0]!.payload).not.toContain(NOTICE_MARK);
   });
 

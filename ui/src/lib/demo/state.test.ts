@@ -55,7 +55,6 @@ describe("demoState.reset() → bootstrap getters", () => {
     expect(demoState.upNext()?.sections.length).toBeGreaterThan(0);
     expect(demoState.steers().length).toBeGreaterThan(0);
     expect(Object.keys(demoState.projectIcons()).length).toBeGreaterThan(0);
-    expect(demoState.pendingLearnings().length).toBeGreaterThan(0);
   });
 
   it("epic getters derive from the seeded epic graph", () => {
@@ -163,7 +162,6 @@ describe("the rich 8-session scenario is seeded coherently", () => {
     expect(demoState.recaps().deps).toBeDefined();
     expect(Object.keys(demoState.buildQueues())).toContain("coupon");
     expect(demoState.held().length).toBeGreaterThan(0);
-    expect(demoState.pendingLearnings().length).toBeGreaterThan(0);
     expect(Object.keys(demoState.projectIcons())).toHaveLength(2);
   });
 });

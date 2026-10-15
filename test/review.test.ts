@@ -51,7 +51,7 @@ async function withAuth<T>(
   }
 }
 import type { GitForge, GitState, PrComment, PrStatus } from "../src/forge/types";
-import type { Session, ReviewVerdict, Learning } from "../src/types";
+import type { Session, ReviewVerdict } from "../src/types";
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -2487,7 +2487,7 @@ test("round cap reached: holds the round, posts the review + signal, does not st
   expect(steers).toHaveLength(0); // gave up — escalates to the human
   expect(reviews["s1"]?.addressRound).toBe(3); // round preserved (not reset, not advanced)
   expect(rec.event).toBe("REQUEST_CHANGES"); // still posts to the PR
-  expect(signals.some((s) => s.kind === "critic")).toBe(true); // captured for the human/learnings
+  expect(signals.some((s) => s.kind === "critic")).toBe(true); // captured for the human
 });
 
 test("PR merged before finalize (findings): post-merge comment, no review/steer/signal (#596 gap a)", async () => {
@@ -2522,7 +2522,7 @@ test("PR merged before finalize (findings): post-merge comment, no review/steer/
   // …but nothing that gates/steers a merge that already happened
   expect(rec.event).toBeUndefined(); // no PR review posted on a merged PR
   expect(steers).toHaveLength(0); // no churn steered onto a merged branch
-  expect(signals.some((s) => s.kind === "critic")).toBe(false); // and no learnings signal
+  expect(signals.some((s) => s.kind === "critic")).toBe(false); // and no critic signal
   expect(reviews["s1"]?.decision).toBe("changes_requested"); // verdict still persisted (UI/dedup)
   expect(reviews["s1"]?.addressRound).toBe(0); // no steer round
 });
@@ -4667,39 +4667,10 @@ test("#1944 BACKSTOP: an ORDINARY spawn failure still writes no notice", async (
   expect(removed).toContain("/review-wt");
 });
 
-// ── #2154: version-controlled review policy + house rules at the session critic ────────────────
+// ── #2154: version-controlled review policy at the session critic ────────────────
 
-/** Minimal active Learning for the house-rules planner. */
-function learning2154(rule: string, scopeGlobs: string[] = []): Learning {
-  return {
-    id: `l-${rule.slice(0, 8)}`,
-    repoPath: "/repo",
-    rule,
-    rationale: "",
-    evidence: [],
-    status: "active",
-    evidenceCount: 0,
-    ineffectiveCount: 0,
-    helpfulCount: 1,
-    injectedCount: 1,
-    lastUsedAt: 1000,
-    retiredAt: null,
-    retiredReason: null,
-    scopeGlobs,
-    createdAt: 0,
-    updatedAt: 0,
-    lastEvidenceAt: null,
-    promotedPrUrl: null,
-    mergedIntoId: null,
-    trialedAt: null,
-    reTrialBlockedAt: null,
-    distinctKinds: 0,
-    distinctSessions: 0,
-  };
-}
-
-/** deps whose fingerprint resolves a real base SHA + changed files — the policy read and the
- *  house-rules scoping both key off those, and the default fake leaves baseSha null. */
+/** deps whose fingerprint resolves a real base SHA + changed files — the policy read keys off
+ *  those, and the default fake leaves baseSha null. */
 function makeDeps2154(
   over: Record<string, unknown> = {},
   files: string[] = ["src/foo.ts"],
@@ -4743,45 +4714,11 @@ test("#2154 no resolved base SHA ⇒ the policy is never read and the block is a
   expect(started[0]!.argv.at(-1)!).not.toContain("REPO REVIEW POLICY");
 });
 
-test("#2154 house rules are injected into the critic, scoped to the diff's changed files", async () => {
-  const { deps: d, started } = makeDeps2154({}, ["ui/src/lib/x.svelte"]);
-  (d as any).store.getRepoConfig = () => ({ criticEnabled: true, learningsEnabled: true });
-  (d as any).store.listActiveLearnings = () => [
-    learning2154("Never call execFileSync on the server loop."),
-    learning2154("Svelte files: snapshot $state before persisting.", ["ui/**/*.svelte"]),
-    learning2154("Python files only.", ["**/*.py"]),
-  ];
-  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
-  const prompt = started[0]!.argv.at(-1)!;
-  expect(prompt).toContain("REPO HOUSE RULES");
-  expect(prompt).toContain("Never call execFileSync on the server loop."); // always-rule
-  expect(prompt).toContain("Svelte files: snapshot $state before persisting."); // glob matched
-  // scope-gated: the diff touches no .py file, so this rule is not injected
-  expect(prompt).not.toContain("Python files only.");
-});
-
-test("#2154 house rules are gated by learningsEnabled, and never counted against the rules' stats", async () => {
-  const { deps: d, started } = makeDeps2154();
-  let recorded = 0;
-  (d as any).store.getRepoConfig = () => ({ criticEnabled: true, learningsEnabled: false });
-  (d as any).store.listActiveLearnings = () => [learning2154("a rule the critic must not see")];
-  // Present only so a future widening that starts counting reviewer injections trips this test:
-  // `injectedCount` is the Wilson auto-retire denominator, and only an AUTHOR session pays the
-  // matching reward — see ReviewService.repoHouseRules.
-  (d as any).store.recordInjectedLearnings = () => recorded++;
-  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
-  const prompt = started[0]!.argv.at(-1)!;
-  expect(prompt).not.toContain("REPO HOUSE RULES");
-  expect(prompt).not.toContain("a rule the critic must not see");
-  expect(recorded).toBe(0);
-});
-
-test("#2154 no policy and no house rules ⇒ the prompt is unchanged", async () => {
+test("#2154 no policy ⇒ the prompt is unchanged", async () => {
   const { deps: d, started } = makeDeps2154({ readReviewPolicy: async () => null });
   await new ReviewService(d as any).consider(session(), OPEN_GREEN);
   const prompt = started[0]!.argv.at(-1)!;
   expect(prompt).not.toContain("REPO REVIEW POLICY");
-  expect(prompt).not.toContain("REPO HOUSE RULES");
 });
 
 test.skipIf(!onLinux1944)(

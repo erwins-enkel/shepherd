@@ -4,9 +4,6 @@ import { DOC_AGENT_LABEL } from "./doc-agent";
 import { MAINTAIN_AGENT_LABEL } from "./maintain";
 import { PLUGIN_AGENT_LABEL } from "./plugin-agents";
 import { PROBE_NAME } from "./usage-probe";
-import { DISTILL_LABEL } from "./distiller";
-import { OPTIMIZE_LABEL } from "./optimizer";
-import { MERGE_LABEL } from "./merge-suggest";
 import { AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
 import { RECOMMEND_LABEL } from "./prompt-recommend";
@@ -28,8 +25,8 @@ export type ReapableHerdr = Pick<
  *  **Scope filter, not a safety gate.** This function is a first-pass scope filter; the
  *  caller's process-liveness check (a live agent in `herdr list`) is the actual safety gate.
  *
- *  **Collision-proof markers** (space-prefix or underscore): {@link PROBE_NAME},
- *  {@link DISTILL_LABEL} and {@link OPTIMIZE_LABEL} contain underscores; every other helper uses a space-prefixed
+ *  **Collision-proof markers** (space-prefix or underscore): {@link PROBE_NAME} contains
+ *  underscores; every other helper uses a space-prefixed
  *  label ({@link NAMER_LABEL}, {@link AUTOPILOT_LABEL}, and the still-inline `"review "`,
  *  `"plan-review "`, `"pr-critic "`, `"recap "`) or a multi-word exact phrase
  *  ({@link VERIFY_KEY_LABEL}). User sessions use prompt-derived `[a-z0-9-]` slugs — no spaces,
@@ -41,17 +38,8 @@ export type ReapableHerdr = Pick<
  *  quoted literals above/below are the labels still inlined at their spawn sites; if one of
  *  those gains a constant, reference it here too.
  *
- *  The distiller and optimizer each spawn under a UNIQUE per-run name of the form
- *  `__distill__<8hex>` / `__optimize__<8hex>` (prefixes `DISTILL_LABEL` / `OPTIMIZE_LABEL`),
- *  matched here by prefix. The prefix ends in `__`, which `[a-z0-9-]` slugs can never
- *  produce, so the prefix match stays collision-proof. The per-pane liveness check remains
- *  the actual safety gate.
- *
  *  Helpers covered (named by constant where one exists — see the note above):
  *  - {@link PROBE_NAME}        — usage probe
- *  - {@link DISTILL_LABEL}`<hex>`  — distiller (prefix match, unique per run)
- *  - {@link OPTIMIZE_LABEL}`<hex>` — rule optimizer (prefix match, unique per run)
- *  - {@link MERGE_LABEL}`<hex>`    — background merge-suggestion pass (prefix, unique per run)
  *  - {@link NAMER_LABEL}`<desig>`  — background LLM namer (namer.ts)
  *  - {@link AUTOPILOT_LABEL}`<id>` — autopilot stop-classifier (autopilot-llm.ts)
  *  - {@link VERIFY_KEY_LABEL}      — API-key verifier (verify-key.ts)
@@ -73,12 +61,9 @@ export type ReapableHerdr = Pick<
 export function isShepherdHelperLabel(label: string): boolean {
   return (
     label === PROBE_NAME ||
-    label.startsWith(DISTILL_LABEL) ||
     label.startsWith(DOC_AGENT_LABEL) ||
     label.startsWith(MAINTAIN_AGENT_LABEL) ||
     label.startsWith(PLUGIN_AGENT_LABEL) ||
-    label.startsWith(OPTIMIZE_LABEL) ||
-    label.startsWith(MERGE_LABEL) ||
     label === VERIFY_KEY_LABEL ||
     label.startsWith("review ") ||
     label.startsWith(NAMER_LABEL) ||
@@ -195,7 +180,7 @@ export interface ReapResult {
 }
 
 /**
- * Reconciliation sweep: close any usage-probe / review / namer / distill helper tab whose
+ * Reconciliation sweep: close any usage-probe / review / namer helper tab whose
  * pane is a husk — an idle shell with no agent process running in it. The teardown paths
  * (herdr.stop / start rollback) stop most leaks at the source; this is the durable safety
  * net for husks they can't reach — agents that crashed, or anything orphaned across a

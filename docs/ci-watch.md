@@ -1,7 +1,7 @@
 # CI Watch
 
 The bundled **CI Watch** plugin turns failing CI on a repo's default branch into GitHub issues
-that Shepherd's normal drain can fix: plan gate, critic and learnings included. It watches
+that Shepherd's normal drain can fix: plan gate and critic included. It watches
 scheduled, push and manually dispatched runs. It flake-probes a failing job once, classifies it
 and runs a read-only triage agent. Then it files an issue that asks for a reproduction and a fix.
 It never merges anything. Autonomy stops at the pull request.

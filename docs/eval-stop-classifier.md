@@ -600,7 +600,7 @@ It reads the `trialDetails` a `--json` run already records, so it needs no key a
   wrong trials of one population**. Both can hold at once, and on this data both do.
 
 **What it means for the gates after `classifyStop`.** The two sites the research doc named have
-since shipped — `blocked.ts` (#2375) and the learnings relevance gate (#2376) — and both ask a
+since shipped — `blocked.ts` (#2375) and the learnings relevance gate (#2376, since retired in #3139) — and both ask a
 **`noul`**, which carries no distribution and no confidence at all, so nothing here applies to
 them (contract 2 in `src/judge.ts`). For a future gate over a `choice`, the honest conclusion is
 that **this corpus cannot pick the measure for you**: twelve curated fixtures on which the shipped

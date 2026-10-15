@@ -53,7 +53,6 @@ function makeDeps(over: Partial<DraftReconcileDeps> = {}): DraftReconcileDeps {
           autopilotEnabled: false,
           autoDrainEnabled: false,
           autoAddressEnabled: false,
-          learningsEnabled: false,
           buildQueueEnabled: false,
           maxAuto: 0,
           autoLabel: null,

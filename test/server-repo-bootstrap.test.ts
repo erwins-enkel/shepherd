@@ -41,7 +41,7 @@ function makeDeps(): AppDeps {
     }),
     projections: () => [],
   };
-  return { store, service, events, usageLimits, distiller: { distillNow: async () => {} } };
+  return { store, service, events, usageLimits };
 }
 
 function call(app: ReturnType<typeof makeApp>, method: string, path: string, body?: unknown) {

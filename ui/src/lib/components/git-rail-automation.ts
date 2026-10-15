@@ -10,7 +10,6 @@ export type AutomationKey =
   | "smellLens"
   | "autoAddress"
   | "planGate"
-  | "learnings"
   | "autopilot"
   | "autoDrain"
   | "autoMerge"
@@ -25,7 +24,6 @@ export interface AutomationFlags {
   smellLens: boolean;
   autoAddress: boolean;
   planGate: boolean;
-  learnings: boolean;
   autopilot: boolean;
   autoDrain: boolean;
   autoMerge: boolean;
@@ -42,7 +40,7 @@ export interface AutomationGroup {
 /** Panel layout: theme groups in display order. */
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
   { id: "review", items: ["critic", "criticAllPrs", "smellLens", "autoAddress", "planGate"] },
-  { id: "behavior", items: ["learnings", "autopilot"] },
+  { id: "behavior", items: ["autopilot"] },
   { id: "queue", items: ["autoDrain", "autoMerge", "buildQueue", "draftMode"] },
 ];
 
@@ -59,7 +57,6 @@ export function automationCount(flags: AutomationFlags): number {
     flags.smellLens && flags.critic,
     flags.autoAddress && flags.critic,
     flags.planGate,
-    flags.learnings,
     flags.autopilot,
     flags.autoDrain,
     flags.autoMerge,

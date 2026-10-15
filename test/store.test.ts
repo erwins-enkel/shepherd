@@ -293,15 +293,14 @@ test("recentSessionCountsByRepo counts sessions per repo within the window", () 
   expect(s.recentSessionCountsByRepo(Date.now() + 60_000)["/b"]).toBeUndefined();
 });
 
-test("repo_config: defaults to critic on + auto-address off + learnings on, persists toggles", () => {
+test("repo_config: defaults to critic on + auto-address off, persists toggles", () => {
   const store = new SessionStore(":memory:");
-  // absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in)
+  // absent → critic on, auto-address off (the spendier loop is explicit opt-in)
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: true,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -317,7 +316,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -334,7 +332,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: true,
-    learningsEnabled: false,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -350,7 +347,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -367,7 +363,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: true,
-    learningsEnabled: false,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -383,7 +378,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -400,7 +394,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: true,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -416,7 +409,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -433,7 +425,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: true,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -449,7 +440,6 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -626,7 +616,6 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: true,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: true,
@@ -642,7 +631,6 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     defaultEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -2066,7 +2054,6 @@ test("repo_config: criticAllPrs toggle doesn't disturb other fields", () => {
   const before = {
     ...store.getRepoConfig("/repo/a"),
     criticEnabled: false,
-    learningsEnabled: false,
     autoDrainEnabled: true,
     maxAuto: 5,
     autoLabel: "go",
@@ -2076,7 +2063,6 @@ test("repo_config: criticAllPrs toggle doesn't disturb other fields", () => {
   const after = store.getRepoConfig("/repo/a");
   expect(after.criticAllPrs).toBe(true);
   expect(after.criticEnabled).toBe(false);
-  expect(after.learningsEnabled).toBe(false);
   expect(after.autoDrainEnabled).toBe(true);
   expect(after.maxAuto).toBe(5);
   expect(after.autoLabel).toBe("go");

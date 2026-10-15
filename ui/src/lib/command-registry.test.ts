@@ -9,7 +9,6 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     onUsage: vi.fn(),
     onRetry: vi.fn(),
     onNextNeedsYou: vi.fn(),
-    onLearnings: vi.fn(),
     onDiagnoseEpic: vi.fn(),
     onOperatorAssistant: vi.fn(),
     onDecommission: vi.fn(),
@@ -17,7 +16,6 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     hasSessions: true,
     retryReady: true,
     otherNeedsYouCount: 1,
-    hasLearnings: true,
     ...overrides,
   };
 }
@@ -31,7 +29,6 @@ describe("buildCommands — availability", () => {
       "broadcast",
       "settings",
       "usage",
-      "learnings",
       "retry",
       "diagnose-epic",
       "operator-assistant",
@@ -56,17 +53,12 @@ describe("buildCommands — availability", () => {
     expect(ids(ctx({ otherNeedsYouCount: 0 }))).not.toContain("next-needs-you");
   });
 
-  it("hides Learnings unless hasLearnings", () => {
-    expect(ids(ctx({ hasLearnings: false }))).not.toContain("learnings");
-  });
-
   it("always offers New task, Settings, Usage, Diagnose epic and the Operator Assistant", () => {
     const bare = ids(
       ctx({
         hasSessions: false,
         retryReady: false,
         otherNeedsYouCount: 0,
-        hasLearnings: false,
         decommissionDesig: null,
       }),
     );
@@ -106,7 +98,6 @@ describe("buildCommands — run() wiring", () => {
     byId["broadcast"].run();
     byId["settings"].run();
     byId["usage"].run();
-    byId["learnings"].run();
     byId["retry"].run();
     byId["diagnose-epic"].run();
     byId["operator-assistant"].run();
@@ -115,7 +106,6 @@ describe("buildCommands — run() wiring", () => {
     expect(c.onBroadcast).toHaveBeenCalledOnce();
     expect(c.onSettings).toHaveBeenCalledOnce();
     expect(c.onUsage).toHaveBeenCalledOnce();
-    expect(c.onLearnings).toHaveBeenCalledOnce();
     expect(c.onRetry).toHaveBeenCalledOnce();
     expect(c.onDiagnoseEpic).toHaveBeenCalledOnce();
     expect(c.onOperatorAssistant).toHaveBeenCalledOnce();

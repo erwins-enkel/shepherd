@@ -7,7 +7,7 @@
     mergeBacklogPr,
     requestDependabotRebase,
   } from "#lib/api.js";
-  import { basename } from "./learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import { mergeConfirmFromPr } from "./merge-confirm";
   import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";

@@ -382,18 +382,6 @@ export interface Settings {
   autopilotCli: string;
   autopilotModel: string;
   autopilotEffort: string;
-  distillerCli?: string;
-  distillerModel?: string;
-  distillerEffort?: string;
-  optimizerCli?: string;
-  optimizerModel?: string;
-  optimizerEffort?: string;
-  mergeSuggestCli?: string;
-  mergeSuggestModel?: string;
-  mergeSuggestEffort?: string;
-  distillerIntervalDays?: number;
-  distillerIntervalDaysMin?: number;
-  distillerIntervalDaysMax?: number;
   /** Default interactive agent provider for newly spawned task sessions. */
   defaultAgentProvider?: AgentProvider;
   /** While active, `defaultAgentProvider` above is a temporary capacity substitution. */
@@ -479,16 +467,10 @@ export interface Settings {
    *  Shares `judgeHasKey` and the daily ceiling above, but is armed independently of
    *  `judgeEnabled`. */
   blockJudgeMode: "off" | "shadow" | "armed";
-  /** House-rule relevance gate (#2376). `shadow` judges and records without acting, so the
-   *  evidence for arming `enforce` comes from real sessions. Inert unless the judge is armed. */
-  houseRuleRelevance: HouseRuleRelevanceMode;
   /** Up Next readiness rerank (#2535): reorders the Recommended sort within each group by a judge
    *  readiness band. Priority and repo groups never move. Inert unless the judge is armed. */
   upNextReadiness: boolean;
 }
-
-/** The three states of the house-rule relevance gate (#2376). */
-export type HouseRuleRelevanceMode = "off" | "shadow" | "enforce";
 
 export interface DirEntry {
   name: string;
@@ -1133,7 +1115,6 @@ export interface RepoConfig {
    *  (matches go to a body section, never findings). Experimental trial, default OFF. */
   criticSmellLensEnabled: boolean;
   autoAddressEnabled: boolean;
-  learningsEnabled: boolean;
   autopilotEnabled: boolean;
   autoDrainEnabled: boolean;
   autoMergeEnabled: boolean;
@@ -1155,8 +1136,6 @@ export interface RepoConfig {
   usageCeilingPct: number;
   /** Whether this repo uses a forge (GitHub/Gitea) or lightweight local-only mode. */
   repoMode: "forge" | "lightweight";
-  /** When a rule starts failing, rewrite it once automatically before auto-retirement eligibility. */
-  autoOptimizeFlagged: boolean;
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps (#1061).
    *  Default off — outbound write gated behind explicit per-repo opt-in. */
   manualStepsIssueEnabled: boolean;
@@ -3095,7 +3074,6 @@ export type WsEvent =
   | { event: "session:plangate-activity"; data: { id: string; summary: string } }
   // #1944: the session's FULL spawn-notice list; an empty array is a genuine all-clear.
   | { event: "session:spawn-notices"; data: { id: string; notices: SpawnNotice[] } }
-  | { event: "learnings:update"; data: { pending: number } }
   | {
       event: "plugin:status";
       data: { id: string; health: PluginInfo["health"]; status: unknown };
@@ -3434,127 +3412,6 @@ export interface DiffAgentAnnotation {
   side: "additions" | "deletions";
   lineNumber: number;
   metadata: { text: string; tool: string };
-}
-
-export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed" | "retired";
-
-/** What an evidence signal was captured from (mirrors server `SignalKind`):
- *  reply = an operator correction, critic = a code-review finding,
- *  block/stall = a session that got blocked or stalled. */
-export type SignalKind = "reply" | "critic" | "block" | "stall";
-
-/** One resolved evidence signal behind a proposed rule (provenance for the
- *  drawer). `id` is the signal id (stable render key); `desig` is the source
- *  session, null when no longer tracked. */
-export interface EvidenceItem {
-  id: string;
-  kind: SignalKind;
-  desig: string | null;
-  excerpt: string;
-  ts: number;
-}
-
-export interface Learning {
-  id: string;
-  repoPath: string;
-  rule: string;
-  rationale: string;
-  evidence: string[];
-  status: LearningStatus;
-  evidenceCount: number;
-  // Per-kind breakdown of the cited signals; only present on the pending payload.
-  evidenceKinds?: Partial<Record<SignalKind, number>>;
-  // The resolved evidence signals (kind + source session + excerpt), newest first.
-  evidenceDetail?: EvidenceItem[];
-  ineffectiveCount: number;
-  helpfulCount: number;
-  injectedCount: number;
-  lastUsedAt: number | null;
-  retiredAt: number | null;
-  /** Timestamp (ms) when this rule was auto-promoted to an active trial; null for
-   *  manually approved rules. Present on active/injectable payloads (#925). */
-  trialedAt?: number | null;
-  retiredReason: string | null;
-  // Glob patterns scoping where this rule injects (repo-relative). Empty = an
-  // Always-rule (every task); non-empty = injected only when the session's target
-  // files match a glob (#842).
-  scopeGlobs: string[];
-  createdAt: number;
-  updatedAt: number;
-  lastEvidenceAt: number | null;
-  promotedPrUrl: string | null;
-  // Phase 4: id of the surviving rule this one was merged into when soft-retired by
-  // consolidation (the retained citation). Null otherwise.
-  mergedIntoId?: string | null;
-}
-
-/** Phase 4 background merge-suggestion surfaced in the drawer (operator-applied). */
-export type MergeSuggestionKind = "intra" | "cross";
-
-export interface MergeSuggestionMember {
-  id: string;
-  repoPath: string;
-  rule: string;
-  status: LearningStatus;
-}
-
-export interface MergeSuggestion {
-  id: string;
-  kind: MergeSuggestionKind;
-  repoPath: string | null;
-  targetId: string | null;
-  sourceIds: string[];
-  mergedRule: string;
-  mergedRationale: string;
-  repoPaths: string[] | null;
-  signature: string;
-  status: "pending" | "applied" | "dismissed";
-  createdAt: number;
-  /** Hydrated member rules (survivor first for `intra`). */
-  members?: MergeSuggestionMember[];
-}
-
-/** A learning as it appears in the injectable preview: the rule plus the planner's
- *  per-rule verdict — `injected` (made the budget cut) and `scoped` (glob-conditional,
- *  not injected in this no-session preview) — plus the relevance judge's running tally
- *  (#2376): how many sessions this rule was judged for, and in how many of those the request
- *  was judged to be about it. Both 0 until the gate has been armed at least once. */
-export type InjectableRule = Learning & {
-  injected: boolean;
-  scoped: boolean;
-  relevanceJudged: number;
-  relevanceRelevant: number;
-};
-
-/** GET /api/learnings/injectable: one entry per repo with ≥1 active/promoted rule.
- *  Drives the drawer's "Injected house rules" view; the budget value flows from
- *  here so the UI never hardcodes it. `injected` reflects the server-side planner's
- *  greedy fit; when `enabled` is false every rule is `injected:false`, `usedChars:0`.
- *  `scoped` marks a glob-scoped rule — in this preview (no session) it never injects;
- *  it's conditional on a task's files matching, NOT over-budget. */
-export interface RepoInjectable {
-  repoPath: string;
-  enabled: boolean;
-  budgetChars: number;
-  usedChars: number;
-  rules: InjectableRule[];
-  retired: Learning[];
-  unseenRetired: number;
-}
-
-export interface DistillerHealth {
-  ok: boolean;
-  consecutiveFailures: number;
-  lastFailure: { reason: string; at: number; repoPath: string } | null;
-  // Additive sub-object: health of the rule optimizer (same shape as the
-  // distiller's). Always present in the current server response (the endpoint
-  // defaults to a safe ok-shape when the optimizer is unwired); optional only
-  // for compat with older server responses that predate this field.
-  optimizer?: {
-    ok: boolean;
-    consecutiveFailures: number;
-    lastFailure: { reason: string; at: number; repoPath: string } | null;
-  };
 }
 
 // ── leftover subprocesses surfaced at session close ─────────────────────────

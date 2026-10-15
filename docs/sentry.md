@@ -1,7 +1,7 @@
 # Sentry
 
 The bundled **Sentry** plugin turns production errors into GitHub issues that Shepherd's normal
-drain can fix: plan gate, critic and learnings included. The plugin polls Sentry, filters
+drain can fix: plan gate and critic included. The plugin polls Sentry, filters
 out noise, and runs a read-only triage agent. It then files a trimmed, PII-scrubbed issue
 that asks for a failing reproduction test and a fix. It never merges anything. Autonomy
 stops at the pull request.
@@ -103,7 +103,7 @@ contains exception text. The body lists:
 - the Sentry link;
 - event and user counts;
 - first and last seen;
-- the repo files in the stack trace, so path-scoped learnings apply;
+- the repo files in the stack trace;
 - the task: write a failing test that reproduces the trace, fix it, and put
   `Fixes <SHORT-ID>` in the PR body so Sentry resolves the issue on release. If no
   reproduction is possible, explain why and open the PR as a draft.

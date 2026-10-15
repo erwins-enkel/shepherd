@@ -42,7 +42,7 @@
  * chrome), so no i18n — same precedent as the spawn directives in src/service.ts.
  */
 import { basename } from "node:path";
-import { validateEpicDraft } from "./epic-author";
+import { pinnedVersionError, validateEpicDraft } from "./epic-author";
 import type { RateLimitSnapshot } from "./forge/rate-limit";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
@@ -166,6 +166,8 @@ export function applyEpicDraft(
   if (content === null) return { ok: false, status: 400, error: "invalid epic draft" };
   const semantic = validateEpicDraft(content);
   if (!semantic.ok) return { ok: false, status: 400, error: semantic.error };
+  const versionError = pinnedVersionError(content);
+  if (versionError) return { ok: false, status: 400, error: versionError };
   const draft = deps.store.replaceEpicDraft(sessionId, content);
   deps.events?.emit("session:epic-draft", draft);
   return { ok: true, data: draft };
@@ -434,6 +436,13 @@ const QUEUE_STEP: McpTool = {
   },
 };
 
+const AC_SCHEMA = {
+  type: "array",
+  items: { type: "string" },
+  description:
+    'Checkable criteria. Never a version number — write "the pinned stack in CLAUDE.md" instead.',
+} as const;
+
 const EPIC_DRAFT_CHILD_SCHEMA = {
   type: "object",
   properties: {
@@ -444,7 +453,7 @@ const EPIC_DRAFT_CHILD_SCHEMA = {
     },
     title: { type: "string" },
     body: { type: "string", description: "The goal and the vertical cut. No issue numbers." },
-    acceptanceCriteria: { type: "array", items: { type: "string" } },
+    acceptanceCriteria: AC_SCHEMA,
     blockedBy: {
       type: "array",
       items: { type: "string" },
@@ -476,7 +485,7 @@ const EPIC_DRAFT: McpTool = {
               "Markdown. Open each part with a `##` heading — the review UI builds its table of " +
               "contents from them. Acceptance criteria and non-goals go in their own fields.",
           },
-          acceptanceCriteria: { type: "array", items: { type: "string" } },
+          acceptanceCriteria: AC_SCHEMA,
           nonGoals: { type: "array", items: { type: "string" } },
         },
         required: ["title", "body"],

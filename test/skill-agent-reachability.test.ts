@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { AGENT_SKILLS_DIR } from "../src/agent-skills";
 import { isAgentIngressRoute } from "../src/server";
 
 /**
@@ -11,6 +12,9 @@ import { isAgentIngressRoute } from "../src/server";
  * hands import to the operator instead. (shepherd-epic-authoring carried the same wording until
  * #2003 deleted it — its epic guidance now lives in EPIC_AUTHORING_NOTICE, which never mentions
  * import at all.)
+ *
+ * #3111 moved the skill to the shipped `agent-skills/` and onto the epic-draft path: the server
+ * runs the import on approval, so the skill no longer needs to show the operator's command at all.
  *
  * The assertion can't simply be "the path is absent" — the skill still SHOWS it, inside the
  * command it prints for the operator to run. So the skill must mention the path exactly once,
@@ -25,7 +29,7 @@ const SENTINEL_LOOKBACK_LINES = 6;
 const SKILLS = ["shepherd-onboarding"] as const;
 
 function readSkill(name: string): string {
-  return readFileSync(join(import.meta.dir, "..", ".claude", "skills", name, "SKILL.md"), "utf8");
+  return readFileSync(join(AGENT_SKILLS_DIR, ".claude", "skills", name, "SKILL.md"), "utf8");
 }
 
 describe("skills never instruct an agent-unreachable epic import (#2009)", () => {
@@ -44,15 +48,22 @@ describe("skills never instruct an agent-unreachable epic import (#2009)", () =>
         .map((line, i) => ({ line, i }))
         .filter(({ line }) => line.includes(IMPORT_PATH));
 
-      test("mentions the import path exactly once", () => {
-        expect(mentions.length).toBe(1);
+      test("every mention of the import path is marked OPERATOR-RUN", () => {
+        for (const { i } of mentions) {
+          const preceding = lines.slice(Math.max(0, i - SENTINEL_LOOKBACK_LINES), i);
+          expect(preceding.some((l) => l.includes(OPERATOR_RUN_SENTINEL))).toBe(true);
+        }
       });
 
-      test("that mention is marked OPERATOR-RUN", () => {
-        expect(mentions.length).toBe(1);
-        const at = mentions[0]!.i;
-        const preceding = lines.slice(Math.max(0, at - SENTINEL_LOOKBACK_LINES), at);
-        expect(preceding.some((l) => l.includes(OPERATOR_RUN_SENTINEL))).toBe(true);
+      test("submits through epic_draft, never an agent-run `gh issue create` (#3111)", () => {
+        const text = lines.join("\n");
+        expect(text).toContain("`epic_draft` tool");
+        const fenced = [...text.matchAll(/```[a-z]*\n([\s\S]*?)```/g)].map((m) => m[1]);
+        expect(fenced.some((block) => block!.includes("gh issue create"))).toBe(false);
+      });
+
+      test("forbids versions in acceptance criteria (#3111)", () => {
+        expect(lines.join("\n")).toContain("the pinned stack in CLAUDE.md");
       });
     });
   }

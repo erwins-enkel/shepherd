@@ -65,6 +65,8 @@ enum IOSMergedSessionPresentation {
         let profile: ServerProfile
         let repoPath: String
         let parentNumber: Int
+        /// Each member’s lifecycle stage, used for cues and reloads.
+        var stages: [String: HerdStage] = [:]
         var rows: [Row]
         var repoName: String { (repoPath as NSString).lastPathComponent }
     }
@@ -168,6 +170,7 @@ enum IOSMergedSessionPresentation {
                         repoPath: row.session.repoPath, parentNumber: parent, rows: [])
                 }
                 epics[key]?.rows.append(row)
+                epics[key]?.stages[row.session.id] = stage
                 return false
             }
             guard !rows.isEmpty else { return nil }

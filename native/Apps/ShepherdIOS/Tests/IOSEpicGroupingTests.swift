@@ -6,6 +6,21 @@ import ShepherdKit
 
 @MainActor
 final class IOSEpicGroupingTests: XCTestCase {
+    func testCuesTallyMemberStagesAndTheFingerprintFollowsMoves() {
+        var blocked = session("c", parent: 100, issue: 103)
+        blocked.status = .init(known: .blocked)
+        let group = IOSMergedSessionPresentation.merge([source(profile("one"),
+            active: [session("a", parent: 100, issue: 101), blocked],
+            ready: [session("b", parent: 100, issue: 102)])], selectedRepos: []).epicGroups[0]
+        XCTAssertEqual(group.stages["b"], .ready)
+        XCTAssertEqual(group.cues, IOSEpicCues(ready: 1, blocked: 1))
+        XCTAssertFalse(group.cues.isEmpty)
+        let moved = IOSMergedSessionPresentation.merge([source(profile("one"),
+            active: [session("a", parent: 100, issue: 101), session("b", parent: 100, issue: 102), blocked])],
+            selectedRepos: []).epicGroups[0]
+        XCTAssertNotEqual(group.fingerprint, moved.fingerprint)
+    }
+
     private func profile(_ name: String) -> ServerProfile {
         .init(name: name, baseURL: URL(string: "https://\(name).fixture.invalid")!, mode: .remote, credentialKey: name)
     }

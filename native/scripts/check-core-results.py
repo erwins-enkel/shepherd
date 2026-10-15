@@ -90,6 +90,12 @@ def xcresult_rows(tree):
             if not isinstance(node, dict) or not isinstance(node.get("nodeType"), str):
                 raise ValueError("unknown xcresult node schema")
             kind = node["nodeType"]
+            # Xcode 27 includes diagnostic leaves beneath executed test cases.
+            # They carry no result; the enclosing case still controls pass/fail.
+            if kind == "Runtime Warning":
+                if parent not in {"Test Case", "Arguments"} or not isinstance(node.get("name"), str) or not node["name"] or node.get("children", []):
+                    raise ValueError("unknown xcresult runtime warning structure")
+                continue
             if kind not in containers | {"Test Case", "Arguments"}:
                 raise ValueError(f"unknown xcresult node type: {kind}")
             if kind not in allowed_children[parent]:

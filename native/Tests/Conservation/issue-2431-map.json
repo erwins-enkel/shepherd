@@ -12787,6 +12787,11 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"theClockSubtractsPausesAndStandsStillWhilePaused() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"theFirstChildNeedsNothingAndFreesTwoInParallel() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"theLastChildIsMarkedOnceEveryOtherOneMerged() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"titlesDropRedundantPrefixes()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicChainTests.swift\",\"CoreSeamTests.EpicChainTests\",\"titlesDropRedundantPrefixes()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"aDigestMatchesRowsBySessionThenIssue() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"foldsEveryUnmergedChildWithoutARowByStage() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"mergedBlockersLeaveNothingToWaitOn() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"nothingFoldedNoSummary() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"readyChildrenLeadTheSummary() throws\"]"
   ]
 }

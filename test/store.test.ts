@@ -2828,6 +2828,26 @@ test("hasInflightReviewerSpawn ignores a row spawned before the window", () => {
   expect(s.hasInflightReviewerSpawn(a.id, 0)).toBe(true); // still unfinished, just not recent
 });
 
+test("session: bootstrap derives from the persisted resolved stack (#3109)", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(s.get(a.id)?.bootstrap).toBe(false);
+  expect(s.getBootstrapStack(a.id)).toBeNull();
+  const stack = {
+    ok: true as const,
+    resolvedAt: "2026-10-15T00:00:00.000Z",
+    npm: [{ name: "svelte", version: "5.1.0" }],
+    crates: [],
+    rustToolchain: null,
+  };
+  const b = s.create({ ...base, herdrAgentId: "t2", bootstrapStack: stack });
+  expect(b.bootstrap).toBe(true);
+  const got = s.get(b.id);
+  expect(got?.bootstrap).toBe(true);
+  expect(got && "bootstrapStackJson" in got).toBe(false);
+  expect(s.getBootstrapStack(b.id)).toEqual(stack);
+});
+
 test("session: plain defaults false, round-trips via create + get", () => {
   const s = mk();
   const a = s.create(base);

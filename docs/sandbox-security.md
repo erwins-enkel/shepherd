@@ -285,6 +285,18 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   delivers a **report PR or GitHub issue only, never a code PR**
   (`RESEARCH_PROCEED_STEER`, `src/autopilot.ts`). The residual is **accepted**.
 
+- **Bootstrap is downgraded the same way, and DOES open a code PR.** A bootstrap
+  session (`input.bootstrap`, #3109) that would resolve to `autonomous` also gets
+  `standard` (`researchSafeProfileOverride`), because it installs from the package
+  registries and searches the web while scaffolding a new project. Unlike research its
+  deliverable **is a code PR**, so it runs with open egress and the readable gh token
+  while writing code. **Why the residual is accepted:** it is operator-_created_ only
+  (no drain path sets it; `standard` refuses auto-spawn), the service forces autopilot
+  **off** (`resolveCreateLaunch`), so it never runs unattended — the operator answers its
+  P1 questions in the live pane; it targets an **empty** project (nothing to exfiltrate
+  beyond the PRD/design it was given); and its one PR goes through CI, the critic and a
+  human merge like any other.
+
 ## Shared browser
 
 The per-repo **Shared Browser** (a headful Chromium on the Shepherd host with a

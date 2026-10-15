@@ -4,6 +4,14 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { claudeTranscriptExists } from "./usage";
+import { bootstrapDirective } from "./bootstrap-directive";
+import {
+  HOUSE_STACK_SETTING,
+  type HouseStackResolver,
+  HouseStackUnresolvedError,
+  sharedHouseStackResolver,
+  storedHouseStack,
+} from "./house-stack";
 import type { RepoConfig, SessionStore } from "./store";
 import { TERMINAL_CLAIM_TTL_MS } from "./store";
 import { detectedHerdrVersion, herdrPaneControlSupported } from "./herdr-capabilities";
@@ -123,7 +131,7 @@ import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { SHELLS } from "./json-tolerant";
 import { resumeThenSteer } from "./resume-then-steer";
-import { MAX_IMAGES, type HandoffMode } from "./validate";
+import { MAX_IMAGES, relaunchKinds, taskKindConflict, type HandoffMode } from "./validate";
 import {
   resolveProfile,
   detectBackend as detectSandboxBackend,
@@ -285,6 +293,8 @@ function usedBaseCommit(input: StandardCreateInput, wt: WorktreeResult): string 
 }
 
 export interface ServiceDeps {
+  /** House Stack version resolver for bootstrap spawns (#3109); defaults to the shared one. */
+  houseStackResolver?: Pick<HouseStackResolver, "resolve">;
   /** Filesystem seam for persisted conversation availability; defaults to the real transcript file check. */
   transcriptExists?: (path: string) => boolean;
   capacity?: (session: Session) => Promise<boolean>;
@@ -1856,6 +1866,7 @@ function primaryDirectiveBlock(
   opts: {
     research?: boolean;
     epicAuthoring?: string | null;
+    bootstrap?: string | null;
     landingRepair?: boolean;
     planGate?: "interactive" | "auto";
     operatorLanguage?: OperatorLanguage;
@@ -1869,6 +1880,11 @@ function primaryDirectiveBlock(
   }
   if (opts.research) {
     return taggedBlock("research-directive", researchDirective(agentProvider));
+  }
+  // Bootstrap (#3109) replaces plan-gate/autopilot too: its P1 grilling IS the planning step. The
+  // pre-baked text (resolved pins) is composed by directiveBlocks, mirroring epicAuthoring.
+  if (opts.bootstrap) {
+    return taggedBlock("bootstrap-directive", opts.bootstrap);
   }
   // Landing repair (Task 5's drain-spawned CI-fix session) is the same priority tier as research:
   // it replaces plan-gate/autopilot (its deliverable is a push, not a planned-then-implemented PR).
@@ -2002,6 +2018,9 @@ export interface ComposeSystemPromptOptions {
   /** Plain task kind; absent/false → off. Suppresses the same blocks as the other non-code modes
    *  and adds no directive of its own — the agent runs as the bare CLI would. */
   plain?: boolean;
+  /** Pre-baked bootstrap directive text (resolved pins, #3109), or null/absent when off. A CODE
+   *  mode (it opens a PR), so unlike the kinds above it suppresses only plan-gate/autopilot. */
+  bootstrap?: string | null;
   planGate?: "interactive" | "auto";
   buildQueue?: string | null;
   previewHint?: boolean;
@@ -3458,7 +3477,15 @@ export class SessionService {
   private directiveBlocks(
     input: Pick<
       StandardCreateInput,
-      "repoPath" | "prompt" | "auto" | "research" | "epicAuthoring" | "landingRepair" | "plain"
+      | "repoPath"
+      | "prompt"
+      | "auto"
+      | "research"
+      | "epicAuthoring"
+      | "landingRepair"
+      | "plain"
+      | "bootstrap"
+      | "bootstrapStack"
     >,
     ctx: {
       sessionId: string;
@@ -3499,9 +3526,18 @@ export class SessionService {
           agentProvider: ctx.agentProvider,
         })
       : null;
+    // Bootstrap directive (#3109): the pins resolved at spawn ride the create input; a resume (input
+    // is the stored row) reads the same persisted resolution back.
+    const bootstrap = input.bootstrap
+      ? bootstrapDirective({
+          stack: input.bootstrapStack ?? this.deps.store.getBootstrapStack(sessionId),
+          agentProvider: ctx.agentProvider,
+        })
+      : null;
     return composeSystemPromptBlocks(ctx.houseRules, autopilotActive, {
       research: input.research,
       epicAuthoring,
+      bootstrap,
       landingRepair: input.landingRepair,
       plain: input.plain,
       planGate,
@@ -3946,8 +3982,15 @@ export class SessionService {
       repoConfig.sandboxProfile,
       config.sandboxDefaultProfile,
     );
-    if ((input.research || input.epicAuthoring) && effectiveProfile === "autonomous") {
-      const kind = input.research ? "research" : "epic-authoring";
+    if (
+      (input.research || input.epicAuthoring || input.bootstrap) &&
+      effectiveProfile === "autonomous"
+    ) {
+      const kind = input.research
+        ? "research"
+        : input.epicAuthoring
+          ? "epic-authoring"
+          : "bootstrap";
       console.warn(
         `[sandbox] ${kind} ${sessionId}: downgrading autonomous → standard ` +
           `(needs open web/repo egress; the autonomous egress firewall would block web search)`,
@@ -3969,7 +4012,8 @@ export class SessionService {
    * to plan with). A plain task is exempt by definition: it is the agent without guards.
    */
   private resolvePlanGateOn(input: StandardCreateInput, repoConfig: RepoConfig): boolean {
-    if (isNonCodeMode(input)) return false;
+    // Bootstrap (#3109) runs its own P1 decision grilling — the plan gate would be a second one.
+    if (isNonCodeMode(input) || input.bootstrap) return false;
     return input.planGateEnabled ?? repoConfig.planGateEnabled;
   }
 
@@ -4091,7 +4135,12 @@ export class SessionService {
     // A plain session never runs on autopilot — that is the mode's contract, regardless of the
     // per-task override or the repo default. Forced here, on the ONE input every downstream
     // consumer (argv, build-queue pre-approval, the persisted row) reads.
-    const spawnInput = modelInput.plain ? { ...modelInput, autopilotEnabled: false } : modelInput;
+    // A bootstrap session (#3109) is attended for the same reason: autopilot would steer through
+    // its P1 operator questions.
+    const spawnInput =
+      modelInput.plain || modelInput.bootstrap
+        ? { ...modelInput, autopilotEnabled: false }
+        : modelInput;
     if (model !== null && spawnModel === null)
       console.warn(
         `[spawn] codex model "${model}" unsupported by ChatGPT-account auth — using account default`,
@@ -4285,13 +4334,29 @@ export class SessionService {
     if (input.terminal === true) return this.createTerminalSession(input);
     const phases = tracker ?? new SpawnPhaseTracker();
     try {
-      const session = await this.createAgentSession(input, phases);
+      const session = await this.createAgentSession(await this.withBootstrapStack(input), phases);
       phases.finish("ok");
       return session;
     } catch (e) {
       phases.finish(e instanceof SpawnCanceled ? "canceled" : "failed");
       throw e;
     }
+  }
+
+  /**
+   * A bootstrap create (#3109) resolves the operator's House Stack BEFORE anything is created, so
+   * an unresolvable package refuses the start with nothing to roll back — no pin is ever guessed.
+   * Every other input passes through untouched. Re-resolved on each create (relaunch included);
+   * the registry cache keeps that cheap.
+   */
+  private async withBootstrapStack(input: StandardCreateInput): Promise<StandardCreateInput> {
+    if (!input.bootstrap || input.bootstrapStack) return input;
+    const stack = storedHouseStack(this.deps.store.getSetting(HOUSE_STACK_SETTING));
+    const resolved = await (this.deps.houseStackResolver ?? sharedHouseStackResolver).resolve(
+      stack,
+    );
+    if (!resolved.ok) throw new HouseStackUnresolvedError(resolved.errors);
+    return { ...input, bootstrapStack: resolved };
   }
 
   /** The pre-de-dupe session name: the namer's slug, with the issue number folded in when the
@@ -4405,6 +4470,7 @@ export class SessionService {
         epicAuthoring: spawnInput.epicAuthoring ?? false,
         landingRepair: spawnInput.landingRepair ?? false,
         plain: spawnInput.plain ?? false,
+        bootstrapStack: spawnInput.bootstrapStack,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
         launchMetadata: this.buildLaunchMetadata({
           input,
@@ -4766,6 +4832,9 @@ export class SessionService {
     //     The composer already seeded the carried originals into overrides.images (via
     //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
     //     re-merging here would double the carried uploads.
+    // The route 400s this first; a direct caller must not spawn a two-kind session either.
+    const kindErr = taskKindConflict(relaunchKinds(s, overrides ?? null));
+    if (kindErr) throw new Error(kindErr);
     const images = this.carryRelaunchImages(s, overrides, originalId);
     const attachmentNames = this.carryRelaunchAttachmentNames(s, overrides, images);
     // #2225: resolved ONCE, then threaded to BOTH the spawn prompt (so the new agent reads the
@@ -4879,6 +4948,8 @@ export class SessionService {
       landingRepair: pickOverride(overrides?.landingRepair, original.landingRepair),
       // Carry the plain flag so a relaunch stays guard-free.
       plain: pickOverride(overrides?.plain, original.plain),
+      // Carry the bootstrap flag; the relaunch's create re-resolves the House Stack (#3109).
+      bootstrap: pickOverride(overrides?.bootstrap, original.bootstrap),
       epicParent: carriedEpicParent(original, overrides),
       // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.
       carriedAmendments,
@@ -4938,6 +5009,9 @@ export class SessionService {
       research: s.research,
       epicAuthoring: s.epicAuthoring,
       landingRepair: s.landingRepair,
+      // The replacement keeps the pins this session was bootstrapped with (#3109).
+      bootstrap: s.bootstrap,
+      bootstrapStack: this.deps.store.getBootstrapStack(s.id) ?? undefined,
       auto: false,
       // #2225: replace REUSES this session's row, so its amendments (and the rows its critic
       // reads) are already in place — but the fresh agent has never seen them. Fold the same

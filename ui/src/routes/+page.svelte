@@ -807,6 +807,7 @@
   let composeResearch = $state(false);
   let composeEpicAuthoring = $state(false);
   let composePlain = $state(false);
+  let composeBootstrap = $state(false);
   // Re-entrancy guard so a double-invoke while staging is in flight doesn't double-seed.
   let relaunchStaging = $state(false);
   let backlog = $state<BacklogPayload | null>(null);
@@ -2309,6 +2310,7 @@
     composeResearch = false;
     composeEpicAuthoring = false;
     composePlain = false;
+    composeBootstrap = false;
   }
 
   // NewProject partial-success warning code → message map. A lookup (not a ternary
@@ -2666,6 +2668,7 @@
     composeResearch = input.research ?? false;
     composeEpicAuthoring = input.epicAuthoring ?? false;
     composePlain = input.plain ?? false;
+    composeBootstrap = input.bootstrap ?? false;
     editHeldId = task.id;
     showNew = true;
   }
@@ -3874,6 +3877,7 @@
   {composeResearch}
   {composeEpicAuthoring}
   {composePlain}
+  {composeBootstrap}
   usageLimits={store.usageLimits}
   holdLikely={composeHoldLikely}
   onnewclose={() => {

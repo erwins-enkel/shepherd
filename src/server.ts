@@ -77,6 +77,8 @@ import {
   validatePlacementPreview,
   validateRequirementsDerive,
   validateRelaunchOverrides,
+  relaunchKinds,
+  taskKindConflict,
   validateModelChoice,
   validateReplaceAgentChoice,
   validateCloneUrl,
@@ -129,8 +131,10 @@ import {
 import { type Capability, describeMissing } from "./remote-instances/capabilities";
 import {
   HOUSE_STACK_SETTING,
-  HouseStackResolver,
+  type HouseStackResolver,
+  HouseStackUnresolvedError,
   parseHouseStack,
+  sharedHouseStackResolver,
   storedHouseStack,
 } from "./house-stack";
 import {
@@ -3619,6 +3623,9 @@ function createErrorResponse(e: unknown): Response {
   // steps around that, so this is a conflict the operator resolves by retrying (which re-runs
   // selection), not a server fault — hence 409 rather than the 502 below.
   if (e instanceof WorktreeOccupiedError) return json({ error: e.message }, 409);
+  // A bootstrap spawn whose House Stack did not resolve (#3109): the UI names the packages.
+  if (e instanceof HouseStackUnresolvedError)
+    return json({ error: e.message, code: "house_stack_unresolved", errors: e.errors }, 502);
   const msg = e instanceof Error ? e.message : "create failed";
   const taken = /agent_name_taken/.test(msg);
   return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
@@ -5668,6 +5675,9 @@ async function handleSessionRelaunch({ req, parts, deps, token }: Ctx): Promise<
     const parsed = await parseRelaunchOverrides(req);
     if ("error" in parsed) return parsed.error;
     const { overrides } = parsed;
+    // Exclusivity is a property of the RELAUNCHED task: the overrides merged over the original.
+    const kindErr = taskKindConflict(relaunchKinds(original, overrides));
+    if (kindErr) return json({ error: kindErr }, 400);
     const targetRepo = overrides?.repoPath ?? original.repoPath;
     const repoErr = repositoryInputError(token, {
       repoPath: targetRepo,
@@ -7954,9 +7964,6 @@ function putHouseStack(value: unknown, deps: Ctx["deps"]): Response {
   return json({ houseStack: parsed.value });
 }
 
-// One process-wide resolver so its registry cache is shared across requests.
-const defaultHouseStackResolver = new HouseStackResolver();
-
 // ── House Stack: resolve the current setting against the registries (#3108) ──
 // GET /api/house-stack/resolve → 200 {ok:true,…versions} | 502 {ok:false,errors} (never partial).
 async function handleHouseStackResolve({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -7964,7 +7971,7 @@ async function handleHouseStackResolve({ req, parts, deps }: Ctx): Promise<Respo
     return null;
   if (req.method !== "GET") return null;
   const stack = storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING));
-  const resolved = await (deps.houseStackResolver ?? defaultHouseStackResolver).resolve(stack);
+  const resolved = await (deps.houseStackResolver ?? sharedHouseStackResolver).resolve(stack);
   return json(resolved, resolved.ok ? 200 : 502);
 }
 
@@ -9658,7 +9665,7 @@ function driftRoute(method: string, parts: string[]): "read" | "story" | null {
 function driftDeps(dir: string, deps: Ctx["deps"]): DriftDeps {
   const epicRun = deps.store.getEpicRun(dir);
   return {
-    resolver: deps.houseStackResolver ?? defaultHouseStackResolver,
+    resolver: deps.houseStackResolver ?? sharedHouseStackResolver,
     forge: deps.resolveForge?.(dir) ?? null,
     houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
     autoLabel: deps.store.getRepoConfig(dir).autoLabel,

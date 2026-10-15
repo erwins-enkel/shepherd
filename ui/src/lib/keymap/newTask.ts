@@ -267,6 +267,15 @@ export const NEW_TASK_KEYMAP: KeymapEntry[] = [
     run: (c) => c.setMode("plain"),
   },
   {
+    id: "mode-bootstrap",
+    zone: "options",
+    chords: [{ code: "Digit5", alt: true }],
+    label: () => m.keymap_mode_bootstrap(),
+    anchor: "mode segment · Bootstrap",
+    enabled: always,
+    run: (c) => c.setMode("bootstrap"),
+  },
+  {
     id: "engine",
     zone: "options",
     chords: [{ code: "KeyE", mod: true }],

@@ -1326,6 +1326,7 @@ describe("NewTask research mode (segmented control)", () => {
       [m.newtask_mode_research(), m.newtask_prompt_placeholder_research()],
       [m.newtask_mode_epic(), m.newtask_prompt_placeholder_epic()],
       [m.newtask_mode_plain(), m.newtask_prompt_placeholder_plain()],
+      [m.newtask_mode_bootstrap(), m.newtask_prompt_placeholder_bootstrap()],
       [m.newtask_mode_code(), m.newtask_prompt_placeholder()],
     ]) {
       segButton(seg).click();
@@ -5348,6 +5349,59 @@ describe("NewTask spawn progress", () => {
     expect(panel.textContent).toContain("0:11");
     expect(panel.querySelector(".spawn-cancel")).toBeTruthy();
     expect(panel.querySelector(".spawn-why")).toBeNull();
+  });
+});
+
+describe("NewTask bootstrap mode (#3109)", () => {
+  const bootSeg = () => segButton(m.newtask_mode_bootstrap());
+
+  it("submits bootstrap:true, drops the guards and unlocks no autonomous sandbox", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/mode-bootstrap" } });
+    await expect.poll(() => bootSeg()).toBeTruthy();
+    expect(guardsGroup()).toBeTruthy();
+    bootSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_bootstrap())).toBe(true);
+    await expect.poll(() => guardsGroup()).toBeUndefined();
+    typePrompt("a todo app");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      bootstrap: true,
+      plain: false,
+      research: false,
+      epicAuthoring: false,
+      planGateEnabled: false,
+      autopilotEnabled: false,
+    });
+    expect(onsubmit.mock.calls[0]![0].launchUiState).toMatchObject({ bootstrapChecked: true });
+  });
+
+  it("names the House Stack failure instead of a raw error", async () => {
+    const onsubmit = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(
+          502,
+          "house stack unresolved: npm:svelte (timed out)",
+          "house_stack_unresolved",
+          true,
+        ),
+      );
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/mode-bootstrap-fail" } });
+    await expect.poll(() => bootSeg()).toBeTruthy();
+    bootSeg().click();
+    typePrompt("a todo app");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect
+      .poll(() => document.body.textContent)
+      .toContain(m.newtask_house_stack_unresolved({ detail: "npm:svelte (timed out)" }));
   });
 });
 

@@ -46,8 +46,8 @@ export interface Chord {
  *  what keeps the registry a plain data module — unit-testable with a stub ctx,
  *  no component mounting, no Svelte runtime. */
 /** The composer's mode segment: Code, or one of the non-code modes (research, epic authoring,
- *  plain — the agent without guards). */
-export type ComposeMode = "code" | "research" | "epic" | "plain";
+ *  plain — the agent without guards) or bootstrap (a guarded scaffold PR, #3109). */
+export type ComposeMode = "code" | "research" | "epic" | "plain" | "bootstrap";
 
 export interface NewTaskKeymapCtx {
   /** Resolved once per dialog, never per keycap — it decides both which

@@ -818,6 +818,48 @@ export function scanEcosystem(dir: string): EcosystemScan {
   );
 }
 
+/** The section of the generated CLAUDE.md naming what no guardrail catches — shared verbatim with
+ *  the bootstrap directive (#3109), which writes it into a new project's CLAUDE.md. */
+export const GUARDRAIL_BLIND_SPOTS = `## What the guardrails can't catch
+
+- **Fail closed.** Render error/unreachable paths as explicit failures; never let a
+  swallowed error, empty result, or zero count masquerade as success.
+- **Single source of truth.** Derive counts, totals, and dimensions from the data
+  (array length, column count) — never hardcode a magic number that silently drifts.
+- **Keep names and comments honest.** When you change a function's behavior, update
+  its name, doc comment, and inline comments to match — no stale comment left behind.`;
+
+/** One adopt-list entry: label, churn line, then the indented notes and `$ ` install steps. */
+function adoptLine<Ctx extends FileScan>(
+  profile: EcosystemProfile<Ctx>,
+  ctx: Ctx,
+  id: GuardrailId,
+): string {
+  const head = `- ${profile.toolingLabel(id)} — ${profile.churnPlain(id)}`;
+  const lines = [
+    ...profile.prescriptionNote(ctx, id),
+    ...profile.installSteps(ctx, id).map((cmd) => `$ ${cmd}`),
+  ];
+  return lines.length ? `${head}\n${lines.map((l) => `    ${l}`).join("\n")}` : head;
+}
+
+/** A scan of a repo that has nothing yet — what a bootstrap (#3109) scaffolds into. */
+const emptyScan = { dir: "", has: () => false, glob: () => [] };
+
+/**
+ * The complete guardrail adopt-list for a NEW project of `ecosystem` (#3109): every guardrail of
+ * the profile, in leverage order, rendered exactly as {@link generateClaudeMd} prescribes a missing
+ * one — so the bootstrap directive and the Readiness artifact share one set of install steps.
+ */
+export function bootstrapGuardrailChecklist(ecosystem: Ecosystem, pm: PackageManager): string {
+  if (ecosystem === "rust") {
+    const ctx: RustScan = { ...emptyScan, corpus: () => false, devDeps: new Set() };
+    return RUST_GUARDRAILS.map((g) => adoptLine(rustProfile, ctx, g.id)).join("\n");
+  }
+  const ctx: RepoScan = { ...emptyScan, deps: new Set(), scripts: {}, pm, pins: [] };
+  return GUARDRAILS.map((g) => adoptLine(jsProfile, ctx, g.id)).join("\n");
+}
+
 /**
  * A repo-tailored house-rules snippet: the few failure modes tooling can't catch, plus a
  * prescription of the missing tooling.
@@ -847,16 +889,7 @@ function generateClaudeMd<Ctx extends FileScan>(
   const missing = checks.filter((c) => !c.present).sort((a, b) => b.weight - a.weight);
 
   const adoptLines = missing.length
-    ? missing
-        .map((c) => {
-          const head = `- ${profile.toolingLabel(c.id)} — ${profile.churnPlain(c.id)}`;
-          const lines = [
-            ...profile.prescriptionNote(ctx, c.id),
-            ...profile.installSteps(ctx, c.id).map((cmd) => `$ ${cmd}`),
-          ];
-          return lines.length ? `${head}\n${lines.map((l) => `    ${l}`).join("\n")}` : head;
-        })
-        .join("\n")
+    ? missing.map((c) => adoptLine(profile, ctx, c.id)).join("\n")
     : "- None — your deterministic guardrails already cover the baseline.";
 
   return `# House rules for AI agents (${stack})
@@ -866,14 +899,7 @@ with minimal human back-and-forth by having deterministic guardrails do the
 coaching — the gate fails, the agent self-corrects, a human is never pulled in to
 re-explain a mechanical defect.
 
-## What the guardrails can't catch
-
-- **Fail closed.** Render error/unreachable paths as explicit failures; never let a
-  swallowed error, empty result, or zero count masquerade as success.
-- **Single source of truth.** Derive counts, totals, and dimensions from the data
-  (array length, column count) — never hardcode a magic number that silently drifts.
-- **Keep names and comments honest.** When you change a function's behavior, update
-  its name, doc comment, and inline comments to match — no stale comment left behind.
+${GUARDRAIL_BLIND_SPOTS}
 
 ## Adopt these guardrails (highest leverage first)
 

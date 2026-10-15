@@ -2,6 +2,7 @@ import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type { GithubCacheKind, GithubCacheRow } from "./github-read-cache";
 import { RELEVANCE_DROP_BELOW } from "./house-rules-relevance";
+import type { ResolvedHouseStack } from "./house-stack";
 import type {
   BlockJudgeLogRow,
   Session,
@@ -730,6 +731,9 @@ type NewSession = Omit<
   epicAuthoring?: boolean;
   landingRepair?: boolean;
   plain?: boolean;
+  /** Bootstrap spawn (#3109): the resolved House Stack its directive pins. Persisted as
+   *  `bootstrapStackJson`; `Session.bootstrap` is derived from its presence. */
+  bootstrapStack?: ResolvedHouseStack;
   mergeTrainPrs?: number[];
   launchMetadata?: SessionLaunchMetadata | null;
 };
@@ -759,7 +763,8 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * fresh row starts NULL ("not observed yet" / "never parked") on its own. Keeping them out of
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
-const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt`;
+const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
+  (bootstrapStackJson IS NOT NULL) AS bootstrap`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -813,6 +818,7 @@ type SessionRow = {
   epicAuthoring: number;
   landingRepair: number;
   plain: number;
+  bootstrap: number;
   terminal: number;
   terminalTabId: string | null;
   terminalPaneId: string | null;
@@ -3554,6 +3560,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       epicAuthoring: Boolean(input.epicAuthoring),
       landingRepair: Boolean(input.landingRepair),
       plain: Boolean(input.plain),
+      bootstrap: Boolean(input.bootstrapStack),
       terminal: Boolean(input.terminal),
       terminalTabId: strOrNull(input.terminalTabId),
       terminalPaneId: strOrNull(input.terminalPaneId),
@@ -3657,8 +3664,31 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           strOrNull(s.baseCommit), // the worktree's HEAD at create (#2761); null without one
         ],
       );
+      this.setBootstrapStack(s.id, input.bootstrapStack);
       return s;
     })();
+  }
+
+  /** The House Stack a bootstrap session (#3109) was spawned with; null for every other session. */
+  getBootstrapStack(id: string): ResolvedHouseStack | null {
+    const r = this.db.query(`SELECT bootstrapStackJson FROM sessions WHERE id = ?`).get(id) as {
+      bootstrapStackJson: string | null;
+    } | null;
+    if (!r?.bootstrapStackJson) return null;
+    try {
+      return JSON.parse(r.bootstrapStackJson) as ResolvedHouseStack;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Persist a bootstrap session's resolved stack; no-op for every other session. */
+  private setBootstrapStack(id: string, stack: ResolvedHouseStack | undefined): void {
+    if (!stack) return;
+    this.db.run(`UPDATE sessions SET bootstrapStackJson = ? WHERE id = ?`, [
+      JSON.stringify(stack),
+      id,
+    ]);
   }
 
   get(id: string): Session | null {
@@ -6190,6 +6220,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("landingRepair", `landingRepair INTEGER NOT NULL DEFAULT 0`);
     // plain task kind (agent without guards): default 0 (false) for pre-existing rows.
     add("plain", `plain INTEGER NOT NULL DEFAULT 0`);
+    // bootstrap task kind (#3109): the resolved House Stack its directive pins; null on every
+    // other row, so `bootstrap` is derived from presence (see READ_COLS).
+    add("bootstrapStackJson", `bootstrapStackJson TEXT`);
     // clean-terminal task kind (bare shell in the main checkout): default 0 for pre-existing rows.
     add("terminal", `terminal INTEGER NOT NULL DEFAULT 0`);
     // clean-terminal pane target (pane-direct, no agent): tab to close on decommission + the
@@ -7911,6 +7944,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       epicAuthoring: !!r.epicAuthoring,
       landingRepair: !!r.landingRepair,
       plain: !!r.plain,
+      bootstrap: !!r.bootstrap,
       terminal: !!r.terminal,
       terminalTabId: strOrNull(r.terminalTabId),
       terminalPaneId: strOrNull(r.terminalPaneId),

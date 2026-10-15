@@ -131,6 +131,9 @@ export type HouseStackResolution =
     }
   | { ok: false; errors: HouseStackError[] };
 
+/** A successful resolution — what a bootstrap spawn pins (#3109). */
+export type ResolvedHouseStack = Extract<HouseStackResolution, { ok: true }>;
+
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 export interface HouseStackResolverDeps {
@@ -267,6 +270,20 @@ export class HouseStackResolver {
   }
 }
 
+/** One process-wide resolver, so the Settings route and bootstrap spawns share its registry cache. */
+export const sharedHouseStackResolver = new HouseStackResolver();
+
+/** A bootstrap spawn (#3109) refused because the House Stack did not fully resolve — no pin is
+ *  ever guessed, so the session does not start. */
+export class HouseStackUnresolvedError extends Error {
+  constructor(readonly errors: HouseStackError[]) {
+    super(
+      `house stack unresolved: ${errors.map((e) => `${e.ecosystem}:${e.name} (${e.reason})`).join(", ")}`,
+    );
+    this.name = "HouseStackUnresolvedError";
+  }
+}
+
 const PACKAGE_MANAGERS = ["bun", "pnpm", "npm", "yarn"];
 
 /** The pinned line: the major, or major.minor for a 0.x package (where minors break). */
@@ -287,9 +304,7 @@ export interface HouseStackRules {
 }
 
 /** Render resolved versions into the pins the bootstrap writes. Agent-facing → fixed English. */
-export function renderHouseStackRules(
-  resolved: Extract<HouseStackResolution, { ok: true }>,
-): HouseStackRules {
+export function renderHouseStackRules(resolved: ResolvedHouseStack): HouseStackRules {
   const date = resolved.resolvedAt.slice(0, 10);
   const lines = [
     ...resolved.npm.map(

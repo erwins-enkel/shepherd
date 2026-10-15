@@ -1707,6 +1707,9 @@ export interface Session {
   /** Plain task kind: the agent without guards — no plan gate, autopilot or build queue. Optional
    *  like the server mirror — absent and false are equivalent. */
   plain?: boolean;
+  /** Bootstrap task kind (#3109): pinned stack, scaffold and guardrails as one PR. Optional like
+   *  the server mirror — absent and false are equivalent. */
+  bootstrap?: boolean;
   /** True when the network-egress allowlist was applied (autonomous sessions only). */
   egressApplied: boolean;
   /** True when the egress backend was unavailable — outbound is unrestricted despite autonomous profile. */
@@ -3144,6 +3147,7 @@ export interface LaunchUiState {
   autopilotChecked: boolean;
   epicAuthoringChecked?: boolean;
   plainChecked?: boolean;
+  bootstrapChecked?: boolean;
 }
 
 export interface LaunchAttachmentMetadata {
@@ -3212,6 +3216,7 @@ export interface StandardCreateInput {
   research?: boolean; // research task kind; absent → false
   epicAuthoring?: boolean; // epic-authoring task kind; absent → false (guided EPIC-draft shaping)
   plain?: boolean; // plain task kind; absent → false (agent without guards)
+  bootstrap?: boolean; // bootstrap task kind (#3109); absent → false (scaffold + guardrails PR)
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
   /** The machine to run on (#2763), overriding the automatic choice (#2772); absent → chosen by
    *  the server while a machine is connected, else this machine. */

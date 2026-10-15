@@ -100,9 +100,20 @@ struct IOSEpicGroupHeader: View {
         .lineLimit(1)
     }
 
-    private var accessibilityValue: String {
-        [group.repoName, title, badgeText, digest.flatMap { IOSEpicCopy.runChip($0.epic) },
-         digest.flatMap { IOSEpicCopy.clock($0.epic, now: now) }, digest.flatMap(IOSEpicCopy.stage)]
-            .compactMap { $0 }.joined(separator: ", ")
+    /// The complete announcement also carries cues while the group is collapsed.
+    var accessibilityValue: String {
+        let counts: [(Int, StaticString)] = [
+            (group.cues.ciFailed, "epic_group_cue_ci_failed"),
+            (group.cues.needsRework, "epic_group_cue_changes_requested"),
+            (group.cues.mergeBlocked, "epic_group_cue_merge_blocked"),
+            (group.cues.ready, "epic_group_cue_ready"),
+            (group.cues.blocked, "epic_group_cue_blocked")
+        ]
+        let cues = counts.compactMap { count, key in count > 0 ? L.t(key, String(count)) : nil }
+        let details = [group.repoName, digest?.epic.parentTitle ?? summary?.parentTitle, badgeText,
+            digest.flatMap { IOSEpicCopy.runChip($0.epic) },
+            digest.flatMap { IOSEpicCopy.clock($0.epic, now: now) }, digest.flatMap(IOSEpicCopy.stage)]
+            .compactMap { $0 }
+        return (details + cues).joined(separator: ", ")
     }
 }

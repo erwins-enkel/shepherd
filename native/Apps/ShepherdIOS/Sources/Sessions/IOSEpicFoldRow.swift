@@ -14,12 +14,20 @@ struct IOSEpicFoldRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button(action: toggle) {
-                HStack(spacing: 8) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right").frame(width: 12)
-                    Text(verbatim: L.t("native_ios_epic_more_steps", String(fold.count)).uppercased())
-                        .tracking(0.8).lineLimit(1)
-                    Spacer(minLength: 6)
-                    if let summaryText { Text(verbatim: summaryText).lineLimit(1) }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .frame(width: 12).padding(.top, 2)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            countLabel.fixedSize()
+                            Spacer(minLength: 6)
+                            if let summaryText { Text(verbatim: summaryText).fixedSize() }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            countLabel
+                            if let summaryText { Text(verbatim: summaryText) }
+                        }
+                    }
                 }
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -42,6 +50,11 @@ struct IOSEpicFoldRow: View {
         }
         .sessionFont(label: true)
         .foregroundStyle(SessionListStyle.muted)
+    }
+
+    private var countLabel: some View {
+        Text(verbatim: L.t("native_ios_epic_more_steps", String(fold.count)).uppercased())
+            .tracking(0.8).fixedSize(horizontal: false, vertical: true)
     }
 
     private var summaryText: String? {

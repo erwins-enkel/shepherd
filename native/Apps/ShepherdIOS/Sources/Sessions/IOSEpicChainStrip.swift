@@ -20,7 +20,6 @@ struct IOSEpicChainStrip: View {
             arrow
             column(L.t("childrun_step_unlocks")) { unlocks }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
         }
         .padding(.top, 8)
         .overlay(alignment: .top) {

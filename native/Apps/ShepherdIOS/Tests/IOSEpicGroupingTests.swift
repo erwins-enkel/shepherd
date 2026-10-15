@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import Vision
 import ShepherdKit
 @testable import ShepherdAppCore
 @testable import ShepherdIOS
@@ -95,6 +96,43 @@ final class IOSEpicGroupingTests: XCTestCase {
             "#102, #103, " + L.t("native_ios_epic_parallel", "2")))
     }
 
+    func testSheetMatchesSessionIDThenIssueEvenWhenIDIsStale() throws {
+        var child = try JSONDecoder().decode(EpicChild.self, from: Data(#"""
+            {"number":101,"title":"A","url":"https://x/101","order":0,"body":"","blockedBy":[],
+            "state":"running","sessionId":"a","prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":true}
+            """#.utf8))
+        let group = IOSMergedSessionPresentation.merge([source(profile("match"), active: [
+            session("replacement", parent: 100, issue: 101), session("a", parent: 100, issue: 999)])],
+            selectedRepos: []).epicGroups[0]
+        XCTAssertEqual(group.row(for: child)?.session.id, "a", "session ID has precedence")
+        child.sessionId = "stale"
+        XCTAssertEqual(group.row(for: child)?.session.id, "replacement", "a stale ID falls back to the issue")
+        child.sessionId = nil
+        XCTAssertEqual(group.row(for: child)?.session.id, "replacement")
+        child.number = 888
+        XCTAssertNil(group.row(for: child))
+    }
+
+    func testCollapsedHeaderAnnouncesFullTitleAndEveryCue() throws {
+        var blocked = session("blocked", parent: 100)
+        blocked.status = .init(known: .blocked)
+        var group = IOSMergedSessionPresentation.merge([source(profile("cues"), active: [
+            session("ci", parent: 100), session("rework", parent: 100),
+            session("merge", parent: 100), blocked], ready: [session("ready", parent: 100)])],
+            selectedRepos: []).epicGroups[0]
+        group.stages["ci"] = .ciFailed
+        group.stages["rework"] = .needsRework
+        group.stages["merge"] = .branchProtectionBlocked
+        let summary = try JSONDecoder().decode(EpicSummary.self, from: Data(#"{"parentIssueNumber":100,"parentTitle":"Epic: Ship","total":5,"merged":0,"status":"idle","source":"github"}"#.utf8))
+        let header = IOSEpicGroupHeader(group: group, summary: summary, collapsed: true, toggle: {})
+        let expected = [summary.parentTitle, L.t("epic_group_cue_ci_failed", "1"),
+            L.t("epic_group_cue_changes_requested", "1"), L.t("epic_group_cue_merge_blocked", "1"),
+            L.t("epic_group_cue_ready", "1"), L.t("epic_group_cue_blocked", "1")]
+        for text in expected {
+            XCTAssertTrue(header.accessibilityValue.contains(text), "Missing announcement: \(text)")
+        }
+    }
+
     private func profile(_ name: String) -> ServerProfile {
         .init(name: name, baseURL: URL(string: "https://\(name).fixture.invalid")!, mode: .remote, credentialKey: name)
     }
@@ -154,7 +192,11 @@ final class IOSEpicGroupingTests: XCTestCase {
     func testEpicStringsResolveInBothLocales() throws {
         for locale in ["en", "de"] {
             let bundle = try XCTUnwrap(Bundle(path: CoreResources.bundle.path(forResource: locale, ofType: "lproj")!))
-            for key in ["epic_badge", "epic_group_collapse_aria", "epic_group_expand_aria", "upnext_pill_epic"] {
+            for key in ["epic_badge", "epic_group_collapse_aria", "epic_group_expand_aria", "upnext_pill_epic",
+                        "epic_role_leading", "epic_group_cue_ready", "epicflow_title", "epicflow_merged",
+                        "childrun_step_unlocks", "native_ios_epic_needs", "native_ios_epic_stage",
+                        "native_ios_epic_more_steps", "native_ios_epic_fold_next_after", "native_ios_epic_open_aria",
+                        "native_ios_epic_chain_aria", "native_ios_epic_slots_hint", "native_ios_epic_open_web"] {
                 XCTAssertNotEqual(bundle.localizedString(forKey: key, value: nil, table: nil), key)
             }
         }
@@ -235,13 +277,29 @@ final class IOSEpicGroupingTests: XCTestCase {
         let result = IOSMergedSessionPresentation.merge([source(profile("one"), active: [
             session("01", parent: 100, issue: 101), session("02", parent: 200, issue: 201), session("03")])], selectedRepos: [])
         let summary = try JSONDecoder().decode(EpicSummary.self, from: Data(#"{"parentIssueNumber":100,"parentTitle":"Ship epic grouping","total":5,"merged":2,"status":"idle","source":"github"}"#.utf8))
+        let epic = try JSONDecoder().decode(Epic.self, from: Data(#"""
+            {"repoPath":"/repos/app","parentIssueNumber":100,"parentTitle":"Epic: Ship epic grouping","source":"native",
+            "children":[
+            {"number":101,"title":"First","url":"https://x/101","order":0,"body":"","blockedBy":[],"state":"running","sessionId":"01","prNumber":112,"issueClosed":false,"integrationMerged":false,"claimed":true},
+            {"number":102,"title":"Second","url":"https://x/102","order":1,"body":"","blockedBy":[101],"state":"blocked","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false},
+            {"number":103,"title":"Third","url":"https://x/103","order":2,"body":"","blockedBy":[101],"state":"blocked","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false}],
+            "warnings":[],"run":{"repoPath":"/repos/app","parentIssueNumber":100,"mode":"auto","status":"running"}}
+            """#.utf8))
+        let digest = EpicDigest(epic)
         let content = List {
             ForEach(result.epicGroups) { group in
-                IOSEpicGroupHeader(group: group, summary: group.parentNumber == 100 ? summary : nil, collapsed: false, toggle: {})
+                IOSEpicGroupHeader(group: group, summary: group.parentNumber == 100 ? summary : nil,
+                    digest: group.parentNumber == 100 ? digest : nil, collapsed: false, toggle: {}, open: {})
                 ForEach(group.rows) { row in
-                    SessionCardView(card: IOSSessionListPresentation.card(row.session, displayed: row.session, now: 0), select: {})
+                    SessionCardView(card: IOSSessionListPresentation.card(row.session, displayed: row.session, now: 0),
+                        chain: group.parentNumber == 100 ? digest.chain(101) : nil, select: {})
                         .listRowInsets(EdgeInsets(top: 0, leading: 22, bottom: 0, trailing: 10))
-                        .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
+                        .listRowBackground(IOSEpicRailBackground()).listRowSeparator(.hidden)
+                }
+                if group.parentNumber == 100 {
+                    IOSEpicFoldRow(fold: digest.fold(shown: [101]), parent: 100, expanded: true, toggle: {}, open: {})
+                        .listRowInsets(EdgeInsets(top: 0, leading: 22, bottom: 0, trailing: 10))
+                        .listRowBackground(IOSEpicRailBackground()).listRowSeparator(.hidden)
                 }
             }
             Text(verbatim: "WORKING").sessionFont(label: true, weight: .medium)
@@ -256,7 +314,7 @@ final class IOSEpicGroupingTests: XCTestCase {
             .background(SessionListStyle.background).preferredColorScheme(.dark)
         // Reuse the hosted-render path from IOSMultiServerRenderTests: ImageRenderer
         // can omit UIKit-backed parts of cards when used directly in an isolated test.
-        let size = CGSize(width: 390, height: 600)
+        let size = CGSize(width: 390, height: 844)
         let host = UIHostingController(rootView: content.frame(width: size.width, height: size.height).ignoresSafeArea(.container))
         host.safeAreaRegions = []
         let window = UIWindow(frame: CGRect(origin: .zero, size: size))
@@ -278,9 +336,22 @@ final class IOSEpicGroupingTests: XCTestCase {
             rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
         }
         XCTAssertTrue(rendered)
+        // Check rendered text, not accessibility copy: a compressed column can still
+        // be announced by VoiceOver while being completely invisible on screen.
+        let textRequest = VNRecognizeTextRequest()
+        textRequest.recognitionLevel = .accurate
+        textRequest.recognitionLanguages = ["en-US", "de-DE"]
+        try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([textRequest])
+        let visibleText = (textRequest.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: " ").uppercased()
+        XCTAssertTrue(visibleText.contains(L.t("native_ios_epic_needs").uppercased()),
+            "The needs column must remain visible at iPhone width: \(visibleText)")
+        XCTAssertTrue(visibleText.contains(L.t("native_ios_epic_more_steps", "2").uppercased()),
+            "The folded-step count must remain readable at iPhone width: \(visibleText)")
         let renderer = ImageRenderer(content: Image(uiImage: image).resizable().frame(width: size.width, height: size.height))
         renderer.scale = 2
-        let directory = URL(fileURLWithPath: "/private/tmp/claude-501/-Users-kai-osthoff-githubrepos--shepherd-worktrees-shepherd-ios-werden-epics-bestandteil/016688a2-2332-49d9-99c8-b5aeb00996bd/scratchpad/render/")
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("render")
+        print("epic render: \(directory.appendingPathComponent("epic-session-list-dark.png").path)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try XCTUnwrap(renderer.uiImage?.pngData()).write(to: directory.appendingPathComponent("epic-session-list-dark.png"))
     }

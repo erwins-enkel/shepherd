@@ -13,6 +13,13 @@ struct IOSEpicCues: Equatable {
 }
 
 extension IOSMergedSessionPresentation.EpicGroup {
+    /// Match the live session first, then its issue when an epic still carries an old ID.
+    func row(for child: EpicChild) -> IOSMergedSessionPresentation.Row? {
+        child.sessionId.flatMap { id in rows.first { $0.session.id == id } }
+            ?? rows.first { $0.session.issueNumber == child.number }
+    }
+
+
     var cues: IOSEpicCues {
         var cues = IOSEpicCues()
         for row in rows {

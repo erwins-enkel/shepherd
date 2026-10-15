@@ -9,6 +9,8 @@ struct SessionListView: View {
     @Environment(IOSServerHub.self) private var hub: IOSServerHub?
     @State private var epicDirectory = IOSEpicDirectory()
     @State private var collapsedEpics: Set<String> = []
+    @State private var expandedFolds: Set<String> = []
+    @State private var epicSheet: IOSMergedSessionPresentation.EpicGroup?
     @State private var refreshError: String?
     @State private var showingRepos = false
     @State private var explainingStage: HerdStage?
@@ -25,6 +27,16 @@ struct SessionListView: View {
         .background(SessionListStyle.background)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if layout.bottomBar { bottomBar }
+        }
+        .sheet(item: $epicSheet) { group in
+            if let digest = epicDirectory.digest(group, owner: hub?.models[group.profile.id] ?? app) {
+                TimelineView(.periodic(from: .now, by: 20)) { context in
+                    IOSEpicSheet(group: group, digest: digest, now: Int(context.date.timeIntervalSince1970 * 1_000)) { child in
+                        guard let row = group.row(for: child) else { return nil }
+                        return { selectRow(row.id) }
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showingRepos) { IOSServerReposSheet(model: model) }
         .sheet(isPresented: Binding(get: { explainingStage != nil }, set: { if !$0 { explainingStage = nil } })) {
@@ -75,7 +87,7 @@ struct SessionListView: View {
     private var epicLoadIdentity: [String] {
         presentation.epicGroups.map { group in
             let owner = hub?.models[group.profile.id] ?? app
-            return "\(group.id):\(ObjectIdentifier(owner)):\(owner.activationGeneration)"
+            return "\(group.id):\(ObjectIdentifier(owner)):\(owner.activationGeneration):\(group.fingerprint)"
         }
     }
     private var lens: HerdLens { hub?.lens ?? model.lens }
@@ -156,13 +168,29 @@ struct SessionListView: View {
                         empty(SidebarCopy.empty(lens: lens, repos: activeRepos))
                     }
                     ForEach(snapshot.epicGroups) { group in
-                        IOSEpicGroupHeader(group: group,
-                            summary: epicDirectory.summary(group, owner: hub?.models[group.profile.id] ?? app),
-                            collapsed: collapsedEpics.contains(group.id)) {
-                                if !collapsedEpics.insert(group.id).inserted { collapsedEpics.remove(group.id) }
-                            }
+                        let owner = hub?.models[group.profile.id] ?? app
+                        let digest = epicDirectory.digest(group, owner: owner)
+                        IOSEpicGroupHeader(group: group, summary: epicDirectory.summary(group, owner: owner),
+                            digest: digest, collapsed: collapsedEpics.contains(group.id), now: now,
+                            toggle: { if !collapsedEpics.insert(group.id).inserted { collapsedEpics.remove(group.id) } },
+                            open: digest == nil ? nil : { epicSheet = group })
                         if !collapsedEpics.contains(group.id) {
-                            ForEach(group.rows) { row in card(row, showCli: showCli, now: now, leading: 22) }
+                            ForEach(group.rows) { row in
+                                card(row, showCli: showCli, now: now, leading: 22, inEpic: true, chain: chain(row, digest))
+                            }
+                            if let digest {
+                                let fold = digest.fold(shown: Set(group.rows.compactMap {
+                                    digest.child(session: $0.session.id, issue: $0.session.issueNumber)?.number
+                                }))
+                                if fold.count > 0 {
+                                    IOSEpicFoldRow(fold: fold, parent: group.parentNumber,
+                                        expanded: expandedFolds.contains(group.id),
+                                        toggle: { if !expandedFolds.insert(group.id).inserted { expandedFolds.remove(group.id) } },
+                                        open: { epicSheet = group })
+                                        .listRowInsets(EdgeInsets(top: 0, leading: 22, bottom: 0, trailing: 10))
+                                        .listRowBackground(IOSEpicRailBackground()).listRowSeparator(.hidden)
+                                }
+                            }
                         }
                     }
                     ForEach(groups) { group in
@@ -421,7 +449,8 @@ struct SessionListView: View {
         .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
     }
 
-    private func card(_ row: IOSMergedSessionPresentation.Row, showCli: Bool, now: Int, leading: CGFloat = 10) -> some View {
+    private func card(_ row: IOSMergedSessionPresentation.Row, showCli: Bool, now: Int, leading: CGFloat = 10,
+                      inEpic: Bool = false, chain: EpicChain? = nil) -> some View {
         let session = row.session
         let app = hub?.models[row.profile.id] ?? app
         let model = app.extension(SidebarModel.self) ?? model
@@ -435,11 +464,16 @@ struct SessionListView: View {
             showCli: showCli, repoAutopilotDefault: herd?.repoAutopilotDefault(session.repoPath), now: now)
         return SessionCardView(card: presentation, selected: app.selectedSessionID == session.id,
             serverName: IOSMergedSessionPresentation.serverHint(row.profile, connectedCount: hub?.connected.count ?? 1),
-            rowID: (hub?.connected.count ?? 1) > 1 ? "\(row.profile.id)-\(session.id)" : nil) { selectRow(row.id) }
+            rowID: (hub?.connected.count ?? 1) > 1 ? "\(row.profile.id)-\(session.id)" : nil, chain: chain) { selectRow(row.id) }
             .modifier(IOSSessionSwipeActions(session: session))
             .environment(app)
             .listRowInsets(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: 10))
-            .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
+            .listRowBackground(IOSEpicRailBackground(rail: inEpic)).listRowSeparator(.hidden)
+    }
+
+    private func chain(_ row: IOSMergedSessionPresentation.Row, _ digest: EpicDigest?) -> EpicChain? {
+        guard let digest, let child = digest.child(session: row.session.id, issue: row.session.issueNumber) else { return nil }
+        return digest.chain(child.number)
     }
 
     private func owner(for row: IOSMergedSessionPresentation.Row) -> AppModel { hub?.models[row.profile.id] ?? app }

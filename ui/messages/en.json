@@ -6517,7 +6517,7 @@
   "feat_project_bootstrap_title": "Project bootstrap mode",
   "feat_project_bootstrap_body": "New projects now start in bootstrap mode: the drain waits until the foundation (stack, scaffold, CI, backlog) is in place. Turn it on for other repos — or override the hold, logged — in the repo's automation settings.",
   "newtask_mode_bootstrap": "Bootstrap",
-  "newtask_prompt_placeholder_bootstrap": "What should the new project be? The agent reads the PRD and design export, asks you the scaffold decisions, then builds it…",
+  "newtask_prompt_placeholder_bootstrap": "What should the new project be? Before the scaffold exists, the agent reads the PRD and design export, asks you the scaffold decisions and builds it; afterwards it sweeps PRD against design and asks the open product decisions…",
   "newtask_house_stack_unresolved": "Bootstrap didn't start: Shepherd couldn't look up current versions for your House Stack ({detail}). Check the package names in Settings → Workspace → House Stack, then retry.",
   "keymap_mode_bootstrap": "Bootstrap mode",
   "tooltip_mode_bootstrap_title": "Bootstrap mode",
@@ -6528,6 +6528,10 @@
   "tooltip_mode_bootstrap_pins_body": "Every version comes from your House Stack, looked up from the package registries at start. If a lookup fails, the task doesn't start.",
   "tooltip_mode_bootstrap_guards": "Guards",
   "tooltip_mode_bootstrap_guards_body": "No plan gate and no autopilot: the agent asks you the scaffold decisions itself. The autonomous sandbox is unavailable because the agent needs the package registries.",
+  "tooltip_mode_bootstrap_phases": "Phases",
+  "tooltip_mode_bootstrap_phases_body": "Until its scaffold PR merges, a bootstrap task runs P1+P2. Once the repo reaches P3, it runs the gap sweep: it compares the PRD with docs/design, asks the open product decisions as one numbered list and opens one docs-only PR with the decisions, PRD additions and M0 candidates for the backlog. Each merge moves the phase on.",
   "feat_bootstrap_task_title": "Bootstrap a new project",
-  "feat_bootstrap_task_body": "New Task has a Bootstrap mode. One attended session reads your PRD and design export, asks you the decisions that shape the scaffold, then opens one pull request with the pinned stack, app shell, i18n, hooks and CI. Every version comes from your House Stack."
+  "feat_bootstrap_task_body": "New Task has a Bootstrap mode. One attended session reads your PRD and design export, asks you the decisions that shape the scaffold, then opens one pull request with the pinned stack, app shell, i18n, hooks and CI. Every version comes from your House Stack.",
+  "feat_bootstrap_gap_sweep_title": "Bootstrap gap sweep (P3)",
+  "feat_bootstrap_gap_sweep_body": "Once the scaffold has merged, a Bootstrap task compares your PRD with the design export, asks all open product decisions as one numbered list and lands them as one PR — PRD additions, CLAUDE.md rules and M0 candidates for the backlog. Merging a bootstrap PR moves the repo to the next phase."
 }

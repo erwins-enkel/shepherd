@@ -91,7 +91,7 @@ import {
 import type { EpicLandingState } from "./completed-epic";
 import { epicParentFromBranch } from "./epic-branch";
 import { normalizeRule } from "./learning-rule";
-import { BOOTSTRAP_OFF, type RepoBootstrap } from "./bootstrap";
+import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
 import { trimRuleToLimit } from "./learning-shape";
 import type { GitState, WorkflowJob } from "./forge/types";
 
@@ -734,6 +734,9 @@ type NewSession = Omit<
   /** Bootstrap spawn (#3109): the resolved House Stack its directive pins. Persisted as
    *  `bootstrapStackJson`; `Session.bootstrap` is derived from its presence. */
   bootstrapStack?: ResolvedHouseStack;
+  /** The bootstrap phase this session runs (#3110): 1 = P1+P2, 3 = P3 gap sweep. Persisted as
+   *  `bootstrapPhase`; a P3 session has no stack, so `Session.bootstrap` also derives from it. */
+  bootstrapPhase?: BootstrapSessionPhase;
   mergeTrainPrs?: number[];
   launchMetadata?: SessionLaunchMetadata | null;
 };
@@ -764,7 +767,12 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  (bootstrapStackJson IS NOT NULL) AS bootstrap`;
+  (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+
+/** A bootstrap spawn: P1+P2 carries its resolved stack, P3 (#3110) only its phase. */
+function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">): boolean {
+  return Boolean(input.bootstrapStack || input.bootstrapPhase);
+}
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -3560,7 +3568,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       epicAuthoring: Boolean(input.epicAuthoring),
       landingRepair: Boolean(input.landingRepair),
       plain: Boolean(input.plain),
-      bootstrap: Boolean(input.bootstrapStack),
+      bootstrap: isBootstrapInput(input),
       terminal: Boolean(input.terminal),
       terminalTabId: strOrNull(input.terminalTabId),
       terminalPaneId: strOrNull(input.terminalPaneId),
@@ -3664,7 +3672,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           strOrNull(s.baseCommit), // the worktree's HEAD at create (#2761); null without one
         ],
       );
-      this.setBootstrapStack(s.id, input.bootstrapStack);
+      this.setBootstrap(s.id, input);
       return s;
     })();
   }
@@ -3682,11 +3690,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
   }
 
-  /** Persist a bootstrap session's resolved stack; no-op for every other session. */
-  private setBootstrapStack(id: string, stack: ResolvedHouseStack | undefined): void {
-    if (!stack) return;
-    this.db.run(`UPDATE sessions SET bootstrapStackJson = ? WHERE id = ?`, [
-      JSON.stringify(stack),
+  /** The phase a bootstrap session runs (#3110); null for every other session. A legacy bootstrap
+   *  row (stack, no phase) predates P3 and ran P1+P2. */
+  getBootstrapPhase(id: string): BootstrapSessionPhase | null {
+    const r = this.db
+      .query(`SELECT bootstrapPhase, bootstrapStackJson FROM sessions WHERE id = ?`)
+      .get(id) as { bootstrapPhase: number | null; bootstrapStackJson: string | null } | null;
+    if (r?.bootstrapPhase === 3) return 3;
+    return r?.bootstrapPhase === 1 || r?.bootstrapStackJson ? 1 : null;
+  }
+
+  /** Persist a bootstrap session's resolved stack + phase; no-op for every other session. */
+  private setBootstrap(
+    id: string,
+    input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">,
+  ): void {
+    if (!isBootstrapInput(input)) return;
+    this.db.run(`UPDATE sessions SET bootstrapStackJson = ?, bootstrapPhase = ? WHERE id = ?`, [
+      input.bootstrapStack ? JSON.stringify(input.bootstrapStack) : null,
+      input.bootstrapPhase ?? null,
       id,
     ]);
   }
@@ -6223,6 +6245,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // bootstrap task kind (#3109): the resolved House Stack its directive pins; null on every
     // other row, so `bootstrap` is derived from presence (see READ_COLS).
     add("bootstrapStackJson", `bootstrapStackJson TEXT`);
+    // bootstrap phase (#3110): 1 = P1+P2, 3 = P3 gap sweep; null on every non-bootstrap row.
+    add("bootstrapPhase", `bootstrapPhase INTEGER`);
     // clean-terminal task kind (bare shell in the main checkout): default 0 for pre-existing rows.
     add("terminal", `terminal INTEGER NOT NULL DEFAULT 0`);
     // clean-terminal pane target (pane-direct, no agent): tab to close on decommission + the

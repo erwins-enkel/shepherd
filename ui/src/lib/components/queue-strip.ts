@@ -3,6 +3,7 @@ import { m } from "#lib/paraglide/messages.js";
 import { droppedCount } from "./learnings-drawer";
 import { sortBlocked, type BlockState } from "../triage";
 import { displayStatus } from "../display-status";
+import { bootstrapMissingLabel } from "./readiness-greenfield-view";
 
 /** Enabled drains only, sorted by repo path — the per-repo drain lookup feeding repoChipRows. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
@@ -240,9 +241,10 @@ export function mergeTrainLabel(state: string | null | undefined): string {
   }
 }
 
-/** A `bootstrap_incomplete` hold's comma-joined detail ("P2,P3,P4") as a readable list. */
+/** A `bootstrap_incomplete` hold's comma-joined detail ("P2,P3,P4,ci_on_main") as a readable list —
+ *  phases verbatim, greenfield must-haves (#3107) by their localized title. */
 export function bootstrapMissingText(detail: string): string {
-  return detail.split(",").filter(Boolean).join(", ");
+  return detail.split(",").filter(Boolean).map(bootstrapMissingLabel).join(", ");
 }
 
 /** Localized banner line for a paused drain, mapped from its reason + detail. */

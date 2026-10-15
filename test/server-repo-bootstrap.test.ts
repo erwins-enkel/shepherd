@@ -118,3 +118,23 @@ test("POST override: 409 unless active; ON is persisted and logged; missing stil
   const off = await (await call(app, "POST", "/override", { on: false })).json();
   expect(off.overrideAt).toBeNull();
 });
+
+test("#3107: red must-haves from the greenfield service block the exit and show in missing", async () => {
+  const deps = makeDeps();
+  let red = ["ci_on_main"];
+  const refreshed: string[] = [];
+  deps.greenfield = {
+    mustHavesMissing: () => red,
+    refresh: async (d: string) => (refreshed.push(d), {}) as never,
+  };
+  const app = makeApp(deps);
+  await call(app, "PUT", "", { state: "active" });
+  expect(refreshed).toHaveLength(1); // entering active scans at once
+  const held = await (await call(app, "PUT", "", { phase: 5 })).json();
+  expect(held.state).toBe("active");
+  expect(held.missing).toEqual(["ci_on_main"]);
+  red = [];
+  const done = await (await call(app, "PUT", "", { phase: 5 })).json();
+  expect(done.state).toBe("done");
+  expect(refreshed).toHaveLength(1); // a phase move alone doesn't re-scan
+});

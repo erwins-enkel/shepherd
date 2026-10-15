@@ -73,3 +73,24 @@ test("GET /api/readiness?repo outside root → 400", async () => {
   const res = await app.fetch(req("/etc"));
   expect(res.status).toBe(400);
 });
+
+test("GET /api/readiness/greenfield re-scans through the service; 503 when unwired", async () => {
+  const scanned: string[] = [];
+  const d = deps();
+  const app = makeApp(d);
+  const url = `http://localhost/api/readiness/greenfield?repo=${encodeURIComponent(repoDir)}`;
+  expect((await app.fetch(new Request(url))).status).toBe(503);
+  d.greenfield = {
+    refresh: async (dir: string) => {
+      scanned.push(dir);
+      return { ecosystem: null, score: 0, items: [], mustHavesMissing: [], checkedAt: 1 };
+    },
+    mustHavesMissing: () => [],
+  };
+  const res = await makeApp(d).fetch(new Request(url));
+  expect(res.status).toBe(200);
+  expect((await res.json()).checkedAt).toBe(1);
+  expect(scanned).toHaveLength(1);
+  const bad = `http://localhost/api/readiness/greenfield?repo=${encodeURIComponent("/etc")}`;
+  expect((await makeApp(d).fetch(new Request(bad))).status).toBe(400);
+});

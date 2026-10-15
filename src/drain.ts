@@ -19,7 +19,7 @@ import {
   type DrainRepoState,
   type RunSummary,
 } from "./drain-core";
-import { bootstrapMissing, bootstrapMustHavesMissing } from "./bootstrap";
+import { bootstrapMissing } from "./bootstrap";
 import { assembleEpic } from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
 import { forecastEpic } from "./epic-forecast";
@@ -336,6 +336,9 @@ export interface DrainDeps {
   dropPrCache: (id: string) => void;
   /** → events.emit("epic:update", epic). Optional — absent in tests that don't need it. */
   emitEpic?: (epic: Epic) => void;
+  /** #3107: an ACTIVE bootstrap repo's red must-haves (`GreenfieldService.mustHavesMissing`).
+   *  Absent → none, so the gate hinges on the phases alone. */
+  bootstrapMustHaves?: (repoPath: string) => string[];
   /** → events.emit("epic:completed", e). Optional — absent in tests that don't need it. */
   emitEpicCompleted?: (epic: CompletedEpic) => void;
   /** → events.emit("epic:completed-cleared", key). Optional — absent in tests that don't need it. */
@@ -1038,10 +1041,7 @@ export class DrainService {
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
         epicUnreadable: stall.epicUnreadable,
-        bootstrapMissing: bootstrapMissing(
-          this.deps.store.getRepoBootstrap(repoPath),
-          bootstrapMustHavesMissing(),
-        ),
+        bootstrapMissing: this.bootstrapHoldFor(repoPath),
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -1054,6 +1054,14 @@ export class DrainService {
       },
       epic: builtEpic,
     };
+  }
+
+  /** #3105/#3107: what holds this repo's drain for bootstrap. Must-haves are read (and scanned)
+   *  only for an active repo — every other repo never touches the greenfield scan. */
+  private bootstrapHoldFor(repoPath: string): string[] | null {
+    const b = this.deps.store.getRepoBootstrap(repoPath);
+    if (b.state !== "active") return null;
+    return bootstrapMissing(b, this.deps.bootstrapMustHaves?.(repoPath) ?? []);
   }
 
   /** #2069: link an epic's child PRs into a GitHub stack rooted at its pinned integration branch,

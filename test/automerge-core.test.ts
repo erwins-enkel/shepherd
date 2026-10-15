@@ -14,6 +14,7 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
     state: "open",
     checks: "success",
     noCi: false,
+    noCiHold: false,
     mergeable: true,
     number: 7,
     headSha: "h1",
@@ -61,10 +62,33 @@ test("open+green+mergeable but branch-protection blocked → hold", () => {
   expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
 });
 
-test("no-CI repo (noCi + checks:none) → merge", () => {
+test("no-CI repo (noCi + checks:none) opted in to mergeWithoutCi → merge", () => {
   // A GitHub repo with zero workflows reports checks:"none" forever; with noCi it's mergeable.
   const d = computeMerge(state([sess({ checks: "none", noCi: true })]));
   expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("#3104: no-CI repo WITHOUT the opt-in → hold, waits as no_ci", () => {
+  const s = sess({ checks: "none", noCi: true, noCiHold: true });
+  expect(computeMerge(state([s])).kind).toBe("hold");
+  expect(mergeWaitReason(s, state([s]))).toBe("no_ci");
+});
+
+test("#3104: noCiHold never holds a green PR (repo gained CI)", () => {
+  const d = computeMerge(state([sess({ checks: "success", noCi: true, noCiHold: true })]));
+  expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
+});
+
+test("#3104: a pending critic verdict reads before no_ci", () => {
+  const s = sess({ checks: "none", noCi: true, noCiHold: true });
+  expect(mergeWaitReason(s, state([s], { criticEnabled: true }))).toBe("critic_pending");
+});
+
+test("#3104: noCiHold still lets the train rebase a behind no-CI PR", () => {
+  const d = computeMerge(
+    state([sess({ checks: "none", noCi: true, noCiHold: true, behind: true })]),
+  );
+  expect(d.kind).toBe("rebase");
 });
 
 test("checks:none WITHOUT noCi → hold (CI repo pre-green, not merged)", () => {

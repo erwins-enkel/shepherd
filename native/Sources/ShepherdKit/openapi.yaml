@@ -1549,6 +1549,7 @@ components:
         - critic_pending
         - stacked
         - manual_steps
+        - no_ci
     LimitWindow:
       type: object
       additionalProperties: true
@@ -7241,6 +7242,7 @@ components:
         - autoOptimizeFlagged
         - manualStepsIssueEnabled
         - preWarmEpicLandingCi
+        - mergeWithoutCi
         - epicStacksEnabled
         - sharedBrowserEnabled
         - hidden
@@ -7284,6 +7286,9 @@ components:
           type: boolean
         preWarmEpicLandingCi:
           type: boolean
+        mergeWithoutCi:
+          type: boolean
+          description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo that defines zero workflows. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
         epicStacksEnabled:
           type: boolean
         sharedBrowserEnabled:
@@ -7362,6 +7367,9 @@ components:
           type: boolean
         preWarmEpicLandingCi:
           type: boolean
+        mergeWithoutCi:
+          type: boolean
+          description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo that defines zero workflows. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
         epicStacksEnabled:
           type: boolean
         sharedBrowserEnabled:

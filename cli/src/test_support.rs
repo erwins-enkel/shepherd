@@ -41,6 +41,7 @@ pub fn repo_config_json() -> Value {
         "autoOptimizeFlagged",
         "manualStepsIssueEnabled",
         "preWarmEpicLandingCi",
+        "mergeWithoutCi",
         "epicStacksEnabled",
         "sharedBrowserEnabled",
         "hidden",

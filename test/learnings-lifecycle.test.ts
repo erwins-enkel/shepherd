@@ -121,6 +121,7 @@ function makeRepoConfig(o: Partial<RepoConfig> = {}): RepoConfig {
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],

@@ -148,6 +148,7 @@ function makeHarness(
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    mergeWithoutCi: false,
     epicStacksEnabled: opts.epicStacksEnabled ?? false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],

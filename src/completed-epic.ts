@@ -1,7 +1,8 @@
 import type { EpicChild } from "./epic-core";
 import type { ChecksState, ForgeKind, PrStatus } from "./forge/types";
 import type { Session } from "./types";
-import { checksCleared, repoHasNoCiCached } from "./checks-gate";
+import { checksCleared, noCiMergeHeld, repoHasNoCiCached } from "./checks-gate";
+import type { RepoConfig } from "./store";
 
 export interface CompletedEpicChild {
   number: number;
@@ -58,6 +59,9 @@ export interface CompletedEpic {
   landingMergeable?: boolean | null;
   /** True when the landing PR is safe to merge from the app (gates the "Land epic" CTA). */
   landingReady?: boolean;
+  /** Live, non-persisted (#3104): the landing PR is ready, auto-merge is on, but auto-land holds
+   *  it because the repo has no CI and the operator has not opted in to `mergeWithoutCi`. */
+  landingNoCiHold?: boolean;
   /** True when an open+ready landing has sat unlanded past EPIC_LANDING_STRANDED_MS (Rec D escalation). */
   landingStranded?: boolean;
   /** Live, non-persisted: the landing PR's CI is terminally failing (not behind/conflicting). */
@@ -347,7 +351,24 @@ export interface EnrichLandingDeps {
   /** #2872: the inputs of the drain's landing-automation gates. Absent ⇒ no `landingCiAutomation`,
    *  and `landingCiFailing` is not held back for pending automatic stages. */
   automation?: (repoPath: string, integrationBranch: string) => LandingAutomationContext;
+  /** #3104: the repo's merge settings. Absent ⇒ no `landingNoCiHold`. */
+  repoConfig?: (
+    repoPath: string,
+  ) => Pick<RepoConfig, "draftMode" | "autoMergeEnabled" | "mergeWithoutCi">;
   now: number;
+}
+
+/** #3104: whether drain auto-land is holding this ready landing PR for want of CI. Mirrors
+ *  autoLandLandingPrsForRepo's opt-in (`draftMode ? false : autoMergeEnabled`) — with auto-merge
+ *  off nothing auto-lands, so there is no hold to report. */
+export function computeLandingNoCiHold(
+  pr: Pick<PrStatus, "checks">,
+  landingReady: boolean,
+  noCi: boolean,
+  cfg: Pick<RepoConfig, "draftMode" | "autoMergeEnabled" | "mergeWithoutCi">,
+): boolean {
+  const autoLandOn = cfg.draftMode ? false : cfg.autoMergeEnabled;
+  return landingReady && autoLandOn && noCiMergeHeld(pr.checks, noCi, cfg.mergeWithoutCi);
 }
 
 /** #2872: the automation stages of one enriched row, or undefined without the `automation` dep. */
@@ -395,8 +416,16 @@ export async function enrichLandingEpics(
           : await forge.prStatus(branch);
         row.landingChecks = pr.checks;
         row.landingMergeable = pr.mergeable ?? null;
-        const landingReady = computeLandingReady(pr, repoHasNoCiCached(forge.kind, row.repoPath));
+        const noCi = repoHasNoCiCached(forge.kind, row.repoPath);
+        const landingReady = computeLandingReady(pr, noCi);
         row.landingReady = landingReady;
+        if (deps.repoConfig)
+          row.landingNoCiHold = computeLandingNoCiHold(
+            pr,
+            landingReady,
+            noCi,
+            deps.repoConfig(row.repoPath),
+          );
         row.landingStranded = computeLandingStranded({
           landingState: "open",
           landingReady,

@@ -106,6 +106,7 @@ function makeHarness(opts: {
   merge?: (prNumber: number, o: MergeInput) => Promise<void>;
   /** Skip pinning the integration branch (models an unpinned row). */
   noPin?: boolean;
+  mergeWithoutCi?: boolean;
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
@@ -133,6 +134,7 @@ function makeHarness(opts: {
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    mergeWithoutCi: opts.mergeWithoutCi ?? false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],
@@ -273,6 +275,34 @@ describe("auto-land of integrated epics (#1044)", () => {
 
     expect(h.spy.mergeCalls).toHaveLength(0);
     expect(row(h).landingState).toBe("open");
+  });
+
+  // REPO has no .github/workflows on disk, so the github fake reads as a no-CI repo (#3104).
+  test("no-CI repo, checks none, no mergeWithoutCi → held, no merge", async () => {
+    const h = makeHarness({
+      autoMergeEnabled: true,
+      prStatus: async () => readyPr({ checks: "none" }),
+    });
+    seedOpenLanding(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.mergeCalls).toHaveLength(0);
+    expect(row(h).landingState).toBe("open");
+  });
+
+  test("no-CI repo, checks none, mergeWithoutCi ON → merged", async () => {
+    const h = makeHarness({
+      autoMergeEnabled: true,
+      mergeWithoutCi: true,
+      prStatus: async () => readyPr({ checks: "none" }),
+    });
+    seedOpenLanding(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.mergeCalls).toHaveLength(1);
+    expect(row(h).landingState).toBe("merged");
   });
 
   test("blocked mergeStateStatus → no merge (computeLandingReady false)", async () => {

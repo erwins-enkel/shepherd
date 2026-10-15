@@ -1148,3 +1148,55 @@ test("tick clears a stale wait list once full-auto is switched off for the repo"
   await svc.tick(); // nothing left to clear → no further emit
   expect((emitStatus as any).mock.calls.length).toBe(calls);
 });
+
+// ── #3104: a no-CI repo holds unless the operator opts in to mergeWithoutCi ──
+
+function noCiDeps(
+  mergeWithoutCi: boolean,
+  merge: () => Promise<void>,
+  emitStatus = mock(() => {}),
+) {
+  return deps({
+    store: {
+      ...deps().store,
+      getRepoConfig: () =>
+        ({
+          autoMergeEnabled: true,
+          criticEnabled: false,
+          autopilotEnabled: true,
+          mergeWithoutCi,
+        }) as any,
+    } as any,
+    prCache: {
+      snapshot: () => ({
+        s1: {
+          state: "open",
+          checks: "none",
+          noCi: true,
+          mergeable: true,
+          number: 7,
+          headSha: "h1",
+        },
+      }),
+    } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    emitStatus,
+  });
+}
+
+test("#3104: no-CI repo without mergeWithoutCi → no merge, waiting no_ci", async () => {
+  const merge = mock(async () => {});
+  const emitStatus = mock(() => {});
+  await new AutoMergeService(noCiDeps(false, merge, emitStatus)).pump("/r");
+  expect(merge).not.toHaveBeenCalled();
+  expect((emitStatus as any).mock.calls.at(-1)[0].waiting).toEqual([
+    { sessionId: "s1", code: "no_ci" },
+  ]);
+});
+
+test("#3104: no-CI repo with mergeWithoutCi → merges", async () => {
+  const merge = mock(async () => {});
+  await new AutoMergeService(noCiDeps(true, merge)).pump("/r");
+  expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
+});

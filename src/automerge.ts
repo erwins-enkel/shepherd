@@ -195,7 +195,11 @@ export class AutoMergeService {
   }
 
   /** Project one full-auto session + its cached PR snapshot into the core's view. */
-  private async toView(s: Session, git: GitState | null): Promise<MergeSessionView> {
+  private async toView(
+    s: Session,
+    git: GitState | null,
+    mergeWithoutCi: boolean,
+  ): Promise<MergeSessionView> {
     const pr = AutoMergeService.prFields(git);
     const behind =
       git?.state === "open" && s.worktreePath && s.branch
@@ -205,6 +209,7 @@ export class AutoMergeService {
       id: s.id,
       desig: s.desig,
       ...pr,
+      noCiHold: pr.noCi && !mergeWithoutCi,
       behind,
       ...AutoMergeService.reviewFields(this.deps.store.getReview(s.id)),
       rebaseCount: s.autoMergeRebaseCount,
@@ -226,7 +231,7 @@ export class AutoMergeService {
       this.deps.store
         .list()
         .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
-        .map((s) => this.toView(s, snapshot[s.id] ?? null)),
+        .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi)),
     );
     const state: MergeRepoState = {
       enabled: sessions.length > 0,

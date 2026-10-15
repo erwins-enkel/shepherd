@@ -105,6 +105,7 @@
   const lightweightTip = $derived(lightweight ? m.automation_lightweight_unavailable() : undefined);
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
+  const mergeWithoutCiActive = $derived(repoConfig.mergeWithoutCiOn(repoPath) && !lightweight);
   const epicStacksActive = $derived(repoConfig.epicStacksOn(repoPath) && !lightweight);
   const autoOptimizeActive = $derived(repoConfig.autoOptimizeOn(repoPath) && flags.learnings);
   // Smell lens is a no-op without the critic (same dependency as auto-address); hoist its row state
@@ -621,6 +622,25 @@
     title={flags.draftMode ? m.automation_draftmode_excludes_automerge() : undefined}
     aria-label={m.automation_automerge_name()}
     onclick={() => repoConfig.toggleAutoMerge(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
+<!-- #3104: a GitHub repo with zero workflows holds autonomous merges unless opted in here. -->
+<div class={["auto-row", { disabled: lightweight }]}>
+  <div class="auto-meta">
+    <div class="auto-name">⊘ {m.automation_merge_without_ci_name()}</div>
+    <div class="auto-desc">{m.automation_merge_without_ci_desc()}</div>
+  </div>
+  <button
+    class={["sw", { on: mergeWithoutCiActive }]}
+    type="button"
+    role="switch"
+    aria-checked={mergeWithoutCiActive}
+    disabled={lightweight}
+    title={lightweightTip}
+    aria-label={m.automation_merge_without_ci_name()}
+    onclick={() => repoConfig.toggleMergeWithoutCi(repoPath)}
   >
     <span class="knob"></span>
   </button>

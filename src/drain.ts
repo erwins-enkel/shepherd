@@ -77,7 +77,7 @@ import { buildLandingPrTitle, buildLandingPrBody, type LandingManualStep } from 
 import { collectLandingManualSteps } from "./epic-landing-steps";
 import { parseEpicBody } from "./epic-parse";
 import { diagnoseEpic, type EpicDiagnosis } from "./epic-diagnosis";
-import { repoHasNoCiCached } from "./checks-gate";
+import { noCiMergeHeld, repoHasNoCiCached } from "./checks-gate";
 import {
   EmptyDiffError,
   MergeEnqueuedError,
@@ -3842,7 +3842,11 @@ export class DrainService {
     }
     if (pr.isDraft) return; // never merge a draft (computeLandingReady's Gitea fallback can't tell)
     // not green / mergeable yet (no-CI repos: a terminal checks:"none" + clean mergeStateStatus is ready)
-    if (!computeLandingReady(pr, repoHasNoCiCached(forge.kind, repoPath))) return;
+    const noCi = repoHasNoCiCached(forge.kind, repoPath);
+    if (!computeLandingReady(pr, noCi)) return;
+    // #3104: no CI ran on it — hold for the operator (Land CTA) unless the repo opts in.
+    if (noCiMergeHeld(pr.checks, noCi, this.deps.store.getRepoConfig(repoPath).mergeWithoutCi))
+      return;
     const key = `${repoPath}#${parentIssueNumber}`;
     if (this.landMergeBlocked(key, pr.headSha ?? "")) return; // backed off on this head
     try {

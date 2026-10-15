@@ -131,6 +131,8 @@
     {#if epic.landingStranded}<span class="waiting-chip"
         >{m.integrated_epics_land_stranded({ ago: formatAgo(nowMs - epic.completedAt) })}</span
       >{/if}
+    {#if epic.landingNoCiHold}<span class="waiting-chip">{m.integrated_epics_land_no_ci()}</span
+      >{/if}
     {#if epic.landingConflictStranded && epic.landingConflictSince != null}<span
         class="waiting-chip"
         >{m.integrated_epics_land_conflict_stranded({

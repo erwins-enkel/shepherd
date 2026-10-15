@@ -12772,6 +12772,12 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientLongRunningTests.swift\",\"ShepherdClientLongRunningTests\",\"boundedReadsKeepWriteTimeouts() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"apnsRelayFields() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"epic() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"epicErrors(status: Int) async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"epicErrors(status: Int) async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"aCycleDropsTheEdgeThatClosesIt() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"firstParallelAndCurrentStageSkipMergedChildren() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"noChildrenNoStages()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"selfReferencesOutsideEdgesAndDuplicatesAreIgnored() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"stagesFollowTheLongestBlockerPath() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFlowTests.swift\",\"CoreSeamTests.EpicFlowTests\",\"withinAStageChildrenFollowTheirBlockersRows() throws\"]"
   ]
 }

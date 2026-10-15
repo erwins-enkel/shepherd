@@ -2510,34 +2510,37 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .all() as { repoPath: string; phase: number; phaseAt: number }[];
   }
 
-  /** Did a bootstrap session of `sessionPhase` (1 = P1+P2, legacy stack rows count as 1; 3 = P3)
-   *  in `repoPath` merge at or after `since`? Boot-reconcile fact (#3112). */
-  bootstrapSessionMergedSince(
+  /** When the first bootstrap session of `sessionPhase` (1 = P1+P2, legacy stack rows count as 1;
+   *  3 = P3) in `repoPath` merged at or after `since`; null when none did. Boot-reconcile fact
+   *  (#3112) — the time chains into the next step, as the live advance restarts the phase clock. */
+  bootstrapSessionMergedAt(
     repoPath: string,
     sessionPhase: BootstrapSessionPhase,
     since: number,
-  ): boolean {
+  ): number | null {
     const phaseCond =
       sessionPhase === 3
         ? `bootstrapPhase = 3`
         : `(bootstrapPhase = 1 OR (bootstrapPhase IS NULL AND bootstrapStackJson IS NOT NULL))`;
-    return !!this.db
+    const r = this.db
       .query(
-        `SELECT 1 FROM sessions WHERE repoPath = ? AND archiveReason = 'merged'
-         AND archivedAt >= ? AND ${phaseCond} LIMIT 1`,
+        `SELECT MIN(archivedAt) AS at FROM sessions WHERE repoPath = ? AND archiveReason = 'merged'
+         AND archivedAt >= ? AND ${phaseCond}`,
       )
-      .get(repoPath, since);
+      .get(repoPath, since) as { at: number | null } | null;
+    return r?.at ?? null;
   }
 
-  /** Was an epic draft of a session in `repoPath` approved (issues materialized) at or after
-   *  `since`? Boot-reconcile fact for P4 → P5 (#3112). */
-  epicDraftApprovedSince(repoPath: string, since: number): boolean {
-    return !!this.db
+  /** When the first epic draft of a session in `repoPath` was approved (issues materialized) at or
+   *  after `since`; null when none was. Boot-reconcile fact for P4 → P5 (#3112). */
+  epicDraftApprovedAt(repoPath: string, since: number): number | null {
+    const r = this.db
       .query(
-        `SELECT 1 FROM epic_draft e JOIN sessions s ON s.id = e.sessionId
-         WHERE s.repoPath = ? AND e.status = 'approved' AND e.updatedAt >= ? LIMIT 1`,
+        `SELECT MIN(e.updatedAt) AS at FROM epic_draft e JOIN sessions s ON s.id = e.sessionId
+         WHERE s.repoPath = ? AND e.status = 'approved' AND e.updatedAt >= ?`,
       )
-      .get(repoPath, since);
+      .get(repoPath, since) as { at: number | null } | null;
+    return r?.at ?? null;
   }
 
   /** Grant (on) or revoke (off) the operator override of the bootstrap drain hold. No-op unless

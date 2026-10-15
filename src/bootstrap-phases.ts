@@ -100,26 +100,31 @@ export function advanceAfterEpicApproved(store: PhaseStore, repoPath: string): b
 type ReconcileStore = PhaseStore &
   Pick<
     SessionStore,
-    "listActiveRepoBootstraps" | "bootstrapSessionMergedSince" | "epicDraftApprovedSince"
+    "listActiveRepoBootstraps" | "bootstrapSessionMergedAt" | "epicDraftApprovedAt"
   >;
 
-/** One forward step from persisted facts newer than `since`; null when no fact moves it. */
+/** One forward step from the first persisted fact at or after `since`, with that fact's time;
+ *  null when no fact moves it. */
 function reconcileStep(
   store: ReconcileStore,
   repoPath: string,
   phase: number,
   since: number,
-): number | null {
-  if (phase <= 2 && store.bootstrapSessionMergedSince(repoPath, 1, since)) return 3;
-  if (phase === 3 && store.bootstrapSessionMergedSince(repoPath, 3, since)) return 4;
-  if (phase === 4 && store.epicDraftApprovedSince(repoPath, since)) return BOOTSTRAP_LAST_PHASE;
-  return null;
+): { phase: number; at: number } | null {
+  let at: number | null = null;
+  if (phase <= 2) at = store.bootstrapSessionMergedAt(repoPath, 1, since);
+  else if (phase === 3) at = store.bootstrapSessionMergedAt(repoPath, 3, since);
+  else if (phase === 4) at = store.epicDraftApprovedAt(repoPath, since);
+  if (at == null) return null;
+  return { phase: phase <= 2 ? 3 : phase + 1, at };
 }
 
 /**
- * Boot reconcile: heal every advance a restart lost. Facts are counted from the CURRENT phase's
- * start (`phaseAt`) — kept for the whole chain, since a later fact happened after the earlier one —
- * so a re-activated repo never advances on an older run. Returns the repos that moved.
+ * Boot reconcile: heal every advance a restart lost. The first step counts facts from the CURRENT
+ * phase's start (`phaseAt`), so a re-activated repo never advances on an older run; each further
+ * step counts only facts at or after the fact that drove the previous one — exactly where the live
+ * advance would have restarted the phase clock. So an epic approved while the repo still sat at P3
+ * never carries it past P4. Returns the repos that moved.
  */
 export function reconcileBootstrapPhases(
   store: ReconcileStore,
@@ -127,9 +132,9 @@ export function reconcileBootstrapPhases(
   const moved: { repoPath: string; from: number; to: number }[] = [];
   for (const { repoPath, phase, phaseAt } of store.listActiveRepoBootstraps()) {
     let to = phase;
-    for (let next = reconcileStep(store, repoPath, to, phaseAt); next != null;) {
-      to = next;
-      next = reconcileStep(store, repoPath, to, phaseAt);
+    for (let step = reconcileStep(store, repoPath, to, phaseAt); step;) {
+      to = step.phase;
+      step = reconcileStep(store, repoPath, to, step.at);
     }
     if (to === phase) continue;
     store.setRepoBootstrap(repoPath, { state: "active", phase: to });

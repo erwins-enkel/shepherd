@@ -163,20 +163,20 @@ describe("SessionStore repo bootstrap", () => {
     const p1 = s.create({ ...base, herdrAgentId: "a1", bootstrapPhase: 1 });
     const p3 = s.create({ ...base, herdrAgentId: "a3", bootstrapPhase: 3 });
     const epic = s.create({ ...base, herdrAgentId: "a4" });
-    expect(s.bootstrapSessionMergedSince("/r", 1, 0)).toBe(false);
+    expect(s.bootstrapSessionMergedAt("/r", 1, 0)).toBeNull();
     s.archive(p1.id, "merged");
     s.archive(p3.id, "operator");
-    expect(s.bootstrapSessionMergedSince("/r", 1, 0)).toBe(true);
-    expect(s.bootstrapSessionMergedSince("/r", 1, Date.now() + 60_000)).toBe(false);
-    expect(s.bootstrapSessionMergedSince("/other", 1, 0)).toBe(false);
-    expect(s.bootstrapSessionMergedSince("/r", 3, 0)).toBe(false);
+    expect(s.bootstrapSessionMergedAt("/r", 1, 0)).toBe(s.get(p1.id)!.archivedAt);
+    expect(s.bootstrapSessionMergedAt("/r", 1, Date.now() + 60_000)).toBeNull();
+    expect(s.bootstrapSessionMergedAt("/other", 1, 0)).toBeNull();
+    expect(s.bootstrapSessionMergedAt("/r", 3, 0)).toBeNull();
     s.replaceEpicDraft(epic.id, {
       parent: { title: "t", body: "b", acceptanceCriteria: [], nonGoals: [] },
       children: [],
     });
-    expect(s.epicDraftApprovedSince("/r", 0)).toBe(false);
+    expect(s.epicDraftApprovedAt("/r", 0)).toBeNull();
     s.setEpicDraftApproved(epic.id, 7, "u");
-    expect(s.epicDraftApprovedSince("/r", 0)).toBe(true);
-    expect(s.epicDraftApprovedSince("/r", Date.now() + 60_000)).toBe(false);
+    expect(s.epicDraftApprovedAt("/r", 0)).toEqual(expect.any(Number));
+    expect(s.epicDraftApprovedAt("/r", Date.now() + 60_000)).toBeNull();
   });
 });

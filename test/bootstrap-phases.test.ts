@@ -121,6 +121,21 @@ describe("reconcileBootstrapPhases", () => {
     expect(reconcileBootstrapPhases(s)).toEqual([{ repoPath: "/r", from: 1, to: 5 }]);
   });
 
+  test("a chained step only counts facts after the one that drove the previous step", () => {
+    const s = new SessionStore(":memory:");
+    s.setRepoBootstrap("/r", { state: "active", phase: 3 });
+    db(s).run(`UPDATE repo_bootstrap SET phaseAt = 100`);
+    // Epic approved while the repo still sat at P3 (the live hook ignores it) …
+    const e = approveEpic(s);
+    db(s).run(`UPDATE epic_draft SET updatedAt = 200 WHERE sessionId = ?`, [e.id]);
+    // … then the P3 PR merged, its archive handling lost to a restart.
+    const p3 = create(s, { bootstrapPhase: 3 });
+    s.archive(p3.id, "merged");
+    db(s).run(`UPDATE sessions SET archivedAt = 300 WHERE id = ?`, [p3.id]);
+    expect(reconcileBootstrapPhases(s)).toEqual([{ repoPath: "/r", from: 3, to: 4 }]);
+    expect(s.getRepoBootstrap("/r").phase).toBe(4);
+  });
+
   test("ignores facts older than the phase start, unmerged sessions, other repos", () => {
     const s = new SessionStore(":memory:");
     s.archive(create(s, { bootstrapPhase: 1 }).id, "merged"); // an older run

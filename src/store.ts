@@ -1558,6 +1558,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_bootstrap (
       repoPath TEXT PRIMARY KEY, state TEXT NOT NULL, phase INTEGER NOT NULL DEFAULT 1,
       overrideAt INTEGER, updatedAt INTEGER NOT NULL)`);
+    // #3112: when the CURRENT phase began — boot reconcile only counts facts newer than it, so a
+    // re-activated repo never advances on an older run's merges. Legacy rows backfill updatedAt.
+    if (
+      !(this.db.query(`PRAGMA table_info(repo_bootstrap)`).all() as { name: string }[]).some(
+        (c) => c.name === "phaseAt",
+      )
+    ) {
+      this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN phaseAt INTEGER`);
+      this.db.run(`UPDATE repo_bootstrap SET phaseAt = updatedAt`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS local_prs (
       number    INTEGER PRIMARY KEY AUTOINCREMENT,
       repoPath  TEXT NOT NULL,
@@ -2497,13 +2507,60 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
     const cur = this.getRepoBootstrap(repoPath);
     const overrideAt = cur.state === next.state ? cur.overrideAt : null;
+    const now = Date.now();
+    // A new phase (or entering active) restarts the phase clock; anything else keeps it.
+    const restart = cur.phase !== next.phase || (next.state === "active" && cur.state !== "active");
     this.db.run(
-      `INSERT INTO repo_bootstrap (repoPath, state, phase, overrideAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO repo_bootstrap (repoPath, state, phase, overrideAt, updatedAt, phaseAt)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(repoPath) DO UPDATE SET state = excluded.state, phase = excluded.phase,
-         overrideAt = excluded.overrideAt, updatedAt = excluded.updatedAt`,
-      [repoPath, next.state, next.phase, overrideAt, Date.now()],
+         overrideAt = excluded.overrideAt, updatedAt = excluded.updatedAt,
+         phaseAt = CASE WHEN ? THEN excluded.phaseAt ELSE COALESCE(phaseAt, excluded.phaseAt) END`,
+      [repoPath, next.state, next.phase, overrideAt, now, now, restart ? 1 : 0],
     );
+  }
+
+  /** Every repo in ACTIVE bootstrap with its phase clock — the boot reconcile's work list (#3112). */
+  listActiveRepoBootstraps(): { repoPath: string; phase: number; phaseAt: number }[] {
+    return this.db
+      .query(
+        `SELECT repoPath, phase, COALESCE(phaseAt, updatedAt) AS phaseAt FROM repo_bootstrap
+         WHERE state = 'active'`,
+      )
+      .all() as { repoPath: string; phase: number; phaseAt: number }[];
+  }
+
+  /** When the first bootstrap session of `sessionPhase` (1 = P1+P2, legacy stack rows count as 1;
+   *  3 = P3) in `repoPath` merged at or after `since`; null when none did. Boot-reconcile fact
+   *  (#3112) — the time chains into the next step, as the live advance restarts the phase clock. */
+  bootstrapSessionMergedAt(
+    repoPath: string,
+    sessionPhase: BootstrapSessionPhase,
+    since: number,
+  ): number | null {
+    const phaseCond =
+      sessionPhase === 3
+        ? `bootstrapPhase = 3`
+        : `(bootstrapPhase = 1 OR (bootstrapPhase IS NULL AND bootstrapStackJson IS NOT NULL))`;
+    const r = this.db
+      .query(
+        `SELECT MIN(archivedAt) AS at FROM sessions WHERE repoPath = ? AND archiveReason = 'merged'
+         AND archivedAt >= ? AND ${phaseCond}`,
+      )
+      .get(repoPath, since) as { at: number | null } | null;
+    return r?.at ?? null;
+  }
+
+  /** When the first epic draft of a session in `repoPath` was approved (issues materialized) at or
+   *  after `since`; null when none was. Boot-reconcile fact for P4 → P5 (#3112). */
+  epicDraftApprovedAt(repoPath: string, since: number): number | null {
+    const r = this.db
+      .query(
+        `SELECT MIN(e.updatedAt) AS at FROM epic_draft e JOIN sessions s ON s.id = e.sessionId
+         WHERE s.repoPath = ? AND e.status = 'approved' AND e.updatedAt >= ?`,
+      )
+      .get(repoPath, since) as { at: number | null } | null;
+    return r?.at ?? null;
   }
 
   /** Grant (on) or revoke (off) the operator override of the bootstrap drain hold. No-op unless

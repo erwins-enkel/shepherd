@@ -508,3 +508,32 @@ test("POST /api/github/git-credentials without a JSON body → 415, gh never run
   expect(res.status).toBe(415);
   expect(ran).toBe(false);
 });
+
+// ── #3112: multipart create with the PRD + design import ─────────────────────
+
+test("POST /api/projects multipart: a traversal path → 400 newproject_failed_docs", async () => {
+  const app = makeTestApp();
+  const fd = new FormData();
+  fd.append("project", JSON.stringify({ name: "x-app", idea: "", createRemote: false }));
+  fd.append("prd", new File(["x"], "p.md"), "../p.md");
+  const res = await app.fetch(new Request("http://x/api/projects", { method: "POST", body: fd }));
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ error: "newproject_failed_docs" });
+});
+
+test("POST /api/projects multipart without a project field → 400", async () => {
+  const app = makeTestApp();
+  const fd = new FormData();
+  fd.append("prd", new File(["x"], "p.md"));
+  const res = await app.fetch(new Request("http://x/api/projects", { method: "POST", body: fd }));
+  expect(res.status).toBe(400);
+});
+
+test("POST /api/projects multipart: the project JSON is validated like the JSON body", async () => {
+  const app = makeTestApp();
+  const fd = new FormData();
+  fd.append("project", JSON.stringify({ name: "Bad Name", idea: "", createRemote: false }));
+  const res = await app.fetch(new Request("http://x/api/projects", { method: "POST", body: fd }));
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ error: "newproject_failed_slug" });
+});

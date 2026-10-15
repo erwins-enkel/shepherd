@@ -3062,6 +3062,7 @@ export type WsEvent =
   | { event: "codex-update:done"; data: CodexUpdateResult }
   | { event: "plugin-update:status"; data: PluginUpdatesStatus }
   | { event: "project-icons:update"; data: ProjectIcons }
+  | { event: "repo-bootstrap:update"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }

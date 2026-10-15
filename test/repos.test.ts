@@ -470,6 +470,38 @@ test("createProject: happy local-only path — dir, .git, one commit on main, bo
   }
 });
 
+/** #3112: the imported PRD + design land under docs/ in the ONE initial commit. */
+test("createProject: imported docs are part of the initial commit", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const enc = new TextEncoder();
+    const result = await createProject(
+      { name: "docs-app", idea: "", createRemote: false, visibility: "private" },
+      repoRoot,
+      undefined,
+      undefined,
+      [
+        { area: "prd", relPath: "prd.md", data: enc.encode("# PRD") },
+        { area: "design", relPath: "screens/home.png", data: enc.encode("png") },
+      ],
+    );
+    expect(result.ok).toBe(true);
+    const target = join(repoRoot, "docs-app");
+    const tree = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: target,
+      stdio: "pipe",
+    })
+      .toString()
+      .trim()
+      .split("\n");
+    expect(tree).toContain("docs/prd/prd.md");
+    expect(tree).toContain("docs/design/screens/home.png");
+    expect(readFileSync(join(target, "docs/prd/prd.md"), "utf8")).toBe("# PRD");
+  } finally {
+    cleanup();
+  }
+});
+
 /** Happy local-only path with empty idea: uses fallback placeholder text. */
 test("createProject: empty idea uses fallback placeholder in bootstrap files", async () => {
   const { repoRoot, cleanup } = makeTempRoot();

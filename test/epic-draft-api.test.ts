@@ -58,6 +58,7 @@ function harness(forge: GitForge | null) {
       setRuns.push(run);
       return { repoPath, parentIssueNumber: run.parentIssueNumber, children: [], run } as any;
     },
+    tick: async () => {},
   };
   const deps: AppDeps = {
     store,
@@ -178,6 +179,26 @@ test("approve materializes children+parent, wires links, registers the run, emit
   expect(emitted.some((e) => e.event === "epic:update")).toBe(true);
   // draft is now approved
   expect(store.getEpicDraft(s.id)?.status).toBe("approved");
+});
+
+test("approve in a P4 bootstrap repo advances it to the exit check (#3112)", async () => {
+  const { app, store, emitted } = harness(fakeForge().forge);
+  store.setRepoBootstrap(repoDir, { state: "active", phase: 4 });
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  expect((await approve(app, s.id)).status).toBe(200);
+  expect(store.getRepoBootstrap(repoDir)).toMatchObject({ state: "active", phase: 5 });
+  expect(emitted).toContainEqual({ event: "repo-bootstrap:update", data: { repoPath: repoDir } });
+});
+
+test("approve leaves a bootstrap repo before P4 (and a non-bootstrap repo) alone (#3112)", async () => {
+  const { app, store, emitted } = harness(fakeForge().forge);
+  store.setRepoBootstrap(repoDir, { state: "active", phase: 3 });
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  expect((await approve(app, s.id)).status).toBe(200);
+  expect(store.getRepoBootstrap(repoDir).phase).toBe(3);
+  expect(emitted.some((e) => e.event === "repo-bootstrap:update")).toBe(false);
 });
 
 test("approve keeps a leading epic running instead of registering over it", async () => {

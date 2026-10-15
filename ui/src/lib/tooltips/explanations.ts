@@ -686,6 +686,19 @@ export function remoteFactsExplanation(
   };
 }
 
+/** Backlog bootstrap checklist (#3112): how the phases advance and who starts each step. */
+export function bootstrapSequencerExplanation(): TooltipExplanation {
+  return {
+    title: m.bootstrap_checklist_title(),
+    summary: m.tooltip_bootstrap_seq_summary(),
+    sections: [
+      { label: m.tooltip_bootstrap_seq_advance(), text: m.tooltip_bootstrap_seq_advance_body() },
+      { label: m.tooltip_bootstrap_seq_start(), text: m.tooltip_bootstrap_seq_start_body() },
+      { label: m.tooltip_bootstrap_exit(), text: m.tooltip_bootstrap_exit_body() },
+    ],
+  };
+}
+
 /** Project bootstrap (#3105): what the hold stops, when it ends, what the override costs. */
 export function bootstrapExplanation(): TooltipExplanation {
   return {

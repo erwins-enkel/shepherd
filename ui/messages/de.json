@@ -6660,5 +6660,14 @@
   "tooltip_bootstrap_seq_start": "Wer einen Schritt startet",
   "tooltip_bootstrap_seq_start_body": "Du — ein Klick öffnet „Neue Aufgabe“ passend vorbelegt. Shepherd startet diese Sessions nie von selbst.",
   "feat_bootstrap_sequencer_title": "Projekt-Bootstrap aus PRD + Design",
-  "feat_bootstrap_sequencer_body": "„Neues Projekt“ importiert dein PRD und den Design-Export. Shepherd führt das Projekt dann Phase für Phase — Gerüst, Lückenabgleich, Backlog — und das Backlog zeigt die Checkliste mit dem nächsten Schritt."
+  "feat_bootstrap_sequencer_body": "„Neues Projekt“ importiert dein PRD und den Design-Export. Shepherd führt das Projekt dann Phase für Phase — Gerüst, Lückenabgleich, Backlog — und das Backlog zeigt die Checkliste mit dem nächsten Schritt.",
+  "drain_paused_epic_base_stale": "Pausiert: Epic-Branch {branch} liegt hinter main — Rebase, sobald laufende Aufgaben fertig sind",
+  "drain_paused_epic_base_conflict": "Pausiert: Epic-Branch {branch} hat einen Konflikt mit main",
+  "drain_paused_epic_predecessor": "Pausiert: wartet auf die Landung von Epic {epics}",
+  "epic_hold_epic_base_stale": "Pausiert: Der Epic-Branch {branch} liegt seit Stunden hinter dem Haupt-Branch. Kein neues Child startet; sobald die laufenden fertig sind, wird rebased und der Lauf geht weiter.",
+  "epic_hold_epic_base_conflict": "Pausiert: Der Rebase des Epic-Branch {branch} auf den Haupt-Branch hat einen Konflikt. Bis zur Lösung startet kein neues Child — ein Agent arbeitet daran, oder starte selbst einen.",
+  "epic_hold_epic_predecessor_unlanded": "Pausiert: Die Landung von Epic {epics} ist noch offen. Dieses Epic startet, sobald sie gemergt ist, damit es auf dieser Arbeit aufbaut.",
+  "epic_base_resolve": "Konflikt lösen",
+  "epic_base_continue": "Trotzdem fortfahren",
+  "epic_base_action_failed": "Die Pause des Epics ließ sich nicht ändern."
 }

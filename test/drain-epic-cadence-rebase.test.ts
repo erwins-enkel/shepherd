@@ -3,8 +3,9 @@
  *
  * While an epic runs, its integration branch is rebased onto the default branch ONLY in a
  * quiescent window (no child running/in review, no session based on the branch). Throttled per
- * epic (1h; 6h after a conflict); a conflict writes nothing and notifies nobody.
- * The rebase seam is faked; `getIssue`/`listSubIssues` feed buildEpic.
+ * epic (1h). #3101: a branch behind the default branch for ≥4h holds new spawns until quiescent;
+ * a conflict holds and dispatches one base-rework agent, then notifies.
+ * The rebase + behind-probe seams are faked; `getIssue`/`listSubIssues` feed buildEpic.
  */
 import { test, expect, describe } from "bun:test";
 import { DrainService } from "../src/drain";
@@ -12,7 +13,9 @@ import { SessionStore } from "../src/store";
 import type { GitForge, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
-import type { LandingRebaseResult } from "../src/landing-rebase";
+import type { BranchBehindResult, LandingRebaseResult } from "../src/landing-rebase";
+import { computeNext } from "../src/drain-core";
+import type { Session } from "../src/types";
 import { epicIntegrationBranch } from "../src/epic-branch";
 
 const REPO = "/repo";
@@ -81,6 +84,12 @@ interface Harness {
   calls: Array<{ branch: string; defaultBranch: string }>;
   clock: { t: number };
   notifies: unknown[];
+  probes: number;
+  /** What the behind-probe reports next; mutate to move "main". */
+  probe: { kind: BranchBehindResult["kind"]; sha: string };
+  /** What the rebase seam returns next. */
+  rebase: { kind: LandingRebaseResult["kind"] };
+  spawned: { prompt: string; baseBranch: string }[];
 }
 
 function makeHarness(
@@ -91,6 +100,7 @@ function makeHarness(
     integratedChild?: boolean;
     pin?: boolean;
     result?: LandingRebaseResult["kind"];
+    autoDrain?: boolean;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -102,7 +112,7 @@ function makeHarness(
     learningsEnabled: false,
     autopilotEnabled: false,
     planGateEnabled: false,
-    autoDrainEnabled: false,
+    autoDrainEnabled: opts.autoDrain ?? false,
     autoMergeEnabled: false,
     buildQueueEnabled: false,
     draftMode: opts.draftMode ?? false,
@@ -142,11 +152,33 @@ function makeHarness(
   const calls: Harness["calls"] = [];
   const clock = { t: 1_000_000 };
   const notifies: unknown[] = [];
+  const probe: Harness["probe"] = { kind: "behind", sha: "m1" };
+  const rebase: Harness["rebase"] = { kind: opts.result ?? "rebased" };
+  const spawned: Harness["spawned"] = [];
+  const counters = { probes: 0 };
   const drain = new DrainService({
     store,
     service: {
-      create: async () => {
-        throw new Error("not used");
+      create: async (input: {
+        prompt: string;
+        baseBranch: string;
+        landingRepair?: boolean;
+      }): Promise<Session> => {
+        spawned.push({ prompt: input.prompt, baseBranch: input.baseBranch });
+        return store.create({
+          name: "rework",
+          prompt: input.prompt,
+          repoPath: REPO,
+          baseBranch: input.baseBranch,
+          branch: "rework/x",
+          worktreePath: "/wt-rework",
+          isolated: true,
+          herdrSession: "default",
+          herdrAgentId: "r",
+          auto: true,
+          issueNumber: null,
+          landingRepair: !!input.landingRepair,
+        });
       },
       archive: () => 1,
     } as never,
@@ -167,11 +199,31 @@ function makeHarness(
     rebaseCap: 5,
     rebaseLandingBranch: async (_repo: string, branch: string, defaultBranch: string) => {
       calls.push({ branch, defaultBranch });
-      const kind = opts.result ?? "rebased";
+      const kind = rebase.kind;
       return (kind === "rebased" ? { kind, headSha: "abc" } : { kind }) as LandingRebaseResult;
     },
+    branchBehindDefault: async () => {
+      counters.probes += 1;
+      return (
+        probe.kind === "transient"
+          ? { kind: "transient" }
+          : { kind: probe.kind, defaultSha: probe.sha }
+      ) as BranchBehindResult;
+    },
   });
-  return { store, drain, calls, clock, notifies };
+  return {
+    store,
+    drain,
+    calls,
+    clock,
+    notifies,
+    get probes() {
+      return counters.probes;
+    },
+    probe,
+    rebase,
+    spawned,
+  };
 }
 
 function addSession(
@@ -233,7 +285,6 @@ describe("cadenceRebaseEpicBranchForRepo (#1841)", () => {
     ["epic paused", { epicStatus: "paused" as const }],
     ["draft mode", { draftMode: true }],
     ["non-GitHub forge", { forgeKind: "gitea" as const }],
-    ["no integrated child", { integratedChild: false }],
     ["unpinned branch", { pin: false }],
   ])("%s → no rebase", async (_label, opts) => {
     const h = makeHarness(opts);
@@ -252,18 +303,17 @@ describe("cadenceRebaseEpicBranchForRepo (#1841)", () => {
     expect(h.calls).toHaveLength(2);
   });
 
-  test("conflict → 6h back-off, no store row, no notify", async () => {
-    const h = makeHarness({ result: "conflict" });
+  test("#3101: a pinned branch with no integrated child is still rebased (left over from an earlier run)", async () => {
+    const h = makeHarness({ integratedChild: false });
     await callPass(h);
     expect(h.calls).toHaveLength(1);
-    h.clock.t += 6 * HOUR - 1;
+  });
+
+  test("#3101: branch already current → no rebase", async () => {
+    const h = makeHarness();
+    h.probe.kind = "current";
     await callPass(h);
-    expect(h.calls).toHaveLength(1);
-    h.clock.t += 1;
-    await callPass(h);
-    expect(h.calls).toHaveLength(2);
-    expect(h.store.listEpicCompleted(REPO)).toHaveLength(0);
-    expect(h.notifies).toHaveLength(0);
+    expect(h.calls).toHaveLength(0);
   });
 
   test("a pump already running for the repo → skip (no rebase)", async () => {
@@ -317,5 +367,168 @@ describe("cadenceRebaseEpicBranchForRepo (#1841)", () => {
     await h.drain.tick();
     expect(order).toEqual(["cadence", "pump"]);
     expect(h.calls).toHaveLength(1);
+  });
+});
+
+// ── #3101: base freshness holds ─────────────────────────────────────────────────────────────────
+
+async function holdCode(h: Harness): Promise<string | null> {
+  const { state } = await (
+    h.drain as unknown as {
+      buildState: (r: string) => Promise<{ state: Parameters<typeof computeNext>[0] }>;
+    }
+  ).buildState(REPO);
+  const d = computeNext(state);
+  return d.kind === "hold" ? d.reason.code : null;
+}
+
+function restart(h: Harness): Harness {
+  // A fresh DrainService on the SAME store: in-memory throttles/overrides are gone.
+  const next = makeHarness();
+  const d = new DrainService({
+    ...(next.drain as unknown as { deps: ConstructorParameters<typeof DrainService>[0] }).deps,
+    store: h.store,
+  });
+  return { ...h, drain: d, calls: next.calls };
+}
+
+describe("epic base freshness (#3101)", () => {
+  test("main moves during an epic run: busy epic holds after 4h, rebases once quiescent, resumes", async () => {
+    const h = makeHarness();
+    addSession(h, { issueNumber: CHILD2, baseBranch: BRANCH }); // a child in flight
+    await callPass(h);
+    expect(h.calls).toHaveLength(0); // not quiescent → no rebase
+    expect(h.store.getEpicBaseFreshness(REPO, PARENT)?.behindSince).toBe(h.clock.t);
+    expect(await holdCode(h)).not.toBe("epic_base_stale");
+
+    h.clock.t += 4 * HOUR - 1;
+    expect(await holdCode(h)).not.toBe("epic_base_stale");
+    h.clock.t += 1;
+    expect(await holdCode(h)).toBe("epic_base_stale");
+
+    // Armed + still busy: every tick re-checks quiescence, without another fetch.
+    const probes = h.probes;
+    await callPass(h);
+    expect(h.probes).toBe(probes);
+    expect(h.calls).toHaveLength(0);
+
+    // The child finishes → next tick rebases (no hourly throttle) and the hold clears.
+    h.store.archive(h.store.list().find((s) => s.issueNumber === CHILD2)!.id);
+    await callPass(h);
+    expect(h.calls).toHaveLength(1);
+    expect(h.store.getEpicBaseFreshness(REPO, PARENT)?.behindSince).toBeNull();
+    expect(await holdCode(h)).not.toBe("epic_base_stale");
+  });
+
+  test("the stale clock survives a restart", async () => {
+    const h = makeHarness();
+    addSession(h, { issueNumber: CHILD2, baseBranch: BRANCH });
+    await callPass(h);
+    const since = h.store.getEpicBaseFreshness(REPO, PARENT)?.behindSince;
+    const r = restart(h);
+    r.clock.t += 4 * HOUR;
+    await callPass(r);
+    expect(r.store.getEpicBaseFreshness(REPO, PARENT)?.behindSince).toBe(since!);
+  });
+
+  test("conflict → hold + one auto rework agent; a second conflict notifies instead", async () => {
+    const h = makeHarness({ result: "conflict", autoDrain: true });
+    await callPass(h);
+    expect(await holdCode(h)).toBe("epic_base_conflict");
+    expect(h.spawned).toHaveLength(1);
+    expect(h.spawned[0]!.baseBranch).toBe(BRANCH);
+    expect(h.spawned[0]!.prompt).toContain(`git push --force-with-lease=${BRANCH}:<lease-sha>`);
+    expect(h.notifies).toHaveLength(0);
+
+    // The rework session holds the branch → the pass is fenced.
+    await callPass(h);
+    expect(h.calls).toHaveLength(1);
+
+    // It ends without fixing it → retried at once; cap spent → notify, no second agent.
+    h.store.archive(h.store.list().find((s) => s.landingRepair)!.id);
+    await callPass(h);
+    expect(h.calls).toHaveLength(2);
+    expect(h.spawned).toHaveLength(1);
+    expect(h.notifies).toEqual([
+      expect.objectContaining({ kind: "epic_base_conflict", epicNumber: PARENT }),
+    ]);
+    expect(await holdCode(h)).toBe("epic_base_conflict");
+  });
+
+  test("conflict resolved → hold clears and the rework budget resets", async () => {
+    const h = makeHarness({ result: "conflict", autoDrain: true });
+    await callPass(h);
+    h.store.archive(h.store.list().find((s) => s.landingRepair)!.id);
+    h.probe.kind = "current"; // the agent's push brought the branch up to date
+    await callPass(h);
+    expect(await holdCode(h)).not.toBe("epic_base_conflict");
+    expect(h.store.getEpicBaseFreshness(REPO, PARENT)).toEqual({
+      behindSince: null,
+      conflictSince: null,
+      reworkCount: 0,
+    });
+  });
+
+  test("auto-drain off → no agent, notify; the manual dispatch bypasses it", async () => {
+    const h = makeHarness({ result: "conflict" });
+    await callPass(h);
+    expect(h.spawned).toHaveLength(0);
+    expect(h.notifies).toHaveLength(1);
+    expect(await h.drain.resolveEpicBaseConflict(REPO, PARENT)).toEqual({ ok: true });
+    expect(h.spawned).toHaveLength(1);
+    // A live repair session refuses a second one.
+    expect(await h.drain.resolveEpicBaseConflict(REPO, PARENT)).toEqual({
+      ok: false,
+      error: "busy",
+    });
+  });
+
+  test("manual resolve without a conflict → not-conflicting", async () => {
+    const h = makeHarness();
+    expect(await h.drain.resolveEpicBaseConflict(REPO, PARENT)).toEqual({
+      ok: false,
+      error: "not-conflicting",
+    });
+  });
+
+  test("override lifts base holds until the default branch moves", async () => {
+    const h = makeHarness({ result: "conflict" });
+    await callPass(h);
+    expect(await holdCode(h)).toBe("epic_base_conflict");
+    expect(await h.drain.overrideEpicBaseHold(REPO, PARENT, "base")).toEqual({ ok: true });
+    expect(await holdCode(h)).not.toBe("epic_base_conflict");
+    // The override kicks a pump; let it finish before the next pass (it holds the pump slot).
+    while ((h.drain as unknown as { pumping: Set<string> }).pumping.has(REPO))
+      await new Promise((r) => setTimeout(r, 1));
+    h.probe.sha = "m2"; // main moved
+    h.clock.t += HOUR;
+    await callPass(h);
+    expect(await holdCode(h)).toBe("epic_base_conflict");
+  });
+
+  test("an unstarted epic holds while another epic's landing is open; override lifts it", async () => {
+    const h = makeHarness({ integratedChild: false });
+    h.store.recordEpicCompleted({
+      repoPath: REPO,
+      parentIssueNumber: 55,
+      parentTitle: "M1",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    expect(await holdCode(h)).toBe("epic_predecessor_unlanded");
+    expect(await h.drain.overrideEpicBaseHold(REPO, PARENT, "predecessor")).toEqual({ ok: true });
+    expect(await holdCode(h)).not.toBe("epic_predecessor_unlanded");
+  });
+
+  test("an epic already under way is not held for a predecessor", async () => {
+    const h = makeHarness(); // CHILD integrated
+    h.store.recordEpicCompleted({
+      repoPath: REPO,
+      parentIssueNumber: 55,
+      parentTitle: "M1",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    expect(await holdCode(h)).not.toBe("epic_predecessor_unlanded");
   });
 });

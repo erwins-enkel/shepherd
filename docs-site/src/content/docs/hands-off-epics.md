@@ -81,6 +81,14 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   usage ceiling** in the epic's run control, or **Ignore for epic #N** next to the pause banner. It
   lasts until the run is paused or stopped; the credit ceiling still applies.
 - **Concurrency cap.** Only *N* auto-sessions run at once (default 1); the rest queue.
+- **Epic branch behind `main`.** Shepherd rebases the epic's integration branch onto `main` about
+  once an hour, whenever no child is running or in review. If it has been behind for 4 hours
+  without such a gap, the epic stops starting new children ("Basis veraltet"), lets the running
+  ones finish, rebases, and continues. **Continue anyway** in the run control lifts the pause until
+  `main` moves again.
+- **Previous epic still landing.** An epic that hasn't started any child yet waits while another
+  epic's landing PR in the same repo is open, so its branch is cut from a `main` that already has
+  that work. **Continue anyway** starts it regardless.
 
 **Terminal (needs you):**
 
@@ -89,6 +97,10 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 - **A plan the adversarial reviewer can't get approved** within 5 rounds.
 - **A critic error** — Shepherd won't advance on an uncertain review.
 - **The credit ceiling** — Shepherd never keeps spending pay-as-you-go credit unattended.
+- **Epic branch conflicts with `main`** — the rebase above hits a real conflict. No new child starts;
+  one agent rebases the branch and resolves it. If that doesn't clear it you get a notification:
+  press **Resolve conflict** to start another agent, or **Continue anyway** to keep the epic going
+  on the old base until `main` moves again.
 - **Epic base-branch divergence** — a child PR retargeted off the epic integration branch; the epic
   is blocked until it's pointed back at the integration branch.
 - **A stack that lost a middle layer**, if you run with
@@ -113,12 +125,13 @@ complete, landing one aggregate PR at the end.
 One epic leads per repo. To line up more, press **Queue** on another epic while one leads. The
 queued epics are listed under **Warteschlange** in the repo's run area — drag them by the grip, or
 use the ↑/↓ buttons, to change the order. The head of the queue starts on its own, with its own
-settings, as soon as the leader has all children merged into its integration branch (its landing
-PR may still be open) — or when you **Stop** the leader. Pausing the leader keeps the queue
+settings, as soon as the leader has all children merged into its integration branch — or when you
+**Stop** the leader. Its first child waits until the leader's landing PR is merged (see
+**Previous epic still landing** above). Pausing the leader keeps the queue
 waiting; starting a different epic puts that one in front of the queue.
 
 A landing-PR repair session (CI repair or conflict rework) does not take one of the repo's agent
-slots, so the next epic's first child can start while the previous epic is still landing.
+slots.
 
 ## How long will this epic take?
 

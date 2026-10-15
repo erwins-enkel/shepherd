@@ -665,6 +665,64 @@ describe("POST /api/epic/approve-next", () => {
   });
 });
 
+// ── #3101: POST /api/epic/base-override + base-rework ────────────────────────
+
+describe("POST /api/epic/base-override (#3101)", () => {
+  test("bad kind → 400", async () => {
+    const { app } = harness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epic/base-override?repo=${encRepo(repoDir)}&parent=327&kind=x`, {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("forwards kind; maps no-epic → 404", async () => {
+    const seen: unknown[] = [];
+    const { app } = harness({
+      drainOverrides: {
+        overrideEpicBaseHold: async (r, p, k) => {
+          seen.push([r, p, k]);
+          return p === 327 ? { ok: true } : { ok: false, error: "no-epic" };
+        },
+      },
+    });
+    const ok = await app.fetch(
+      new Request(
+        `http://x/api/epic/base-override?repo=${encRepo(repoDir)}&parent=327&kind=predecessor`,
+        { method: "POST" },
+      ),
+    );
+    expect(ok.status).toBe(200);
+    expect(seen).toEqual([[repoDir, 327, "predecessor"]]);
+    const missing = await app.fetch(
+      new Request(`http://x/api/epic/base-override?repo=${encRepo(repoDir)}&parent=9&kind=base`, {
+        method: "POST",
+      }),
+    );
+    expect(missing.status).toBe(404);
+  });
+});
+
+describe("POST /api/epic/base-rework (#3101)", () => {
+  test("dispatched → 202; not-conflicting → 409 with reason", async () => {
+    let conflicting = true;
+    const { app } = harness({
+      drainOverrides: {
+        resolveEpicBaseConflict: async () =>
+          conflicting ? { ok: true } : { ok: false, error: "not-conflicting" },
+      },
+    });
+    const url = `http://x/api/epic/base-rework?repo=${encRepo(repoDir)}&parent=327`;
+    expect((await app.fetch(new Request(url, { method: "POST" }))).status).toBe(202);
+    conflicting = false;
+    const res = await app.fetch(new Request(url, { method: "POST" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).reason).toBe("not-conflicting");
+  });
+});
+
 // ── GET /api/epics ────────────────────────────────────────────────────────────
 
 describe("GET /api/epics", () => {

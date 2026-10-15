@@ -45,6 +45,21 @@ export function progress(children: Pick<EpicChild, "state">[]): {
   };
 }
 
+/** Hold lines that only interpolate the drain's `detail` — kept out of {@link epicHoldLine}'s switch.
+ *  #1757 `epic_base_unavailable`: `detail` is the integration branch, not a desig; self-heals when
+ *  the forge recovers. `epic_unreadable`: the open-issue listing failed (e.g. a rate limit).
+ *  #3105 `bootstrap_incomplete`: the repo is still in project bootstrap. #3101 base freshness:
+ *  `detail` is the branch (stale/conflict) or the epic list (predecessor). */
+const DETAIL_HOLD_LINES: Record<string, (detail: string) => string> = {
+  epic_base_unavailable: (branch) => m.epic_hold_epic_base_unavailable({ branch }),
+  epic_unreadable: () => m.epic_hold_epic_unreadable(),
+  bootstrap_incomplete: (d) =>
+    m.epic_hold_bootstrap_incomplete({ missing: bootstrapMissingText(d) }),
+  epic_base_stale: (branch) => m.epic_hold_epic_base_stale({ branch }),
+  epic_base_conflict: (branch) => m.epic_hold_epic_base_conflict({ branch }),
+  epic_predecessor_unlanded: (epics) => m.epic_hold_epic_predecessor_unlanded({ epics }),
+};
+
 /**
  * Localized "why is this epic's train holding" line, or null when there's nothing to say
  * (not running, no drain, or the drain is actively spawning/retiring → `reason == null`).
@@ -64,6 +79,8 @@ export function epicHoldLine(
 ): string | null {
   if (!running || !drain || drain.reason == null) return null;
   const desig = drain.detail ?? "";
+  const detailed = DETAIL_HOLD_LINES[drain.reason];
+  if (detailed) return detailed(desig);
   switch (drain.reason) {
     case "blocked":
       return m.epic_hold_blocked({ desig });
@@ -78,16 +95,6 @@ export function epicHoldLine(
       return m.epic_hold_cap({ inFlight: drain.inFlight, max: drain.max });
     case "awaiting_approval":
       return m.epic_hold_awaiting_approval({ num: desig });
-    // #1757: `detail` is the integration branch, not a desig — the forge's ensureBranch threw, so
-    // no child can be based on it. Self-heals when the forge recovers (cooldown → retry).
-    case "epic_base_unavailable":
-      return m.epic_hold_epic_base_unavailable({ branch: desig });
-    // The forge's open-issue listing failed (e.g. a rate limit) — self-heals on the next read.
-    case "epic_unreadable":
-      return m.epic_hold_epic_unreadable();
-    // #3105: the repo is still in project bootstrap — no child starts until it is done/overridden.
-    case "bootstrap_incomplete":
-      return m.epic_hold_bootstrap_incomplete({ missing: bootstrapMissingText(desig) });
     case "awaiting_signoff":
       return m.epic_hold_awaiting_signoff({ desig });
     case "empty":
@@ -183,6 +190,9 @@ const HALT_REASONS = new Set([
   "usage",
   "credits",
   "epic_base_unavailable",
+  "epic_base_stale",
+  "epic_base_conflict",
+  "epic_predecessor_unlanded",
   "epic_unreadable",
   "bootstrap_incomplete",
   "awaiting_signoff",
@@ -216,6 +226,26 @@ export function epicRunState(
   const inFlight = epic.children.some((c) => c.state === "running" || c.state === "in-review");
   if (reason === "empty" && !inFlight) return { ...base, kind: "nothing", tone: "quiet" };
   return { ...base, kind: "running", tone: "run" };
+}
+
+/** #3101: the operator actions on THIS running epic's base hold — `resolve` (dispatch a rework
+ *  agent) only for a conflict, `override` names what "continue anyway" lifts. Null without one. */
+export function epicBaseActions(
+  epic: Pick<Epic, "run">,
+  parent: number,
+  drain: DrainStatus | null | undefined,
+): { resolve: boolean; override: "base" | "predecessor" } | null {
+  if (epic.run.status !== "running" || drain?.epicParent !== parent) return null;
+  switch (drain.reason) {
+    case "epic_base_conflict":
+      return { resolve: true, override: "base" };
+    case "epic_base_stale":
+      return { resolve: false, override: "base" };
+    case "epic_predecessor_unlanded":
+      return { resolve: false, override: "predecessor" };
+    default:
+      return null;
+  }
 }
 
 /** The epic detail's usage-ceiling control: `offer` lifting it while the running run halts on the

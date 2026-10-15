@@ -307,6 +307,33 @@ async function classifyRebaseConflict(
   return selfTestPassed ? { kind: "conflict" } : { kind: "driver-broken" };
 }
 
+/** Outcome of {@link branchBehindDefault}; `defaultSha` is the fetched `origin/<default>` head. */
+export type BranchBehindResult =
+  { kind: "behind" | "current"; defaultSha: string } | { kind: "transient" };
+
+/**
+ * #3101: is `integrationBranch` behind `origin/<defaultBranch>`? Fetches both refs and runs the
+ * same ancestor check as {@link rebaseLandingBranch} — read-only, nothing is pushed.
+ * "transient" when the fetch/rev-parse fails (e.g. the branch does not exist on origin yet).
+ */
+export async function branchBehindDefault(
+  repoPath: string,
+  integrationBranch: string,
+  defaultBranch: string,
+  deps?: Pick<Partial<LandingRebaseDeps>, "git">,
+): Promise<BranchBehindResult> {
+  if (!validRef(integrationBranch) || !validRef(defaultBranch)) return { kind: "transient" };
+  const git = deps?.git ?? ((cwd: string, args: string[]) => makeDefaultGit(cwd, args));
+  const res = await fetchAndClassifyAncestor(repoPath, integrationBranch, defaultBranch, git);
+  if ("shortCircuit" in res && res.shortCircuit.kind !== "current") return { kind: "transient" };
+  try {
+    const { stdout } = await git(repoPath, ["rev-parse", `origin/${defaultBranch}`]);
+    return { kind: "shortCircuit" in res ? "current" : "behind", defaultSha: stdout.trim() };
+  } catch {
+    return { kind: "transient" };
+  }
+}
+
 /**
  * Rebase a session-less epic landing/integration branch onto the default branch.
  * Auto-resolves union-merge-driver false conflicts.

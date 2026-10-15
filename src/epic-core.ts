@@ -246,6 +246,32 @@ export function epicQuiescentForCadenceRebase(
   );
 }
 
+/** #3101: the OTHER epics in this repo whose landing PR has not landed yet — a non-dismissed
+ *  completed row still `pending`/`open`/`error`. A new epic cut while one of these is open bases
+ *  on a default branch that lacks that epic's work (aetherial: epic/56 cut without M1). */
+export function unlandedPredecessorEpics(
+  completed: readonly { parentIssueNumber: number; landingState: string }[],
+  parent: number,
+): number[] {
+  return completed
+    .filter(
+      (r) =>
+        r.parentIssueNumber !== parent &&
+        (r.landingState === "pending" || r.landingState === "open" || r.landingState === "error"),
+    )
+    .map((r) => r.parentIssueNumber);
+}
+
+/** #3101: an epic that has not begun yet — nothing integrated, no child running or in review. Only
+ *  such an epic is held for an unlanded predecessor: one already under way has its base cut. */
+export function epicNotYetStarted(
+  children: readonly Pick<EpicChild, "state">[],
+  integratedCount: number,
+): boolean {
+  if (integratedCount > 0) return false;
+  return !children.some((c) => c.state === "running" || c.state === "in-review");
+}
+
 /** Stack facts a caller may supply to {@link selectEpicCandidates} (#2066, epic #2063) so a
  *  child can spawn onto its chain predecessor's branch instead of waiting for it to merge. */
 export interface EpicStackContext {

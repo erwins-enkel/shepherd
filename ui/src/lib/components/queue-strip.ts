@@ -267,6 +267,13 @@ export function pausedText(d: DrainStatus): string {
     // branch. Without this case the generic "paused" copy would hide an actionable, nameable cause.
     case "epic_base_unavailable":
       return m.drain_paused_epic_base({ branch: desig });
+    // #3101: the epic waits on its integration branch following the default branch.
+    case "epic_base_stale":
+      return m.drain_paused_epic_base_stale({ branch: desig });
+    case "epic_base_conflict":
+      return m.drain_paused_epic_base_conflict({ branch: desig });
+    case "epic_predecessor_unlanded":
+      return m.drain_paused_epic_predecessor({ epics: desig });
     // The forge's open-issue listing failed (e.g. a rate limit): the epic can't be assembled, so
     // nothing spawns or completes until it loads — name it instead of a generic pause.
     case "epic_unreadable":

@@ -957,6 +957,67 @@ describe("computeNext: epic_base_unavailable is scoped to the epic that failed (
   });
 });
 
+// ── #3101: epic base-freshness holds ────────────────────────────────────────────────────────────
+
+describe("computeNext: epic base freshness (#3101)", () => {
+  const B = "epic/9-thing";
+  test("conflict → hold naming the branch, beats stale + predecessor", () => {
+    const d = computeNext(
+      state({
+        candidates: [issue(1)],
+        epicIntegrationBranch: B,
+        epicBaseConflict: B,
+        epicBaseStale: B,
+        epicPredecessorUnlanded: [5],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "epic_base_conflict", detail: B } });
+  });
+
+  test("stale → hold naming the branch", () => {
+    const d = computeNext(
+      state({ candidates: [issue(1)], epicIntegrationBranch: B, epicBaseStale: B }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "epic_base_stale", detail: B } });
+  });
+
+  test("unlanded predecessors → hold listing them", () => {
+    const d = computeNext(
+      state({ candidates: [issue(1)], epicIntegrationBranch: B, epicPredecessorUnlanded: [5, 7] }),
+    );
+    expect(d).toEqual({
+      kind: "hold",
+      reason: { code: "epic_predecessor_unlanded", detail: "#5, #7" },
+    });
+  });
+
+  test("a ready PR still retires; label-drain is never held", () => {
+    const retire = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "ok", issueNumber: 2, git: MERGEABLE })],
+        candidates: [issue(1)],
+        epicIntegrationBranch: B,
+        epicBaseStale: B,
+      }),
+    );
+    expect(retire.kind).toBe("retire");
+    const label = computeNext(state({ candidates: [issue(1)], epicBaseConflict: B }));
+    expect(label.kind).toBe("spawn");
+  });
+
+  test("hold sits before the cap", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 0,
+        candidates: [issue(1)],
+        epicIntegrationBranch: B,
+        epicBaseStale: B,
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "epic_base_stale", detail: B } });
+  });
+});
+
 describe("buildRunSummary", () => {
   const child = (number: number, blockedBy: number[] = [], over = {}) => ({
     number,

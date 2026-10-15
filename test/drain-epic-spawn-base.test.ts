@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { DrainService, type DrainStatus } from "../src/drain";
+import { DrainService, type DrainDeps, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL } from "../src/drain-core";
 import { SessionStore } from "../src/store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
@@ -138,6 +138,8 @@ function makeHarness(
     epicStacksEnabled?: boolean;
     /** #2069: give the forge the stacked-PR surface. */
     stacks?: boolean;
+    /** #3101: the integration-branch rebase seam (pre-spawn refresh). */
+    rebaseLandingBranch?: DrainDeps["rebaseLandingBranch"];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -233,6 +235,7 @@ function makeHarness(
     emitEpic: (epic) => epics.push(epic),
     readCodexAuthMode: () => opts.authMode ?? "unknown",
     rebaseCap: 5,
+    ...(opts.rebaseLandingBranch ? { rebaseLandingBranch: opts.rebaseLandingBranch } : {}),
   });
 
   return { store, drain, forgeRec, creates, statuses, epics, prCache };
@@ -281,6 +284,57 @@ describe("epic-child spawns base on the integration branch", () => {
     // against the integration branch, not the default branch.
     expect(created.prompt).toContain(`--base ${EPIC_BRANCH}`);
     expect(created.prompt).toContain(EPIC_BRANCH);
+  });
+
+  test("#3101: an existing branch with nothing integrated is refreshed onto main before the first spawn", async () => {
+    const refreshed: string[] = [];
+    const subIssues: SubIssueRef[] = [
+      { number: CHILD, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+    ];
+    const parentIssue: Issue = {
+      number: PARENT,
+      title: "EFI cluster",
+      body: "epic body",
+      url: `https://x/${PARENT}`,
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+    };
+    const mk = () =>
+      makeHarness({
+        listIssuesImpl: async () => [],
+        getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+        listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+        listBlockedByImpl: async () => [],
+        rebaseLandingBranch: async (_r, branch, def) => {
+          refreshed.push(`${branch}<-${def}`);
+          return { kind: "rebased", headSha: "x" };
+        },
+      });
+    const h = mk();
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    await h.drain.pump(REPO);
+    expect(refreshed).toEqual([`${EPIC_BRANCH}<-main`]);
+    expect(h.creates[0]!.baseBranch).toBe(EPIC_BRANCH);
+
+    // Something already integrated → the branch carries epic work; never rewritten at spawn.
+    refreshed.length = 0;
+    const h2 = mk();
+    h2.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    h2.store.recordEpicIntegrated(REPO, PARENT, 999, { number: 1, url: "u" });
+    await h2.drain.pump(REPO);
+    expect(h2.creates).toHaveLength(1);
+    expect(refreshed).toEqual([]);
   });
 
   test("running epic with explicit provider settings spawns the child with those settings", async () => {

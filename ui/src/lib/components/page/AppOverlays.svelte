@@ -212,6 +212,7 @@
     onpr,
     onadopt,
     ondraftepic,
+    onbootstrapstep,
     onlaunchtrain,
     onaddclone,
     onaddfork,
@@ -374,6 +375,8 @@
     onadopt: (repoPath: string, prompt: string) => void;
     /** The Issues overview's "Draft epic" (#2638): New Task set to epic authoring. */
     ondraftepic: (repoPath: string) => void;
+    /** The Backlog's bootstrap checklist (#3112): New Task set to the repo's next bootstrap step. */
+    onbootstrapstep: (repoPath: string, kind: "bootstrap" | "epic") => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onaddclone: () => void;
     onaddfork: () => void;
@@ -799,6 +802,7 @@
     sessionInfo={backlogSessionInfo}
     issueSession={backlogIssueSession}
     {ondraftepic}
+    {onbootstrapstep}
     epics={store.epics}
     {inTrainPrs}
     target={epicTarget}

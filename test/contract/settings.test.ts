@@ -531,7 +531,15 @@ test("repo bootstrap state, phase and logged override (#3105)", async () => {
   await request("PUT", base, 409, { phase: 2 }, base + q);
   await request("POST", ovr, 409, { on: true }, ovr + q);
   await request("PUT", base, 400, { state: "done" }, base + q);
-  await request("PUT", base, 200, { state: "active" }, base + q);
+  const frames = await collectEvents(s, token, async () => {
+    const view = (await request("PUT", base, 200, { state: "active" }, base + q)) as {
+      next: unknown;
+    };
+    expect(view.next).toEqual({ kind: "bootstrap", phase: 1, sessionId: null });
+  });
+  const frame = frames.find((f) => f.event === "repo-bootstrap:update");
+  expect(frame).toBeDefined();
+  validateEvent("repo-bootstrap:update", frame!.data);
   await request("POST", ovr, 400, { on: "yes" }, ovr + q);
   await request("POST", ovr, 200, { on: false }, ovr + q);
   await request("PUT", base, 200, { state: "off" }, base + q);
@@ -566,7 +574,7 @@ test("settings owns a full unauthenticated sweep and its exception coverage", as
     await request(method, path, 401, method === "GET" ? undefined : {}, undefined, {});
   }
   expect(OPS.length).toBeGreaterThan(35);
-  expect(EVENTS).toEqual(["diagnostics:status"]);
+  expect(EVENTS).toEqual(["diagnostics:status", "repo-bootstrap:update"]);
   const seen = coverage();
   expect(OPS.filter((o) => !seen.operations.has(o))).toEqual([]);
   expect(EVENTS.filter((e) => !seen.events.has(e))).toEqual([]);

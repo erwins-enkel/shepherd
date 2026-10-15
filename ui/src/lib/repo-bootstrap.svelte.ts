@@ -29,6 +29,11 @@ class RepoBootstrapStore {
     }
   }
 
+  /** The server says `repoPath`'s bootstrap changed (#3112): re-read it when a view shows it. */
+  refresh(repoPath: string): void {
+    if (this.views[repoPath]) void this.load(repoPath);
+  }
+
   setActive(repoPath: string, on: boolean): Promise<void> {
     return this.#write(repoPath, () =>
       putRepoBootstrap(repoPath, { state: on ? "active" : "off" }),

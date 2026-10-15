@@ -804,14 +804,34 @@ export async function syncFork(repoPath: string): Promise<{ branch?: string }> {
  *  On any hard failure throws with `err.message` set to the server's `error` field
  *  (a `newproject_failed_*` code) so the modal can strip the `newproject_failed_`
  *  prefix and map to its `msg(code)` switch — exactly the same contract as `cloneRepo`. */
-export async function createProject(input: {
-  name: string;
-  idea: string;
-  createRemote: boolean;
-  visibility: "private" | "public";
-  owner?: string;
-}): Promise<RepoEntry & { warning?: string }> {
-  return postJson<RepoEntry & { warning?: string }>("/api/projects", input, "newproject");
+export async function createProject(
+  input: {
+    name: string;
+    idea: string;
+    createRemote: boolean;
+    visibility: "private" | "public";
+    owner?: string;
+  },
+  docs?: ProjectDocFiles,
+): Promise<RepoEntry & { warning?: string }> {
+  if (!docs || (docs.prd.length === 0 && docs.design.length === 0))
+    return postJson<RepoEntry & { warning?: string }>("/api/projects", input, "newproject");
+  // #3112: the PRD + design import rides as multipart; each file's name is its path under
+  // docs/<area>/ (the server re-validates every one).
+  const fd = new FormData();
+  fd.append("project", JSON.stringify(input));
+  for (const area of ["prd", "design"] as const)
+    for (const d of docs[area]) fd.append(area, d.file, d.path);
+  // no content-type header: the browser sets the multipart boundary
+  const r = await fetch("/api/projects", { method: "POST", body: fd });
+  if (!r.ok) throw await failed(r, "newproject");
+  return r.json() as Promise<RepoEntry & { warning?: string }>;
+}
+
+/** Files to import into a new project (#3112), each with its path relative to `docs/<area>/`. */
+export interface ProjectDocFiles {
+  prd: { file: File; path: string }[];
+  design: { file: File; path: string }[];
 }
 
 /** GitHub owners a new repo can be created under: the authenticated login plus the
@@ -2962,6 +2982,17 @@ export interface RepoBootstrapView {
   missing: string[];
   /** Off and the repo root has no package.json / Cargo.toml — offer bootstrap mode. */
   suggested: boolean;
+  /** The proposed next attended step (#3112); null when off or done. Absent on old servers. */
+  next?: RepoBootstrapNextStep | null;
+}
+
+/** What the operator starts next in a bootstrap (#3112): a bootstrap session (P1+P2 below phase
+ *  3, else P3), the P4 epic authoring, or — phases done — the Readiness must-haves. */
+export interface RepoBootstrapNextStep {
+  kind: "bootstrap" | "epic" | "readiness";
+  phase: number;
+  /** A live session already on this step; the UI opens it instead of starting another. */
+  sessionId: string | null;
 }
 
 export async function getRepoBootstrap(repoPath: string): Promise<RepoBootstrapView> {

@@ -10,6 +10,7 @@ import {
   phaseAfterBootstrapMerge,
   type RepoBootstrap,
 } from "../src/bootstrap";
+import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
 
 const active = (phase: number, overrideAt: number | null = null): RepoBootstrap => ({
@@ -111,5 +112,71 @@ describe("SessionStore repo bootstrap", () => {
     expect(s.setRepoBootstrapOverride("/r", true)).toBe(true);
     expect(s.setRepoBootstrapOverride("/r", false)).toBe(true);
     expect(s.getRepoBootstrap("/r").overrideAt).toBeNull();
+  });
+
+  test("phaseAt restarts on a phase move or entering active, never on an override (#3112)", () => {
+    const s = new SessionStore(":memory:");
+    const db = (s as unknown as { db: Database }).db;
+    const phaseAt = () => s.listActiveRepoBootstraps()[0]?.phaseAt;
+    s.setRepoBootstrap("/r", { state: "active", phase: 1 });
+    db.run(`UPDATE repo_bootstrap SET phaseAt = 1`);
+    s.setRepoBootstrapOverride("/r", true);
+    s.setRepoBootstrap("/r", { state: "active", phase: 1 });
+    expect(phaseAt()).toBe(1);
+    s.setRepoBootstrap("/r", { state: "active", phase: 3 });
+    expect(phaseAt()).toBeGreaterThan(1);
+    expect(s.listActiveRepoBootstraps()).toEqual([
+      { repoPath: "/r", phase: 3, phaseAt: phaseAt()! },
+    ]);
+    s.setRepoBootstrap("/r", { state: "done", phase: 5 });
+    expect(s.listActiveRepoBootstraps()).toEqual([]);
+  });
+
+  test("phaseAt migration backfills updatedAt on a legacy table (#3112)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bs-mig-"));
+    try {
+      const file = join(dir, "s.db");
+      const raw = new Database(file);
+      raw.run(`CREATE TABLE repo_bootstrap (repoPath TEXT PRIMARY KEY, state TEXT NOT NULL,
+        phase INTEGER NOT NULL DEFAULT 1, overrideAt INTEGER, updatedAt INTEGER NOT NULL)`);
+      raw.run(`INSERT INTO repo_bootstrap VALUES ('/r', 'active', 3, NULL, 42)`);
+      raw.close();
+      const s = new SessionStore(file);
+      expect(s.listActiveRepoBootstraps()).toEqual([{ repoPath: "/r", phase: 3, phaseAt: 42 }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reconcile facts: merged bootstrap sessions + approved epic drafts since (#3112)", () => {
+    const s = new SessionStore(":memory:");
+    const base = {
+      name: "b",
+      prompt: "p",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: "b",
+      worktreePath: "/w",
+      isolated: true,
+      herdrSession: "default",
+    };
+    const p1 = s.create({ ...base, herdrAgentId: "a1", bootstrapPhase: 1 });
+    const p3 = s.create({ ...base, herdrAgentId: "a3", bootstrapPhase: 3 });
+    const epic = s.create({ ...base, herdrAgentId: "a4" });
+    expect(s.bootstrapSessionMergedSince("/r", 1, 0)).toBe(false);
+    s.archive(p1.id, "merged");
+    s.archive(p3.id, "operator");
+    expect(s.bootstrapSessionMergedSince("/r", 1, 0)).toBe(true);
+    expect(s.bootstrapSessionMergedSince("/r", 1, Date.now() + 60_000)).toBe(false);
+    expect(s.bootstrapSessionMergedSince("/other", 1, 0)).toBe(false);
+    expect(s.bootstrapSessionMergedSince("/r", 3, 0)).toBe(false);
+    s.replaceEpicDraft(epic.id, {
+      parent: { title: "t", body: "b", acceptanceCriteria: [], nonGoals: [] },
+      children: [],
+    });
+    expect(s.epicDraftApprovedSince("/r", 0)).toBe(false);
+    s.setEpicDraftApproved(epic.id, 7, "u");
+    expect(s.epicDraftApprovedSince("/r", 0)).toBe(true);
+    expect(s.epicDraftApprovedSince("/r", Date.now() + 60_000)).toBe(false);
   });
 });

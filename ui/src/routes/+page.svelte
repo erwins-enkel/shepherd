@@ -1176,6 +1176,22 @@
     showBacklog = false;
   }
 
+  // Backlog bootstrap checklist (#3112): the composer preset for the repo's next step — the
+  // bootstrap kind (the server picks P1+P2 or P3 from the repo's phase) or the P4 epic, seeded
+  // with the M0 candidates P3 recorded. The operator still submits; nothing auto-spawns.
+  function onbootstrapstep(repoPath: string, kind: "bootstrap" | "epic") {
+    if (kind === "epic") {
+      ondraftepic(repoPath);
+      composePrompt = m.bootstrap_checklist_epic_seed();
+      return;
+    }
+    composeRepoPath = repoPath;
+    composeIssue = null;
+    composeBootstrap = true;
+    showNew = true;
+    showBacklog = false;
+  }
+
   // Build the prompt seed for a new project's first agent run.
   // For a slash-command kickoff, prepend the command; for the default PRD path,
   // use the verbatim i18n seed template (authored as app chrome, EN+DE).
@@ -1183,6 +1199,8 @@
     if (kickoff.kind === "command") {
       return `/${kickoff.name} ${idea}`.trim();
     }
+    if (kickoff.kind === "bootstrap")
+      return m.newproject_bootstrap_seed({ idea: idea || m.newproject_prd_seed_noidea() });
     return m.newproject_prd_seed({ idea: idea || m.newproject_prd_seed_noidea() });
   }
 
@@ -2384,6 +2402,8 @@
     }
     composeRepoPath = entry.path;
     composePrompt = buildKickoffSeed(kickoff, idea);
+    // #3112: the bootstrap kickoff opens the composer in the bootstrap kind (P1+P2).
+    composeBootstrap = kickoff.kind === "bootstrap";
     repoAddOrigin = null;
     showNew = true;
   }
@@ -4043,6 +4063,7 @@
   {onpr}
   {onadopt}
   {ondraftepic}
+  {onbootstrapstep}
   {onlaunchtrain}
   onaddclone={addRepoClone}
   onaddfork={addRepoFork}

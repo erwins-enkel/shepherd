@@ -64,6 +64,7 @@ test("GET: a repo without bootstrap state reads off and is suggested when it has
     overrideAt: null,
     missing: [],
     suggested: true,
+    next: null,
   });
   writeFileSync(join(repo, "package.json"), "{}");
   expect((await (await call(app, "GET", "")).json()).suggested).toBe(false);

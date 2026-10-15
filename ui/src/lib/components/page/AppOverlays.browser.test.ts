@@ -183,6 +183,7 @@ function baseProps(): Props {
     onpr: vi.fn(),
     onadopt: vi.fn(),
     ondraftepic: vi.fn(),
+    onbootstrapstep: vi.fn(),
     onlaunchtrain: vi.fn(),
     onaddclone: vi.fn(),
     onaddfork: vi.fn(),

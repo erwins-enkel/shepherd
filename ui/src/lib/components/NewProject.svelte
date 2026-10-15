@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { createProject, getCommands, getGithubOwners } from "#lib/api.js";
+  import { createProject, getCommands, getGithubOwners, type ProjectDocFiles } from "#lib/api.js";
   import type { RepoEntry } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
   import { commandInsertable, commandProviders } from "#lib/slash.js";
   import { onMount } from "svelte";
+  import NewProjectDocsPicker from "./new-project/NewProjectDocsPicker.svelte";
 
   // Slug rule mirrors src/validate.ts PROJECT_SLUG_RE exactly.
   // Cross-reference: keep both patterns in sync when either changes.
@@ -19,7 +20,8 @@
     "shaping",
   ]);
 
-  export type KickoffChoice = { kind: "prd" } | { kind: "command"; name: string };
+  export type KickoffChoice =
+    { kind: "prd" } | { kind: "bootstrap" } | { kind: "command"; name: string };
 
   let {
     onclose,
@@ -43,9 +45,12 @@
   let ownerOrgs = $state<string[]>([]);
   let ownersLoaded = $state(false);
   // String sentinel for the select bind — avoids Svelte 5 reference-equality bug with object values.
-  // "__prd__" → { kind: "prd" }, any other value → { kind: "command", name: value }.
+  // "__prd__" → { kind: "prd" }, "__bootstrap__" → { kind: "bootstrap" } (#3112), any other
+  // value → { kind: "command", name: value }.
   let kickoffValue = $state<string>("__prd__");
   let kickoffCommands = $state<string[]>([]);
+  // #3112: the PRD + design export the bootstrap kickoff imports into docs/prd + docs/design.
+  let docs = $state<ProjectDocFiles>({ prd: [], design: [] });
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let retry = $state<(() => void) | null>(null);
@@ -111,6 +116,10 @@
         return m.newproject_failed_git();
       case "timeout":
         return m.newproject_failed_timeout();
+      case "docs":
+        return m.newproject_failed_docs();
+      case "docs_size":
+        return m.newproject_failed_docs_size();
       default:
         return m.newproject_failed_generic();
     }
@@ -118,6 +127,7 @@
 
   function resolveKickoff(): KickoffChoice {
     if (kickoffValue === "__prd__") return { kind: "prd" };
+    if (kickoffValue === "__bootstrap__") return { kind: "bootstrap" };
     return { kind: "command", name: kickoffValue };
   }
 
@@ -130,13 +140,16 @@
     error = null;
     retry = null;
     try {
-      const entry = await createProject({
-        name: trimmedName,
-        idea: trimmedIdea,
-        createRemote,
-        visibility,
-        owner: createRemote ? owner : "",
-      });
+      const entry = await createProject(
+        {
+          name: trimmedName,
+          idea: trimmedIdea,
+          createRemote,
+          visibility,
+          owner: createRemote ? owner : "",
+        },
+        kickoffValue === "__bootstrap__" ? docs : undefined,
+      );
       ondone(entry, resolveKickoff(), trimmedIdea);
     } catch (err) {
       const code = err instanceof Error ? err.message.replace(/^newproject_failed_/, "") : "";
@@ -239,10 +252,15 @@
     <label class="micro" for="np-kickoff">{m.newproject_kickoff_label()}</label>
     <select id="np-kickoff" bind:value={kickoffValue}>
       <option value="__prd__">{m.newproject_kickoff_prd()}</option>
+      <option value="__bootstrap__">{m.newproject_kickoff_bootstrap()}</option>
       {#each kickoffCommands as cmd (cmd)}
         <option value={cmd}>/{cmd}</option>
       {/each}
     </select>
+
+    {#if kickoffValue === "__bootstrap__"}
+      <NewProjectDocsPicker bind:docs />
+    {/if}
 
     {#if error}
       <div class="err" role="alert">

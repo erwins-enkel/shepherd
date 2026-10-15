@@ -34,6 +34,7 @@ export interface PushPayload {
     | "landing_conflict"
     | "judge_ceiling"
     | "login_request"
+    | "bootstrap_next"
     // Settings → Notifications "send test message" (#2696); never produced by notify().
     | "test";
   tag: string;
@@ -72,6 +73,8 @@ const KIND_CATEGORY: Record<NotifyInput["kind"], PushCategory> = {
   judge_ceiling: "agent",
   // An agent waiting on the operator's Handoff Login (#2882) — a needs-you, like blocked.
   login_request: "agent",
+  // A bootstrap phase advanced (#3112): the next attended session is the operator's to start.
+  bootstrap_next: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -95,7 +98,8 @@ export interface NotifyInput {
     | "onboarding_stale"
     | "landing_conflict"
     | "judge_ceiling"
-    | "login_request";
+    | "login_request"
+    | "bootstrap_next";
   sessionId: string;
   tag: string;
   name: string;
@@ -140,6 +144,8 @@ export interface NotifyInput {
   /** For kind "login_request": host of the page to log in on, and the agent's one-line reason. */
   loginHost?: string;
   loginReason?: string;
+  /** For kind "bootstrap_next": the repo's new bootstrap phase (3, 4 or 5). `name` = the repo. */
+  bootstrapPhase?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`, or `${kind}:${instanceId}:${sessionId}`
    *  for a relayed session). */
   cooldownKey?: string;
@@ -233,6 +239,13 @@ const NOTIFY_TEXT = {
     judgeCeilingTitle: "Judge daily limit reached",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `The stop classifier spent ${spent} of its ${ceiling} daily limit and is back on the agent spawn. Nothing is blocked.`,
+    bootstrapNextTitle: (repo: string) => `${repo} — next bootstrap step`,
+    bootstrapNextBody: (phase: number) =>
+      phase === 3
+        ? "The scaffold landed. Start the P3 gap sweep from the Backlog."
+        : phase === 4
+          ? "The decisions landed. Draft the backlog epic (P4) from the Backlog."
+          : "The backlog exists. Readiness now checks the exit — see the Backlog.",
     loginRequestTitle: (name: string) => `${name} — log in for it`,
     loginRequestBody: (host: string, reason: string) =>
       host
@@ -305,6 +318,13 @@ const NOTIFY_TEXT = {
     judgeCeilingTitle: "Judge-Tageslimit erreicht",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `Der Stop-Klassifikator hat ${spent} von ${ceiling} Tagesbudget verbraucht und läuft wieder über den Agent-Spawn. Es ist nichts blockiert.`,
+    bootstrapNextTitle: (repo: string) => `${repo} — nächster Bootstrap-Schritt`,
+    bootstrapNextBody: (phase: number) =>
+      phase === 3
+        ? "Das Gerüst ist gemergt. Starte den P3-Lückenabgleich im Backlog."
+        : phase === 4
+          ? "Die Entscheidungen sind gemergt. Entwirf das Backlog-Epic (P4) im Backlog."
+          : "Das Backlog steht. Readiness prüft jetzt den Abschluss — siehe Backlog.",
     loginRequestTitle: (name: string) => `${name} — Anmeldung nötig`,
     loginRequestBody: (host: string, reason: string) =>
       host
@@ -432,6 +452,10 @@ const PARTS_BY_KIND: Partial<
   onboarding_stale: stalenessParts,
   landing_conflict: landingConflictParts,
   judge_ceiling: judgeCeilingParts,
+  bootstrap_next: (t, input) => ({
+    title: t.bootstrapNextTitle(input.name),
+    body: t.bootstrapNextBody(input.bootstrapPhase ?? 0),
+  }),
   login_request: (t, input) => ({
     title: t.loginRequestTitle(input.name),
     body: t.loginRequestBody(input.loginHost ?? "", input.loginReason ?? ""),

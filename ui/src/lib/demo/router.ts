@@ -34,6 +34,7 @@ const DEMO_BOOTSTRAP = {
   overrideAt: null,
   missing: [],
   suggested: false,
+  next: null,
 };
 
 /** Marks a response that NO handler produced — see the fallthrough comment in `handleApi`.

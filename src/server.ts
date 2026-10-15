@@ -41,9 +41,10 @@ import {
   BOOTSTRAP_LAST_PHASE,
   bootstrapExitReached,
   bootstrapMissing,
-  hasProjectManifest,
   isBootstrapPhase,
 } from "./bootstrap";
+import { advanceAfterEpicApproved, buildRepoBootstrapView } from "./bootstrap-phases";
+import { parseProjectDocs, type ProjectDoc } from "./project-docs";
 import {
   BLOCK_JUDGE_MODES,
   EFFORTS,
@@ -823,6 +824,9 @@ export interface AppDeps {
   };
   /** Readiness greenfield profile + bootstrap must-haves (#3107); absent → no must-haves gate. */
   greenfield?: Pick<GreenfieldService, "refresh" | "mustHavesMissing">;
+  /** #3112: a bootstrap repo's phase moved forward (`phase` = the new one) because of `sessionId`'s
+   *  work — proposes the next attended session to the operator (push). Absent in tests. */
+  onBootstrapAdvance?: (repoPath: string, phase: number, sessionId: string) => void;
   /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
   drain?: {
     snapshot(): Promise<DrainStatus[]>;
@@ -2708,12 +2712,8 @@ function bootstrapMustHaves(deps: AppDeps, dir: string): string[] {
   return deps.greenfield?.mustHavesMissing(dir) ?? [];
 }
 
-async function repoBootstrapView(deps: AppDeps, dir: string) {
-  const b = deps.store.getRepoBootstrap(dir);
-  // `missing` ignores the override: the operator still sees what the override is skipping.
-  const missing = bootstrapMissing({ ...b, overrideAt: null }, bootstrapMustHaves(deps, dir)) ?? [];
-  const suggested = b.state === "off" && !(await hasProjectManifest(dir));
-  return { ...b, missing, suggested };
+function repoBootstrapView(deps: AppDeps, dir: string) {
+  return buildRepoBootstrapView(deps.store, dir, bootstrapMustHaves(deps, dir));
 }
 
 function parseRepoBootstrapPut(
@@ -2768,6 +2768,7 @@ async function handleRepoBootstrap({ req, parts, url, deps }: Ctx): Promise<Resp
     route === "PUT " ? putRepoBootstrap(deps, dir, body) : overrideRepoBootstrap(deps, dir, body);
   if (err) return err;
   if (deps.drain) kickDrain(deps.drain, "bootstrap");
+  deps.events?.emit("repo-bootstrap:update", { repoPath: dir });
   return json(await repoBootstrapView(deps, dir));
 }
 
@@ -6075,6 +6076,7 @@ async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
     }
     deps.store.setEpicDraftApproved(id, result.parentNumber, result.parentUrl);
     deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
+    advanceBootstrapAfterEpic(deps, session);
     return json({ ...result, epic });
   } catch (e) {
     // On error revert materializing → draft (retaining the persisted partial map) so an explicit
@@ -6083,6 +6085,18 @@ async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
     deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
     return json({ error: e instanceof Error ? e.message : "epic materialize failed" }, 500);
   }
+}
+
+/** #3112: the P4 epic just materialized — an active-bootstrap repo at P4 moves to P5, whose exit
+ *  check runs on the re-scan. Same tick as the approve write, so no crash window between them
+ *  (boot reconcile heals the rest). */
+function advanceBootstrapAfterEpic(deps: AppDeps, session: Session): void {
+  const dir = session.repoPath;
+  if (!advanceAfterEpicApproved(deps.store, dir)) return;
+  deps.onBootstrapAdvance?.(dir, BOOTSTRAP_LAST_PHASE, session.id);
+  deps.events?.emit("repo-bootstrap:update", { repoPath: dir });
+  void deps.greenfield?.refresh(dir).catch(() => {});
+  if (deps.drain) kickDrain(deps.drain, "bootstrap");
 }
 
 // /api/sessions/:id/epic-draft[/approve]
@@ -7540,7 +7554,35 @@ const PROJECT_ERROR_STATUS: Record<string, number> = {
   newproject_failed_git: 422,
   newproject_failed_timeout: 504,
   newproject_failed_generic: 422,
+  newproject_failed_docs: 400,
+  newproject_failed_docs_size: 413,
 };
+
+/** The create body: JSON, or (#3112) multipart with the JSON in `project` plus the imported
+ *  `prd` / `design` files. */
+async function readProjectRequest(
+  req: Request,
+): Promise<Response | { body: unknown; docs: ProjectDoc[] }> {
+  const type = req.headers.get("content-type")?.split(";")[0]?.trim();
+  if (type !== "multipart/form-data") {
+    const ctErr = requireJsonContentType(req);
+    if (ctErr) return ctErr;
+    return { body: (await req.json().catch(() => null)) as unknown, docs: [] };
+  }
+  const form = await req.formData().catch(() => null);
+  const project = form?.get("project");
+  if (!form || typeof project !== "string")
+    return json({ error: "newproject_failed_generic" }, 400);
+  const docs = await parseProjectDocs(form);
+  if (!docs.ok) return json({ error: docs.error }, PROJECT_ERROR_STATUS[docs.error] ?? 400);
+  let body: unknown = null;
+  try {
+    body = JSON.parse(project);
+  } catch {
+    /* validateNewProject rejects null */
+  }
+  return { body, docs: docs.docs };
+}
 
 async function createProjectFromRequest(
   req: Request,
@@ -7550,12 +7592,11 @@ async function createProjectFromRequest(
 ): Promise<Response> {
   const b = firstRunBlock();
   if (b) return b;
-  const ctErr = requireJsonContentType(req);
-  if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as unknown;
-  const parsed = validateNewProject(body, config.repoRoot);
+  const read = await readProjectRequest(req);
+  if (read instanceof Response) return read;
+  const parsed = validateNewProject(read.body, config.repoRoot);
   if (!parsed.ok) return json({ error: parsed.error }, PROJECT_ERROR_STATUS[parsed.error] ?? 400);
-  const r = await createProject(parsed.value, config.repoRoot, ghRunner);
+  const r = await createProject(parsed.value, config.repoRoot, ghRunner, undefined, read.docs);
   if (!r.ok) return json({ error: r.error }, PROJECT_ERROR_STATUS[r.error] ?? 422);
   // #3105: a new project starts in project-bootstrap mode (P1), so no drain runs on it before its
   // scaffold exists. Keyed by the same resolved dir the drain and repo-config use. The local repo
@@ -11650,6 +11691,8 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   // running. Bun's maximum: a longer hand-off loses only the answer, never the dispatch.
   if (/^\/api\/sessions\/?$/.test(url.pathname)) return 255;
   if (url.pathname === "/api/uploads") return 120;
+  // A create may carry the PRD + design import (#3112) and waits on `gh repo create --push`.
+  if (url.pathname === "/api/projects") return 120;
   if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
   if (url.pathname === "/api/prs/merge") return MERGE_ROUTE_TIMEOUT_SEC;
   if (/^\/api\/sessions\/[^/]+\/git\/merge$/.test(url.pathname)) return MERGE_ROUTE_TIMEOUT_SEC;

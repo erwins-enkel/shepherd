@@ -95,6 +95,9 @@ export interface AutoMergeDeps {
     prNumber: number;
     headSha: string | null;
   }) => void;
+  /** #3133: freeze the merged session's manual steps into the Owed lens — a train merge emits
+   *  no session:git merged event, so the poller-driven materialization never fires for it. */
+  materializeManualSteps?: (s: Session, prNumber: number, prTitle: string) => void;
   /** Mark a session so the drain's onArchived keeps its claim (close failed). */
   retainClaim: (id: string) => void;
   rebaseCap: number;
@@ -405,6 +408,7 @@ export class AutoMergeService {
       dropPrCache: this.deps.dropPrCache,
       emitArchived: this.deps.emitArchived,
       retainClaim: this.deps.retainClaim,
+      onMerged: (sess) => this.deps.materializeManualSteps?.(sess, prNumber, git?.title ?? ""),
       // #1037: defense-in-depth — never close an integrated epic child out of band here either.
       isIntegratedEpicChild: (sess) =>
         sess.issueNumber != null &&

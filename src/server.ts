@@ -601,6 +601,9 @@ export interface AppDeps {
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
    *  that don't exercise it. */
   prCache?: PrCache;
+  /** #3133: freeze a merged session's manual steps into the Owed lens. The local-merge route
+   *  settles in-tree with no session:git merged event, so it calls this directly. */
+  materializeManualSteps?: (s: Session, prNumber: number, prTitle: string) => void;
   /** Whether a name-matched terminal PR's head commit belongs to the session's
    *  branch — same guard the poller injects, so the on-demand git endpoint can't
    *  flip GitRail to a false MERGED on a reused-name collision. Absent → unguarded
@@ -6499,6 +6502,7 @@ async function forgeMerge(
   // AutoMergeService.doMerge's callbacks. Forge sessions keep the current behavior: a human
   // merges on the host and the poller-driven archive path handles teardown.
   if (forge.kind === "local") {
+    const { number: prNumber, title: prTitle = "" } = cur;
     // #1401: record epic integration BEFORE settleMergedSession (the #1037 guard reads the
     // fresh row to archive-only). LocalForge reports no PR base, so the helper's
     // base-incapable carve-out trusts session.baseBranch — same as the retire path.
@@ -6513,6 +6517,7 @@ async function forgeMerge(
       dropPrCache: (id) => deps.prCache?.drop(id),
       emitArchived: (id) => deps.events.emit("session:archived", { id }),
       retainClaim: (id) => deps.drain?.retainClaim(id),
+      onMerged: (sess) => deps.materializeManualSteps?.(sess, prNumber, prTitle),
       // #1037: never close an integrated epic child out of band on the local-merge path either.
       isIntegratedEpicChild: (sess) =>
         sess.issueNumber != null &&

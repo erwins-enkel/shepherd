@@ -114,6 +114,10 @@ export interface MergeTeardownDeps {
    *  out of band here — its issue closes only when the landing PR merges into the default
    *  branch. When true we archive + retain the claim and skip `closeIssue` entirely. */
   isIntegratedEpicChild: (s: Session) => boolean;
+  /** #3133: materialize the session's manual steps into the Owed lens. Only for settle paths
+   *  with no `session:git` merged event (merge train, local merge) — the drain's reap is
+   *  triggered BY that event, which already materializes. Fire-and-forget; must not throw. */
+  onMerged?: (s: Session) => void;
 }
 
 /**
@@ -124,6 +128,11 @@ export interface MergeTeardownDeps {
  * sessions (no issue) skip the close/claim entirely.
  */
 export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): Promise<void> {
+  try {
+    deps.onMerged?.(s);
+  } catch (err) {
+    console.warn(`[merge] onMerged failed for ${s.id}:`, err);
+  }
   let closed = false;
   // #1037: an integrated epic child is closed ONLY by the landing-PR merge (Closes #N into the
   // default branch). The merge here landed it into the integration branch, so closing now —

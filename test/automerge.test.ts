@@ -176,6 +176,49 @@ test("forge.merge throws (non-conflict) → fail-closed: not archived", async ()
   expect(resolveMerging.mock.calls.length).toBe(0);
 });
 
+test("train merge materializes manual steps with the PR number + title (#3133)", async () => {
+  const materializeManualSteps = mock(() => {});
+  const d = deps({
+    materializeManualSteps,
+    prCache: {
+      snapshot: () => ({
+        s1: {
+          state: "open",
+          checks: "success",
+          mergeable: true,
+          number: 7,
+          title: "feat: x",
+          headSha: "h1",
+        },
+      }),
+    } as any,
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(materializeManualSteps.mock.calls.length).toBe(1);
+  const [sess, n, title] = materializeManualSteps.mock.calls[0] as unknown as [any, number, string];
+  expect(sess.id).toBe("s1");
+  expect(n).toBe(7);
+  expect(title).toBe("feat: x");
+});
+
+test("failed train merge does not materialize manual steps (#3133)", async () => {
+  const materializeManualSteps = mock(() => {});
+  const d = deps({
+    materializeManualSteps,
+    resolveForge: () =>
+      ({
+        kind: "github",
+        mergeMethod: "squash",
+        merge: async () => {
+          throw new Error("403");
+        },
+        closeIssue: mock(async () => {}),
+      }) as any,
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(materializeManualSteps.mock.calls.length).toBe(0);
+});
+
 test("dead pane → resume attempted before steer; counter bumped once resumed", async () => {
   const reply = mock(() => true);
   const resume = mock(() => true);

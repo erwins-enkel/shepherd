@@ -4,7 +4,8 @@
  * into the archive-decoupled `post_merge_steps` table so they outlive teardown + the prune window,
  * and — only behind a per-repo opt-in — opens a GitHub tracking issue and links it back to the PR.
  *
- * Wired to the `session:git` merged event (mirrors the doc-agent merge fast-path in index.ts).
+ * Wired to the `session:git` merged event (mirrors the doc-agent merge fast-path in index.ts),
+ * and to settleMergedSession for the merge-train / local-merge paths that emit none (#3133).
  *
  * Three correctness properties this service must hold (see the plan's reviewer notes):
  *  1. Detection-not-yet-run: detection (detectAndPersistManualSteps) is fired `void`-async on the

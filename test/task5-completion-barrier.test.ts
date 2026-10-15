@@ -49,9 +49,11 @@ function appOver(
   app: ReturnType<typeof makeApp>;
   archived: string[];
   dropped: string[];
+  materialized: Array<[string, number, string]>;
 } {
   const archived: string[] = [];
   const dropped: string[] = [];
+  const materialized: Array<[string, number, string]> = [];
   const app = makeApp({
     store,
     service: { archive: async (id: string) => (archived.push(id), 1) } as any,
@@ -65,8 +67,9 @@ function appOver(
       drop: (id: string) => dropped.push(id),
     } as any,
     drain: { retainClaim: () => {} } as any,
+    materializeManualSteps: (s, n, t) => materialized.push([s.id, n, t]),
   });
-  return { app, archived, dropped };
+  return { app, archived, dropped, materialized };
 }
 
 function mkSession(store: SessionStore, repo: string, branch: string) {
@@ -92,7 +95,7 @@ test("forgeMerge on a local session merges then settles (archive + drop pr cache
   try {
     const store = new SessionStore(":memory:");
     const forge = new LocalForge(repo, store);
-    const { app, archived, dropped } = appOver(store, forge);
+    const { app, archived, dropped, materialized } = appOver(store, forge);
 
     const s = mkSession(store, repo, "feature/local");
     await forge.openPr({ head: "feature/local", base: "main", title: "t", body: "b" });
@@ -113,6 +116,10 @@ test("forgeMerge on a local session merges then settles (archive + drop pr cache
     // session settled: archived + pr cache dropped
     expect(archived).toEqual([s.id]);
     expect(dropped).toEqual([s.id]);
+    // #3133: no session:git on a local merge → the settle path materializes manual steps
+    expect(materialized).toHaveLength(1);
+    expect(materialized[0]![0]).toBe(s.id);
+    expect(materialized[0]![1]).toBeGreaterThan(0);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

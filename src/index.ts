@@ -2399,6 +2399,13 @@ onSessionGit(({ id, git }) => {
     .onMerged(s, git.number ?? null, git.title ?? "")
     .catch((err) => console.warn("[post-merge-steps] onMerged failed:", err));
 });
+// #3133: the merge train and the local-merge route settle via settleMergedSession with no
+// session:git merged event, so they call this directly. Idempotent with the hook above.
+const materializeManualSteps = (s: Session, prNumber: number, prTitle: string): void => {
+  void postMergeSteps
+    .onMerged(s, prNumber, prTitle)
+    .catch((err) => console.warn("[post-merge-steps] onMerged failed:", err));
+};
 // Epic landing (#3103): the landing PR is session-less, so the session:git hook above never sees
 // it. When it lands (merged emit, or the parent-close clear), freeze the children's manual steps it carries into one Owed record for the
 // epic and dismiss the child records it covers. `epic:completed` is emitted by BOTH landing writers
@@ -3029,6 +3036,7 @@ const autoMerge = new AutoMergeService({
     autoMergedRecapEvidence.set(sessionId, { prNumber, headSha });
   },
   retainClaim: (id) => drain.retainClaim(id),
+  materializeManualSteps,
   rebaseCap: config.autoMergeRebaseCap,
 });
 
@@ -4150,6 +4158,7 @@ const appDeps: AppDeps = {
   herdrSocketActive,
   resolveForge,
   prCache: prPoller,
+  materializeManualSteps,
   ownsPr,
   activity: { snapshot: () => poller.activitySnapshot() },
   blocks: { snapshot: () => poller.blockSnapshot() },

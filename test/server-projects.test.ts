@@ -200,6 +200,20 @@ test("POST /api/projects bad slug (trailing .git) → 400 newproject_failed_slug
   expect(body.error).toBe("newproject_failed_slug");
 });
 
+// ── Idea validation → 400 ─────────────────────────────────────────────────────
+
+test("POST /api/projects idea > 8000 chars → 400 newproject_failed_idea_too_long", async () => {
+  const app = makeTestApp();
+  const res = await postProjects(app, {
+    name: "my-app",
+    idea: "x".repeat(8001),
+    createRemote: false,
+  });
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toBe("newproject_failed_idea_too_long");
+});
+
 // ── Target already exists → 409 ───────────────────────────────────────────────
 
 test("POST /api/projects target already exists → 409 newproject_failed_exists", async () => {

@@ -7352,6 +7352,7 @@ async function forkRepoFromRequest(req: Request, ghRunner?: GhRunner): Promise<R
 // HTTP status per new-project-failure code; anything unlisted falls back to 422.
 const PROJECT_ERROR_STATUS: Record<string, number> = {
   newproject_failed_slug: 400,
+  newproject_failed_idea_too_long: 400,
   newproject_failed_outside: 400,
   newproject_failed_exists: 409,
   newproject_failed_identity: 422,

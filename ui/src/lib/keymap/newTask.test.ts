@@ -10,6 +10,7 @@ function stubCtx(overrides: Partial<NewTaskKeymapCtx> = {}): NewTaskKeymapCtx {
     canSubmit: true,
     desktop: true,
     modeLocked: false,
+    bootstrapOffered: true,
     sourcesTabReady: true,
     issueFilterReady: true,
     issueListReady: true,
@@ -171,6 +172,11 @@ describe("enabled", () => {
       expect(keymapEntry(id).enabled(stubCtx({ modeLocked: true }))).toBe(false);
       expect(keymapEntry(id).enabled(stubCtx({ modeLocked: false }))).toBe(true);
     }
+  });
+
+  it("dims the Bootstrap mode row unless the repo is offered bootstrap", () => {
+    expect(keymapEntry("mode-bootstrap").enabled(stubCtx({ bootstrapOffered: false }))).toBe(false);
+    expect(keymapEntry("mode-bootstrap").enabled(stubCtx({ bootstrapOffered: true }))).toBe(true);
   });
 
   it("dims the side-list rows when the list is absent", () => {

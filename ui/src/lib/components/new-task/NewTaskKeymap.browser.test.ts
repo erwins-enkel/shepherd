@@ -16,6 +16,7 @@ import {
   listRepos,
   branchStatus,
   getCommands,
+  getRepoBootstrap,
 } from "#lib/api.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -31,6 +32,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     listRepos: vi.fn(),
     branchStatus: vi.fn(),
     getCommands: vi.fn(),
+    getRepoBootstrap: vi.fn(),
   };
 });
 
@@ -108,6 +110,14 @@ beforeEach(async () => {
   vi.mocked(listRepos).mockResolvedValue({ repos: [repo], recentWindowDays: 30 });
   vi.mocked(branchStatus).mockResolvedValue({ ahead: 0, behind: 0, diverged: false } as never);
   vi.mocked(getCommands).mockResolvedValue({ commands: [] });
+  // An empty repo: Bootstrap mode (Alt+5) is offered.
+  vi.mocked(getRepoBootstrap).mockResolvedValue({
+    state: "off",
+    phase: 1,
+    overrideAt: null,
+    missing: [],
+    suggested: true,
+  });
 });
 
 // Same convention as NewTask.browser.test.ts: components accumulate in the DOM
@@ -262,6 +272,7 @@ describe("aria-keyshortcuts", () => {
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
     await vi.waitFor(() => expect(form()).toBeTruthy());
     await vi.waitFor(() => expect(document.querySelector("#nt-model")).toBeTruthy());
+    await vi.waitFor(() => expect(document.querySelectorAll(".seg-btn")).toHaveLength(5));
 
     // Present WITHOUT holding: the keycaps are decoration, this is the semantics.
     expect(document.querySelector(".run")?.getAttribute("aria-keyshortcuts")).toBe("Control+Enter");

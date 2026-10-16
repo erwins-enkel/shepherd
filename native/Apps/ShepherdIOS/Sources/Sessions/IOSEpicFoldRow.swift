@@ -83,5 +83,7 @@ struct IOSEpicFoldRow: View {
         }
         .frame(minHeight: 44)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(Text(verbatim: IOSEpicCopy.state(item.child)))
     }
 }

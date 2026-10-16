@@ -45,17 +45,23 @@ struct IOSEpicChainStrip: View {
     }
 
     @ViewBuilder private var needs: some View {
-        let open = chain.needs.filter { !$0.merged }.map(\.number)
-        if chain.needs.isEmpty {
-            Text(verbatim: L.t("native_ios_epic_needs_none")).foregroundStyle(SessionListStyle.muted)
-        } else if !open.isEmpty {
-            // Started out of order: a blocker is still open.
-            Label { Text(verbatim: L.t("native_ios_epic_need_open", EpicText.numbers(open))) }
+        if chain.needs.contains(where: { !$0.merged }) {
+            Label { Text(verbatim: Self.needsText(chain, limit: 2)) }
                 icon: { Image(systemName: "exclamationmark.triangle") }
                 .labelStyle(.titleAndIcon).foregroundStyle(SessionListStyle.amber)
         } else {
-            Text(verbatim: EpicText.numbers(chain.needs.map(\.number), prefix: "✓ ")).foregroundStyle(SessionListStyle.muted)
+            Text(verbatim: Self.needsText(chain, limit: 2)).foregroundStyle(SessionListStyle.muted)
         }
+    }
+
+    static func needsText(_ chain: EpicChain, limit: Int? = nil) -> String {
+        guard !chain.needs.isEmpty else { return L.t("native_ios_epic_needs_none") }
+        let shown = chain.needs.prefix(limit ?? chain.needs.count)
+        let text = shown.map {
+            $0.merged ? "✓ #\($0.number)" : L.t("native_ios_epic_need_open", "#\($0.number)")
+        }.joined(separator: limit == nil ? ", " : " · ")
+        let remaining = chain.needs.count - shown.count
+        return remaining > 0 ? "\(text) +\(remaining)" : text
     }
 
     @ViewBuilder private var unlocks: some View {
@@ -73,9 +79,7 @@ struct IOSEpicChainStrip: View {
     }
 
     static func accessibilityText(_ chain: EpicChain) -> String {
-        let needs = chain.needs.isEmpty ? L.t("native_ios_epic_needs_none")
-            : chain.needs.map { $0.merged ? "✓ #\($0.number)" : L.t("native_ios_epic_need_open", "#\($0.number)") }
-                .joined(separator: ", ")
+        let needs = needsText(chain)
         var unlocks = chain.unlocks.isEmpty ? L.t("native_ios_epic_unlocks_none")
             : chain.unlocks.map { "#\($0)" }.joined(separator: ", ")
         if chain.parallel >= 2 { unlocks += ", " + L.t("native_ios_epic_parallel", String(chain.parallel)) }

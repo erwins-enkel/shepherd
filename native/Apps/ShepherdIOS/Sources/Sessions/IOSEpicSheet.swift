@@ -162,6 +162,8 @@ struct IOSEpicSheet: View {
         .sessionFont(label: true)
         .frame(minHeight: 44)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(Text(verbatim: IOSEpicCopy.state(child)))
     }
 
     private var footer: some View {

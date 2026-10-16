@@ -5,6 +5,15 @@ import ShepherdKit
 /// Copy shared by the epic header and the epic sheet.
 @MainActor
 enum IOSEpicCopy {
+    static func state(_ child: EpicChild) -> String {
+        switch IOSEpicStateDot.tone(child) {
+        case .merged: L.t("epicflow_legend_merged")
+        case .ready: L.t("epicflow_legend_ready")
+        case .waiting: L.t("epicflow_legend_waiting")
+        case .active: L.t(child.state.rawValue == "in-review" ? "epic_state_in_review" : "epic_state_running")
+        }
+    }
+
     /// The run's chip: "führt" while it runs, "pausiert" while paused, none when idle.
     static func runChip(_ epic: Epic) -> String? {
         switch epic.run.status.rawValue {

@@ -17,6 +17,7 @@ final class IOSEpicDirectory {
         var digests: [Int: EpicDigest]
     }
     private var entries: [String: Entry] = [:]
+    @ObservationIgnored private var pending: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private let read: (ShepherdClient, String) async throws -> EpicListing
     @ObservationIgnored private let readEpic: (ShepherdClient, String, Int) async throws -> Epic
 
@@ -49,6 +50,11 @@ final class IOSEpicDirectory {
 
     func load(_ groups: [IOSMergedSessionPresentation.EpicGroup], owners: [UUID: AppModel],
               fallback: AppModel, force: Bool = false) async {
+        // SwiftUI cancels the old load on identity changes. Also cancel explicitly for
+        // overlapping refreshes and callers that replace the visible groups themselves.
+        guard !Task.isCancelled else { return }
+        for task in pending.values { task.cancel() }
+        pending.removeAll()
         let repos = Dictionary(grouping: groups, by: key)
         var tasks: [Task<Void, Never>] = []
         for (key, groups) in repos {
@@ -68,31 +74,39 @@ final class IOSEpicDirectory {
                 fingerprint: sameActivation ? old?.fingerprint ?? "" : "",
                 summaries: sameActivation ? old?.summaries ?? [] : [],
                 digests: sameActivation ? old?.digests ?? [:] : [:])
-            tasks.append(Task {
+            let task = Task {
+                defer { pending[request] = nil }
+                guard current(key, request, owner, generation, store) else { return }
                 let listing = try? await read(store.client, group.repoPath)
                 guard current(key, request, owner, generation, store) else { return }
-                var digests: [Int: EpicDigest] = [:]
+                if let listing { entries[key]?.summaries = listing.epics }
                 for parent in parents.sorted() {
-                    if let epic = try? await readEpic(store.client, group.repoPath, parent) {
-                        digests[parent] = EpicDigest(epic)
-                    }
-                    guard current(key, request, owner, generation, store) else { break }
+                    guard current(key, request, owner, generation, store) else { return }
+                    let epic = try? await readEpic(store.client, group.repoPath, parent)
+                    guard current(key, request, owner, generation, store) else { return }
+                    if let epic { entries[key]?.digests[parent] = EpicDigest(epic) }
                 }
                 guard current(key, request, owner, generation, store) else { return }
                 // A failed read retains the known copy; unknown parents use the number-only header.
                 entries[key]?.parents.formUnion(parents)
                 entries[key]?.fingerprint = fingerprint
-                if let listing { entries[key]?.summaries = listing.epics }
-                entries[key]?.digests.merge(digests) { _, new in new }
-            })
+            }
+            pending[request] = task
+            tasks.append(task)
         }
-        for task in tasks { await task.value }
+        let requests = tasks
+        await withTaskCancellationHandler {
+            for task in requests { await task.value }
+        } onCancel: {
+            for task in requests { task.cancel() }
+        }
     }
 
     /// Whether `request` still owns `key` for this activation; a stale one drops its entry.
     private func current(_ key: String, _ request: UUID, _ owner: AppModel, _ generation: Int,
                          _ store: SessionStore) -> Bool {
-        guard !Task.isCancelled, owner.activationGeneration == generation, owner.store === store,
+        guard !Task.isCancelled else { return false }
+        guard owner.activationGeneration == generation, owner.store === store,
             entries[key]?.request == request else {
             if entries[key]?.request == request { entries[key] = nil }
             return false

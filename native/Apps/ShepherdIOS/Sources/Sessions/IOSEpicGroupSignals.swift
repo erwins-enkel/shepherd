@@ -30,15 +30,24 @@ extension IOSMergedSessionPresentation.EpicGroup {
             case .ready: cues.ready += 1
             default: break
             }
-            if row.session.status.known == .blocked { cues.blocked += 1 }
+            if (renderedStatuses[row.session.id] ?? row.session.status).known == .blocked { cues.blocked += 1 }
         }
         return cues
     }
 
-    /// Changes whenever a member session appears, leaves or moves (lifecycle stage or status);
+    /// Changes whenever a member session appears, leaves or moves (lifecycle stage, status or PR);
     /// the directory re-reads the epic then.
     var fingerprint: String {
-        rows.map { "\($0.session.id):\(stages[$0.session.id]?.rawValue ?? "-"):\($0.session.status.rawValue)" }
+        rows.map { "\($0.session.id):\(stages[$0.session.id]?.rawValue ?? "-"):\($0.session.status.rawValue):\(prNumbers[$0.session.id].map(String.init) ?? "-")" }
             .sorted().joined(separator: ",")
+    }
+}
+
+/// A sheet keeps only identity; membership is resolved from the current list snapshot.
+struct IOSEpicSelection: Identifiable {
+    let id: String
+
+    func resolve(in groups: [IOSMergedSessionPresentation.EpicGroup]) -> IOSMergedSessionPresentation.EpicGroup? {
+        groups.first { $0.id == id }
     }
 }

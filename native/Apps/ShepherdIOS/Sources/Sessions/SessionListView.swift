@@ -10,7 +10,7 @@ struct SessionListView: View {
     @State private var epicDirectory = IOSEpicDirectory()
     @State private var collapsedEpics: Set<String> = []
     @State private var expandedFolds: Set<String> = []
-    @State private var epicSheet: IOSMergedSessionPresentation.EpicGroup?
+    @State private var epicSheet: IOSEpicSelection?
     @State private var refreshError: String?
     @State private var showingRepos = false
     @State private var explainingStage: HerdStage?
@@ -28,12 +28,16 @@ struct SessionListView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if layout.bottomBar { bottomBar }
         }
-        .sheet(item: $epicSheet) { group in
-            if let digest = epicDirectory.digest(group, owner: hub?.models[group.profile.id] ?? app) {
+        .sheet(item: $epicSheet) { selection in
+            if let group = selection.resolve(in: presentation.epicGroups),
+               let digest = epicDirectory.digest(group, owner: hub?.models[group.profile.id] ?? app) {
                 TimelineView(.periodic(from: .now, by: 20)) { context in
                     IOSEpicSheet(group: group, digest: digest, now: Int(context.date.timeIntervalSince1970 * 1_000)) { child in
-                        guard let row = group.row(for: child) else { return nil }
-                        return { selectRow(row.id) }
+                        guard selection.resolve(in: presentation.epicGroups)?.row(for: child) != nil else { return nil }
+                        return {
+                            guard let row = selection.resolve(in: presentation.epicGroups)?.row(for: child) else { return }
+                            selectRow(row.id)
+                        }
                     }
                 }
             }
@@ -173,7 +177,7 @@ struct SessionListView: View {
                         IOSEpicGroupHeader(group: group, summary: epicDirectory.summary(group, owner: owner),
                             digest: digest, collapsed: collapsedEpics.contains(group.id), now: now,
                             toggle: { if !collapsedEpics.insert(group.id).inserted { collapsedEpics.remove(group.id) } },
-                            open: digest == nil ? nil : { epicSheet = group })
+                            open: digest == nil ? nil : { epicSheet = IOSEpicSelection(id: group.id) })
                         if !collapsedEpics.contains(group.id) {
                             ForEach(group.rows) { row in
                                 card(row, showCli: showCli, now: now, leading: 22, inEpic: true, chain: chain(row, digest))
@@ -186,7 +190,7 @@ struct SessionListView: View {
                                     IOSEpicFoldRow(fold: fold, parent: group.parentNumber,
                                         expanded: expandedFolds.contains(group.id),
                                         toggle: { if !expandedFolds.insert(group.id).inserted { expandedFolds.remove(group.id) } },
-                                        open: { epicSheet = group })
+                                        open: { epicSheet = IOSEpicSelection(id: group.id) })
                                         .listRowInsets(EdgeInsets(top: 0, leading: 22, bottom: 0, trailing: 10))
                                         .listRowBackground(IOSEpicRailBackground()).listRowSeparator(.hidden)
                                 }

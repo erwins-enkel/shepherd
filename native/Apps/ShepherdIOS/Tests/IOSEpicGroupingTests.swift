@@ -22,6 +22,34 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertNotEqual(group.fingerprint, moved.fingerprint)
     }
 
+    func testFingerprintFollowsOpeningAndReplacingPRWithoutAStageChange() {
+        let profile = profile("pr")
+        let member = session("a", parent: 100, issue: 101)
+        func group(_ number: Int?) -> IOSMergedSessionPresentation.EpicGroup {
+            var git = GitState(state: .init(known: .open), checks: .init(known: .none), deployConfigured: false)
+            git.number = number
+            return IOSMergedSessionPresentation.merge([.init(profile: profile,
+                groups: [.init(stage: .active, sessions: [member])], sessions: [member],
+                rendered: [member], git: [member.id: git], finished: [], owed: [])],
+                selectedRepos: []).epicGroups[0]
+        }
+        XCTAssertNotEqual(group(nil).fingerprint, group(112).fingerprint)
+        XCTAssertNotEqual(group(112).fingerprint, group(113).fingerprint)
+    }
+
+    func testBlockedCueUsesTheOwningServersRenderedStatus() {
+        let profile = profile("working")
+        var blocked = session("a", parent: 100)
+        blocked.status = .init(known: .blocked)
+        var rendered = blocked
+        rendered.status = .init(known: .running)
+        let group = IOSMergedSessionPresentation.merge([.init(profile: profile,
+            groups: [.init(stage: .active, sessions: [blocked])], sessions: [blocked],
+            rendered: [rendered], git: [:], finished: [], owed: [])], selectedRepos: []).epicGroups[0]
+        XCTAssertEqual(group.cues.blocked, 0)
+        XCTAssertEqual(group.rows[0].session.status.known, .blocked)
+    }
+
     func testDirectoryKeepsTheFullEpicAndRereadsWhenAMemberMoves() async throws {
         URLProtocol.registerClass(IOSMultiServerFixtureTransport.self)
         let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
@@ -90,6 +118,18 @@ final class IOSEpicGroupingTests: XCTestCase {
             {"number":103,"title":"C","url":"https://x/103","order":2,"body":"","blockedBy":[101],"state":"blocked","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false}],
             "warnings":[],"run":{"repoPath":"/repos/app","parentIssueNumber":100,"mode":"auto","status":"running"}}
             """#.utf8))
+        var mixed = epic
+        mixed.children[0].state = .init(unknown: "merged")
+        mixed.children[2].blockedBy = [101, 102]
+        let mixedChain = try XCTUnwrap(EpicDigest(mixed).chain(103))
+        XCTAssertEqual(IOSEpicChainStrip.needsText(mixedChain, limit: 2),
+            "✓ #101 · " + L.t("native_ios_epic_need_open", "#102"))
+        mixed.children[2].blockedBy = [101, 102, 104]
+        var fourth = mixed.children[1]
+        fourth.number = 104
+        mixed.children.append(fourth)
+        XCTAssertEqual(IOSEpicChainStrip.needsText(try XCTUnwrap(EpicDigest(mixed).chain(103)), limit: 2),
+            "✓ #101 · " + L.t("native_ios_epic_need_open", "#102") + " +1")
         let chain = try XCTUnwrap(EpicDigest(epic).chain(101))
         XCTAssertEqual(IOSEpicChainStrip.accessibilityText(chain), L.t("native_ios_epic_chain_aria",
             L.t("native_ios_epic_needs_none"), "1", "2", "101",
@@ -111,6 +151,28 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertEqual(group.row(for: child)?.session.id, "replacement")
         child.number = 888
         XCTAssertNil(group.row(for: child))
+        let selection = IOSEpicSelection(id: group.id)
+        let current = IOSMergedSessionPresentation.merge([source(group.profile, active: [
+            session("new", parent: 100, issue: 888), session("latest", parent: 100, issue: 101)])],
+            selectedRepos: []).epicGroups
+        XCTAssertEqual(selection.resolve(in: current)?.row(for: child)?.session.id, "new")
+        child.number = 101
+        XCTAssertEqual(selection.resolve(in: current)?.row(for: child)?.session.id, "latest")
+        XCTAssertNil(selection.resolve(in: []))
+    }
+
+    func testChildStateCopyDistinguishesReadyWaitingMergedAndActive() throws {
+        var child = try JSONDecoder().decode(EpicChild.self, from: Data(#"""
+            {"number":101,"title":"A","url":"https://x/101","order":0,"body":"","blockedBy":[],
+            "state":"ready","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false}
+            """#.utf8))
+        let states: [(String, StaticString)] = [("ready", "epicflow_legend_ready"), ("blocked", "epicflow_legend_waiting"),
+            ("merged", "epicflow_legend_merged"), ("running", "epic_state_running"),
+            ("in-review", "epic_state_in_review")]
+        for (state, key) in states {
+            child.state = .init(unknown: state)
+            XCTAssertEqual(IOSEpicCopy.state(child), L.t(key))
+        }
     }
 
     func testCollapsedHeaderAnnouncesFullTitleAndEveryCue() throws {
@@ -271,6 +333,73 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertTrue(offline.waiting)
         offline.release()
         await load.value
+    }
+
+    func testDirectoryPublishesBeforeSlowDetailsAndCancelsWithItsCaller() async throws {
+        URLProtocol.registerClass(IOSMultiServerFixtureTransport.self)
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let hub = IOSServerHub(launch: launch)
+        let profile = try hub.catalogue.addRemoteProfile(name: "Progressive", address: "https://epic-progress.multi.fixture.invalid")
+        try launch.credentials.save(.init(token: "fixture", tokenId: "fixture"), for: profile.credentialKey)
+        IOSMultiServerFixtureTransport.set([], for: profile.baseURL)
+        await hub.connect(profile)
+        defer { hub.disconnect(profile.id) }
+        let owner = try XCTUnwrap(hub.models[profile.id])
+        try await owner.store?.bootstrap()
+        let summary = try JSONDecoder().decode(EpicSummary.self, from: Data(#"{"parentIssueNumber":100,"parentTitle":"Available now","total":1,"merged":0,"status":"idle","source":"github"}"#.utf8))
+        let epic = try JSONDecoder().decode(Epic.self, from: Data(#"""
+            {"repoPath":"/repos/app","parentIssueNumber":100,"parentTitle":"Available now","source":"native",
+            "children":[],"warnings":[],"run":{"repoPath":"/repos/app","parentIssueNumber":100,"mode":"auto","status":"running"}}
+            """#.utf8))
+        let slow = EpicReadGate()
+        var reads: [Int] = []
+        var cancelled = false
+        let directory = IOSEpicDirectory(read: { _, _ in .init(epics: [summary], subIssues: []) },
+            readEpic: { _, _, parent in
+                reads.append(parent)
+                if parent == 200 {
+                    await slow.wait()
+                    cancelled = Task.isCancelled
+                }
+                return epic
+            })
+        let groups = IOSMergedSessionPresentation.merge([source(profile, active: [
+            session("a", parent: 100), session("b", parent: 200), session("c", parent: 300)])],
+            selectedRepos: []).epicGroups
+        let load = Task { await directory.load(groups, owners: hub.models, fallback: owner) }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while !slow.waiting, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertTrue(slow.waiting)
+        XCTAssertEqual(directory.summary(groups[0], owner: owner)?.parentTitle, "Available now")
+        XCTAssertNotNil(directory.digest(groups[0], owner: owner))
+        load.cancel()
+        slow.release()
+        await load.value
+        XCTAssertTrue(cancelled, "Cancellation must reach an in-flight detail request")
+        XCTAssertEqual(reads, [100, 200], "Cancellation must prevent subsequent requests")
+        XCTAssertNotNil(directory.digest(groups[0], owner: owner), "Keep already published data")
+
+        // A newer load also cancels the old request, even if the caller has not cancelled it.
+        let gate = EpicReadGate()
+        var first = true
+        var superseded = false
+        var details = 0
+        let replacement = IOSEpicDirectory(read: { _, _ in
+            if first {
+                first = false
+                await gate.wait()
+                superseded = Task.isCancelled
+            }
+            return .init(epics: [summary], subIssues: [])
+        }, readEpic: { _, _, _ in details += 1; return epic })
+        let old = Task { await replacement.load(groups, owners: hub.models, fallback: owner) }
+        while !gate.waiting, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertTrue(gate.waiting)
+        await replacement.load([], owners: hub.models, fallback: owner)
+        gate.release()
+        await old.value
+        XCTAssertTrue(superseded)
+        XCTAssertEqual(details, 0)
     }
 
     func testRenderDarkEpicListSection() async throws {

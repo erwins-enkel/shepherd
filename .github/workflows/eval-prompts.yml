@@ -178,6 +178,9 @@ jobs:
             # majority is a single sample — gate-commit-now's own baseline is `gate:4 finished:1`,
             # so a correctness gate here would red about one run in five on model noise. --trials
             # also CAPS per-fixture overrides in smoke mode, so a T=9 fixture really runs once.
+            # A no-tool/parse-fail trial is re-sampled up to twice before it counts (#3147), so one
+            # unlucky sample no longer reds a prompt-identical PR; a confirmed miss fails at once,
+            # ahead of the ceiling.
             #
             # The ceiling has to sit ABOVE the expected total or the run stops, discards its
             # partial results and green-skips — spending money to measure nothing, every time, and

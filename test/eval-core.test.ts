@@ -1305,6 +1305,114 @@ test("smoke mode CAPS per-fixture trial overrides, which --trials alone does not
   expect(trialsFor(thick, parseArgs(testSpec(), []))).toBe(9);
 });
 
+// #3147: one mechanical sample per fixture redded prompt-identical PRs on sampling noise, so smoke
+// mode re-samples a no-tool/parse-fail trial before counting it.
+
+const fx = (id: string): TestFixture => ({ ...FIXTURE, id });
+const ok = (): AnthropicResponse => write("verdict.json", '{"label":"ok"}');
+const garbage = (): AnthropicResponse => write("verdict.json", "not json at all");
+const prose = (): AnthropicResponse => ({
+  content: [{ type: "text", text: "no tool call" }],
+  stop_reason: "end_turn",
+});
+
+/** A transport answering from a per-fixture script (the prompt IS the fixture id), counting calls. */
+function perFixtureSend(script: Record<string, (() => AnthropicResponse)[]>): Send & {
+  calls: Record<string, number>;
+} {
+  const calls: Record<string, number> = {};
+  const send = (async (body: Record<string, unknown>) => {
+    const id = String((body.messages as { content: unknown }[])[0]!.content);
+    const n = (calls[id] = (calls[id] ?? 0) + 1);
+    const steps = script[id] ?? [];
+    return (steps[n - 1] ?? steps[steps.length - 1] ?? ok)();
+  }) as Send & { calls: Record<string, number> };
+  send.calls = calls;
+  return send;
+}
+
+const idSpec = (fixtures: TestFixture[]) =>
+  testSpec({ fixtures, buildPrompt: (f) => f.id, maxTurns: 1 });
+
+test("smoke RE-SAMPLES a parse-fail trial and passes when a re-sample is well-formed", async () => {
+  const send = perFixtureSend({ a: [garbage, ok] });
+  const lines: string[] = [];
+  const log = console.log;
+  console.log = (text: string) => void lines.push(text);
+  try {
+    expect(await runEval(idSpec([fx("a")]), ["--trials", "1", "--smoke", "--json"], send)).toBe(
+      EXIT.PASS,
+    );
+  } finally {
+    console.log = log;
+  }
+  expect(send.calls.a).toBe(2);
+  const report = JSON.parse(lines.join("\n")) as { results: { resampled: number }[] };
+  expect(report.results[0]).toMatchObject({ resampled: 1 });
+});
+
+test("smoke RE-SAMPLES a pooled no-tool trial", async () => {
+  const send = perFixtureSend({ a: [ok], b: [prose, prose, ok] });
+  const spec = idSpec([fx("a"), fx("b")]);
+  expect(await runEval(spec, ["--trials", "1", "--smoke", "--concurrency", "1"], send)).toBe(
+    EXIT.PASS,
+  );
+  expect(send.calls).toEqual({ a: 1, b: 3 });
+});
+
+test("smoke FAILS a fixture that misses on every sample, and stops the run there", async () => {
+  // Fail-fast: a confirmed malformation decides the gate, so the rest of the set is not paid for.
+  const send = perFixtureSend({ a: [garbage], b: [garbage], c: [garbage] });
+  const spec = idSpec([fx("a"), fx("b"), fx("c")]);
+  expect(await runEval(spec, ["--trials", "1", "--smoke", "--concurrency", "1"], send)).toBe(
+    EXIT.GATE_FAIL,
+  );
+  expect(send.calls).toEqual({ a: 3 });
+});
+
+test("a confirmed smoke malformation FAILS even when the ceiling would stop the run", async () => {
+  // Without fail-fast a broken prompt burns the ceiling on re-samples, the run stops as CANNOT_RUN
+  // and the workflow green-skips the very regression smoke exists to catch.
+  const usage = { input_tokens: 0, output_tokens: 20_000 };
+  const dear = (): AnthropicResponse => ({ ...garbage(), usage });
+  const perSample = spendUsd({ ...emptySpend(), output: 20_000 }, "m");
+  const send = perFixtureSend({ a: [dear], b: [dear], c: [dear] });
+  const spec = idSpec([fx("a"), fx("b"), fx("c")]);
+  const argv = ["--trials", "1", "--smoke", "--concurrency", "1"];
+  expect(await runEval(spec, [...argv, "--max-spend", String(perSample * 4.5)], send)).toBe(
+    EXIT.GATE_FAIL,
+  );
+});
+
+test("smoke does NOT re-sample an unrecognised verdict — that is a contract regression", async () => {
+  const send = perFixtureSend({ a: [() => write("verdict.json", '{"foo":1}')] });
+  const spec = testSpec({
+    fixtures: [fx("a")],
+    buildPrompt: (f) => f.id,
+    score: (_f, raw) =>
+      raw !== null && typeof raw.label === "string"
+        ? { label: String(raw.label), correct: true }
+        : { label: "no-verdict", correct: false, unrecognised: true },
+  });
+  expect(await runEval(spec, ["--trials", "1", "--smoke"], send)).toBe(EXIT.GATE_FAIL);
+  expect(send.calls.a).toBe(1);
+});
+
+test("outside smoke mode a mechanical miss is NOT re-sampled — it is the measurement", async () => {
+  const send = perFixtureSend({ a: [garbage, ok, ok] });
+  await runEval(idSpec([fx("a")]), ["--trials", "3", "--concurrency", "1"], send);
+  expect(send.calls.a).toBe(3);
+});
+
+test("a re-sampled fixture is flagged in the human report", () => {
+  const rescued = { ...outcome("ok", true), resampled: 2 };
+  const spec = testSpec();
+  const results = [aggregate(FIXTURE, [rescued], spec.labels)];
+  expect(results[0]!.resampled).toBe(2);
+  const run = parseArgs(spec, ["--trials", "1", "--smoke"]);
+  expect(formatReport(spec, results, decide(results, spec.floor), run)).toContain("resampled:2");
+});
+
 test("smokeDecide names every fixture with a mechanical failure", () => {
   const ok = aggregate(FIXTURE, [outcome("ok", true)], ["ok"]);
   const noTool = aggregate({ ...FIXTURE, id: "nt" }, [outcome("ok", true, false, false)], ["ok"]);

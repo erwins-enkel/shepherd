@@ -267,6 +267,12 @@ export interface TrialOutcome {
    * verdicts are unchanged.
    */
   firstAttemptFailed?: boolean;
+  /**
+   * SMOKE only (#3147): how many times this trial was RE-SAMPLED after a mechanical miss before the
+   * outcome kept here — see {@link SMOKE_RESAMPLES}. Omitted when it needed none, so a clean run
+   * reports exactly the shape it did before.
+   */
+  resampled?: number;
 }
 
 /**
@@ -905,6 +911,8 @@ export interface FixtureResult<F extends EvalFixtureBase> {
   /** Trials whose first attempt threw and were rescued by a retry — see
    *  {@link TrialOutcome.firstAttemptFailed}. */
   retried: number;
+  /** Smoke re-samples spent across this fixture's trials — see {@link TrialOutcome.resampled}. */
+  resampled: number;
   /** Trials that did NOT produce a usable verdict on the first attempt — see {@link covered}. */
   uncovered: number;
   majorityLabel: string | null;
@@ -931,11 +939,13 @@ export function aggregate<F extends EvalFixtureBase>(
   let parseFail = 0;
   let unrecognised = 0;
   let retried = 0;
+  let resampled = 0;
   let uncovered = 0;
   let correct = 0;
   for (const o of outcomes) {
     if (o.unrecognised) unrecognised++;
     if (o.firstAttemptFailed === true) retried++;
+    resampled += o.resampled ?? 0;
     if (!covered(o)) uncovered++;
     // An unknown label still counts — a scorer that emits an unlisted label must not vanish from
     // the distribution.
@@ -954,6 +964,7 @@ export function aggregate<F extends EvalFixtureBase>(
     parseFail,
     unrecognised,
     retried,
+    resampled,
     uncovered,
     majorityLabel: majority(counts, trials),
     correct,
@@ -998,7 +1009,8 @@ export function trialsFor<F extends EvalFixtureBase>(fixture: F, run: RunOptions
 /** SMOKE verdict: did every trial produce a verdict the parser could read? PURE. A fixture with a
  *  `no-tool` or `parse-fail` trial is a MECHANICAL failure — the prompt stopped producing a
  *  well-formed verdict — which is a real regression and blocks, unlike a wrong-but-well-formed one
- *  at a sample size too small to judge. */
+ *  at a sample size too small to judge. By the time a trial reaches here in smoke mode it has
+ *  already missed on every re-sample ({@link SMOKE_RESAMPLES}), so one unlucky sample cannot red it. */
 export function smokeDecide<F extends EvalFixtureBase>(
   results: FixtureResult<F>[],
 ): { pass: boolean; malformed: string[] } {
@@ -1081,6 +1093,7 @@ export function formatReport<F extends EvalFixtureBase>(
         r.noTool > 0 ? `no-tool:${r.noTool}` : "",
         r.parseFail > 0 ? `parse-fail:${r.parseFail}` : "",
         r.unrecognised > 0 ? `unrecognised:${r.unrecognised}` : "",
+        r.resampled > 0 ? `resampled:${r.resampled}` : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -1149,6 +1162,8 @@ export function jsonReport<F extends EvalFixtureBase>(
       // The nightly drift gate's coverage condition reads these (#2377).
       retried: r.retried,
       uncovered: r.uncovered,
+      // Smoke re-samples (#3147): a fixture that passed only on a re-sample is still visible.
+      resampled: r.resampled,
       // Carried per fixture so a CI run holds its own diagnosis — the point of #2326.
       mechanicalSamples: mechanicalSamples(r),
       majorityLabel: r.majorityLabel,
@@ -1198,6 +1213,10 @@ export interface RunOptions {
    * run in five on model noise alone. The smoke leg therefore gates on the MECHANICAL fact — every
    * trial obtained a parseable verdict — which is noise-free, and is exactly what broke in every
    * harness failure so far. Accuracy is still computed and reported; it just does not decide.
+   *
+   * A mechanical miss is RE-SAMPLED up to {@link SMOKE_RESAMPLES} times before it counts (#3147):
+   * at one sample per fixture a single turn-budget or truncated-JSON trial redded prompt-identical
+   * PRs, whereas a broken prompt misses on every sample.
    */
   smoke: boolean;
   /** Which backend obtains the verdicts — `anthropic`, or a key of {@link EvalSpec.backends}. */
@@ -1268,6 +1287,20 @@ const DEFAULT_CONCURRENCY = 4;
  */
 const ATTEMPTS_PER_TRIAL = 3;
 const RETRY_BACKOFF_MS = [2_000, 6_000];
+/**
+ * SMOKE only (#3147): extra samples a `no-tool`/`parse-fail` trial gets before it counts. Measured
+ * failure: a prompt that had passed 10/10 twice then redded five attempts running, each on a
+ * different fixture, all mechanical. At a per-trial miss rate near 0.1 over ten fixtures one sample
+ * reds about two runs in three; three samples bring that near one in a hundred, while a broken
+ * prompt still misses every time. `unrecognised` is deliberately NOT re-sampled — well-formed JSON
+ * outside the contract is the shape a prompt regression takes, not sampling noise.
+ */
+const SMOKE_RESAMPLES = 2;
+
+/** No verdict write, or one the parser refused — the mechanical misses smoke re-samples. PURE. */
+function mechanicalMiss(outcome: TrialOutcome): boolean {
+  return !outcome.toolUsed || !outcome.parseOk;
+}
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -1526,6 +1559,58 @@ async function runEvalInner<F extends EvalFixtureBase>(
     backend.trial(task.fixture, task.prompt, run, spend);
   const overBudget = (): boolean => price(spend, run.model) >= run.maxSpend;
 
+  /** One capture under the retry policy every pooled trial gets, or the error that survived it. */
+  const obtainCapture = async (
+    task: Task,
+  ): Promise<{ capture: TrialCapture; firstAttemptFailed: boolean } | { error: string }> => {
+    let lastError = "";
+    let firstAttemptFailed = false;
+    for (let attempt = 1; attempt <= ATTEMPTS_PER_TRIAL; attempt++) {
+      try {
+        return { capture: await attemptTrial(task), firstAttemptFailed };
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (attempt === 1) firstAttemptFailed = true;
+        // A PERMANENT condition will not recover, so retrying it just burns the backoff once per
+        // trial across the pool. A 429 is explicitly not permanent — backoff is what it is for.
+        if (isPermanent(lastError)) break;
+        if (attempt < ATTEMPTS_PER_TRIAL) {
+          console.error(
+            `${tag} ${task.fixture.id} trial ${task.trial + 1} attempt ${attempt} failed ` +
+              `(retrying): ${lastError}`,
+          );
+          await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt - 1] ?? 6_000));
+        }
+      }
+    }
+    return { error: lastError };
+  };
+
+  // Set when a smoke trial is still mechanical after EVERY re-sample. That decides the gate, so the
+  // pool stops taking work — and the decision outranks the spend ceiling below, or a broken prompt
+  // would burn the ceiling on re-samples and green-skip as CANNOT_RUN.
+  let confirmedMalformed = false;
+  /** SMOKE only: re-sample a mechanical miss up to {@link SMOKE_RESAMPLES} times (#3147). Returns
+   *  the outcome to keep, or the transport error that ended a re-sample. A re-sample cut short by
+   *  the ceiling confirms nothing — the run then stops as incomplete, as any budget stop does. */
+  const resampleMechanical = async (
+    task: Task,
+    outcome: TrialOutcome,
+  ): Promise<TrialOutcome | { error: string }> => {
+    let kept = outcome;
+    let resampled = 0;
+    while (run.smoke && mechanicalMiss(kept) && resampled < SMOKE_RESAMPLES && !overBudget()) {
+      const got = await obtainCapture(task);
+      if ("error" in got) return got;
+      resampled++;
+      kept = stamp(outcomeFrom(spec, task.fixture, got.capture), got.firstAttemptFailed);
+    }
+    if (run.smoke && mechanicalMiss(kept) && resampled === SMOKE_RESAMPLES) {
+      confirmedMalformed = true;
+    }
+    return resampled === 0 ? kept : { ...kept, resampled };
+  };
+
   // PREFLIGHT, deliberately alone and before the pool. It guards TWO failures, both of which
   // otherwise cost a whole paid run to discover:
   //   1. a dead key / broken transport;
@@ -1585,9 +1670,18 @@ async function runEvalInner<F extends EvalFixtureBase>(
       // The diagnosis above is still printed in full, and the workflow still surfaces it.
       return observationalPass(spec, tag, "its harness obtained no verdict") ?? EXIT.HARNESS_FAIL;
     }
-    outcomes[first.index]!.push(
+    const kept = await resampleMechanical(
+      first,
       stamp(outcomeFrom(spec, first.fixture, preflight), firstAttemptFailed),
     );
+    if ("error" in kept) {
+      console.error(
+        `${tag} CANNOT RUN — a preflight re-sample could not execute, so the run is ` +
+          `INCOMPLETE: ${kept.error}`,
+      );
+      return EXIT.CANNOT_RUN;
+    }
+    outcomes[first.index]!.push(kept);
   }
 
   let next = 1;
@@ -1599,47 +1693,32 @@ async function runEvalInner<F extends EvalFixtureBase>(
   let cannotRun: string | null = null;
   const worker = async (): Promise<void> => {
     for (;;) {
-      if (cannotRun !== null || overBudget()) return;
+      if (cannotRun !== null || confirmedMalformed || overBudget()) return;
       const task = tasks[next++];
       if (!task) return;
-      let capture: TrialCapture | null = null;
-      let lastError = "";
-      let firstAttemptFailed = false;
-      for (let attempt = 1; attempt <= ATTEMPTS_PER_TRIAL && capture === null; attempt++) {
-        try {
-          capture = await attemptTrial(task);
-        } catch (err) {
-          lastError = err instanceof Error ? err.message : String(err);
-          if (attempt === 1) firstAttemptFailed = true;
-          // A PERMANENT condition will not recover, so retrying it just burns the backoff once per
-          // trial across the pool. A 429 is explicitly not permanent — backoff is what it is for.
-          if (isPermanent(lastError)) break;
-          if (attempt < ATTEMPTS_PER_TRIAL) {
-            console.error(
-              `${tag} ${task.fixture.id} trial ${task.trial + 1} attempt ${attempt} failed ` +
-                `(retrying): ${lastError}`,
+      const got = await obtainCapture(task);
+      // Survived every retry. Whatever the code — 529, 500, a dropped socket, an exhausted usage
+      // limit — the trial did not execute, and a run with unexecuted trials cannot be scored.
+      // Recording it as a miss is how a green prompt reports 42%.
+      const kept =
+        "error" in got
+          ? got
+          : await resampleMechanical(
+              task,
+              stamp(outcomeFrom(spec, task.fixture, got.capture), got.firstAttemptFailed),
             );
-            await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt - 1] ?? 6_000));
-          }
-        }
-      }
-      if (capture === null) {
-        // Survived every retry. Whatever the code — 529, 500, a dropped socket, an exhausted usage
-        // limit — the trial did not execute, and a run with unexecuted trials cannot be scored.
-        // Recording it as a miss is how a green prompt reports 42%.
-        cannotRun = lastError;
+      if ("error" in kept) {
+        cannotRun = kept.error;
         return;
       }
-      outcomes[task.index]!.push(
-        stamp(outcomeFrom(spec, task.fixture, capture), firstAttemptFailed),
-      );
+      outcomes[task.index]!.push(kept);
     }
   };
   await Promise.all(
     Array.from({ length: Math.min(run.concurrency, Math.max(tasks.length - 1, 1)) }, worker),
   );
 
-  if (overBudget()) {
+  if (!confirmedMalformed && overBudget()) {
     // A deliberate budget stop, not an outage — but the run is INCOMPLETE either way, so its
     // partial results are discarded rather than reported as a measurement.
     console.error(
@@ -1650,7 +1729,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
     return EXIT.CANNOT_RUN;
   }
 
-  if (cannotRun !== null) {
+  if (!confirmedMalformed && cannotRun !== null) {
     console.error(
       `${tag} CANNOT RUN — a trial failed ${ATTEMPTS_PER_TRIAL} times, so the run is INCOMPLETE ` +
         `and its partial results are discarded rather than scored as misses: ${cannotRun}`,
@@ -1687,7 +1766,9 @@ async function runEvalInner<F extends EvalFixtureBase>(
     if (smoke.pass) return EXIT.PASS;
     console.error(
       `${tag} SMOKE FAIL — these fixtures produced a malformed or missing verdict: ` +
-        `${smoke.malformed.join(", ")}. That is a mechanical failure, not a close call.`,
+        `${smoke.malformed.join(", ")}. That is a mechanical failure, not a close call — a ` +
+        `no-tool/parse-fail trial counts only after missing on all ${SMOKE_RESAMPLES + 1} samples.` +
+        (confirmedMalformed ? " The run stopped there, so later fixtures may show 0 trials." : ""),
     );
     return observationalPass(spec, tag, "the eval is unmeasured") ?? EXIT.GATE_FAIL;
   }

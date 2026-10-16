@@ -4056,6 +4056,7 @@ const appDeps: AppDeps = {
   gitignoreAdopter,
   greenfield,
   onBootstrapAdvance,
+  // Required<>: an optional drain method left unwired here 503s its route silently (#3101).
   drain: {
     snapshot: () => drain.snapshot(),
     queue: (repoPath) => drain.queue(repoPath),
@@ -4067,8 +4068,11 @@ const appDeps: AppDeps = {
     promoteQueuedEpic: (repoPath) => drain.promoteQueuedEpic(repoPath),
     resolveLandingConflict: (repoPath, parent) => drain.resolveLandingConflict(repoPath, parent),
     repairLandingCi: (repoPath, parent) => drain.repairLandingCi(repoPath, parent),
+    overrideEpicBaseHold: (repoPath, parent, kind) =>
+      drain.overrideEpicBaseHold(repoPath, parent, kind),
+    resolveEpicBaseConflict: (repoPath, parent) => drain.resolveEpicBaseConflict(repoPath, parent),
     tick: () => drain.tick(),
-  },
+  } satisfies Required<NonNullable<AppDeps["drain"]>>,
   autoMerge: { snapshot: () => autoMerge.snapshot() },
   holds: { snapshot: () => holdService.snapshot() },
   // Read the source session's recent terminal history off its live pane and hand it to a

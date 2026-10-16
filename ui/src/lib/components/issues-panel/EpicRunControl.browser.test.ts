@@ -7,6 +7,7 @@ import type { DrainRunSummary, DrainStatus, Epic, EpicChild, EpicSummary } from 
 import { m } from "#lib/paraglide/messages.js";
 import { formatReset } from "#lib/format.js";
 import { toasts } from "#lib/toasts.svelte.js";
+import { ApiError } from "#lib/api.js";
 
 const api = vi.hoisted(() => ({
   updateEpic: vi.fn(async () => ({})),
@@ -17,6 +18,8 @@ const api = vi.hoisted(() => ({
     throw new Error("not needed");
   }),
   getDrain: vi.fn(async (): Promise<DrainStatus[]> => []),
+  reworkEpicBase: vi.fn(async (): Promise<void> => {}),
+  overrideEpicBaseHold: vi.fn(async (): Promise<void> => {}),
 }));
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -122,6 +125,8 @@ beforeEach(() => {
   api.getEpic.mockClear();
   api.getDrain.mockReset();
   api.getDrain.mockResolvedValue([]);
+  api.reworkEpicBase.mockReset();
+  api.overrideEpicBaseHold.mockReset();
 });
 
 describe("EpicRunControl — acceptance scenario (#2620)", () => {
@@ -864,5 +869,54 @@ describe("EpicRunControl usage ceiling override", () => {
 
     await expect.element(page.getByText(m.epic_run_state_halted())).toBeInTheDocument();
     expect(page.getByRole("button", { name: m.epic_usage_ignore() }).query()).toBeNull();
+  });
+});
+
+describe("EpicRunControl base conflict hold (#3101)", () => {
+  const conflictHold = () =>
+    drain({ paused: true, reason: "epic_base_conflict", detail: "epic/20-x" });
+
+  function renderHeld() {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: conflictHold(),
+      titleFor,
+    });
+  }
+
+  async function expectToast(text: string) {
+    await vi.waitFor(() => expect(toasts.items.some((t) => t.text === text)).toBe(true));
+  }
+
+  it("Resolve conflict dispatches the rework for this epic", async () => {
+    renderHeld();
+    await userEvent.keyboard("{Escape}");
+    await page.getByRole("button", { name: m.epic_base_resolve() }).click();
+    expect(api.reworkEpicBase).toHaveBeenCalledWith("/repo", B);
+  });
+
+  it.each([
+    ["busy", () => m.epic_base_resolve_busy()],
+    ["not-conflicting", () => m.epic_base_resolve_not_conflicting()],
+    ["spawn-failed", () => m.epic_base_resolve_failed()],
+  ])("a %s refusal names why the rework did not start", async (reason, text) => {
+    toasts.dismissKey("epic-base-fail");
+    api.reworkEpicBase.mockRejectedValueOnce(new ApiError(409, "x", reason));
+    renderHeld();
+    await userEvent.keyboard("{Escape}");
+    await page.getByRole("button", { name: m.epic_base_resolve() }).click();
+    await expectToast(text());
+  });
+
+  it("a failed Continue anyway keeps the hold message", async () => {
+    toasts.dismissKey("epic-base-fail");
+    api.overrideEpicBaseHold.mockRejectedValueOnce(new ApiError(502, "x", "transient"));
+    renderHeld();
+    await userEvent.keyboard("{Escape}");
+    await page.getByRole("button", { name: m.epic_base_continue() }).click();
+    expect(api.overrideEpicBaseHold).toHaveBeenCalledWith("/repo", B, "base");
+    await expectToast(m.epic_base_action_failed());
   });
 });

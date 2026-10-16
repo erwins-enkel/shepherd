@@ -62,3 +62,38 @@ describe("NewProject bootstrap kickoff (#3112)", () => {
     expect((fd.get("prd") as File).name).toBe("prd.md");
   });
 });
+
+describe("NewProject idea length", () => {
+  it("blocks an idea over the server's 8000-char limit before sending", async () => {
+    const posts = mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await page.getByLabelText(m.newproject_idea_label()).fill("x".repeat(8001));
+    await expect
+      .element(page.getByText(m.newproject_idea_count({ count: 8001, max: 8000 })))
+      .toBeVisible();
+    await expect
+      .element(page.getByText(m.newproject_failed_idea_too_long({ max: 8000 })))
+      .toBeVisible();
+    await expect.element(page.getByRole("button", { name: m.newproject_submit() })).toBeDisabled();
+    expect(posts.length).toBe(0);
+  });
+
+  it("names the cause when the server rejects the idea as too long", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).startsWith("/api/projects"))
+        return new Response(JSON.stringify({ error: "newproject_failed_idea_too_long" }), {
+          status: 400,
+        });
+      return new Response(JSON.stringify({ commands: [] }), { status: 200 });
+    });
+    render(NewProject, { ondone: vi.fn() });
+    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await page.getByLabelText(m.newproject_idea_label()).fill("an idea");
+    await page.getByRole("button", { name: m.newproject_submit() }).click();
+    await expect
+      .element(page.getByText(m.newproject_failed_idea_too_long({ max: 8000 })))
+      .toBeVisible();
+    await expect.element(page.getByText(m.newproject_failed_generic())).not.toBeInTheDocument();
+  });
+});

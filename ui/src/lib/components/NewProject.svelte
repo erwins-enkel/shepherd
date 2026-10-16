@@ -11,6 +11,10 @@
   // Cross-reference: keep both patterns in sync when either changes.
   const SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
 
+  // Idea cap mirrors src/validate.ts parseIdeaField() (trimmed length).
+  // Cross-reference: keep both limits in sync when either changes.
+  const IDEA_MAX = 8000;
+
   // Curated allow-list of kickoff command bare names (strip plugin: prefix).
   const KICKOFF_COMMANDS = new Set([
     "gsd-new-project",
@@ -66,7 +70,10 @@
     return false;
   });
 
-  const canSubmit = $derived(name.trim().length > 0 && !nameInvalid && !submitting);
+  const ideaLength = $derived(idea.trim().length);
+  const ideaTooLong = $derived(ideaLength > IDEA_MAX);
+
+  const canSubmit = $derived(name.trim().length > 0 && !nameInvalid && !ideaTooLong && !submitting);
 
   // Lazily enumerate the GitHub owners the first time the box is checked. Set the
   // guard before awaiting so a toggle storm can't fire overlapping requests, and so a
@@ -98,6 +105,8 @@
     switch (code) {
       case "slug":
         return m.newproject_failed_slug();
+      case "idea_too_long":
+        return m.newproject_failed_idea_too_long({ max: IDEA_MAX });
       case "exists":
         return m.newproject_failed_exists();
       case "outside":
@@ -135,7 +144,7 @@
     e.preventDefault();
     const trimmedName = name.trim();
     const trimmedIdea = idea.trim();
-    if (!trimmedName || nameInvalid || submitting) return;
+    if (!trimmedName || nameInvalid || ideaTooLong || submitting) return;
     submitting = true;
     error = null;
     retry = null;
@@ -217,7 +226,15 @@
       autocomplete="off"
       autocapitalize="off"
       spellcheck={false}
+      aria-describedby="np-idea-count"
+      aria-invalid={ideaTooLong}
       data-1p-ignore></textarea>
+    <p id="np-idea-count" class="idea-count" class:over={ideaTooLong}>
+      {m.newproject_idea_count({ count: ideaLength, max: IDEA_MAX })}
+    </p>
+    {#if ideaTooLong}
+      <p class="field-err" role="alert">{m.newproject_failed_idea_too_long({ max: IDEA_MAX })}</p>
+    {/if}
 
     <!-- GitHub checkbox -->
     <label class="check-row">
@@ -373,6 +390,16 @@
     color: var(--color-red);
     margin: 0;
     padding: 2px 0;
+  }
+  .idea-count {
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    margin: 0;
+  }
+  .idea-count.over {
+    color: var(--color-red);
   }
   .check-row {
     display: flex;

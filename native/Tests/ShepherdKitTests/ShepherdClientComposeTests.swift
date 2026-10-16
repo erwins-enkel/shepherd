@@ -466,6 +466,44 @@ struct ShepherdClientComposeTests {
         #expect(result.subIssues == [413, 414])
     }
 
+    @Test("one epic decodes with its children and dependency edges")
+    func epic() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("GET", "/api/epic", status: 200, json: Data("""
+            {"repoPath":"/repo","parentIssueNumber":111,"parentTitle":"Epic: Kalender","source":"native",
+            "children":[{"number":101,"title":"Einplanen","url":"https://x/101","order":0,"body":"","blockedBy":[],
+            "state":"running","sessionId":"s1","prNumber":112,"issueClosed":false,"integrationMerged":false,"claimed":true},
+            {"number":102,"title":"Video","url":"https://x/102","order":1,"body":"","blockedBy":[101],
+            "state":"blocked","sessionId":null,"prNumber":null,"issueClosed":false,"integrationMerged":false,"claimed":false}],
+            "warnings":[],"run":{"repoPath":"/repo","parentIssueNumber":111,"mode":"auto","status":"running"},
+            "forecast":null}
+            """.utf8))
+        let result = try await makeClient(server).epic(repoPath: "/repo", parent: 111)
+        #expect(result.children.map(\.number) == [101, 102])
+        #expect(result.children[1].blockedBy == [101])
+        #expect(result.children[0].state.rawValue == "running")
+        #expect(result.run.status.rawValue == "running")
+        #expect(result.forecast == nil)
+        let query = URLComponents(string: "http://fake/?\(server.requests().last?.query ?? "")")?.queryItems
+        #expect(query?.first(where: { $0.name == "repo" })?.value == "/repo")
+        #expect(query?.first(where: { $0.name == "parent" })?.value == "111")
+    }
+
+    @Test("epic maps documented errors", arguments: [400, 401, 404, 503])
+    func epicErrors(status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("GET", "/api/epic", status: status, json: try Fixtures.errorJSON("bad"))
+        let expected: ShepherdError = switch status {
+        case 400: .badRequest("bad")
+        case 401: .unauthenticated
+        case 404: .notFound
+        default: .upstreamFailure(code: nil, message: "bad")
+        }
+        await #expect(throws: expected) { _ = try await makeClient(server).epic(repoPath: "/repo", parent: 111) }
+    }
+
     @Test func branchesAndStatusEncodeQueriesAndDecodeNullableDefaults() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

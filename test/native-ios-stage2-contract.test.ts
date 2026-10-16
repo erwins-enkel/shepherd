@@ -60,6 +60,29 @@ describe("native iOS acceptance tools", () => {
       expect(result.exitCode === 0).toBe(resultState === "Passed");
     });
   }
+  for (const resultState of ["Passed", "Failed", "Skipped"]) {
+    test(`runtime warnings preserve ${resultState} case results`, () => {
+      const fixture = JSON.parse(
+        readFileSync("test/fixtures/native-ios-stage2-results-pass.json", "utf8"),
+      );
+      fixture.tests.testNodes[0].result = resultState;
+      fixture.tests.testNodes[0].children = [
+        {
+          nodeType: "Runtime Warning",
+          name: "Accessing State outside a hosted View",
+          sourceLocation: { filePath: "Fixture.swift", lineNumber: 1 },
+        },
+      ];
+      const result = python(
+        "check-ios-results.py",
+        json("summary.json", fixture.summary),
+        json("tests.json", fixture.tests),
+        "--expected",
+        json("expected.json", fixture.expected),
+      );
+      expect(result.exitCode === 0).toBe(resultState === "Passed");
+    });
+  }
   test("rejects passing counts when a required identity never executed", () => {
     const fixture = JSON.parse(
       readFileSync("test/fixtures/native-ios-stage2-results-pass.json", "utf8"),

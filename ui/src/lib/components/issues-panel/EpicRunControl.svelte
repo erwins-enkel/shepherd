@@ -15,6 +15,7 @@
     getDrain,
     overrideEpicBaseHold,
     reworkEpicBase,
+    ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { epicRunStateExplanation } from "#lib/tooltips/explanations.js";
@@ -165,6 +166,17 @@
 
   function baseHoldFailed() {
     toasts.info(m.epic_base_action_failed(), { alert: true, key: "epic-base-fail" });
+  }
+
+  function baseReworkFailed(err: unknown) {
+    const reason = err instanceof ApiError ? err.code : undefined;
+    const msg =
+      reason === "busy"
+        ? m.epic_base_resolve_busy()
+        : reason === "not-conflicting"
+          ? m.epic_base_resolve_not_conflicting()
+          : m.epic_base_resolve_failed();
+    toasts.info(msg, { alert: true, key: "epic-base-fail" });
   }
 
   // Starting (or re-leading) while another epic leads supersedes it (the server keeps one epic
@@ -384,7 +396,7 @@
         <button
           class="gbtn"
           type="button"
-          onclick={() => reworkEpicBase(repoPath, parent).catch(baseHoldFailed)}
+          onclick={() => reworkEpicBase(repoPath, parent).catch(baseReworkFailed)}
           >{m.epic_base_resolve()}</button
         >
       {/if}

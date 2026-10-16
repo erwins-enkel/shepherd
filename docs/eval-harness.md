@@ -395,6 +395,16 @@ otherwise edits inside that block move no hash and its eval never fires.
   `T=9` abstain fixture really does run once here; outside smoke mode the override still wins and
   those buckets keep their depth. The scheduled run does the statistics at full depth.
 
+  **Mechanical misses are re-sampled (#3147).** At one sample per fixture, one turn-budget
+  `no-tool` or truncated-JSON `parse-fail` trial redded prompt-identical PRs five runs in a row.
+  In smoke mode such a trial is re-run up to **2 more times**, and the fixture counts as malformed
+  only if every sample misses — noise clears, a broken prompt misses every time. `unrecognised`
+  (well-formed JSON outside the contract) is NOT re-sampled: that is the shape a prompt regression
+  takes. Rescues are reported as `resampled:N` per fixture (human report and JSON). A fixture
+  confirmed malformed stops the run and fails it at once, AHEAD of the spend ceiling — otherwise a
+  broken prompt would spend the ceiling on re-samples and green-skip as CANNOT_RUN. Re-sampling
+  never runs outside smoke mode: there a miss is the measurement.
+
   Sized after a PR run cost **$10.08**: the sets are large, the critic is multi-turn, and until
   `eval-fingerprints.json` exists on the default branch EVERY push selects every eval. One trial
   across each gating set costs about **$3.00** (critic), **$0.90** (plan-gate) and **$0.02**

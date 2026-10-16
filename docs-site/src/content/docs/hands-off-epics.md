@@ -104,7 +104,8 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 - **A critic error** — Shepherd won't advance on an uncertain review.
 - **The credit ceiling** — Shepherd never keeps spending pay-as-you-go credit unattended.
 - **Epic branch conflicts with `main`** — the rebase above hits a real conflict. No new child starts;
-  one agent rebases the branch and resolves it. If that doesn't clear it you get a notification:
+  an agent rebases the branch and resolves it — even with Auto-Drain off — and a second one retries
+  if the first leaves it conflicting. If that doesn't clear it you get a notification:
   press **Resolve conflict** to start another agent, or **Continue anyway** to keep the epic going
   on the old base until `main` moves again.
 - **Epic base-branch divergence** — a child PR retargeted off the epic integration branch; the epic

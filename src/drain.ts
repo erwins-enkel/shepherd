@@ -184,8 +184,9 @@ const CADENCE_REBASE_INTERVAL_MS = 60 * 60_000;
  *  holds new spawns (`epic_base_stale`) until the epic is quiescent and the rebase can run. */
 const BASE_STALE_HOLD_MS = 4 * 60 * 60_000;
 /** #3101: auto base-rework agents per conflict episode of a running epic's integration branch (the
- *  episode ends when the branch follows the default branch again). The manual dispatch bypasses it. */
-const EPIC_BASE_REWORK_CAP = 1;
+ *  episode ends when the branch follows the default branch again) — the first plus one retry. The
+ *  manual dispatch bypasses it. */
+const EPIC_BASE_REWORK_CAP = 2;
 
 /** #3101: the running epic a base-freshness pass acts on. */
 interface EpicBaseTarget {
@@ -2549,7 +2550,8 @@ export class DrainService {
    * is behind; the first sighting is stamped durably (`baseBehindSince`) and, once it is
    * {@link BASE_STALE_HOLD_MS} old, the drain holds new spawns (`epic_base_stale`) until in-flight
    * children finish and the rebase can run. A genuine conflict holds too (`epic_base_conflict`) and
-   * dispatches one base-rework agent per conflict episode; with none dispatched it notifies.
+   * dispatches up to {@link EPIC_BASE_REWORK_CAP} base-rework agents per conflict episode; with none
+   * dispatched it notifies.
    *
    * Engaged-only (running, non-draft-mode), GitHub-only (the seam force-pushes to origin),
    * repair-fenced, holds the repo's `pumping` slot (no spawn mid-rewrite), `landingInFlight`-
@@ -2663,10 +2665,10 @@ export class DrainService {
     this.epicBaseOverride.delete(`${repoPath}#${parent}`);
   }
 
-  /** #3101: a genuine cadence-rebase conflict — stamp the conflict hold, then hand it to ONE auto
-   *  base-rework agent per episode; with none dispatched (cap spent, auto-drain off, spawn refused),
-   *  push the operator (cooldown-keyed, so a retry each interval does not re-notify). Skipped while
-   *  the operator has overridden the hold. */
+  /** #3101: a genuine cadence-rebase conflict — stamp the conflict hold, then hand it to an auto
+   *  base-rework agent (up to {@link EPIC_BASE_REWORK_CAP} per episode); with none dispatched (cap
+   *  spent, epic run no longer running, spawn refused), push the operator (cooldown-keyed, so a
+   *  retry each interval does not re-notify). Skipped while the operator has overridden the hold. */
   private async enterEpicBaseConflict(repoPath: string, t: EpicBaseTarget): Promise<void> {
     const { key, parent } = t;
     if (this.deps.store.getEpicBaseFreshness(repoPath, parent)?.conflictSince == null)
@@ -2723,9 +2725,10 @@ export class DrainService {
   }
 
   /** #3101: dispatch ONE base-rework `landingRepair` session for a conflict-held running epic. Auto
-   *  respects autoDrainEnabled + {@link EPIC_BASE_REWORK_CAP} per conflict episode; `manual` (the
-   *  epic panel's "Resolve conflict") bypasses both and the spawn back-off. Always refused while a
-   *  live repair session holds the branch. True iff a session was spawned. */
+   *  requires the epic run itself to be running (like the pump — NOT autoDrainEnabled, so an epic run
+   *  on a drain-off repo is not frozen until the operator acts) + {@link EPIC_BASE_REWORK_CAP} per
+   *  conflict episode; `manual` (the epic panel's "Resolve conflict") bypasses both and the spawn
+   *  back-off. Always refused while a live repair session holds the branch. True iff spawned. */
   private async dispatchEpicBaseRework(
     repoPath: string,
     t: Pick<EpicBaseTarget, "parent" | "parentTitle" | "branch" | "defaultBranch">,
@@ -2734,7 +2737,8 @@ export class DrainService {
     const fresh = this.deps.store.getEpicBaseFreshness(repoPath, t.parent);
     if (!fresh) return false;
     if (!manual) {
-      if (!this.deps.store.getRepoConfig(repoPath).autoDrainEnabled) return false;
+      const er = this.deps.store.getEpicRun(repoPath);
+      if (er?.status !== "running" || er.parentIssueNumber !== t.parent) return false;
       if (fresh.reworkCount >= EPIC_BASE_REWORK_CAP) return false;
     }
     if (this.hasLiveRepairSession(repoPath, t.branch)) return false;

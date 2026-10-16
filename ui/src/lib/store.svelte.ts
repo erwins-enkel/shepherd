@@ -45,7 +45,6 @@ import { reviews, planGates, spawnNotices } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { amendments } from "./amendments.svelte";
 import { upNext } from "./up-next.svelte";
-import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { reviveStranded as apiReviveStranded } from "./api";
 import { m } from "#lib/paraglide/messages.js";
@@ -976,7 +975,7 @@ export class HerdStore {
   }
 
   /** Handle the app-global (non per-session-row) WS events: usage limits, the
-   *  self/herdr update channels, project icons, learnings, backlog + drain.
+   *  self/herdr update channels, project icons, backlog + drain.
    *  Split out of apply() so its dispatch switch stays under the complexity gate. */
   /** Singleton status/snapshot pushes (usage, self-update, diagnostics, plugins,
    *  star-prompt). Extracted from applyGlobalEvent to keep that dispatch under the
@@ -1035,9 +1034,6 @@ export class HerdStore {
         break;
       case "repo-bootstrap:update":
         repoBootstrap.refresh(ev.data.repoPath);
-        break;
-      case "learnings:update":
-        learnings.apply(ev.data);
         break;
       case "upnext:snapshot":
         upNext.apply(ev.data);

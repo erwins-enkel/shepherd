@@ -1493,7 +1493,7 @@ export interface SessionPreviewServeEvent {
   serve: "ok" | "failed" | null;
 }
 
-// ── learnings flywheel ────────────────────────────────────────────────────────
+// ── signals ───────────────────────────────────────────────────────────────────
 export type SignalKind =
   | "reply"
   | "critic"
@@ -1513,116 +1513,6 @@ export interface Signal {
   kind: SignalKind;
   payload: string;
   ts: number;
-}
-
-export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed" | "retired";
-
-/** One resolved evidence signal behind a proposed rule, for the drawer's
- *  "where did this come from" view. `id` is the signal id (stable render key);
- *  `desig` is the source session's designation (e.g. "TASK-07"), or null when
- *  the session row is gone; `excerpt` is a short single-line preview of the
- *  captured payload. */
-export interface EvidenceItem {
-  id: string;
-  kind: SignalKind;
-  desig: string | null;
-  excerpt: string;
-  ts: number;
-}
-
-export interface Learning {
-  id: string;
-  repoPath: string;
-  rule: string;
-  rationale: string;
-  evidence: string[]; // signal ids the distiller cited
-  status: LearningStatus;
-  evidenceCount: number;
-  // Per-kind breakdown of the cited signals (so the drawer can show *where* the
-  // evidence came from — corrections, review findings, blocks, stalls — not just
-  // a bare count). Resolved from `evidence` against the signals table; only
-  // attached to the pending-learnings payload, absent (undefined) elsewhere.
-  // Pruned/unknown signal ids are simply omitted, so counts may sum below
-  // evidenceCount.
-  evidenceKinds?: Partial<Record<SignalKind, number>>;
-  // The resolved evidence signals themselves (kind + source session + excerpt),
-  // newest first. Same provenance, expandable in the drawer. Only on the pending
-  // payload; pruned signals drop out.
-  evidenceDetail?: EvidenceItem[];
-  ineffectiveCount: number;
-  helpfulCount: number;
-  injectedCount: number;
-  lastUsedAt: number | null;
-  retiredAt: number | null;
-  retiredReason: string | null;
-  /** Optional glob patterns scoping where this rule applies (repo-relative, e.g.
-   *  "src/" + star-star or "ui/" + star-star + "/*.svelte"). Empty = an "Always-rule"
-   *  injected for every task; non-empty = injected only when the session's target files
-   *  match a glob (Phase 3, #842). Distiller-inferred from path-like signal text, or
-   *  operator-set. */
-  scopeGlobs: string[];
-  createdAt: number;
-  updatedAt: number;
-  lastEvidenceAt: number | null;
-  /** URL of the CLAUDE.md promote PR, set when status becomes `promoted`. */
-  promotedPrUrl: string | null;
-  /** When this rule was soft-retired by being consolidated into another rule
-   *  (Phase 4 merge), the id of the surviving rule it was merged into — the retained
-   *  citation. Null otherwise. Cleared on restore; only meaningful while the rule is
-   *  `retired` with `retiredReason === "merged"`. */
-  mergedIntoId: string | null;
-  /** When the rule was auto-promoted proposed→active as a trial (trialLearning).
-   *  Null for manually-approved active rules and all non-trial states. */
-  trialedAt: number | null;
-  /** Presence marker (#945): set when an auto-trial is reverted back to `proposed`
-   *  (`revertTrial(id,"proposed")`). While non-null the auto-trial gate (`shouldTrial`)
-   *  suppresses re-trial, so a reverted strong proposal doesn't bounce straight back to an
-   *  active trial off its frozen diversity counters. Cleared by `accrueProposedEvidence` on
-   *  genuinely fresh evidence (recurrence re-trials it). The timestamp value is provenance
-   *  only — never compared to `now` — so the block lifts only via recurrence or normal expiry. */
-  reTrialBlockedAt: number | null;
-  /** Count of distinct signal kinds in the durable evidenceKindsSeen set. */
-  distinctKinds: number;
-  /** Count of distinct non-null session ids in the durable evidenceSessionsSeen set. */
-  distinctSessions: number;
-}
-
-/** Phase 4 background merge-suggestion (off the hot path, operator-applied).
- *  `intra` = a near-duplicate group within one repo, one-click consolidated into a
- *  surviving rule. `cross` = a rule that recurs across many repos, surfaced as a
- *  promote-to-global suggestion (display-only for now). */
-export type MergeSuggestionKind = "intra" | "cross";
-export type MergeSuggestionStatus = "pending" | "applied" | "dismissed";
-
-/** A member rule of a merge suggestion, hydrated for display (API payload only). */
-export interface MergeSuggestionMember {
-  id: string;
-  repoPath: string;
-  rule: string;
-  status: LearningStatus;
-}
-
-export interface MergeSuggestion {
-  id: string;
-  kind: MergeSuggestionKind;
-  /** Owning repo for `intra`; null for `cross` (spans repos). */
-  repoPath: string | null;
-  /** Survivor rule id for `intra`; null for `cross`. */
-  targetId: string | null;
-  /** Member rule ids: for `intra` the non-survivor sources to retire; for `cross`
-   *  the recurring rules across repos. */
-  sourceIds: string[];
-  /** Proposed consolidated rule text (`intra`) / canonical recurring text (`cross`). */
-  mergedRule: string;
-  mergedRationale: string;
-  /** For `cross`: the repos the rule recurs in. Null for `intra`. */
-  repoPaths: string[] | null;
-  /** Stable dedupe key derived from the sorted member rule ids ONLY (never text). */
-  signature: string;
-  status: MergeSuggestionStatus;
-  createdAt: number;
-  /** Hydrated member rules (survivor + sources), for the drawer. API payload only. */
-  members?: MergeSuggestionMember[];
 }
 
 /** A manually-submitted task held in the queue pending usage headroom. */

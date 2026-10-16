@@ -537,26 +537,25 @@ describe("CommandBar — Commands group", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("surfaces a learnings-style command via its keyword synonyms and runs it on activation", async () => {
+  it("surfaces a command via its keyword synonyms and runs it on activation", async () => {
     const run = vi.fn();
     const commands: Command[] = [
-      { id: "learnings", label: () => "Learnings", keywords: () => "insights", run },
+      { id: "usage", label: () => "Usage", keywords: () => "quota", run },
     ];
     const { onclose } = renderBar({ commands });
-    // "learn" matches the label; the row surfaces in the Commands group.
-    await page.getByRole("combobox").fill("learn");
+    // "quota" matches only the keyword haystack; the row surfaces in the Commands group.
+    await page.getByRole("combobox").fill("quota");
     await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
     const opts = page.getByRole("option");
-    await expect.element(opts.first()).toMatchTextContent("Learnings");
-    // Exactly one COMMAND row — docs rows are excluded rather than counted, because the
-    // Configuration page's "Learnings lifecycle" section legitimately matches "learn" too
-    // and a raw option count would re-break on the next docs heading that does.
+    await expect.element(opts.first()).toMatchTextContent("Usage");
+    // Exactly one COMMAND row — docs rows are excluded rather than counted, because a docs
+    // heading may legitimately match the query too and a raw option count would re-break.
     const commandRows = opts
       .elements()
       .filter((el) => !el.textContent?.includes(m.commandbar_docs_affordance()));
     expect(commandRows).toHaveLength(1);
 
-    await page.getByRole("option", { name: /Learnings/ }).click();
+    await page.getByRole("option", { name: /Usage/ }).click();
     expect(run).toHaveBeenCalledTimes(1);
     expect(onclose).toHaveBeenCalledTimes(1);
   });

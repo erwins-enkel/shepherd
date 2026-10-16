@@ -450,8 +450,7 @@ export function buildPromptBudgets(sessions: Session[]): PromptBudgetRecord[] {
     record(
       "coupon",
       [
-        { name: "house-rules", chars: 6100, bytes: 6180, tokens: 1560 },
-        { name: "learnings", chars: 4830, bytes: 4900, tokens: 1240 },
+        { name: "engineering-posture", chars: 6100, bytes: 6180, tokens: 1560 },
         { name: "task", chars: 3910, bytes: 3960, tokens: 1000 },
         { name: "repo-context", chars: 2400, bytes: 2430, tokens: 610 },
         { name: "conventions", chars: 1180, bytes: 1180, tokens: 310 },
@@ -461,7 +460,7 @@ export function buildPromptBudgets(sessions: Session[]): PromptBudgetRecord[] {
     record(
       "checkout-child",
       [
-        { name: "house-rules", chars: 6100, bytes: 6180, tokens: 1560 },
+        { name: "engineering-posture", chars: 6100, bytes: 6180, tokens: 1560 },
         { name: "task", chars: 3560, bytes: 3600, tokens: 910 },
         { name: "repo-context", chars: 2400, bytes: 2400, tokens: 620 },
       ],

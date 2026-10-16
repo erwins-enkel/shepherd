@@ -32,8 +32,7 @@ afterEach(() => {
 });
 
 // NewTask calls listRepos() on mount; stub it so the dialog mounts without a server.
-// Keep every other #lib/api export real (AppOverlays imports many for the
-// learnings drawer, but those only fire on interaction, not on mount).
+// Keep every other #lib/api export real (they only fire on interaction, not on mount).
 vi.mock("#lib/api.js", async (original) => ({
   ...(await original<typeof import("#lib/api.js")>()),
   listRepos: vi.fn(async () => ({ repos: [], recentWindowDays: 30 })),
@@ -72,9 +71,6 @@ function baseProps(): Props {
     store,
     settings: null,
     mobile: false,
-    showLearnings: false,
-    learningsRepo: null,
-    onlearningsclose: vi.fn(),
     showUpdate: false,
     deploy: null,
     onupdateconfirm: vi.fn(),

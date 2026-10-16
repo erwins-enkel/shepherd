@@ -77,7 +77,7 @@ describe("pruneHelperTabs", () => {
         tab(null, [1]),
         tab("review TASK-1", [2, 3]),
         tab("fix-login-bug", [4]),
-        tab("__distill__abcd1234", [5]),
+        tab("__maintain__abcd1234", [5]),
       ]),
     ]);
     const r = pruneHelperTabs(d);

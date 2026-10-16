@@ -34,8 +34,6 @@ import {
   readDispatchKey,
   runDispatch,
 } from "./dispatch";
-import { LearningsService } from "./learnings-service";
-import { isRelevanceMode } from "./house-rules-relevance";
 import { RepoConfigService } from "./repo-config-service";
 import {
   BOOTSTRAP_LAST_PHASE,
@@ -67,8 +65,6 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
-  DISTILLER_INTERVAL_DAYS_MIN,
-  DISTILLER_INTERVAL_DAYS_MAX,
   USAGE_HISTORY_RETENTION_MS,
 } from "./config";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
@@ -284,7 +280,6 @@ import type { StarPromptStatus } from "./star-prompt";
 import type {
   Session,
   AgentProvider,
-  LearningStatus,
   SessionPreviewState,
   IssueRef,
   RelaunchOverrides,
@@ -484,12 +479,11 @@ export interface AppDeps {
    *  TelemetryService in index.ts. Narrowed to what the routes actually use so a test stub
    *  only has to provide those two. */
   telemetry?: Pick<import("./telemetry").TelemetryService, "event" | "health">;
-  /** Memo slots (#1092) for the learnings + repo-config deep modules. Optional so the
-   *  many test `makeDeps()` builders need no change; routes never read these directly —
-   *  they go through the total `learnings(deps)` / `repoConfig(deps)` accessors below,
+  /** Memo slot (#1092) for the repo-config deep module. Optional so the
+   *  many test `makeDeps()` builders need no change; routes never read it directly —
+   *  they go through the total `repoConfig(deps)` accessor below,
    *  which lazily build-and-cache an instance from `store`(+`events`) on first use.
    *  `index.ts` injects explicit singletons so production shares one instance. */
-  learnings?: LearningsService;
   repoConfig?: RepoConfigService;
   /** Minted machine bearer tokens (#2082). Same memo-slot contract as the two above — the
    *  `accessTokens(deps)` accessor lazily builds one from `store`, so `checkAuth` always has an
@@ -774,40 +768,6 @@ export interface AppDeps {
    *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
    *  immediately instead of lingering until the next warm poll. Absent in tests. */
   refreshBacklog?: (repoDir: string) => Promise<void>;
-  /** Learning distiller — manual trigger for the proposal pass over a repo's transcripts.
-   *  Optional so environments/tests that don't wire it still type-check; the route
-   *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
-  distiller?: {
-    distillNow: (repoPath: string) => Promise<void>;
-    health?: () => {
-      ok: boolean;
-      consecutiveFailures: number;
-      lastFailure: { reason: string; at: number; repoPath: string } | null;
-    };
-  };
-  /** Learning optimizer — operator-triggered LLM rewrite pass over flagged ("not working")
-   *  rules. Optional so tests that don't wire it still type-check; routes no-op when absent.
-   *  Wired to the real OptimizerService in index.ts. */
-  optimizer?: {
-    optimizeOne: (id: string) => Promise<void>;
-    optimizeAllFlagged: (repoPath: string) => Promise<void>;
-    health?: () => {
-      ok: boolean;
-      consecutiveFailures: number;
-      lastFailure: { reason: string; at: number; repoPath: string } | null;
-    };
-  };
-  /** Background merge-suggestion pass — manual per-repo trigger ("Suggest merges now").
-   *  Optional so tests that don't wire it still type-check; route no-ops when absent. */
-  mergeSuggest?: {
-    /** Async (MergeSuggestService.mergeNow); the trigger route fires it and forgets. */
-    mergeNow: (repoPath: string) => Promise<void>;
-  };
-  /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. (The user-global
-   *  ~/.claude/CLAUDE.md write that lived alongside it was dropped in #2004 — see promote.ts.) */
-  promoter?: {
-    promote: (id: string) => Promise<import("./promote").PromoteResult>;
-  };
   /** PR-gated AI doc agent (issue #882). Optional + flag-gated (config.docAgentEnabled); the route
    *  404s when the flag is off or the service is unwired. Wired to DocAgentService in index.ts. */
   docAgent?: {
@@ -1020,16 +980,13 @@ function firstRunBlock(): Response | null {
 }
 
 /**
- * Total accessors (#1092) for the learnings / repo-config deep modules. They lazily
+ * Total accessors (#1092) for the deep modules. They lazily
  * build-and-memoize an instance onto the `deps` object from the always-present
  * `store`(+`events`), so a handler reached via ANY dispatch entry point (both
  * `makeApp.fetch` and `serve().fetch`) always gets a defined instance — no `deps.x!`
  * non-null assertion, no makeApp-only fallback to drift. `index.ts` injects explicit
  * singletons, so in production these return that shared instance.
  */
-function learnings(deps: AppDeps): LearningsService {
-  return (deps.learnings ??= new LearningsService(deps.store, deps.events));
-}
 function repoConfigSvc(deps: AppDeps): RepoConfigService {
   return (deps.repoConfig ??= new RepoConfigService(deps.store));
 }
@@ -2454,14 +2411,12 @@ const REPO_CFG_BOOL_FIELDS = [
   "criticAllPrs",
   "criticSmellLensEnabled",
   "autoAddressEnabled",
-  "learningsEnabled",
   "autopilotEnabled",
   "planGateEnabled",
   "autoDrainEnabled",
   "autoMergeEnabled",
   "buildQueueEnabled",
   "draftMode",
-  "autoOptimizeFlagged",
   "manualStepsIssueEnabled",
   "preWarmEpicLandingCi",
   "mergeWithoutCi",
@@ -2475,14 +2430,12 @@ type RepoCfgBody = {
   criticAllPrs?: unknown;
   criticSmellLensEnabled?: unknown;
   autoAddressEnabled?: unknown;
-  learningsEnabled?: unknown;
   autopilotEnabled?: unknown;
   planGateEnabled?: unknown;
   autoDrainEnabled?: unknown;
   autoMergeEnabled?: unknown;
   buildQueueEnabled?: unknown;
   draftMode?: unknown;
-  autoOptimizeFlagged?: unknown;
   manualStepsIssueEnabled?: unknown;
   preWarmEpicLandingCi?: unknown;
   mergeWithoutCi?: unknown;
@@ -2586,14 +2539,12 @@ async function parseRepoConfigPatch(req: Request): Promise<
       criticAllPrs?: boolean;
       criticSmellLensEnabled?: boolean;
       autoAddressEnabled?: boolean;
-      learningsEnabled?: boolean;
       autopilotEnabled?: boolean;
       planGateEnabled?: boolean;
       autoDrainEnabled?: boolean;
       autoMergeEnabled?: boolean;
       buildQueueEnabled?: boolean;
       draftMode?: boolean;
-      autoOptimizeFlagged?: boolean;
       manualStepsIssueEnabled?: boolean;
       preWarmEpicLandingCi?: boolean;
       mergeWithoutCi?: boolean;
@@ -2622,7 +2573,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged/sharedBrowserEnabled/hidden) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/sharedBrowserEnabled/hidden) must be booleans",
       },
       400,
     );
@@ -2654,7 +2605,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -2664,14 +2615,12 @@ async function parseRepoConfigPatch(req: Request): Promise<
     criticAllPrs: body.criticAllPrs as boolean | undefined,
     criticSmellLensEnabled: body.criticSmellLensEnabled as boolean | undefined,
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
-    learningsEnabled: body.learningsEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
     planGateEnabled: body.planGateEnabled as boolean | undefined,
     autoDrainEnabled: body.autoDrainEnabled as boolean | undefined,
     autoMergeEnabled: body.autoMergeEnabled as boolean | undefined,
     buildQueueEnabled: body.buildQueueEnabled as boolean | undefined,
     draftMode: body.draftMode as boolean | undefined,
-    autoOptimizeFlagged: body.autoOptimizeFlagged as boolean | undefined,
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
     preWarmEpicLandingCi: body.preWarmEpicLandingCi as boolean | undefined,
     mergeWithoutCi: body.mergeWithoutCi as boolean | undefined,
@@ -3065,236 +3014,6 @@ function handleDocAgentRuns({ req, parts, url, deps }: Ctx): Response | null {
     running: deps.docAgent.isRunning(dir),
     runs: deps.store.listDocAgentRuns(dir),
   });
-}
-
-// /api/learnings — list (GET ?repo=), approve/dismiss (POST :id/action), distill (POST distill ?repo=)
-async function handleLearnings(ctx: Ctx): Promise<Response | null> {
-  if (ctx.parts[0] !== "api" || ctx.parts[1] !== "learnings") return null;
-  if (ctx.req.method === "GET") return handleLearningsGet(ctx);
-  if (ctx.req.method === "POST") return handleLearningsPost(ctx);
-  return null;
-}
-
-function handleLearningsGet({ parts, url, deps }: Ctx): Response | null {
-  // GET /api/learnings/pending — all proposed rules across repos (drawer + badge),
-  // each rule's cited signals resolved into provenance (kind breakdown + source
-  // session + excerpt). The N+N+1 read lives in LearningsService now.
-  if (parts[2] === "pending") {
-    return json(learnings(deps).pendingWithEvidence());
-  }
-
-  // GET /api/learnings/injectable — cross-repo injected/over-budget view (drawer).
-  // The budget value flows from here so the UI never hardcodes it; the per-repo
-  // aggregation + planner share live in LearningsService.injectableOverview.
-  if (parts[2] === "injectable") {
-    return json(learnings(deps).injectableOverview(config.houseRulesBudgetChars));
-  }
-
-  // GET /api/learnings/health — distiller health (fail-safe: safe default when absent)
-  if (parts[2] === "health") {
-    const safe = { ok: true, consecutiveFailures: 0, lastFailure: null };
-    const distiller = deps.distiller?.health?.() ?? safe;
-    const optimizer = deps.optimizer?.health?.() ?? safe;
-    return json({ ...distiller, optimizer });
-  }
-
-  // GET /api/learnings/merge-suggestions — pending Phase-4 merge suggestions (intra + cross),
-  // each with its member rules hydrated for the drawer. Stale members (no longer present) are
-  // dropped; pruneOrphanMergeSuggestions sweeps fully-broken suggestions on the daily pass.
-  if (parts[2] === "merge-suggestions") {
-    return json(learnings(deps).mergeSuggestionsWithMembers());
-  }
-
-  // GET /api/learnings?repo=&status=
-  if (!parts[2]) {
-    const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-    if (!dir) return json({ error: "invalid repo" }, 400);
-    const status = url.searchParams.get("status") ?? undefined;
-    return json(
-      deps.store.listLearnings(dir, status ? { status: status as LearningStatus } : undefined),
-    );
-  }
-
-  return null;
-}
-
-/** POST /api/learnings/{distill,optimize,seen-retired}?repo= — repo-scoped learning
- *  triggers (matched before :id). Returns null when `parts[2]` is none of these. */
-function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps): Response | null {
-  if (
-    parts[2] !== "distill" &&
-    parts[2] !== "optimize" &&
-    parts[2] !== "seen-retired" &&
-    parts[2] !== "merge-suggest"
-  )
-    return null;
-  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  // Async fire-and-forget whose service chains (enqueueOrBegin → begin) never catch internally, so
-  // the `.catch` here is what stops an unhandled rejection; `void` satisfies no-floating-promises.
-  if (parts[2] === "distill")
-    void deps.distiller
-      ?.distillNow(dir)
-      .catch((err) => console.warn("[distill] distillNow failed:", err));
-  else if (parts[2] === "optimize")
-    void deps.optimizer
-      ?.optimizeAllFlagged(dir)
-      .catch((err) => console.warn("[optimize] optimizeAllFlagged failed:", err));
-  else if (parts[2] === "merge-suggest")
-    void deps.mergeSuggest
-      ?.mergeNow(dir)
-      .catch((err) => console.warn("[merge-suggest] mergeNow failed:", err));
-  else if (parts[2] === "seen-retired") {
-    deps.store.markRetiredSeen(dir, Date.now());
-  }
-  return json({ ok: true });
-}
-
-/** POST /api/learnings/merge — apply an intra-repo merge suggestion (body {suggestionId}).
- *  Consolidates the group via mergeLearning (survivor counters preserved) + soft-retires the
- *  other members with a citation, re-validating every member is still active first. */
-async function handleMergeApply(req: Request, deps: AppDeps): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
-  const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
-  if (!id) return json({ error: "suggestionId required" }, 400);
-  const r = learnings(deps).applyMergeSuggestion(id);
-  if (r.ok) return json({ ok: true });
-  if (r.reason === "not-found") return json({ error: "not found" }, 404);
-  if (r.reason === "stale") return json({ error: "stale" }, 409);
-  return json({ error: "already resolved" }, 409); // already-resolved
-}
-
-/** Route the two Phase-4 merge-suggestion POSTs (`merge` apply, `merge-dismiss`). Returns
- *  null when `parts[2]` is neither, so the caller falls through to the `:id` routes. */
-function handleMergeSuggestionPost(
-  parts: string[],
-  req: Request,
-  deps: AppDeps,
-): Promise<Response> | null {
-  if (parts[2] === "merge" && !parts[3]) return handleMergeApply(req, deps);
-  if (parts[2] === "merge-dismiss") return handleMergeDismiss(req, deps);
-  return null;
-}
-
-/** POST /api/learnings/merge-dismiss — dismiss a merge suggestion (intra or cross), body
- *  {suggestionId}. The id-signature keeps the same group from being re-suggested. */
-async function handleMergeDismiss(req: Request, deps: AppDeps): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
-  const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
-  if (!id) return json({ error: "suggestionId required" }, 400);
-  if (!learnings(deps).dismissMergeSuggestion(id)) return json({ error: "not found" }, 404);
-  return json({ ok: true });
-}
-
-async function handleLearningPromote(deps: AppDeps, id: string): Promise<Response> {
-  if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
-  const res = await deps.promoter.promote(id);
-  if (!res.ok) return json({ error: res.error }, res.status);
-  // Promoter-orchestrated; only the emit tail unifies through the learnings service (#1092).
-  learnings(deps).emitPending();
-  return json({ url: res.url });
-}
-
-async function handleLearningsPost(ctx: Ctx): Promise<Response | null> {
-  const { req, parts, url, deps } = ctx;
-  // POST /api/learnings/{distill,optimize,merge-suggest}?repo= — checked BEFORE :id so they aren't ids
-  const repoScoped = handleRepoScopedLearningPost(parts, url, deps);
-  if (repoScoped) return repoScoped;
-
-  // POST /api/learnings/{merge,merge-dismiss} — apply/dismiss a Phase-4 merge suggestion
-  const mergePost = await handleMergeSuggestionPost(parts, req, deps);
-  if (mergePost) return mergePost;
-
-  // POST /api/learnings/:id/<action>
-  return handleLearningIdAction(ctx);
-}
-
-/** Dispatch the per-`:id` learning action routes (promote/optimize/restore/scope/revert-trial/
- *  approve/dismiss). Split out of handleLearningsPost to keep each dispatcher's branch count low. */
-async function handleLearningIdAction(ctx: Ctx): Promise<Response | null> {
-  const { req, parts, deps } = ctx;
-  if (!parts[2]) return null;
-
-  // POST /api/learnings/:id/promote — open a CLAUDE.md PR for an active rule
-  if (parts[3] === "promote") return handleLearningPromote(deps, parts[2]);
-
-  // POST /api/learnings/:id/optimize — optimize a single flagged rule
-  if (parts[3] === "optimize") {
-    // Async fire-and-forget (same shape as the distill/optimize triggers above): catch the rejection,
-    // `void` for no-floating-promises.
-    void deps.optimizer
-      ?.optimizeOne(parts[2])
-      .catch((err) => console.warn("[optimize] optimizeOne failed:", err));
-    return json({ ok: true });
-  }
-
-  // POST /api/learnings/:id/restore — restore a retired rule to its previous status
-  if (parts[3] === "restore") {
-    const updated = learnings(deps).restore(parts[2]);
-    if (!updated) return json({ error: "not found" }, 404);
-    return json(updated);
-  }
-
-  // POST /api/learnings/:id/scope — set/clear a rule's glob scope (operator edit, #842)
-  if (parts[3] === "scope") return handleLearningScope(req, deps, parts[2]);
-
-  // POST /api/learnings/:id/revert-trial — revert an auto-trial back to proposed or dismissed
-  if (parts[3] === "revert-trial") return handleLearningRevertTrial(req, deps, parts[2]);
-
-  // POST /api/learnings/:id/approve  |  /:id/dismiss
-  if (parts[3] === "approve" || parts[3] === "dismiss") {
-    return handleLearningStatus(req, deps, parts[2], parts[3]);
-  }
-
-  return null;
-}
-
-/** POST /api/learnings/:id/scope — replace a rule's `scopeGlobs` (body `{globs:string[]}`).
- *  An empty array makes it an Always-rule again. The store dedupes/trims; matching honesty
- *  is the operator's. Refreshes the drawer via learnings:update. */
-async function handleLearningScope(req: Request, deps: AppDeps, id: string): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { globs?: unknown } | null;
-  const globs = Array.isArray(body?.globs)
-    ? body!.globs.filter((g): g is string => typeof g === "string")
-    : [];
-  const updated = learnings(deps).setScope(id, globs);
-  if (!updated) return json({ error: "not found" }, 404);
-  return json(updated);
-}
-
-/** POST /api/learnings/:id/revert-trial — undo an auto-trial. Body `{target:'proposed'|'dismissed'}`.
- *  Only affects active trial rules (store guards `trialedAt != null`); 400 on a bad target,
- *  404 when the rule isn't a revertable trial. Refreshes the drawer via learnings:update. */
-async function handleLearningRevertTrial(
-  req: Request,
-  deps: AppDeps,
-  id: string,
-): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { target?: unknown } | null;
-  const target = body?.target;
-  if (target !== "proposed" && target !== "dismissed")
-    return json({ error: "invalid target" }, 400);
-  const updated = learnings(deps).revertTrial(id, target);
-  if (!updated) return json({ error: "not found" }, 404);
-  return json(updated);
-}
-
-async function handleLearningStatus(
-  req: Request,
-  deps: AppDeps,
-  id: string,
-  action: "approve" | "dismiss",
-): Promise<Response> {
-  // The edited-rule body is parsed here (HTTP concern); the service normalizes it (trim + 240
-  // cap, blank → fall back to the stored rule) to match addLearning's contract.
-  let ruleEdit: string | undefined;
-  if (action === "approve") {
-    const body = (await req.json().catch(() => null)) as { rule?: unknown } | null;
-    if (body && typeof body.rule === "string") ruleEdit = body.rule;
-  }
-  const updated = learnings(deps).setStatus(id, action, ruleEdit);
-  if (!updated) return json({ error: "not found" }, 404);
-  return json(updated);
 }
 
 /** Upper bounds for `coveredInstances`: one entry per server a device is registered with. */
@@ -7927,18 +7646,6 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       docAgentCli: config.docAgentCli,
       docAgentModel: config.docAgentModel,
       docAgentEffort: config.docAgentEffort,
-      distillerCli: config.distillerCli,
-      distillerModel: config.distillerModel,
-      distillerEffort: config.distillerEffort,
-      optimizerCli: config.optimizerCli,
-      optimizerModel: config.optimizerModel,
-      optimizerEffort: config.optimizerEffort,
-      mergeSuggestCli: config.mergeSuggestCli,
-      mergeSuggestModel: config.mergeSuggestModel,
-      mergeSuggestEffort: config.mergeSuggestEffort,
-      distillerIntervalDays: config.distillerIntervalDays,
-      distillerIntervalDaysMin: DISTILLER_INTERVAL_DAYS_MIN,
-      distillerIntervalDaysMax: DISTILLER_INTERVAL_DAYS_MAX,
       namerCli: config.namerCli,
       namerModel: config.namerModel,
       namerEffort: config.namerEffort,
@@ -7987,9 +7694,6 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // #2375: the blocked-pane backstop's own mode. Shares `judgeHasKey` above — it rides the same
       // client and the same ceiling — but is armed separately.
       blockJudgeMode: config.blockJudgeMode,
-      // house-rule relevance (#2376): off | shadow | enforce. Inert unless the judge is armed, which
-      // `judgeEnabled` + `judgeHasKey` above let the client say out loud.
-      houseRuleRelevance: config.houseRuleRelevance,
       // Up Next readiness rerank (#2535). Same inertness rule as above.
       upNextReadiness: config.upNextReadiness,
       ...telemetrySettings(deps.telemetry),
@@ -8047,16 +7751,6 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["docAgentCli", makeRoleCliPatch("docAgent")],
   ["docAgentModel", makeRoleModelPatch("docAgent")],
   ["docAgentEffort", makeRoleEffortPatch("docAgent")],
-  ["distillerCli", makeRoleCliPatch("distiller")],
-  ["distillerModel", makeRoleModelPatch("distiller")],
-  ["distillerEffort", makeRoleEffortPatch("distiller")],
-  ["optimizerCli", makeRoleCliPatch("optimizer")],
-  ["optimizerModel", makeRoleModelPatch("optimizer")],
-  ["optimizerEffort", makeRoleEffortPatch("optimizer")],
-  ["mergeSuggestCli", makeRoleCliPatch("mergeSuggest")],
-  ["mergeSuggestModel", makeRoleModelPatch("mergeSuggest")],
-  ["mergeSuggestEffort", makeRoleEffortPatch("mergeSuggest")],
-  ["distillerIntervalDays", putDistillerIntervalDays],
   ["namerCli", makeRoleCliPatch("namer")],
   ["namerModel", makeRoleModelPatch("namer")],
   ["namerEffort", makeRoleEffortPatch("namer")],
@@ -8080,7 +7774,6 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["judgeEnabled", putJudgeEnabled],
   ["judgeDailyUsd", putJudgeDailyUsd],
   ["blockJudgeMode", putBlockJudgeMode],
-  ["houseRuleRelevance", putHouseRuleRelevance],
   ["upNextReadiness", putUpNextReadiness],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
@@ -8233,16 +7926,7 @@ function makeEngineEffortPatch(
 // `<role>Model` ("default"|<alias>), and `<role>Effort` ("default"|<tier>). All three
 // live-update config (the spawn-time thunks read config per spawn, so no restart) and persist.
 // cli/model are validated + stored independently; resolveRoleEnvironment clamps an incoherent pair.
-type RoleKey =
-  | "critic"
-  | "planner"
-  | "recap"
-  | "docAgent"
-  | "namer"
-  | "autopilot"
-  | "distiller"
-  | "optimizer"
-  | "mergeSuggest";
+type RoleKey = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot";
 
 function makeRoleCliPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
   const key = `${role}Cli` as const;
@@ -8295,19 +7979,6 @@ function putDefaultAgentProvider(value: unknown, deps: Ctx["deps"]): Response {
   // 30s sweeper never yanks this choice back when the exhausted provider frees up.
   clearProviderFailover(deps.store);
   return json({ defaultAgentProvider: config.defaultAgentProvider });
-}
-
-function putDistillerIntervalDays(value: unknown, deps: Ctx["deps"]): Response {
-  if (typeof value !== "number" || !Number.isFinite(value))
-    return json({ error: "distillerIntervalDays must be a number" }, 400);
-  config.distillerIntervalDays = clampCap(
-    value,
-    DISTILLER_INTERVAL_DAYS_MIN,
-    DISTILLER_INTERVAL_DAYS_MAX,
-    config.distillerIntervalDays,
-  );
-  deps.store.setSetting("distillerIntervalDays", String(config.distillerIntervalDays));
-  return json({ distillerIntervalDays: config.distillerIntervalDays });
 }
 
 // Account-wide extra-credit (paid overage) spend ceiling. Requires a finite, non-negative
@@ -8461,17 +8132,6 @@ function putBlockJudgeMode(value: unknown, deps: Ctx["deps"]): Response {
   config.blockJudgeMode = value;
   deps.store.setSetting("blockJudgeMode", value);
   return json({ blockJudgeMode: config.blockJudgeMode });
-}
-
-/** Arm the house-rule relevance gate (#2376). Takes effect on the next spawn: `recordInjectedHouseRules`
- *  reads the live config value, so a change never touches a session already running. */
-function putHouseRuleRelevance(value: unknown, deps: Ctx["deps"]): Response {
-  if (!isRelevanceMode(value)) {
-    return json({ error: "houseRuleRelevance must be one of off, shadow, enforce" }, 400);
-  }
-  config.houseRuleRelevance = value;
-  deps.store.setSetting("houseRuleRelevance", value);
-  return json({ houseRuleRelevance: config.houseRuleRelevance });
 }
 
 /** Toggle the Up Next readiness rerank (#2535). Kicks a refresh so the reorder (or its removal) shows
@@ -9839,7 +9499,7 @@ async function forgeRoute(op: "read" | "apply", fn: () => Promise<unknown>): Pro
 }
 
 // POST /api/adopt-gitignore?repo= — open a PR adding the managed .shepherd-* ignore
-// block to the repo's committed .gitignore. Modelled on the promote route.
+// block to the repo's committed .gitignore.
 async function handleAdoptGitignore({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "adopt-gitignore" || parts[2]) return null;
   if (req.method !== "POST") return null;
@@ -11421,7 +11081,6 @@ const ROUTE_HANDLERS = [
   handleRepoRoles,
   handleRepoRolesAutoMerge,
   handleRepoCollaborators,
-  handleLearnings,
   handleDocAgent,
   handleDocAgentRuns,
   handlePushAdmin,

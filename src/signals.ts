@@ -17,7 +17,7 @@ import type { SignalKind } from "./types";
 const EPISODE_DEBOUNCE_MS = 60_000;
 
 /**
- * Capture `block` and `stall` learning signals off the `session:block` event.
+ * Capture `block` and `stall` signals off the `session:block` event.
  * Reply signals are captured in SessionService.reply; critic signals in ReviewService.
  * A `stall`-shaped block becomes a "stall" signal; every other shape a "block" signal.
  * Cleared blocks (block: null) and unknown sessions are ignored.

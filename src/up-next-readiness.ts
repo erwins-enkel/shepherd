@@ -8,7 +8,7 @@
  * is the only thing that talks to the judge, and the service fires it and forgets it: Up Next never
  * waits on a network call it did not need before this feature existed.
  *
- * FAIL-OPEN EVERYWHERE, like `house-rules-relevance.ts`: judge unarmed, ceiling refused, transport
+ * FAIL-OPEN EVERYWHERE: judge unarmed, ceiling refused, transport
  * error, locked DB — each ends the run quietly and the item keeps its unscored (`maybe`) position,
  * i.e. today's order. Nothing here throws to the caller.
  */

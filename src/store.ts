@@ -1,7 +1,8 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { GithubCacheKind, GithubCacheRow } from "./github-read-cache";
-import { RELEVANCE_DROP_BELOW } from "./house-rules-relevance";
 import type { ResolvedHouseStack } from "./house-stack";
 import type {
   BlockJudgeLogRow,
@@ -23,11 +24,6 @@ import type {
   DiffFile,
   Signal,
   SignalKind,
-  Learning,
-  LearningStatus,
-  MergeSuggestion,
-  MergeSuggestionKind,
-  MergeSuggestionStatus,
   BuildStep,
   BuildStepStatus,
   BuildQueue,
@@ -76,7 +72,6 @@ import { dominantModel, type ResumeSignal, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
-import { sanitizeScopeGlobs } from "./house-rules";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
 import type { RemoteInstanceRow } from "./remote-instances/service";
 import type { RemoteDispatchOutcome, RemoteDispatchRow } from "./remote-instances/dispatch";
@@ -91,9 +86,7 @@ import {
 import type { EpicLandingState } from "./completed-epic";
 import type { LandingManualStep } from "./epic-landing";
 import { epicParentFromBranch } from "./epic-branch";
-import { normalizeRule } from "./learning-rule";
 import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
-import { trimRuleToLimit } from "./learning-shape";
 import type { GitState, WorkflowJob } from "./forge/types";
 
 /** One cached Up Next readiness score (#2535). `hash` is `readinessHash(model, item)`. */
@@ -105,17 +98,6 @@ export interface ReadinessRow {
 }
 
 const READINESS_LOOKUP_CHUNK = 500;
-
-/** A rejected evidence write; its diagnostic signal is persisted before this is thrown. */
-export class LearningEvidenceRepoMismatchError extends Error {
-  constructor(
-    readonly repoPath: string,
-    readonly foreignEvidence: { id: string; repoPath: string }[],
-  ) {
-    super(`Learning evidence belongs to another repository: ${repoPath}`);
-    this.name = "LearningEvidenceRepoMismatchError";
-  }
-}
 
 /** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
@@ -549,15 +531,6 @@ const DESIG_PREFIX = "TASK-";
  *  owning process crashed or wedged. A still-running create is never reclaimable. */
 export const TERMINAL_CLAIM_TTL_MS = 30_000;
 
-/** Allowed learning status transitions (spec §3). Terminal states have no exits. */
-const LEARNING_TRANSITIONS: Record<LearningStatus, LearningStatus[]> = {
-  proposed: ["active", "dismissed"],
-  active: ["promoted", "dismissed", "retired"],
-  promoted: ["retired"],
-  retired: ["active", "promoted"],
-  dismissed: [],
-};
-
 export interface RepoConfig {
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review every open CI-green PR in the repo, not just session PRs (default OFF). */
@@ -568,7 +541,6 @@ export interface RepoConfig {
   criticSmellLensEnabled: boolean;
   /** Auto-feed critic findings back to the task agent until clean or the round cap. */
   autoAddressEnabled: boolean;
-  learningsEnabled: boolean;
   /** Pre-PR autopilot loop: drive procedural gates, surface real questions, lead to a PR. */
   autopilotEnabled: boolean;
   /** Pre-execution plan gate: grill + adversarial plan review before autonomous execution (default OFF). */
@@ -599,8 +571,6 @@ export interface RepoConfig {
   egressExtraHosts: string[];
   /** Repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only, no GitHub). */
   repoMode: "forge" | "lightweight";
-  /** Auto-optimize flagged rules (default OFF — explicit opt-in). */
-  autoOptimizeFlagged: boolean;
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps
    *  (#1061). Default OFF — outbound write gated behind explicit per-repo opt-in (house rule). */
   manualStepsIssueEnabled: boolean;
@@ -954,48 +924,6 @@ type RecapRow = {
   pendingDiff?: string;
 };
 
-/** SQLite row shape for the learnings table. */
-type LearningRow = {
-  id: string;
-  repoPath: string;
-  rule: string;
-  rationale: string;
-  evidence: string;
-  status: string;
-  evidenceCount: number;
-  ineffectiveCount: number;
-  helpfulCount: number;
-  injectedCount: number;
-  lastUsedAt: number | null;
-  retiredAt: number | null;
-  retiredReason: string | null;
-  scopeGlobs: string;
-  createdAt: number;
-  updatedAt: number;
-  lastEvidenceAt: number | null;
-  promotedPrUrl: string | null;
-  mergedIntoId: string | null;
-  trialedAt: number | null;
-  reTrialBlockedAt: number | null;
-  evidenceKindsSeen: string;
-  evidenceSessionsSeen: string;
-};
-
-/** SQLite row shape for the learning_merge_suggestions table (Phase 4). */
-type MergeSuggestionRow = {
-  id: string;
-  kind: string;
-  repoPath: string | null;
-  targetId: string | null;
-  sourceIds: string;
-  mergedRule: string;
-  mergedRationale: string;
-  repoPaths: string | null;
-  signature: string;
-  status: string;
-  createdAt: number;
-};
-
 /** SQLite row shape for the pr_reviews table. */
 type PrReviewRow = {
   repoPath: string;
@@ -1014,7 +942,6 @@ type RepoCfgRow = {
   criticAllPrs: number;
   criticSmellLensEnabled: number;
   autoAddressEnabled: number;
-  learningsEnabled: number;
   autopilotEnabled: number;
   planGateEnabled: number;
   autoDrainEnabled: number;
@@ -1030,7 +957,6 @@ type RepoCfgRow = {
   defaultEffort: string;
   egressExtraHosts: string | null;
   repoMode: string;
-  autoOptimizeFlagged: number;
   manualStepsIssueEnabled: number;
   preWarmEpicLandingCi: number;
   mergeWithoutCi: number;
@@ -1199,7 +1125,7 @@ function normalizePreviewOpenMode(raw: string | null | undefined): RepoConfig["p
 
 /**
  * Map a nullable repo_config row to a fully-defaulted RepoConfig.
- * absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in).
+ * absent → critic on, auto-address off (the spendier loop is explicit opt-in).
  * drain fields default OFF / cap-1 / default-label / ceiling-80. Early-return for the absent
  * row keeps the present-row mapping branch-free (low complexity).
  */
@@ -1210,7 +1136,6 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       criticAllPrs: false,
       criticSmellLensEnabled: false,
       autoAddressEnabled: false,
-      learningsEnabled: true,
       autopilotEnabled: false,
       planGateEnabled: false,
       autoDrainEnabled: false,
@@ -1226,7 +1151,6 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       defaultEffort: "inherit",
       egressExtraHosts: [],
       repoMode: "forge",
-      autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
       mergeWithoutCi: false,
@@ -1244,7 +1168,6 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     criticAllPrs: !!r.criticAllPrs,
     criticSmellLensEnabled: !!r.criticSmellLensEnabled,
     autoAddressEnabled: !!r.autoAddressEnabled,
-    learningsEnabled: !!r.learningsEnabled,
     autopilotEnabled: !!r.autopilotEnabled,
     planGateEnabled: !!r.planGateEnabled,
     autoDrainEnabled: !!r.autoDrainEnabled,
@@ -1260,7 +1183,6 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
     egressExtraHosts: parseHostListJson(r.egressExtraHosts),
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
-    autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
     mergeWithoutCi: !!r.mergeWithoutCi,
@@ -1281,7 +1203,6 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.criticAllPrs)),
     Number(Boolean(cfg.criticSmellLensEnabled)),
     Number(Boolean(cfg.autoAddressEnabled)),
-    Number(Boolean(cfg.learningsEnabled)),
     Number(Boolean(cfg.autopilotEnabled)),
     Number(Boolean(cfg.planGateEnabled)),
     Number(Boolean(cfg.autoDrainEnabled)),
@@ -1297,7 +1218,6 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.defaultEffort,
     JSON.stringify(cfg.egressExtraHosts ?? []),
     cfg.repoMode,
-    Number(Boolean(cfg.autoOptimizeFlagged)),
     Number(Boolean(cfg.manualStepsIssueEnabled)),
     Number(Boolean(cfg.preWarmEpicLandingCi)),
     Number(Boolean(cfg.mergeWithoutCi)),
@@ -1441,11 +1361,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
-    // Everything below is ONE transaction. A fresh open fires 157 write statements: 47
-    // CREATE TABLE IF NOT EXISTS (44 here, REVIEWER_SPAWNS_DDL, DISPATCHES_DDL,
+    // Everything below is ONE transaction. A fresh open fires 131 write statements: 42
+    // CREATE TABLE IF NOT EXISTS (39 here, REVIEWER_SPAWNS_DDL, DISPATCHES_DDL,
     // REMOTE_DISPATCHES_DDL, and terminal_claims inside
-    // migrateSessionColumns), 14 index creations (13 here plus that method's partial unique
-    // index), 90 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
+    // migrateSessionColumns), 10 index creations (9 here plus that method's partial unique
+    // index), 73 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
     // Each one left to autocommit pays SQLite's full rollback-journal fsync cycle — 310ms per open
     // on a fast NVMe, seconds on CI's disk, which is what times out the disk-backed migration
     // tests in test/store.test.ts. Batched: ~9ms. It also makes migration atomic — a crash mid-boot
@@ -1550,7 +1470,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
       criticAllPrs INTEGER NOT NULL DEFAULT 0,
-      learningsEnabled INTEGER NOT NULL DEFAULT 1,
       autoDrainEnabled INTEGER NOT NULL DEFAULT 0,
       autoMergeEnabled INTEGER NOT NULL DEFAULT 0,
       maxAuto INTEGER NOT NULL DEFAULT 1,
@@ -1770,38 +1689,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(
       `CREATE INDEX IF NOT EXISTS maintain_runs_band ON maintain_runs (bandKey, spawnedAt)`,
     );
-    this.db.run(`CREATE TABLE IF NOT EXISTS learnings (
-  id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, rule TEXT NOT NULL,
-  rationale TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '[]',
-  status TEXT NOT NULL, evidenceCount INTEGER NOT NULL DEFAULT 0,
-  ineffectiveCount INTEGER NOT NULL DEFAULT 0,
-  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER, promotedPrUrl TEXT,
-  ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]')`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
-    this.db.run(`CREATE TABLE IF NOT EXISTS learning_prune_tombstones (
-      repoPath TEXT NOT NULL, ruleKey TEXT NOT NULL, prunedAt INTEGER NOT NULL,
-      PRIMARY KEY (repoPath, ruleKey))`);
-    this.db.run(`CREATE TABLE IF NOT EXISTS session_injected_learnings (
-      sessionId TEXT NOT NULL, learningId TEXT NOT NULL,
-      PRIMARY KEY (sessionId, learningId))`);
-    // Relevance verdicts (#2376): what the judge said about each candidate rule for one session.
-    // `applied` separates a verdict that actually gated injection (enforce) from one that only
-    // observed (shadow), so a mode flip does not retroactively re-read the history.
-    //
-    // NO foreign key, for the same reason as the row above (written at argv assembly, before the
-    // sessions row exists) — and, unlike it, these rows must OUTLIVE the session twice over:
-    // `takeSessionInjectedLearnings` deletes its rows at archive, and `pruneSessions` deletes the
-    // sessions row itself. Neither may take a durable per-rule statistic with it, so this table is
-    // deliberately absent from that cascade (same standing as `delivery_facts` and
-    // `post_merge_steps` — do not "tidy" it in). `pruneLearningRelevance` is therefore the ONLY
-    // thing that ever removes one, on its own age window.
-    this.db.run(`CREATE TABLE IF NOT EXISTS learning_relevance (
-      sessionId TEXT NOT NULL, learningId TEXT NOT NULL,
-      p REAL NOT NULL, applied INTEGER NOT NULL, judgedAt INTEGER NOT NULL,
-      PRIMARY KEY (sessionId, learningId))`);
-    this.db.run(
-      `CREATE INDEX IF NOT EXISTS idx_learning_relevance_learning ON learning_relevance (learningId)`,
-    );
+    this.retireLearnings(path);
     // Up Next readiness scores (#2535), keyed by a content hash that already folds in the model
     // (`readinessHash`), so an edited issue or a model re-pin simply misses and is rescored — no
     // invalidation path. Only a usable `p` is ever stored: an unusable answer stays uncached and is
@@ -1809,24 +1697,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // daily sweep's `pruneReadiness` age bound is the only thing that removes one.
     this.db.run(`CREATE TABLE IF NOT EXISTS up_next_readiness (
       hash TEXT PRIMARY KEY, p REAL NOT NULL, model TEXT NOT NULL, scoredAt INTEGER NOT NULL)`);
-    // Phase 4 background merge-suggestions (#843). kind='intra': repoPath+targetId set,
-    // repoPaths NULL. kind='cross': repoPath/targetId NULL, repoPaths set. signature is a
-    // hash of the sorted member rule ids only (never text) for dedupe.
-    this.db.run(`CREATE TABLE IF NOT EXISTS learning_merge_suggestions (
-      id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'intra',
-      repoPath TEXT, targetId TEXT,
-      sourceIds TEXT NOT NULL, mergedRule TEXT NOT NULL,
-      mergedRationale TEXT NOT NULL DEFAULT '', repoPaths TEXT,
-      signature TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
-      createdAt INTEGER NOT NULL)`);
-    this.db.run(
-      `CREATE INDEX IF NOT EXISTS merge_suggestions_repo_status ON learning_merge_suggestions (repoPath, status)`,
-    );
-    this.db.run(
-      `CREATE INDEX IF NOT EXISTS merge_suggestions_kind_status ON learning_merge_suggestions (kind, status)`,
-    );
-    this.migrateLearningsColumns();
-    this.backfillLearningDiversity();
     // PK is composite (sessionId, id): step ids are scoped to a session so an agent may own a
     // short stable id (e.g. "s1") that survives a re-PUT, without colliding with the same id in
     // another session. Every build_queue_steps query is already session-scoped.
@@ -1987,11 +1857,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // `composeSystemPrompt` payload, so the Claude-5 context-engineering deletions can be scored
     // against a number instead of a vibe. NO foreign key, deliberately: the argv (and therefore this
     // row) is assembled BEFORE `store.create()` inserts the sessions row — the same reason
-    // `session_injected_learnings` has none. The reads INNER JOIN sessions, so a row from a spawn
-    // that was then refused simply never surfaces. Such an orphan is also NOT swept: a sweep would
-    // race the very window it targets (the row is written, then `prepareSpawn` awaits, then the
-    // sessions row lands), and could delete a valid in-flight measurement. Refused spawns are rare
-    // and a row is a couple of KB, so leaking them is the cheaper mistake.
+    // former `session_injected_learnings` had none. The reads INNER JOIN sessions, so a row from a
+    // spawn that was then refused simply never surfaces. Such an orphan is also NOT swept: a sweep
+    // would race the very window it targets (the row is written, then `prepareSpawn` awaits, then
+    // the sessions row lands), and could delete a valid in-flight measurement. Refused spawns are
+    // rare and a row is a couple of KB, so leaking them is the cheaper mistake.
     this.db.run(`CREATE TABLE IF NOT EXISTS session_prompt_budget (
       sessionId TEXT PRIMARY KEY, delivery TEXT NOT NULL,
       totalChars INTEGER NOT NULL, totalBytes INTEGER NOT NULL, totalTokens INTEGER NOT NULL,
@@ -2435,10 +2305,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
-        `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
+        `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2448,16 +2318,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
       `INSERT INTO repo_config
-         (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
+         (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
-         learningsEnabled = excluded.learningsEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
          planGateEnabled = excluded.planGateEnabled,
          autoDrainEnabled = excluded.autoDrainEnabled,
@@ -2473,7 +2342,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          defaultEffort = excluded.defaultEffort,
          egressExtraHosts = excluded.egressExtraHosts,
          repoMode = excluded.repoMode,
-         autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
          mergeWithoutCi = excluded.mergeWithoutCi,
@@ -5993,60 +5861,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return n;
   }
 
-  // ── house-rule relevance verdicts (issue #2376) ──────────────────────────────
-  /** Record one session's relevance verdicts. Idempotent per (session, rule); empty → no-op.
-   *  `applied` is false in shadow mode, where the verdict was observed but did not gate. */
-  recordLearningRelevance(
-    sessionId: string,
-    verdicts: readonly { learningId: string; p: number; relevant: boolean }[],
-    opts: { applied: boolean; at: number },
-  ): void {
-    if (verdicts.length === 0) return;
-    this.db.transaction(() => {
-      for (const v of verdicts) {
-        this.db.run(
-          `INSERT INTO learning_relevance (sessionId, learningId, p, applied, judgedAt)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(sessionId, learningId) DO UPDATE SET
-             p = excluded.p, applied = excluded.applied, judgedAt = excluded.judgedAt`,
-          [sessionId, v.learningId, v.p, opts.applied ? 1 : 0, opts.at],
-        );
-      }
-    })();
-  }
-
-  /** Per-rule verdict tallies for one repo's rules: how many sessions the rule was judged for, and
-   *  in how many of those the request was judged relevant to it. Rules with no verdict are absent,
-   *  so a caller defaults them to zero. */
-  learningRelevanceStats(repoPath: string): Map<string, { judged: number; relevant: number }> {
-    const rows = this.db
-      .query(
-        `SELECT r.learningId AS learningId, COUNT(*) AS judged,
-                SUM(CASE WHEN r.p >= ? THEN 1 ELSE 0 END) AS relevant
-           FROM learning_relevance r
-           JOIN learnings l ON l.id = r.learningId
-          WHERE l.repoPath = ?
-          GROUP BY r.learningId`,
-      )
-      .all(RELEVANCE_DROP_BELOW, repoPath) as {
-      learningId: string;
-      judged: number;
-      relevant: number;
-    }[];
-    return new Map(rows.map((r) => [r.learningId, { judged: r.judged, relevant: r.relevant }]));
-  }
-
-  /** Drop verdict rows judged before `beforeTs`. Returns the count removed. */
-  pruneLearningRelevance(beforeTs: number): number {
-    const n = (
-      this.db
-        .query(`SELECT COUNT(*) AS c FROM learning_relevance WHERE judgedAt < ?`)
-        .get(beforeTs) as { c: number }
-    ).c;
-    this.db.run(`DELETE FROM learning_relevance WHERE judgedAt < ?`, [beforeTs]);
-    return n;
-  }
-
   // ── Up Next readiness cache (issue #2535) ────────────────────────────────────
   /** Cached `p` for each hash that has one; misses are simply absent. Chunked so a large Up Next
    *  (200 issues per repo × many repos) never approaches SQLite's bound-parameter limit. */
@@ -6079,7 +5893,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return this.db.run(`DELETE FROM up_next_readiness WHERE scoredAt < ?`, [beforeTs]).changes;
   }
 
-  // ── learning signals ─────────────────────────────────────────────────────────
+  // ── signals ──────────────────────────────────────────────────────────────────
   /** Every message typed into `sessionId` since it was created (the `reply` signals sendSteerTo
    *  records), oldest first. Scoped by the session's repo so the (repoPath, ts) index serves it. */
   listSessionSteers(sessionId: string): { ts: number; payload: string }[] {
@@ -6576,8 +6390,53 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
   }
 
+  /** Retire the learnings feature's storage (#3139). Before dropping, the active rules (incl.
+   *  auto-trials) are dumped once to `learnings-export-<ts>.json` beside a file-backed DB so useful
+   *  ones can be hand-copied into CLAUDE.md. Gated on the `learnings` table, so a fresh or
+   *  already-retired DB issues no writes. A failed export logs and skips the drop for this boot —
+   *  the next boot retries — so the rules are never discarded without their dump. */
+  private retireLearnings(dbPath: string): void {
+    const exists = this.db
+      .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'learnings'`)
+      .get();
+    if (exists) {
+      const active = this.db
+        .query(`SELECT * FROM learnings WHERE status = 'active' ORDER BY rowid`)
+        .all();
+      if (active.length > 0 && dbPath !== ":memory:") {
+        const file = join(dirname(dbPath), `learnings-export-${Date.now()}.json`);
+        try {
+          writeFileSync(file, JSON.stringify(active, null, 2) + "\n", { mode: 0o600 });
+          console.log(`[store] exported ${active.length} active learning(s) to ${file}`);
+        } catch (err) {
+          console.warn(`[store] learnings export failed, keeping the tables this boot:`, err);
+          return;
+        }
+      }
+      for (const table of [
+        "learnings",
+        "session_injected_learnings",
+        "learning_relevance",
+        "learning_prune_tombstones",
+        "learning_merge_suggestions",
+      ])
+        this.db.run(`DROP TABLE IF EXISTS ${table}`);
+      this.db.run(
+        `DELETE FROM settings WHERE key LIKE 'learnings:%' OR key LIKE 'distiller:%' OR key IN (
+           'distillerIntervalDays', 'houseRuleRelevance',
+           'distillerCli', 'distillerModel', 'distillerEffort',
+           'optimizerCli', 'optimizerModel', 'optimizerEffort',
+           'mergeSuggestCli', 'mergeSuggestModel', 'mergeSuggestEffort')`,
+      );
+    }
+    const cols = this.db.query(`PRAGMA table_info(repo_config)`).all() as { name: string }[];
+    for (const col of ["learningsEnabled", "autoOptimizeFlagged"])
+      if (cols.some((c) => c.name === col))
+        this.db.run(`ALTER TABLE repo_config DROP COLUMN ${col}`);
+  }
+
   // migrate repo_config that predates these opt-in columns. auto-address defaults
-  // OFF (the spendier loop — existing repos opt in explicitly); learnings defaults ON.
+  // OFF (the spendier loop — existing repos opt in explicitly).
   private migrateRepoConfigColumns(): void {
     const cols = this.db.query(`PRAGMA table_info(repo_config)`).all() as { name: string }[];
     const add = (name: string, ddl: string) => {
@@ -6589,7 +6448,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #1824: named Fowler code-smell lens for the session critic. Default OFF — experimental
     // trial, extra tokens/round; non-blocking (body section, never findings).
     add("criticSmellLensEnabled", `criticSmellLensEnabled INTEGER NOT NULL DEFAULT 0`);
-    add("learningsEnabled", `learningsEnabled INTEGER NOT NULL DEFAULT 1`);
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     add("planGateEnabled", `planGateEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoDrainEnabled", `autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);
@@ -6607,8 +6465,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("egressExtraHosts", `egressExtraHosts TEXT`);
     // per-repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only).
     add("repoMode", `repoMode TEXT NOT NULL DEFAULT 'forge'`);
-    // auto-optimize flagged rules: default OFF (explicit opt-in).
-    add("autoOptimizeFlagged", `autoOptimizeFlagged INTEGER NOT NULL DEFAULT 0`);
     // #1061: open a GitHub tracking issue for manual operator steps on merge. Default OFF —
     // outbound write gated behind explicit per-repo opt-in (house rule).
     add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
@@ -6917,864 +6773,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Non-blocking plan-drift measurement (#2155). NULL on every legacy row and on every spawn that
     // was shown no plan — the delivery metrics exclude those rather than reading them as `none`.
     add("planDrift", `planDrift TEXT`);
-  }
-
-  // ── learnings ─────────────────────────────────────────────────────────────
-  /** Add columns laid after the original `learnings` table for existing DBs.
-   *  Idempotent: each column is only added when PRAGMA shows it absent. */
-  private migrateLearningsColumns(): void {
-    const cols = this.db.query(`PRAGMA table_info(learnings)`).all() as { name: string }[];
-    const add = (name: string, ddl: string) => {
-      if (!cols.some((c) => c.name === name))
-        this.db.run(`ALTER TABLE learnings ADD COLUMN ${ddl}`);
-    };
-    add("promotedPrUrl", `promotedPrUrl TEXT`);
-    // Signal ids already counted toward each rule's ineffectiveCount. Without this
-    // the daily re-distill over the rolling 60-day window would re-increment the
-    // same rule from the same stale signals every run, inflating "Not working (N)".
-    add("ineffectiveSignalIds", `ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]'`);
-    // Effectiveness loop + auto-retire columns (#838).
-    add("helpfulCount", `helpfulCount INTEGER NOT NULL DEFAULT 0`);
-    add("injectedCount", `injectedCount INTEGER NOT NULL DEFAULT 0`);
-    add("lastUsedAt", `lastUsedAt INTEGER`);
-    add("retiredAt", `retiredAt INTEGER`);
-    add("retiredReason", `retiredReason TEXT`);
-    add("retiredFromStatus", `retiredFromStatus TEXT`);
-    add("autoOptimizedAt", `autoOptimizedAt INTEGER`);
-    // Glob-scoped injection (#842). JSON array of repo-relative glob patterns; '[]'
-    // = an Always-rule (every task), matching the original always-inject behavior.
-    add("scopeGlobs", `scopeGlobs TEXT NOT NULL DEFAULT '[]'`);
-    // Phase 4 merge citation (#843): on a rule soft-retired by consolidation, the id of
-    // the surviving rule it was merged into. Null otherwise; cleared on restore.
-    add("mergedIntoId", `mergedIntoId TEXT`);
-    // Auto-trial columns (#925): timestamp of proposed→active auto-promotion (null for
-    // manually-approved rules); durable diversity sets (JSON arrays) that survive 60-day
-    // signal pruning so the trial gate can read kind/session counts even after signals prune.
-    add("trialedAt", `trialedAt INTEGER`);
-    add("evidenceKindsSeen", `evidenceKindsSeen TEXT NOT NULL DEFAULT '[]'`);
-    add("evidenceSessionsSeen", `evidenceSessionsSeen TEXT NOT NULL DEFAULT '[]'`);
-    // Re-trial block marker (#945): set on revertTrial(id,"proposed"); presence suppresses
-    // auto-re-trial until fresh evidence clears it or the rule expires.
-    add("reTrialBlockedAt", `reTrialBlockedAt INTEGER`);
-  }
-
-  private hydrateLearning(r: LearningRow): Learning {
-    return {
-      id: r.id,
-      repoPath: r.repoPath,
-      rule: r.rule,
-      rationale: r.rationale,
-      evidence: JSON.parse(r.evidence) as string[],
-      status: r.status as LearningStatus,
-      evidenceCount: r.evidenceCount,
-      ineffectiveCount: r.ineffectiveCount,
-      helpfulCount: r.helpfulCount,
-      injectedCount: r.injectedCount,
-      lastUsedAt: r.lastUsedAt ?? null,
-      retiredAt: r.retiredAt ?? null,
-      retiredReason: r.retiredReason ?? null,
-      scopeGlobs: parseFindings(r.scopeGlobs),
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      lastEvidenceAt: r.lastEvidenceAt,
-      promotedPrUrl: r.promotedPrUrl ?? null,
-      mergedIntoId: r.mergedIntoId ?? null,
-      trialedAt: r.trialedAt ?? null,
-      reTrialBlockedAt: r.reTrialBlockedAt ?? null,
-      distinctKinds: parseFindings(r.evidenceKindsSeen).length,
-      distinctSessions: parseFindings(r.evidenceSessionsSeen).length,
-    };
-  }
-
-  private hydrateMergeSuggestion(r: MergeSuggestionRow): MergeSuggestion {
-    return {
-      id: r.id,
-      kind: r.kind === "cross" ? "cross" : "intra",
-      repoPath: r.repoPath ?? null,
-      targetId: r.targetId ?? null,
-      sourceIds: parseFindings(r.sourceIds),
-      mergedRule: r.mergedRule,
-      mergedRationale: r.mergedRationale,
-      repoPaths: r.repoPaths ? parseFindings(r.repoPaths) : null,
-      signature: r.signature,
-      status:
-        r.status === "applied" ? "applied" : r.status === "dismissed" ? "dismissed" : "pending",
-      createdAt: r.createdAt,
-    };
-  }
-
-  /** Reject the whole write on proven foreign evidence. Missing/pruned ids are unknown,
-   *  not proof of a repo mismatch. Keep the diagnostic outside a rolled-back learning write. */
-  private assertLearningEvidenceRepo(
-    repoPath: string,
-    rule: string,
-    evidence: string[],
-    operation: "add" | "accrue",
-  ): void {
-    const foreignEvidence = this.getSignalsByIds(evidence)
-      .filter((signal) => signal.repoPath !== repoPath)
-      .map((signal) => ({ id: signal.id, repoPath: signal.repoPath }));
-    if (foreignEvidence.length === 0) return;
-    this.addSignal({
-      repoPath,
-      sessionId: null,
-      kind: "evidence_repo_mismatch",
-      payload: JSON.stringify({ operation, rule, foreignEvidence, citedCount: evidence.length }),
-    });
-    throw new LearningEvidenceRepoMismatchError(repoPath, foreignEvidence);
-  }
-
-  /** Resolve signal ids to their distinct kind + session sets for durable diversity tracking.
-   *  kinds = distinct signal.kind values; sessions = distinct non-null/non-empty sessionIds,
-   *  capped at 50 to bound row growth. Used by addLearning and accrueProposedEvidence. */
-  private resolveDiversity(signalIds: string[]): { kinds: string[]; sessions: string[] } {
-    if (signalIds.length === 0) return { kinds: [], sessions: [] };
-    const signals = this.getSignalsByIds(signalIds);
-    const kinds = [...new Set(signals.map((s) => s.kind))];
-    const sessions = [
-      ...new Set(signals.map((s) => s.sessionId).filter((id): id is string => !!id)),
-    ].slice(0, 50);
-    return { kinds, sessions };
-  }
-
-  addLearning(input: {
-    repoPath: string;
-    rule: string;
-    rationale: string;
-    evidence: string[];
-    scopeGlobs?: string[];
-  }): Learning {
-    this.assertLearningEvidenceRepo(input.repoPath, input.rule, input.evidence, "add");
-    const now = Date.now();
-    const { kinds, sessions } = this.resolveDiversity(input.evidence);
-    const l: Learning = {
-      id: randomUUID(),
-      repoPath: input.repoPath,
-      rule: input.rule,
-      rationale: input.rationale,
-      evidence: input.evidence,
-      status: "proposed",
-      evidenceCount: input.evidence.length,
-      ineffectiveCount: 0,
-      helpfulCount: 0,
-      injectedCount: 0,
-      lastUsedAt: null,
-      retiredAt: null,
-      retiredReason: null,
-      scopeGlobs: input.scopeGlobs ?? [],
-      createdAt: now,
-      updatedAt: now,
-      lastEvidenceAt: input.evidence.length ? now : null,
-      promotedPrUrl: null,
-      mergedIntoId: null,
-      trialedAt: null,
-      reTrialBlockedAt: null,
-      distinctKinds: kinds.length,
-      distinctSessions: sessions.length,
-    };
-    this.db.run(
-      `INSERT INTO learnings
-         (id, repoPath, rule, rationale, evidence, status, evidenceCount, ineffectiveCount, scopeGlobs, createdAt, updatedAt, lastEvidenceAt, evidenceKindsSeen, evidenceSessionsSeen)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        l.id,
-        l.repoPath,
-        l.rule,
-        l.rationale,
-        JSON.stringify(l.evidence),
-        l.status,
-        l.evidenceCount,
-        l.ineffectiveCount,
-        JSON.stringify(l.scopeGlobs),
-        l.createdAt,
-        l.updatedAt,
-        l.lastEvidenceAt,
-        JSON.stringify(kinds),
-        JSON.stringify(sessions),
-      ],
-    );
-    return l;
-  }
-
-  listLearnings(repoPath: string, opts?: { status?: LearningStatus }): Learning[] {
-    const rows = opts?.status
-      ? this.db
-          .query(
-            `SELECT * FROM learnings WHERE repoPath = ? AND status = ? ORDER BY updatedAt DESC`,
-          )
-          .all(repoPath, opts.status)
-      : this.db
-          .query(`SELECT * FROM learnings WHERE repoPath = ? ORDER BY updatedAt DESC`)
-          .all(repoPath);
-    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
-  }
-
-  /** Active + promoted rules for a repo, for prompt injection (spec §4a). Oldest-updated first. */
-  listActiveLearnings(repoPath: string): Learning[] {
-    const rows = this.db
-      .query(
-        `SELECT * FROM learnings WHERE repoPath = ? AND status IN ('active','promoted')
-         ORDER BY updatedAt ASC`,
-      )
-      .all(repoPath);
-    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
-  }
-
-  /** Distinct repoPaths that have ≥1 active/promoted (injectable) rule, for the
-   *  cross-repo injectable sweep (GET /api/learnings/injectable). */
-  listRepoPathsWithInjectableLearnings(): string[] {
-    const rows = this.db
-      .query(`SELECT DISTINCT repoPath FROM learnings WHERE status IN ('active','promoted')`)
-      .all() as { repoPath: string }[];
-    return rows.map((r) => r.repoPath);
-  }
-
-  getLearning(id: string): Learning | null {
-    const r = this.db.query(`SELECT * FROM learnings WHERE id = ?`).get(id) as LearningRow | null;
-    return r ? this.hydrateLearning(r) : null;
-  }
-
-  setLearningStatus(id: string, status: LearningStatus, rule?: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur) return null;
-    if (!LEARNING_TRANSITIONS[cur.status].includes(status)) return null;
-    // #945 fold-in: dismissing a trial (active→dismissed) must clear the auto-trial timestamp,
-    // else the terminal row carries a stale `trialedAt` (cosmetic provenance leak). Scoped to
-    // the dismissed target per the issue; active→retired via this path is a stated deferral.
-    const clearTrialed = status === "dismissed" ? ", trialedAt = NULL" : "";
-    this.db.run(
-      `UPDATE learnings SET status = ?, rule = ?, updatedAt = ?${clearTrialed} WHERE id = ?`,
-      [status, rule ?? cur.rule, Date.now(), id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Replace a rule's scope globs (operator edit, #842). Runs the same `sanitizeScopeGlobs`
-   *  the distiller uses — normalize to repo-relative form, drop empty/over-long patterns,
-   *  dedupe, and cap the count — so both paths persist identical, bounded scope; `[]` makes
-   *  it an Always-rule again. No-op (returns null) for a missing rule. */
-  setLearningScope(id: string, globs: string[]): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur) return null;
-    const clean = sanitizeScopeGlobs(globs);
-    this.db.run(`UPDATE learnings SET scopeGlobs = ?, updatedAt = ? WHERE id = ?`, [
-      JSON.stringify(clean),
-      Date.now(),
-      id,
-    ]);
-    return this.getLearning(id);
-  }
-
-  /** Bump ineffectiveCount for an active/promoted rule (self-audit, spec §5) by the
-   *  number of `signalIds` not already counted against it, recording them so a later
-   *  re-distill over the same rolling window can't re-count the same evidence. A
-   *  no-op (returns null) for proposed/dismissed/missing rules, or when every cited
-   *  signal was already counted — keeping "Not working (N)" honest. */
-  incrementLearningIneffective(id: string, signalIds: string[]): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || (cur.status !== "active" && cur.status !== "promoted")) return null;
-    const row = this.db
-      .query(`SELECT ineffectiveSignalIds FROM learnings WHERE id = ?`)
-      .get(id) as { ineffectiveSignalIds?: string } | null;
-    const counted = new Set(parseFindings(row?.ineffectiveSignalIds));
-    const fresh = signalIds.filter((s) => typeof s === "string" && s && !counted.has(s));
-    if (fresh.length === 0) return null;
-    for (const s of fresh) counted.add(s);
-    this.db.run(
-      `UPDATE learnings SET ineffectiveCount = ineffectiveCount + ?, ineffectiveSignalIds = ?, updatedAt = ? WHERE id = ?`,
-      [fresh.length, JSON.stringify([...counted]), Date.now(), id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Replace a flagged rule's text (and optionally rationale) and clear the visible
-   *  ineffective flag. Only operates on active/promoted rules; no-ops for
-   *  proposed/dismissed/missing. Blank rewrites are rejected (returns null).
-   *  PRESERVES `ineffectiveSignalIds` so the dedup set survives the revision — only
-   *  genuinely new failure signals can re-raise the flag after an optimization.
-   *  RESETS the effectiveness baseline (`helpfulCount`/`injectedCount`/`lastUsedAt`)
-   *  to zero: the rule's help-rate measures CURRENT text, so a rewrite is a fresh
-   *  artifact that must re-earn its record. Without this, an auto-optimized rule
-   *  would inherit the old text's poor help-rate and `shouldRetire` would re-trip on
-   *  the cumulative Wilson bound at the first fresh ineffective signal — hollowing
-   *  out the "second chance" the auto-optimize flag promises (the n_min gate also
-   *  re-applies, so the rewrite must accrue fresh injections before it can retire). */
-  reviseLearning(id: string, rule: string, rationale?: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || (cur.status !== "active" && cur.status !== "promoted")) return null;
-    const text = trimRuleToLimit(rule);
-    if (!text) return null;
-    const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
-    const now = Date.now();
-    this.db.run(
-      `UPDATE learnings SET rule = ?, rationale = ?, ineffectiveCount = 0,
-         helpfulCount = 0, injectedCount = 0, lastUsedAt = NULL,
-         autoOptimizedAt = ?, updatedAt = ? WHERE id = ?`,
-      [text, resolvedRationale, now, now, id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Deliberate inverse of `reviseLearning`: enriches a rule's text while PRESERVING all
-   *  effectiveness counters (`helpfulCount`, `injectedCount`, `ineffectiveCount`, `lastUsedAt`,
-   *  `evidenceCount`, `ineffectiveSignalIds`). Use when the distiller wants to apply an
-   *  mem0-style UPDATE — merging richer text into an existing rule so the help-rate record
-   *  carries forward. Unlike `reviseLearning`, this does NOT reset counters and does NOT stamp
-   *  `autoOptimizedAt`. Hard-guards active-only: promoted rules have their text mirrored in
-   *  CLAUDE.md verbatim and must never be silently rewritten here. */
-  mergeLearning(id: string, rule: string, rationale?: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.status !== "active") return null;
-    const text = trimRuleToLimit(rule);
-    if (!text) return null;
-    const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
-    const now = Date.now();
-    this.db.run(
-      `UPDATE learnings SET rule = ?, rationale = ?, updatedAt = ?, lastEvidenceAt = ? WHERE id = ?`,
-      [text, resolvedRationale, now, now, id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Resolve the stored `ineffectiveSignalIds` for a rule to full Signal rows.
-   *  Server-side only — `ineffectiveSignalIds` is intentionally absent from the
-   *  Learning type and hydrateLearning. Returns [] for missing/unflagged rules. */
-  ineffectiveSignalsFor(id: string): Signal[] {
-    const row = this.db
-      .query(`SELECT ineffectiveSignalIds FROM learnings WHERE id = ?`)
-      .get(id) as { ineffectiveSignalIds?: string } | null;
-    if (!row) return [];
-    const ids = parseFindings(row.ineffectiveSignalIds);
-    return this.getSignalsByIds(ids);
-  }
-
-  /** Record that a set of learning ids were injected into a session's context.
-   *  INSERT OR IGNORE keeps it idempotent. Empty ids → no-op. No counter bump. */
-  recordInjectedLearnings(sessionId: string, ids: string[]): void {
-    if (ids.length === 0) return;
-    for (const learningId of ids) {
-      this.db.run(
-        `INSERT OR IGNORE INTO session_injected_learnings (sessionId, learningId) VALUES (?, ?)`,
-        [sessionId, learningId],
-      );
-    }
-  }
-
-  /** For each id: bump `injectedCount` + stamp `lastUsedAt`; bump `helpfulCount` only when `good`.
-   *  Empty ids → no-op. */
-  attributeInjected(ids: string[], opts: { good: boolean }): void {
-    if (ids.length === 0) return;
-    const now = Date.now();
-    for (const id of ids) {
-      this.db.run(
-        `UPDATE learnings SET injectedCount = injectedCount + 1, helpfulCount = helpfulCount + ?, lastUsedAt = ?, updatedAt = ? WHERE id = ?`,
-        [opts.good ? 1 : 0, now, now, id],
-      );
-    }
-  }
-
-  /** The learningIds recorded for a session, in injection order — a READ, unlike
-   *  takeSessionInjectedLearnings. Lets a resume re-render the house rules the session was
-   *  spawned with without consuming the rows its attribution still needs. */
-  sessionInjectedLearningIds(sessionId: string): string[] {
-    const rows = this.db
-      .query(`SELECT learningId FROM session_injected_learnings WHERE sessionId = ? ORDER BY rowid`)
-      .all(sessionId) as { learningId: string }[];
-    return rows.map((r) => r.learningId);
-  }
-
-  /** Return and delete the learningIds recorded for a session. A second call returns []. */
-  takeSessionInjectedLearnings(sessionId: string): string[] {
-    const rows = this.db
-      .query(`SELECT learningId FROM session_injected_learnings WHERE sessionId = ?`)
-      .all(sessionId) as { learningId: string }[];
-    if (rows.length === 0) return [];
-    this.db.run(`DELETE FROM session_injected_learnings WHERE sessionId = ?`, [sessionId]);
-    return rows.map((r) => r.learningId);
-  }
-
-  /** COUNT of blocking signals (block/stall/critic) for a session. */
-  countSessionBlockingSignals(sessionId: string): number {
-    return (
-      this.db
-        .query(
-          `SELECT COUNT(*) AS c FROM signals WHERE sessionId = ? AND kind IN ('block','stall','critic')`,
-        )
-        .get(sessionId) as { c: number }
-    ).c;
-  }
-
-  /** active|promoted → retired; sets retiredAt, retiredReason, retiredFromStatus, updatedAt.
-   *  Returns the updated Learning, or null for illegal source state / missing row. */
-  retireLearning(id: string, reason: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur) return null;
-    if (!LEARNING_TRANSITIONS[cur.status].includes("retired")) return null;
-    const now = Date.now();
-    this.db.run(
-      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = ?, retiredFromStatus = ?, updatedAt = ? WHERE id = ?`,
-      [now, reason, cur.status, now, id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** retired → retiredFromStatus (or 'active'); clears retiredAt/retiredReason/retiredFromStatus,
-   *  and clears `mergedIntoId` so a rule restored after a Phase-4 consolidation carries no
-   *  dangling citation back to its former survivor. Returns null when not retired or missing. */
-  restoreLearning(id: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.status !== "retired") return null;
-    const row = this.db.query(`SELECT retiredFromStatus FROM learnings WHERE id = ?`).get(id) as {
-      retiredFromStatus?: string | null;
-    } | null;
-    const restoreTo: LearningStatus =
-      (row?.retiredFromStatus as LearningStatus | null | undefined) ?? "active";
-    const now = Date.now();
-    this.db.run(
-      `UPDATE learnings SET status = ?, retiredAt = NULL, retiredReason = NULL, retiredFromStatus = NULL, mergedIntoId = NULL, updatedAt = ? WHERE id = ?`,
-      [restoreTo, now, id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Soft-retire a rule that was consolidated into another (Phase 4 merge): same as
-   *  `retireLearning(id, "merged")` but also records `mergedIntoId = targetId` as the
-   *  retained citation back to the surviving rule. active|promoted → retired only. */
-  retireLearningMerged(sourceId: string, targetId: string): Learning | null {
-    const cur = this.getLearning(sourceId);
-    if (!cur) return null;
-    if (!LEARNING_TRANSITIONS[cur.status].includes("retired")) return null;
-    const now = Date.now();
-    this.db.run(
-      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = 'merged',
-         retiredFromStatus = ?, mergedIntoId = ?, updatedAt = ? WHERE id = ?`,
-      [now, cur.status, targetId, now, sourceId],
-    );
-    return this.getLearning(sourceId);
-  }
-
-  /** Rules soft-retired by being merged into `targetId` (Phase 4 citation list). Scoped to
-   *  status='retired' AND retiredReason='merged' so a since-restored member (which has its
-   *  mergedIntoId cleared) can never reappear here. Newest-retired first. */
-  listSubsumedLearnings(targetId: string): Learning[] {
-    const rows = this.db
-      .query(
-        `SELECT * FROM learnings WHERE mergedIntoId = ? AND status = 'retired'
-           AND retiredReason = 'merged' ORDER BY retiredAt DESC`,
-      )
-      .all(targetId);
-    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
-  }
-
-  /** Active + promoted rules across ALL repos (Phase 4 cross-repo recurrence pass).
-   *  Oldest-updated first. */
-  listAllActiveLearnings(): Learning[] {
-    const rows = this.db
-      .query(`SELECT * FROM learnings WHERE status IN ('active','promoted') ORDER BY updatedAt ASC`)
-      .all();
-    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
-  }
-
-  // ── merge suggestions (Phase 4) ───────────────────────────────────────────
-  /** Persist a background merge suggestion. */
-  addMergeSuggestion(input: {
-    kind: MergeSuggestionKind;
-    repoPath: string | null;
-    targetId: string | null;
-    sourceIds: string[];
-    mergedRule: string;
-    mergedRationale: string;
-    repoPaths: string[] | null;
-    signature: string;
-  }): MergeSuggestion {
-    const s: MergeSuggestion = {
-      id: randomUUID(),
-      kind: input.kind,
-      repoPath: input.repoPath,
-      targetId: input.targetId,
-      sourceIds: input.sourceIds,
-      mergedRule: input.mergedRule,
-      mergedRationale: input.mergedRationale,
-      repoPaths: input.repoPaths,
-      signature: input.signature,
-      status: "pending",
-      createdAt: Date.now(),
-    };
-    this.db.run(
-      `INSERT INTO learning_merge_suggestions
-         (id, kind, repoPath, targetId, sourceIds, mergedRule, mergedRationale, repoPaths, signature, status, createdAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        s.id,
-        s.kind,
-        s.repoPath,
-        s.targetId,
-        JSON.stringify(s.sourceIds),
-        s.mergedRule,
-        s.mergedRationale,
-        s.repoPaths ? JSON.stringify(s.repoPaths) : null,
-        s.signature,
-        s.status,
-        s.createdAt,
-      ],
-    );
-    return s;
-  }
-
-  listMergeSuggestions(opts?: {
-    repoPath?: string;
-    kind?: MergeSuggestionKind;
-    status?: MergeSuggestionStatus;
-  }): MergeSuggestion[] {
-    const where: string[] = [];
-    const args: (string | number)[] = [];
-    if (opts?.repoPath !== undefined) {
-      where.push(`repoPath = ?`);
-      args.push(opts.repoPath);
-    }
-    if (opts?.kind) {
-      where.push(`kind = ?`);
-      args.push(opts.kind);
-    }
-    if (opts?.status) {
-      where.push(`status = ?`);
-      args.push(opts.status);
-    }
-    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const rows = this.db
-      .query(`SELECT * FROM learning_merge_suggestions ${clause} ORDER BY createdAt DESC`)
-      .all(...args);
-    return (rows as MergeSuggestionRow[]).map((r) => this.hydrateMergeSuggestion(r));
-  }
-
-  getMergeSuggestion(id: string): MergeSuggestion | null {
-    const r = this.db
-      .query(`SELECT * FROM learning_merge_suggestions WHERE id = ?`)
-      .get(id) as MergeSuggestionRow | null;
-    return r ? this.hydrateMergeSuggestion(r) : null;
-  }
-
-  setMergeSuggestionStatus(id: string, status: MergeSuggestionStatus): MergeSuggestion | null {
-    const cur = this.getMergeSuggestion(id);
-    if (!cur) return null;
-    this.db.run(`UPDATE learning_merge_suggestions SET status = ? WHERE id = ?`, [status, id]);
-    return this.getMergeSuggestion(id);
-  }
-
-  /** Signatures of suggestions of a kind, so a background pass can skip re-proposing a group
-   *  the operator already has (or rejected). `intra` is scoped to a repo; `cross` is global
-   *  (repoPath ignored).
-   *
-   *  `cross` additionally includes `applied`: promoting a cross group to the global CLAUDE.md
-   *  (#872) leaves its member rules ACTIVE, so without this carve-out the next cross pass would
-   *  re-detect and re-suggest the same group. `intra`-apply retires its members, so the group
-   *  can't recur — `applied` is intentionally excluded there. */
-  mergeSuggestionSignatures(opts: { kind: MergeSuggestionKind; repoPath?: string }): Set<string> {
-    const statuses =
-      opts.kind === "cross" ? `('pending','dismissed','applied')` : `('pending','dismissed')`;
-    const where = [`kind = ?`, `status IN ${statuses}`];
-    const args: string[] = [opts.kind];
-    if (opts.kind === "intra" && opts.repoPath !== undefined) {
-      where.push(`repoPath = ?`);
-      args.push(opts.repoPath);
-    }
-    const rows = this.db
-      .query(`SELECT signature FROM learning_merge_suggestions WHERE ${where.join(" AND ")}`)
-      .all(...args) as { signature: string }[];
-    return new Set(rows.map((r) => r.signature));
-  }
-
-  /** Signature of the active-rule set the last merge pass processed for a scope
-   *  (`<repoPath>` for intra, `__cross__` for the global pass). Lets the background pass
-   *  skip re-spawning when nothing changed. Empty string when never run. */
-  getMergePassSignature(key: string): string {
-    return this.getSetting(`learnings:merge-pass-sig:${key}`) ?? "";
-  }
-
-  setMergePassSignature(key: string, sig: string): void {
-    this.setSetting(`learnings:merge-pass-sig:${key}`, sig);
-  }
-
-  /** Drop pending suggestions whose member rules no longer all exist (a member was hard-
-   *  deleted, or — for safety — left the schema). Keeps the drawer from offering a merge
-   *  that can't apply. Applied/dismissed rows are kept as history. */
-  pruneOrphanMergeSuggestions(): void {
-    const pending = this.listMergeSuggestions({ status: "pending" });
-    for (const s of pending) {
-      const ids = [...(s.targetId ? [s.targetId] : []), ...s.sourceIds];
-      const allExist = ids.every((id) => this.getLearning(id) !== null);
-      if (!allExist) {
-        this.db.run(`DELETE FROM learning_merge_suggestions WHERE id = ?`, [s.id]);
-      }
-    }
-  }
-
-  /** Retired rules for a repo, newest-updated first. */
-  listRetiredLearnings(repoPath: string): Learning[] {
-    const rows = this.db
-      .query(
-        `SELECT * FROM learnings WHERE repoPath = ? AND status = 'retired' ORDER BY updatedAt DESC`,
-      )
-      .all(repoPath);
-    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
-  }
-
-  // ── unseen-retired marker ─────────────────────────────────────────────────
-  /** Return the last time the user acknowledged retired rules for a repo (epoch ms).
-   *  Defaults to 0 when never set. */
-  getRetiredSeenAt(repoPath: string): number {
-    return Number(this.getSetting(`learnings:retired-seen:${repoPath}`) ?? 0);
-  }
-
-  /** Record that the user has seen retired rules for a repo up to `ts` (epoch ms). */
-  markRetiredSeen(repoPath: string, ts: number): void {
-    this.setSetting(`learnings:retired-seen:${repoPath}`, String(ts));
-  }
-
-  /** Distinct repoPaths that have ≥1 retired rule, for the cross-repo injectable sweep. */
-  listRepoPathsWithRetiredLearnings(): string[] {
-    return (
-      this.db.query(`SELECT DISTINCT repoPath FROM learnings WHERE status = 'retired'`).all() as {
-        repoPath: string;
-      }[]
-    ).map((r) => r.repoPath);
-  }
-
-  /** Delete session_injected_learnings rows whose session no longer exists. */
-  pruneOrphanInjectedLearnings(): void {
-    this.db.run(
-      `DELETE FROM session_injected_learnings WHERE sessionId NOT IN (SELECT id FROM sessions)`,
-    );
-  }
-
-  /** Server-internal getter: the timestamp when reviseLearning last ran on this id.
-   *  Exposed so tests can assert the autoOptimizedAt stamp without reaching into private db. */
-  autoOptimizedAt(id: string): number | null {
-    const row = this.db.query(`SELECT autoOptimizedAt FROM learnings WHERE id = ?`).get(id) as {
-      autoOptimizedAt?: number | null;
-    } | null;
-    return row?.autoOptimizedAt ?? null;
-  }
-
-  /** active → promoted, recording the CLAUDE.md PR url (spec §4b). Returns null
-   *  when the rule is missing or not in a state that allows promotion. */
-  promoteLearning(id: string, prUrl: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || !LEARNING_TRANSITIONS[cur.status].includes("promoted")) return null;
-    this.db.run(
-      `UPDATE learnings SET status = 'promoted', promotedPrUrl = ?, updatedAt = ? WHERE id = ?`,
-      [prUrl, Date.now(), id],
-    );
-    return this.getLearning(id);
-  }
-
-  pendingLearningCount(): number {
-    return (
-      this.db.query(`SELECT COUNT(*) AS c FROM learnings WHERE status = 'proposed'`).get() as {
-        c: number;
-      }
-    ).c;
-  }
-
-  listPendingLearnings(): Learning[] {
-    const rows = this.db
-      .query(
-        `SELECT * FROM learnings WHERE status = 'proposed' ORDER BY evidenceCount DESC, lastEvidenceAt DESC`,
-      )
-      .all();
-    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
-  }
-
-  // ── auto-trial primitives (#925) ──────────────────────────────────────────
-
-  /** Promote a proposed rule to active as a trial (auto-trial path). Sets trialedAt
-   *  to mark it as auto-promoted — distinguishes it from manually-approved active rules.
-   *  Returns null if the rule is not currently proposed. */
-  trialLearning(id: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.status !== "proposed") return null;
-    const now = Date.now();
-    this.db.run(
-      `UPDATE learnings SET status = 'active', trialedAt = ?, updatedAt = ? WHERE id = ?`,
-      [now, now, id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Revert an auto-trialed active rule back to proposed or dismissed. Guards that the
-   *  rule is currently active AND was auto-trialed (trialedAt != null). Clears trialedAt.
-   *
-   *  NOTE: active→proposed is not in LEARNING_TRANSITIONS (it is a terminal-ish flow in the
-   *  normal FSM). This method deliberately bypasses that table for the auto-trial case only —
-   *  a trial is a reversible auto-promotion, not a user-driven manual promotion, so the
-   *  reverse path must be open without widening the general FSM. */
-  revertTrial(id: string, target: "proposed" | "dismissed"): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.trialedAt == null || cur.status !== "active") return null;
-    const now = Date.now();
-    // #945: when sending the rule back to the queue (target "proposed"), stamp the re-trial
-    // block marker so the auto-trial gate won't immediately re-promote it off its still-strong
-    // frozen diversity counters. "dismissed" is terminal — no marker needed (leave it null).
-    const blockedAt = target === "proposed" ? now : null;
-    this.db.run(
-      `UPDATE learnings SET status = ?, trialedAt = NULL, reTrialBlockedAt = ?, updatedAt = ? WHERE id = ?`,
-      [target, blockedAt, now, id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Retire a stale trialed rule. Guards that the rule is active and was auto-trialed
-   *  (trialedAt != null). Sets status='retired' with the caller's reason and clears trialedAt.
-   *  Retires (not dismisses) so it shows in the retired drawer and stays restorable.
-   *
-   *  `reason` names which reaper branch fired — 'trial-expired' (age/exposure) or
-   *  'trial-irrelevant' (#2382, the judge never found it relevant). Defaulted rather than required
-   *  so the age branch and existing callers read exactly as before; the canonical constants live
-   *  in learnings-lifecycle.ts, which this leaf must not import. */
-  reapStaleTrial(id: string, reason: string = "trial-expired"): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.trialedAt == null || cur.status !== "active") return null;
-    const now = Date.now();
-    this.db.run(
-      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = ?,
-         retiredFromStatus = 'active', trialedAt = NULL, updatedAt = ? WHERE id = ?`,
-      [now, reason, now, id],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Append new evidence signal ids to a proposed rule's evidence array and merge new
-   *  kind/session diversity into the durable sets. Deduplicates against stored evidence;
-   *  returns null if the rule is not proposed, or if all supplied ids are already counted
-   *  (no-op, keeps counts honest — mirrors incrementLearningIneffective). */
-  accrueProposedEvidence(id: string, signalIds: string[]): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.status !== "proposed") return null;
-    const existingSet = new Set(cur.evidence);
-    const fresh = signalIds.filter((s) => typeof s === "string" && s && !existingSet.has(s));
-    if (fresh.length === 0) return null;
-    this.assertLearningEvidenceRepo(cur.repoPath, cur.rule, fresh, "accrue");
-    const newEvidence = [...cur.evidence, ...fresh];
-    const { kinds: freshKinds, sessions: freshSessions } = this.resolveDiversity(fresh);
-    // Read existing diversity sets from the raw row to avoid double-parsing via hydrate.
-    const row = this.db
-      .query(`SELECT evidenceKindsSeen, evidenceSessionsSeen FROM learnings WHERE id = ?`)
-      .get(id) as { evidenceKindsSeen: string; evidenceSessionsSeen: string } | null;
-    const existingKinds = new Set(parseFindings(row?.evidenceKindsSeen));
-    const existingSessionsArr = parseFindings(row?.evidenceSessionsSeen);
-    for (const k of freshKinds) existingKinds.add(k);
-    const mergedSessions = [...new Set([...existingSessionsArr, ...freshSessions])].slice(0, 50);
-    const now = Date.now();
-    // #945: genuinely fresh evidence (recurrence) lifts any re-trial block so the rule can
-    // re-qualify for auto-trial on its renewed strength.
-    this.db.run(
-      `UPDATE learnings SET evidence = ?, evidenceCount = ?, evidenceKindsSeen = ?,
-         evidenceSessionsSeen = ?, lastEvidenceAt = ?, reTrialBlockedAt = NULL, updatedAt = ? WHERE id = ?`,
-      [
-        JSON.stringify(newEvidence),
-        newEvidence.length,
-        JSON.stringify([...existingKinds]),
-        JSON.stringify(mergedSessions),
-        now,
-        now,
-        id,
-      ],
-    );
-    return this.getLearning(id);
-  }
-
-  /** Durable normalized signatures for pruned proposals. The distiller uses `prunedAt` to reject
-   *  recurrence from its unchanged signal window while permitting genuinely newer evidence. */
-  listLearningPruneTombstones(repoPath: string): { ruleKey: string; prunedAt: number }[] {
-    return this.db
-      .query(`SELECT ruleKey, prunedAt FROM learning_prune_tombstones WHERE repoPath = ?`)
-      .all(repoPath) as { ruleKey: string; prunedAt: number }[];
-  }
-
-  /** #1794: permanently delete every `proposed` learning whose latest supporting evidence is
-   *  older than `beforeTs` (age = COALESCE(lastEvidenceAt, createdAt), strict `<` so a row
-   *  exactly at the cutoff survives). Only `proposed` rows are eligible; accepted/history rows
-   *  (active/promoted/dismissed/retired) are never touched. Normalized tombstones are retained and
-   *  inbound merge-history citations are cleared in the same transaction before the status-scoped
-   *  bulk delete. Returns the number of rows removed. */
-  pruneStaleProposedLearnings(beforeTs: number, prunedAt = Date.now()): number {
-    return this.db.transaction(() => {
-      const stale = this.db
-        .query(
-          `SELECT repoPath, rule FROM learnings
-           WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?`,
-        )
-        .all(beforeTs) as { repoPath: string; rule: string }[];
-      for (const learning of stale) {
-        this.db.run(
-          `INSERT INTO learning_prune_tombstones (repoPath, ruleKey, prunedAt) VALUES (?, ?, ?)
-           ON CONFLICT(repoPath, ruleKey) DO UPDATE SET prunedAt = MAX(prunedAt, excluded.prunedAt)`,
-          [learning.repoPath, normalizeRule(learning.rule), prunedAt],
-        );
-      }
-      this.db.run(
-        `UPDATE learnings SET mergedIntoId = NULL WHERE mergedIntoId IN (
-           SELECT id FROM learnings
-           WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?
-         )`,
-        [beforeTs],
-      );
-      return this.db.run(
-        `DELETE FROM learnings WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?`,
-        [beforeTs],
-      ).changes;
-    })();
-  }
-
-  /** All active rules that were auto-trialed (trialedAt IS NOT NULL), across all repos,
-   *  ordered oldest-trial first (so the most-stale trial is first in the sweep). */
-  listTrialLearnings(): Learning[] {
-    const rows = this.db
-      .query(
-        `SELECT * FROM learnings WHERE status = 'active' AND trialedAt IS NOT NULL ORDER BY trialedAt ASC, rowid ASC`,
-      )
-      .all();
-    return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
-  }
-
-  /** One-time backfill: populate evidenceKindsSeen + evidenceSessionsSeen for existing
-   *  proposed rows that still have empty sets.
-   *  Guarded by the kv flag "learnings:diversity-backfilled" so it runs exactly once. */
-  private backfillLearningDiversity(): void {
-    if (this.getSetting("learnings:diversity-backfilled") === "1") return;
-    const rows = this.db
-      .query(
-        `SELECT id, evidence FROM learnings WHERE status = 'proposed'
-         AND evidenceKindsSeen = '[]' AND evidenceSessionsSeen = '[]' AND evidenceCount > 0`,
-      )
-      .all() as { id: string; evidence: string }[];
-    for (const row of rows) {
-      const ids = parseFindings(row.evidence);
-      const { kinds, sessions } = this.resolveDiversity(ids);
-      if (kinds.length > 0 || sessions.length > 0) {
-        this.db.run(
-          `UPDATE learnings SET evidenceKindsSeen = ?, evidenceSessionsSeen = ? WHERE id = ?`,
-          [JSON.stringify(kinds), JSON.stringify(sessions), row.id],
-        );
-      }
-    }
-    this.setSetting("learnings:diversity-backfilled", "1");
-  }
-
-  /** Resolve cited evidence signal ids to their full rows (newest first), for the
-   *  drawer's "where did this come from" view. Ids that no longer resolve (pruned
-   *  signals) are silently dropped, so the result can be shorter than `ids`. Empty
-   *  in, empty out. */
-  getSignalsByIds(ids: string[]): Signal[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => "?").join(",");
-    return this.db
-      .query(
-        // rowid tiebreak keeps newest-inserted first when two signals share a ms.
-        `SELECT id, repoPath, sessionId, kind, payload, ts FROM signals
-         WHERE id IN (${placeholders}) ORDER BY ts DESC, rowid DESC`,
-      )
-      .all(...ids) as Signal[];
   }
 
   // ── build queue ──────────────────────────────────────────────────────────────

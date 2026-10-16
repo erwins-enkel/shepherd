@@ -81,9 +81,6 @@
     diagnostics = null,
     diagnosticsOverall = "ok",
     ondiagnose,
-    learnings = 0,
-    learningsCurate = 0,
-    onlearnings,
     heldCount = 0,
     onedithheld,
     pluginItems = [],
@@ -135,12 +132,6 @@
     diagnosticsOverall?: DiagnosticState;
     /** Called when the health pip is clicked — should open Settings → Diagnose tab. */
     ondiagnose?: () => void;
-    /** Count of proposed learnings awaiting approve/dismiss across all repos. */
-    learnings?: number;
-    /** Count of over-budget ("curate") active rules across all repos. */
-    learningsCurate?: number;
-    /** Opens the global learnings drawer. */
-    onlearnings?: () => void;
     /** Number of held tasks; updated live by held:changed WS events. */
     heldCount?: number;
     /** Edit a held task: page opens the New Task composer pre-filled from its input. */
@@ -189,10 +180,6 @@
   // desktop's path below (only `mobile`, which WRAPS, stays out of measurement). The halt
   // e-stop is NOT a bar badge — it folds into the always-present gear menu.
   const mode = $derived(modeOf(mobile, touch));
-  const learningsPresent = $derived(learnings > 0 || learningsCurate > 0);
-  // Badge shows proposed count when any proposed, else the curate count
-  const learningsCount = $derived(learnings > 0 ? learnings : learningsCurate);
-  const learningsLabel = $derived(learnings > 0 ? m.learnings_title() : m.learnings_trim_title());
   const chrome = $derived({
     updateAvailable,
     herdrUpdateAvailable,
@@ -804,10 +791,6 @@
     disarmHalt();
     onusage?.();
   }
-  function chooseLearnings() {
-    closeMenu();
-    onlearnings?.();
-  }
   function choosePlugin(id: string) {
     menuOpen = false;
     disarmHalt();
@@ -1041,12 +1024,6 @@
       closeMenu={() => closeMenu()}
       {chooseSettings}
       {chooseUsage}
-      {learningsPresent}
-      {learnings}
-      {learningsCurate}
-      {learningsLabel}
-      {learningsCount}
-      {chooseLearnings}
       {onMenuKey}
       {onFeedback}
       {pluginItems}
@@ -1075,11 +1052,6 @@
     {herdrUpdateAvailable}
     {codexUpdateAvailable}
     {whatsNew}
-    {learningsPresent}
-    {learnings}
-    {learningsCurate}
-    {learningsLabel}
-    {learningsCount}
     {haltable}
     {armed}
     {nowMs}
@@ -1099,7 +1071,6 @@
     {onherdrupdate}
     {oncodexupdate}
     {onwhatsnew}
-    {onlearnings}
     {onFeedback}
     {pluginItems}
     onPluginItem={choosePlugin}
@@ -1160,7 +1131,7 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
-  /* learnings-btn, learn-glyph, learn-n, gear-wrap, gear-menu moved to top-bar/TopBarBadges.svelte / TopBarGear.svelte (#855) */
+  /* gear-wrap, gear-menu moved to top-bar/TopBarBadges.svelte / TopBarGear.svelte (#855) */
   /* quick, theme-seg, t-opt, contrast-toggle, gear-sheet-portal, menu-scrim, gear-sheet, sheet-* moved to top-bar/TopBarMobileSheet.svelte (#855) */
   /* menu-item, menu-icon, menu-glyph, menu-label, halt-item, menu-sep moved to top-bar/TopBarGear.svelte (#855) */
   .rightside {
@@ -1170,7 +1141,7 @@
     gap: 16px;
   }
   /* gear, gear-pip, health-pip, health-dot moved to top-bar/TopBarGear.svelte / TopBarBadges.svelte (#855) */
-  /* whatsnew-badge, whatsnew-dot-btn, wn-pip, health-pip, health-dot, update-badge, learnings-btn moved to top-bar/TopBarBadges.svelte (#855) */
+  /* whatsnew-badge, whatsnew-dot-btn, wn-pip, health-pip, health-dot, update-badge moved to top-bar/TopBarBadges.svelte (#855) */
   /* usage-sub-only, gauges-wrap, gauges, gauge, g-label, gauge-wrap, gauge-btn, gauge-pop,
      gauge-pop-desk, gp-window, gp-head, credit-amount moved to top-bar/TopBarUsage.svelte (#855) */
   /* g-bar, g-fill, g-pct, g-bar-wide, gauge-pop-reset, gp-period, sheet-gauge-row.g-bar-wide
@@ -1253,7 +1224,7 @@
   /* .hud.mobile .gauge-btn* dropped: .gauge-btn renders only when touch && !mobile,
      so .hud.mobile .gauge-btn can never match — verified dead (#855). */
   /* Coarse-pointer 44px floor for the secondary icon buttons (.gear/.menu-item,
-     .update-badge/.learnings-btn) moved to TopBarGear / TopBarBadges — the
+     .update-badge) moved to TopBarGear / TopBarBadges — the
      standalone docs link that owned the last rule here was removed (search field
      replaces it) and TopBarSearch carries its own coarse-pointer floor. */
 

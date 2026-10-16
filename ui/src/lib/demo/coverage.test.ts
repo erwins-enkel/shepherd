@@ -194,10 +194,6 @@ const INVENTORY: readonly Entry[] = [
   get("/api/up-next"),
   get("/api/steers"),
   get("/api/project-icons"),
-  get("/api/learnings/pending"),
-  get("/api/learnings/injectable"),
-  get("/api/learnings/merge-suggestions"),
-  get("/api/learnings/health"),
 
   // epics
   get("/api/epics", `/api/epics?repo=${r}`),
@@ -358,24 +354,6 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/sessions/:p/scratchpad/upload",
     "/api/sessions/:p/worktree/download",
     "/api/sessions/:p/preview",
-  ],
-
-  // Learnings mutations. The lens itself IS seeded and reads fine; approving, dismissing
-  // or promoting a learning is a write the demo does not persist.
-  "learnings actions": [
-    "/api/learnings/:p/approve",
-    "/api/learnings/:p/dismiss",
-    "/api/learnings/:p/optimize",
-    "/api/learnings/:p/promote",
-    "/api/learnings/:p/restore",
-    "/api/learnings/:p/revert-trial",
-    "/api/learnings/:p/scope",
-    "/api/learnings/distill",
-    "/api/learnings/merge",
-    "/api/learnings/merge-dismiss",
-    "/api/learnings/merge-suggest",
-    "/api/learnings/optimize",
-    "/api/learnings/seen-retired",
   ],
 
   // Backlog / epic / CI actions. Their READS are all in INVENTORY; these are the writes,

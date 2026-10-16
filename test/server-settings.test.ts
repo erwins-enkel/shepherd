@@ -32,17 +32,7 @@ let savedPlanCap: number;
 let savedDefaultModel: string;
 let savedDefaultCodexModel: string;
 let savedEngineEfforts: { claude: string; codex: string; global: string };
-const ROLE_BASES = [
-  "critic",
-  "planner",
-  "recap",
-  "docAgent",
-  "namer",
-  "autopilot",
-  "distiller",
-  "optimizer",
-  "mergeSuggest",
-] as const;
+const ROLE_BASES = ["critic", "planner", "recap", "docAgent", "namer", "autopilot"] as const;
 let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
 let savedExtraCredits: number;
@@ -710,18 +700,6 @@ test("GET /api/settings includes defaultAgentProvider", async () => {
   expect(body.defaultAgentProvider).toBe("codex");
 });
 
-test("GET and PUT persist the bounded Distiller interval", async () => {
-  const { app, store } = harness();
-  const initial = await (await app.fetch(new Request("http://x/api/settings"))).json();
-  expect(initial.distillerIntervalDaysMin).toBe(1);
-  expect(initial.distillerIntervalDaysMax).toBe(14);
-
-  const res = await put(app, { distillerIntervalDays: 20 });
-  expect(res.status).toBe(200);
-  expect((await res.json()).distillerIntervalDays).toBe(14);
-  expect(store.getSetting("distillerIntervalDays")).toBe("14");
-});
-
 test("PUT /api/settings sets defaultModel, persists, leaves repoRoot intact", async () => {
   config.repoRoot = tmp;
   config.defaultModel = "auto";
@@ -846,12 +824,6 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   config.recapCli = "claude";
   config.recapModel = "sonnet";
   config.recapEffort = "low";
-  config.optimizerCli = "codex";
-  config.optimizerModel = "gpt-5.5";
-  config.optimizerEffort = "medium";
-  config.mergeSuggestCli = "codex";
-  config.mergeSuggestModel = "gpt-5.5";
-  config.mergeSuggestEffort = "high";
   const { app } = harness();
   const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
   expect(body.criticCli).toBe("codex");
@@ -863,12 +835,6 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   expect(body.recapCli).toBe("claude");
   expect(body.recapModel).toBe("sonnet");
   expect(body.recapEffort).toBe("low");
-  expect(body.optimizerCli).toBe("codex");
-  expect(body.optimizerModel).toBe("gpt-5.5");
-  expect(body.optimizerEffort).toBe("medium");
-  expect(body.mergeSuggestCli).toBe("codex");
-  expect(body.mergeSuggestModel).toBe("gpt-5.5");
-  expect(body.mergeSuggestEffort).toBe("high");
 });
 
 for (const role of ROLE_BASES) {
@@ -1512,43 +1478,6 @@ test("PUT blockJudgeMode rejects anything off-enum rather than coercing", async 
   } finally {
     config.blockJudgeMode = prev;
   }
-});
-
-test("PUT houseRuleRelevance accepts the three modes and persists", async () => {
-  const { app, store } = harness();
-  const prev = config.houseRuleRelevance;
-  try {
-    for (const mode of ["shadow", "enforce", "off"] as const) {
-      expect(await (await put(app, { houseRuleRelevance: mode })).json()).toEqual({
-        houseRuleRelevance: mode,
-      });
-      expect(config.houseRuleRelevance).toBe(mode);
-      expect(store.getSetting("houseRuleRelevance")).toBe(mode);
-    }
-  } finally {
-    config.houseRuleRelevance = prev;
-  }
-});
-
-test("PUT houseRuleRelevance rejects anything off-enum", async () => {
-  const { app } = harness();
-  const prev = config.houseRuleRelevance;
-  try {
-    // Case matters: the value is compared literally, and a stored "Enforce" would silently read as
-    // "off" on the next boot while looking armed in the settings row.
-    for (const bad of ["Enforce", "on", true, 1, "", null]) {
-      expect((await put(app, { houseRuleRelevance: bad })).status).toBe(400);
-    }
-    expect(config.houseRuleRelevance).toBe(prev);
-  } finally {
-    config.houseRuleRelevance = prev;
-  }
-});
-
-test("GET /api/settings reports the relevance mode", async () => {
-  const { app } = harness();
-  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
-  expect(body.houseRuleRelevance).toBe(config.houseRuleRelevance);
 });
 
 test("PUT upNextReadiness accepts a boolean, persists, kicks an Up Next refresh; GET echoes", async () => {

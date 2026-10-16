@@ -158,8 +158,8 @@ export class DocsManifestError extends Error {
 
 /** Prefix for ephemeral doc-agent herdr names. Each run appends 8 hex of a fresh UUID so an
  *  orphaned husk (after a restart) can NEVER squat a stable name — a re-spawn always gets a new
- *  name, so `agent_name_taken` is impossible by construction (the distiller's fix; see
- *  DISTILL_LABEL). The underscores are load-bearing: prompt-derived session slugs are `[a-z0-9-]`
+ *  name, so `agent_name_taken` is impossible by construction. The underscores are load-bearing:
+ *  prompt-derived session slugs are `[a-z0-9-]`
  *  only, so no real session collides, and reapOrphans can match husks by this prefix safely. */
 export const DOC_AGENT_LABEL = "__docagent__";
 
@@ -1726,7 +1726,7 @@ const lastShaKey = (repo: string) => `docagent:last-sha:${repo}`;
 const nightlyDayKey = (repo: string) => `docagent:nightly-day:${repo}`;
 // One tiny row per merged feat/config PR per repo. Bounded by the count of such PRs (finite, modest)
 // and never read back beyond an existence check, so it needs no cleanup path — same accept-and-grow
-// posture as the existing `learnings:*` per-key settings markers (e.g. learnings:retired-seen:<repo>).
+// posture as the other per-key settings markers (e.g. docagent:nightly-day:<repo>).
 const mergedSeenKey = (repo: string, prNumber: number) =>
   `docagent:merged-seen:${repo}:${prNumber}`;
 // Re-target ownership claim (issue #956 Option B). Set at re-target START (in beginRetarget, before

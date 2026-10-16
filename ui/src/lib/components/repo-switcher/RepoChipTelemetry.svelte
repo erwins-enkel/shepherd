@@ -4,7 +4,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { getDrainQueue, updateEpic } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
-  import { basename } from "../learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import { queueOpenable, pausedText } from "../queue-strip";
 
   let {

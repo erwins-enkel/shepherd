@@ -101,13 +101,11 @@
   // Derived row state for the dependency-gated switches, hoisted out of the template so the
   // markup stays flat (keeps the <template> under the Tier-1 complexity bar). Manual-steps
   // opens a GitHub issue on merge → needs a forge, so it's unavailable in lightweight mode.
-  // Auto-optimize rewrites injected house-rules → moot when Learnings injection is off.
   const lightweightTip = $derived(lightweight ? m.automation_lightweight_unavailable() : undefined);
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
   const mergeWithoutCiActive = $derived(repoConfig.mergeWithoutCiOn(repoPath) && !lightweight);
   const epicStacksActive = $derived(repoConfig.epicStacksOn(repoPath) && !lightweight);
-  const autoOptimizeActive = $derived(repoConfig.autoOptimizeOn(repoPath) && flags.learnings);
   // Smell lens is a no-op without the critic (same dependency as auto-address); hoist its row state
   // out of the template so the markup stays under the Tier-1 <template> complexity bar.
   const smellLensActive = $derived(flags.smellLens && flags.critic);
@@ -121,11 +119,6 @@
       : signoffAuthority === "critic"
         ? m.automation_signoff_critic_help()
         : m.automation_signoff_either_help(),
-  );
-  const autoOptimizeDesc = $derived(
-    flags.learnings
-      ? m.settings_auto_optimize_flagged_help()
-      : m.automation_autooptimize_needs_learnings(),
   );
 
   // Which row's long-form "ⓘ" explanation is currently expanded. One at a time —
@@ -362,54 +355,6 @@
 
 <!-- Agent behavior -->
 <div class="auto-group">{m.automation_group_behavior()}</div>
-<div class="auto-row">
-  <div class="auto-meta">
-    <div class="auto-name">
-      ✦ {m.automation_learnings_name()}
-      <AutomationInfoTip
-        id="learnings"
-        name={m.automation_learnings_name()}
-        open={openDetail === "learnings"}
-        ontoggle={() => toggleDetail("learnings")}
-      />
-    </div>
-    <div class="auto-desc">{m.automation_learnings_desc()}</div>
-    <AutomationDetail
-      id="learnings"
-      open={openDetail === "learnings"}
-      text={m.automation_learnings_detail()}
-    />
-  </div>
-  <button
-    class={["sw", { on: flags.learnings }]}
-    type="button"
-    role="switch"
-    aria-checked={flags.learnings}
-    aria-label={m.automation_learnings_name()}
-    onclick={() => repoConfig.toggleLearnings(repoPath)}
-  >
-    <span class="knob"></span>
-  </button>
-</div>
-<div class={["auto-row", { disabled: !flags.learnings }]}>
-  <div class="auto-meta">
-    <div class="auto-name">
-      ⟳ {m.settings_auto_optimize_flagged_label()}
-    </div>
-    <div class="auto-desc">{autoOptimizeDesc}</div>
-  </div>
-  <button
-    class={["sw", { on: autoOptimizeActive }]}
-    type="button"
-    role="switch"
-    aria-checked={autoOptimizeActive}
-    disabled={!flags.learnings}
-    aria-label={m.settings_auto_optimize_flagged_label()}
-    onclick={() => repoConfig.toggleAutoOptimize(repoPath)}
-  >
-    <span class="knob"></span>
-  </button>
-</div>
 <div class={["auto-row", { disabled: lightweight }]}>
   <div class="auto-meta">
     <div class="auto-name">☑ {m.automation_manual_steps_issue_name()}</div>

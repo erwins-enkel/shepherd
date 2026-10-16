@@ -90,7 +90,6 @@ function makeHarness(
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: false,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false, // keep pump() off → tick() exercises only the landing passes
@@ -107,7 +106,6 @@ function makeHarness(
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: opts.preWarm ?? false,
     mergeWithoutCi: false,

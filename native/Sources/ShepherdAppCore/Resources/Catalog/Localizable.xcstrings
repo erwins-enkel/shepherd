@@ -18692,74 +18692,6 @@
         }
       }
     },
-    "native_settings_field_distillercli": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "distiller CLI"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "distiller CLI"
-          }
-        }
-      }
-    },
-    "native_settings_field_distillereffort": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "distiller Aufwand"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "distiller effort"
-          }
-        }
-      }
-    },
-    "native_settings_field_distillerintervaldays": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Distiller-Intervall in Tagen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Distiller interval in days"
-          }
-        }
-      }
-    },
-    "native_settings_field_distillermodel": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "distiller Modell"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "distiller model"
-          }
-        }
-      }
-    },
     "native_settings_field_docagentcli": {
       "extractionState": "manual",
       "localizations": {
@@ -18845,23 +18777,6 @@
         }
       }
     },
-    "native_settings_field_houserulerelevance": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relevanzmodus für Hausregeln"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "House-rule relevance mode"
-          }
-        }
-      }
-    },
     "native_settings_field_judgedailyusd": {
       "extractionState": "manual",
       "localizations": {
@@ -18892,57 +18807,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enable judge"
-          }
-        }
-      }
-    },
-    "native_settings_field_mergesuggestcli": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mergeSuggest CLI"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mergeSuggest CLI"
-          }
-        }
-      }
-    },
-    "native_settings_field_mergesuggesteffort": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mergeSuggest Aufwand"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mergeSuggest effort"
-          }
-        }
-      }
-    },
-    "native_settings_field_mergesuggestmodel": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mergeSuggest Modell"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mergeSuggest model"
           }
         }
       }
@@ -19011,57 +18875,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Operator language"
-          }
-        }
-      }
-    },
-    "native_settings_field_optimizercli": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "optimizer CLI"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "optimizer CLI"
-          }
-        }
-      }
-    },
-    "native_settings_field_optimizereffort": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "optimizer Aufwand"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "optimizer effort"
-          }
-        }
-      }
-    },
-    "native_settings_field_optimizermodel": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "optimizer Modell"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "optimizer model"
           }
         }
       }
@@ -20261,23 +20074,6 @@
         }
       }
     },
-    "native_settings_repo_autooptimizeflagged": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Markierte Regeln optimieren"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optimize flagged rules"
-          }
-        }
-      }
-    },
     "native_settings_repo_autopilotenabled": {
       "extractionState": "manual",
       "localizations": {
@@ -20495,23 +20291,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hide repository"
-          }
-        }
-      }
-    },
-    "native_settings_repo_learningsenabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erkenntnisse"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Learnings"
           }
         }
       }

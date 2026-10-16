@@ -25,7 +25,6 @@ import type {
   HeldTask,
   Steer,
   ProjectIcons,
-  Learning,
   UsageLimitsResponse,
   UpdateStatus,
   HerdrUpdateStatus,
@@ -142,7 +141,6 @@ export interface DemoWorld {
   upNext: UpNextSnapshot | null;
   steers: Steer[];
   projectIcons: ProjectIcons;
-  pendingLearnings: Learning[];
 
   // ── repo-scoped lenses (#2295) ──────────────────────────────────────────
   // The Backlog drawer's PRs / Actions / Readiness tabs and the two repo-scoped

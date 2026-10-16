@@ -1,6 +1,5 @@
-import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
+import type { AutoMergeStatus, DrainStatus, Session } from "../types";
 import { m } from "#lib/paraglide/messages.js";
-import { droppedCount } from "./learnings-drawer";
 import { sortBlocked, type BlockState } from "../triage";
 import { displayStatus } from "../display-status";
 import { bootstrapMissingLabel } from "./readiness-greenfield-view";
@@ -12,23 +11,6 @@ export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[]
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 
-/** Shared map-building for insights (Learning counts per repo) and curate
- *  (over-budget rule counts per repo, only for enabled injectables). */
-function buildInsightsCurateMaps(
-  items: Learning[],
-  injectable: RepoInjectable[],
-): { insightsByRepo: Map<string, number>; curateByRepo: Map<string, number> } {
-  const insightsByRepo = new Map<string, number>();
-  for (const l of items) insightsByRepo.set(l.repoPath, (insightsByRepo.get(l.repoPath) ?? 0) + 1);
-
-  const curateByRepo = new Map<string, number>();
-  for (const r of injectable) {
-    const n = droppedCount(r);
-    if (n > 0) curateByRepo.set(r.repoPath, n);
-  }
-  return { insightsByRepo, curateByRepo };
-}
-
 /** One chip in the horizontal repo-filter rail: one entry per repo with ≥1 live
  *  (non-archived) session. */
 export interface RepoChip {
@@ -37,24 +19,14 @@ export interface RepoChip {
   count: number;
   /** Enabled drain for this repo, or null. */
   drain: DrainStatus | null;
-  /** Pending (proposed) learnings count for this repo. */
-  insights: number;
-  /** Over-budget rule count, surfaced ONLY when insights === 0. */
-  curate: number;
 }
 
 /**
  * One chip per repo that currently has ≥1 live session (any status EXCEPT "archived").
  * Sourced from the unfiltered herd `sessions` so the repo filter can scope to
- * idle/blocked/done repos too. Enriched with the repo's enabled drain + learnings
- * footprint (enabled drain only; insights, else over-budget curate). Sorted by repoPath.
+ * idle/blocked/done repos too. Enriched with the repo's enabled drain. Sorted by repoPath.
  */
-export function repoChipRows(
-  sessions: Session[],
-  drain: Record<string, DrainStatus>,
-  items: Learning[],
-  injectable: RepoInjectable[],
-): RepoChip[] {
+export function repoChipRows(sessions: Session[], drain: Record<string, DrainStatus>): RepoChip[] {
   const countByRepo = new Map<string, number>();
   for (const s of sessions) {
     if (s.status === "archived") continue;
@@ -63,19 +35,9 @@ export function repoChipRows(
   if (countByRepo.size === 0) return [];
 
   const drains = new Map(enabledDrains(drain).map((d) => [d.repoPath, d]));
-  const { insightsByRepo, curateByRepo } = buildInsightsCurateMaps(items, injectable);
 
   return [...countByRepo.entries()]
-    .map(([repoPath, count]) => {
-      const insights = insightsByRepo.get(repoPath) ?? 0;
-      return {
-        repoPath,
-        count,
-        drain: drains.get(repoPath) ?? null,
-        insights,
-        curate: insights === 0 ? (curateByRepo.get(repoPath) ?? 0) : 0,
-      };
-    })
+    .map(([repoPath, count]) => ({ repoPath, count, drain: drains.get(repoPath) ?? null }))
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
 }
 
@@ -112,8 +74,6 @@ export function chipRailVisible(chips: RepoChip[], repoFilter: ReadonlySet<strin
 }
 
 /** Whether a chip carries drain telemetry worth showing on its own detail line.
- *  Learnings are no longer surfaced here (they live on the chip's ✦ mark + the gear
- *  menu), so an insights-only repo would otherwise render an empty detail band.
  *  An enabled but idle drain (nothing in flight, queued or paused) says nothing worth
  *  a band of vertical space, so it is hidden too. */
 export function chipHasTelemetry(chip: RepoChip): boolean {
@@ -179,27 +139,6 @@ export function pickRepoSwitchTarget(
   const active = inRepo.find((s) => displayStatus(s, workingBlocked, backgroundBusy) === "running");
   const next = waiting ?? active ?? inRepo[0];
   return next.id !== selected?.id ? next.id : null;
-}
-
-/** Global learnings badge counts for the TopBar: proposed rules awaiting review
- *  (across all repos) and over-budget ("curate") active rules across all repos.
- *  Derived from the learnings store, NOT repoChips — so the badge reflects repos
- *  with no live session too (the drawer shows those). */
-export function globalLearningsCounts(
-  items: Learning[],
-  injectable: RepoInjectable[],
-): { proposed: number; curate: number } {
-  return {
-    proposed: items.length,
-    curate: injectable.reduce((sum, r) => sum + droppedCount(r), 0),
-  };
-}
-
-/** The repoPath of the first injectable repo with ≥1 over-budget ("curate")
- *  rule, or null. Used to deep-link the global learnings chip straight to the
- *  rules that need trimming when there's nothing to approve. */
-export function firstCurateRepo(injectable: RepoInjectable[]): string | null {
-  return injectable.find((r) => droppedCount(r) > 0)?.repoPath ?? null;
 }
 
 /** Whether the `queued` indicator is an interactive trigger (opens the queue

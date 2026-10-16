@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { dialog } from "#lib/a11yDialog.js";
-  import { basename } from "./learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import type { RepoChip } from "#lib/components/queue-strip.js";
 
   // The phone's repo surface (D14, docs/design/mobile-herd). It replaces the top-edge repo rail,

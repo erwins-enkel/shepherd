@@ -11,12 +11,11 @@
  * (service.ts): the spawn site, the index.ts boot reap and tab-reaper.ts's husk filter all bind
  * to this ONE constant, so a renamed label can't silently desync the reap from the spawn (#1147).
  * Each sibling helper label is declared in its own producer the same way — AUTOPILOT_LABEL in
- * autopilot.ts, VERIFY_KEY_LABEL in verify-key.ts, DISTILL_LABEL/OPTIMIZE_LABEL/MERGE_LABEL in
- * distiller.ts/optimizer.ts/merge-suggest.ts.
+ * autopilot.ts, VERIFY_KEY_LABEL in verify-key.ts.
  *
  * NOTE: this placement is about single-source-of-truth, NOT import weight. tab-reaper.ts still
  * reaches the SessionService graph transitively (tab-reaper → autopilot → service, for
- * DRAFT_PR_NOTE), and already value-imports distiller/optimizer/merge-suggest. Don't read a
+ * DRAFT_PR_NOTE). Don't read a
  * dependency-isolation guarantee into it that isn't there.
  */
 export const NAMER_LABEL = "name ";

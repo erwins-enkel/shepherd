@@ -45,7 +45,6 @@ import type {
   HeldTask,
   Steer,
   ProjectIcons,
-  Learning,
   UsageLimitsResponse,
   UpdateStatus,
   HerdrUpdateStatus,
@@ -1307,7 +1306,6 @@ function buildSettings(): Settings {
     judgeHasKey: false,
     judgeDailyUsd: 1,
     blockJudgeMode: "off",
-    houseRuleRelevance: "off",
     upNextReadiness: false,
   };
 }
@@ -1453,51 +1451,6 @@ function buildAutoMerge(): AutoMergeStatus[] {
       sessionId: "ogimg",
     },
     { repoPath: API, enabled: true, state: null, detail: null, sessionId: null },
-  ];
-}
-
-function buildPendingLearnings(): Learning[] {
-  return [
-    {
-      id: "learn-testid",
-      repoPath: STOREFRONT,
-      rule: "Add a stable data-testid to interactive checkout elements.",
-      rationale: "Tests kept flaking on text-based selectors during the cart work.",
-      evidence: ["rounding review flagged a fragile selector"],
-      status: "proposed",
-      evidenceCount: 2,
-      ineffectiveCount: 0,
-      helpfulCount: 0,
-      injectedCount: 0,
-      lastUsedAt: null,
-      retiredAt: null,
-      retiredReason: null,
-      scopeGlobs: [],
-      createdAt: NOW - 30 * MIN,
-      updatedAt: NOW - 30 * MIN,
-      lastEvidenceAt: NOW - 30 * MIN,
-      promotedPrUrl: null,
-    },
-    {
-      id: "learn-migrations",
-      repoPath: API,
-      rule: "Every schema change ships with a reversible migration.",
-      rationale: "A forward-only change during the rate-limit epic blocked a rollback.",
-      evidence: ["rate-limit epic needed a manual down-migration"],
-      status: "proposed",
-      evidenceCount: 1,
-      ineffectiveCount: 0,
-      helpfulCount: 0,
-      injectedCount: 0,
-      lastUsedAt: null,
-      retiredAt: null,
-      retiredReason: null,
-      scopeGlobs: ["migrations/**"],
-      createdAt: NOW - 3 * HOUR,
-      updatedAt: NOW - 3 * HOUR,
-      lastEvidenceAt: NOW - 3 * HOUR,
-      promotedPrUrl: null,
-    },
   ];
 }
 
@@ -1828,7 +1781,6 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: true,
     autopilotEnabled: false,
     autoDrainEnabled: true,
     autoMergeEnabled: false,
@@ -1843,7 +1795,6 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -2077,7 +2028,6 @@ export function buildSeed(): DemoWorld {
     upNext: buildUpNext(),
     steers: buildSteers(),
     projectIcons: buildProjectIcons(),
-    pendingLearnings: buildPendingLearnings(),
 
     // Per-repo lens + usage fixtures (#2295). Built in their own modules — this file's
     // narrative is the herd; those are the forge and analytics views over it.

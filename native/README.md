@@ -70,7 +70,7 @@ The app is an **early preview**, already usable day to day. Available today:
 
 The interface supports English and German; the screenshots show a live instance in German.
 
-The backlog, epic management and learnings are still web-only. Use the browser for those.
+The backlog and epic management are still web-only. Use the browser for those.
 
 ## Download and install
 

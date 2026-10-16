@@ -86,8 +86,7 @@ the live agent as you record it.
 
 Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is
 green and posts a verdict. Its built-in lenses are the floor; a repository can
-add passes and known exclusions with a committed `REVIEW.md`, and the repo's
-house rules are shown to the critic alongside them — see
+add passes and known exclusions with a committed `REVIEW.md` — see
 [Review policy](/reference/review-policy/). Every point it raises carries a
 severity: **important** is blocking work, sent back to the agent; **nit** is
 non-blocking and only appears in the posted review's `Nits (non-blocking):`
@@ -152,16 +151,6 @@ A repo Shepherd drives with local git only — no Forge, no GitHub, no PRs, no
 remote. When a task finishes, the agent's branch is squash-merged into the base
 branch locally; the operator pushes to a remote when they choose.
 
-### Trial
-
-A proposed house rule auto-promoted to active on strong, multi-source evidence,
-injected at lowest priority while it proves itself. It is auto-removed if it
-underperforms (Wilson auto-retire), stays inert, or — while the relevance judge
-is armed — has been ruled on enough times and found relevant in none of them
-([#2382](https://github.com/erwins-enkel/shepherd/issues/2382)); a trial that was
-ever marked helpful is exempt from all of the reaper's branches. It can be
-reverted to the queue by hand.
-
 ### Weighted units
 
 A model-weighted measure of token spend that counts what actually draws down your
@@ -190,7 +179,7 @@ depends on the CLI and the model: Claude stops at `max`, and among the curated
 Codex models only the newest ones reach `ultra`. Selectable per session in the New Task
 picker — and when spawning a variant, comparison, or replacement — with a per-repo,
 per-engine or global default in Settings, plus a per-role override for each satellite pass
-(critic, planner, recap, doc-agent, distiller, optimizer, merge-suggester, namer,
+(critic, planner, recap, doc-agent, namer,
 autopilot) in the Settings agent matrix;
 leave it at **default** to use the CLI's own effort. Shepherd passes it to the
 agent CLI as `--effort` (Claude) or `model_reasoning_effort` (Codex).
@@ -244,7 +233,7 @@ logged-in user. An agent can ask you for one with a Login Request. See
 ### Spawn prompt
 
 The standing instructions Shepherd assembles and hands an agent the moment it
-starts — house rules, safety notices and the directive for this kind of task. It
+starts — safety notices and the directive for this kind of task. It
 rides every turn of the session, so its size is paid for again and again.
 
 ### Access token

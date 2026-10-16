@@ -81,7 +81,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Configuration",
     path: "/reference/configuration/",
     keywords:
-      "every environment variable and the per-agent sandbox profiles. core operator authentication web push (vapid) native ios push (apns, interim) model, effort and provider defaults where a new session's model and effort come from role agents review rounds, merge train and spend learnings lifecycle live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session lifecycle (auto-archive + herdr daemon-restart revival) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) fast stop classifier (the judge) blocked-pane backstop house rules for this task only up next readiness maintain loop (self-health bands) tier 3 — the pre-approved fix class anonymous usage telemetry per-agent sandbox / permission profiles",
+      "every environment variable and the per-agent sandbox profiles. core operator authentication web push (vapid) native ios push (apns, interim) model, effort and provider defaults where a new session's model and effort come from role agents review rounds, merge train and spend live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session lifecycle (auto-archive + herdr daemon-restart revival) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) fast stop classifier (the judge) blocked-pane backstop up next readiness maintain loop (self-health bands) tier 3 — the pre-approved fix class anonymous usage telemetry per-agent sandbox / permission profiles",
   },
   {
     title: "External Task API",
@@ -93,7 +93,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",
@@ -117,7 +117,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Review policy (REVIEW.md)",
     path: "/reference/review-policy/",
     keywords:
-      "how a repository steers shepherd's pr critic with a version-controlled review.md, why the file is read from the base commit rather than the pull request, and how the repo's own house rules now reach the reviewer. review.md extra passes known exclusions it is read from the base commit the built-in lenses stay the floor severity: important and nit house rules reach the reviewer",
+      "how a repository steers shepherd's pr critic with a version-controlled review.md, and why the file is read from the base commit rather than the pull request. review.md extra passes known exclusions it is read from the base commit the built-in lenses stay the floor severity: important and nit",
   },
   {
     title: "Design system",

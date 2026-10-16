@@ -1254,9 +1254,8 @@ test("CASES actually meets the coverage invariant it states", () => {
         : `${evalName} DOES NOT COVER: ${needle}`,
     );
 
-  // #2154 repo-policy blocks — reachable only via opts.reviewPolicy / opts.houseRules.
+  // #2154 repo-policy block — reachable only via opts.reviewPolicy.
   covers("critic", "REVIEW.md");
-  covers("critic", "shepherd-house-rules");
   // epicBlock's three mutually exclusive headers.
   covers("critic", "carries NO content your fork point does not already have");
   covers("critic", "Sibling children have ALREADY MERGED");

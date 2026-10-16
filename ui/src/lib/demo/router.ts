@@ -174,10 +174,6 @@ const lensGetRoutes: Record<string, GetHandler> = {
   "/api/up-next": () => json(demoState.upNext()),
   "/api/steers": () => json(demoState.steers()),
   "/api/project-icons": () => json(demoState.projectIcons()),
-  "/api/learnings/pending": () => json(demoState.pendingLearnings()),
-  "/api/learnings/injectable": () => json([]),
-  "/api/learnings/merge-suggestions": () => json([]),
-  "/api/learnings/health": () => json({ ok: true, consecutiveFailures: 0, lastFailure: null }),
 };
 
 // ── epics ────────────────────────────────────────────────────────────────

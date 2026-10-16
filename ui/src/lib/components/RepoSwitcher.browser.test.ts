@@ -49,8 +49,6 @@ function chip(partial: Partial<RepoChip> & { repoPath: string }): RepoChip {
   return {
     count: 1,
     drain: null,
-    insights: 0,
-    curate: 0,
     ...partial,
   };
 }
@@ -589,87 +587,15 @@ describe("RepoSwitcher — filter rail", () => {
     expect(live!.textContent).toContain("TASK-07");
   });
 
-  it("a chip with insights shows the ✦ marker + count in the rail and its aria-label carries the learnings clause", async () => {
-    const learnChip = chip({ repoPath: "/repo/alpha", insights: 3 });
-    const { container } = await render(RepoSwitcher, {
-      chips: [learnChip, chip({ repoPath: "/repo/beta" })],
-      repoFilter: new Set<string>(),
-      onrepofilter: () => {},
-    });
-    // display-only marker on the chip: ✦ glyph + the insights count
-    const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
-    expect(mark, "✦ learnings marker").not.toBeNull();
-    expect(mark!.getAttribute("aria-hidden")).toBe("true");
-    expect(mark!.getAttribute("title")).toBe(m.learnings_badge_tip());
-    expect(mark!.textContent).toContain("✦");
-    expect(mark!.querySelector(".rs-learn-n")?.textContent).toBe("3");
-    // aria parity: the chip BUTTON's label appends the learnings clause
-    const expected =
-      m.repo_filter_apply_aria({ repo: "alpha" }) + " " + m.repo_chip_learnings_aria({ count: 3 });
-    await expect.element(page.getByRole("button", { name: expected })).toBeVisible();
-  });
-
-  it("a curate-only chip shows a bare ✦ (no number) and the curate count in its aria-label", async () => {
-    const curateChip = chip({ repoPath: "/repo/alpha", insights: 0, curate: 2 });
-    const { container } = await render(RepoSwitcher, {
-      chips: [curateChip, chip({ repoPath: "/repo/beta" })],
-      repoFilter: new Set<string>(),
-      onrepofilter: () => {},
-    });
-    const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
-    expect(mark, "✦ learnings marker").not.toBeNull();
-    expect(mark!.getAttribute("title")).toBe(m.learnings_badge_tip());
-    expect(mark!.textContent).toContain("✦");
-    // curate-only → bare glyph, no count span
-    expect(mark!.querySelector(".rs-learn-n"), "no count for curate-only").toBeNull();
-    const expected =
-      m.repo_filter_apply_aria({ repo: "alpha" }) + " " + m.repo_chip_learnings_aria({ count: 2 });
-    await expect.element(page.getByRole("button", { name: expected })).toBeVisible();
-  });
-
-  it("a chip with no learnings shows no ✦ marker and a plain aria-label", async () => {
-    const { container } = await render(RepoSwitcher, {
+  it("a chip carries a plain repo aria-label", async () => {
+    await render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},
     });
-    expect(container.querySelector(".rs-learn-mark"), "no ✦ marker").toBeNull();
     await expect
       .element(page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "alpha" }) }))
       .toBeVisible();
-  });
-
-  it("the active chip keeps its ✦ mark and renders no learnings bar", async () => {
-    const learnChip = chip({ repoPath: "/repo/alpha", insights: 31 });
-    const { container } = await render(RepoSwitcher, {
-      chips: [learnChip, chip({ repoPath: "/repo/beta" })],
-      repoFilter: new Set(["/repo/alpha"]),
-      onrepofilter: () => {},
-    });
-    // the active chip keeps its decorative ✦ mark (no dedicated bar to dup with anymore)
-    const mark = container.querySelector<HTMLElement>(".rs-learn-mark");
-    expect(mark, "✦ mark on the active chip").not.toBeNull();
-    expect(mark!.querySelector(".rs-learn-n")?.textContent).toBe("31");
-    // the dedicated learnings bar is gone (learnings live on the gear menu)
-    expect(container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
-    // insights-only repo (no drain) → no telemetry detail line at all
-    expect(container.querySelector(".rs-tele"), "no detail line for insights-only repo").toBeNull();
-  });
-
-  it("every chip with insights keeps its ✦ mark, including the active one", async () => {
-    const { container } = await render(RepoSwitcher, {
-      chips: [
-        chip({ repoPath: "/repo/alpha", insights: 5 }),
-        chip({ repoPath: "/repo/beta", insights: 9 }),
-      ],
-      repoFilter: new Set(["/repo/beta"]),
-      onrepofilter: () => {},
-    });
-    // both alpha (inactive) AND beta (active) now carry marks — no active-chip suppression
-    const marks = container.querySelectorAll(".rs-learn-mark");
-    expect(marks.length, "a mark on each chip with insights").toBe(2);
-    expect(marks[0].querySelector(".rs-learn-n")?.textContent).toBe("5");
-    expect(marks[1].querySelector(".rs-learn-n")?.textContent).toBe("9");
   });
 
   it("the active filter chip carries no underline text-decoration", async () => {
@@ -743,27 +669,6 @@ describe("RepoSwitcher — filter rail", () => {
     const live = container.querySelector<HTMLElement>(".rs-live");
     expect(live, "live region still present").not.toBeNull();
     expect(live!.textContent?.trim()).toBe("");
-  });
-
-  it("a lone-repo with only learnings (insights/curate, no drain) renders no bar and no detail line", async () => {
-    // insights-only
-    const insightsRender = await render(RepoSwitcher, {
-      chips: [chip({ repoPath: "/repo/solo", insights: 5 })],
-      repoFilter: new Set<string>(),
-      onrepofilter: () => {},
-    });
-    expect(insightsRender.container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
-    expect(insightsRender.container.querySelector(".rs-tele"), "no detail line").toBeNull();
-    insightsRender.unmount();
-
-    // curate-only
-    const curateRender = await render(RepoSwitcher, {
-      chips: [chip({ repoPath: "/repo/solo", insights: 0, curate: 3 })],
-      repoFilter: new Set<string>(),
-      onrepofilter: () => {},
-    });
-    expect(curateRender.container.querySelector(".rs-insights"), "no learnings bar").toBeNull();
-    expect(curateRender.container.querySelector(".rs-tele"), "no detail line").toBeNull();
   });
 
   it("clicking the queued button expands the inline queue (fetches via getDrainQueue)", async () => {

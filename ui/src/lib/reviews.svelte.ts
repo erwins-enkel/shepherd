@@ -385,19 +385,17 @@ class SpawnNoticeStore {
 }
 export const spawnNotices = new SpawnNoticeStore();
 
-/** Per-repo critic + auto-address + learnings + autopilot + drain + automerge + build-queue +
+/** Per-repo critic + auto-address + autopilot + drain + automerge + build-queue +
  *  plan-gate + draft-mode (+ sign-off authority) config, cached lazily by repoPath. */
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   allPrs = $state<Record<string, boolean>>({}); // standalone repo-wide PR critic on/off (default off)
   smellLens = $state<Record<string, boolean>>({}); // Fowler code-smell lens on the session critic (default off, #1824)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
-  learnings = $state<Record<string, boolean>>({}); // house-rule injection (default on)
   autopilot = $state<Record<string, boolean>>({}); // autopilot mode (default off)
   autoDrain = $state<Record<string, boolean>>({}); // auto-drain queue (default off)
   autoMerge = $state<Record<string, boolean>>({}); // full-auto merge (default off)
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
-  autoOptimize = $state<Record<string, boolean>>({}); // auto-optimize flagged rules (default off)
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
   preWarmEpicLandingCi = $state<Record<string, boolean>>({}); // pre-warm epic landing CI via early draft PR (default off, #1664)
   mergeWithoutCi = $state<Record<string, boolean>>({}); // autonomous merges in a no-CI repo (default off, #3104)
@@ -433,12 +431,10 @@ class RepoConfigStore {
     this.allPrs = { ...this.allPrs, [repoPath]: c.criticAllPrs };
     this.smellLens = { ...this.smellLens, [repoPath]: c.criticSmellLensEnabled };
     this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
-    this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
     this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
     this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
     this.autoMerge = { ...this.autoMerge, [repoPath]: c.autoMergeEnabled };
     this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
-    this.autoOptimize = { ...this.autoOptimize, [repoPath]: c.autoOptimizeFlagged };
     this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: c.manualStepsIssueEnabled };
     this.preWarmEpicLandingCi = {
       ...this.preWarmEpicLandingCi,
@@ -533,12 +529,10 @@ class RepoConfigStore {
         | "criticAllPrs"
         | "criticSmellLensEnabled"
         | "autoAddressEnabled"
-        | "learningsEnabled"
         | "autopilotEnabled"
         | "autoDrainEnabled"
         | "autoMergeEnabled"
         | "buildQueueEnabled"
-        | "autoOptimizeFlagged"
         | "manualStepsIssueEnabled"
         | "preWarmEpicLandingCi"
         | "mergeWithoutCi"
@@ -601,15 +595,6 @@ class RepoConfigStore {
     this.autoAddress = { ...this.autoAddress, [repoPath]: next }; // optimistic
     await this.apply(repoPath, { autoAddressEnabled: next }, () => {
       this.autoAddress = { ...this.autoAddress, [repoPath]: prev };
-    });
-  }
-
-  async toggleLearnings(repoPath: string) {
-    const prev = this.learnings[repoPath];
-    const next = !this.learningsOn(repoPath);
-    this.learnings = { ...this.learnings, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { learningsEnabled: next }, () => {
-      this.learnings = { ...this.learnings, [repoPath]: prev };
     });
   }
 
@@ -771,15 +756,6 @@ class RepoConfigStore {
     });
   }
 
-  async toggleAutoOptimize(repoPath: string) {
-    const prev = this.autoOptimize[repoPath];
-    const next = !this.autoOptimizeOn(repoPath);
-    this.autoOptimize = { ...this.autoOptimize, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { autoOptimizeFlagged: next }, () => {
-      this.autoOptimize = { ...this.autoOptimize, [repoPath]: prev };
-    });
-  }
-
   async toggleManualStepsIssue(repoPath: string) {
     const prev = this.manualStepsIssue[repoPath];
     const next = !this.manualStepsIssueOn(repoPath);
@@ -882,10 +858,6 @@ class RepoConfigStore {
     return this.autoAddress[repoPath] ?? false;
   }
 
-  learningsOn(repoPath: string): boolean {
-    return this.learnings[repoPath] ?? true;
-  }
-
   isAutopilotEnabled(repoPath: string): boolean {
     return this.autopilot[repoPath] ?? false;
   }
@@ -923,10 +895,6 @@ class RepoConfigStore {
   }
   browserAllowedHostsFor(repoPath: string): string[] {
     return this.browserAllowedHosts[repoPath] ?? [];
-  }
-
-  autoOptimizeOn(repoPath: string): boolean {
-    return this.autoOptimize[repoPath] ?? false;
   }
 
   isPlanGateEnabled(repoPath: string): boolean {
@@ -976,7 +944,6 @@ class RepoConfigStore {
       criticAllPrs: this.isAllPrsEnabled(repoPath),
       smellLens: this.smellLensOn(repoPath),
       autoAddress: this.isAutoAddressEnabled(repoPath),
-      learnings: this.learningsOn(repoPath),
       autopilot: this.isAutopilotEnabled(repoPath),
       autoDrain: this.isAutoDrainEnabled(repoPath),
       autoMerge: this.isAutoMergeEnabled(repoPath),
@@ -1007,7 +974,7 @@ class RepoConfigStore {
   }
 
   /** Seed a brand-new repo with the raised default posture: Plan gate, Auto-Address, Autopilot and
-   *  Build queue ON (Critic and Learnings are already ON by default). Only call when no repo_config
+   *  Build queue ON (Critic is already ON by default). Only call when no repo_config
    *  row exists yet — guarded by automationRowExists() at the call site (Task 3) — so it never
    *  clobbers an existing repo's choices. */
   async seedNewRepoDefaults(repoPath: string) {

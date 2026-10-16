@@ -189,7 +189,6 @@ export function makeContractDeps(): ContractDeps {
     events,
     usageLimits,
     capabilities,
-    distiller: { distillNow: async () => {} },
     // A WHOLE `PrCache` (src/pr-poller.ts:14-20), not just `snapshot()`. `resolveGitState`
     // calls `deps.prCache?.get(id)` and `.set(id, git)` on the /review-pr, /git and PR-open
     // paths (src/server.ts:4206, 4213, 4351, 4358, 4569); a present-but-partial stub makes those

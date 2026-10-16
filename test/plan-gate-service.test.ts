@@ -2514,7 +2514,7 @@ test("#1759: forced re-review of an unchanged plan at cap-1 crosses the cap → 
   expect(h.store.gate.round).toBeGreaterThanOrEqual(h.store.gate.cap);
 });
 
-// ── force: stall-signal guards (learnings-corpus protection) ──────────────────
+// ── force: stall-signal guards (incident-count protection) ──────────────────
 
 test("forced at-cap re-entry of an unchanged plan writes no stall row (guard #1)", async () => {
   const hash = await PlanGateService.hashPlan("PLAN TEXT");
@@ -2540,7 +2540,7 @@ test("forced at-cap re-entry of an unchanged plan writes no stall row (guard #1)
   });
   await h.svc.consider(planningSession() as any, { force: true });
   await h.svc.tick();
-  expect(signals.length).toBe(0); // repeat-clickable at the cap must not spam the distiller
+  expect(signals.length).toBe(0); // repeat-clickable at the cap must not spam the incident counts
   expect(steers.length).toBe(0); // the at-cap hold: no steer once the budget is spent
   expect(h.store.gate.round).toBe(1);
 });
@@ -2714,7 +2714,7 @@ test("forced sub-cap review whose steer doesn't land writes no stall row but rec
   });
   await h.svc.consider(planningSession() as any, { force: true });
   await h.svc.tick();
-  expect(signals.length).toBe(0); // guard #2 suppresses the learnings row on a forced run
+  expect(signals.length).toBe(0); // guard #2 suppresses the signal row on a forced run
   expect(h.store.gate.decision).toBe("changes_requested"); // operator not stranded — verdict recorded
   expect(h.store.gate.round).toBe(0); // nothing delivered → no advance
 });

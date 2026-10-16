@@ -48,7 +48,6 @@ import { agentMcpConfigArg, agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
 import { agentSkillsArgs } from "../src/agent-skills";
 import { WorktreeMissingBaseError, WorktreeRestoreError } from "../src/worktree";
-import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
 import { stubBaseRef } from "./helpers/base-ref";
@@ -117,7 +116,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
     "--append-system-prompt",
-    composeSystemPrompt(null, false, { previewHint: true }), // no learnings → engineering-posture + branch-rename notice, no house-rules block
+    composeSystemPrompt(false, { previewHint: true }), // engineering-posture + branch-rename notice
     "flatten it",
   ]);
   expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -404,7 +403,6 @@ function setRepoAutopilot(store: SessionStore, on: boolean, repoPath = "/repo") 
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: false,
     autopilotEnabled: on,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -421,7 +419,6 @@ function setRepoAutopilot(store: SessionStore, on: boolean, repoPath = "/repo") 
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -655,7 +652,6 @@ test("createSession: codex plan-gate + build-queue + autopilot → build queue s
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: false,
     autopilotEnabled: true,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -672,7 +668,6 @@ test("createSession: codex plan-gate + build-queue + autopilot → build queue s
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -1791,7 +1786,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
     "--append-system-prompt",
-    composeSystemPrompt(null, false, { previewHint: true }), // no learnings → engineering-posture + branch-rename notice, no house-rules block
+    composeSystemPrompt(false, { previewHint: true }), // engineering-posture + branch-rename notice
     "--model",
     "opus",
     "go",
@@ -3326,16 +3321,6 @@ test("resume carries the plan-gate directive only while the session is still pla
     expect(sp).toContain("<untrusted-content-boundary>");
     expect(sp).toContain("<steer-provenance-notice>");
   }
-});
-
-test("resume re-renders the house rules injected at spawn without consuming the join rows", async () => {
-  const store = new SessionStore(":memory:");
-  const rule = store.addLearning({ repoPath: "/r", rule: "Use bun", rationale: "", evidence: [] });
-  const s = resumable(store);
-  store.recordInjectedLearnings(s.id, [rule.id]);
-  const block = houseRulesBlock(await resumeArgv(store, s.id));
-  expect(block).toContain("- Use bun");
-  expect(store.sessionInjectedLearningIds(s.id)).toEqual([rule.id]); // still there for attribution
 });
 
 test("resume uses the exact pinned conversation for codex sessions", async () => {
@@ -5019,7 +5004,7 @@ function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated
  *  isolated session with no plan gate, autopilot, build queue or house rules. Read off the composer
  *  so spawn and resume are pinned to one text. */
 function resumeDirectives(): string {
-  return composeSystemPrompt(null, false, {
+  return composeSystemPrompt(false, {
     previewHint: true,
     draftMode: false,
     trimmed: false,
@@ -5036,110 +5021,10 @@ function sysPrompt(argv: string[]): string {
   return argv[i + 1]!;
 }
 
-/** Just the <shepherd-house-rules>…</shepherd-house-rules> slice of the system prompt. */
-function houseRulesBlock(argv: string[]): string {
-  const sp = sysPrompt(argv);
-  const open = `<${HOUSE_RULES_TAG}>`;
-  const close = `</${HOUSE_RULES_TAG}>`;
-  const start = sp.indexOf(open);
-  return sp.slice(start, sp.indexOf(close) + close.length);
-}
-
-test("create injects active+promoted house rules into the system prompt, task stays clean", async () => {
-  const store = new SessionStore(":memory:");
-  const a = store.addLearning({
-    repoPath: "/repo",
-    rule: "Use bun, not npm",
-    rationale: "",
-    evidence: [],
-  });
-  store.setLearningStatus(a.id, "active");
-  const captured: { argv?: string[] } = {};
-  const svc = new SessionService(injectDeps(store, captured) as any);
-  await svc.create({
-    repoPath: "/repo",
-    baseBranch: "main",
-    prompt: "do the thing",
-    model: null,
-    images: [],
-  });
-  // Rules ride the system prompt, XML-wrapped — not the human turn.
-  const sp = sysPrompt(captured.argv!);
-  expect(sp).toContain(`<${HOUSE_RULES_TAG}>`);
-  expect(sp).toContain("- Use bun, not npm");
-  // The human prompt (last argv) is exactly the user's task — no rules bleed in.
-  expect(captured.argv!.at(-1)).toBe("do the thing");
-});
-
-test("create omits the house-rules block when no active rules exist", async () => {
-  const store = new SessionStore(":memory:");
-  store.addLearning({ repoPath: "/repo", rule: "still proposed", rationale: "", evidence: [] }); // proposed, not injected
-  const captured: { argv?: string[] } = {};
-  const svc = new SessionService(injectDeps(store, captured) as any);
-  await svc.create({
-    repoPath: "/repo",
-    baseBranch: "main",
-    prompt: "do the thing",
-    model: null,
-    images: [],
-  });
-  expect(captured.argv!.at(-1)).toBe("do the thing");
-  // System prompt carries posture + branch-rename notice, no house-rules tag.
-  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null, false, { previewHint: true }));
-});
-
-test("create omits house rules when learnings disabled for the repo", async () => {
-  const store = new SessionStore(":memory:");
-  const a = store.addLearning({ repoPath: "/repo", rule: "Use bun", rationale: "", evidence: [] });
-  store.setLearningStatus(a.id, "active");
-  store.setRepoConfig("/repo", {
-    criticEnabled: true,
-    criticAllPrs: false,
-    criticSmellLensEnabled: false,
-    autoAddressEnabled: false,
-    learningsEnabled: false,
-    autopilotEnabled: false,
-    planGateEnabled: false,
-    autoDrainEnabled: false,
-    autoMergeEnabled: false,
-    buildQueueEnabled: false,
-    draftMode: false,
-    signoffAuthority: "human",
-    maxAuto: 1,
-    autoLabel: "shepherd:auto",
-    usageCeilingPct: 80,
-    sandboxProfile: "trusted",
-    defaultModel: "inherit",
-    defaultEffort: "inherit",
-    previewOpenMode: "ask",
-    egressExtraHosts: [],
-    repoMode: "forge",
-    autoOptimizeFlagged: false,
-    manualStepsIssueEnabled: false,
-    preWarmEpicLandingCi: false,
-    mergeWithoutCi: false,
-    epicStacksEnabled: false,
-    sharedBrowserEnabled: false,
-    browserAllowedHosts: [],
-    hidden: false,
-  });
-  const captured: { argv?: string[] } = {};
-  const svc = new SessionService(injectDeps(store, captured) as any);
-  await svc.create({
-    repoPath: "/repo",
-    baseBranch: "main",
-    prompt: "do the thing",
-    model: null,
-    images: [],
-  });
-  expect(captured.argv!.at(-1)).toBe("do the thing");
-  expect(sysPrompt(captured.argv!)).toBe(composeSystemPrompt(null, false, { previewHint: true }));
-});
-
 test("composeSystemPrompt adds the autopilot directive only when active", () => {
-  expect(composeSystemPrompt(null)).not.toContain("<autopilot-directive>");
-  expect(composeSystemPrompt(null, false)).not.toContain("<autopilot-directive>");
-  const on = composeSystemPrompt(null, true);
+  expect(composeSystemPrompt()).not.toContain("<autopilot-directive>");
+  expect(composeSystemPrompt(false)).not.toContain("<autopilot-directive>");
+  const on = composeSystemPrompt(true);
   expect(on).toContain("<autopilot-directive>");
   expect(on).toContain("Shepherd autopilot");
   expect(on).toContain("verified local changes");
@@ -5150,9 +5035,7 @@ test("composeSystemPrompt adds the autopilot directive only when active", () => 
   expect(on).toContain("Before every push");
   expect(on).toContain("--force-with-lease");
   // #2002: the branch-rename notice rides only where a rename can land, so it is opt-gated now.
-  expect(composeSystemPrompt(null, true, { branchRename: true })).toContain(
-    "<branch-rename-notice>",
-  );
+  expect(composeSystemPrompt(true, { branchRename: true })).toContain("<branch-rename-notice>");
 });
 
 test("create seeds the autopilot directive when the repo has autopilot on", async () => {
@@ -5162,7 +5045,6 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: true,
     autopilotEnabled: true,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -5179,7 +5061,6 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -5217,48 +5098,9 @@ test("create omits the autopilot directive when the repo has autopilot off", asy
   expect(sysPrompt(captured.argv!)).not.toContain("<autopilot-directive>");
 });
 
-test("create injects only the planned house rules and drops the over-budget ones", async () => {
-  const store = new SessionStore(":memory:");
-  // Many 160-char rules so the combined block blows past the default 4000-char budget
-  // (~25 max-length rules fit). 40 rules → ~6.6 KB worth, well over budget.
-  for (let i = 0; i < 40; i++) {
-    const r = store.addLearning({
-      repoPath: "/repo",
-      rule: `R${String(i).padStart(2, "0")}-` + "x".repeat(150),
-      rationale: "",
-      evidence: [],
-    });
-    store.setLearningStatus(r.id, "active");
-  }
-  const captured: { argv?: string[] } = {};
-  const svc = new SessionService(injectDeps(store, captured) as any);
-  await svc.create({
-    repoPath: "/repo",
-    baseBranch: "main",
-    prompt: "do the thing",
-    model: null,
-    images: [],
-  });
-  // Human prompt stays clean; rules live in the system prompt.
-  expect(captured.argv!.at(-1)).toBe("do the thing");
-  const block = houseRulesBlock(captured.argv!);
-  // Block (XML-wrapped) must stay within the 4000-char budget.
-  expect(block.length).toBeLessThanOrEqual(4000);
-  // Some rules injected, some dropped (not all 40 fit).
-  const injectedCount = (block.match(/^- /gm) ?? []).length;
-  expect(injectedCount).toBeGreaterThan(0);
-  expect(injectedCount).toBeLessThan(40);
-});
-
-test("composeSystemPrompt always injects the engineering-posture block, with or without house rules", () => {
-  // Posture is universal standing guidance (not a per-repo learning), so it must ride every
-  // spawn regardless of the learnings toggle / house-rules state — i.e. even when houseRules is null.
-  const withoutRules = composeSystemPrompt(null);
-  const withRules = composeSystemPrompt(
-    `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`,
-  );
-
-  for (const sp of [withoutRules, withRules]) {
+test("composeSystemPrompt always injects the engineering-posture block", () => {
+  // Posture is universal standing guidance, so it must ride every spawn.
+  for (const sp of [composeSystemPrompt(), composeSystemPrompt(true)]) {
     expect(sp).toContain("<engineering-posture>");
     expect(sp).toContain("</engineering-posture>");
     // The always-on core, by its distinguishing wording.
@@ -5271,20 +5113,14 @@ test("composeSystemPrompt always injects the engineering-posture block, with or 
     expect(sp).not.toContain("Ephemeral scaffolding");
   }
   for (const variant of ["interactive", "auto"] as const)
-    expect(composeSystemPrompt(null, true, { planGate: variant })).toContain("Think before coding");
-  // Repo house rules still appear when present, distinct from posture.
-  expect(withRules).toContain(`<${HOUSE_RULES_TAG}>`);
-  expect(withoutRules).not.toContain(`<${HOUSE_RULES_TAG}>`);
+    expect(composeSystemPrompt(true, { planGate: variant })).toContain("Think before coding");
+  // The retired house-rules block (#3139) never rides.
+  expect(composeSystemPrompt()).not.toContain("<shepherd-house-rules>");
 });
 
-test("composeSystemPrompt always injects the research-first notice, with or without house rules", () => {
-  // Fixed standing guidance (issue #347), not a per-repo learning, so it rides every spawn
-  // regardless of the learnings toggle / house-rules state — i.e. even when houseRules is null.
-  const withoutRules = composeSystemPrompt(null);
-  const withRules = composeSystemPrompt(
-    `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`,
-  );
-  for (const sp of [withoutRules, withRules]) {
+test("composeSystemPrompt always injects the research-first notice", () => {
+  // Fixed standing guidance (issue #347), so it rides every spawn.
+  for (const sp of [composeSystemPrompt()]) {
     expect(sp).toContain("<research-first-notice>");
     expect(sp).toContain("</research-first-notice>");
     // Scoped to non-trivial external API work, with the "note what you found" half intact.
@@ -5294,20 +5130,18 @@ test("composeSystemPrompt always injects the research-first notice, with or with
     expect(sp).toContain("MAJOR version is never a well-established pattern");
   }
   // Rides unconditionally, like the autopilot-independent posture/branch blocks.
-  expect(composeSystemPrompt(null, true)).toContain("<research-first-notice>");
+  expect(composeSystemPrompt(true)).toContain("<research-first-notice>");
 });
 
 test("composeSystemPrompt always includes the untrusted-content boundary block", () => {
   // Prompt-injection hardening: the boundary block must ride every spawn regardless of the
-  // house-rules state or autopilot toggle — untrusted content can arrive on any session.
-  const withRules = composeSystemPrompt("<house-rules>x</house-rules>");
-  const withoutRules = composeSystemPrompt(null);
-  for (const p of [withRules, withoutRules]) {
+  // autopilot toggle — untrusted content can arrive on any session.
+  for (const p of [composeSystemPrompt()]) {
     expect(p).toContain("<untrusted-content-boundary>");
     expect(p).toContain("EXTERNAL and UNTRUSTED");
   }
   // Rides unconditionally, like the autopilot-independent posture/branch blocks.
-  const withAutopilot = composeSystemPrompt(null, true);
+  const withAutopilot = composeSystemPrompt(true);
   expect(withAutopilot).toContain("<untrusted-content-boundary>");
   expect(withAutopilot).toContain("EXTERNAL and UNTRUSTED");
 });
@@ -5316,7 +5150,7 @@ test("composeSystemPrompt rides <steer-provenance-notice> right after the untrus
   // TASK-2614: steers reach Claude Code as a bracketed paste, which it shows the model as
   // <pasted_content>; without this block a session can refuse the plan-go steer and every nudge.
   for (const opts of [{}, { research: true }, { planGate: "interactive" as const }]) {
-    const blocks = composeSystemPromptBlocks(null, true, opts);
+    const blocks = composeSystemPromptBlocks(true, opts);
     const names = blocks.map((b) => b.name);
     expect(names.indexOf("steer-provenance-notice")).toBe(
       names.indexOf("untrusted-content-boundary") + 1,
@@ -5326,7 +5160,7 @@ test("composeSystemPrompt rides <steer-provenance-notice> right after the untrus
     expect(text).toContain("⟦UNTRUSTED:…⟧"); // the fence rule is restated, never widened
   }
   // Codex has no such wrapper.
-  const codex = composeSystemPromptBlocks(null, true, { agentProvider: "codex" });
+  const codex = composeSystemPromptBlocks(true, { agentProvider: "codex" });
   expect(codex.map((b) => b.name)).not.toContain("steer-provenance-notice");
 });
 
@@ -5338,7 +5172,7 @@ test("composeSystemPrompt rides <github-rate-limit-notice> after research-first 
     [true, { planGate: "interactive" as const }],
     [false, { research: true }],
   ] as const) {
-    const blocks = composeSystemPromptBlocks(null, autopilot, opts);
+    const blocks = composeSystemPromptBlocks(autopilot, opts);
     const names = blocks.map((b) => b.name);
     expect(names.indexOf("github-rate-limit-notice")).toBe(
       names.indexOf("research-first-notice") + 1,
@@ -5350,28 +5184,26 @@ test("composeSystemPrompt rides <github-rate-limit-notice> after research-first 
   }
   // No self_status there: Codex has no MCP wiring, a plain session no read tools.
   for (const opts of [{ agentProvider: "codex" as const }, { plain: true }]) {
-    const names = composeSystemPromptBlocks(null, false, opts).map((b) => b.name);
+    const names = composeSystemPromptBlocks(false, opts).map((b) => b.name);
     expect(names).not.toContain("github-rate-limit-notice");
   }
 });
 
 test("composeSystemPrompt rides the single-PR invariant on code spawns, never on research", () => {
-  // Issue #839: one session → one tracked PR. The block must ride every CODE spawn (with/without
-  // house rules, autopilot on, plan-gate variants) but be suppressed for a research session, which
+  // Issue #839: one session → one tracked PR. The block must ride every CODE spawn (autopilot
+  // on/off, plan-gate variants) but be suppressed for a research session, which
   // already caps at one report-PR / issue.
   // #2002: since the invariant also ships as the `shepherd-pull-requests` skill plus the guard's
   // PR-time injection, it is RESIDENT only where those cannot reach — Codex, or a guard-off
   // install. That is what `toolGuard: false` pins here; the per-family matrix in
   // test/prompt-budget.test.ts pins the other side.
-  const withRules = `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`;
   const noMech = { toolGuard: false } as const;
   const codeSpawns = [
-    composeSystemPrompt(null, false, noMech),
-    composeSystemPrompt(withRules, false, noMech),
-    composeSystemPrompt(null, true, noMech),
-    composeSystemPrompt(null, true, { ...noMech, planGate: "interactive" }),
-    composeSystemPrompt(null, true, { ...noMech, planGate: "auto" }),
-    composeSystemPrompt(null, true, { agentProvider: "codex" }),
+    composeSystemPrompt(false, noMech),
+    composeSystemPrompt(true, noMech),
+    composeSystemPrompt(true, { ...noMech, planGate: "interactive" }),
+    composeSystemPrompt(true, { ...noMech, planGate: "auto" }),
+    composeSystemPrompt(true, { agentProvider: "codex" }),
   ];
   for (const sp of codeSpawns) {
     // Anchor on the STABLE tag + DURABLE phrasing (not incidental wording like "always-safe default").
@@ -5390,11 +5222,11 @@ test("composeSystemPrompt rides the single-PR invariant on code spawns, never on
     expect(sp).toContain("an `[EPIC]` title prefix");
   }
   // Suppressed for a research deliverable.
-  expect(composeSystemPrompt(null, false, { ...noMech, research: true })).not.toContain(
+  expect(composeSystemPrompt(false, { ...noMech, research: true })).not.toContain(
     "<single-pr-invariant>",
   );
   // Suppressed for a landing-repair deliverable (#1667-derivative): push-only, no PR to invariant-check.
-  expect(composeSystemPrompt(null, false, { ...noMech, landingRepair: true })).not.toContain(
+  expect(composeSystemPrompt(false, { ...noMech, landingRepair: true })).not.toContain(
     "<single-pr-invariant>",
   );
 });
@@ -5403,14 +5235,12 @@ test("composeSystemPrompt rides the manual-steps notice on code spawns, never on
   // #1257: the notice gives the Owed lens a live data source. Same gate as the single-PR invariant —
   // every CODE spawn, suppressed only for research (which opens no code PR).
   // #2002: resident only where the skill + PR-time injection cannot reach — see the single-PR test.
-  const withRules = `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`;
   const noMech = { toolGuard: false } as const;
   const codeSpawns = [
-    composeSystemPrompt(null, false, noMech),
-    composeSystemPrompt(withRules, false, noMech),
-    composeSystemPrompt(null, true, noMech),
-    composeSystemPrompt(null, true, { ...noMech, planGate: "interactive" }),
-    composeSystemPrompt(null, true, { ...noMech, planGate: "auto" }),
+    composeSystemPrompt(false, noMech),
+    composeSystemPrompt(true, noMech),
+    composeSystemPrompt(true, { ...noMech, planGate: "interactive" }),
+    composeSystemPrompt(true, { ...noMech, planGate: "auto" }),
   ];
   for (const sp of codeSpawns) {
     expect(sp).toContain("<manual-steps-notice>");
@@ -5421,11 +5251,11 @@ test("composeSystemPrompt rides the manual-steps notice on code spawns, never on
     expect(sp).toContain("Most PRs need no manual steps");
     expect(sp).toContain("blocks the PR's auto-merge");
   }
-  expect(composeSystemPrompt(null, false, { ...noMech, research: true })).not.toContain(
+  expect(composeSystemPrompt(false, { ...noMech, research: true })).not.toContain(
     "<manual-steps-notice>",
   );
   // Landing repair opens no code PR either — suppressed, same as research.
-  expect(composeSystemPrompt(null, false, { ...noMech, landingRepair: true })).not.toContain(
+  expect(composeSystemPrompt(false, { ...noMech, landingRepair: true })).not.toContain(
     "<manual-steps-notice>",
   );
 });
@@ -5433,7 +5263,7 @@ test("composeSystemPrompt rides the manual-steps notice on code spawns, never on
 test("composeSystemPrompt rides the epic-authoring notice only on epicIntent, never on research", () => {
   // #1391: the notice covers the direct operator epic ask the single-PR invariant's
   // "too large for one PR" branch never reaches.
-  const withNotice = composeSystemPrompt(null, false, { epicIntent: true });
+  const withNotice = composeSystemPrompt(false, { epicIntent: true });
   expect(withNotice).toContain("<epic-authoring-notice>");
   expect(withNotice).toContain("</epic-authoring-notice>");
   // Anchors: the shared shape contract, the promotion recipe (edit the PARENT body), and the
@@ -5443,14 +5273,14 @@ test("composeSystemPrompt rides the epic-authoring notice only on epicIntent, ne
   expect(withNotice).toContain("IF the ask is to create or promote an epic");
   expect(withNotice).toContain("ignore this notice and proceed normally");
   // Default off; suppressed for research even when set.
-  expect(composeSystemPrompt(null)).not.toContain("<epic-authoring-notice>");
-  expect(composeSystemPrompt(null, false, { epicIntent: false })).not.toContain(
+  expect(composeSystemPrompt()).not.toContain("<epic-authoring-notice>");
+  expect(composeSystemPrompt(false, { epicIntent: false })).not.toContain(
     "<epic-authoring-notice>",
   );
-  expect(composeSystemPrompt(null, false, { research: true, epicIntent: true })).not.toContain(
+  expect(composeSystemPrompt(false, { research: true, epicIntent: true })).not.toContain(
     "<epic-authoring-notice>",
   );
-  expect(composeSystemPrompt(null, false, { landingRepair: true, epicIntent: true })).not.toContain(
+  expect(composeSystemPrompt(false, { landingRepair: true, epicIntent: true })).not.toContain(
     "<epic-authoring-notice>",
   );
 });
@@ -5987,16 +5817,16 @@ test("untracked passthrough: resolveMerging/clearMergingForTrain on unknown ids 
 // ── build queue ──────────────────────────────────────────────────────────────
 
 test("composeSystemPrompt includes <build-queue> block when directive is given", () => {
-  const sp = composeSystemPrompt(null, false, { buildQueue: "directive text" });
+  const sp = composeSystemPrompt(false, { buildQueue: "directive text" });
   expect(sp).toContain("<build-queue>");
   expect(sp).toContain("directive text");
   expect(sp).toContain("</build-queue>");
 });
 
 test("composeSystemPrompt omits <build-queue> block when null (1-arg backward compat)", () => {
-  expect(composeSystemPrompt(null)).not.toContain("<build-queue>");
-  expect(composeSystemPrompt(null, false)).not.toContain("<build-queue>");
-  expect(composeSystemPrompt(null, true)).not.toContain("<build-queue>");
+  expect(composeSystemPrompt()).not.toContain("<build-queue>");
+  expect(composeSystemPrompt(false)).not.toContain("<build-queue>");
+  expect(composeSystemPrompt(true)).not.toContain("<build-queue>");
 });
 
 test("buildQueueDirective (Claude) names the tools and drops the curl tutorial (#2003)", () => {
@@ -6056,7 +5886,7 @@ test("buildQueueDirective carries NO bearer token on EITHER provider (#2003)", (
 });
 
 test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () => {
-  const sp = composeSystemPrompt(null, true, { buildQueue: "bq-text" });
+  const sp = composeSystemPrompt(true, { buildQueue: "bq-text" });
   const autopilotPos = sp.indexOf("<autopilot-directive>");
   const bqPos = sp.indexOf("<build-queue>");
   expect(autopilotPos).toBeGreaterThan(-1);
@@ -6064,7 +5894,7 @@ test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () 
 });
 
 test("composeSystemPrompt places <build-queue> after branch-rename-notice (no autopilot)", () => {
-  const sp = composeSystemPrompt(null, false, { buildQueue: "bq-text", branchRename: true });
+  const sp = composeSystemPrompt(false, { buildQueue: "bq-text", branchRename: true });
   const branchPos = sp.indexOf("<branch-rename-notice>");
   const bqPos = sp.indexOf("<build-queue>");
   expect(branchPos).toBeGreaterThan(-1);
@@ -6073,22 +5903,22 @@ test("composeSystemPrompt places <build-queue> after branch-rename-notice (no au
 });
 
 test("composeSystemPrompt omits <preview-hint-notice> when previewHint is unset/false", () => {
-  expect(composeSystemPrompt(null)).not.toContain("<preview-hint-notice>");
-  expect(composeSystemPrompt(null, false)).not.toContain("<preview-hint-notice>");
-  expect(composeSystemPrompt(null, true)).not.toContain("<preview-hint-notice>");
+  expect(composeSystemPrompt()).not.toContain("<preview-hint-notice>");
+  expect(composeSystemPrompt(false)).not.toContain("<preview-hint-notice>");
+  expect(composeSystemPrompt(true)).not.toContain("<preview-hint-notice>");
 });
 
 // #2002: the hint is the `shepherd-preview` skill wherever that is loadable, so these three
 // residency/ordering tests pin the fallback shape — Codex, or an install without the skills dir.
 test("composeSystemPrompt includes <preview-hint-notice> when previewHint is true", () => {
-  const sp = composeSystemPrompt(null, false, { previewHint: true, agentSkills: false });
+  const sp = composeSystemPrompt(false, { previewHint: true, agentSkills: false });
   expect(sp).toContain("<preview-hint-notice>");
   expect(sp).toContain(".shepherd-preview");
   expect(sp).toContain("</preview-hint-notice>");
 });
 
 test("composeSystemPrompt places <preview-hint-notice> after <build-queue> when both present", () => {
-  const sp = composeSystemPrompt(null, true, {
+  const sp = composeSystemPrompt(true, {
     buildQueue: "bq-text",
     previewHint: true,
     agentSkills: false,
@@ -6100,7 +5930,7 @@ test("composeSystemPrompt places <preview-hint-notice> after <build-queue> when 
 });
 
 test("composeSystemPrompt places <preview-hint-notice> after <branch-rename-notice> when no build-queue", () => {
-  const sp = composeSystemPrompt(null, false, {
+  const sp = composeSystemPrompt(false, {
     previewHint: true,
     agentSkills: false,
     branchRename: true,
@@ -6170,7 +6000,6 @@ function buildQueueDeps(
       criticAllPrs: false,
       criticSmellLensEnabled: false,
       autoAddressEnabled: false,
-      learningsEnabled: false,
       autopilotEnabled: false,
       planGateEnabled: false,
       autoDrainEnabled: false,
@@ -6187,7 +6016,6 @@ function buildQueueDeps(
       previewOpenMode: "ask",
       egressExtraHosts: [],
       repoMode: "forge",
-      autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
       mergeWithoutCi: false,
@@ -6535,21 +6363,21 @@ test("create with per-task autopilotEnabled=false: queue NOT pre-approved even w
 // ── draft mode ───────────────────────────────────────────────────────────────
 
 test("composeSystemPrompt includes <draft-mode> block when draftMode=true", () => {
-  const sp = composeSystemPrompt(null, false, { draftMode: true });
+  const sp = composeSystemPrompt(false, { draftMode: true });
   expect(sp).toContain("<draft-mode>");
   expect(sp).toContain(DRAFT_PR_NOTE);
   expect(sp).toContain("</draft-mode>");
 });
 
 test("composeSystemPrompt omits <draft-mode> block when draftMode false/omitted", () => {
-  expect(composeSystemPrompt(null)).not.toContain("<draft-mode>");
-  expect(composeSystemPrompt(null, false)).not.toContain("<draft-mode>");
-  expect(composeSystemPrompt(null, true)).not.toContain("<draft-mode>");
-  expect(composeSystemPrompt(null, false, { draftMode: false })).not.toContain("<draft-mode>");
+  expect(composeSystemPrompt()).not.toContain("<draft-mode>");
+  expect(composeSystemPrompt(false)).not.toContain("<draft-mode>");
+  expect(composeSystemPrompt(true)).not.toContain("<draft-mode>");
+  expect(composeSystemPrompt(false, { draftMode: false })).not.toContain("<draft-mode>");
 });
 
 test("composeSystemPrompt <draft-mode> block is present alongside autopilot directive", () => {
-  const sp = composeSystemPrompt(null, true, { draftMode: true });
+  const sp = composeSystemPrompt(true, { draftMode: true });
   expect(sp).toContain("<autopilot-directive>");
   expect(sp).toContain("<draft-mode>");
 });
@@ -7194,7 +7022,7 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
       spawnSettingsOverlay(),
       ...mcpArgs(created.id),
       "--append-system-prompt",
-      composeSystemPrompt(null, false, { previewHint: true }),
+      composeSystemPrompt(false, { previewHint: true }),
       "do the thing",
     ]);
     expect(pluginIdReads()).toBe(0); // settings file never consulted for interactive spawns
@@ -8225,7 +8053,7 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
 // ── research task kind ─────────────────────────────────────────────────────────
 
 test("composeSystemPrompt: research is the highest-priority directive (suppresses plan-gate, autopilot, build-queue)", () => {
-  const sp = composeSystemPrompt(null, true, {
+  const sp = composeSystemPrompt(true, {
     research: true,
     planGate: "interactive",
     buildQueue: "QUEUE",
@@ -8237,7 +8065,7 @@ test("composeSystemPrompt: research is the highest-priority directive (suppresse
 });
 
 test("composeSystemPrompt: a non-research call with the same opts still carries plan-gate + build-queue", () => {
-  const sp = composeSystemPrompt(null, true, {
+  const sp = composeSystemPrompt(true, {
     research: false,
     planGate: "interactive",
     buildQueue: "QUEUE",
@@ -8253,7 +8081,7 @@ test("composeSystemPrompt: epicAuthoring is the primary directive and suppresses
     baseUrl: "http://127.0.0.1:7330",
     agentProvider: "claude",
   });
-  const sp = composeSystemPrompt(null, true, {
+  const sp = composeSystemPrompt(true, {
     epicAuthoring: directive,
     planGate: "interactive",
     buildQueue: "QUEUE",
@@ -8375,7 +8203,7 @@ test("create non-research: build queue IS pre-approved with buildQueueEnabled + 
 // ── landingRepair task kind ─────────────────────────────────────────────────
 
 test("composeSystemPrompt: landingRepair is the highest-priority directive (suppresses plan-gate, autopilot, build-queue)", () => {
-  const sp = composeSystemPrompt(null, true, {
+  const sp = composeSystemPrompt(true, {
     landingRepair: true,
     planGate: "interactive",
     buildQueue: "QUEUE",
@@ -8388,7 +8216,7 @@ test("composeSystemPrompt: landingRepair is the highest-priority directive (supp
 });
 
 test("composeSystemPrompt: a non-landingRepair call with the same opts still carries plan-gate + build-queue", () => {
-  const sp = composeSystemPrompt(null, true, {
+  const sp = composeSystemPrompt(true, {
     landingRepair: false,
     planGate: "interactive",
     buildQueue: "QUEUE",
@@ -8399,7 +8227,7 @@ test("composeSystemPrompt: a non-landingRepair call with the same opts still car
 });
 
 test("landingRepairDirective: repair-and-push substance, no PR", () => {
-  const sp = composeSystemPrompt(null, false, { landingRepair: true });
+  const sp = composeSystemPrompt(false, { landingRepair: true });
   // Anchor on the durable substance from the task brief, not incidental wording.
   expect(sp).toContain("epic LANDING pull request");
   expect(sp).toContain("scratch branch");
@@ -8489,7 +8317,6 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: false,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -8506,7 +8333,6 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -8540,7 +8366,6 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
-    learningsEnabled: false,
     autopilotEnabled: false,
     planGateEnabled: false,
     autoDrainEnabled: false,
@@ -8557,7 +8382,6 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
-    autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     mergeWithoutCi: false,
@@ -9298,147 +9122,6 @@ test("createSession: fable available → argv uses fable directly", async () => 
   }
 });
 
-// ── learnings lifecycle: spawn recording + archive reward ─────────────────────
-
-function learningsArchiveService(store: SessionStore) {
-  return new SessionService({
-    store,
-    namer: async () => "x",
-    worktree: {
-      create: () => ({}),
-      ensureBaseRef: async () => {},
-      branchExists: () => false,
-      remove: () => {},
-    } as any,
-    herdr: { start: async () => ({}), list: () => [], stop: async () => {} } as any,
-  });
-}
-
-test("learnings: spawn records injected set; injectedCount stays 0 until archive", async () => {
-  const store = new SessionStore(":memory:");
-  const a = store.addLearning({ repoPath: "/repo", rule: "Use bun", rationale: "", evidence: [] });
-  store.setLearningStatus(a.id, "active");
-  const b = store.addLearning({
-    repoPath: "/repo",
-    rule: "Prefer TS",
-    rationale: "",
-    evidence: [],
-  });
-  store.setLearningStatus(b.id, "active");
-
-  const captured: { argv?: string[] } = {};
-  const svc = new SessionService(injectDeps(store, captured) as any);
-  const s = await svc.create({
-    repoPath: "/repo",
-    baseBranch: "main",
-    prompt: "go",
-    model: null,
-    images: [],
-  });
-
-  // System prompt carries the house-rules block (rules were injected).
-  expect(sysPrompt(captured.argv!)).toContain(`<${HOUSE_RULES_TAG}>`);
-
-  // Counters not bumped at spawn time.
-  expect(store.getLearning(a.id)!.injectedCount).toBe(0);
-  expect(store.getLearning(b.id)!.injectedCount).toBe(0);
-
-  // Join rows are present (consume them to verify).
-  const ids = store.takeSessionInjectedLearnings(s.id);
-  expect(ids.sort()).toEqual([a.id, b.id].sort());
-});
-
-test("learnings: archive good outcome → pull + help for every injected rule", async () => {
-  const store = new SessionStore(":memory:");
-  const a = store.addLearning({ repoPath: "/r", rule: "Use bun", rationale: "", evidence: [] });
-  store.setLearningStatus(a.id, "active");
-
-  // Create session row + record injected set directly (avoids full spawn scaffolding).
-  const s = store.create({
-    name: "x",
-    prompt: "x",
-    repoPath: "/r",
-    baseBranch: "main",
-    branch: "shepherd/x",
-    worktreePath: "/wt",
-    isolated: true,
-    herdrSession: "default",
-    herdrAgentId: "t1",
-  });
-  store.recordInjectedLearnings(s.id, [a.id]);
-
-  // No review + no blocking signals → good outcome.
-  const svc = learningsArchiveService(store);
-  await svc.archive(s.id);
-
-  const after = store.getLearning(a.id)!;
-  expect(after.injectedCount).toBe(1);
-  expect(after.helpfulCount).toBe(1);
-  // Join rows consumed.
-  expect(store.takeSessionInjectedLearnings(s.id)).toEqual([]);
-});
-
-test("learnings: archive bad outcome (blocking signal) → pull only, no help", async () => {
-  const store = new SessionStore(":memory:");
-  const a = store.addLearning({ repoPath: "/r", rule: "Use bun", rationale: "", evidence: [] });
-  store.setLearningStatus(a.id, "active");
-
-  const s = store.create({
-    name: "x",
-    prompt: "x",
-    repoPath: "/r",
-    baseBranch: "main",
-    branch: "shepherd/x",
-    worktreePath: "/wt",
-    isolated: true,
-    herdrSession: "default",
-    herdrAgentId: "t1",
-  });
-  store.recordInjectedLearnings(s.id, [a.id]);
-
-  // Add a blocking signal → bad outcome.
-  store.addSignal({ repoPath: "/r", sessionId: s.id, kind: "block", payload: "stuck" });
-
-  const svc = learningsArchiveService(store);
-  await svc.archive(s.id);
-
-  const after = store.getLearning(a.id)!;
-  expect(after.injectedCount).toBe(1);
-  expect(after.helpfulCount).toBe(0);
-  expect(store.takeSessionInjectedLearnings(s.id)).toEqual([]);
-});
-
-test("learnings: disabled repo records nothing and archive is a reward no-op", async () => {
-  const store = new SessionStore(":memory:");
-  const a = store.addLearning({ repoPath: "/repo", rule: "Use bun", rationale: "", evidence: [] });
-  store.setLearningStatus(a.id, "active");
-  store.setRepoConfig("/repo", {
-    ...store.getRepoConfig("/repo"),
-    learningsEnabled: false,
-  });
-
-  const captured: { argv?: string[] } = {};
-  const svc = new SessionService(injectDeps(store, captured) as any);
-  const s = await svc.create({
-    repoPath: "/repo",
-    baseBranch: "main",
-    prompt: "go",
-    model: null,
-    images: [],
-  });
-
-  // No injected rows recorded.
-  expect(store.takeSessionInjectedLearnings(s.id)).toEqual([]);
-
-  // Archive via a fresh minimal service for the same session (already created above).
-  const archiveSvc = learningsArchiveService(store);
-  await archiveSvc.archive(s.id);
-
-  // Counters untouched.
-  expect(store.getLearning(a.id)!.injectedCount).toBe(0);
-  expect(store.getLearning(a.id)!.helpfulCount).toBe(0);
-});
-
 // ── #1144: runaway-orphan reap at teardown ───────────────────────────────────
 
 /** Minimal SessionService wired for archive(); records reapRunaway calls. */
@@ -9664,7 +9347,7 @@ test("interrupt sends ONE lone ESC to the session's live pane — no paste marke
   expect(emitted).toEqual([]);
 });
 
-test("interrupt records no signal — `reply` is a distiller-mined kind and ESC has no payload", async () => {
+test("interrupt records no signal — `reply` carries operator words and ESC has none", async () => {
   const { service, store, session } = interruptHarness({ agents: [liveAgent("term_a")] });
 
   expect(await service.interrupt(session.id)).toBe(true);

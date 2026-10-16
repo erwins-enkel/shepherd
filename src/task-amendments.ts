@@ -125,8 +125,8 @@ export function amendmentBlock(
  *
  * SHEPHERD'S OWN NOTICE, not the operator's words — it rides the PTY only. The recorded `reply`
  * signal keeps the raw operator text (see `SessionService.operatorReply`'s `signalPayload`), for the
- * same reason the epic-authoring notice does: the learnings distiller mines those signals, and it
- * must never mine Shepherd's own boilerplate. NOT UI chrome — never i18n'd.
+ * same reason the epic-authoring notice does: the recorded steer history must never carry
+ * Shepherd's own boilerplate. NOT UI chrome — never i18n'd.
  */
 export function amendmentSteerText(text: string): string {
   return [

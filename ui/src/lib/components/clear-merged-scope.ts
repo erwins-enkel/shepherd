@@ -1,5 +1,5 @@
 import type { Session } from "../types";
-import { basename } from "./learnings-drawer";
+import { basename } from "#lib/basename.js";
 
 /** The "decommission all merged" batch, split along the herd's repo filter. */
 export interface ClearMergedScope {

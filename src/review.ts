@@ -61,11 +61,6 @@ import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import { sanitizeRecapFailureDetail } from "./recap";
 import { isEpicChild } from "./epic-branch";
 import {
-  planHouseRulesInjection,
-  renderHouseRulesBlock,
-  HOUSE_RULES_DEFAULT_BUDGET_CHARS,
-} from "./house-rules";
-import {
   resolveAuxPatch,
   assembleAuxSpawn,
   type MembraneSeams,
@@ -329,7 +324,6 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "setReviewerSpawnOutcome"
     | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
-    | "listActiveLearnings"
     | "putSpawnNotice"
     | "getSpawnNotice"
     | "clearSpawnNotice"
@@ -439,9 +433,6 @@ export interface ReviewServiceDeps extends MembraneSeams {
    *  base object, NOT the worktree — the worktree is the UNTRUSTED PR head, and the policy rides the
    *  prompt unfenced (see defaultReadReviewPolicy). */
   readReviewPolicy?: (worktreePath: string, baseSha: string) => Promise<string | null>;
-  /** Char budget for the house-rules block injected into the critic (#2154). A thunk so a live
-   *  config value takes effect on the next review; defaults to the shared house-rules default. */
-  houseRulesBudgetChars?: () => number;
 }
 
 /** A PR no critic can act on any more: it merged, or it was closed unmerged. Either way the
@@ -511,7 +502,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   ) => Promise<SessionUsage | null>;
   private readPlan: (worktreePath: string) => string | null;
   private readReviewPolicy: (worktreePath: string, baseSha: string) => Promise<string | null>;
-  private houseRulesBudgetFn: () => number;
   private worktreeExists: (p: string) => boolean;
 
   constructor(private deps: ReviewServiceDeps) {
@@ -537,8 +527,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       ((wt, id, provider, model) => reviewerUsage(wt, id, provider, model, this.codexResolver));
     this.readPlan = deps.readPlan ?? defaultReadPlan;
     this.readReviewPolicy = deps.readReviewPolicy ?? defaultReadReviewPolicy;
-    this.houseRulesBudgetFn =
-      deps.houseRulesBudgetChars ?? (() => HOUSE_RULES_DEFAULT_BUDGET_CHARS);
     this.worktreeExists = deps.worktreeExists ?? existsSync;
   }
 
@@ -872,10 +860,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
-    // #2154 slice 2: the repo's standing house rules, planned fresh for THIS review and scoped by
-    // the files the diff actually touches. Synchronous store read, resolved here (not cached from
-    // the criticEnabled gate) so a learnings toggle takes effect on the next review round.
-    const houseRules = this.repoHouseRules(session.repoPath, files);
     // #2225: the operator's standing amendments to the task. Synchronous store read, resolved here
     // with the rest of the per-run context; retracted ones are already excluded at the source.
     const amendments = this.deps.store.listActiveTaskAmendments(session.id);
@@ -890,7 +874,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       epic,
       smellLens,
       round,
-      houseRules,
       planCtx.approved,
       amendments,
     );
@@ -1213,7 +1196,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     epic: EpicContext | null,
     smellLens: boolean,
     round: number,
-    houseRules: string | null,
     planApproved: boolean,
     amendments: readonly TaskAmendment[],
   ): (v: ComposeVars) => string {
@@ -1229,8 +1211,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // has a task); prReviewPrompt omits it, so the standalone-critic prompt stays byte-identical.
     // #1824 finding C: `smellLens` (per-repo flag, default OFF) appends the POSSIBLE-SMELLS lens.
     // Absent plan + no epic + smellLens off ⇒ the non-epic session-critic prompt is unchanged.
-    // #2154: `reviewPolicy` is a ladder-varied argument (it is clampable); `houseRules` is captured
-    // (it is already bounded by the house-rules char budget, so it never clamps).
+    // #2154: `reviewPolicy` is a ladder-varied argument (it is clampable).
     // #2225: `amendments` is captured for the same reason — operator ground truth, NOT clampable,
     // and already bounded by AMENDMENT_MAX_CHARS × the block's own item cap. See fitCriticPrompt.
     return (v) =>
@@ -1244,7 +1225,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
         planCurrent: v.planCurrent,
         planCurrentClamped: v.planCurrentClamped,
         reviewPolicy: v.reviewPolicy,
-        houseRules,
         amendments,
       });
   }
@@ -1257,33 +1237,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     baseSha: string | null,
   ): Promise<string | null> {
     return baseSha ? await this.readReviewPolicy(worktreePath, baseSha) : null;
-  }
-
-  /** The `<shepherd-house-rules>` block of the repo's standing rules, scoped to the files the diff
-   *  actually touches (#2154 slice 2). null when the repo has learnings off or there is nothing to
-   *  inject.
-   *
-   *  NOT a reproduction of what the authoring agent received, and the prompt must not claim it is
-   *  (see reviewerHouseRulesBlock): this is a FRESH plan over the CURRENT active rules, with a
-   *  recency decay evaluated at `now()` and scoping from the diff — so it can differ from the cut
-   *  the author saw at spawn, in either direction. That is the right trade: `files` is strictly
-   *  better scope input than the author side gets, since `recordInjectedHouseRules` has to guess the
-   *  target paths by scraping the task text BEFORE the session runs, whereas by review time the
-   *  changed-file set is known exactly.
-   *
-   *  Deliberately does NOT call `recordInjectedLearnings`. `injectedCount` is the denominator of the
-   *  Wilson lower bound that auto-retires a rule (learnings-lifecycle), and the numerator is only
-   *  ever paid at the AUTHOR session's archive. Counting reviewer spawns there would inflate every
-   *  rule's denominator with pulls no reward can match, retiring rules that are doing their job. */
-  private repoHouseRules(repoPath: string, files: string[]): string | null {
-    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
-    const { injected } = planHouseRulesInjection(
-      this.deps.store.listActiveLearnings(repoPath),
-      this.houseRulesBudgetFn(),
-      this.now(),
-      files,
-    );
-    return renderHouseRulesBlock(injected);
   }
 
   private reviewerEnv(): RoleEnvironment {
@@ -2417,9 +2370,8 @@ function defaultReadPlan(worktreePath: string): string | null {
  *  `issueBody` are human-authored ground truth — `stripPlanLineRefs`' doc exempts exactly those two
  *  from mutation for the same reason — and `priorFindings`/`authorNotes` are CONSUMED-ONCE: the next
  *  row is built only from this round's output, and `seenNoteIds` is derived before assembly and
- *  already marks those notes delivered, so a dropped one could never be re-raised or re-fed. The
- *  house-rules block (#2154) is likewise not listed: it is already bounded by the house-rules char
- *  budget, and neither are the operator's task amendments (#2225) — those ARE the third piece of
+ *  already marks those notes delivered, so a dropped one could never be re-raised or re-fed. Nor
+ *  are the operator's task amendments (#2225) — those ARE the third piece of
  *  human-authored ground truth alongside `task` and `issueBody`, so truncating one would silently
  *  narrow an authorization the operator gave; they are bounded at the point of entry instead
  *  (AMENDMENT_MAX_CHARS, times the block's own item cap). `diffBase` is a SHA, not the diff.

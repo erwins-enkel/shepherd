@@ -111,8 +111,7 @@ test("steer:true delivers through operatorReply, wrapper on the PTY and raw text
   // The PTY text is Shepherd's wrapper carrying the operator's words...
   expect(calls[0]!.text).toContain("The operator has AMENDED your task");
   expect(calls[0]!.text).toContain("go ahead and build it");
-  // ...while the recorded signal keeps the RAW operator text, so the learnings distiller never
-  // mines Shepherd's own boilerplate.
+  // ...while the recorded signal keeps the RAW operator text, never Shepherd's own boilerplate.
   expect(calls[0]!.signalPayload).toBe("go ahead and build it");
 });
 

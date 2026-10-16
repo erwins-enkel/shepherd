@@ -229,7 +229,7 @@ test("resume of a P3 session re-renders the gap sweep", async () => {
 });
 
 test("composeSystemPrompt: bootstrap outranks plan gate + autopilot but keeps the PR blocks", () => {
-  const sp = composeSystemPrompt(null, true, {
+  const sp = composeSystemPrompt(true, {
     bootstrap: "BOOT",
     planGate: "interactive",
     toolGuard: false,

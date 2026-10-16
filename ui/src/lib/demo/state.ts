@@ -26,7 +26,6 @@ import type {
   HeldTask,
   Steer,
   ProjectIcons,
-  Learning,
   UsageLimitsResponse,
   UpdateStatus,
   HerdrUpdateStatus,
@@ -717,7 +716,6 @@ export const demoState = {
   upNext: (): UpNextSnapshot | null => world.upNext,
   steers: (): Steer[] => world.steers,
   projectIcons: (): ProjectIcons => world.projectIcons,
-  pendingLearnings: (): Learning[] => world.pendingLearnings,
 
   /** Merged, non-archived session ids — for the "Clear merged" confirm modal.
    *  Matches `getMergedClearable()`'s `{ids, leftovers, leftoversById, probesUnavailable}` in

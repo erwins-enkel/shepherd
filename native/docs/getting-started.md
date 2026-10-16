@@ -213,8 +213,8 @@ and choose **Start**.
 6. Keep an eye on held tasks, Up Next and the Done panel to see what is waiting, what runs next
    and what has finished.
 
-The [screenshot tour](screenshots.md) shows these views with real sessions. For the backlog, epic
-management and learnings, open the web UI of the same Shepherd server. To work on the app itself,
+The [screenshot tour](screenshots.md) shows these views with real sessions. For the backlog and epic
+management, open the web UI of the same Shepherd server. To work on the app itself,
 continue with the [development guide](development.md).
 
 ## Install a tester release

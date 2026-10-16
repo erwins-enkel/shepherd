@@ -504,7 +504,7 @@ test("codex: every kind carries the full leading block — sandbox, thread sourc
 // --ignore-user-config drops $CODEX_HOME/config.toml, so the tmpdir kinds would otherwise die at
 // spawn on "Not inside a trusted directory" — the trust entries live in the file we stopped loading.
 // This flag is a REQUIREMENT of the isolation, not a nicety; losing it silently breaks recap, namer,
-// verify-key, autopilot, distiller, optimizer, merge-suggest and task-shape.
+// verify-key, autopilot and task-shape.
 test("codex: --skip-git-repo-check accompanies --ignore-user-config for every kind", () => {
   for (const kind of ALL_KINDS) {
     const { argv } = buildTransientAgentArgv(kind, { provider: "codex", model: null, prompt: "p" });

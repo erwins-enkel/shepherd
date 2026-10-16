@@ -30,8 +30,7 @@ describe("Codex model config seed", () => {
 
 // ── numeric env guards (issue #2362) ─────────────────────────────────────────
 // A non-numeric value must never become NaN: every comparison against NaN is false, which
-// reads as "the guard is off" (a vanished push cooldown, a cap that never trips, zero
-// house rules injected). Caps/intervals warn + fall back; the port fails fast.
+// reads as "the guard is off" (a vanished push cooldown, a cap that never trips). Caps/intervals warn + fall back; the port fails fast.
 
 /** Import config.ts in a child with a doctored env; returns the child's result. Each `undefined`
  *  override is DELETED from the inherited env so an ambient value can't mask the default. */
@@ -142,15 +141,6 @@ describe("config seeds reject non-numeric env values", () => {
     expect(r.stderr).toContain("SHEPHERD_PUSH_COOLDOWN_MS");
   });
 
-  test("a typo'd house-rules budget falls back instead of injecting zero rules", () => {
-    const r = spawnConfig(
-      { SHEPHERD_HOUSE_RULES_BUDGET_CHARS: "lots" },
-      "console.log(config.houseRulesBudgetChars);",
-    );
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toBe("4000");
-  });
-
   test("every guarded seed resolves to its default when set-but-empty", () => {
     const r = spawnConfig(
       {
@@ -160,12 +150,11 @@ describe("config seeds reject non-numeric env values", () => {
         SHEPHERD_AUTOMERGE_REBASE_CAP: "",
         SHEPHERD_PREVIEW_SWEEP_MS: "",
         SHEPHERD_PREVIEW_KILL_MAX_AGE_MS: "",
-        SHEPHERD_HOUSE_RULES_BUDGET_CHARS: "",
       },
-      "console.log(JSON.stringify([config.port, config.pushCooldownMs, config.autopilotStepCap, config.autoMergeRebaseCap, config.previewSweepMs, config.previewKillMaxAgeMs, config.houseRulesBudgetChars]));",
+      "console.log(JSON.stringify([config.port, config.pushCooldownMs, config.autopilotStepCap, config.autoMergeRebaseCap, config.previewSweepMs, config.previewKillMaxAgeMs]));",
     );
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout)).toEqual([7330, 120000, 10, 5, 4000, 10000, 4000]);
+    expect(JSON.parse(r.stdout)).toEqual([7330, 120000, 10, 5, 4000, 10000]);
   });
 
   test("no guarded seed can be NaN for a garbage env", () => {
@@ -176,11 +165,10 @@ describe("config seeds reject non-numeric env values", () => {
         SHEPHERD_AUTOMERGE_REBASE_CAP: "a few",
         SHEPHERD_PREVIEW_SWEEP_MS: "4s",
         SHEPHERD_PREVIEW_KILL_MAX_AGE_MS: "10s",
-        SHEPHERD_HOUSE_RULES_BUDGET_CHARS: "lots",
       },
-      "console.log(JSON.stringify([config.pushCooldownMs, config.autopilotStepCap, config.autoMergeRebaseCap, config.previewSweepMs, config.previewKillMaxAgeMs, config.houseRulesBudgetChars]));",
+      "console.log(JSON.stringify([config.pushCooldownMs, config.autopilotStepCap, config.autoMergeRebaseCap, config.previewSweepMs, config.previewKillMaxAgeMs]));",
     );
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout)).toEqual([120000, 10, 5, 4000, 10000, 4000]);
+    expect(JSON.parse(r.stdout)).toEqual([120000, 10, 5, 4000, 10000]);
   });
 });

@@ -37,8 +37,6 @@ const chip = (d: DrainStatus) => ({
   repoPath: d.repoPath,
   count: 1,
   drain: d,
-  insights: 0,
-  curate: 0,
 });
 
 const usageHold = (over: Partial<DrainStatus> = {}) =>

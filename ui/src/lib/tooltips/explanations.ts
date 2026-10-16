@@ -17,7 +17,7 @@ import {
   assistantGroupTitle,
   assistantShellLevelLabel,
 } from "#lib/assistant-permissions.js";
-import { basename } from "#lib/components/learnings-drawer.js";
+import { basename } from "#lib/basename.js";
 import { lastKnownLabel, platformName, type MirroredSession } from "#lib/remote-sessions.js";
 import { capabilityList, placementReason } from "#lib/placement.js";
 import { isBlocked, missingList, offlineLabel } from "#lib/remote-dispatches.js";

@@ -13,9 +13,5 @@ export const CODEX_ROLE_OUTPUT_SCHEMAS = {
   planReview: schemaPath("plan-review.json"),
   critic: schemaPath("critic.json"),
   criticWithPlan: schemaPath("critic-with-plan.json"),
-  distiller: schemaPath("distiller.json"),
-  optimizer: schemaPath("optimizer.json"),
-  mergeIntra: schemaPath("merge-intra.json"),
-  mergeCross: schemaPath("merge-cross.json"),
   requirements: schemaPath("requirements.json"),
 } as const;

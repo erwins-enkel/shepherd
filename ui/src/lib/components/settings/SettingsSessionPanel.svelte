@@ -18,11 +18,10 @@
     putJudgeEnabled,
     putJudgeDailyUsd,
     putBlockJudgeMode,
-    putHouseRuleRelevance,
     putUpNextReadiness,
     logout,
   } from "#lib/api.js";
-  import { MODELS, type HouseRuleRelevanceMode, type Settings } from "#lib/types.js";
+  import { MODELS, type Settings } from "#lib/types.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
   import RestartShepherdDialog from "#lib/components/RestartShepherdDialog.svelte";
@@ -126,12 +125,9 @@
   let blockJudgeMode = $state<"off" | "shadow" | "armed">("off");
   let blockJudgeModeSaved: "off" | "shadow" | "armed" = "off";
   let blockJudgeBusy = $state(false);
-  let houseRuleRelevance = $state<HouseRuleRelevanceMode>("off");
-  let houseRuleRelevanceSaved: HouseRuleRelevanceMode = "off";
-  let houseRuleRelevanceBusy = $state(false);
   let upNextReadiness = $state(false);
   let upNextReadinessBusy = $state(false);
-  // Like house-rule relevance: the rerank only runs while the judge is armed (#2535).
+  // The rerank only runs while the judge is armed (#2535).
   const judgeArmed = $derived(judgeEnabled && judgeHasKey);
 
   // Seed once from the parent's single getSettings() payload; server-seed
@@ -173,8 +169,6 @@
       judgeDailyUsdSaved = judgeDailyUsd;
       blockJudgeMode = s.blockJudgeMode ?? "off";
       blockJudgeModeSaved = blockJudgeMode;
-      houseRuleRelevance = s.houseRuleRelevance ?? "off";
-      houseRuleRelevanceSaved = houseRuleRelevance;
       upNextReadiness = s.upNextReadiness ?? false;
       telemetryOn = s.telemetryConsent === "granted";
       telemetryAvailable = s.telemetryAvailable;
@@ -397,25 +391,6 @@
       toasts.info(m.settings_block_judge_save_failed(), { key: "block-judge", alert: true });
     } finally {
       blockJudgeBusy = false;
-    }
-  }
-
-  async function saveHouseRuleRelevance() {
-    if (houseRuleRelevanceBusy) return;
-    houseRuleRelevanceBusy = true;
-    const next = houseRuleRelevance;
-    try {
-      const r = await putHouseRuleRelevance(next);
-      houseRuleRelevance = r.houseRuleRelevance;
-      houseRuleRelevanceSaved = r.houseRuleRelevance;
-    } catch {
-      houseRuleRelevance = houseRuleRelevanceSaved;
-      toasts.info(m.settings_house_rule_relevance_save_failed(), {
-        key: "house-rule-relevance",
-        alert: true,
-      });
-    } finally {
-      houseRuleRelevanceBusy = false;
     }
   }
 
@@ -870,30 +845,6 @@
         <option value="off">{m.settings_block_judge_mode_off()}</option>
         <option value="shadow">{m.settings_block_judge_mode_shadow()}</option>
         <option value="armed">{m.settings_block_judge_mode_armed()}</option>
-      </select>
-      <span class="set-chev" aria-hidden="true">▾</span>
-    </span>
-  {/snippet}
-</SettingRow>
-
-<SettingRow
-  title={m.settings_house_rule_relevance_label()}
-  description={judgeEnabled && judgeHasKey
-    ? m.settings_house_rule_relevance_hint()
-    : m.settings_house_rule_relevance_no_key_hint()}
-  {query}
->
-  {#snippet control()}
-    <span class="set-select">
-      <select
-        bind:value={houseRuleRelevance}
-        disabled={houseRuleRelevanceBusy || !judgeEnabled || !judgeHasKey}
-        aria-label={m.settings_house_rule_relevance_label()}
-        onchange={saveHouseRuleRelevance}
-      >
-        <option value="off">{m.settings_house_rule_relevance_off()}</option>
-        <option value="shadow">{m.settings_house_rule_relevance_shadow()}</option>
-        <option value="enforce">{m.settings_house_rule_relevance_enforce()}</option>
       </select>
       <span class="set-chev" aria-hidden="true">▾</span>
     </span>

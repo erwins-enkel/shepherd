@@ -2,7 +2,7 @@
   import type { Session } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { basename } from "./learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import { qualifiedDesig } from "#lib/remote-sessions.js";
   import { scopeClearMerged, sumLeftovers } from "./clear-merged-scope";
 

@@ -55,7 +55,7 @@ function fakeHerdr(listed: FakeTab[], opts: { throwOnList?: boolean; throwOnTabs
   };
 }
 
-const LABEL = "__distill__";
+const LABEL = "__helper__";
 
 test("closes prefix-matched orphan tabs, sparing unrelated labels and owned terminals", async () => {
   const h = fakeHerdr([
@@ -63,7 +63,7 @@ test("closes prefix-matched orphan tabs, sparing unrelated labels and owned term
     { label: "some-session", terminalId: "u1", tabId: "tabU" }, // unrelated → spare
     { label: LABEL + "live0001", terminalId: "m1", tabId: "tabL" }, // owned → spare
   ]);
-  await reapTransientByLabel(h, LABEL, new Set(["m1"]), "[distill]");
+  await reapTransientByLabel(h, LABEL, new Set(["m1"]), "[helper]");
   expect(h.closed).toEqual(["tabO"]);
 });
 
@@ -72,22 +72,22 @@ test("closes ALL unowned prefix matches", async () => {
     { label: LABEL + "a", terminalId: "t1", tabId: "tab1" },
     { label: LABEL + "b", terminalId: "t2", tabId: "tab2" },
   ]);
-  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  await reapTransientByLabel(h, LABEL, new Set(), "[helper]");
   expect(h.closed).toEqual(["tab1", "tab2"]);
 });
 
 test("different label prefix isolates each consumer's reaping", async () => {
   const h = fakeHerdr([
-    { label: "__distill__x", terminalId: "t1", tabId: "tabD" },
-    { label: "__optimize__y", terminalId: "t2", tabId: "tabO" },
+    { label: "__helper__x", terminalId: "t1", tabId: "tabD" },
+    { label: "__other__y", terminalId: "t2", tabId: "tabO" },
   ]);
-  await reapTransientByLabel(h, "__optimize__", new Set(), "[optimize]");
-  expect(h.closed).toEqual(["tabO"]); // distiller's tab is left for distiller's own pass
+  await reapTransientByLabel(h, "__other__", new Set(), "[other]");
+  expect(h.closed).toEqual(["tabO"]); // the other prefix's tab is left for its own pass
 });
 
 test("no matches → closes nothing", async () => {
   const h = fakeHerdr([{ label: "regular-session", terminalId: "t", tabId: "tab" }]);
-  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  await reapTransientByLabel(h, LABEL, new Set(), "[helper]");
   expect(h.closed).toEqual([]);
 });
 
@@ -101,13 +101,13 @@ test("reaps a helper HUSK whose agent has already exited (absent from agent list
   const h = fakeHerdr([
     { label: LABEL + "deadbeef", terminalId: "gone", tabId: "tabH", husk: true },
   ]);
-  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  await reapTransientByLabel(h, LABEL, new Set(), "[helper]");
   expect(h.closed).toEqual(["tabH"]);
 });
 
 test("an empty owned set never touches agent list (boot call: nothing of ours is running)", async () => {
   const h = fakeHerdr([{ label: LABEL + "a", terminalId: "t1", tabId: "tab1" }]);
-  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  await reapTransientByLabel(h, LABEL, new Set(), "[helper]");
   expect(h.closed).toEqual(["tab1"]);
   expect(h.listCalls.n).toBe(0);
 });
@@ -116,8 +116,8 @@ test("tab list unavailable → best-effort no-op, never throws", async () => {
   const h = fakeHerdr([{ label: LABEL + "a", terminalId: "t1", tabId: "tab1" }], {
     throwOnTabs: true,
   });
-  expect(() => reapTransientByLabel(h, LABEL, new Set(), "[distill]")).not.toThrow();
-  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  expect(() => reapTransientByLabel(h, LABEL, new Set(), "[helper]")).not.toThrow();
+  await reapTransientByLabel(h, LABEL, new Set(), "[helper]");
   expect(h.closed).toEqual([]);
 });
 
@@ -127,7 +127,7 @@ test("agent list throwing with an owned set is fail-closed — closes nothing", 
   const h = fakeHerdr([{ label: LABEL + "a", terminalId: "m1", tabId: "tab1" }], {
     throwOnList: true,
   });
-  await reapTransientByLabel(h, LABEL, new Set(["m1"]), "[distill]");
+  await reapTransientByLabel(h, LABEL, new Set(["m1"]), "[helper]");
   expect(h.closed).toEqual([]);
 });
 

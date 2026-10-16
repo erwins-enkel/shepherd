@@ -17,69 +17,58 @@ import { SessionStore } from "../src/store";
 /** The spawn shapes the instrument has to cover. Every flag the composer branches on appears at
  *  least once, both providers appear, both plan-gate variants appear, and both operator languages
  *  appear — so a block that silently stopped being emitted fails the reconstruction assertion. */
-const HOUSE_RULES = "<shepherd-house-rules>\n- keep it small\n</shepherd-house-rules>";
 const MATRIX: {
   label: string;
-  houseRules: string | null;
   autopilot: boolean;
   opts: ComposeSystemPromptOptions;
 }[] = [
-  { label: "attended, bare", houseRules: null, autopilot: false, opts: {} },
-  { label: "attended + house rules", houseRules: HOUSE_RULES, autopilot: false, opts: {} },
-  { label: "autopilot", houseRules: null, autopilot: true, opts: {} },
-  { label: "research", houseRules: null, autopilot: false, opts: { research: true } },
+  { label: "attended, bare", autopilot: false, opts: {} },
+  { label: "autopilot", autopilot: true, opts: {} },
+  { label: "research", autopilot: false, opts: { research: true } },
   {
     label: "epic authoring",
-    houseRules: null,
     autopilot: true,
     opts: { epicAuthoring: "draft the epic" },
   },
-  { label: "landing repair", houseRules: null, autopilot: true, opts: { landingRepair: true } },
+  { label: "landing repair", autopilot: true, opts: { landingRepair: true } },
   {
     label: "plan gate interactive",
-    houseRules: null,
     autopilot: true,
     opts: { planGate: "interactive" },
   },
-  { label: "plan gate auto", houseRules: null, autopilot: true, opts: { planGate: "auto" } },
+  { label: "plan gate auto", autopilot: true, opts: { planGate: "auto" } },
   {
     label: "build queue + preview + draft + trim",
-    houseRules: HOUSE_RULES,
     autopilot: false,
     opts: { buildQueue: "PUT the steps", previewHint: true, draftMode: true, trimmed: true },
   },
-  { label: "epic intent", houseRules: null, autopilot: false, opts: { epicIntent: true } },
+  { label: "epic intent", autopilot: false, opts: { epicIntent: true } },
   {
     label: "codex attended",
-    houseRules: null,
     autopilot: false,
     opts: { agentProvider: "codex" },
   },
   {
     label: "codex autopilot + build queue",
-    houseRules: HOUSE_RULES,
     autopilot: true,
     opts: { agentProvider: "codex", buildQueue: "PUT the steps" },
   },
   {
     label: "operator language de",
-    houseRules: null,
     autopilot: false,
     opts: { operatorLanguage: "de" },
   },
   // #2002: the mechanism-off shapes. A block leaves the prompt only when the mechanism that
   // replaces it reaches the spawn, so both fallbacks have to stay measurable.
-  { label: "tool guard off", houseRules: null, autopilot: false, opts: { toolGuard: false } },
-  { label: "agent skills off", houseRules: null, autopilot: false, opts: { agentSkills: false } },
+  { label: "tool guard off", autopilot: false, opts: { toolGuard: false } },
+  { label: "agent skills off", autopilot: false, opts: { agentSkills: false } },
   {
     label: "no mechanism at all",
-    houseRules: null,
     autopilot: true,
     opts: { toolGuard: false, agentSkills: false, previewHint: true, branchRename: true },
   },
   {
     label: "branch rename possible",
-    houseRules: null,
     autopilot: false,
     opts: { branchRename: true },
   },
@@ -89,8 +78,8 @@ const MATRIX: {
 
 test("#1999 blocks + separators reconstruct the exact emitted payload", () => {
   for (const c of MATRIX) {
-    const payload = composeSystemPrompt(c.houseRules, c.autopilot, c.opts);
-    const blocks = composeSystemPromptBlocks(c.houseRules, c.autopilot, c.opts);
+    const payload = composeSystemPrompt(c.autopilot, c.opts);
+    const blocks = composeSystemPromptBlocks(c.autopilot, c.opts);
 
     // 1. The parts really do join back into the byte-identical payload.
     expect(joinPromptBlocks(blocks)).toBe(payload);
@@ -111,7 +100,7 @@ test("#1999 blocks + separators reconstruct the exact emitted payload", () => {
 
 test("#1999 every block is named after the tag wrapping it, and names are unique", () => {
   for (const c of MATRIX) {
-    const blocks = composeSystemPromptBlocks(c.houseRules, c.autopilot, c.opts);
+    const blocks = composeSystemPromptBlocks(c.autopilot, c.opts);
     expect(blocks.length).toBeGreaterThan(0);
     for (const b of blocks) {
       expect(b.name).not.toBe("");
@@ -142,22 +131,21 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // Every shape then gained 209 chars / 211 bytes when the research-first notice stopped letting
   // framework majors pass as "well-established" (#3108).
   const baseline: [string, number, string][] = [
-    ["attended Claude, no house rules", 3566, "3610"],
+    ["attended Claude", 3566, "3610"],
     ["+ autopilot", 4652, "4700"],
     ["plan-gate interactive", 8869, "8957"],
     ["research", 4375, "4423"],
   ];
   const payloads = [
-    composeSystemPrompt(null, false),
-    composeSystemPrompt(null, true),
-    composeSystemPrompt(null, true, { planGate: "interactive" }),
-    composeSystemPrompt(null, false, { research: true }),
+    composeSystemPrompt(false),
+    composeSystemPrompt(true),
+    composeSystemPrompt(true, { planGate: "interactive" }),
+    composeSystemPrompt(false, { research: true }),
   ];
   payloads.forEach((payload, i) => {
     const [label, chars, bytes] = baseline[i]!;
     const measured = measurePromptBlocks(
       composeSystemPromptBlocks(
-        null,
         [false, true, true, false][i]!,
         [{}, {}, { planGate: "interactive" as const }, { research: true }][i]!,
       ),
@@ -168,19 +156,18 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   });
 });
 
-test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", () => {
+test("#1999 kitchen sink: build queue + preview + draft + trim", () => {
   // The epic quotes 12,042 chars for this shape, but that number is NOT reproducible from the issue:
-  // it depends on the house-rules text (unstated) and on the build-queue directive, whose length
+  // it depends on the (since retired, #3139) house-rules text and on the build-queue directive, whose length
   // varies with the session id / base URL / token baked into its curl commands. So this pins the
   // measurement to an EXPLICIT fixture instead — reproducible from this test forever after.
-  const houseRules = "<shepherd-house-rules>\n- keep it small\n</shepherd-house-rules>";
   const buildQueue = buildQueueDirective({
     sessionId: "00000000-0000-4000-8000-000000000000",
     baseUrl: "http://127.0.0.1:7331",
     autopilot: false,
     agentProvider: "claude",
   });
-  const blocks = composeSystemPromptBlocks(houseRules, false, {
+  const blocks = composeSystemPromptBlocks(false, {
     buildQueue,
     previewHint: true,
     draftMode: true,
@@ -192,10 +179,11 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
   // replaced the build-queue curl tutorial with the queue_write / queue_step tools (10,577), and
   // before #2002 moved the situational blocks behind the guard + skills (3,813); +657 for the
   // steer-provenance notice; +552 for the GitHub rate-limit notice (#2860); +209 for the
-  // research-first notice's framework-major clause (#3108).
-  expect(measured.totalChars).toBe(5231);
+  // research-first notice's framework-major clause (#3108); -64 for the retired house-rules block
+  // (#3139).
+  expect(measured.totalChars).toBe(5167);
   expect(measured.totalChars).toBe(
-    composeSystemPrompt(houseRules, false, {
+    composeSystemPrompt(false, {
       buildQueue,
       previewHint: true,
       draftMode: true,
@@ -207,7 +195,7 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
 test("#1999 the unconditional floor is every spawn's standing notices", () => {
   // Research is the leanest spawn shape there is; whatever survives it is the floor the epic's
   // progressive-disclosure slice is aiming at.
-  const names = composeSystemPromptBlocks(null, false, { research: true }).map((b) => b.name);
+  const names = composeSystemPromptBlocks(false, { research: true }).map((b) => b.name);
   expect(names).toEqual([
     "engineering-posture",
     "untrusted-content-boundary",
@@ -320,7 +308,7 @@ const MOVED = [
 ] as const;
 
 const namesFor = (opts: ComposeSystemPromptOptions) =>
-  composeSystemPromptBlocks(null, false, opts).map((b) => b.name);
+  composeSystemPromptBlocks(false, opts).map((b) => b.name);
 
 test("#2002 Claude drops the moved blocks only when the mechanism reaches the spawn", () => {
   const claude = namesFor({ previewHint: true });
@@ -368,9 +356,9 @@ test("#2002 Codex keeps every moved block — it has neither hooks nor skills", 
   expect(attended).toContain("preview-hint-notice");
   // Pre-existing #1257 divergence, unchanged by #2002: manual-steps rides Codex on autopilot only.
   expect(attended).not.toContain("manual-steps-notice");
-  expect(
-    composeSystemPromptBlocks(null, true, { agentProvider: "codex" }).map((b) => b.name),
-  ).toContain("manual-steps-notice");
+  expect(composeSystemPromptBlocks(true, { agentProvider: "codex" }).map((b) => b.name)).toContain(
+    "manual-steps-notice",
+  );
   // Even asked for, the Claude-only mechanisms cannot switch a Codex block off.
   expect(namesFor({ agentProvider: "codex", toolGuard: true, agentSkills: true })).toContain(
     "worktree-stash-notice",

@@ -100,9 +100,6 @@ as per-repo automation:
 - **Critic** — the moment a PR's CI goes green, an isolated read-only agent reviews the full diff
   and posts a verdict; with Auto-Address on, findings flow back to the authoring agent until the
   list comes back empty.
-- **Learnings** — Shepherd distills past sessions' failure signals into proposed house rules; the
-  ones you approve are injected into every new agent in the repo, so lessons compound instead of
-  repeating.
 - **Merge train** — a finished PR lands only when it is open, CI-green, conflict-free, and up to
   date with the base branch; one that has fallen behind is sent back to its agent to rebase, and
   CI and the critic re-run before it can land.
@@ -150,7 +147,7 @@ driven from your browser or phone.
 Actively developed and run in production by its authors. Shipped: the interactive core (spawn →
 live PTY → browser, status lights, persistence/resume, repo + branch + model pickers, per-repo TODO
 sync, issue intake and git-host actions for GitHub and Gitea/Forgejo, usage tracking); the
-automation suite (Plan gate, Critic, Autopilot, Auto-drain, Merge train, Build queue); Learnings;
+automation suite (Plan gate, Critic, Autopilot, Auto-drain, Merge train, Build queue);
 Readiness; live previews of agents' dev servers; and a browser capture extension that turns a page
 into a spawned session or filed issue — now on the [Chrome Web Store][capture]. See the
 [GitHub issues][issues] for the open backlog,

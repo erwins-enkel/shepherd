@@ -116,9 +116,8 @@
     resolveDoneSelected,
   } from "#lib/done-filter.js";
   import { postMergeSteps as postMergeStepsStore } from "#lib/post-merge-steps.svelte.js";
-  import { learnings } from "#lib/learnings.svelte.js";
   import TopBar from "#lib/components/TopBar.svelte";
-  import { basename, shouldCloseLearningsDrawer } from "#lib/components/learnings-drawer.js";
+  import { basename } from "#lib/basename.js";
   import Herd from "#lib/components/Herd.svelte";
   import {
     railOrder,
@@ -153,8 +152,6 @@
   import QueueStrip from "#lib/components/QueueStrip.svelte";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
-    firstCurateRepo,
-    globalLearningsCounts,
     nextRepoFilter,
     pickRepoSwitchTarget,
     repoChipRows,
@@ -168,7 +165,7 @@
   import FeedbackDialog from "#lib/components/FeedbackDialog.svelte";
   import TelemetryConsent from "#lib/components/TelemetryConsent.svelte";
   import Toasts from "#lib/components/Toasts.svelte";
-  import { registerSW, onSelectSession, onOpenLearnings } from "#lib/push.js";
+  import { registerSW, onSelectSession } from "#lib/push.js";
   import { onLaunchLink, sessionIdFromLink } from "#lib/launch-link.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { confirmBacklogQuickStart } from "#lib/backlog-quick-start.js";
@@ -410,15 +407,6 @@
     otherRepoCount: number;
     run: () => Promise<void>;
   } | null>(null);
-  let showLearnings = $state(false);
-  // True once the first learnings.load() has resolved. Gates the auto-close effect so a
-  // deep-link (issue #852: ?learnings=1 / "open-learnings") that opens the drawer before
-  // the async load populates items/injectable isn't reversed by the still-empty lists.
-  let learningsLoaded = $state(false);
-  // When the learnings drawer is opened from the gear menu and there's nothing to
-  // approve, this carries the first over-budget ("curate") repoPath so the drawer scrolls
-  // to the matching section; null = opened globally with proposals to review.
-  let learningsRepo = $state<string | null>(null);
   // Herd repo filter: set of full repo paths, toggled from RepoSwitcher chips (Shift+click
   // combines several) or a card's inline repo emoji; empty = all repos. Only narrows the herd
   // list views — selection and global counts stay whole. A SvelteSet is already reactive, so it
@@ -471,10 +459,7 @@
   let followingNewSession = false;
   // Chips for the repo switcher: one per repo with a live session, computed from the
   // unfiltered herd (selection/global counts stay whole). Single source — passed to the switcher.
-  const repoChips = $derived(
-    repoChipRows(store.sessions, store.drain, learnings.items, learnings.injectable),
-  );
-  const learningsCounts = $derived(globalLearningsCounts(learnings.items, learnings.injectable));
+  const repoChips = $derived(repoChipRows(store.sessions, store.drain));
   // Prune only the selected repos whose last live session has ended (no chip) — a filter on a
   // vanished repo would strand it in the set. Removes exactly the stale members, keeping the rest.
   $effect(() => {
@@ -760,21 +745,6 @@
       .catch(() => {});
   }
   const blockedEntries = $derived(sortBlocked(store.sessions, store.blocks, store.holds));
-  $effect(() => {
-    // Close only when both the proposed list and the injected view are empty —
-    // a repo can have injected rules to curate with zero outstanding proposals.
-    // Gated on learningsLoaded so a deep-link that opens the drawer before the async
-    // load resolves (empty lists) isn't immediately closed (issue #852).
-    if (
-      shouldCloseLearningsDrawer(
-        showLearnings,
-        learningsLoaded,
-        learnings.items.length,
-        learnings.injectable.length,
-      )
-    )
-      showLearnings = false;
-  });
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
   let composeIssue = $state<Issue | null>(null);
@@ -2072,11 +2042,7 @@
     const params = new URLSearchParams(location.search);
     // `?link=web+shepherd://session/<id>` = cold launch of the installed app (issue #2547).
     const deepLink = params.get("session") ?? sessionIdFromLink(params.get("link"));
-    // Learnings-retire push deep-link (issue #852): ?learnings=1 (cold open) or an
-    // "open-learnings" message from the SW (open/backgrounded window) opens the drawer.
-    if (params.get("learnings") === "1") showLearnings = true;
     const disposeSelect = onSelectSession((id) => void jumpHandlers.selectFromDeepLink(id));
-    const disposeLearnings = onOpenLearnings(() => (showLearnings = true));
     // Warm launch: the open app window receives the link without a reload. Unknown ids are
     // dropped — before sessions load, the cold-launch deepLink above covers it.
     onLaunchLink((id) => {
@@ -2170,7 +2136,6 @@
     // App-load paints the CACHED Up Next snapshot only (peek) — no cross-repo gh recompute for a
     // session that never opens the lens. Lens-open + the 15-min loop keep it fresh.
     upNext.load({ peek: true });
-    learnings.load().then(() => (learningsLoaded = true));
     refreshHeldCount();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().
@@ -2225,7 +2190,6 @@
     return () => {
       dispose();
       disposeSelect();
-      disposeLearnings();
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("pageshow", onPageShow);
     };
@@ -2239,14 +2203,6 @@
   // tick could stutter, freezing every elapsed clock. A $derived only propagates
   // on the empty↔non-empty flip, so the interval is made once.
   const hasSessions = $derived(store.sessions.length > 0);
-
-  // Open the global learnings drawer: with proposals pending, show them all (repo = null);
-  // otherwise focus the first over-budget ("curate") repo. Shared by the top-bar entry
-  // point and the command-bar Learnings verb so both behave identically.
-  function openLearnings() {
-    learningsRepo = learningsCounts.proposed > 0 ? null : firstCurateRepo(learnings.injectable);
-    showLearnings = true;
-  }
 
   // Command bar v2 verbs. Availability flags mirror the same gates the on-screen
   // affordances use (Broadcast needs sessions; Retry mirrors SteerBar's retryReady chip;
@@ -2263,7 +2219,6 @@
       onUsage: () => (showUsage = true),
       onRetry: () => (showRetry = true),
       onNextNeedsYou: () => selectNextNeedsYou(),
-      onLearnings: openLearnings,
       onDiagnoseEpic: () => (showEpicDiagnose = true),
       onOperatorAssistant: openAssistantFromCommand,
       onDecommission: () => {
@@ -2278,7 +2233,6 @@
       hasSessions,
       retryReady,
       otherNeedsYouCount: otherNeedsYou.length,
-      hasLearnings: learningsCounts.proposed > 0 || learningsCounts.curate > 0,
     }),
   );
 
@@ -3365,9 +3319,6 @@
         oncodexupdate={openCodexUpdate}
         whatsNew={whatsNewDotOn}
         onwhatsnew={() => (showWhatsNew = true)}
-        learnings={learningsCounts.proposed}
-        learningsCurate={learningsCounts.curate}
-        onlearnings={openLearnings}
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}
@@ -3823,12 +3774,6 @@
   {store}
   {settings}
   mobile={mobile.current}
-  {showLearnings}
-  {learningsRepo}
-  onlearningsclose={() => {
-    showLearnings = false;
-    learningsRepo = null;
-  }}
   {showUpdate}
   {deploy}
   onupdateconfirm={onUpdateConfirm}

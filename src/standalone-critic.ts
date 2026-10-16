@@ -30,11 +30,6 @@ import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import type { RoleEnvironment } from "./default-model";
 import { isEpicChild, isEpicIntegrationBranch } from "./epic-branch";
-import {
-  planHouseRulesInjection,
-  renderHouseRulesBlock,
-  HOUSE_RULES_DEFAULT_BUDGET_CHARS,
-} from "./house-rules";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { apiKeyFailClosed } from "./spawn-auth";
 import type { SessionUsage } from "./usage";
@@ -97,7 +92,6 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "completeReviewerSpawn"
     | "listEpicCompleted"
     | "getEpicParentByBranch"
-    | "listActiveLearnings"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
@@ -139,9 +133,6 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
    *  BASE COMMIT via read-only git). Same contract as ReviewService — and the base-object read
    *  matters MOST here, where the PR can come from a fork nobody vetted. */
   readReviewPolicy?: typeof defaultReadReviewPolicy;
-  /** Char budget for the house-rules block injected into the critic (#2154). Thunk so a live config
-   *  value takes effect on the next sweep; defaults to the shared house-rules default. */
-  houseRulesBudgetChars?: () => number;
 }
 
 export class StandalonePrCriticService {
@@ -167,7 +158,6 @@ export class StandalonePrCriticService {
     criticSessionId: string,
   ) => Promise<SessionUsage | null>;
   private readReviewPolicy: typeof defaultReadReviewPolicy;
-  private houseRulesBudgetFn: () => number;
 
   constructor(private deps: StandalonePrCriticDeps) {
     this.now = deps.now ?? Date.now;
@@ -179,29 +169,6 @@ export class StandalonePrCriticService {
     this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
     this.readUsage = deps.readUsage ?? ((cwd, id) => readReviewerSpawnUsage(deps.store, cwd, id));
     this.readReviewPolicy = deps.readReviewPolicy ?? defaultReadReviewPolicy;
-    this.houseRulesBudgetFn =
-      deps.houseRulesBudgetChars ?? (() => HOUSE_RULES_DEFAULT_BUDGET_CHARS);
-  }
-
-  /** The `<shepherd-house-rules>` block of the repo's standing rules, scoped to the files this PR
-   *  touches (#2154 slice 2). null when the repo has learnings off or there is nothing to inject.
-   *
-   *  This critic sweeps PRs Shepherd did not author — third-party and fork PRs included — so the
-   *  rules reach it as the REPO's standard and nothing more; `prReviewPrompt` withholds the
-   *  author-facing framing accordingly (see reviewerHouseRulesBlock).
-   *
-   *  Deliberately does NOT call `recordInjectedLearnings`; see ReviewService.repoHouseRules for why
-   *  (the reward that balances `injectedCount` is only ever paid by an author session). There is no
-   *  session to attribute to here in any case. */
-  private repoHouseRules(repoPath: string, files: string[]): string | null {
-    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
-    const { injected } = planHouseRulesInjection(
-      this.deps.store.listActiveLearnings(repoPath),
-      this.houseRulesBudgetFn(),
-      this.now(),
-      files,
-    );
-    return renderHouseRulesBlock(injected);
   }
 
   private key(repoPath: string, prNumber: number): string {
@@ -564,10 +531,8 @@ export class StandalonePrCriticService {
       return;
     }
     // #2154: repo policy from the BASE COMMIT (never the checked-out PR head — this is the site
-    // where the head may be a fork nobody vetted), plus the repo's standing house rules, scoped by
-    // the diff's changed files. Both null ⇒ the composed prompt is unchanged.
+    // where the head may be a fork nobody vetted). Null ⇒ the composed prompt is unchanged.
     const reviewPolicy = fp.baseSha ? await this.readReviewPolicy(worktreePath, fp.baseSha) : null;
-    const houseRules = this.repoHouseRules(repoPath, fp.files);
     // ONE pinned id for every argv this spawn builds (#1944): buildTransientAgentArgv falls back to
     // `randomUUID()`, so the budget probe and the clamped rebuild would otherwise each mint their
     // own `--session-id` and the verdict would land where readVerdict never looks.
@@ -575,7 +540,6 @@ export class StandalonePrCriticService {
     const composePrompt = (body: string, policy: string | null): string =>
       prReviewPrompt(diffBase, pr.title, body, fp.epic ?? null, fp.landing ?? null, {
         reviewPolicy: policy,
-        houseRules,
       });
     const argvFor = (p: string): string[] =>
       buildTransientAgentArgv("reviewer", {
@@ -883,9 +847,9 @@ export class StandalonePrCriticService {
   /** Boot reconcile (#1136): close orphaned `pr-critic ` tabs left by a prior lifetime. The
    *  standalone critic's `inFlight` is memory-only, so a restart loses tracking of a live run;
    *  its interactive `claude` idles at the prompt forever (agent_status "done", pane alive) and
-   *  the husk-only {@link reapOrphanTabs} spares it as a non-shell `claude`. Mirrors the
-   *  distiller/optimizer/merge-suggest reap (#1135): scan herdr once at boot for `pr-critic `
-   *  agents NOT owned by a current-process inflight run and close their tabs. The disposable
+   *  the husk-only {@link reapOrphanTabs} spares it as a non-shell `claude`. Scan herdr once at
+   *  boot for `pr-critic ` agents NOT owned by a current-process inflight run and close their tabs.
+   *  The disposable
    *  `*-review-*` worktrees these orphans hold are reaped separately by `reapStaleReviewWorktrees`. */
   reapOrphans(): void {
     const ownedTerms = new Set(

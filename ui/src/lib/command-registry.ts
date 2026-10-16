@@ -39,8 +39,6 @@ export type CommandCtx = {
   onUsage: () => void;
   onRetry: () => void;
   onNextNeedsYou: () => void;
-  /** Opens the learnings drawer. */
-  onLearnings: () => void;
   /** Opens the epic-diagnosis entry (repo + arbitrary parent #) — reaches the fully
    *  unrecognized would-be epic that has no on-screen EpicPanel/Diagnose button (#1657). */
   onDiagnoseEpic: () => void;
@@ -59,9 +57,6 @@ export type CommandCtx = {
   retryReady: boolean;
   /** Sessions waiting on the operator other than the one on screen — gates the jump. */
   otherNeedsYouCount: number;
-  /** learningsPresent gate (learnings > 0 || learningsCurate > 0) — mirrors the mobile
-   *  sheet and desktop badge, so command-bar availability is uniform with those surfaces. */
-  hasLearnings: boolean;
 };
 
 /** The verbs available right now, in display order. Filters out any whose availability
@@ -102,15 +97,6 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         label: () => m.commandbar_cmd_usage(),
         keywords: () => m.commandbar_cmd_usage_kw(),
         run: ctx.onUsage,
-      },
-    },
-    {
-      available: ctx.hasLearnings,
-      cmd: {
-        id: "learnings",
-        label: () => m.commandbar_cmd_learnings(),
-        keywords: () => m.commandbar_cmd_learnings_kw(),
-        run: ctx.onLearnings,
       },
     },
     {

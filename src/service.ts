@@ -126,17 +126,6 @@ import {
 } from "./browser-attach-config";
 import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
-import {
-  candidateRules,
-  extractTargetPaths,
-  planHouseRulesInjection,
-  prioritize,
-  renderHouseRulesBlock,
-} from "./house-rules";
-import { judgeHouseRuleRelevance, type RelevanceOutcome } from "./house-rules-relevance";
-import type { Judge } from "./judge";
-import type { JudgeSpendLedger } from "./judge-spend";
-import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { SHELLS } from "./json-tolerant";
@@ -411,14 +400,6 @@ export interface ServiceDeps {
    *  Codex main sessions bypass pushModelFlag, so they are not downgraded. Wired from src/index.ts
    *  off usageLimits + config; absent in tests → no downgrade. Consumed by pushModelFlag. */
   usageDowngrade?: () => string | null;
-  /** #2376: the armed relevance judge, read PER SPAWN so the Settings toggle takes effect on the
-   *  next session rather than at the next restart. Absent/null ⇒ house rules plan exactly as they
-   *  did before the gate existed. */
-  judge?: () => Judge | null;
-  /** Shared with the stop classifier — one armed capability, one daily ceiling. A thunk like
-   *  `judge` above: the ledger is constructed long after this service is, so the dep cannot hold
-   *  the value itself. */
-  judgeSpend?: () => Pick<JudgeSpendLedger, "allow" | "record"> | null;
   /** Live Codex auth mode. Read per resolution/spawn because login mode can change at runtime. */
   readCodexAuthMode?: () => CodexAuthMode;
   /** On-path Codex help output; tests can substitute an older CLI. */
@@ -725,7 +706,7 @@ export interface SpawnTrimOverlay {
  *    re-renders from the RUNNING process's argv — from then on the resume's value is the whole
  *    appended prompt, replacing the spawn-time one. That is why the resume must carry everything:
  *    passing only a block or two (as it did before #2608) left a resumed-then-compacted session
- *    without the untrusted-content boundary, house rules and autopilot directive.
+ *    without the untrusted-content boundary and autopilot directive.
  *    `--system-prompt-snapshot off` would apply the resume's value at once; it is deliberately
  *    not passed, since a changed prompt rewrites the conversation's whole prompt cache.
  *
@@ -840,10 +821,10 @@ const STEER_PROVENANCE_NOTICE = [
  * across every worktree of a repo (there is no per-worktree isolation), so a bare `git stash`
  * / `stash pop` in one Shepherd session can grab or discard another concurrent session's entry
  * — a latent data-loss footgun (issue #1632). A global git-mechanism invariant, not per-repo
- * learned guidance, so it lives in source and rides every spawn as its own block rather than in
- * the `<shepherd-house-rules>` block. `git stash store` is deliberately NOT recommended: it
- * writes into the same shared `refs/stash` stack and reproduces the collision. Not user-facing
- * chrome (an instruction to the agent), so fixed English — same precedent as BRANCH_RENAME_NOTICE.
+ * learned guidance, so it lives in source and rides every spawn as its own block. `git stash store`
+ * is deliberately NOT recommended: it writes into the same shared `refs/stash` stack and reproduces
+ * the collision. Not user-facing chrome (an instruction to the agent), so fixed English — same
+ * precedent as BRANCH_RENAME_NOTICE.
  */
 const WORKTREE_STASH_NOTICE =
   "Never run bare `git stash` / `git stash pop` in a Shepherd checkout — `refs/stash` is a " +
@@ -931,14 +912,12 @@ const CONTEXT_TRIM_NOTICE =
 
 /**
  * Universal engineering posture injected into every spawn (issue #349, adapted from the
- * MIT-licensed Karpathy-style Claude Code skills). Unlike the `<shepherd-house-rules>` block
- * — per-repo, learned, budget-limited and toggle-gated — this is fixed, repo-independent
+ * MIT-licensed Karpathy-style Claude Code skills). This is fixed, repo-independent
  * standing posture, so it lives in source and rides every spawn unconditionally.
  *
  * It biases the agent *against over-building*, the classic unattended-overnight failure mode
- * the curated (defect-prevention) house rules don't cover. The dead-code clause harmonizes with the
- * curated "don't ship dead code" rule: remove only what YOUR change orphaned; surface (don't
- * silently delete) pre-existing unrelated dead code.
+ * curated (defect-prevention) repo rules don't cover. The dead-code clause: remove only what YOUR
+ * change orphaned; surface (don't silently delete) pre-existing unrelated dead code.
  *
  * This is the block's ALWAYS-ON core (issue #2002). It stays resident because it is standing
  * behavioural law, not situational — model-invoked disclosure cannot guarantee it loads. Two
@@ -948,7 +927,7 @@ const CONTEXT_TRIM_NOTICE =
  *  - the detached-background-job hazard is delivered by the PreToolUse guard, on the calls that
  *    can actually create it (BACKGROUND_CONTEXT in scripts/tool-guard.mjs).
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
- * BRANCH_RENAME_NOTICE and the distiller/critic spawn prompts.
+ * BRANCH_RENAME_NOTICE and the critic spawn prompts.
  */
 const ENGINEERING_POSTURE =
   "Standing engineering posture for every change — adopt it regardless of the task.\n" +
@@ -2089,11 +2068,7 @@ export interface ComposeSystemPromptOptions {
  * {@link agentSkillsAvailable}, and a `codex` provider forces both false. A dropped block always
  * requires the mechanism that replaces it to be present — never the other way round.
  *
- * House rules used to be prepended to the human prompt, which let standing guidance bleed
- * into the task on every spawn. They now live in the system prompt, each block XML-wrapped
- * so the agent can cleanly separate persistent guidance from the task in its human turn.
- * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
- * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
+ * The engineering-posture, research-first, and branch-rename blocks
  * always ride. The `<steer-provenance-notice>` block rides every Claude-family spawn, directly after
  * the untrusted-content boundary (Codex never carries it). The `<github-rate-limit-notice>` block
  * (issue #2860) follows research-first on every Claude-family spawn except a plain one — exactly the
@@ -2122,7 +2097,6 @@ export interface ComposeSystemPromptOptions {
  * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
  */
 export function composeSystemPromptBlocks(
-  houseRules: string | null,
   autopilotActive = false,
   opts: ComposeSystemPromptOptions = {},
 ): PromptBlock[] {
@@ -2143,8 +2117,6 @@ export function composeSystemPromptBlocks(
   const posture = taggedBlock("engineering-posture", ENGINEERING_POSTURE);
   const untrustedBoundary = taggedBlock("untrusted-content-boundary", UNTRUSTED_CONTENT_DIRECTIVE);
   const research = taggedBlock("research-first-notice", RESEARCH_FIRST_NOTICE);
-  // House rules arrive ALREADY wrapped (renderHouseRulesBlock emits <shepherd-house-rules>…), so
-  // unlike the blocks around it this one is named without re-wrapping.
   // Steer provenance sits directly behind the boundary it qualifies. Claude-family only: the
   // <pasted_content> wrapper is a Claude Code feature (see STEER_PROVENANCE_NOTICE).
   const blocks: PromptBlock[] = [posture, untrustedBoundary];
@@ -2154,7 +2126,6 @@ export function composeSystemPromptBlocks(
   if (claudeFamily && !opts.plain) {
     blocks.push(taggedBlock("github-rate-limit-notice", GITHUB_RATE_LIMIT_NOTICE));
   }
-  if (houseRules) blocks.push({ name: "shepherd-house-rules", text: houseRules });
   blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
   // session (caps at one report-PR/issue), an epic-authoring session (issue #1507 — its
@@ -2197,11 +2168,10 @@ export function composeSystemPromptBlocks(
  * {@link composeSystemPromptBlocks} is the composer, this is the join.
  */
 export function composeSystemPrompt(
-  houseRules: string | null,
   autopilotActive = false,
   opts: ComposeSystemPromptOptions = {},
 ): string {
-  return joinPromptBlocks(composeSystemPromptBlocks(houseRules, autopilotActive, opts));
+  return joinPromptBlocks(composeSystemPromptBlocks(autopilotActive, opts));
 }
 
 /**
@@ -3238,115 +3208,9 @@ export class SessionService {
     return outcome;
   }
 
-  /**
-   * Ask the relevance judge which of this session's candidate rules the request is actually about
-   * (#2376), and persist what it said.
-   *
-   * ASYNC AND SEPARATE FROM {@link recordInjectedHouseRules} on purpose. The argv builders and
-   * `composeDirectives` are synchronous, and making the whole chain async to accommodate one
-   * optional HTTP call would be a large refactor for a feature that is off by default. So the call
-   * happens HERE, in the already-async spawn preparation, and the only thing that crosses into the
-   * synchronous side is a set of ids.
-   *
-   * Returns null whenever nothing was judged — the gate is off, the judge is unarmed, learnings are
-   * off for the repo, or the call failed. Null and "judged nothing out" are deliberately the same
-   * downstream code path, because every failure has to land on today's injection.
-   *
-   * Verdicts are recorded in BOTH modes; `applied` is what separates a verdict that gated injection
-   * from one that only observed. That is the point of shadow mode — the disabled state still
-   * produces the evidence for arming it.
-   */
-  private async judgeHouseRuleRelevanceFor(
-    sessionId: string,
-    input: StandardCreateInput,
-  ): Promise<ReadonlySet<string> | null> {
-    const mode = config.houseRuleRelevance;
-    const judge = this.deps.judge?.() ?? null;
-    if (mode === "off" || !judge) return null;
-    const { repoPath } = input;
-    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
-
-    const targetPaths = extractTargetPaths(
-      [input.prompt, input.issueRef?.title, input.issueRef?.body],
-      repoPath,
-    );
-    // Prioritized before the cap so, when there are more candidates than one call may carry, the
-    // rules that go unjudged are the ones least likely to have been injected anyway.
-    const { candidates } = candidateRules(
-      prioritize(this.deps.store.listActiveLearnings(repoPath)),
-      targetPaths,
-    );
-
-    let outcome: RelevanceOutcome;
-    try {
-      outcome = await judgeHouseRuleRelevance(
-        candidates,
-        {
-          prompt: input.prompt,
-          issueTitle: input.issueRef?.title,
-          issueBody: input.issueRef?.body,
-          targetPaths,
-        },
-        { judge, spend: this.deps.judgeSpend?.() ?? null, mode },
-      );
-    } catch (err) {
-      // judgeHouseRuleRelevance is itself fail-open, so reaching here means a defect rather than a
-      // transport failure. Still must not cost a spawn.
-      console.warn("[house-rules] relevance gate threw (injecting the unfiltered set):", err);
-      return null;
-    }
-    if (outcome.verdicts.length === 0) return null;
-
-    try {
-      this.deps.store.recordLearningRelevance(sessionId, outcome.verdicts, {
-        applied: mode === "enforce",
-        at: Date.now(),
-      });
-    } catch (err) {
-      console.warn("[house-rules] recording relevance verdicts failed:", err);
-    }
-    console.log(
-      `[house-rules] relevance ${mode}: ${outcome.verdicts.filter((v) => v.relevant).length}/` +
-        `${outcome.verdicts.length} relevant, $${outcome.costUsd.toFixed(6)}`,
-    );
-    return outcome.judgedOutIds;
-  }
-
-  /** Active+promoted rules for the repo as an XML-wrapped block, or null when none /
-   *  learnings disabled. Always-rules plus glob-scoped rules whose globs match files named
-   *  in the task text (prompt + attached issue), with the budget capping within that matched
-   *  set (#842), minus anything the relevance judge ruled out for this session (#2376 —
-   *  `judgedOutIds`, null unless the gate is armed AND enforcing). Records the injected rule ids
-   *  against the session (join rows only — counters are advanced symmetrically with the reward at
-   *  archive, never here). Injected into every new agent's system prompt via composeSystemPrompt. */
-  private recordInjectedHouseRules(
-    sessionId: string,
-    input: StandardCreateInput,
-    judgedOutIds: ReadonlySet<string> | null,
-  ): string | null {
-    const { repoPath } = input;
-    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
-    const targetPaths = extractTargetPaths(
-      [input.prompt, input.issueRef?.title, input.issueRef?.body],
-      repoPath,
-    );
-    const { injected } = planHouseRulesInjection(
-      this.deps.store.listActiveLearnings(repoPath),
-      config.houseRulesBudgetChars,
-      Date.now(),
-      targetPaths,
-      judgedOutIds ? { judgedOutIds } : {},
-    );
-    this.deps.store.recordInjectedLearnings(
-      sessionId,
-      injected.map((r) => r.id),
-    );
-    return renderHouseRulesBlock(injected);
-  }
-
-  /** Assemble the spawn argv. Shepherd-curated house rules go into the system prompt (not the human
-   *  turn) so every spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits the
-   *  repo's learned corrections without bleeding into the task text. The autopilot directive rides
+  /** Assemble the spawn argv. Standing directives go into the system prompt (not the human
+   *  turn) so every spawn (manual AND auto-spawned, e.g. the work-queue drain #222) inherits them
+   *  without bleeding into the task text. The autopilot directive rides
    *  the same prompt when the repo has autopilot on; the plan-gate directive when planGateOn; the
    *  build-queue directive (baking the exact queue endpoint for `sessionId`) when buildQueueEnabled;
    *  the preview-hint notice when the session is `isolated`; and the context-trim flag + overlay +
@@ -3431,11 +3295,7 @@ export class SessionService {
    *  - trimmed — the context-trim notice is Claude-specific (skill-catalog / slash-command / plugin
    *    trimming); Codex has no such trim, so its caller passes `false`.
    *
-   * Side effect: `recordInjectedHouseRules` writes the injected-learnings join rows. It now runs on
-   * the Codex path too (intended — Codex sessions should participate in the learning lifecycle), so
-   * this must be called EXACTLY ONCE per spawn.
-   *
-   * Second side effect (issue #1999): the assembled payload is measured block by block and recorded
+   * Side effect (issue #1999): the assembled payload is measured block by block and recorded
    * against the session. This is the only place it can be, and the only place it needs to be — both
    * spawn builders funnel through here, so attended and drain, Claude and Codex are all covered by
    * one write. The measurement is taken at ASSEMBLY, before `prepareSpawn` can refuse the spawn; a
@@ -3451,16 +3311,11 @@ export class SessionService {
     autopilotActive: boolean;
     trimmed: boolean;
     agentProvider: AgentProvider;
-    /** #2376: rules the relevance judge ruled out for this session, already awaited by the caller
-     *  (this path is synchronous). Null = no judgement was made, which is both the off state and
-     *  every failure. */
-    judgedOutIds: ReadonlySet<string> | null;
   }): string {
     const { input, sessionId } = args;
     const blocks = this.directiveBlocks(input, {
       sessionId,
       baseUrl: args.baseUrl,
-      houseRules: this.recordInjectedHouseRules(sessionId, input, args.judgedOutIds),
       planGateOn: args.planGateOn === true,
       isolated: args.isolated,
       autopilotActive: args.autopilotActive,
@@ -3501,8 +3356,6 @@ export class SessionService {
     ctx: {
       sessionId: string;
       baseUrl: string;
-      /** The already-wrapped `<shepherd-house-rules>` block, or null. */
-      houseRules: string | null;
       planGateOn: boolean;
       isolated: boolean;
       autopilotActive: boolean;
@@ -3551,7 +3404,7 @@ export class SessionService {
             stack: input.bootstrapStack ?? this.deps.store.getBootstrapStack(sessionId),
             agentProvider: ctx.agentProvider,
           });
-    return composeSystemPromptBlocks(ctx.houseRules, autopilotActive, {
+    return composeSystemPromptBlocks(autopilotActive, {
       research: input.research,
       epicAuthoring,
       bootstrap,
@@ -3575,18 +3428,6 @@ export class SessionService {
       // literal "en" default).
       operatorLanguage: config.operatorLanguage,
     });
-  }
-
-  /** The house rules a session was SPAWNED with, re-rendered for a resume. Read-only: no
-   *  injection is recorded and the join rows its attribution needs stay in place. A rule retired
-   *  since still renders (it is what the session was told); rows already consumed → null. */
-  private resumeHouseRules(s: Session): string | null {
-    if (!this.deps.store.getRepoConfig(s.repoPath).learningsEnabled) return null;
-    const injected = this.deps.store
-      .sessionInjectedLearningIds(s.id)
-      .map((id) => this.deps.store.getLearning(id))
-      .filter((l) => l !== null);
-    return renderHouseRulesBlock(injected);
   }
 
   /** Persist the per-block accounting for one spawn's assembled prompt (issue #1999). Never lets a
@@ -3623,7 +3464,6 @@ export class SessionService {
     isolated: boolean,
     trim: Awaited<ReturnType<typeof trimDecision>>,
     baseUrl: string,
-    judgedOutIds: ReadonlySet<string> | null,
     profile: SandboxProfile,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
@@ -3674,7 +3514,6 @@ export class SessionService {
         ),
         trimmed: trim.trimmed,
         agentProvider: "claude",
-        judgedOutIds,
       }),
     );
     this.pushModelFlag(argv, input.model);
@@ -3691,7 +3530,6 @@ export class SessionService {
     planGateOn: boolean | undefined;
     isolated: boolean;
     baseUrl: string;
-    judgedOutIds: ReadonlySet<string> | null;
   }): string[] {
     const { input, sessionId, launchId, promptArg, planGateOn, isolated, baseUrl } = args;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
@@ -3723,7 +3561,6 @@ export class SessionService {
       autopilotActive,
       trimmed: false,
       agentProvider: "codex",
-      judgedOutIds: args.judgedOutIds,
     });
     argv.push(
       `${codexLaunchMarker(launchId)}${promptArg}\n\n<shepherd-directives>\n${directives}\n</shepherd-directives>`,
@@ -3778,9 +3615,8 @@ export class SessionService {
     // THIS process's argv, and whatever is passed here then replaces the spawn-time set wholesale
     // (see trimDecision). Phase-aware: the plan-gate directive rides only while the session is
     // still planning, so a released session sheds it at its next compaction. ONE flag
-    // (`--append-system-prompt` is last-wins); no spawn side effects (house rules are re-read,
-    // not re-recorded; no prompt-budget row); `branchRename` off — the background rename is a
-    // startup event.
+    // (`--append-system-prompt` is last-wins); no spawn side effects (no prompt-budget row);
+    // `branchRename` off — the background rename is a startup event.
     const planning = s.planPhase === "planning";
     argv.push(
       "--append-system-prompt",
@@ -3788,7 +3624,6 @@ export class SessionService {
         this.directiveBlocks(s, {
           sessionId: s.id,
           baseUrl,
-          houseRules: this.resumeHouseRules(s),
           planGateOn: planning,
           isolated: s.isolated,
           autopilotActive: effectiveAutopilot(
@@ -4171,10 +4006,6 @@ export class SessionService {
     // pass a runtime override so a session that already left planning does not re-enter the gate.
     const planGateOn = opts.planGateOn ?? this.resolvePlanGateOn(spawnInput, repoConfig);
     const trim = await this.trimFor(spawnInput.auto, wt.worktreePath);
-    // #2376: awaited HERE, before argv assembly, because both argv builders and composeDirectives
-    // are synchronous. Fail-open inside — null on every failure, which is the same code path as the
-    // gate being off.
-    const judgedOutIds = await this.judgeHouseRuleRelevanceFor(sessionId, spawnInput);
     const profileOverride =
       agentProvider === "codex"
         ? "trusted"
@@ -4192,7 +4023,6 @@ export class SessionService {
             planGateOn,
             isolated: wt.isolated,
             baseUrl,
-            judgedOutIds,
           })
         : this.buildSpawnArgv(
             spawnInput,
@@ -4203,7 +4033,6 @@ export class SessionService {
             wt.isolated,
             trim,
             baseUrl,
-            judgedOutIds,
             resolveProfile(
               profileOverride,
               repoConfig.sandboxProfile,
@@ -4523,7 +4352,7 @@ export class SessionService {
       if (droppedImages > 0)
         this.deps.events?.emit("session:uploads-dropped", { id: sessionId, count: droppedImages });
       // Issue content tripped an injection signature during composePromptArg (advisory scan,
-      // not a blocker). Persist a signal for the learnings/security surface and toast the
+      // not a blocker). Persist a signal for the security surface and toast the
       // operator so a human can eyeball the session.
       if (injectionHits.length > 0) {
         this.deps.store.addSignal({
@@ -6061,20 +5890,20 @@ export class SessionService {
    * See #1405.
    *
    * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
-   * so the learnings distiller never mines Shepherd's own notice. The session is marked only on
-   * SUCCESSFUL delivery, so a failed reply doesn't burn the one-shot. An identified Codex pane is
-   * resumed before delivery because Codex exits after each turn; this includes a shell-only pane that
-   * herdr still lists, which must be force-resumed instead of receiving the answer as shell input.
-   * An uninspectable listed pane is rejected rather than risking shell input. Dead Claude panes
-   * remain rejected; Codex resume requires a pinned conversation in either checkout mode.
-   * The injection itself lives in steerWithEpicNotice,
-   * shared with broadcast() so both operator free-text channels behave identically.
+   * so the recorded steer history never carries Shepherd's own notice. The session is marked only
+   * on SUCCESSFUL delivery, so a failed reply doesn't burn the one-shot. An identified Codex pane
+   * is resumed before delivery because Codex exits after each turn; this includes a shell-only pane
+   * that herdr still lists, which must be force-resumed instead of receiving the answer as shell
+   * input. An uninspectable listed pane is rejected rather than risking shell input. Dead Claude
+   * panes remain rejected; Codex resume requires a pinned conversation in either checkout mode. The
+   * injection itself lives in steerWithEpicNotice, shared with broadcast() so both operator
+   * free-text channels behave identically.
    *
    * `signalPayload` (default = `text`) lets a caller whose `text` is a Shepherd-composed wrapper
    * record the operator's RAW words in the `reply` signal instead — the same reason the epic notice
-   * rides the PTY only: the learnings distiller mines those signals and must never mine Shepherd's
-   * own boilerplate. Used by the task-amendment channel (#2225); every other caller omits it and
-   * behaves exactly as before.
+   * rides the PTY only: the recorded steer history must never carry Shepherd's own boilerplate.
+   * Used by the task-amendment channel (#2225); every other caller omits it and behaves exactly as
+   * before.
    */
   async operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
     const s = this.deps.store.get(id);
@@ -6431,10 +6260,9 @@ export class SessionService {
    *     therefore address the same pane. operatorReply's isolated-Codex RESUME is deliberately not
    *     inherited: resuming a dead pane in order to interrupt it is meaningless.
    *
-   * No `reply` signal is recorded (that kind carries operator words and is mined by the learnings
-   * distiller; an interrupt has no payload to mine) and no event is emitted (`halt:done` exists
-   * because a fleet sweep's reach is otherwise invisible; a single-target interrupt's outcome is
-   * its HTTP status).
+   * No `reply` signal is recorded (that kind carries operator words; an interrupt has none) and no
+   * event is emitted (`halt:done` exists because a fleet sweep's reach is otherwise invisible; a
+   * single-target interrupt's outcome is its HTTP status).
    */
   async interrupt(id: string): Promise<boolean> {
     const s = this.deps.store.get(id);
@@ -6489,8 +6317,8 @@ export class SessionService {
     // Codex operator-language carrier (#1624): append the block to the delivered PTY text so the
     // directive persists across steers (Codex has no --append-system-prompt on resume). "" for
     // Claude/"en", so those steers stay byte-identical. Record the BASE steer text as the `reply`
-    // signal (block excluded, via signalPayload) so the learnings distiller never mines Shepherd's
-    // own directive — mirrors the #1405 epic-notice precedent.
+    // signal (block excluded, via signalPayload) so the recorded steer history never carries
+    // Shepherd's own directive — mirrors the #1405 epic-notice precedent.
     const delivered =
       text + operatorLanguageSteerSuffix(s.agentProvider ?? "claude", config.operatorLanguage);
     await this.sendSteerTo(s, delivered, signalPayload);
@@ -6505,8 +6333,7 @@ export class SessionService {
    *  `signalPayload` defaults to the delivered `text`, so every existing caller is unchanged.
    *  steerWithEpicNotice (#1405) passes the RAW operator text here while `text` carries the
    *  operator text PLUS the injected epic-authoring notice — the notice reaches the PTY but the
-   *  recorded `reply` signal stays the operator's words alone, so the learnings distiller never
-   *  mines Shepherd's own notice (`reply` is a mined signal kind). */
+   *  recorded `reply` signal stays the operator's words alone. */
   private async sendSteerTo(s: Session, text: string, signalPayload: string = text): Promise<void> {
     // FUNNEL GUARD — the herdr.send invariant: every steer in the codebase (reply, broadcast,
     // retry-halted, autopilot, plan-gate, build-queue, …) flows through here, so this single
@@ -6991,25 +6818,6 @@ export class SessionService {
     return this.deps.reaper.detect(s);
   }
 
-  /** Attribute the effectiveness reward for a terminating session: every rule injected
-   *  into it counts as one "pull" (injectedCount++ / lastUsedAt), and a terminal-good
-   *  outcome additionally counts as a help (helpfulCount++). Counting both here keeps the
-   *  help-rate numerator and denominator on the same population (only sessions that reached
-   *  a terminal outcome). Best-effort: must never throw past teardown. */
-  private attributeLearningReward(s: Session): void {
-    try {
-      const ids = this.deps.store.takeSessionInjectedLearnings(s.id);
-      if (ids.length === 0) return;
-      const good = isGoodOutcome(
-        this.deps.store.getReview(s.id),
-        this.deps.store.countSessionBlockingSignals(s.id),
-      );
-      this.deps.store.attributeInjected(ids, { good });
-    } catch (err) {
-      console.warn(`[learnings] reward attribution failed for ${s.id}:`, err);
-    }
-  }
-
   /**
    * Close a session: optionally terminate selected leftovers first, then stop the
    * agent, remove the worktree, and archive the row. `reapKeys` are leftover keys
@@ -7072,7 +6880,6 @@ export class SessionService {
     removeEgressTmp(id);
     this.deps.netnsDevForward?.drop(id);
     await this.removeBrowserAttachConfig(s.id);
-    this.attributeLearningReward(s);
     this.deps.store.archive(id, reason);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
     // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive

@@ -50,7 +50,7 @@ const FIRST_PASS_WINDOW_DAYS = 30;
  * rather than fault streams, so including them puts the band permanently in breach on a healthy
  * install:
  *
- * - `reply` is the learnings flywheel's operator-correction stream.
+ * - `reply` is the operator's steer stream.
  * - `block` is an agent asking the operator a question (#2242). Every payload in the breach that
  *   filed that issue was a healthy planning dialog — which ruleset to use, how far a fix should go.
  *   Deduping the repaint noise alone does NOT rescue this band: measured on a live install, one

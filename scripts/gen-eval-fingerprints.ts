@@ -66,8 +66,6 @@ const TAIL = ["The rate limiter is implemented and the tests pass.", "Ready to c
 const DIFF_BASE = "origin/main";
 
 const REVIEW_POLICY = "# REVIEW.md\n\nPrefer small PRs. Flag any new dependency.";
-const HOUSE_RULES =
-  "<shepherd-house-rules>\n- Guard every plan-phase branch.\n</shepherd-house-rules>";
 
 const EPIC = {
   base: "epic/2156-eval-harness",
@@ -122,14 +120,13 @@ export const CASES: Record<string, Case[]> = {
   ],
   critic: [
     { name: "session-minimal", render: () => reviewPrompt(DIFF_BASE, TASK) },
-    // #2154's two repo-policy blocks: reviewPolicyBlock and reviewerHouseRulesBlock. Neither is
-    // reachable from any other case, so without this an edit to either renders no hash change.
+    // #2154's repo-policy block (reviewPolicyBlock). Not reachable from any other case, so without
+    // this an edit to it renders no hash change.
     {
       name: "session-repo-policy",
       render: () =>
         reviewPrompt(DIFF_BASE, TASK, [], [], null, null, {
           reviewPolicy: REVIEW_POLICY,
-          houseRules: HOUSE_RULES,
         }),
     },
     // epicBlock has THREE mutually exclusive headers, keyed on the base delta. `session-full`
@@ -188,7 +185,6 @@ export const CASES: Record<string, Case[]> = {
       render: () =>
         prReviewPrompt(DIFF_BASE, "Add --since", ISSUE, null, null, {
           reviewPolicy: REVIEW_POLICY,
-          houseRules: HOUSE_RULES,
         }),
     },
     // The epic-child block on the standalone critic.

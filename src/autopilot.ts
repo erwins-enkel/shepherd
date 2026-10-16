@@ -36,8 +36,7 @@ export const PROCEED_STEER = [
  * Exported (rather than inlined at the spawn sites) so the producer here, the boot reap in
  * index.ts and the husk-sweep filter in tab-reaper.ts all bind to ONE constant — renaming the
  * label can no longer silently desync the reap from the spawn. Same rationale as the sibling
- * helper labels, each declared in its own producer: DISTILL_LABEL (distiller.ts),
- * OPTIMIZE_LABEL (optimizer.ts), MERGE_LABEL (merge-suggest.ts).
+ * helper labels, each declared in its own producer.
  */
 export const AUTOPILOT_LABEL = "autopilot ";
 

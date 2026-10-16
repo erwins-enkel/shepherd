@@ -46,11 +46,6 @@
     herdrUpdateAvailable,
     codexUpdateAvailable,
     whatsNew,
-    learningsPresent,
-    learnings,
-    learningsCurate,
-    learningsLabel,
-    learningsCount,
     haltable,
     armed,
     nowMs,
@@ -70,7 +65,6 @@
     onherdrupdate,
     oncodexupdate,
     onwhatsnew,
-    onlearnings,
     onFeedback,
     pluginItems = [],
     onPluginItem,
@@ -85,11 +79,6 @@
     herdrUpdateAvailable: boolean;
     codexUpdateAvailable: boolean;
     whatsNew: boolean;
-    learningsPresent: boolean;
-    learnings: number;
-    learningsCurate: number;
-    learningsLabel: string;
-    learningsCount: number;
     haltable: number;
     armed: boolean;
     nowMs: number;
@@ -109,7 +98,6 @@
     onherdrupdate: (() => void) | undefined;
     oncodexupdate: (() => void) | undefined;
     onwhatsnew: (() => void) | undefined;
-    onlearnings: (() => void) | undefined;
     onFeedback: (kind: FeedbackKind) => void;
     pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
     onPluginItem?: (id: string) => void;
@@ -265,18 +253,6 @@
 
     <!-- Workspace rows -->
     <div class="grp">
-      {#if learningsPresent}
-        <GearRow
-          mobile
-          glyph="✦"
-          label={learningsLabel}
-          meta={String(learningsCount)}
-          ariaLabel={learnings > 0
-            ? m.learnings_open_aria({ count: learnings })
-            : m.learnings_open_curate_aria({ count: learningsCurate })}
-          onclick={closeAnd(onlearnings)}
-        />
-      {/if}
       {#if onassistant}
         <GearRow mobile label={m.operator_assistant_title()} onclick={closeAnd(onassistant)}>
           {#snippet glyphIcon()}

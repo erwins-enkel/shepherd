@@ -3,7 +3,7 @@
   import type { PostMergeSteps, OwedFocusSnapshot } from "#lib/types.js";
   import { postMergeSteps, owedRecordsForRepo } from "#lib/post-merge-steps.svelte.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
-  import { basename } from "./learnings-drawer";
+  import { basename } from "#lib/basename.js";
   import { formatAgo } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";

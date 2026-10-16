@@ -151,7 +151,6 @@ function harness(opts: {
         ({
           criticEnabled: opts.criticEnabled ?? true,
           autoAddressEnabled: false,
-          learningsEnabled: true,
           autopilotEnabled: opts.repoEnabled ?? false,
           draftMode: opts.repoDraftMode ?? false,
           repoMode: opts.repoMode ?? "forge",

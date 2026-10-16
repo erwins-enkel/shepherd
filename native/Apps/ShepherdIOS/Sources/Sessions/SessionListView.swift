@@ -40,6 +40,18 @@ struct SessionListView: View {
                         }
                     }
                 }
+            } else {
+                NavigationStack {
+                    SessionListStyle.panel.ignoresSafeArea()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(L.t("common_close")) { epicSheet = nil }
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                        }
+                }
+                .presentationDetents([.medium, .large])
+                .preferredColorScheme(.dark)
             }
         }
         .sheet(isPresented: $showingRepos) { IOSServerReposSheet(model: model) }

@@ -35,10 +35,10 @@ extension IOSMergedSessionPresentation.EpicGroup {
         return cues
     }
 
-    /// Changes whenever a member session appears, leaves or moves (lifecycle stage, status or PR);
+    /// Changes whenever a member session appears, leaves or moves (lifecycle stage or PR);
     /// the directory re-reads the epic then.
     var fingerprint: String {
-        rows.map { "\($0.session.id):\(stages[$0.session.id]?.rawValue ?? "-"):\($0.session.status.rawValue):\(prNumbers[$0.session.id].map(String.init) ?? "-")" }
+        rows.map { "\($0.session.id):\(stages[$0.session.id]?.rawValue ?? "-"):\(prNumbers[$0.session.id].map(String.init) ?? "-")" }
             .sorted().joined(separator: ",")
     }
 }

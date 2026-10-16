@@ -37,6 +37,22 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertNotEqual(group(112).fingerprint, group(113).fingerprint)
     }
 
+    func testFingerprintIgnoresStatusChangesWhileBlockedCueStaysLive() {
+        let profile = profile("status")
+        func group(_ status: SessionStatus) -> IOSMergedSessionPresentation.EpicGroup {
+            var member = session("a", parent: 100, issue: 101)
+            member.status = status
+            return IOSMergedSessionPresentation.merge([source(profile, active: [member])],
+                selectedRepos: []).epicGroups[0]
+        }
+        let running = group(.init(known: .running))
+        for status in [SessionStatus(known: .idle), .init(unknown: "waiting"), .init(known: .blocked)] {
+            let changed = group(status)
+            XCTAssertEqual(running.fingerprint, changed.fingerprint)
+            XCTAssertEqual(changed.cues.blocked, status.known == .blocked ? 1 : 0)
+        }
+    }
+
     func testBlockedCueUsesTheOwningServersRenderedStatus() {
         let profile = profile("working")
         var blocked = session("a", parent: 100)
@@ -71,7 +87,13 @@ final class IOSEpicGroupingTests: XCTestCase {
             """#.utf8))
         var epicReads = 0
         var failEpic = false
-        let directory = IOSEpicDirectory(read: { _, _ in .init(epics: [], subIssues: []) }, readEpic: { _, path, parent in
+        var failListing = true
+        var listingReads = 0
+        let directory = IOSEpicDirectory(read: { _, _ in
+            listingReads += 1
+            if failListing { throw URLError(.badServerResponse) }
+            return .init(epics: [], subIssues: [])
+        }, readEpic: { _, path, parent in
             epicReads += 1
             XCTAssertEqual(path, "/repos/app")
             XCTAssertEqual(parent, 100)
@@ -81,15 +103,32 @@ final class IOSEpicGroupingTests: XCTestCase {
         let running = IOSMergedSessionPresentation.merge([source(profile,
             active: [session("a", parent: 100, issue: 101)])], selectedRepos: []).epicGroups
         await directory.load(running, owners: hub.models, fallback: owner)
+        XCTAssertEqual(listingReads, 1)
+        XCTAssertNotNil(directory.digest(running[0], owner: owner))
+        failListing = false
+        failEpic = true
         await directory.load(running, owners: hub.models, fallback: owner)
-        XCTAssertEqual(epicReads, 1)
+        XCTAssertEqual(epicReads, 2, "A failed listing must retry without a membership change")
+        XCTAssertNotNil(directory.digest(running[0], owner: owner), "Keep the last known epic on failure")
+        failEpic = false
+        await directory.load(running, owners: hub.models, fallback: owner)
+        await directory.load(running, owners: hub.models, fallback: owner)
+        XCTAssertEqual(epicReads, 3, "Only a completely successful load is cached")
         XCTAssertEqual(try XCTUnwrap(directory.digest(running[0], owner: owner)).chain(101)?.unlocks, [102])
         // The member moves to Ready: the fingerprint changes and the epic is read again.
         let moved = IOSMergedSessionPresentation.merge([source(profile, active: [],
             ready: [session("a", parent: 100, issue: 101)])], selectedRepos: []).epicGroups
         failEpic = true
         await directory.load(moved, owners: hub.models, fallback: owner)
-        XCTAssertEqual(epicReads, 2)
+        XCTAssertEqual(epicReads, 4)
+        failEpic = false
+        await directory.load(moved, owners: hub.models, fallback: owner)
+        XCTAssertEqual(epicReads, 5, "A failed detail read must retry the same fingerprint")
+        failEpic = true
+        await directory.load(moved, owners: hub.models, fallback: owner, force: true)
+        failEpic = false
+        await directory.load(moved, owners: hub.models, fallback: owner)
+        XCTAssertEqual(epicReads, 7, "A failed forced refresh invalidates previous completion")
         XCTAssertNotNil(directory.digest(moved[0], owner: owner), "a failed re-read keeps the last known epic")
         hub.disconnect(profile.id)
         XCTAssertNil(directory.digest(moved[0], owner: owner))
@@ -277,12 +316,20 @@ final class IOSEpicGroupingTests: XCTestCase {
         var reads = 0
         var fail = false
         let summary = try JSONDecoder().decode(EpicSummary.self, from: Data(#"{"parentIssueNumber":100,"parentTitle":"Epic title","total":5,"merged":2,"status":"idle","source":"github"}"#.utf8))
-        let directory = IOSEpicDirectory { _, path in
+        let epic = try JSONDecoder().decode(Epic.self, from: Data(#"""
+            {"repoPath":"/repos/app","parentIssueNumber":100,"parentTitle":"Epic title","source":"native",
+            "children":[],"warnings":[],"run":{"repoPath":"/repos/app","parentIssueNumber":100,"mode":"auto","status":"running"}}
+            """#.utf8))
+        let directory = IOSEpicDirectory(read: { _, path in
             reads += 1
             XCTAssertEqual(path, "/repos/app")
             if fail { throw URLError(.notConnectedToInternet) }
             return .init(epics: [summary], subIssues: [])
-        }
+        }, readEpic: { _, _, parent in
+            var copy = epic
+            copy.parentIssueNumber = parent
+            return copy
+        })
         let groups = IOSMergedSessionPresentation.merge([source(profile, active: [session("a", parent: 100)])], selectedRepos: []).epicGroups
         await directory.load(groups, owners: hub.models, fallback: owner)
         await directory.load(groups, owners: hub.models, fallback: owner)
@@ -295,7 +342,11 @@ final class IOSEpicGroupingTests: XCTestCase {
         fail = true
         await directory.load(more, owners: hub.models, fallback: owner, force: true)
         await directory.load(more, owners: hub.models, fallback: owner)
-        XCTAssertEqual(reads, 3)
+        XCTAssertEqual(reads, 4, "Failed refreshes remain retryable without force")
+        fail = false
+        await directory.load(more, owners: hub.models, fallback: owner)
+        await directory.load(more, owners: hub.models, fallback: owner)
+        XCTAssertEqual(reads, 5)
         XCTAssertEqual(directory.summary(groups[0], owner: owner)?.merged, 2)
         hub.disconnect(profile.id)
         XCTAssertNil(directory.summary(groups[0], owner: owner))
@@ -357,7 +408,7 @@ final class IOSEpicGroupingTests: XCTestCase {
         let directory = IOSEpicDirectory(read: { _, _ in .init(epics: [summary], subIssues: []) },
             readEpic: { _, _, parent in
                 reads.append(parent)
-                if parent == 200 {
+                if parent == 200 && reads.count == 2 {
                     await slow.wait()
                     cancelled = Task.isCancelled
                 }
@@ -378,6 +429,10 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertTrue(cancelled, "Cancellation must reach an in-flight detail request")
         XCTAssertEqual(reads, [100, 200], "Cancellation must prevent subsequent requests")
         XCTAssertNotNil(directory.digest(groups[0], owner: owner), "Keep already published data")
+
+        await directory.load(groups, owners: hub.models, fallback: owner)
+        await directory.load(groups, owners: hub.models, fallback: owner)
+        XCTAssertEqual(reads, [100, 200, 100, 200, 300], "A cancelled first load retries without force")
 
         // A newer load also cancels the old request, even if the caller has not cancelled it.
         let gate = EpicReadGate()
@@ -400,6 +455,32 @@ final class IOSEpicGroupingTests: XCTestCase {
         await old.value
         XCTAssertTrue(superseded)
         XCTAssertEqual(details, 0)
+        await replacement.load(groups, owners: hub.models, fallback: owner)
+        XCTAssertEqual(details, 3, "A superseded first load retries without force")
+
+        // Cancelling a forced refresh must also invalidate an already cached fingerprint.
+        let refreshGate = EpicReadGate()
+        var pause = false
+        var refreshReads = 0
+        let refreshable = IOSEpicDirectory(read: { _, _ in
+            refreshReads += 1
+            if pause { await refreshGate.wait() }
+            return .init(epics: [summary], subIssues: [])
+        }, readEpic: { _, _, _ in epic })
+        await refreshable.load(groups, owners: hub.models, fallback: owner)
+        pause = true
+        let refresh = Task { await refreshable.load(groups, owners: hub.models, fallback: owner, force: true) }
+        let refreshDeadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while !refreshGate.waiting, ContinuousClock.now < refreshDeadline { await Task.yield() }
+        XCTAssertTrue(refreshGate.waiting)
+        refresh.cancel()
+        refreshGate.release()
+        await refresh.value
+        XCTAssertNotNil(refreshable.digest(groups[0], owner: owner))
+        pause = false
+        await refreshable.load(groups, owners: hub.models, fallback: owner)
+        await refreshable.load(groups, owners: hub.models, fallback: owner)
+        XCTAssertEqual(refreshReads, 3, "A cancelled forced refresh retries without force")
     }
 
     func testRenderDarkEpicListSection() async throws {

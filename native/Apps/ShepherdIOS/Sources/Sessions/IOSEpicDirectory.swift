@@ -12,7 +12,7 @@ final class IOSEpicDirectory {
         let generation: Int
         let request: UUID
         var parents: Set<Int>
-        var fingerprint: String
+        var fingerprint: String?
         var summaries: [EpicSummary]
         var digests: [Int: EpicDigest]
     }
@@ -71,7 +71,8 @@ final class IOSEpicDirectory {
             let request = UUID()
             entries[key] = Entry(owner: identity, generation: generation, request: request,
                 parents: sameActivation ? old?.parents ?? [] : [],
-                fingerprint: sameActivation ? old?.fingerprint ?? "" : "",
+                // An attempted refresh invalidates completion, even for an unchanged fingerprint.
+                fingerprint: nil,
                 summaries: sameActivation ? old?.summaries ?? [] : [],
                 digests: sameActivation ? old?.digests ?? [:] : [:])
             let task = Task {
@@ -79,17 +80,22 @@ final class IOSEpicDirectory {
                 guard current(key, request, owner, generation, store) else { return }
                 let listing = try? await read(store.client, group.repoPath)
                 guard current(key, request, owner, generation, store) else { return }
+                var succeeded = listing != nil
                 if let listing { entries[key]?.summaries = listing.epics }
                 for parent in parents.sorted() {
                     guard current(key, request, owner, generation, store) else { return }
                     let epic = try? await readEpic(store.client, group.repoPath, parent)
                     guard current(key, request, owner, generation, store) else { return }
-                    if let epic { entries[key]?.digests[parent] = EpicDigest(epic) }
+                    if let epic {
+                        entries[key]?.digests[parent] = EpicDigest(epic)
+                        entries[key]?.parents.insert(parent)
+                    } else {
+                        succeeded = false
+                    }
                 }
                 guard current(key, request, owner, generation, store) else { return }
                 // A failed read retains the known copy; unknown parents use the number-only header.
-                entries[key]?.parents.formUnion(parents)
-                entries[key]?.fingerprint = fingerprint
+                if succeeded { entries[key]?.fingerprint = fingerprint }
             }
             pending[request] = task
             tasks.append(task)

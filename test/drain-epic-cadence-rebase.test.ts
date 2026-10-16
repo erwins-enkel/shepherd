@@ -4,7 +4,7 @@
  * While an epic runs, its integration branch is rebased onto the default branch ONLY in a
  * quiescent window (no child running/in review, no session based on the branch). Throttled per
  * epic (1h). #3101: a branch behind the default branch for ≥4h holds new spawns until quiescent;
- * a conflict holds and dispatches one base-rework agent, then notifies.
+ * a conflict holds and dispatches up to two base-rework agents, then notifies.
  * The rebase + behind-probe seams are faked; `getIssue`/`listSubIssues` feed buildEpic.
  */
 import { test, expect, describe } from "bun:test";
@@ -439,7 +439,7 @@ describe("epic base freshness (#3101)", () => {
     expect(r.store.getEpicBaseFreshness(REPO, PARENT)?.behindSince).toBe(since!);
   });
 
-  test("conflict → hold + one auto rework agent; a second conflict notifies instead", async () => {
+  test("conflict → hold + auto rework agent; one retry, then a conflict notifies instead", async () => {
     const h = makeHarness({ result: "conflict", autoDrain: true });
     await callPass(h);
     expect(await holdCode(h)).toBe("epic_base_conflict");
@@ -452,11 +452,18 @@ describe("epic base freshness (#3101)", () => {
     await callPass(h);
     expect(h.calls).toHaveLength(1);
 
-    // It ends without fixing it → retried at once; cap spent → notify, no second agent.
+    // It ends without fixing it → retried at once with a second agent.
     finishRework(h);
     await callPass(h);
     expect(h.calls).toHaveLength(2);
-    expect(h.spawned).toHaveLength(1);
+    expect(h.spawned).toHaveLength(2);
+    expect(h.notifies).toHaveLength(0);
+
+    // The second ends without fixing it either → cap spent → notify, no third agent.
+    finishRework(h);
+    await callPass(h);
+    expect(h.calls).toHaveLength(3);
+    expect(h.spawned).toHaveLength(2);
     expect(h.notifies).toEqual([
       expect.objectContaining({ kind: "epic_base_conflict", epicNumber: PARENT }),
     ]);
@@ -477,18 +484,36 @@ describe("epic base freshness (#3101)", () => {
     });
   });
 
-  test("auto-drain off → no agent, notify; the manual dispatch bypasses it", async () => {
+  test("auto-drain off → the running epic still gets an auto agent, no notify", async () => {
     const h = makeHarness({ result: "conflict" });
     await callPass(h);
-    expect(h.spawned).toHaveLength(0);
+    expect(h.spawned).toHaveLength(1);
+    expect(h.notifies).toHaveLength(0);
+    expect(await holdCode(h)).toBe("epic_base_conflict");
+  });
+
+  test("auto cap spent → the manual dispatch bypasses it; a live repair session refuses a second", async () => {
+    const h = makeHarness({ result: "conflict" });
+    await callPass(h);
+    finishRework(h);
+    await callPass(h);
+    finishRework(h);
+    await callPass(h);
+    expect(h.spawned).toHaveLength(2);
     expect(h.notifies).toHaveLength(1);
     expect(await h.drain.resolveEpicBaseConflict(REPO, PARENT)).toEqual({ ok: true });
-    expect(h.spawned).toHaveLength(1);
-    // A live repair session refuses a second one.
+    expect(h.spawned).toHaveLength(3);
     expect(await h.drain.resolveEpicBaseConflict(REPO, PARENT)).toEqual({
       ok: false,
       error: "busy",
     });
+  });
+
+  test("a paused epic run → no rebase, no auto agent", async () => {
+    const h = makeHarness({ result: "conflict", epicStatus: "paused" });
+    await callPass(h);
+    expect(h.calls).toHaveLength(0);
+    expect(h.spawned).toHaveLength(0);
   });
 
   test("manual resolve without a conflict → not-conflicting", async () => {
@@ -508,6 +533,7 @@ describe("epic base freshness (#3101)", () => {
     // The override kicks a pump; let it finish before the next pass (it holds the pump slot).
     while ((h.drain as unknown as { pumping: Set<string> }).pumping.has(REPO))
       await new Promise((r) => setTimeout(r, 1));
+    finishRework(h); // the auto agent dispatched on the conflict lets go of the branch
     h.probe.sha = "m2"; // main moved
     h.clock.t += HOUR;
     await callPass(h);
@@ -563,7 +589,8 @@ describe("epic base freshness (#3101)", () => {
   });
 
   test("stale armed + conflict recorded → the hourly throttle holds (no rebase every tick)", async () => {
-    const h = makeHarness({ result: "conflict" }); // auto-drain off → no agent
+    const h = makeHarness({ result: "conflict" });
+    h.store.setEpicBaseFreshness(REPO, PARENT, { reworkCount: 2 }); // auto cap spent → no agent
     addSession(h, { issueNumber: CHILD2, baseBranch: BRANCH });
     await callPass(h);
     h.clock.t += 4 * HOUR;

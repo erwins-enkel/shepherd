@@ -1289,10 +1289,10 @@ test("validateNewProject: non-string idea → newproject_failed_generic", () => 
   if (!r.ok) expect(r.error).toBe("newproject_failed_generic");
 });
 
-test("validateNewProject: idea > 8000 chars → newproject_failed_generic", () => {
+test("validateNewProject: idea > 8000 chars → newproject_failed_idea_too_long", () => {
   const r = validateNewProject({ name: "my-app", idea: "x".repeat(8001) }, root);
   expect(r.ok).toBe(false);
-  if (!r.ok) expect(r.error).toBe("newproject_failed_generic");
+  if (!r.ok) expect(r.error).toBe("newproject_failed_idea_too_long");
 });
 
 test("validateNewProject: idea exactly 8000 chars accepted", () => {

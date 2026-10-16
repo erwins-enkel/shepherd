@@ -358,7 +358,7 @@ function parseIdeaField(value: unknown): Field<string> {
   if (value === undefined) return field("");
   if (typeof value !== "string") return err("newproject_failed_generic");
   const idea = value.trim();
-  if (idea.length > 8000) return err("newproject_failed_generic");
+  if (idea.length > 8000) return err("newproject_failed_idea_too_long");
   return field(idea);
 }
 

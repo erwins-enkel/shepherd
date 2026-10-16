@@ -39,7 +39,9 @@ import {
   composeTaskBrief,
   cancelSpawn,
   getIssue,
+  getRepoBootstrap,
   ApiError,
+  type RepoBootstrapView,
 } from "#lib/api.js";
 import { toasts } from "#lib/toasts.svelte.js";
 
@@ -63,6 +65,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     composeTaskBrief: vi.fn(),
     cancelSpawn: vi.fn(),
     getIssue: vi.fn(),
+    getRepoBootstrap: vi.fn(),
   };
 });
 
@@ -97,6 +100,11 @@ const mockShapeTask = vi.mocked(shapeTask);
 const mockComposeTaskBrief = vi.mocked(composeTaskBrief);
 const mockCancelSpawn = vi.mocked(cancelSpawn);
 const mockGetIssue = vi.mocked(getIssue);
+const mockGetRepoBootstrap = vi.mocked(getRepoBootstrap);
+
+function bootstrapView(patch: Partial<RepoBootstrapView> = {}): RepoBootstrapView {
+  return { state: "off", phase: 1, overrideAt: null, missing: [], suggested: true, ...patch };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -178,6 +186,9 @@ beforeEach(async () => {
   mockComposeTaskBrief.mockReset();
   mockCancelSpawn.mockReset();
   mockCancelSpawn.mockResolvedValue(true);
+  mockGetRepoBootstrap.mockReset();
+  // Default: an empty repo, so Bootstrap mode is offered; established-repo specs override.
+  mockGetRepoBootstrap.mockResolvedValue(bootstrapView());
   mockNormalizeRunConfig.mockImplementation(runConfigActual.normalizeRunConfig);
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
@@ -1317,10 +1328,10 @@ describe("NewTask research mode (segmented control)", () => {
   });
 
   it("swaps the prompt placeholder to match the selected mode", async () => {
-    render(NewTask, { props: base() });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/mode-placeholders" }) });
     const placeholder = () =>
       document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.placeholder;
-    await expect.poll(() => researchSeg()).toBeTruthy();
+    await expect.poll(() => segButton(m.newtask_mode_bootstrap())).toBeTruthy();
     expect(placeholder()).toBe(m.newtask_prompt_placeholder());
 
     for (const [seg, expected] of [
@@ -5404,6 +5415,49 @@ describe("NewTask bootstrap mode (#3109)", () => {
     await expect
       .poll(() => document.body.textContent)
       .toContain(m.newtask_house_stack_unresolved({ detail: "npm:svelte (timed out)" }));
+  });
+});
+
+describe("NewTask bootstrap mode offer", () => {
+  const bootSeg = () => segButton(m.newtask_mode_bootstrap());
+  const codeSeg = () => segButton(m.newtask_mode_code());
+
+  it.each([
+    ["established (off, manifest)", { state: "off", suggested: false }, "/repo/boot-established"],
+    ["finished bootstrap", { state: "done", suggested: false }, "/repo/boot-done"],
+  ] as const)("hides the Bootstrap segment for an %s repo", async (_, patch, repoPath) => {
+    mockGetRepoBootstrap.mockResolvedValue(bootstrapView(patch));
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repoPath } });
+    await expect.poll(() => mockGetRepoBootstrap.mock.calls.length).toBeGreaterThan(0);
+    await expect.poll(() => codeSeg()).toBeTruthy();
+    expect(bootSeg()).toBeUndefined();
+  });
+
+  it("shows the Bootstrap segment while a bootstrap is active", async () => {
+    mockGetRepoBootstrap.mockResolvedValue(bootstrapView({ state: "active", suggested: false }));
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/boot-active" } });
+    await expect.poll(() => bootSeg()).toBeTruthy();
+  });
+
+  it("hides the Bootstrap segment while the repo's bootstrap view is unknown", async () => {
+    mockGetRepoBootstrap.mockRejectedValue(new Error("offline"));
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/boot-unknown" } });
+    await expect.poll(() => mockGetRepoBootstrap.mock.calls.length).toBeGreaterThan(0);
+    await expect.poll(() => codeSeg()).toBeTruthy();
+    expect(bootSeg()).toBeUndefined();
+  });
+
+  it("falls back to Code when a pre-selected bootstrap lands on an established repo", async () => {
+    mockGetRepoBootstrap.mockResolvedValue(bootstrapView({ suggested: false }));
+    render(NewTask, {
+      props: {
+        onsubmit: vi.fn(),
+        initialRepoPath: "/repo/boot-preselected",
+        initialBootstrap: true,
+      },
+    });
+    await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
+    expect(bootSeg()).toBeUndefined();
   });
 });
 

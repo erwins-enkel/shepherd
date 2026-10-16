@@ -61,6 +61,8 @@ export interface NewTaskKeymapCtx {
   desktop: boolean;
   /** Mode is forced by a relaunch/edit-held seed — the mode segment is locked. */
   modeLocked: boolean;
+  /** The Bootstrap mode segment is rendered — only for repos bootstrap fits (#3109). */
+  bootstrapOffered: boolean;
   /** The side list's tab switch will actually flip (mounted + Issues allowed).
    *
    *  These three are deliberately "will the action do something", not "is the

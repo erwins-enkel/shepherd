@@ -272,7 +272,7 @@ export const NEW_TASK_KEYMAP: KeymapEntry[] = [
     chords: [{ code: "Digit5", alt: true }],
     label: () => m.keymap_mode_bootstrap(),
     anchor: "mode segment · Bootstrap",
-    enabled: always,
+    enabled: (c) => c.bootstrapOffered,
     run: (c) => c.setMode("bootstrap"),
   },
   {

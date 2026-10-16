@@ -74,6 +74,7 @@
   import type { ComposeMode, NewTaskKeymapCtx } from "#lib/keymap/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
+  import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
@@ -1126,6 +1127,22 @@
       bootstrap: m.newtask_prompt_placeholder_bootstrap,
     }[mode](),
   );
+  // Bootstrap mode is offered only where it fits (#3109): the server suggests it (bootstrap off,
+  // no root manifest) or a bootstrap is running. An established repo — or one whose view hasn't
+  // loaded — never shows the segment; a pre-selected bootstrap stays visible until the view says.
+  $effect(() => {
+    const repo = repoPath.trim();
+    if (repo) void repoBootstrap.load(repo);
+  });
+  const bootstrapView = $derived(repoBootstrap.viewFor(repoPath.trim()));
+  const bootstrapOffered = $derived(
+    bootstrapView != null && (bootstrapView.suggested || bootstrapView.state === "active"),
+  );
+  // A bootstrap seeded from a draft or kept across a repo switch falls back to Code once the
+  // repo turns out to be established.
+  $effect(() => {
+    if (bootstrap && bootstrapView != null && !bootstrapOffered) bootstrap = false;
+  });
   // True once the operator picked a mode by hand — the `/design` pre-selection below then
   // never overrides their choice.
   let modeTouched = $state(draft?.modeTouched ?? false);
@@ -1848,6 +1865,7 @@
     canSubmit: readiness.canSubmit,
     desktop: !mobile,
     modeLocked,
+    bootstrapOffered,
     // Asked of the live component, not re-derived from props: `sources` is bound
     // only by the desktop rail's instance (the mobile sheet's is unbound), so an
     // absent panel answers `false` for free — and the tab-dependent rows can't
@@ -3297,21 +3315,21 @@
           flash={hold.flash === "mode-plain"}
         />{/if}</button
     >
-    <button
-      type="button"
-      class="seg-btn"
-      class:seg-active={mode === "bootstrap"}
-      aria-pressed={mode === "bootstrap"}
-      use:statusTip={{ text: bootstrapModeExplanation(), ...modeTip }}
-      aria-keyshortcuts={shortcutAttr("mode-bootstrap")}
-      onclick={() => setMode("bootstrap")}
-      >{m.newtask_mode_bootstrap()}{#if held}<Keycap
-          id="mode-bootstrap"
-          ctx={keymapCtx}
-          tight
-          flash={hold.flash === "mode-bootstrap"}
-        />{/if}</button
-    >
+    {#if bootstrapOffered || bootstrap}<button
+        type="button"
+        class="seg-btn"
+        class:seg-active={mode === "bootstrap"}
+        aria-pressed={mode === "bootstrap"}
+        use:statusTip={{ text: bootstrapModeExplanation(), ...modeTip }}
+        aria-keyshortcuts={shortcutAttr("mode-bootstrap")}
+        onclick={() => setMode("bootstrap")}
+        >{m.newtask_mode_bootstrap()}{#if held}<Keycap
+            id="mode-bootstrap"
+            ctx={keymapCtx}
+            tight
+            flash={hold.flash === "mode-bootstrap"}
+          />{/if}</button
+      >{/if}
   </div>
 {/snippet}
 

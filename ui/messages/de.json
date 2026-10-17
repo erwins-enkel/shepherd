@@ -2304,6 +2304,7 @@
   "login_submit": "Anmelden",
   "login_busy": "Anmeldung läuft…",
   "login_error": "Falsches Passwort.",
+  "login_rate_limited": "Zu viele Fehlversuche. Versuche es in {seconds} s erneut.",
   "settings_logout_title": "Abmelden",
   "settings_logout_hint": "Diese Sitzung auf diesem Gerät beenden. Zum erneuten Anmelden ist das Betreiber-Passwort nötig.",
   "settings_logout_button": "Abmelden",

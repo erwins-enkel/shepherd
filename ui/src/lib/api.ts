@@ -319,8 +319,9 @@ export async function getMe(): Promise<boolean> {
 }
 
 /** POST the operator password; on success the server sets the session cookie (HttpOnly, so JS never
- *  sees it). Returns true on 200; false on a 401 (wrong password). Throws on other failures. */
-export async function login(password: string): Promise<boolean> {
+ *  sees it). Returns true on 200; false on a 401 (wrong password); `{ retryAfterSec }` on a 429
+ *  (too many failed attempts from this address, #2105). Throws on other failures. */
+export async function login(password: string): Promise<boolean | { retryAfterSec: number }> {
   const r = await fetch("/api/login", {
     method: "POST",
     headers: JSON_HEADERS,
@@ -331,6 +332,10 @@ export async function login(password: string): Promise<boolean> {
     return true;
   }
   if (r.status === 401) return false;
+  if (r.status === 429) {
+    const seconds = Number(r.headers.get("retry-after"));
+    return { retryAfterSec: Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 1 };
+  }
   throw await failed(r, "login");
 }
 

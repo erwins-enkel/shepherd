@@ -50,6 +50,18 @@ describe("single-operator auth (issue #1079)", () => {
     expect(await login("wrong")).toBe(false);
   });
 
+  it("login: throttled (429) returns the server's Retry-After without throwing", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "login_rate_limited" }), {
+          status: 429,
+          headers: { "Retry-After": "8" },
+        }),
+    ) as unknown as typeof fetch;
+    expect(await login("any")).toEqual({ retryAfterSec: 8 });
+    expect(auth.unauthenticated).toBe(false);
+  });
+
   it("logout: flips the flag to unauthenticated", async () => {
     globalThis.fetch = mockFetch(200, { ok: true });
     await logout();

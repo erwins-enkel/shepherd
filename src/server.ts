@@ -1,4 +1,5 @@
 import { PairingCodeService } from "./pairing-codes";
+import { LoginThrottle } from "./login-throttle";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
 import { localHealthIdentity } from "./local-health";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
@@ -490,6 +491,8 @@ export interface AppDeps {
    *  instance no matter which dispatch entry point the request arrived through. */
   accessTokens?: AccessTokenService;
   pairingCodes?: PairingCodeService;
+  /** Per-peer `POST /api/login` backoff (#2105); lazily built on first login attempt. */
+  loginThrottle?: LoginThrottle;
   /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
@@ -1290,14 +1293,24 @@ function repositoryInputError(
 // ── single-operator auth routes (issue #1079) ──────────────────────────────
 // login is the only unauthenticated mutation (isPublicRequest); logout + me sit behind the gate.
 
-async function handleLogin({ req, parts }: Ctx): Promise<Response | null> {
+async function handleLogin({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "login" || parts[2]) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
+  // Backoff gate (#2105): refuse BEFORE the argon2 verify, so a throttled peer costs nothing.
+  const throttle = (deps.loginThrottle ??= new LoginThrottle());
+  const peer = requestPeers.get(req) ?? "unknown";
+  const gate = throttle.begin(peer);
+  if (!gate.ok) {
+    return json({ error: "login_rate_limited", retryAfterSec: gate.retryAfterSec }, 429, {
+      "Retry-After": String(gate.retryAfterSec),
+    });
+  }
   let body: unknown;
   try {
     body = await req.json();
   } catch {
+    throttle.release(peer);
     return json({ error: "invalid json" }, 400);
   }
   const password =
@@ -1307,9 +1320,9 @@ async function handleLogin({ req, parts }: Ctx): Promise<Response | null> {
       ? (body as { password: string }).password
       : "";
   const hash = config.passwordHash;
-  if (!hash || !config.cookieSecret || !(await verifyPassword(password, hash))) {
-    return json({ error: "invalid password" }, 401);
-  }
+  const ok = !!hash && !!config.cookieSecret && (await verifyPassword(password, hash));
+  throttle.settle(peer, ok);
+  if (!ok || !config.cookieSecret) return json({ error: "invalid password" }, 401);
   const headers = new Headers({ "content-type": "application/json" });
   headers.append(
     "Set-Cookie",
@@ -1345,7 +1358,8 @@ function handleMe({ req, parts, token }: Ctx): Response | null {
 
 // Peer identity comes from Bun, never spoofable request headers. Pure dispatch tests share
 // an "unknown" bucket; a reverse proxy also shares its upstream bucket deliberately.
-const pairingPeers = new WeakMap<Request, string>();
+// Keys both the pairing attempt limit and the login backoff (#2105).
+const requestPeers = new WeakMap<Request, string>();
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -1373,7 +1387,7 @@ async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null
   if (parts[1] === "pairing-codes") {
     return requireOperatorSession(req) ?? json(svc.mint(), 201, NO_STORE);
   }
-  if (!svc.allowAttempt(pairingPeers.get(req) ?? "unknown")) {
+  if (!svc.allowAttempt(requestPeers.get(req) ?? "unknown")) {
     return json({ error: "pairing_rate_limited" }, 429, { "Retry-After": "60" });
   }
   const ctErr = requireJsonContentType(req);
@@ -11918,7 +11932,7 @@ export function serve(deps: AppDeps, port: number) {
     // layer, before the app-level MAX_UPLOAD_BYTES check ever runs.
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     fetch(req, server) {
-      pairingPeers.set(req, server.requestIP(req)?.address ?? "unknown");
+      requestPeers.set(req, server.requestIP(req)?.address ?? "unknown");
       const authErr = checkAuth(req, deps);
       if (authErr instanceof Response) return authErr;
       const tokenId = authErr?.id;

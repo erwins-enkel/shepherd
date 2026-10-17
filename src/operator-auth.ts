@@ -22,8 +22,8 @@ export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ── password (argon2id via Bun.password) ─────────────────────────────────────
 
-/** Hash a plaintext password with argon2id (Bun.password defaults). ~100ms — that cost IS the
- *  brute-force control (no lockout counters, per the settled single-operator threat model). */
+/** Hash a plaintext password with argon2id (Bun.password defaults). ~100ms per guess; the login
+ *  route adds a per-peer in-memory backoff on top (`login-throttle.ts`, #2105). */
 export function hashPassword(password: string): Promise<string> {
   return Bun.password.hash(password, { algorithm: "argon2id" });
 }

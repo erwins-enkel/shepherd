@@ -160,6 +160,43 @@ test("exemption: POST /api/login is reachable un-credentialed; wrong password �
   expect(await res.json()).toEqual({ error: "invalid password" });
 });
 
+test("login backoff (#2105): repeated wrong passwords → 429 + Retry-After before verifying", async () => {
+  const app = makeApp(makeDeps());
+  const attempt = (password: string) =>
+    app.fetch(
+      new Request("http://x/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      }),
+    );
+  for (let i = 0; i < 5; i++) expect((await attempt("nope")).status).toBe(401);
+  // Throttled: even the RIGHT password is refused unchecked until the cooldown ends.
+  const res = await attempt(PASSWORD);
+  expect(res.status).toBe(429);
+  expect(res.headers.get("retry-after")).toBe("1");
+  expect(await res.json()).toEqual({ error: "login_rate_limited", retryAfterSec: 1 });
+});
+
+test("login backoff (#2105): parallel attempts from one peer verify one at a time", async () => {
+  const app = makeApp(makeDeps());
+  const statuses = await Promise.all(
+    Array.from({ length: 4 }, () =>
+      app
+        .fetch(
+          new Request("http://x/api/login", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ password: "nope" }),
+          }),
+        )
+        .then((r) => r.status),
+    ),
+  );
+  expect(statuses.filter((s) => s === 401)).toHaveLength(1);
+  expect(statuses.filter((s) => s === 429)).toHaveLength(3);
+});
+
 // ── login / logout / me + cookie attributes ─────────────────────────────────
 
 test("login: correct password → 200 + HttpOnly SameSite=Strict cookie; conditional Secure", async () => {

@@ -2304,6 +2304,7 @@
   "login_submit": "Sign in",
   "login_busy": "Signing in…",
   "login_error": "Incorrect password.",
+  "login_rate_limited": "Too many failed attempts. Try again in {seconds} s.",
   "settings_logout_title": "Sign out",
   "settings_logout_hint": "End this session on this device. You'll need the operator password to sign back in.",
   "settings_logout_button": "Sign out",

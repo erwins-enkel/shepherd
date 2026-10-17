@@ -7,15 +7,20 @@
   let password = $state("");
   let busy = $state(false);
   let error = $state(false);
+  /** Seconds the server asked us to wait after too many failed attempts (#2105); null otherwise. */
+  let retryAfterSec = $state<number | null>(null);
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (busy || password === "") return;
     busy = true;
     error = false;
+    retryAfterSec = null;
     try {
       const ok = await login(password);
-      if (ok) {
+      if (typeof ok === "object") {
+        retryAfterSec = ok.retryAfterSec;
+      } else if (ok) {
         password = "";
         // success: auth.unauthenticated is cleared by login(); the layout re-renders the app.
       } else {
@@ -47,7 +52,9 @@
         autofocus
       />
     </label>
-    {#if error}
+    {#if retryAfterSec !== null}
+      <p class="error" role="alert">{m.login_rate_limited({ seconds: retryAfterSec })}</p>
+    {:else if error}
       <p class="error" role="alert">{m.login_error()}</p>
     {/if}
     <button type="submit" class="gbtn submit" disabled={busy || password === ""}>

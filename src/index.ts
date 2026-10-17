@@ -596,6 +596,14 @@ let credentialBanner: string | null = null;
   });
   config.passwordHash = auth.passwordHash;
   config.cookieSecret = auth.cookieSecret;
+  if (auth.sessionsRevoked)
+    console.log(
+      "[auth] SHEPHERD_PASSWORD changed: rotated the cookie secret, all sessions signed out",
+    );
+  if (auth.staleSessionsKept)
+    console.warn(
+      "[auth] SHEPHERD_PASSWORD changed but SHEPHERD_COOKIE_SECRET is pinned: existing sessions stay valid until it is rotated",
+    );
 }
 
 // ── preview port range startup validation (hard-fail) ──────────────────────

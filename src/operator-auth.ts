@@ -177,7 +177,10 @@ const COOKIE_SECRET_KEY = "cookieSecret";
  *
  * - Cookie signing secret: env override ?? persisted ?? generate+persist (always non-null after).
  * - Password hash:
- *   - `envPassword` set ⇒ authoritative: hash it and re-seed the persisted hash every boot.
+ *   - `envPassword` set ⇒ authoritative: hash it and re-seed the persisted hash every boot. When it
+ *     no longer matches the persisted hash (the operator CHANGED the password), the persisted
+ *     cookie secret is rotated too, so every outstanding session cookie stops verifying (#2106).
+ *     An env-pinned `envCookieSecret` can't be rotated here — `staleSessionsKept` reports that.
  *   - else persisted hash ⇒ use as-is (an auto-generated one survives restarts).
  *   - else ⇒ generate a strong password, deliver it, then persist its hash. Emit it ONCE via `log` with a loud
  *     CHANGE-THIS banner. Returned in `generatedPassword` for callers/tests.
@@ -191,15 +194,32 @@ export async function bootstrapAuth(opts: {
   log?: (msg: string) => void;
   /** Precreated private one-shot channel for the Mac app; never also log the credential. */
   generatedPasswordFile?: string;
-}): Promise<{ passwordHash: string; cookieSecret: string; generatedPassword: string | null }> {
+}): Promise<{
+  passwordHash: string;
+  cookieSecret: string;
+  generatedPassword: string | null;
+  /** The env password changed and the persisted cookie secret was rotated (all sessions out). */
+  sessionsRevoked: boolean;
+  /** The env password changed but SHEPHERD_COOKIE_SECRET pins the secret: old cookies stay valid. */
+  staleSessionsKept: boolean;
+}> {
   const { store, envPassword, envCookieSecret } = opts;
   const log = opts.log ?? (() => {});
 
+  // A changed env password is detected by verifying it against the hash it replaces — no extra
+  // state at rest. Only a persisted hash that doesn't verify counts; first boot is no change.
+  const previousHash = envPassword ? store.getSetting(PASSWORD_HASH_KEY) : null;
+  const passwordChanged =
+    !!envPassword && !!previousHash && !(await verifyPassword(envPassword, previousHash));
+
+  let sessionsRevoked = false;
   let cookieSecret = envCookieSecret ?? store.getSetting(COOKIE_SECRET_KEY);
-  if (!cookieSecret) {
+  if (!cookieSecret || (passwordChanged && !envCookieSecret)) {
+    sessionsRevoked = !!cookieSecret;
     cookieSecret = generateSecret();
     store.setSetting(COOKIE_SECRET_KEY, cookieSecret);
   }
+  const staleSessionsKept = passwordChanged && !!envCookieSecret;
 
   let generatedPassword: string | null = null;
   let passwordHash: string;
@@ -238,5 +258,5 @@ export async function bootstrapAuth(opts: {
     }
   }
 
-  return { passwordHash, cookieSecret, generatedPassword };
+  return { passwordHash, cookieSecret, generatedPassword, sessionsRevoked, staleSessionsKept };
 }

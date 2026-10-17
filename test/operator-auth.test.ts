@@ -198,6 +198,48 @@ test("bootstrapAuth: SHEPHERD_PASSWORD set ⇒ overrides + re-seeds the persiste
   expect(await verifyPassword("operator-secret", r.passwordHash)).toBe(true);
 });
 
+test("bootstrapAuth: a CHANGED SHEPHERD_PASSWORD rotates the persisted cookie secret (#2106)", async () => {
+  const store = fakeStore({
+    passwordHash: await hashPassword("old-password"),
+    cookieSecret: "persisted-secret",
+  });
+  const oldCookie = signCookie("persisted-secret");
+  const r = await bootstrapAuth({ store, envPassword: "new-password", envCookieSecret: null });
+  expect(r.sessionsRevoked).toBe(true);
+  expect(r.staleSessionsKept).toBe(false);
+  expect(r.cookieSecret).not.toBe("persisted-secret");
+  expect(store.data.get("cookieSecret")).toBe(r.cookieSecret);
+  expect(verifyCookie(r.cookieSecret, oldCookie).ok).toBe(false); // the old session is out
+});
+
+test("bootstrapAuth: an UNCHANGED SHEPHERD_PASSWORD keeps the cookie secret across restarts", async () => {
+  const store = fakeStore({
+    passwordHash: await hashPassword("same-password"),
+    cookieSecret: "persisted-secret",
+  });
+  const r = await bootstrapAuth({ store, envPassword: "same-password", envCookieSecret: null });
+  expect(r.sessionsRevoked).toBe(false);
+  expect(r.cookieSecret).toBe("persisted-secret");
+  // …and the re-seeded hash still recognizes the same password on the next boot.
+  const again = await bootstrapAuth({ store, envPassword: "same-password", envCookieSecret: null });
+  expect(again.cookieSecret).toBe("persisted-secret");
+});
+
+test("bootstrapAuth: first boot with SHEPHERD_PASSWORD (no persisted hash) is not a change", async () => {
+  const store = fakeStore({ cookieSecret: "persisted-secret" });
+  const r = await bootstrapAuth({ store, envPassword: "first", envCookieSecret: null });
+  expect(r.sessionsRevoked).toBe(false);
+  expect(r.cookieSecret).toBe("persisted-secret");
+});
+
+test("bootstrapAuth: a changed password with a PINNED env cookie secret reports stale sessions", async () => {
+  const store = fakeStore({ passwordHash: await hashPassword("old"), cookieSecret: "persisted" });
+  const r = await bootstrapAuth({ store, envPassword: "new", envCookieSecret: "env-pinned" });
+  expect(r.cookieSecret).toBe("env-pinned"); // never overrides an operator pin
+  expect(r.sessionsRevoked).toBe(false);
+  expect(r.staleSessionsKept).toBe(true);
+});
+
 test("bootstrapAuth: persisted hash + no env ⇒ reused as-is (survives restart), no log", async () => {
   const existing = await hashPassword("kept-password");
   const store = fakeStore({ passwordHash: existing, cookieSecret: "fixedsecret" });

@@ -475,7 +475,7 @@ test("the view hook answers the owner's view as UserPromptSubmit additionalConte
   expect(context).not.toContain(task.id);
 });
 
-test("the view hook is the assistant's alone and ignores a foreign conversation", async () => {
+test("the view hook is the assistant's alone and still answers after /clear", async () => {
   const { deps, store } = setup();
   deps.assistantView = new AssistantViewRegistry();
   const app = makeApp(deps);
@@ -493,9 +493,11 @@ test("the view hook is the assistant's alone and ignores a foreign conversation"
   });
   expect((await app.fetch(hook(task.id, {}))).status).toBe(404);
   expect((await app.fetch(hook("nope", {}))).status).toBe(404);
-  const foreign = await app.fetch(hook(assistant.id, { session_id: "claude-b" }));
-  expect(foreign.status).toBe(200);
-  expect(await foreign.json()).toEqual({});
+  // /clear gives the conversation a new session_id while the pinned claudeSessionId stays: every
+  // later message must still get its block.
+  const cleared = await app.fetch(hook(assistant.id, { session_id: "claude-b" }));
+  expect(cleared.status).toBe(200);
+  expect((await cleared.json()).hookSpecificOutput.additionalContext).toBe(UNKNOWN_VIEW);
   // The agent ingress serves it — that's where the assistant's claude posts its hooks.
   const ingress = makeAgentIngressApp(deps);
   const viaIngress = await ingress.fetch(hook(assistant.id, { session_id: "claude-a" }));

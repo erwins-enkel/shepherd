@@ -5737,8 +5737,9 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
 // POST /api/sessions/:id/assistant-view — the Operator Assistant's `UserPromptSubmit` http hook
 // (#3161): answers the operator's current view as `additionalContext`, so it rides beside each
 // message. Only the assistant has one (every other session 404s, so no agent reads the operator's
-// screen), and Claude Code fails open on any error: the message then goes without a block. Like the
-// ingest route, no Content-Type gate — Claude Code's hook client authors the body.
+// screen), and Claude Code fails open on any error: the message then goes without a block. The body
+// is not read: its `session_id` changes on `/clear` while the pinned claudeSessionId doesn't, and
+// every message must still carry a block, so the answer depends on the session in the path alone.
 async function handleAssistantViewHook({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "assistant-view"))
     return null;
@@ -5746,13 +5747,6 @@ async function handleAssistantViewHook({ req, parts, deps }: Ctx): Promise<Respo
   if (!id || parts[4] || req.method !== "POST") return null;
   const session = deps.store.get(id);
   if (!session || !isOperatorAssistant(session)) return json({ error: "session not found" }, 404);
-  const body: unknown = await req.json().catch(() => null);
-  const claimed =
-    typeof body === "object" && body !== null
-      ? (body as { session_id?: unknown }).session_id
-      : null;
-  // A hook from a different conversation (a stale or foreign claude) gets no view.
-  if (typeof claimed === "string" && claimed !== session.claudeSessionId) return json({});
   return json({
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",

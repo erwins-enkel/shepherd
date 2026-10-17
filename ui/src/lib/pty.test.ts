@@ -248,6 +248,23 @@ describe("connectPty", () => {
     });
   });
 
+  it("view() sends a view frame once per change and re-sends it on every open (#3161)", () => {
+    const { conn, last } = make();
+    const views = () =>
+      last().sent.filter((d) => typeof d === "string" && d.startsWith("\x00view:"));
+    conn.view('{"v":1}'); // not open yet: kept for the open
+    expect(views()).toEqual([]);
+    last().open();
+    expect(views()).toEqual(['\x00view:{"v":1}\n']);
+    conn.view('{"v":1}'); // unchanged → nothing new
+    conn.view('{"v":1,"x":2}');
+    expect(views()).toEqual(['\x00view:{"v":1}\n', '\x00view:{"v":1,"x":2}\n']);
+    last().supersede();
+    conn.takeover(); // a new owner socket reports the latest view again
+    last().open();
+    expect(views()).toEqual(['\x00view:{"v":1,"x":2}\n']);
+  });
+
   it("takeover re-attaches after being parked", () => {
     const { conn, last } = make();
     last().open();

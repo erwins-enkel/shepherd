@@ -55,6 +55,12 @@ export interface PtyConn {
   pause(): void;
   /** Re-attach after being parked (superseded) — makes this client the owner again. */
   takeover(): void;
+  /**
+   * The operator's view for the Operator Assistant (#3161), as a JSON report: sent as a
+   * `\x00view:` control frame when it changes, and again on every (re)open, since the server keeps
+   * only the current owner's report and forgets it when a socket closes.
+   */
+  view(json: string): void;
 }
 
 export function connectPty(
@@ -92,6 +98,11 @@ export function connectPty(
   // (the viewport may have changed — rotation, keyboard — while backgrounded)
   let lastCols = cols;
   let lastRows = rows;
+  // the latest view report (#3161); re-sent on every open, null until view() is called
+  let lastView: string | null = null;
+  const sendView = () => {
+    if (lastView !== null && ws.readyState === ws.OPEN) ws.send(`\x00view:${lastView}\n`);
+  };
   // Tell apart a herdr server that's gone for good (e.g. its server was stopped
   // by a failed `herdr update`) from a momentary blip. Every attach against a
   // dead herdr opens then drops within milliseconds, and reconnecting just spews
@@ -145,6 +156,7 @@ export function connectPty(
       openedAt = Date.now();
       resuming = false; // reached the server: it attached us or will park us with 4000
       retryDelay = 1000;
+      sendView();
       if (everOpened) onReconnect();
       everOpened = true;
     };
@@ -233,6 +245,11 @@ export function connectPty(
     takeover: () => {
       if (stopped) return;
       open(false); // re-attach → server makes us the owner and parks the other device
+    },
+    view: (json) => {
+      if (json === lastView) return;
+      lastView = json;
+      sendView();
     },
   };
 }

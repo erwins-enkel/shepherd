@@ -6355,6 +6355,8 @@
   "operator_assistant_tip_open_settings": "Klick ändert das unter Einstellungen → Assistent.",
   "feat_assistant_permissions_title": "Leg fest, was der Operator-Assistent darf",
   "feat_assistant_permissions_body": "Unter Einstellungen → Assistent stellst du seine Shell und vier Aktions-Gruppen — Steering, Sessions steuern, Freigaben & Merge, Automatik — auf Aus, Nachfragen oder Erlaubt. Standardmäßig laufen lesende Befehle ohne Rückfrage, jede Aktion fragt nach. Er handelt nur auf deinen Auftrag, und der Chip in seinem Panel zeigt den aktuellen Modus.",
+  "feat_assistant_view_title": "Der Assistent sieht, was du siehst",
+  "feat_assistant_view_body": "Jede Nachricht an den [[operator-assistant|Operator-Assistenten]] trägt jetzt mit, was dein Fenster zeigt: den Repo-Filter und die Session im Blick, samt offenem Tab und Epic. Frag „Warum hängt die?“ oder „Was ist im aktuellen Repo falsch eingestellt?“, ohne sie zu benennen. Auf dem Handy gilt die Session, aus der du den Assistenten geöffnet hast.",
   "settings_house_stack_title": "House-Stack",
   "settings_house_stack_hint": "Pakete, die ein neues Projekt auf ihre aktuelle stabile Version festlegt – live bei npm und crates.io abgefragt.",
   "settings_house_stack_npm_label": "npm-Pakete (eins pro Zeile)",

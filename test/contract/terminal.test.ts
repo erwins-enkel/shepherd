@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { RESIZE_PREFIX } from "../../src/operator-activity";
+import { VIEW_PREFIX } from "../../src/operator-assistant-view";
 import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE } from "../../src/server";
 import { PTY_MACHINE_UNREACHABLE_CODE } from "../../src/remote-instances/terminal";
 import {
@@ -103,6 +104,7 @@ describe("x-shepherd-pty documents what the native client relies on", () => {
     expect(pty.path).toBe("/pty/{id}");
     expect(pty.query).toEqual(["cols", "rows", "clientKind", "clientPlatform", "resume"]);
     expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
+    expect(pty.viewPrefix).toBe(VIEW_PREFIX);
     expect(pty.closeCodes.superseded).toBe(PTY_SUPERSEDED_CODE);
     expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);
     expect(pty.closeCodes.machineUnreachable).toBe(PTY_MACHINE_UNREACHABLE_CODE);

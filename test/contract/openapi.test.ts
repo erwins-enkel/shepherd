@@ -6,6 +6,7 @@ import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { SESSION_COOKIE } from "../../src/operator-auth";
 import { RESIZE_PREFIX } from "../../src/operator-activity";
+import { VIEW_PREFIX } from "../../src/operator-assistant-view";
 import { SANDBOX_PROFILES } from "../../src/sandbox";
 import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE, type AppDeps } from "../../src/server";
 import { TOKEN_SCOPES } from "../../src/token-scopes";
@@ -1611,6 +1612,7 @@ describe("realtime /pty protocol constants", () => {
     expect(pty.closeCodes.superseded).toBe(PTY_SUPERSEDED_CODE);
     expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);
     expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
+    expect(pty.viewPrefix).toBe(VIEW_PREFIX);
     expect(pty.path).toBe("/pty/{id}");
 
     // RESIZE_PREFIX (imported above) is a mirror re-exported for exactly this assertion — the

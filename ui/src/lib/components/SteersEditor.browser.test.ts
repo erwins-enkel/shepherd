@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { tick } from "svelte";
+import { page } from "vitest/browser";
 import "../../app.css";
 import type { Steer } from "#lib/types.js";
 
@@ -308,5 +309,39 @@ describe("SteersEditor — two-step remove", () => {
     expect(row("a")!.querySelector(".rc-open"), "reverted to Remove…").not.toBeNull();
     expect(putSpy).not.toHaveBeenCalled();
     expect(row("a"), "row not deleted").not.toBeNull();
+  });
+});
+
+describe("SteersEditor show-in checkboxes", () => {
+  // The hidden <input> must stay inside its label. Positioned against an ancestor outside
+  // the scrolling pane, it sat at its unscrolled spot; focusing it on click then scrolled the
+  // Settings card (overflow: hidden), shifting the whole dialog off-screen on mobile.
+  it("ticking a box in a scrolled pane does not scroll the clipped card", async () => {
+    steers.list = ["a", "b", "c", "d"].map((id) =>
+      steer({ id, label: id, text: "long prompt ".repeat(40) }),
+    );
+    const card = document.createElement("div");
+    card.style.cssText =
+      "position:relative;height:600px;overflow:hidden;display:flex;flex-direction:column";
+    const pane = document.createElement("div");
+    pane.style.cssText = "flex:1;min-height:0;overflow:auto";
+    const spacer = document.createElement("div");
+    spacer.style.height = "900px";
+    pane.append(spacer);
+    card.append(pane);
+    document.body.append(card);
+
+    render(SteersEditor, { target: pane } as never);
+    await tick();
+    (row("d")!.querySelector(".rtitle") as HTMLButtonElement).click();
+    await tick();
+    pane.scrollTop = pane.scrollHeight;
+
+    const issues = row("d")!.querySelectorAll<HTMLElement>(".cbx")[1]!;
+    await page.elementLocator(issues.querySelector(".cbx-txt")!).click();
+    await settle();
+
+    expect(issues.querySelector("input")!.checked).toBe(true);
+    expect(card.scrollTop, "clipped card scrolled").toBe(0);
   });
 });

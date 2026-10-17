@@ -857,7 +857,10 @@
     flex-wrap: wrap;
     gap: 16px;
   }
+  /* positioned so the hidden input stays inside its label — else focusing it scrolls the
+     overflow:hidden Settings card toward the input's unscrolled spot */
   .cbx {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 8px;

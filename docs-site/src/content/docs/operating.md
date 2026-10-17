@@ -492,6 +492,12 @@ Through four read-only tools, which never ask:
 
 It can also read Shepherd's own docs and source in the install directory.
 
+With every message it also gets what your Shepherd window shows: the repo filter, the session
+in view with its open tab and its epic, and which client you use. So "why is this one stuck?"
+or "what's wrong in the current repo?" means what you're looking at. On a phone, the session
+in view is the one you opened the assistant from. When that doesn't settle what you mean, it
+asks. A conversation started before this arrived picks it up after **New conversation**.
+
 ### Permissions (Settings → Assistant)
 
 The assistant runs in Claude's default permission mode. **Settings → Assistant** sets how

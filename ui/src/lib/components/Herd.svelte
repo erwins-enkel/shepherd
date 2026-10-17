@@ -785,11 +785,12 @@
 
 <div class="panel bracket" class:flow>
   {#if flow}
-    <!-- mobile flow: the .phead title is hidden by CSS. The lens control is NOT here — it moved
+    <!-- mobile flow: no visible title row (it drew an empty bordered band under the TopBar);
+         the heading stays for screen readers. The lens control is NOT here — it moved
          to the bottom navigation bar (ActionBar) so it sits in the thumb zone and stays put while
          the list scrolls (D10, docs/design/mobile-herd). `filter` stays bindable because the page
          still drives it; only the control moved. -->
-    <div class="phead"><span class="micro">{m.herd_title()}</span></div>
+    <h2 class="sr-only">{m.herd_title()}</h2>
     {#if showMachineBar}
       <HerdMachineBar
         bind:filter={machineFilter}
@@ -939,37 +940,27 @@
      brackets cost two vertical lines plus gutters on a narrow phone, so drop
      them and stretch into the shell's base edge padding (--mobile-shell-pad,
      shared with .shell.mobile in +page.svelte; with a larger safe-area inset
-     the shell keeps the remainder). Top/bottom hairlines stay as section
-     rules. */
+     the shell keeps the remainder). The top hairline goes too — the TopBar's
+     bottom border already rules the list off; only the bottom one stays. */
   .panel.flow {
     border-inline: 0;
+    border-top: 0;
     margin-inline: calc(-1 * var(--mobile-shell-pad));
   }
   .panel.flow.bracket::before,
   .panel.flow.bracket::after {
     display: none;
   }
-  /* The .phead title row only renders in flow (mobile); desktop/touch-wide use the lens
-     strip as the header with no title. Hide the "THE HERD" span so the .phead collapses to
-     a hairline above the seg-row. (herd_title is still referenced here, so the key stays.) */
-  .panel.flow .phead > .micro {
-    display: none;
-  }
-  .phead {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 14px;
-    border-bottom: 1px solid var(--color-line);
-    color: var(--color-muted);
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-  .micro {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .units {

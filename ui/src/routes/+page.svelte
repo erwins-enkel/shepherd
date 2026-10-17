@@ -4377,6 +4377,14 @@
   .shell.mobile.list .chrome {
     gap: 0;
   }
+  /* Same reasoning for the chrome → list gap: the TopBar's bottom border already separates
+     them. The main region keeps its own 10px between the stranded banner and the list. */
+  .shell.mobile.list {
+    gap: 0;
+  }
+  .shell.mobile.list .main-region {
+    gap: 10px;
+  }
 
   /* Mobile list screen becomes a document-scroll app-shell: the shell grows with
      content (min-height floor = one viewport), the middle flows at natural height

@@ -192,6 +192,15 @@ test("brief carries the guardrails", () => {
   expect(b).toContain("designation");
 });
 
+test("brief explains the ⟦VIEW⟧ block and to ask rather than guess (#3161)", () => {
+  const b = brief();
+  expect(b).toContain("## The operator's view");
+  expect(b).toContain("⟦VIEW⟧");
+  expect(b).toContain("the current repo is the repo filter when it names one repo");
+  expect(b).toContain("never infer from your cwd");
+  expect(b).toContain("never carry an older block forward");
+});
+
 test("brief contains no environment values", () => {
   const prev = process.env.SHEPHERD_PASSWORD;
   process.env.SHEPHERD_PASSWORD = "planted-secret-7f3a";

@@ -1299,6 +1299,39 @@ test("spawnSettingsOverlay: hooksIngest off + guard off => no hooks key, byte-id
   }
 });
 
+test("spawnSettingsOverlay: assistantView adds only the UserPromptSubmit view hook, even with hooksIngest off (#3161)", () => {
+  const prev = config.hooksIngest;
+  const prevGuard = config.toolGuard;
+  try {
+    config.hooksIngest = false;
+    config.toolGuard = false;
+    const view = { sessionId: "sess-7", baseUrl: "http://127.0.0.1:7331", token: "tok" };
+    const parsed = JSON.parse(spawnSettingsOverlay({ assistantView: view }));
+    expect(Object.keys(parsed.hooks)).toEqual(["UserPromptSubmit"]);
+    expect(parsed.hooks.UserPromptSubmit).toEqual([
+      {
+        hooks: [
+          {
+            type: "http",
+            url: "http://127.0.0.1:7331/api/sessions/sess-7/assistant-view",
+            timeout: 5,
+            // The placeholder, never the literal token (it rides the ps-visible argv).
+            headers: { Authorization: "Bearer $SHEPHERD_TOKEN" },
+            allowedEnvVars: ["SHEPHERD_TOKEN"],
+          },
+        ],
+      },
+    ]);
+    const open = JSON.parse(spawnSettingsOverlay({ assistantView: { ...view, token: null } }));
+    expect(open.hooks.UserPromptSubmit[0].hooks[0]).not.toHaveProperty("headers");
+    // A task spawn never carries it.
+    expect(spawnSettingsOverlay()).not.toContain("UserPromptSubmit");
+  } finally {
+    config.hooksIngest = prev;
+    config.toolGuard = prevGuard;
+  }
+});
+
 test("spawnSettingsOverlay: hooksIngest on + token => all 8 lifecycle events (incl. SubagentStart/Stop) get http hooks with $SHEPHERD_TOKEN auth", () => {
   const prevFlag = config.hooksIngest;
   const prevToken = config.token;

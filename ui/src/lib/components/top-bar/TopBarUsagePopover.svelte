@@ -372,16 +372,6 @@
     display: flex;
     flex-direction: column;
   }
-  /* In the mobile sheet the popover is a plain block in the flow, not an anchored overlay. Only
-     the positioning differs now — desktop and touch share one layout. */
-  .gauge-pop:not(.gauge-pop-desk) {
-    position: static;
-    width: auto;
-    max-width: none;
-    border: 0;
-    box-shadow: none;
-    padding: 0;
-  }
   .gauge-pop-claude.stale,
   .token-window.stale,
   .usage-hero.stale,

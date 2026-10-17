@@ -1987,9 +1987,17 @@ describe("TopBar — CR extra-credit gauge", () => {
     const btn = hud.querySelector<HTMLButtonElement>(".gauge-btn");
     expect(btn, "collapsed button present in per-model-only state").not.toBeNull();
     expect(btn!.textContent ?? "", "collapsed button shows the Fable pct").toContain("7%");
+    const closedHeight = hud.getBoundingClientRect().height;
     btn!.click();
     await nextFrame();
-    expect(hud.querySelector(".gauge-pop"), "popover opens on tap").not.toBeNull();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop");
+    expect(pop, "popover opens on tap").not.toBeNull();
+    // Anchored overlay, not an in-flow block: an in-flow popover grows the bar row and drags
+    // the rest of the chrome to its vertical centre (unfolded fold).
+    expect(getComputedStyle(pop!).position, "popover is an anchored overlay").toBe("absolute");
+    expect(hud.getBoundingClientRect().height, "opening leaves the bar height alone").toBe(
+      closedHeight,
+    );
   });
 
   it("does NOT render the CR gauge inline when credits is null", async () => {

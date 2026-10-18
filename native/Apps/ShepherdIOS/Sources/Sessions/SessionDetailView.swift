@@ -15,6 +15,7 @@ struct SessionDetailView: View {
     @State private var steers = SteerLibrary()
     @State private var gesture = IOSSteerGestureState()
     @State private var steerDraft: IOSSteerDraft?
+    @State private var askFlow = AskAnswerFlow()
 
     init(session: Session, model: DetailModel, terminal: IOSTerminalPresentation, defaults: UserDefaults) {
         self.session = session
@@ -32,7 +33,9 @@ struct SessionDetailView: View {
             if gesture.steersOpen { steerPanel }
         }
         .sheet(item: $steerDraft) { draft in steerEditor(draft) }
-        .onAppear { configureGesture() }
+        .sheet(isPresented: askPresented) { askSheet }
+        .onAppear { configureGesture(); askFlow.sync(ask: ask) }
+        .onChange(of: ask?.toolUseId) { _, _ in askFlow.sync(ask: ask) }
         .onChange(of: sizeClass) { _, _ in configureGesture() }
         .task(id: session.id) {
             guard let client = app.store?.client else { latency = nil; return }
@@ -58,6 +61,7 @@ struct SessionDetailView: View {
             planOpenTick: app.extension(PlanModel.self)?.openPlanTick[session.id] ?? 0,
             latency: latency,
             steerChips: steerChips,
+            askStrip: askStrip,
             repoName: steers.repoNames[session.repoPath] ?? IOSSessionDetailContent<EmptyView>.repoFallback(session.repoPath),
             focused: gesture.focused,
             toggleFocus: { gesture.toggleFocus() },
@@ -85,6 +89,40 @@ struct SessionDetailView: View {
         let chips = IOSSteerChips(steers: steers.barSteers(for: session), terminal: terminal,
             openAll: { gesture.setSteersOpen(true) }, iconOnly: steersIconOnly)
         return AnyView(chips)
+    }
+
+    // MARK: - AskUserQuestion (#3166)
+
+    /// The open AskUserQuestion dialog on this session's block. Absent without hooks.
+    private var ask: PendingAsk? {
+        (app.extension(SidebarModel.self)?.block(for: session.id) ?? app.store?.blocks[session.id])?.ask
+    }
+
+    private var askPresented: Binding<Bool> {
+        // Read-only launches never answer; the strip stays hidden there too.
+        Binding(get: { [askFlow, ask, app] in
+                    app.allowsTerminalInput && ask != nil && askFlow.presentedID == ask?.toolUseId },
+                set: { [askFlow] shown in if !shown { askFlow.dismiss() } })
+    }
+
+    @ViewBuilder private var askSheet: some View {
+        if let ask {
+            IOSAskSheet(ask: ask, model: askFlow.form(sessionID: session.id, ask: ask), submit: submitAsk)
+        }
+    }
+
+    private func submitAsk() {
+        guard let ask, let client = app.store?.client else { return }
+        Task { [askFlow, session] in
+            await askFlow.submit(sessionID: session.id, ask: ask, writer: .live(client: client))
+        }
+    }
+
+    private var askStrip: AnyView? {
+        let status = askFlow.status?.sessionID == session.id ? askFlow.status : nil
+        guard app.allowsTerminalInput, ask != nil || status != nil else { return nil }
+        return AnyView(IOSAskStrip(ask: ask, status: status,
+            open: { [askFlow] in askFlow.reopen($0) }, clear: { [askFlow] in askFlow.clearStatus(toolUseID: $0) }))
     }
 
     // MARK: - Swipe: right to the overview, left to the steers
@@ -223,6 +261,8 @@ struct IOSSessionDetailContent<Surface: View>: View {
     var planOpenTick = 0
     var latency: IOSLatencyMonitor? = nil
     var steerChips: AnyView? = nil
+    /// AskUserQuestion strip (#3166): reopens the answer sheet, then reports what landed.
+    var askStrip: AnyView? = nil
     /// The repo the session works in, shown before its designation so the screen says where it is.
     var repoName: String? = nil
     /// Focus mode: one slim line of chrome, the rest is terminal (double tap or the expand button).
@@ -244,6 +284,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
             if tab != .terminal, let inlineActions { inlineActions }
             switch tab {
             case .terminal:
+                if let askStrip { askStrip }
                 IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize,
                     rendersStaticFixture: !selectableText, steerChips: steerChips,
                     inlineActions: inlineActions, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails,

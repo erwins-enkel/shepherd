@@ -968,6 +968,22 @@ export const KEYS_IOS_PLAN: readonly string[] = [
   "native_ios_plan_readonly",
 ];
 
+/** Phone AskUserQuestion sheet and its strip above the terminal (#3166). */
+export const KEYS_IOS_ASK: readonly string[] = [
+  "ask_banner_answer",
+  "ask_banner_title",
+  "ask_dialog_hint",
+  "ask_dialog_submit",
+  "ask_dialog_title",
+  "ask_result_failed",
+  "ask_result_mismatch",
+  "ask_result_sending",
+  "ask_result_unverified",
+  "ask_result_verified",
+  "qform_other",
+  "qform_other_placeholder",
+];
+
 /** S8 — plan gates: the badge chips, the plan panel, the visual-block renderer and the
  *  question form. */
 export const KEYS_PLAN: readonly string[] = [
@@ -2272,6 +2288,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_IOS_EPICS,
   ...KEYS_PLAN,
   ...KEYS_IOS_PLAN,
+  ...KEYS_IOS_ASK,
   ...KEYS_MERGE,
   ...KEYS_QUEUES,
   ...KEYS_COMPOSE,

@@ -33,6 +33,16 @@
 "amend_steer_offline" = "Also tell the agent (no live agent)";
 "amend_submit" = "Amend";
 "amend_title" = "Amend task — %1$@";
+"ask_banner_answer" = "Answer";
+"ask_banner_title" = "Claude is asking %1$@ question(s)";
+"ask_dialog_hint" = "Your answer is typed into the terminal. The question stays open there too — whoever answers first wins.";
+"ask_dialog_submit" = "Answer in terminal";
+"ask_dialog_title" = "Claude is asking";
+"ask_result_failed" = "Couldn't answer — the question may already be closed. Check the terminal.";
+"ask_result_mismatch" = "The answer that landed differs from your choice — check the terminal.";
+"ask_result_sending" = "Typing your answer into the terminal…";
+"ask_result_unverified" = "Couldn't confirm the answer — check the terminal.";
+"ask_result_verified" = "Answer delivered.";
 "automerge_state_merge_error" = "Merge failed, needs attention";
 "automerge_state_merging" = "Merging…";
 "automerge_state_rebase_cap" = "Rebase limit reached, needs attention";
@@ -1667,6 +1677,8 @@
 "qform_kind_multi_optional" = "Select all that apply (optional)";
 "qform_kind_single" = "Select one";
 "qform_native_confirm_body" = "Send answers to %1$@ questions to the planning agent? These answers will guide its work.";
+"qform_other" = "Other…";
+"qform_other_placeholder" = "Your own answer";
 "qform_sent" = "Answers sent to the planning agent.";
 "qform_sent_undelivered" = "Couldn't reach the planning agent — it may have already moved on.";
 "qform_submit" = "Send answers to planning agent";

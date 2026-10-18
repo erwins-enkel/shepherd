@@ -163,6 +163,30 @@ struct ShepherdClientPlanTests {
     #expect(sent[2]["optionIndices"] == nil)
   }
 
+  @Test("answer-ask sends the tool use id and decodes every verdict",
+    arguments: ["verified", "mismatch", "unverified", "future"])
+  func answerAsk(verdict: String) async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "POST", "/api/sessions/s1/answer-ask", status: 200,
+      json: Data("{\"result\":\"\(verdict)\"}".utf8))
+    let answers: [RawAnswer] = [
+      .init(blockId: "tu1", questionId: "0", optionIndices: [1]),
+      .init(blockId: "tu1", questionId: "1", optionIndices: [0, 2], text: "Mine"),
+    ]
+    let result = try await makeClient(server).answerAsk(sessionID: "s1", toolUseID: "tu1", answers: answers)
+    #expect(result.result.value1?.rawValue == (verdict == "future" ? nil : verdict))
+    #expect(result.result.value2 == verdict)
+    let body = try #require(server.requests().last?.body)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(json["toolUseId"] as? String == "tu1")
+    let sent = try #require(json["answers"] as? [[String: Any]])
+    try #require(sent.count == 2)
+    #expect(sent[1]["optionIndices"] as? [Int] == [0, 2])
+    #expect(sent[1]["text"] as? String == "Mine")
+  }
+
   @Test(
     "review decodes accepted outcomes",
     arguments: ["started", "started-at-cap", "plan-unavailable", "future"])
@@ -197,7 +221,7 @@ struct ShepherdClientPlanTests {
   }
 
   enum Route: String, CaseIterable {
-    case gates, inflight, release, answers, review, resume, dismiss
+    case gates, inflight, release, answers, ask, review, resume, dismiss
 
     var operationID: String {
       switch self {
@@ -205,6 +229,7 @@ struct ShepherdClientPlanTests {
       case .inflight: "listPlanGatesInflight"
       case .release: "releasePlanGate"
       case .answers: "answerPlanQuestions"
+      case .ask: "answerAsk"
       case .review: "reviewPlan"
       case .resume: "resumePlanQuota"
       case .dismiss: "dismissPlanQuota"
@@ -218,6 +243,7 @@ struct ShepherdClientPlanTests {
       case .inflight: path = "/api/plan-gates/inflight"
       case .release: path = "/api/sessions/s1/go"
       case .answers: path = "/api/sessions/s1/answer-plan-questions"
+      case .ask: path = "/api/sessions/s1/answer-ask"
       case .review: path = "/api/sessions/s1/review-plan"
       case .resume: path = "/api/sessions/s1/quota/resume"
       case .dismiss: path = "/api/sessions/s1/quota/dismiss"
@@ -233,6 +259,7 @@ struct ShepherdClientPlanTests {
       case .inflight: _ = try await client.planGatesInflight()
       case .release: _ = try await client.releasePlanGate(sessionID: "s1")
       case .answers: _ = try await client.answerPlanQuestions(sessionID: "s1", answers: [])
+      case .ask: _ = try await client.answerAsk(sessionID: "s1", toolUseID: "tu1", answers: [])
       case .review: _ = try await client.reviewPlan(sessionID: "s1")
       case .resume: _ = try await client.resumePlanQuota(sessionID: "s1")
       case .dismiss: _ = try await client.dismissPlanQuota(sessionID: "s1")
@@ -269,6 +296,10 @@ struct ShepherdClientPlanTests {
       ),
       (.answers, 409, "no plan questions", .conflict(code: nil, message: "no plan questions")),
       (.answers, 404, "not found", .notFound),
+      (.ask, 409, "ask_not_open", .conflict(code: nil, message: "ask_not_open")),
+      (.ask, 409, "ask_in_flight", .conflict(code: nil, message: "ask_in_flight")),
+      (.ask, 400, "answers do not fit", .badRequest("answers do not fit")),
+      (.ask, 404, "not found", .notFound),
       (.review, 404, "not found", .notFound),
       (.resume, 404, "not found", .notFound),
       (.resume, 404, "no forge for this repo", .notFound),

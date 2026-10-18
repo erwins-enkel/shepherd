@@ -1832,6 +1832,12 @@ export class StatusPoller {
     return this.lastBlockReason.get(id)?.ask ?? null;
   }
 
+  /** #3165: is this dialog still open per the hooks (no PostToolUse / Stop / newer ask yet)? The
+   *  guard WHILE typing — unlike `currentAsk` it survives a momentary block clear mid-sequence. */
+  askStillOpen(id: string, toolUseId: string): boolean {
+    return this.pendingAsk.get(id)?.toolUseId === toolUseId;
+  }
+
   /** Last-emitted block reason per session, for client bootstrap. */
   blockSnapshot(): Record<string, BlockReason> {
     return Object.fromEntries(this.lastBlockReason);

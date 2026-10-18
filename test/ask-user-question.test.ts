@@ -66,7 +66,9 @@ describe("parseAskInput", () => {
     expect(parseAskInput({ questions: Array(5).fill(q("x", false, "a", "b")) })).toBeNull();
     expect(parseAskInput({ questions: [{ question: "x", kind: "text" }] })).toBeNull();
     expect(parseAskInput({ questions: [q("x", false, "only")] })).toBeNull();
-    expect(parseAskInput({ questions: [{ question: "x", options: [{ label: 1 }, { label: "b" }] }] })).toBeNull();
+    expect(
+      parseAskInput({ questions: [{ question: "x", options: [{ label: 1 }, { label: "b" }] }] }),
+    ).toBeNull();
   });
 });
 
@@ -84,7 +86,10 @@ describe("askKeySequence (spike-verified on Claude Code 2.1.301)", () => {
   });
 
   test("1 question multi + Other → toggles, Down×n, text, Down, Enter, review submit", () => {
-    const { keys, expected } = keysFor([q("Pick fruit?", true, "Apple", "Pear")], [ans(0, [1], "Kiwi")]);
+    const { keys, expected } = keysFor(
+      [q("Pick fruit?", true, "Apple", "Pear")],
+      [ans(0, [1], "Kiwi")],
+    );
     expect(keys).toEqual(["2", "3", D, D, "Kiwi", D, "\r", "1"]);
     expect(expected).toEqual({ "Pick fruit?": "Pear, Kiwi" });
   });
@@ -110,8 +115,20 @@ describe("askKeySequence (spike-verified on Claude Code 2.1.301)", () => {
     );
     expect(keys).toEqual([
       "2",
-      "1", "3", D, D, D, D, "\r",
-      "2", "3", D, D, "Juice", D, "\r",
+      "1",
+      "3",
+      D,
+      D,
+      D,
+      D,
+      "\r",
+      "2",
+      "3",
+      D,
+      D,
+      "Juice",
+      D,
+      "\r",
       "1",
       "1",
     ]);

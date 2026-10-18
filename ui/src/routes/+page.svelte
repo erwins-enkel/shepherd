@@ -851,6 +851,8 @@
   const selectedAuthUrl = $derived(
     selected ? (store.blocks[selected.id]?.reason.authUrl ?? null) : null,
   );
+  // The selected session's open AskUserQuestion dialog (#3165), answered natively in the Viewport.
+  const selectedAsk = $derived(selected ? (store.blocks[selected.id]?.reason.ask ?? null) : null);
 
   // Select a freshly-started session and follow the herd's repo filter onto its repo.
   // A new task lands in `repoPath`; if the active filter does NOT include that repo the
@@ -3562,6 +3564,7 @@
             workingBlocked={store.workingBlocked}
             backgroundBusy={store.backgroundBusy}
             authUrl={selectedAuthUrl}
+            ask={selectedAsk}
             onback={() => (mobileScreen = "list")}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}
@@ -3767,6 +3770,7 @@
             workingBlocked={store.workingBlocked}
             backgroundBusy={store.backgroundBusy}
             authUrl={selectedAuthUrl}
+            ask={selectedAsk}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}
             {retryReady}

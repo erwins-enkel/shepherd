@@ -88,6 +88,7 @@ import type {
   TaskAmendment,
   CompletedEpic,
   RawAnswer,
+  AnswerAskResult,
   ShapeRound,
   DocAgentRun,
   HoldReason,
@@ -2781,6 +2782,20 @@ export async function answerPlanQuestions(
   if (!r.ok) throw await failed(r, "answer-plan-questions");
   const body = (await r.json().catch(() => ({}))) as { delivered?: boolean };
   return { delivered: body.delivered === true };
+}
+
+/** Answer the open AskUserQuestion dialog (#3165): the server types the answers into the pane and
+ *  verifies them against PostToolUse (waits up to 10 s). Throws on 4xx/5xx (409 = no longer open,
+ *  e.g. answered in the terminal first). An unknown future verdict reads as "unverified". */
+export async function answerAsk(
+  id: string,
+  toolUseId: string,
+  answers: RawAnswer[],
+): Promise<AnswerAskResult> {
+  const r = await fetch(`/api/sessions/${id}/answer-ask`, JSON_POST({ toolUseId, answers }));
+  if (!r.ok) throw await failed(r, "answer-ask");
+  const body = (await r.json().catch(() => ({}))) as { result?: string };
+  return body.result === "verified" || body.result === "mismatch" ? body.result : "unverified";
 }
 
 export type PrReviewTrigger = "started" | "skipped" | "error";

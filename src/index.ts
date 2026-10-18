@@ -191,7 +191,7 @@ import { buildDeliveryMetrics } from "./delivery-metrics";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
-import { HookIngest, toolUseSince } from "./hooks-ingest";
+import { HookIngest, toolUseSince, type HookEvent } from "./hooks-ingest";
 import { AskAnswerService } from "./ask-answer-service";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
@@ -1499,6 +1499,7 @@ const poller = new StatusPoller(
 // #3165: answer an open AskUserQuestion dialog from the native panel by typing it into the pane.
 const askAnswers = new AskAnswerService({
   currentAsk: (id) => poller.currentAsk(id),
+  askStillOpen: (id, toolUseId) => poller.askStillOpen(id, toolUseId),
   typeKeys: (id, writes, gapMs, stillValid) => service.typeKeys(id, writes, gapMs, stillValid),
 });
 
@@ -1541,18 +1542,25 @@ if (hookSignalsWanted && !config.hooksIngest) {
       "Enable ingest first.",
   );
 } else if (hookSignalsWanted) {
+  // #3165: the AskUserQuestion dialog's lifecycle — PreToolUse opens the native panel, the matching
+  // PostToolUse closes + verifies it, and Stop / SessionEnd close it after a local Esc cancel
+  // (which sends no PostToolUse).
+  const routeAskHook = (id: string, ev: HookEvent): void => {
+    if (ev.event === "PreToolUse" && ev.ask && ev.toolUseId) {
+      poller.ingestAsk(id, { toolUseId: ev.toolUseId, questions: ev.ask });
+    } else if ((ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") && ev.toolUseId) {
+      poller.resolveAsk(id, ev.toolUseId);
+      askAnswers.onPostToolUse(id, ev.toolUseId, ev.askAnswers ?? null);
+    } else if (ev.event === "Stop" || ev.event === "SessionEnd") {
+      poller.resolveAsk(id);
+    }
+  };
   // `planStopTrigger` is declared further down and only read when a hook arrives, long after boot.
   hookIngest.setSink((id, ev) => {
-    if (ev.event === "PreToolUse") {
-      // #3165: AskUserQuestion as data for the native answer panel.
-      if (ev.ask && ev.toolUseId) poller.ingestAsk(id, { toolUseId: ev.toolUseId, questions: ev.ask });
-    } else if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
+    routeAskHook(id, ev);
+    if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
       planStopTrigger.cancel(id);
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });
-      if (ev.toolUseId) {
-        poller.resolveAsk(id, ev.toolUseId);
-        askAnswers.onPostToolUse(id, ev.toolUseId, ev.askAnswers ?? null);
-      }
     } else if (ev.event === "Notification") {
       if (ev.notificationType === "permission_prompt") planStopTrigger.cancel(id);
       poller.ingestNotification(id, ev.notificationType ?? "");
@@ -1562,9 +1570,6 @@ if (hookSignalsWanted && !config.hooksIngest) {
     } else if (ev.event === "Stop") {
       poller.ingestStopMeasure(id, ev.receivedAt);
       planStopTrigger.onStop(id);
-      poller.resolveAsk(id); // a local Esc cancel sends no PostToolUse — the turn's end does
-    } else if (ev.event === "SessionEnd") {
-      poller.resolveAsk(id);
     }
     // Stop now feeds an observe-only window MEASUREMENT (no status mutation): the offset
     // between the Stop hook and herdr's done flip (issue #713). SessionEnd stays observe-only

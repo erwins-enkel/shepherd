@@ -45,7 +45,10 @@ const post = (app: ReturnType<typeof makeApp>, id: string, body: unknown) =>
     }),
   );
 
-const BODY = { toolUseId: "toolu_1", answers: [{ blockId: "toolu_1", questionId: "0", optionIndices: [1] }] };
+const BODY = {
+  toolUseId: "toolu_1",
+  answers: [{ blockId: "toolu_1", questionId: "0", optionIndices: [1] }],
+};
 
 test("200 with the verification result, answers forwarded", async () => {
   const h = harness({ ok: true, result: "verified" });
@@ -66,8 +69,12 @@ test("400 on a malformed body, 404 unknown session, 409 non-claude", async () =>
   const h = harness({ ok: true, result: "verified" });
   expect((await post(h.app, h.session.id, { answers: [] })).status).toBe(400);
   expect(
-    (await post(h.app, h.session.id, { toolUseId: "t", answers: [{ questionId: "0", optionIndices: "1" }] }))
-      .status,
+    (
+      await post(h.app, h.session.id, {
+        toolUseId: "t",
+        answers: [{ questionId: "0", optionIndices: "1" }],
+      })
+    ).status,
   ).toBe(400);
   expect((await post(h.app, "nope", BODY)).status).toBe(404);
   const codex = harness({ ok: true, result: "verified" }, "codex");

@@ -35,6 +35,7 @@ function rig(opts: { reply?: Record<string, string> | null; typed?: boolean } = 
   const typedCalls: { keys: string[]; valid: () => boolean }[] = [];
   const svc: AskAnswerService = new AskAnswerService({
     currentAsk: () => ask,
+    askStillOpen: (_id, toolUseId) => ask?.toolUseId === toolUseId,
     typeKeys: async (_id, keys, _gap, valid) => {
       typedCalls.push({ keys, valid });
       if (opts.typed === false) return false;
@@ -56,7 +57,13 @@ test("verified: typed keys match the spike sequence and PostToolUse agrees", asy
   expect(await r.svc.answer("s", "toolu_1", ANSWERS)).toEqual({ ok: true, result: "verified" });
   expect(r.typedCalls[0]!.keys).toEqual([
     "2",
-    "1", "3", "\x1b[B", "\x1b[B", "Kiwi", "\x1b[B", "\r",
+    "1",
+    "3",
+    "\x1b[B",
+    "\x1b[B",
+    "Kiwi",
+    "\x1b[B",
+    "\r",
     "1",
   ]);
 });
@@ -75,7 +82,10 @@ test("unverified: no PostToolUse within the timeout", async () => {
 test("409 when the ask is not open, wrong id, or typing was cut short", async () => {
   const closed = rig();
   closed.closeAsk();
-  expect(await closed.svc.answer("s", "toolu_1", ANSWERS)).toMatchObject({ status: 409, error: "ask_not_open" });
+  expect(await closed.svc.answer("s", "toolu_1", ANSWERS)).toMatchObject({
+    status: 409,
+    error: "ask_not_open",
+  });
   expect(await rig().svc.answer("s", "toolu_x", ANSWERS)).toMatchObject({ status: 409 });
   expect(await rig({ typed: false }).svc.answer("s", "toolu_1", ANSWERS)).toMatchObject({
     status: 409,
@@ -85,14 +95,19 @@ test("409 when the ask is not open, wrong id, or typing was cut short", async ()
 
 test("400 on invalid answers (resolved against the hooked questions)", async () => {
   expect(
-    await rig().svc.answer("s", "toolu_1", [{ blockId: "toolu_1", questionId: "0", optionIndices: [5] }]),
+    await rig().svc.answer("s", "toolu_1", [
+      { blockId: "toolu_1", questionId: "0", optionIndices: [5] },
+    ]),
   ).toMatchObject({ status: 400 });
 });
 
 test("409 ask_in_flight for a concurrent answer; stillValid tracks the open ask", async () => {
   const r = rig({ reply: null });
   const first = r.svc.answer("s", "toolu_1", ANSWERS);
-  expect(await r.svc.answer("s", "toolu_1", ANSWERS)).toMatchObject({ status: 409, error: "ask_in_flight" });
+  expect(await r.svc.answer("s", "toolu_1", ANSWERS)).toMatchObject({
+    status: 409,
+    error: "ask_in_flight",
+  });
   await first;
   expect(r.typedCalls[0]!.valid()).toBe(false); // the reply closed the ask
 });

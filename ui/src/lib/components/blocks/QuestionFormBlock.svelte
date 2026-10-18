@@ -38,6 +38,15 @@
   let single = $state<Record<string, number | null>>(initSingle());
   let multi = $state<Record<string, number[]>>(initMulti());
   let freeform = $state<Record<string, string>>(initFreeform());
+  // `allowOther` questions (AskUserQuestion, #3165): an extra "Other…" choice that reveals a text
+  // input. Single: the radio group's value OTHER. Multi: its own checkbox. The plan gate never sets
+  // `allowOther`, so its forms are unchanged.
+  const OTHER = -1;
+  let otherChecked = $state<Record<string, boolean>>({});
+  let otherText = $state<Record<string, string>>({});
+  const otherOn = (q: { id: string; kind: string }) =>
+    q.kind === "single" ? single[q.id] === OTHER : !!otherChecked[q.id];
+  const otherFilled = (id: string) => !!otherText[id]?.trim();
 
   let submitting = $state(false);
   let submitted = $state(false);
@@ -47,33 +56,42 @@
   const locked = $derived(submitting || submitted || !!answerCtx?.locked);
   const inputsDisabled = $derived(!interactive || locked);
 
-  // Submit requires every single + freeform answered; multi is optional (empty = "none").
-  const canSubmit = $derived.by(() => {
-    if (!interactive || locked) return false;
-    for (const q of block.questions) {
-      if (q.kind === "single" && single[q.id] == null) return false;
-      if (q.kind === "freeform" && !freeform[q.id]?.trim()) return false;
-    }
-    return true;
-  });
+  // Submit requires every single + freeform answered; multi is optional (empty = "none") — except
+  // with `allowOther`, where a multi needs a choice too (a "none" goes through Other) and a picked
+  // Other needs its text.
+  type Question = (typeof block.questions)[number];
+  function otherComplete(q: Question): boolean {
+    if (otherOn(q) && !otherFilled(q.id)) return false;
+    return q.kind !== "multi" || !!multi[q.id]?.length || otherOn(q);
+  }
+  function answered(q: Question): boolean {
+    if (q.kind === "single" && single[q.id] == null) return false;
+    if (q.kind === "freeform" && !freeform[q.id]?.trim()) return false;
+    return !q.allowOther || otherComplete(q);
+  }
+  const canSubmit = $derived(interactive && !locked && block.questions.every(answered));
 
-  function kindLabel(kind: "single" | "multi" | "freeform"): string {
+  function kindLabel(kind: "single" | "multi" | "freeform", required = false): string {
     if (kind === "single") return m.qform_kind_single();
-    if (kind === "multi") return interactive ? m.qform_kind_multi_optional() : m.qform_kind_multi();
+    if (kind === "multi")
+      return interactive && !required ? m.qform_kind_multi_optional() : m.qform_kind_multi();
     return m.qform_kind_freeform();
   }
 
   function buildAnswers(): RawAnswer[] {
     return block.questions.map((q) => {
+      const other = q.allowOther && otherOn(q) ? { text: otherText[q.id]?.trim() ?? "" } : {};
       if (q.kind === "single") {
         const i = single[q.id];
-        return { blockId: block.id, questionId: q.id, optionIndices: i == null ? [] : [i] };
+        const indices = i == null || i === OTHER ? [] : [i];
+        return { blockId: block.id, questionId: q.id, optionIndices: indices, ...other };
       }
       if (q.kind === "multi") {
         return {
           blockId: block.id,
           questionId: q.id,
           optionIndices: [...(multi[q.id] ?? [])].sort((a, b) => a - b),
+          ...other,
         };
       }
       return { blockId: block.id, questionId: q.id, text: freeform[q.id] ?? "" };
@@ -107,41 +125,76 @@
 <div class="qf-form">
   {#each block.questions as q (q.id)}
     <div class="qf-question">
+      {#if q.header}<span class="qf-header">{q.header}</span>{/if}
       <p class="qf-prompt">{q.prompt}</p>
-      <span class="qf-kind">{kindLabel(q.kind)}</span>
-      {#if q.kind === "single" && q.options}
+      <span class="qf-kind">{kindLabel(q.kind, !!q.allowOther)}</span>
+      {#if (q.kind === "single" || q.kind === "multi") && q.options}
         <ul class="qf-options">
           {#each q.options as option, i (i)}
             <li class="qf-option">
               <label class="qf-label" class:qf-label-live={interactive}>
-                <input
-                  type="radio"
-                  name={`${block.id}-${q.id}`}
-                  value={i}
-                  bind:group={single[q.id]}
-                  disabled={inputsDisabled}
-                />
-                <span>{option}</span>
+                {#if q.kind === "single"}
+                  <input
+                    type="radio"
+                    name={`${block.id}-${q.id}`}
+                    value={i}
+                    bind:group={single[q.id]}
+                    disabled={inputsDisabled}
+                  />
+                {:else}
+                  <input
+                    type="checkbox"
+                    name={`${block.id}-${q.id}-${i}`}
+                    value={i}
+                    bind:group={multi[q.id]}
+                    disabled={inputsDisabled}
+                  />
+                {/if}
+                <span class="qf-option-text">
+                  <span>{option}</span>
+                  {#if q.optionDescriptions?.[i] && q.optionDescriptions[i] !== option}
+                    <span class="qf-option-desc">{q.optionDescriptions[i]}</span>
+                  {/if}
+                </span>
               </label>
             </li>
           {/each}
-        </ul>
-      {:else if q.kind === "multi" && q.options}
-        <ul class="qf-options">
-          {#each q.options as option, i (i)}
+          {#if q.allowOther}
             <li class="qf-option">
               <label class="qf-label" class:qf-label-live={interactive}>
-                <input
-                  type="checkbox"
-                  name={`${block.id}-${q.id}-${i}`}
-                  value={i}
-                  bind:group={multi[q.id]}
-                  disabled={inputsDisabled}
-                />
-                <span>{option}</span>
+                {#if q.kind === "single"}
+                  <input
+                    type="radio"
+                    name={`${block.id}-${q.id}`}
+                    value={OTHER}
+                    bind:group={single[q.id]}
+                    disabled={inputsDisabled}
+                  />
+                {:else}
+                  <input
+                    type="checkbox"
+                    name={`${block.id}-${q.id}-other`}
+                    bind:checked={otherChecked[q.id]}
+                    disabled={inputsDisabled}
+                  />
+                {/if}
+                <span>{m.qform_other()}</span>
               </label>
             </li>
-          {/each}
+            {#if otherOn(q)}
+              <li class="qf-freeform">
+                <input
+                  type="text"
+                  class="qf-freeform-input qf-freeform-live"
+                  bind:value={otherText[q.id]}
+                  disabled={inputsDisabled}
+                  maxlength={500}
+                  aria-label={`${q.prompt}: ${m.qform_other()}`}
+                  placeholder={m.qform_other_placeholder()}
+                />
+              </li>
+            {/if}
+          {/if}
         </ul>
       {:else if q.kind === "freeform"}
         <div class="qf-freeform">
@@ -195,6 +248,21 @@
     font-weight: 500;
   }
   .qf-kind {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .qf-header {
+    align-self: flex-start;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-amber);
+  }
+  .qf-option-text {
+    display: flex;
+    flex-direction: column;
+  }
+  .qf-option-desc {
     font-size: var(--fs-meta);
     color: var(--color-muted);
   }

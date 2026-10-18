@@ -115,7 +115,7 @@ describe("go", () => {
 });
 
 describe("answer ask (#3165)", () => {
-  test("400, 404, 409 without an open dialog, then 200 with the verification result", async () => {
+  test("400, 404, 409 without an open dialog, 401, then 200 with the verification result", async () => {
     const id = await createSession("ask me");
     const path = "/api/sessions/{id}/answer-ask";
     const answers = [{ blockId: "toolu_1", questionId: "0", optionIndices: [0] }];
@@ -128,15 +128,29 @@ describe("answer ask (#3165)", () => {
     expect(unknown.status).toBe(404);
     await validateResponse("POST", path, unknown);
 
-    const closed = await postJson(`/api/sessions/${id}/answer-ask`, { toolUseId: "toolu_1", answers });
+    const closed = await postJson(`/api/sessions/${id}/answer-ask`, {
+      toolUseId: "toolu_1",
+      answers,
+    });
     expect(closed.status).toBe(409);
     expect(((await validateResponse("POST", path, closed)) as { error: string }).error).toBe(
       "ask_not_open",
     );
 
+    const anon = await postJson(
+      `/api/sessions/${id}/answer-ask`,
+      { toolUseId: "t", answers },
+      false,
+    );
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", path, anon);
+
     s.stubs.askAnswers.outcome = { ok: true, result: "verified" };
     try {
-      const ok = await postJson(`/api/sessions/${id}/answer-ask`, { toolUseId: "toolu_1", answers });
+      const ok = await postJson(`/api/sessions/${id}/answer-ask`, {
+        toolUseId: "toolu_1",
+        answers,
+      });
       expect(ok.status).toBe(200);
       expect(await validateResponse("POST", path, ok)).toEqual({ result: "verified" });
     } finally {

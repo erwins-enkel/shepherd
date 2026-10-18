@@ -53,6 +53,8 @@ export const ASK_KEY_GAP_MS = 120;
 const DOWN = "\x1b[B";
 const ENTER = "\r";
 const OTHER_MAX = 500;
+// eslint-disable-next-line no-control-regex
+const CONTROL_RE = /[\x00-\x1f\x7f-\x9f]/g;
 
 const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -99,8 +101,7 @@ export function parseAskInput(input: unknown): AskQuestion[] | null {
 /** Other text made safe to type: no control chars (a newline would press Enter, ESC would cancel),
  *  whitespace collapsed, trimmed, capped. Empty ⇒ null. */
 export function sanitizeOtherText(text: string): string | null {
-  // eslint-disable-next-line no-control-regex
-  const clean = text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ").replace(/\s+/g, " ").trim();
+  const clean = text.replace(CONTROL_RE, " ").replace(/\s+/g, " ").trim();
   return clean ? clean.slice(0, OTHER_MAX).trim() : null;
 }
 
@@ -122,19 +123,24 @@ export function resolveAskAnswers(
   const out: ResolvedAskAnswer[] = [];
   for (const [i, q] of questions.entries()) {
     const a = byIndex.get(String(i));
-    if (!a) return null;
-    const raw = a.optionIndices ?? [];
-    if (!Array.isArray(raw)) return null;
-    const indices = [...new Set(raw)].sort((x, y) => x - y);
-    if (indices.length !== raw.length) return null;
-    if (!indices.every((n) => Number.isInteger(n) && n >= 0 && n < q.options.length)) return null;
-    const other = typeof a.text === "string" ? sanitizeOtherText(a.text) : null;
-    if (q.multiSelect) {
-      if (indices.length === 0 && !other) return null;
-    } else if (indices.length + (other ? 1 : 0) !== 1) return null;
-    out.push({ question: q, optionIndices: indices, other });
+    const resolved = a ? resolveOne(q, a) : null;
+    if (!resolved) return null;
+    out.push(resolved);
   }
   return out;
+}
+
+/** One question's answer, or null when it does not fit the question. */
+function resolveOne(q: AskQuestion, a: RawAnswer): ResolvedAskAnswer | null {
+  const raw = a.optionIndices ?? [];
+  if (!Array.isArray(raw)) return null;
+  const indices = [...new Set(raw)].sort((x, y) => x - y);
+  const inRange = (n: number) => Number.isInteger(n) && n >= 0 && n < q.options.length;
+  if (indices.length !== raw.length || !indices.every(inRange)) return null;
+  const other = typeof a.text === "string" ? sanitizeOtherText(a.text) : null;
+  const picked = indices.length + (other ? 1 : 0);
+  if (q.multiSelect ? picked === 0 : picked !== 1) return null;
+  return { question: q, optionIndices: indices, other };
 }
 
 /** The pty writes that answer the dialog, one key per entry (see the module header). */

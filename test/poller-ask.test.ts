@@ -99,7 +99,9 @@ test("an ask arriving after the block re-emits it with ask; resolve by id re-emi
   r.poller.resolveAsk(r.id, "toolu_other"); // a different tool's PostToolUse → ignored
   expect(r.poller.currentAsk(r.id)).toEqual(ASK);
 
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(true);
   r.poller.resolveAsk(r.id, "toolu_1");
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(false);
   expect(r.blocks.at(-1)?.shape).toBe("menu");
   expect(r.blocks.at(-1)?.ask).toBeUndefined();
   expect(r.poller.currentAsk(r.id)).toBeNull();

@@ -249,3 +249,75 @@ describe("QuestionFormBlock — callback mode (onanswer present)", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 });
+
+describe("QuestionFormBlock — allowOther (AskUserQuestion, #3165)", () => {
+  const block = {
+    type: "question-form" as const,
+    id: "toolu_1",
+    questions: [
+      {
+        id: "0",
+        prompt: "Color?",
+        kind: "single" as const,
+        options: ["Red", "Blue"],
+        optionDescriptions: ["warm hue", "Blue"],
+        header: "Color",
+        allowOther: true,
+      },
+      {
+        id: "1",
+        prompt: "Tops?",
+        kind: "multi" as const,
+        options: ["Cheese", "Ham"],
+        allowOther: true,
+      },
+    ],
+  };
+
+  it("renders header + descriptions, hides a description that only repeats the label", async () => {
+    const { container } = await render(QuestionFormBlock, { block, onanswer: vi.fn() });
+    await expect.element(page.getByText("warm hue")).toBeInTheDocument();
+    await expect.element(page.getByText("Color", { exact: true })).toBeInTheDocument();
+    expect(container.querySelectorAll(".qf-option-desc")).toHaveLength(1);
+    // a multi with Other is required, not "(optional)"
+    expect(container.textContent).not.toContain("(optional)");
+  });
+
+  it("Other reveals a text input, gates submit on its text, and sends it as `text`", async () => {
+    const onanswer = vi.fn();
+    const { container } = await render(QuestionFormBlock, { block, onanswer, submitLabel: "Go" });
+    const button = page.getByRole("button", { name: "Go" });
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    expect(radios).toHaveLength(3); // Red, Blue, Other
+    await page.elementLocator(radios[2]!).click(); // single → Other
+    const boxes = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    expect(boxes).toHaveLength(3); // Cheese, Ham, Other
+    await page.elementLocator(boxes[1]!).click(); // Ham
+    await expect.element(button).toBeDisabled(); // single's Other has no text yet
+    const others = () => container.querySelectorAll<HTMLInputElement>("input.qf-freeform-input");
+    expect(others()).toHaveLength(1);
+    await page.elementLocator(others()[0]!).fill("Green");
+    await expect.element(button).toBeEnabled();
+    await page.elementLocator(boxes[2]!).click(); // multi Other too
+    await expect.element(button).toBeDisabled();
+    await page.elementLocator(others()[1]!).fill("Kiwi");
+    await button.click();
+    expect(onanswer.mock.calls[0]![0]).toEqual([
+      { blockId: "toolu_1", questionId: "0", optionIndices: [], text: "Green" },
+      { blockId: "toolu_1", questionId: "1", optionIndices: [1], text: "Kiwi" },
+    ]);
+  });
+
+  it("a multi with allowOther needs at least one choice", async () => {
+    const { container } = await render(QuestionFormBlock, {
+      block: { ...block, questions: [block.questions[1]!] },
+      onanswer: vi.fn(),
+      submitLabel: "Go",
+    });
+    const button = page.getByRole("button", { name: "Go" });
+    await expect.element(button).toBeDisabled();
+    const boxes = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    await page.elementLocator(boxes[0]!).click();
+    await expect.element(button).toBeEnabled();
+  });
+});

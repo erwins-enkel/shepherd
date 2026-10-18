@@ -231,8 +231,7 @@ export function makeContractDeps(): ContractDeps {
     shapeTask: (async (...args: never[]) =>
       shapeTask.impl ? await shapeTask.impl(...args) : { error: "unavailable" }) as never,
     askAnswers: {
-      answer: async () =>
-        askAnswers.outcome ?? { ok: false, status: 409, error: "ask_not_open" },
+      answer: async () => askAnswers.outcome ?? { ok: false, status: 409, error: "ask_not_open" },
     },
   };
   return {

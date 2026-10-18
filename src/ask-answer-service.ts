@@ -20,6 +20,8 @@ import type { RawAnswer } from "./plan-gate";
 export interface AskAnswerDeps {
   /** The ask the session's announced block carries right now (poller.currentAsk). */
   currentAsk: (id: string) => PendingAsk | null;
+  /** Still open per the hooks (poller.askStillOpen) — checked before every typed key. */
+  askStillOpen: (id: string, toolUseId: string) => boolean;
   /** SessionService.typeKeys. */
   typeKeys: (
     id: string,
@@ -33,8 +35,7 @@ export interface AskAnswerDeps {
 }
 
 export type AnswerAskOutcome =
-  | { ok: true; result: AskAnswerResult }
-  | { ok: false; status: 400 | 409; error: string };
+  { ok: true; result: AskAnswerResult } | { ok: false; status: 400 | 409; error: string };
 
 interface Waiter {
   toolUseId: string;
@@ -63,11 +64,8 @@ export class AskAnswerService {
     try {
       // Registered BEFORE typing: the PostToolUse can arrive the moment the last key lands.
       const verdict = this.#awaitPostToolUse(id, toolUseId);
-      const typed = await this.deps.typeKeys(
-        id,
-        keys,
-        this.deps.gapMs ?? ASK_KEY_GAP_MS,
-        () => this.deps.currentAsk(id)?.toolUseId === toolUseId,
+      const typed = await this.deps.typeKeys(id, keys, this.deps.gapMs ?? ASK_KEY_GAP_MS, () =>
+        this.deps.askStillOpen(id, toolUseId),
       );
       if (!typed) {
         this.#waiters.delete(id);

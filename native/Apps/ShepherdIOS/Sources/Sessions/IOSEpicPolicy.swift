@@ -39,21 +39,33 @@ enum IOSEpicPolicy {
 
 struct IOSEpicSettings {
     var mode: Components.Schemas.EpicRunPatch.ModePayload
-    var provider: AgentProvider
+    var provider: AgentProvider?
     var model: String
     var effort: String
     var ignoreUsageCeiling: Bool
-    init(_ run: Components.Schemas.EpicRun, defaultProvider: AgentProvider = .claude) {
+    private let original: Components.Schemas.EpicRun
+    init(_ run: Components.Schemas.EpicRun) {
+        original = run
         mode = run.mode.iosValue == "attended" ? .attended : .auto
-        provider = run.agentProvider ?? defaultProvider
+        provider = run.agentProvider
         model = run.model ?? "default"; effort = run.effort ?? "default"
         ignoreUsageCeiling = run.ignoreUsageCeiling ?? false
     }
     func patch(start: Bool, running: Bool) -> Components.Schemas.EpicRunPatch {
-        .init(mode: mode, status: start ? .running : nil, agentProvider: provider,
-              model: model, effort: effort, ignoreUsageCeiling: (start || running) && ignoreUsageCeiling)
+        // Generated EpicRunPatch has single optionals and synthesized encodeIfPresent:
+        // nil omits a key; it cannot send explicit JSON null to clear an override.
+        // Until the generated contract supports nullable patches, omit inherit changes
+        // rather than pinning server defaults. Existing overrides can be cleared on web.
+        let ceiling = (start || running) && ignoreUsageCeiling
+        return .init(mode: mode.rawValue != original.mode.iosValue ? mode : nil,
+              status: start ? .running : nil,
+              agentProvider: provider != original.agentProvider ? provider : nil,
+              model: provider != nil && model != (original.model ?? "default") && model != "default" ? model : nil,
+              effort: provider != nil && effort != (original.effort ?? "default") && effort != "default" ? effort : nil,
+              ignoreUsageCeiling: ceiling != (original.ignoreUsageCeiling ?? false) ? ceiling : nil)
     }
     mutating func normalize(fableAvailable: Bool) {
+        guard let provider else { model = "default"; effort = "default"; return }
         if model != "default", !ComposeRunConfig.providerModels(provider).contains(model)
             || !ComposeRunConfig.available(model, provider: provider, fableAvailable: fableAvailable) { model = "default" }
         if effort != "default", !ComposeRunConfig.providerEfforts(provider, model: model).contains(effort) { effort = "default" }

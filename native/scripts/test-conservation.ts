@@ -806,7 +806,26 @@ if (import.meta.main) {
     upstreamAdded?: string[];
     harnessAdded?: string[];
     featureAdded?: string[];
+    iosFeatureAdded?: string[];
   };
+  // iOS is outside the immutable macOS/package baseline. Validate explicitly
+  // registered iOS additions against source without changing that baseline.
+  const iosDirectory = "native/Apps/ShepherdIOS/Tests";
+  const iosIDs = new Set(
+    collectTargetTests(
+      "ShepherdIOSTests",
+      files(join(root, iosDirectory)).map((path) => ({
+        path: relative(root, path),
+        source: readFileSync(path, "utf8"),
+      })),
+    ).map(identity),
+  );
+  const registeredIOS = new Set<string>();
+  for (const id of map.iosFeatureAdded ?? []) {
+    if (!iosIDs.has(id) || registeredIOS.has(id))
+      throw new Error("invalid/duplicate iOS addition " + id);
+    registeredIOS.add(id);
+  }
   if (mode[0] === "--check" && !Array.isArray(map.upstreamAdded))
     throw new Error("pinned upstream provenance mapping is required");
   let expected = baseline.tests;

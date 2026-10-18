@@ -12797,5 +12797,10 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"okOnlyResponsesRereadTheGraph() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"errorsPreserveConflictsAuthenticationAndUpstreamFailures() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"malformedOrDisappearedGraphDoesNotFabricateSuccess() async throws\"]"
+  ],
+  "iosFeatureAdded": [
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testChangedSettingsSendOnlyTheChangedField() throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]"
   ]
 }

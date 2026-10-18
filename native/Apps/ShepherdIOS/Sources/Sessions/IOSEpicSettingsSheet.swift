@@ -29,7 +29,7 @@ struct IOSEpicSettingsSheet: View {
     @State private var values: IOSEpicSettings
     @Environment(\.dismiss) private var dismiss
     init(control: IOSEpicControl, epic: Epic) {
-        self.control = control; self.epic = epic; _starting = State(initialValue: epic.run.status.rawValue == "idle"); _values = State(initialValue: .init(epic.run, defaultProvider: control.owner.store?.settings?.defaultAgentProvider ?? .claude))
+        self.control = control; self.epic = epic; _starting = State(initialValue: epic.run.status.rawValue == "idle"); _values = State(initialValue: .init(epic.run))
     }
     var body: some View {
         NavigationStack {
@@ -75,20 +75,23 @@ struct IOSEpicSettingsContent: View {
                     .sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
             }
             VStack(spacing: 0) {
-                menu("epic_provider_label", value: L.t(values.provider == .claude ? "agent_provider_claude" : "agent_provider_codex"), selection: $values.provider) {
-                    Text(verbatim: L.t("agent_provider_claude")).tag(AgentProvider.claude)
-                    Text(verbatim: L.t("agent_provider_codex")).tag(AgentProvider.codex)
+                menu("epic_provider_label", value: L.t(values.provider == nil ? "epic_provider_inherit" : values.provider == .claude ? "agent_provider_claude" : "agent_provider_codex"), selection: $values.provider) {
+                    Text(verbatim: L.t("epic_provider_inherit")).tag(AgentProvider?.none)
+                    Text(verbatim: L.t("agent_provider_claude")).tag(AgentProvider?.some(.claude))
+                    Text(verbatim: L.t("agent_provider_codex")).tag(AgentProvider?.some(.codex))
                 }
-                menu("epic_model_label", value: ModelGuidance.optionLabel(provider: values.provider, model: values.model).components(separatedBy: " · ")[0], selection: $values.model) {
-                    ForEach(["default"] + ComposeRunConfig.providerModels(values.provider).filter {
-                        ComposeRunConfig.available($0, provider: values.provider, fableAvailable: fableAvailable)
-                    }, id: \.self) { value in
-                        Text(verbatim: ModelGuidance.optionLabel(provider: values.provider, model: value)).tag(value)
+                if let provider = values.provider {
+                    menu("epic_model_label", value: (values.model == "default" ? L.t("newtask_model_default") : ModelGuidance.optionLabel(provider: provider, model: values.model)).components(separatedBy: " · ")[0], selection: $values.model) {
+                        ForEach(["default"] + ComposeRunConfig.providerModels(provider).filter {
+                            ComposeRunConfig.available($0, provider: provider, fableAvailable: fableAvailable)
+                        }, id: \.self) { value in
+                            Text(verbatim: value == "default" ? L.t("newtask_model_default") : ModelGuidance.optionLabel(provider: provider, model: value)).tag(value)
+                        }
                     }
-                }
-                menu("epic_effort_label", value: Self.effort(values.effort), selection: $values.effort) {
-                    ForEach(["default"] + ComposeRunConfig.providerEfforts(values.provider, model: values.model), id: \.self) { value in
-                        Text(verbatim: Self.effort(value)).tag(value)
+                    menu("epic_effort_label", value: Self.effort(values.effort), selection: $values.effort) {
+                        ForEach(["default"] + ComposeRunConfig.providerEfforts(provider, model: values.model), id: \.self) { value in
+                            Text(verbatim: Self.effort(value)).tag(value)
+                        }
                     }
                 }
             }.background(SessionListStyle.panel)

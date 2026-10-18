@@ -51,9 +51,11 @@ struct IOSEpicGroupHeader: View {
                 if !actions.isEmpty {
                     SessionWrappingLayout(spacing: 8) {
                         ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
-                            Button(IOSEpicControlCopy.action(action)) { Task { await control.perform(action) } }
-                                .buttonStyle(.plain).foregroundStyle(SessionListStyle.amber)
-                                .frame(minHeight: 44).disabled(control.busy)
+                            Button { Task { await control.perform(action) } } label: {
+                                Text(verbatim: IOSEpicControlCopy.action(action))
+                                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                            }.buttonStyle(.plain).foregroundStyle(SessionListStyle.amber)
+                                .disabled(control.busy)
                         }
                         if control.busy { ProgressView().accessibilityLabel(L.t("common_loading")) }
                     }.padding(.leading, 44)

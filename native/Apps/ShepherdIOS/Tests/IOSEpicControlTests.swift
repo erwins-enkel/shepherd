@@ -56,13 +56,13 @@ final class IOSEpicControlTests: XCTestCase {
         settings.ignoreUsageCeiling = true
         let start = settings.patch(start: true, running: false)
         XCTAssertEqual(start.status, .running)
-        XCTAssertEqual(start.mode, .attended)
-        XCTAssertEqual(start.agentProvider, .claude)
-        XCTAssertEqual(start.model, "opus")
-        XCTAssertEqual(start.effort, "high")
+        XCTAssertNil(start.mode)
+        XCTAssertNil(start.agentProvider)
+        XCTAssertNil(start.model)
+        XCTAssertNil(start.effort)
         XCTAssertEqual(start.ignoreUsageCeiling, true)
         XCTAssertNil(settings.patch(start: false, running: true).status)
-        XCTAssertEqual(settings.patch(start: false, running: false).ignoreUsageCeiling, false)
+        XCTAssertNil(settings.patch(start: false, running: false).ignoreUsageCeiling)
         settings.provider = .codex
         settings.normalize(fableAvailable: false)
         XCTAssertEqual(settings.model, "default")
@@ -72,6 +72,61 @@ final class IOSEpicControlTests: XCTestCase {
         settings.model = "gpt-5.5"
         settings.normalize(fableAvailable: false)
         XCTAssertEqual(settings.effort, "default")
+    }
+    func testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws {
+        var run = try fixture().run
+        for inherited in [false, true] {
+            if inherited { run.agentProvider = nil; run.model = nil; run.effort = nil }
+            let settings = IOSEpicSettings(run)
+            XCTAssertEqual(settings.provider, run.agentProvider)
+            for start in [false, true] {
+                let json = try settingsJSON(settings, start: start)
+                XCTAssertNil(json["agentProvider"])
+                XCTAssertNil(json["model"])
+                XCTAssertNil(json["effort"])
+                XCTAssertEqual(json["status"] as? String, start ? "running" : nil)
+            }
+        }
+    }
+    func testChangedSettingsSendOnlyTheChangedField() throws {
+        let run = try fixture().run
+        var provider = IOSEpicSettings(run)
+        provider.provider = .codex
+        XCTAssertEqual(try settingsJSON(provider) as NSDictionary, ["agentProvider": "codex"] as NSDictionary)
+        var model = IOSEpicSettings(run)
+        model.model = "sonnet"
+        XCTAssertEqual(try settingsJSON(model) as NSDictionary, ["model": "sonnet"] as NSDictionary)
+        var effort = IOSEpicSettings(run)
+        effort.effort = "low"
+        XCTAssertEqual(try settingsJSON(effort) as NSDictionary, ["effort": "low"] as NSDictionary)
+        effort.effort = run.effort ?? "default"
+        XCTAssertTrue(try settingsJSON(effort).isEmpty)
+    }
+    func testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws {
+        let run = try fixture().run
+        var provider = IOSEpicSettings(run)
+        provider.provider = nil
+        provider.normalize(fableAvailable: true)
+        XCTAssertNil(provider.provider)
+        XCTAssertEqual(provider.model, "default")
+        XCTAssertEqual(provider.effort, "default")
+        XCTAssertTrue(try settingsJSON(provider).isEmpty)
+        var model = IOSEpicSettings(run)
+        model.model = "default"
+        XCTAssertTrue(try settingsJSON(model).isEmpty)
+        var effort = IOSEpicSettings(run)
+        effort.effort = "default"
+        XCTAssertTrue(try settingsJSON(effort).isEmpty)
+        // Generated single-optionals collapse explicit null to nil and re-encode
+        // it as omission. Remove this fallback when the contract supports null.
+        let decoded = try JSONDecoder().decode(Components.Schemas.EpicRunPatch.self,
+            from: Data(#"{"agentProvider":null,"model":null,"effort":null}"#.utf8))
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any]
+        XCTAssertEqual(encoded?.count, 0)
+    }
+    private func settingsJSON(_ settings: IOSEpicSettings, start: Bool = false) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            settings.patch(start: start, running: true))) as? [String: Any])
     }
     func testStartChecksLeaderAndRequiresAnExplicitRequeueChoice() async throws {
         let (hub, owner, group) = try await context()

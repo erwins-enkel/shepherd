@@ -430,3 +430,58 @@ test("CodexUsageProvider.snapshot merges token counts with rollout rate limits",
     rateLimitSource: "rollout",
   });
 });
+
+function createRolloutStateDb(path: string, tokens: number): void {
+  const db = new Database(path);
+  db.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      model_provider TEXT NOT NULL,
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      updated_at_ms INTEGER NOT NULL,
+      rollout_path TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  db.query(
+    "INSERT INTO threads (id, model_provider, tokens_used, updated_at_ms, rollout_path) VALUES (?, ?, ?, ?, ?)",
+  ).run("recent", "openai", tokens, NOW - H, "");
+  db.close();
+}
+
+test("CodexUsageProvider.snapshot reuses one Codex state read for 15s", () => {
+  const dir = tempDir();
+  const dbPath = join(dir, "state_5.sqlite");
+  createRolloutStateDb(dbPath, 1_000);
+  const provider = new CodexUsageProvider(dbPath, dir);
+
+  expect(provider.snapshot(NOW)).toMatchObject({ totalTokens: 1_000 });
+
+  const db = new Database(dbPath);
+  db.query("UPDATE threads SET tokens_used = ?").run(5_000);
+  db.close();
+
+  expect(provider.snapshot(NOW + 14_999)).toMatchObject({ totalTokens: 1_000 });
+  expect(provider.snapshot(NOW + 15_000)).toMatchObject({ totalTokens: 5_000 });
+});
+
+test("CodexUsageProvider.snapshot reuses one rollout walk for 15s", () => {
+  const dir = tempDir();
+  const dbPath = join(dir, "state_5.sqlite");
+  createRolloutStateDb(dbPath, 1_000);
+  const sessions = join(dir, "sessions", "2026", "06", "25");
+  mkdirSync(sessions, { recursive: true });
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  const first = join(sessions, "rollout-first.jsonl");
+  writeFileSync(first, rolloutLine(38, 22, resetSec));
+  utimesSync(first, new Date(NOW - H), new Date(NOW - H));
+  const provider = new CodexUsageProvider(dbPath, dir);
+
+  expect(provider.snapshot(NOW)).toMatchObject({ session5h: { pct: 38 } });
+
+  const second = join(sessions, "rollout-second.jsonl");
+  writeFileSync(second, rolloutLine(70, 40, resetSec));
+  utimesSync(second, new Date(NOW), new Date(NOW));
+
+  expect(provider.snapshot(NOW + 1_000)).toMatchObject({ session5h: { pct: 38 } });
+  expect(provider.snapshot(NOW + 15_000)).toMatchObject({ session5h: { pct: 70 } });
+});

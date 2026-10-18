@@ -5883,6 +5883,160 @@ components:
             ]
         field:
           $ref: "#/components/schemas/ApnsField"
+    JudgeConnectionField:
+      type: string
+      enum: [key, model, baseUrl, timeoutMs]
+    JudgeConnectionStatus:
+      type: object
+      additionalProperties: true
+      description: >-
+        The decision model's connection (Settings → Decision model, #3071). Never carries the key —
+        only where it comes from and its last four characters.
+      required:
+        [
+          keySource,
+          keyLast4,
+          keySavedAt,
+          staleKeyHost,
+          lastVerify,
+          models,
+          model,
+          baseUrl,
+          timeoutMs,
+          defaults,
+          env,
+          authFailure,
+          lastOkAt,
+          today,
+        ]
+      properties:
+        keySource:
+          type: string
+          enum: [env, stored, none]
+          description: Where the key in force comes from. A stored key bound to another base URL counts as none.
+        keyLast4:
+          type: [string, "null"]
+          description: The last four characters of the key in force; null for none or a key under 12 characters.
+        keySavedAt:
+          type: [integer, "null"]
+          description: When the stored key in force was saved; null for an environment key or none.
+        staleKeyHost:
+          type: [string, "null"]
+          description: >-
+            Host of a stored key that is not used because the base URL moved away from the one it
+            was verified against. A stored key is only ever sent to that base URL.
+        lastVerify:
+          oneOf:
+            - $ref: "#/components/schemas/JudgeVerify"
+            - type: "null"
+        models:
+          type: array
+          items: { type: string }
+          description: Model names the account can use, from the last successful check.
+        model: { type: string }
+        baseUrl: { type: string }
+        timeoutMs: { type: integer }
+        defaults:
+          type: object
+          additionalProperties: false
+          required: [model, baseUrl, timeoutMs]
+          properties:
+            model: { type: string }
+            baseUrl: { type: string }
+            timeoutMs: { type: integer }
+        env:
+          type: object
+          additionalProperties: false
+          description: >-
+            Fields set by JEV_API_KEY and SHEPHERD_JUDGE_MODEL/_BASE_URL/_TIMEOUT_MS — they override
+            the stored value and cannot be edited. An environment key locks the base URL too.
+          required: [key, model, baseUrl, timeoutMs]
+          properties:
+            key: { type: boolean }
+            model: { type: boolean }
+            baseUrl: { type: boolean }
+            timeoutMs: { type: boolean }
+        authFailure:
+          oneOf:
+            - $ref: "#/components/schemas/JudgeAuthFailure"
+            - type: "null"
+        lastOkAt:
+          type: [integer, "null"]
+          description: When a real decision-model call last succeeded.
+        today:
+          oneOf:
+            - $ref: "#/components/schemas/JudgeSpendToday"
+            - type: "null"
+    JudgeVerify:
+      type: object
+      additionalProperties: true
+      required: [result, at, status]
+      description: The last check of the key in force (GET /v1/models, which bills nothing).
+      properties:
+        result:
+          type: string
+          enum: [ok, rejected, unreachable]
+        at: { type: integer }
+        status:
+          type: [integer, "null"]
+          description: The backend's HTTP status when the check failed with one.
+    JudgeAuthFailure:
+      type: object
+      additionalProperties: true
+      required: [status, at]
+      description: The last 401/403 a real decision-model call got; cleared by the next success.
+      properties:
+        status: { type: integer }
+        at: { type: integer }
+    JudgeSpendToday:
+      type: object
+      additionalProperties: true
+      required: [day, calls, usd, ceilingUsd]
+      properties:
+        day:
+          type: string
+          description: Local calendar day, YYYY-MM-DD.
+        calls: { type: integer }
+        usd: { type: number }
+        ceilingUsd: { type: number }
+    JudgeConnectionRequest:
+      type: object
+      additionalProperties: true
+      description: >-
+        Fields to store; a field left out keeps its stored value, and an empty model or base URL
+        goes back to the default. A key is verified first and nothing is stored unless it is
+        accepted. Moving the base URL away from a stored key needs the key in the same request.
+      properties:
+        key: { type: string }
+        model: { type: string }
+        baseUrl: { type: string }
+        timeoutMs:
+          type: integer
+          minimum: 1000
+          maximum: 60000
+    JudgeConnectionError:
+      type: object
+      additionalProperties: true
+      required: [error, field]
+      properties:
+        error:
+          type: string
+          enum:
+            [
+              env_locked,
+              key_invalid,
+              model_invalid,
+              base_url_invalid,
+              timeout_invalid,
+              key_required,
+              key_rejected,
+              unreachable,
+            ]
+        field:
+          $ref: "#/components/schemas/JudgeConnectionField"
+        status:
+          type: [integer, "null"]
+          description: The backend's HTTP status for key_rejected / unreachable, when it answered.
     PushCategories:
       type: object
       additionalProperties: false
@@ -10203,6 +10357,154 @@ paths:
                 $ref: "#/components/schemas/Error"
         "503":
           description: Native iOS push is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/judge/connection:
+    get:
+      operationId: getJudgeConnection
+      description: The decision-model connection (Settings → Decision model, #3071) and today's spend. Operator session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The connection, without the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage the decision model).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The decision model is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: putJudgeConnection
+      description: >-
+        Stores the JEV key (verified first through GET /v1/models, which bills nothing), model, base
+        URL and timeout, and rebuilds the judge client without a restart. Operator session only.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JudgeConnectionRequest"
+      responses:
+        "200":
+          description: The connection, without the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeConnectionStatus"
+        "400":
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage the decision model).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The field is set by the environment and cannot be changed here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeConnectionError"
+        "422":
+          description: >-
+            Validation failed, the backend rejected the key (`key_rejected`), or the base URL would
+            move away from the stored key without a new one (`key_required`). Nothing was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeConnectionError"
+        "502":
+          description: The backend could not be reached to verify the key. Nothing was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeConnectionError"
+        "503":
+          description: The decision model is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteJudgeConnection
+      description: Forgets the stored key; model, base URL and timeout stay, and values from the environment stay in force. Operator session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The connection, without the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage the decision model).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The decision model is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/judge/connection/verify:
+    post:
+      operationId: verifyJudgeConnection
+      description: >-
+        Checks the key in force through GET /v1/models, which bills nothing, and records the result
+        in `lastVerify` — a rejected key is a 200 with `lastVerify.result` rejected. Operator session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The connection, without the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage the decision model).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: There is no key to check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The decision model is not available on this server.
           content:
             application/json:
               schema:

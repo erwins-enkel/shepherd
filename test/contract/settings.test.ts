@@ -22,6 +22,9 @@ import { generateKeyPairSync } from "node:crypto";
 import { PushService, pushDeviceId } from "../../src/push";
 import { ApnsSender, apnsEndpoint } from "../../src/apns";
 import { ApnsSettings } from "../../src/apns-settings";
+import { JudgeSettings } from "../../src/judge-settings";
+import type { TypeSafeProbeResult } from "../../src/judge-typesafe";
+import type { Judge } from "../../src/judge";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 let s: ContractServer, token: string, cookie: string;
@@ -725,6 +728,84 @@ test("runner update contract uses existing backend actions and all event payload
   } finally {
     s.deps.herdrUpdates = saved.herdr;
     s.deps.codexUpdates = saved.codex;
+  }
+});
+
+test("the decision-model connection is cookie-admin only and never returns the key", async () => {
+  const admin = { cookie };
+  const KEY = "jev_contract_0123456789abcdef";
+  const noEnv = { key: null, model: null, baseUrl: null, timeoutMs: null };
+  const dir = mkdtempSync(join(tmpdir(), "contract-judge-"));
+  let probe: TypeSafeProbeResult = { ok: true, models: ["jev-1.13.0"] };
+  const deps = { probe: async () => probe, createJudge: () => ({}) as Judge };
+  const settings = new JudgeSettings(join(dir, "judge.json"), noEnv, deps);
+  settings.load();
+  const saved = s.deps.judgeSettings;
+  const path = "/api/judge/connection";
+  const verify = "/api/judge/connection/verify";
+  try {
+    s.deps.judgeSettings = undefined;
+    await request("GET", path, 503, undefined, undefined, admin);
+    await request("PUT", path, 503, {}, undefined, admin);
+    await request("DELETE", path, 503, undefined, undefined, admin);
+    await request("POST", verify, 503, undefined, undefined, admin);
+
+    s.deps.judgeSettings = settings;
+    for (const [method, route, body] of [
+      ["GET", path, undefined],
+      ["PUT", path, { model: "jev-1.14.0" }],
+      ["DELETE", path, undefined],
+      ["POST", verify, undefined],
+    ] as const) {
+      await request(method, route, 403, body);
+    }
+    await request("POST", verify, 409, undefined, undefined, admin);
+    await request("PUT", path, 400, { timeoutMs: "slow" }, undefined, admin);
+    await request("PUT", path, 422, { model: "two words" }, undefined, admin);
+
+    probe = { ok: false, kind: "rejected", status: 401 };
+    const rejected = (await request("PUT", path, 422, { key: KEY }, undefined, admin)) as {
+      error: string;
+    };
+    expect(rejected.error).toBe("key_rejected");
+    probe = { ok: false, kind: "unreachable", status: null };
+    await request("PUT", path, 502, { key: KEY }, undefined, admin);
+
+    probe = { ok: true, models: ["jev-1.13.0"] };
+    const stored = (await request("PUT", path, 200, { key: KEY }, undefined, admin)) as {
+      keySource: string;
+      keyLast4: string;
+    };
+    expect(stored).toMatchObject({ keySource: "stored", keyLast4: "cdef" });
+    const moved = (await request(
+      "PUT",
+      path,
+      422,
+      { baseUrl: "https://elsewhere.example" },
+      undefined,
+      admin,
+    )) as { error: string };
+    expect(moved.error).toBe("key_required");
+    await request("POST", verify, 200, undefined, undefined, admin);
+    await request("GET", path, 200, undefined, undefined, admin);
+    for (const [method, route] of [
+      ["GET", path],
+      ["POST", verify],
+    ] as const) {
+      const res = await fetch(s.baseUrl + route, { method, headers: admin });
+      expect(await res.text()).not.toContain(KEY);
+    }
+
+    s.deps.judgeSettings = new JudgeSettings(join(dir, "env.json"), { ...noEnv, key: KEY }, deps);
+    await request("PUT", path, 409, { baseUrl: "https://elsewhere.example" }, undefined, admin);
+    s.deps.judgeSettings = settings;
+
+    const removed = (await request("DELETE", path, 200, undefined, undefined, admin)) as {
+      keySource: string;
+    };
+    expect(removed.keySource).toBe("none");
+  } finally {
+    s.deps.judgeSettings = saved;
   }
 });
 

@@ -21,6 +21,7 @@
   // `explanation` adds an "i" affordance after the title that reveals a structured
   // TooltipExplanation (hover/focus, tap on touch, Esc to dismiss). The visible
   // description must still carry the essentials; the explanation is the detail.
+  // `chip` puts a short dependency label after the title ("needs stop classifier").
   let {
     title,
     description = "",
@@ -30,6 +31,7 @@
     control,
     below,
     explanation,
+    chip,
   }: {
     title: string;
     description?: string;
@@ -39,6 +41,7 @@
     control?: Snippet;
     below?: Snippet;
     explanation?: TooltipExplanation;
+    chip?: string;
   } = $props();
 
   function rowClick(e: MouseEvent) {
@@ -65,10 +68,11 @@
   onclick={rowClick}
 >
   <div class="main">
-    {#if explanation}
+    {#if explanation || chip}
       <div class="head">
         <span class="title"><HighlightText text={title} {query} /></span>
-        <InfoTip text={explanation} label={explanation.title} />
+        {#if explanation}<InfoTip text={explanation} label={explanation.title} />{/if}
+        {#if chip}<span class="chip">{chip}</span>{/if}
       </div>
     {:else}
       <span class="title"><HighlightText text={title} {query} /></span>
@@ -110,8 +114,18 @@
   }
   .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 6px 8px;
+  }
+  .chip {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    padding: 1px 6px;
   }
   .desc {
     font-size: var(--fs-meta);

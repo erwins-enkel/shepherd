@@ -443,6 +443,12 @@ import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage"
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
+import {
+  JUDGE_FIELDS,
+  type JudgeSaveErrorCode,
+  type JudgeSaveInput,
+  type JudgeSettings,
+} from "./judge-settings";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -539,8 +545,11 @@ export interface AppDeps {
    *  actually returned a usable frame this run; absent in tests that don't wire the live
    *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
   refreshUsage?: () => Promise<{ limits: UsageLimits; scraped: boolean }>;
-  /** Today's judge spend for the usage lens (#2369); absent when the judge was never armed. */
+  /** Today's judge spend for the usage lens (#2369); absent in tests that skip it. */
   judgeSpend?: { today: () => UsageJudgeSpend };
+  /** The decision model's connection behind Settings → Decision model (#3071); absent in tests
+   *  that skip it. */
+  judgeSettings?: Pick<JudgeSettings, "hasKey" | "status" | "save" | "verify" | "remove">;
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
   /** Range-filtered Codex raw tokens by model; absent in tests → empty Codex model block. */
@@ -1462,18 +1471,10 @@ function revokesItself(req: Request, deps: AppDeps, id: string): boolean {
 }
 
 async function patchAccessToken(req: Request, deps: AppDeps, id: string): Promise<Response> {
-  const ctErr = requireJsonContentType(req);
-  if (ctErr) return ctErr;
-  const body: unknown = await req.json().catch(() => null);
-  if (
-    !body ||
-    typeof body !== "object" ||
-    Array.isArray(body) ||
-    Object.keys(body).length !== 1 ||
-    !("repoPaths" in body)
-  ) {
-    return json({ error: "body must be {repoPaths: string[] | null}" }, 400);
-  }
+  const shape = "body must be {repoPaths: string[] | null}";
+  const body = await readJsonObject(req, shape);
+  if (body instanceof Response) return body;
+  if (Object.keys(body).length !== 1 || !("repoPaths" in body)) return json({ error: shape }, 400);
   const entry = accessTokens(deps)
     .list()
     .find((t) => t.id === id);
@@ -3206,15 +3207,23 @@ function findPushDevice(deps: AppDeps, id: string): StoredPushSub | null {
   return deps.store.listPushSubs().find((row) => pushDeviceId(row.endpoint) === id) ?? null;
 }
 
+/** The JSON-object body of a write, or the response refusing it (415 / 400 with `error`). */
+async function readJsonObject(
+  req: Request,
+  error = "body must be an object",
+): Promise<Record<string, unknown> | Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body: unknown = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error }, 400);
+  return body as Record<string, unknown>;
+}
+
 /** PUT /api/push/apns/config — store APNs credentials. Each field is an optional string; a field
  *  left out keeps its stored value, `key` is the `.p8` PEM text. */
 async function putApnsConfig(req: Request, settings: Pick<ApnsSettings, "save">) {
-  const ctErr = requireJsonContentType(req);
-  if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return json({ error: "body must be an object" }, 400);
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
   const input: ApnsSaveInput = {};
   for (const field of APNS_FIELDS) {
     const value = body[field];
@@ -3313,6 +3322,72 @@ async function handlePushAdmin(ctx: Ctx): Promise<Response | null> {
   if (route === "devices")
     return json({ devices: ctx.deps.store.listPushSubs().map(pushDeviceView) });
   return pushDeviceRoute(ctx, route);
+}
+
+// ── decision-model connection: Settings → Decision model (#3071) ─────────────
+// The JEV key plus model, base URL and timeout. Every route requires an INTERACTIVE operator
+// session, like push administration: a bearer token neither installs a billed credential nor
+// learns where it is sent. No response ever carries the key.
+
+/** The status Settings renders: the connection plus today's spend against the ceiling. */
+function judgeConnectionView(deps: AppDeps, settings: Pick<JudgeSettings, "status">) {
+  return { ...settings.status(), today: deps.judgeSpend?.today() ?? null };
+}
+
+/** The PUT body as save input — `timeoutMs` a number, every other field a string — or the 400
+ *  naming the first field of the wrong type. */
+function judgeSaveInput(body: Record<string, unknown>): JudgeSaveInput | Response {
+  const input: Record<string, unknown> = {};
+  for (const field of JUDGE_FIELDS) {
+    const value = body[field];
+    if (value === undefined) continue;
+    const type = field === "timeoutMs" ? "number" : "string";
+    if (typeof value !== type) return json({ error: `${field} must be a ${type}` }, 400);
+    input[field] = value;
+  }
+  return input as JudgeSaveInput;
+}
+
+/** A refused save's status: the environment's field 409, an unreachable backend 502, else 422. */
+const JUDGE_SAVE_ERROR_STATUS: Partial<Record<JudgeSaveErrorCode, number>> = {
+  env_locked: 409,
+  unreachable: 502,
+};
+
+/** PUT /api/judge/connection — every field optional. */
+async function putJudgeConnection(
+  req: Request,
+  deps: AppDeps,
+  settings: Pick<JudgeSettings, "save" | "status">,
+): Promise<Response> {
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  const input = judgeSaveInput(body);
+  if (input instanceof Response) return input;
+  const result = await settings.save(input);
+  if ("error" in result) return json(result, JUDGE_SAVE_ERROR_STATUS[result.error] ?? 422);
+  return json(judgeConnectionView(deps, settings));
+}
+
+async function handleJudgeConnection({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "judge" || parts[2] !== "connection") return null;
+  const verify = parts[3] === "verify" && parts.length === 4;
+  if (!verify && parts.length !== 3) return null;
+  // An unmatched method falls through so it 404s at the tail instead of revealing the route.
+  if (verify ? req.method !== "POST" : !["GET", "PUT", "DELETE"].includes(req.method)) return null;
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
+  const settings = deps.judgeSettings;
+  if (!settings) return json({ error: "the decision model is not available" }, 503);
+  if (verify) {
+    const status = await settings.verify();
+    if (!status) return json({ error: "no_key" }, 409);
+    return json(judgeConnectionView(deps, settings));
+  }
+  if (req.method === "GET") return json(judgeConnectionView(deps, settings));
+  if (req.method === "PUT") return putJudgeConnection(req, deps, settings);
+  await settings.remove();
+  return json(judgeConnectionView(deps, settings));
 }
 
 // Table-driven so adding a push route doesn't grow handlePush's branch count.
@@ -6806,7 +6881,13 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
 function judgeSpendForLens(deps: Ctx["deps"]): UsageJudgeSpend | null {
   const today = deps.judgeSpend?.today();
   if (!today) return null;
-  return config.judgeEnabled || today.calls > 0 ? today : null;
+  const armed = config.judgeEnabled && judgeHasKey(deps);
+  return armed || today.calls > 0 ? today : null;
+}
+
+/** Whether a decision-model key is in force (#3071) — from the environment or Settings. */
+function judgeHasKey(deps: Ctx["deps"]): boolean {
+  return deps.judgeSettings?.hasKey() ?? false;
 }
 
 async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -7771,7 +7852,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // whether a credential is present WITHOUT exposing it, because the toggle is inert without
       // one and an operator needs to be able to tell those two states apart.
       judgeEnabled: config.judgeEnabled,
-      judgeHasKey: config.judgeApiKey !== null,
+      judgeHasKey: judgeHasKey(deps),
       judgeDailyUsd: config.judgeDailyUsd,
       // #2375: the blocked-pane backstop's own mode. Shares `judgeHasKey` above — it rides the same
       // client and the same ceiling — but is armed separately.
@@ -11166,6 +11247,7 @@ const ROUTE_HANDLERS = [
   handleDocAgent,
   handleDocAgentRuns,
   handlePushAdmin,
+  handleJudgeConnection,
   handlePush,
   handleSessionHooks,
   handleAssistantViewHook,

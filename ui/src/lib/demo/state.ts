@@ -54,6 +54,7 @@ import type {
   ClearMergedPreview,
   ClearMergedResult,
   ApnsStatus,
+  JudgeConnectionStatus,
   PushDevice,
   PluginUpdatesStatus,
   PullRequest,
@@ -418,6 +419,25 @@ export const demoState = {
     keyError: null,
     lastError: null,
     lastDeliveredAt: null,
+  }),
+
+  /** GET /api/judge/connection — the demo has no JEV key, so Settings → Decision model reads as not
+   *  connected. Every field is present: the panel dereferences `env` and `defaults`. */
+  judgeConnection: (): JudgeConnectionStatus => ({
+    keySource: "none",
+    keyLast4: null,
+    keySavedAt: null,
+    staleKeyHost: null,
+    lastVerify: null,
+    models: [],
+    model: "jev-1.13.0",
+    baseUrl: "https://api.typesafe.ai",
+    timeoutMs: 8_000,
+    defaults: { model: "jev-1.13.0", baseUrl: "https://api.typesafe.ai", timeoutMs: 8_000 },
+    env: { key: false, model: false, baseUrl: false, timeoutMs: false },
+    authFailure: null,
+    lastOkAt: null,
+    today: { day: new Date().toISOString().slice(0, 10), calls: 0, usd: 0, ceilingUsd: 1 },
   }),
 
   /** GET /api/push/devices — no device registers against the demo. `{ devices: [] }`, never `{}`. */

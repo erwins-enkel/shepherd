@@ -56,6 +56,9 @@ const pluginSecretsPath =
 // APNs credentials entered in Settings → Notifications (#2696): one 0600 JSON file beside the db,
 // never served by any route.
 const apnsStorePath = join(dirname(dbPath), "apns.json");
+// The decision-model connection entered in Settings → Decision model (#3071): the JEV key plus
+// model, base URL and timeout, in one 0600 JSON file beside the db, never served by any route.
+const judgeStorePath = join(dirname(dbPath), "judge.json");
 // Shared Browser (ADR 0001): persistent per-repo Chromium profiles, and the HMAC key signing
 // Browser Attach tokens. Both beside the db — never under /tmp, which tmp-sweep reclaims.
 const browserProfileRoot = join(dirname(dbPath), "browser-profiles");
@@ -1140,31 +1143,38 @@ export const config = {
   // alone must not arm a billed production path, and the judge has to be disarmable without
   // removing the credential the eval leg needs. Env seeds a fresh DB; persisted + UI-configurable.
   judgeEnabled: process.env.SHEPHERD_JUDGE === "1",
-  // The vendor key. Never logged, never sent anywhere but the configured base URL. Absent ⇒ no
-  // client is constructed no matter what the flag says.
+  // ── The judge's CONNECTION, as the environment sets it (#3071) ──────────────────────────────
+  // Each of these is null when its variable is unset, and each overrides what Settings → Decision
+  // model stored in `judgeStorePath`; the defaults live in src/judge-settings.ts, which merges the
+  // two. Read them through `JudgeSettings`, never from here: the stored values change at runtime.
+  //
+  // The vendor key. Never logged, never sent anywhere but the configured base URL.
   judgeApiKey: process.env.JEV_API_KEY?.trim() || null,
   // A PINNED snapshot, never a floating alias — the SDK's own default IS the floating alias, under
   // which a vendor re-point would arrive as a silent accuracy change rather than as a version bump.
-  judgeModel: process.env.SHEPHERD_JUDGE_MODEL?.trim() || "jev-1.13.0",
+  judgeModel: process.env.SHEPHERD_JUDGE_MODEL?.trim() || null,
   // Configuration rather than a constant so the vendor-swap door stays open: this wire format has
   // at least one Apache-2.0 implementation, and this is the whole cost of being able to point at it.
-  judgeBaseUrl: process.env.SHEPHERD_JUDGE_BASE_URL?.trim() || "https://api.typesafe.ai",
+  judgeBaseUrl: process.env.SHEPHERD_JUDGE_BASE_URL?.trim() || null,
+  // TOTAL wall-clock budget for one judge call, retries included. The SDK's own timeout is
+  // per-attempt with no total budget, so without this a rate-limited call honouring `Retry-After`
+  // can outlast the 120 s spawn the judge exists to be faster than. Typical answers land in well
+  // under a second; this is the give-up point, not the expected latency.
+  judgeDeadlineMs: process.env.SHEPHERD_JUDGE_TIMEOUT_MS?.trim()
+    ? clampCap(
+        parseEnvNumber(process.env.SHEPHERD_JUDGE_TIMEOUT_MS, "SHEPHERD_JUDGE_TIMEOUT_MS", 8_000),
+        1_000,
+        60_000,
+        8_000,
+      )
+    : null,
+  judgeStorePath,
   // Daily USD ceiling. Per-call cost is a small fraction of a cent, so this is a RUNAWAY GUARD, not
   // a budget: on breach the judge stops being asked and the existing spawn answers instead.
   // Persisted + UI-configurable.
   judgeDailyUsd: Math.max(
     0,
     parseEnvNumber(process.env.SHEPHERD_JUDGE_DAILY_USD, "SHEPHERD_JUDGE_DAILY_USD", 1),
-  ),
-  // TOTAL wall-clock budget for one judge call, retries included. The SDK's own timeout is
-  // per-attempt with no total budget, so without this a rate-limited call honouring `Retry-After`
-  // can outlast the 120 s spawn the judge exists to be faster than. Typical answers land in well
-  // under a second; this is the give-up point, not the expected latency.
-  judgeDeadlineMs: clampCap(
-    parseEnvNumber(process.env.SHEPHERD_JUDGE_TIMEOUT_MS, "SHEPHERD_JUDGE_TIMEOUT_MS", 8_000),
-    1_000,
-    60_000,
-    8_000,
   ),
   // How many days of judge spend rows the daily sweep keeps.
   judgeSpendRetentionDays: clampCap(

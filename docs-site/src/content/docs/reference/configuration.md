@@ -460,10 +460,23 @@ The **judge** answers the same five-way question with a single request to a "Sys
 model instead. It is typically an order of magnitude faster, costs a small fraction of a cent, and
 spends no subscription quota — which is quota your real agents get to keep.
 
-**Arming it needs two things: `SHEPHERD_JUDGE=1` and `JEV_API_KEY`.** Both, deliberately. That key
-is also the eval harness's credential, so having it in the server's environment must not silently
-arm a billed production path, and you have to be able to turn the judge off without deleting the
-key the eval leg needs.
+**Arming it needs two things: the stop classifier switched on and a JEV key.** Both, deliberately.
+That key is also the eval harness's credential, so having it in the server's environment must not
+silently arm a billed production path, and you have to be able to turn the judge off without
+deleting the key the eval leg needs.
+
+**Set it up in Settings → Decision model**, no shell and no restart: paste the key and press
+*Save & verify*. Shepherd checks it against `GET /v1/models` — the backend has to authenticate the
+key to answer, but the call reads no billed input — and stores nothing it did not accept. The key
+lands in `judge.json` (mode 0600) beside the database, never in the `settings` table; no route ever
+returns it, and Settings shows only its last four characters. The same section edits the model,
+the API address and the time budget, and switches the features below on and off. Every variable in
+the table still works and **wins over Settings**, field by field: the section then shows that field
+locked, and changing it means editing `~/.shepherd/env` and restarting.
+
+A stored key is **bound to the address it was verified against** and is never sent anywhere else:
+moving the API address in Settings asks for the key again, and a key from `JEV_API_KEY` locks the
+address to the environment as well.
 
 **There is no capability to lose by trying it.** On any failure — transport error, rate limit, the
 wall-clock deadline, a spend ceiling breach — the classifier falls back to the `claude` spawn it
@@ -478,12 +491,12 @@ one notification.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_JUDGE` | `0` (off) | Set `1` to route the autopilot stop classifier through the decision model. Inert without `JEV_API_KEY`. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
-| `JEV_API_KEY` | _(unset)_ | TypeSafe AI (JEV) credential. Read by the server when `SHEPHERD_JUDGE` is on, and by the eval harness's `--backend jev` leg. Absent ⇒ the judge stays unarmed whatever the flag says |
-| `SHEPHERD_JUDGE_MODEL` | `jev-1.13.0` | Decision model, pinned to a **snapshot**. The vendor SDK's own default is a floating alias, under which a re-point would arrive as a silent accuracy change rather than a version bump |
-| `SHEPHERD_JUDGE_BASE_URL` | `https://api.typesafe.ai` | API root. Configurable so a self-hosted implementation of the same wire format can be pointed at without a code change |
-| `SHEPHERD_JUDGE_DAILY_USD` | `1` | Daily USD ceiling. A runaway guard, not a budget — past it the classifier falls back to the spawn for the rest of the day and you get one notification. Persisted + UI-configurable |
-| `SHEPHERD_JUDGE_TIMEOUT_MS` | `8000` | **Total** wall-clock budget for one judge call, retries included (1000–60000). The vendor SDK times out per *attempt* with no total budget, so without this a rate-limited call honouring `Retry-After` could outlast the spawn the judge exists to be faster than |
+| `SHEPHERD_JUDGE` | `0` (off) | Set `1` to route the autopilot stop classifier through the decision model. Inert without a JEV key. Seeds a fresh DB; persisted + UI-configurable (Settings → Decision model) |
+| `JEV_API_KEY` | _(unset)_ | TypeSafe AI (JEV) credential, also read by the eval harness's `--backend jev` leg. Unset ⇒ the key pasted in Settings → Decision model is used, if any; set ⇒ it wins and Settings shows it locked. No key at all ⇒ the judge stays unarmed whatever the flag says |
+| `SHEPHERD_JUDGE_MODEL` | `jev-1.13.0` | Decision model, pinned to a **snapshot**. The vendor SDK's own default is a floating alias, under which a re-point would arrive as a silent accuracy change rather than a version bump. Persisted + UI-configurable (Settings → Decision model → Advanced); set here, it wins |
+| `SHEPHERD_JUDGE_BASE_URL` | `https://api.typesafe.ai` | API root. Configurable so a self-hosted implementation of the same wire format can be pointed at without a code change. Persisted + UI-configurable (Settings → Decision model → Advanced); set here — or with the key in `JEV_API_KEY` — it is env-only |
+| `SHEPHERD_JUDGE_DAILY_USD` | `1` | Daily USD ceiling. A runaway guard, not a budget — past it the classifier falls back to the spawn for the rest of the day and you get one notification. Persisted + UI-configurable (Settings → Decision model) |
+| `SHEPHERD_JUDGE_TIMEOUT_MS` | `8000` | **Total** wall-clock budget for one judge call, retries included (1000–60000). The vendor SDK times out per *attempt* with no total budget, so without this a rate-limited call honouring `Retry-After` could outlast the spawn the judge exists to be faster than. Persisted + UI-configurable (Settings → Decision model → Advanced); set here, it wins |
 | `SHEPHERD_JUDGE_SPEND_RETENTION_DAYS` | `90` | How many days of judge spend rows the daily sweep keeps (1–3650) |
 
 ### Blocked-pane backstop
@@ -506,12 +519,12 @@ card for up to 15 seconds. Armed mode also costs the honest path up to one class
 while the request is in flight.
 
 It is armed **independently of `SHEPHERD_JUDGE`** — the two are separate features — but it shares
-the same `JEV_API_KEY`, the same model and the same daily ceiling, so its calls count toward
+the same JEV key, the same model and the same daily ceiling, so its calls count toward
 `SHEPHERD_JUDGE_DAILY_USD` and show in the same **Usage → Spend** block.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_BLOCK_JUDGE` | `off` | `off` \| `shadow` \| `armed`. Inert without `JEV_API_KEY`. Anything unrecognised reads as `off`. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
+| `SHEPHERD_BLOCK_JUDGE` | `off` | `off` \| `shadow` \| `armed`. Inert without a JEV key. Anything unrecognised reads as `off`. Seeds a fresh DB; persisted + UI-configurable (Settings → Decision model) |
 | `SHEPHERD_BLOCK_JUDGE_LOG_RETENTION_DAYS` | `14` | How many days of backstop decision rows the daily sweep keeps (1–365). Shorter than the spend table's window because these rows carry terminal tails |
 
 ### Up Next readiness
@@ -528,7 +541,7 @@ keeps its usual order.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_UP_NEXT_READINESS` | `0` (off) | Set `1` to rerank Up Next within each group by agent readiness. Needs the judge armed. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
+| `SHEPHERD_UP_NEXT_READINESS` | `0` (off) | Set `1` to rerank Up Next within each group by agent readiness. Needs the judge armed. Seeds a fresh DB; persisted + UI-configurable (Settings → Decision model) |
 | `SHEPHERD_UP_NEXT_READINESS_RETENTION_DAYS` | `90` | How many days of cached readiness answers the daily sweep keeps (1–3650). Rows are keyed by issue content, so this only bounds dead keys; a live issue re-scores after its row expires |
 
 ## Maintain loop (self-health bands)

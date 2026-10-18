@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { matchCount, sectionSearchRows } from "./settings-search";
+import { decisionModelRows, matchCount, sectionSearchRows } from "./settings-search";
 
 // `sessionRows()` is a hand-maintained mirror of the Session panel's rows, and nothing structural
 // keeps the two in step: a row added to the panel alone still renders and still highlights, but it
@@ -25,40 +25,47 @@ describe("the Session section's searchable rows mirror the panel", () => {
     expect(registered).toBe(rendered);
   });
 
-  it("finds the judge rows by title and by hint", () => {
-    const rows = sessionRows();
-    // Both judge rows, by a word from each title.
-    expect(matchCount(rows, "classifier")).toBeGreaterThanOrEqual(2);
-    // And by hint prose, which is how an operator who knows the concept but not our label searches.
-    expect(matchCount(rows, "decision model")).toBeGreaterThan(0);
-    expect(matchCount(rows, "daily limit")).toBeGreaterThan(0);
+  it("no longer carries the judge rows — they live in Decision model (#3071)", () => {
+    expect(matchCount(sessionRows(), "judge")).toBe(0);
+    expect(matchCount(sessionRows(), "jev")).toBe(0);
+  });
+});
+
+// The section renders its rows across the panel and its Advanced child.
+const DM_PANEL = ["SettingsDecisionModelPanel.svelte", "DecisionModelAdvanced.svelte"]
+  .map((f) => readFileSync(new URL(`./components/settings/${f}`, import.meta.url), "utf8"))
+  .join("\n");
+
+describe("the Decision model section's searchable rows (#3071)", () => {
+  it("registers every row the panel renders", () => {
+    // The section's own tab row and the stop classifier's "rides along" note are not SettingRows.
+    const registered = sectionSearchRows({}).decisionModel.length - 2;
+    const rendered = DM_PANEL.match(/<SettingRow\b/g)?.length ?? 0;
+    expect(rendered).toBeGreaterThan(0);
+    expect(registered).toBe(rendered);
   });
 
-  it("finds the judge toggle whichever hint its key state renders", () => {
-    const rows = sessionRows();
-    // The row swaps its description depending on whether a credential is configured. A row counts
-    // once however many of its strings hit, so carrying both keeps it findable either way.
-    expect(matchCount(rows, "frees subscription quota")).toBe(1);
-    expect(matchCount(rows, "keeps using a Claude agent spawn")).toBe(1);
-    // THREE key-gated rows now point at the same credential file — the judge toggle, the
-    // blocked-pane backstop and the Up Next readiness rerank — and each must be findable by it.
-    expect(matchCount(rows, "~/.shepherd/env")).toBe(3);
+  it("finds the section by jev, typesafe and judge", () => {
+    // The German catalog is checked in SettingsDecisionModelPanel.browser.test.ts: Paraglide keeps
+    // the locale in localStorage, which this node runner does not have.
+    const rows = sectionSearchRows({}).decisionModel;
+    for (const q of ["jev", "typesafe", "judge"]) expect(matchCount(rows, q), q).toBeGreaterThan(0);
   });
 
-  it("finds the blocked-pane backstop row by title and by either hint", () => {
-    const rows = sessionRows();
-    expect(matchCount(rows, "Blocked-pane double check")).toBe(1);
-    expect(matchCount(rows, "just text the agent printed")).toBe(1);
-    expect(matchCount(rows, "panes are announced exactly as they are today")).toBe(1);
+  it("finds each feature whichever hint its state renders", () => {
+    const { uses } = decisionModelRows();
+    expect(matchCount(uses, "frees subscription quota")).toBe(0);
+    expect(matchCount(uses, "saves subscription quota")).toBe(1);
+    expect(matchCount(uses, "Needs a JEV key above")).toBe(2);
+    expect(matchCount(uses, "Turn on the fast stop classifier first")).toBe(1);
+    expect(matchCount(uses, "just text")).toBe(0);
+    expect(matchCount(uses, "only printed text")).toBe(1);
   });
 
-  it("finds the Up Next readiness row by title and by either hint", () => {
-    const rows = sessionRows();
-    expect(matchCount(rows, "Rank Up Next by agent readiness")).toBe(1);
-    // Same dual-hint contract: the row renders whichever matches the judge's armed state.
-    expect(matchCount(rows, "finish unattended in one PR")).toBe(1);
-    expect(matchCount(rows, "Up Next keeps its usual order")).toBe(1);
-    // Only the readiness row carries the needs-classifier lead-in now.
-    expect(matchCount(rows, "Needs the fast stop classifier turned on")).toBe(1);
+  it("indexes the Advanced fields on their own, so search can open that group", () => {
+    const { advanced } = decisionModelRows();
+    expect(matchCount(advanced, "API address")).toBe(1);
+    expect(matchCount(advanced, "snapshot")).toBe(1);
+    expect(matchCount(advanced, "60000")).toBe(1);
   });
 });

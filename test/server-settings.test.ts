@@ -20,6 +20,8 @@ import {
   type AssistantPermissions,
 } from "../src/operator-assistant-permissions";
 import { DEFAULT_HOUSE_STACK, type HouseStack, type HouseStackResolver } from "../src/house-stack";
+import { JudgeSettings } from "../src/judge-settings";
+import type { Judge } from "../src/judge";
 
 let tmp: string;
 let savedRoot: string;
@@ -127,7 +129,12 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-function harness(opts: { codexAuthMode?: "chatgpt" | "apikey" | "unknown" } = {}): {
+function harness(
+  opts: {
+    codexAuthMode?: "chatgpt" | "apikey" | "unknown";
+    judgeSettings?: AppDeps["judgeSettings"];
+  } = {},
+): {
   app: ReturnType<typeof makeApp>;
   store: SessionStore;
 } {
@@ -138,6 +145,7 @@ function harness(opts: { codexAuthMode?: "chatgpt" | "apikey" | "unknown" } = {}
     service: {} as any,
     usageLimits: { limits: () => ({}) } as any,
     readCodexAuthMode: () => opts.codexAuthMode ?? "unknown",
+    ...(opts.judgeSettings ? { judgeSettings: opts.judgeSettings } : {}),
   };
   return { app: makeApp(deps), store };
 }
@@ -1381,20 +1389,23 @@ test("#1144: the CPU fraction clamps WITHOUT rounding (clampCap would round 0.8 
 // ── judge settings (#2369) ────────────────────────────────────────────────────
 
 test("GET /api/settings reports the judge flag, ceiling and key PRESENCE — never the key", async () => {
-  const { app } = harness();
-  const prevKey = config.judgeApiKey;
-  config.judgeApiKey = "sk-secret-value";
-  try {
-    const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
-    expect(body.judgeHasKey).toBe(true);
-    expect(body.judgeEnabled).toBe(config.judgeEnabled);
-    expect(body.judgeDailyUsd).toBe(config.judgeDailyUsd);
-    // The credential must never reach a client. The UI needs only to distinguish "off" from
-    // "cannot be turned on", which the boolean above gives it.
-    expect(JSON.stringify(body)).not.toContain("sk-secret-value");
-  } finally {
-    config.judgeApiKey = prevKey;
-  }
+  const judgeSettings = new JudgeSettings(
+    join(mkdtempSync(join(tmpdir(), "judge-")), "judge.json"),
+    { key: "sk-secret-value", model: null, baseUrl: null, timeoutMs: null },
+    { probe: async () => ({ ok: true, models: [] }), createJudge: () => ({}) as Judge },
+  );
+  judgeSettings.load();
+  const { app } = harness({ judgeSettings });
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.judgeHasKey).toBe(true);
+  expect(body.judgeEnabled).toBe(config.judgeEnabled);
+  expect(body.judgeDailyUsd).toBe(config.judgeDailyUsd);
+  // The credential must never reach a client. The UI needs only to distinguish "off" from
+  // "cannot be turned on", which the boolean above gives it.
+  expect(JSON.stringify(body)).not.toContain("sk-secret-value");
+
+  const none = await (await harness().app.fetch(new Request("http://x/api/settings"))).json();
+  expect(none.judgeHasKey).toBe(false);
 });
 
 test("PUT judgeEnabled arms/disarms and persists across a restart", async () => {

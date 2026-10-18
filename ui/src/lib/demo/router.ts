@@ -217,6 +217,8 @@ const settingsGetRoutes: Record<string, GetHandler> = {
   // Settings → Notifications (#2696) reads both on mount; the panel dereferences `devices`.
   "/api/push/apns/config": () => json(demoState.apnsConfig()),
   "/api/push/devices": () => json(demoState.pushDevices()),
+  // Settings → Decision model (#3071) reads it on mount and dereferences `env` / `defaults`.
+  "/api/judge/connection": () => json(demoState.judgeConnection()),
 };
 
 // ── repo-scoped lenses (#2295) ───────────────────────────────────────────────
@@ -570,6 +572,24 @@ function handleSettingsMutation(method: string, path: string, body: unknown): Re
   return json(demoState.patchSettings(patch[0], patch[1]));
 }
 
+/** Settings → Decision model writes (#3071). The demo has no backend to check a key against, so a
+ *  key save answers honestly that it could not be checked and nothing was stored; every other
+ *  write answers the unchanged status — a correctly-shaped JudgeConnectionStatus, never the
+ *  generic success stub, which the panel would adopt and then dereference. */
+function handleJudgeConnectionMutation(
+  method: string,
+  path: string,
+  body: unknown,
+): Response | null {
+  const status = path === "/api/judge/connection" && (method === "PUT" || method === "DELETE");
+  const verify = path === "/api/judge/connection/verify" && method === "POST";
+  if (!status && !verify) return null;
+  if (method === "PUT" && str(body, "key")) {
+    return json({ error: "unreachable", field: "key", status: null }, 502);
+  }
+  return json(demoState.judgeConnection());
+}
+
 // ── repo mutations (#2295) ───────────────────────────────────────────────────
 /** The two mutations that reach a surface this change made live.
  *
@@ -612,6 +632,7 @@ function handleRepoBootstrapMutation(method: string, path: string): Response | n
 function handleMutation(method: string, path: string, url: URL, body: unknown): Response | null {
   return (
     handleSettingsMutation(method, path, body) ??
+    handleJudgeConnectionMutation(method, path, body) ??
     handleRepoMutation(method, path, body) ??
     handleRepoBootstrapMutation(method, path) ??
     handleSessionMutation(method, path, url, body) ??

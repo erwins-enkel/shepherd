@@ -106,6 +106,38 @@ export function upNextReadinessExplanation(): TooltipExplanation {
   };
 }
 
+/** Settings → Decision model "Fast stop classifier" (#3071) — what JEV decides and what it costs. */
+export function stopClassifierExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_stop_classifier_title(),
+    summary: m.tooltip_stop_classifier_summary(),
+    sections: [
+      { label: m.tooltip_stop_classifier_does(), text: m.tooltip_stop_classifier_does_body() },
+      { label: m.tooltip_stop_classifier_cost(), text: m.tooltip_stop_classifier_cost_body() },
+      {
+        label: m.tooltip_stop_classifier_fallback(),
+        text: m.tooltip_stop_classifier_fallback_body(),
+      },
+    ],
+  };
+}
+
+/** Settings → Decision model "Blocked-pane double check" (#3071) — its modes and why it is safe. */
+export function blockBackstopExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_block_backstop_title(),
+    summary: m.tooltip_block_backstop_summary(),
+    sections: [
+      { label: m.tooltip_block_backstop_modes(), text: m.tooltip_block_backstop_modes_body() },
+      { label: m.tooltip_block_backstop_cost(), text: m.tooltip_block_backstop_cost_body() },
+      {
+        label: m.tooltip_block_backstop_fallback(),
+        text: m.tooltip_block_backstop_fallback_body(),
+      },
+    ],
+  };
+}
+
 /** Settings → Workspace "House Stack" (#3108) — what the list feeds and why a failure pins nothing. */
 export function houseStackExplanation(): TooltipExplanation {
   return {

@@ -137,6 +137,7 @@
     onsettingspluginupdates,
     onsettingswhatsnew,
     onsettingsaskassistant,
+    onsettingsopenusage,
     showUsage,
     onusageclose,
     showClone,
@@ -281,6 +282,8 @@
     onsettingswhatsnew: () => void;
     /** Settings → Diagnose "Ask the assistant" (#1446): close Settings and type the question. */
     onsettingsaskassistant?: (question: string) => void;
+    /** Settings → Decision model "Usage → Spend" (#3071): close Settings and open Usage. */
+    onsettingsopenusage?: () => void;
     showUsage: boolean;
     onusageclose: () => void;
     showClone: boolean;
@@ -592,6 +595,7 @@
     onpluginapplied={onpluginupdated}
     onwhatsnew={onsettingswhatsnew}
     onaskassistant={onsettingsaskassistant}
+    onopenusage={onsettingsopenusage}
   />
 {/if}
 

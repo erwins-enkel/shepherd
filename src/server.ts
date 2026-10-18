@@ -187,6 +187,7 @@ import {
 } from "./remote-instances/forward";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
+import type { AnswerAskOutcome } from "./ask-answer-service";
 import { slugifyManual } from "./namer";
 import {
   listRepos,
@@ -676,6 +677,11 @@ export interface AppDeps {
    *  frames of the client owning the assistant's terminal, read by its `UserPromptSubmit` hook
    *  route. Absent → no view is kept and the hook answers the "unknown" block. */
   assistantView?: AssistantViewRegistry;
+  /** #3165: types an operator's panel answer into an open AskUserQuestion dialog and verifies it.
+   *  Absent in tests/envs that skip it → `answer-ask` answers 409. */
+  askAnswers?: {
+    answer(id: string, toolUseId: string, answers: RawAnswer[]): Promise<AnswerAskOutcome>;
+  };
   /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
   reviewCache?: {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
@@ -4656,6 +4662,44 @@ async function handleSessionGo({ req, parts, deps }: Ctx): Promise<Response | nu
     : json({ error: "plan not approved or not in planning phase" }, 409);
 }
 
+// POST /api/sessions/:id/answer-ask {toolUseId, answers: RawAnswer[]} — type the operator's
+// native-panel answer into the open AskUserQuestion dialog and verify it via PostToolUse (#3165).
+// `questionId` is the question's index; answers resolve against the HOOKED questions, never the
+// client's copy. 409 when the dialog is no longer open (answered locally first) or a sequence is
+// already in flight for the session; Claude-only.
+async function handleSessionAnswerAsk({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "answer-ask" && !parts[4])) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as {
+    toolUseId?: unknown;
+    answers?: unknown;
+  } | null;
+  const answers = body?.answers;
+  if (
+    typeof body?.toolUseId !== "string" ||
+    !Array.isArray(answers) ||
+    !answers.every(
+      (a) =>
+        !!a &&
+        typeof a === "object" &&
+        typeof (a as RawAnswer).questionId === "string" &&
+        ((a as RawAnswer).optionIndices === undefined ||
+          Array.isArray((a as RawAnswer).optionIndices)) &&
+        ((a as RawAnswer).text === undefined || typeof (a as RawAnswer).text === "string"),
+    )
+  ) {
+    return json({ error: "body must be {toolUseId: string, answers: RawAnswer[]}" }, 400);
+  }
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  if ((s.agentProvider ?? "claude") !== "claude" || !deps.askAnswers) {
+    return json({ error: "ask_not_open" }, 409);
+  }
+  const out = await deps.askAnswers.answer(s.id, body.toolUseId, answers as RawAnswer[]);
+  return out.ok ? json({ result: out.result }) : json({ error: out.error }, out.status);
+}
+
 // POST /api/sessions/:id/answer-plan-questions — steer the operator's answers to the gate's
 // question-form blocks back into the live planning agent (#803). Planning-phase only: the gate +
 // its questions persist past approval and AUTO sessions auto-release into execution, so without the
@@ -5731,6 +5775,9 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   // `match: false` so HookIngest treats it as observe-only and never forwards to signals.
   const match = raw.sessionId === session.claudeSessionId;
   deps.hooks?.record(id, { ...raw, receivedAt: Date.now(), match });
+  // #3165: a PreToolUse reply body is parsed as a hook DECISION; answer with nothing so the
+  // AskUserQuestion dialog renders exactly as without the hook (spike: 200 + empty body).
+  if (raw.event === "PreToolUse") return new Response(null, { status: 200 });
   return json({ ok: true }, 202);
 }
 
@@ -6090,6 +6137,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionRecommend,
     handleSessionGo,
     handleSessionAnswerPlanQuestions,
+    handleSessionAnswerAsk,
     handleSessionReviewPlan,
     handleSessionReviewPr,
     handleSessionReviewHold,

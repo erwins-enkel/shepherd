@@ -22,13 +22,19 @@
 // (agentId → entry; live until a matching Stop). The roster is its own state — gated only
 // by `match !== false` (fail-closed on session mismatch), independent of the signal path.
 //
+// #3165: PreToolUse (matcher AskUserQuestion only) carries the dialog's questions as data so a
+// native panel can answer it; PostToolUse carries `tool_use_id` + the answers that landed.
+//
 // Anything unrecognized is recorded and flagged loudly rather than silently dropped.
+
+import { normalizeAskAnswers, parseAskInput, type AskQuestion } from "./ask-user-question";
 
 /** A normalized hook event after validation — the spike's observable unit. */
 export type HookEvent = {
   /** Recognized lifecycle event; an unrecognized `hook_event_name` is still kept,
    *  passed through verbatim, and flagged via `unknown`. */
   event:
+    | "PreToolUse"
     | "PostToolUse"
     | "PostToolUseFailure"
     | "Notification"
@@ -40,8 +46,14 @@ export type HookEvent = {
     | string;
   /** The hook payload's `session_id` (== `claude --session-id` == `claudeSessionId`). */
   sessionId: string;
-  /** PostToolUse(/Failure): the tool that ran. */
+  /** Pre/PostToolUse(/Failure): the tool that ran (or is about to). */
   toolName?: string;
+  /** Pre/PostToolUse(/Failure): the tool call's `tool_use_id` (#3165). */
+  toolUseId?: string;
+  /** PreToolUse(AskUserQuestion): the validated questions; absent when unparseable (#3165). */
+  ask?: AskQuestion[];
+  /** PostToolUse(AskUserQuestion): normalized `tool_response.answers` (#3165). */
+  askAnswers?: Record<string, string>;
   /** PostToolUse(/Failure): derived from exit_code / the *Failure event. */
   status?: "ok" | "error";
   /** PostToolUse(/Failure): tool exit code when present (logging aid). */
@@ -118,7 +130,28 @@ function parseToolUseEvent(
     eventName === "PostToolUseFailure" || (exitCode !== undefined && exitCode !== 0)
       ? "error"
       : "ok";
-  return { event: eventName, sessionId, toolName, status, exitCode };
+  const ev: RawHookEvent = { event: eventName, sessionId, toolName, status, exitCode };
+  const toolUseId = str(b.tool_use_id);
+  if (toolUseId) ev.toolUseId = toolUseId;
+  if (toolName === "AskUserQuestion") {
+    const askAnswers = normalizeAskAnswers(obj(b.tool_response)?.answers);
+    if (askAnswers) ev.askAnswers = askAnswers;
+  }
+  return ev;
+}
+
+/** Normalize a PreToolUse body (#3165). Only AskUserQuestion is hooked; its `tool_input` is
+ *  validated into questions, an unparseable one simply carries no `ask`. */
+function parsePreToolUseEvent(b: Record<string, unknown>, sessionId: string): RawHookEvent {
+  const toolName = str(b.tool_name);
+  const ev: RawHookEvent = { event: "PreToolUse", sessionId, toolName };
+  const toolUseId = str(b.tool_use_id);
+  if (toolUseId) ev.toolUseId = toolUseId;
+  if (toolName === "AskUserQuestion") {
+    const ask = parseAskInput(b.tool_input);
+    if (ask) ev.ask = ask;
+  }
+  return ev;
 }
 
 /**
@@ -153,6 +186,10 @@ export function validateHookEvent(body: unknown): RawHookEvent | null {
 
   if (eventName === "PostToolUse" || eventName === "PostToolUseFailure") {
     return parseToolUseEvent(eventName, b, sessionId);
+  }
+
+  if (eventName === "PreToolUse") {
+    return parsePreToolUseEvent(b, sessionId);
   }
 
   if (eventName === "Notification") {

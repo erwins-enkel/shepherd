@@ -1357,6 +1357,14 @@ test("spawnSettingsOverlay: hooksIngest on + token => all 8 lifecycle events (in
       "SubagentStop",
     ]);
     expect(parsed.hooks.PreToolUse[0].hooks[0].type).toBe("command");
+    // #3165: ingest's PreToolUse(AskUserQuestion) is concatenated after the guard's, not
+    // overwriting it.
+    expect(parsed.hooks.PreToolUse).toHaveLength(2);
+    expect(parsed.hooks.PreToolUse[0].matcher).toBe("Bash");
+    expect(parsed.hooks.PreToolUse[1].matcher).toBe("AskUserQuestion");
+    expect(parsed.hooks.PreToolUse[1].hooks[0].url).toBe(
+      "http://127.0.0.1:7330/api/sessions/sess-42/hooks",
+    );
     for (const event of [
       "PostToolUse",
       "PostToolUseFailure",

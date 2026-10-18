@@ -192,6 +192,7 @@ import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { HookIngest, toolUseSince } from "./hooks-ingest";
+import { AskAnswerService } from "./ask-answer-service";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -1495,6 +1496,12 @@ const poller = new StatusPoller(
   { onChange: (id, busy) => events.emit("session:background-busy", { id, busy }) },
 );
 
+// #3165: answer an open AskUserQuestion dialog from the native panel by typing it into the pane.
+const askAnswers = new AskAnswerService({
+  currentAsk: (id) => poller.currentAsk(id),
+  typeKeys: (id, writes, gapMs, stillValid) => service.typeKeys(id, writes, gapMs, stillValid),
+});
+
 // Proactively re-drive a herdr-restored plugin/account pane (herdr's bare `claude --resume` lost the
 // account's CLAUDE_CONFIG_DIR). Fire-and-forget; reDriveAccount is per-session guarded + bounded.
 // Swallow rejections so an unexpected internal throw can't surface as an unhandled rejection off the
@@ -1536,9 +1543,16 @@ if (hookSignalsWanted && !config.hooksIngest) {
 } else if (hookSignalsWanted) {
   // `planStopTrigger` is declared further down and only read when a hook arrives, long after boot.
   hookIngest.setSink((id, ev) => {
-    if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
+    if (ev.event === "PreToolUse") {
+      // #3165: AskUserQuestion as data for the native answer panel.
+      if (ev.ask && ev.toolUseId) poller.ingestAsk(id, { toolUseId: ev.toolUseId, questions: ev.ask });
+    } else if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
       planStopTrigger.cancel(id);
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });
+      if (ev.toolUseId) {
+        poller.resolveAsk(id, ev.toolUseId);
+        askAnswers.onPostToolUse(id, ev.toolUseId, ev.askAnswers ?? null);
+      }
     } else if (ev.event === "Notification") {
       if (ev.notificationType === "permission_prompt") planStopTrigger.cancel(id);
       poller.ingestNotification(id, ev.notificationType ?? "");
@@ -1548,6 +1562,9 @@ if (hookSignalsWanted && !config.hooksIngest) {
     } else if (ev.event === "Stop") {
       poller.ingestStopMeasure(id, ev.receivedAt);
       planStopTrigger.onStop(id);
+      poller.resolveAsk(id); // a local Esc cancel sends no PostToolUse — the turn's end does
+    } else if (ev.event === "SessionEnd") {
+      poller.resolveAsk(id);
     }
     // Stop now feeds an observe-only window MEASUREMENT (no status mutation): the offset
     // between the Stop hook and herdr's done flip (issue #713). SessionEnd stays observe-only
@@ -3974,6 +3991,7 @@ const appDeps: AppDeps = {
   poller,
   hooks: hookIngest,
   assistantView: new AssistantViewRegistry(),
+  askAnswers,
   reviewCache: {
     snapshot: () => reviewService.snapshot(),
     reviewing: () => reviewService.reviewingInflight(),

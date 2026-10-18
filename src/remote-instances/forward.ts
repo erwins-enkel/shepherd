@@ -43,6 +43,7 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "GET leftovers", // what archiving would leave running — the archive confirm reads it first
   "POST go",
   "POST answer-plan-questions",
+  "POST answer-ask",
   "POST rename",
   "POST amendments",
   "PUT autopilot",

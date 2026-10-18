@@ -569,8 +569,8 @@ export function resetUserSkillNamesCacheForTests(): void {
  * machine with no personal skills still shouldn't pay for the built-in catalog); absent → both keys
  * omitted, so untrimmed spawns keep today's exact overlay.
  *
- * `hooks` (issue #704, only when `config.hooksIngest`) adds PostToolUse/PostToolUseFailure/
- * Notification/SessionStart/Stop/SessionEnd/SubagentStart/SubagentStop HTTP hooks pointing at
+ * `hooks` (issue #704, only when `config.hooksIngest`) adds PreToolUse(AskUserQuestion, #3165)/
+ * PostToolUse/PostToolUseFailure/Notification/SessionStart/Stop/SessionEnd/SubagentStart/SubagentStop HTTP hooks pointing at
  * this session's ingest route (see buildHooksFragment). Flag off → key omitted entirely, so the
  * overlay JSON stays byte-for-byte identical to today.
  *
@@ -606,13 +606,20 @@ export function spawnSettingsOverlay(
       settings.skillOverrides = Object.fromEntries(opts.disableSkills.map((name) => [name, "off"]));
     }
   }
-  // The guard owns `PreToolUse`; the ingest hooks own the eight lifecycle events; the assistant's
-  // view hook owns `UserPromptSubmit`. Merged key-wise (they never collide) so any can ride alone.
-  const hooks = {
-    ...buildToolGuardFragment(),
-    ...(config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {}),
+  // The guard owns `PreToolUse(Bash)`; the ingest hooks own the lifecycle events plus
+  // `PreToolUse(AskUserQuestion)` (#3165); the assistant's view hook owns `UserPromptSubmit`.
+  // Merged key-wise, with the one shared key — `PreToolUse` — concatenated so neither matcher
+  // entry overwrites the other.
+  const guard = buildToolGuardFragment();
+  const ingest = config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {};
+  const hooks: Record<string, unknown> = {
+    ...guard,
+    ...ingest,
     ...(opts.assistantView ? buildAssistantViewHookFragment(opts.assistantView) : {}),
   };
+  if (guard.PreToolUse && ingest.PreToolUse) {
+    hooks.PreToolUse = [...(guard.PreToolUse as unknown[]), ...(ingest.PreToolUse as unknown[])];
+  }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
   if (opts.permissions) settings.permissions = opts.permissions;
   // #1159: an api key gets the five-minute prompt cache by default, so a coffee-break idle
@@ -665,6 +672,9 @@ export function buildHooksFragment(input: {
   };
   const eventEntry = [{ matcher: "*", hooks: [httpHook] }];
   return {
+    // #3165: AskUserQuestion's questions as data for the native answer panel. Non-blocking: the
+    // route answers 200 with an EMPTY body (no decision), so the dialog renders as usual.
+    PreToolUse: [{ matcher: "AskUserQuestion", hooks: [httpHook] }],
     PostToolUse: eventEntry,
     PostToolUseFailure: eventEntry,
     Notification: eventEntry,
@@ -6319,6 +6329,45 @@ export class SessionService {
       return false; // pane died between list and send
     }
     return true;
+  }
+
+  /**
+   * Type a key sequence into a session's pane, ONE herdr write per entry with `gapMs` between them
+   * (issue #3165 — the AskUserQuestion dialog reads one coalesced write as a paste). Resolves the
+   * pane like `interrupt` and holds `#serializeSteer` for the whole sequence so no steer lands in
+   * the middle. `stillValid` is checked before every write: false aborts with `false` (e.g. the
+   * operator answered locally meanwhile, so the remaining keys would land in the prompt).
+   * Returns false when nothing could be typed or the sequence was cut short.
+   */
+  async typeKeys(
+    id: string,
+    writes: string[],
+    gapMs: number,
+    stillValid: () => boolean = () => true,
+  ): Promise<boolean> {
+    const s = this.deps.store.get(id);
+    if (!s) return false;
+    this.assertNotTerminal(s, "answer-ask");
+    let agent: HerdrAgent | null;
+    try {
+      agent = this.liveAgentFor(id);
+    } catch {
+      return false;
+    }
+    if (!agent || !this.adoptLiveResumeAgent(s, agent)) return false;
+    const target = agent.terminalId;
+    return this.#serializeSteer(async () => {
+      for (const [i, w] of writes.entries()) {
+        if (!stillValid()) return false;
+        if (i > 0) await new Promise((r) => setTimeout(r, gapMs));
+        try {
+          await this.deps.herdr.send(target, w);
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    });
   }
 
   /** Terminal ids herdr currently lists as live. Empty when herdr can't be reached, so

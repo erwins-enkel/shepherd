@@ -178,3 +178,20 @@ test("auth: 401 when token set and Authorization missing/wrong", async () => {
   });
   expect(ok.status).toBe(202);
 });
+
+test("POST PreToolUse → 200 with an EMPTY body (no hook decision), still recorded (#3165)", async () => {
+  const { app, session } = harness();
+  const res = await post(app, session.id, {
+    session_id: CLAUDE_SID,
+    hook_event_name: "PreToolUse",
+    tool_name: "AskUserQuestion",
+    tool_use_id: "toolu_1",
+    tool_input: { questions: [] },
+  });
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("");
+  const snap = await app.fetch(new Request(`http://x/api/sessions/${session.id}/hooks`));
+  const events = await snap.json();
+  expect(events[0].event).toBe("PreToolUse");
+  expect(events[0].toolUseId).toBe("toolu_1");
+});

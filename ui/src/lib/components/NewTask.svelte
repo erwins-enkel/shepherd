@@ -2977,7 +2977,7 @@
                 <button
                   type="button"
                   class="ca-steer"
-                  aria-label={m.issuespanel_action_aria({ label: s.label })}
+                  aria-label={m.newtask_compose_steer_aria({ label: s.label })}
                   onpointerdown={(e) => e.preventDefault()}
                   onclick={() => pickComposeSteer(s)}
                 >

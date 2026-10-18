@@ -5028,9 +5028,7 @@ describe("NewTask 7A keyboard-compose state", () => {
   });
 });
 
-// ── "shape this": the optional pre-spawn clarifying round (#2158) ────────────
-// The whole feature is inert until the button is clicked — these tests pin both halves: it does
-// nothing on its own, and when used it replaces the rough prompt with the composed brief.
+// ── compose steer chips ──────────────────────────────────────────────────────
 // Issue steers ride the compose action row between hide-keyboard and Next, in a strip
 // that scrolls sideways. Click-only: a pointerdown starts every swipe-to-scroll, so it
 // only guards focus (keeping the keyboard up) and never inserts.
@@ -5101,7 +5099,7 @@ describe("NewTask compose steer chips", () => {
       (b) => b.getAttribute("aria-label") ?? b.className,
     );
     expect(order.indexOf(m.newtask_compose_hide_keyboard_aria())).toBeLessThan(
-      order.indexOf(m.issuespanel_action_aria({ label: "Steer a" })),
+      order.indexOf(m.newtask_compose_steer_aria({ label: "Steer a" })),
     );
     expect(document.querySelector(".compose-actions > :last-child")?.classList).toContain(
       "ca-next",
@@ -5164,6 +5162,9 @@ describe("NewTask compose steer chips", () => {
   });
 });
 
+// ── "shape this": the optional pre-spawn clarifying round (#2158) ────────────
+// The whole feature is inert until the button is clicked — these tests pin both halves: it does
+// nothing on its own, and when used it replaces the rough prompt with the composed brief.
 describe("NewTask shape round", () => {
   const round = {
     draft: { problem: "leaks", outcome: "no leaks", constraints: [], nonGoals: [] },

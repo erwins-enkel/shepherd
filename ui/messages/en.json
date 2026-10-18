@@ -3590,6 +3590,7 @@
   "diagnostics_hint_preview_probes_idle": "Preview detection works, but nothing is exercising it right now — with no active session in a worktree, Shepherd doesn't keep its view of running processes up to date. It refreshes as soon as a session starts.",
   "newtask_compose_next": "Next →",
   "newtask_compose_hide_keyboard_aria": "Hide keyboard",
+  "newtask_compose_steer_aria": "Add {label} to the prompt",
   "feat_keyboard_compose_title": "Keyboard-aware compose on mobile",
   "feat_keyboard_compose_body": "While the keyboard is up, the New Task modal now collapses to the prompt: settings fold away and a pinned row above the keys offers attach, hide keyboard, and Next — which never submits, it just brings the full form back.",
   "keymap_mod_ctrl": "Ctrl",

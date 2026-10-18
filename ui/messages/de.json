@@ -3590,6 +3590,7 @@
   "diagnostics_hint_preview_probes_idle": "Die Preview-Erkennung funktioniert, wird derzeit aber nicht genutzt — ohne aktive Session in einem Worktree hält Shepherd seine Sicht auf die laufenden Prozesse nicht aktuell. Sie wird aufgefrischt, sobald eine Session startet.",
   "newtask_compose_next": "Weiter →",
   "newtask_compose_hide_keyboard_aria": "Tastatur ausblenden",
+  "newtask_compose_steer_aria": "{label} zum Prompt hinzufügen",
   "feat_keyboard_compose_title": "Tastatur-bewusstes Verfassen auf Mobilgeräten",
   "feat_keyboard_compose_body": "Bei offener Tastatur kollabiert das Neue-Aufgabe-Modal jetzt auf den Prompt: Einstellungen klappen weg, und eine angepinnte Leiste über den Tasten bietet Anhängen, Tastatur ausblenden und Weiter — das nie abschickt, sondern nur das volle Formular zurückholt.",
   "keymap_mod_ctrl": "Strg",

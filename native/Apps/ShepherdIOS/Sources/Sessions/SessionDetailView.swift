@@ -246,7 +246,8 @@ struct IOSSessionDetailContent<Surface: View>: View {
             case .terminal:
                 IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize,
                     rendersStaticFixture: !selectableText, steerChips: steerChips,
-                    inlineActions: inlineActions, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails)
+                    inlineActions: inlineActions, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails,
+                    latency: latency)
             case .activity:
                 List { ActivityView(session: session, model: model).listRowBackground(IOSTerminalStyle.panel) }
                     .listStyle(.plain).scrollContentBackground(.hidden)

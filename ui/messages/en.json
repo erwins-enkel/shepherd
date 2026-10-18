@@ -6614,5 +6614,18 @@
   "native_ios_epic_description": "Description",
   "native_ios_epic_more": "Show more",
   "native_ios_epic_less": "Show less",
-  "native_ios_epic_supersede_message": "Epic #{leader} already leads this repository. Queue it next to resume automatically later, or supersede it without queueing. Running sessions finish."
+  "native_ios_epic_supersede_message": "Epic #{leader} already leads this repository. Queue it next to resume automatically later, or supersede it without queueing. Running sessions finish.",
+  "native_ios_reconnect_awake": "Is {server} awake and reachable?",
+  "native_ios_reconnect_check": "Check connection again",
+  "native_ios_reconnect_checking": "Checking connection …",
+  "native_ios_reconnect_connecting": "Connecting to {server} …",
+  "native_ios_reconnect_countdown": "Retrying automatically in {seconds} s",
+  "native_ios_reconnect_failed": "Still unreachable",
+  "native_ios_reconnect_last_contact": "Last contact {time}.",
+  "native_ios_reconnect_locked": "Input is locked until the connection is back.",
+  "native_ios_reconnect_not_live": "Not live",
+  "native_ios_reconnect_not_live_at": "Not live · as of {time}",
+  "native_ios_reconnect_reconnected": "Reconnected",
+  "native_ios_reconnect_try_again": "Try again",
+  "native_ios_reconnect_unreachable": "{server} unreachable"
 }

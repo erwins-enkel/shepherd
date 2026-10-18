@@ -46,7 +46,7 @@ final class IOSTerminalController: AppExtension {
         // pruning against only live sessions would detach that archive's PTY.
         let terminal = TerminalSessionModel(sessionID: sessionID, store: store, allowsInput: allowsInput,
             recovery: app?.extension(BackendRecoveryModel.self))
-        let model = IOSTerminalPresentation(session: terminal, allowsInput: allowsInput,
+        let model = IOSTerminalPresentation(session: terminal, sessionID: sessionID, allowsInput: allowsInput,
             attachments: allowsInput ? .forSession(client: client, sessionID: sessionID) : nil,
             actions: { [weak app, weak store] in
                 guard let session = store?.session(id: sessionID) else { return nil }

@@ -10,10 +10,27 @@ import ShepherdKit
 final class IOSTerminalPresentation {
     let session: TerminalSessionModel
     let allowsInput: Bool
+    let sessionID: String
+    var connection: IOSTerminalConnection?
+    var isUnreachable: Bool {
+        connection?.unreachable ?? IOSTerminalConnection.isUnreachable(phase: session.phase)
+    }
+    var inputLocked: Bool { isUnreachable || (connection.map { $0.retry.phase != .connected } ?? false) }
+
+    func lockWriting() {
+        let draft = session.promptText
+        voice?.cancel()
+        session.promptText = draft
+        closeWriting()
+        pickingAttachment = false
+    }
     let attachments: AttachmentModel?
     var writing = false
     var writingWantsKeyboard = false
-    func openWriting(focus: Bool) { writingWantsKeyboard = focus; writing = true }
+    func openWriting(focus: Bool) {
+        guard !inputLocked else { return }
+        writingWantsKeyboard = focus; writing = true
+    }
     func closeWriting() { writing = false; writingWantsKeyboard = false }
     var clipboard = IOSClipboardVisibility()
     var hasDraft: Bool {
@@ -53,12 +70,13 @@ final class IOSTerminalPresentation {
     private var rows = 24
     private var generation = 0
 
-    init(session: TerminalSessionModel, allowsInput: Bool = true,
+    init(session: TerminalSessionModel, sessionID: String = "", allowsInput: Bool = true,
          attachments: AttachmentModel? = nil,
          actions: @escaping () -> IOSSessionActionState? = { nil },
          dictation: (() -> IOSDictationSession?)? = nil,
          reply: @escaping @Sendable (String) async throws -> Void) {
         self.session = session
+        self.sessionID = sessionID
         self.allowsInput = allowsInput
         self.attachments = attachments
         self.reply = reply
@@ -66,7 +84,7 @@ final class IOSTerminalPresentation {
         makeDictation = dictation
     }
 
-    var canSendInput: Bool { allowsInput && actionState?.allowsWrites != false && isAttached && session.phase == .live }
+    var canSendInput: Bool { !inputLocked && allowsInput && actionState?.allowsWrites != false && isAttached && session.phase == .live }
     var canSubmitReply: Bool {
         canSendInput && !replying && !session.promptBusy && voice?.active != true &&
             attachments?.hasOutstandingUploads != true && hasDraft
@@ -118,6 +136,7 @@ final class IOSTerminalPresentation {
     }
 
     func teardown() {
+        connection?.retry.setRunning(false)
         rendererUnmounted()
         attachments?.teardown()
         voice?.teardown()
@@ -168,7 +187,7 @@ final class IOSTerminalPresentation {
 
     /// A saved steer travels the same reply route as a typed draft, but it never
     /// touches the draft, and like web's SteerBar it does not need an attached PTY.
-    var canSendSteer: Bool { allowsInput && !replying && actionState?.allowsWrites != false }
+    var canSendSteer: Bool { !inputLocked && allowsInput && !replying && actionState?.allowsWrites != false }
 
     func sendSteer(_ text: String) async -> Bool {
         guard canSendSteer, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }

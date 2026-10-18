@@ -6614,5 +6614,18 @@
   "native_ios_epic_description": "Beschreibung",
   "native_ios_epic_more": "Mehr anzeigen",
   "native_ios_epic_less": "Weniger anzeigen",
-  "native_ios_epic_supersede_message": "Epic #{leader} führt dieses Repo bereits. Als Nächstes einreihen setzt es später automatisch fort; beim Ablösen ohne Einreihen bleibt es stehen. Laufende Sessions arbeiten weiter."
+  "native_ios_epic_supersede_message": "Epic #{leader} führt dieses Repo bereits. Als Nächstes einreihen setzt es später automatisch fort; beim Ablösen ohne Einreihen bleibt es stehen. Laufende Sessions arbeiten weiter.",
+  "native_ios_reconnect_awake": "Ist {server} wach und erreichbar?",
+  "native_ios_reconnect_check": "Verbindung erneut prüfen",
+  "native_ios_reconnect_checking": "Prüfe Verbindung …",
+  "native_ios_reconnect_connecting": "Verbinde mit {server} …",
+  "native_ios_reconnect_countdown": "Automatisch erneut in {seconds} s",
+  "native_ios_reconnect_failed": "Immer noch nicht erreichbar",
+  "native_ios_reconnect_last_contact": "Letzter Kontakt {time}.",
+  "native_ios_reconnect_locked": "Eingabe gesperrt, bis die Verbindung wieder steht.",
+  "native_ios_reconnect_not_live": "Nicht live",
+  "native_ios_reconnect_not_live_at": "Nicht live · Stand {time}",
+  "native_ios_reconnect_reconnected": "Wieder verbunden",
+  "native_ios_reconnect_try_again": "Erneut versuchen",
+  "native_ios_reconnect_unreachable": "{server} nicht erreichbar"
 }

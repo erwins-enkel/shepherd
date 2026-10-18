@@ -198,11 +198,14 @@ export class JudgeSettings {
     deadlineMs: number;
   } {
     const envUrl = this.env.baseUrl;
+    // An environment key never goes to a stored base URL: that address was set without the key
+    // being checked against it — possibly before the key was even there.
+    const storedUrl = this.env.key === null ? stored.baseUrl : undefined;
     return {
       model: this.env.model ?? stored.model ?? DEFAULT_JUDGE_MODEL,
       baseUrl:
         (envUrl === null ? null : (normalizeJudgeBaseUrl(envUrl) ?? envUrl)) ??
-        stored.baseUrl ??
+        storedUrl ??
         DEFAULT_JUDGE_BASE_URL,
       deadlineMs: this.env.timeoutMs ?? stored.timeoutMs ?? DEFAULT_JUDGE_DEADLINE_MS,
     };

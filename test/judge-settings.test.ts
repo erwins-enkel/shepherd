@@ -173,6 +173,28 @@ test("an environment key also locks the base URL — it is where the key would g
   });
 });
 
+test("an environment key never goes to a base URL stored before it arrived", () => {
+  const dir = mkdtempSync(join(tmpdir(), "judge-settings-"));
+  const path = join(dir, "judge.json");
+  // Allowed while there was no key at all — and harmless then, since nothing was sent anywhere.
+  writeFileSync(path, JSON.stringify({ baseUrl: "https://attacker.example" }));
+  const built: TypeSafeJudgeOptions[] = [];
+  const settings = new JudgeSettings(
+    path,
+    { ...NO_ENV, key: KEY },
+    {
+      probe: async () => ({ ok: true, models: [] }),
+      createJudge: (o) => {
+        built.push(o);
+        return {} as Judge;
+      },
+    },
+  );
+  settings.load();
+  expect(built.at(-1)?.baseUrl).toBe(DEFAULT_JUDGE_BASE_URL);
+  expect(settings.status().baseUrl).toBe(DEFAULT_JUDGE_BASE_URL);
+});
+
 test("moving the base URL away from a stored key needs the key again", async () => {
   const h = harness();
   await h.settings.save({ key: KEY });

@@ -32,9 +32,9 @@ import { writeSecretsFile } from "./plugins/secrets";
 
 export const DEFAULT_JUDGE_MODEL = "jev-1.13.0";
 export const DEFAULT_JUDGE_BASE_URL = "https://api.typesafe.ai";
-export const DEFAULT_JUDGE_DEADLINE_MS = 8_000;
-export const JUDGE_TIMEOUT_MIN_MS = 1_000;
-export const JUDGE_TIMEOUT_MAX_MS = 60_000;
+const DEFAULT_JUDGE_DEADLINE_MS = 8_000;
+const JUDGE_TIMEOUT_MIN_MS = 1_000;
+const JUDGE_TIMEOUT_MAX_MS = 60_000;
 
 export const JUDGE_FIELDS = ["key", "model", "baseUrl", "timeoutMs"] as const;
 export type JudgeField = (typeof JUDGE_FIELDS)[number];
@@ -134,6 +134,38 @@ export function normalizeJudgeBaseUrl(raw: string): string | null {
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   if (url.username || url.password || url.search || url.hash) return null;
   return url.href.replace(/\/+$/, "");
+}
+
+// The per-field halves of `JudgeSettings.merge`. A value equal to the default is not stored, so a
+// later change of the default reaches everyone who never chose otherwise.
+
+function mergeModel(next: StoredJudge, raw: string | undefined): JudgeSaveError | null {
+  if (raw === undefined) return null;
+  const model = raw.trim();
+  if (model !== "" && !MODEL_RE.test(model)) return { error: "model_invalid", field: "model" };
+  if (model === "" || model === DEFAULT_JUDGE_MODEL) delete next.model;
+  else next.model = model;
+  return null;
+}
+
+function mergeBaseUrl(next: StoredJudge, raw: string | undefined): JudgeSaveError | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  const url = trimmed === "" ? DEFAULT_JUDGE_BASE_URL : normalizeJudgeBaseUrl(trimmed);
+  if (url === null) return { error: "base_url_invalid", field: "baseUrl" };
+  if (url === DEFAULT_JUDGE_BASE_URL) delete next.baseUrl;
+  else next.baseUrl = url;
+  return null;
+}
+
+function mergeTimeout(next: StoredJudge, ms: number | undefined): JudgeSaveError | null {
+  if (ms === undefined) return null;
+  if (!Number.isInteger(ms) || ms < JUDGE_TIMEOUT_MIN_MS || ms > JUDGE_TIMEOUT_MAX_MS) {
+    return { error: "timeout_invalid", field: "timeoutMs" };
+  }
+  if (ms === DEFAULT_JUDGE_DEADLINE_MS) delete next.timeoutMs;
+  else next.timeoutMs = ms;
+  return null;
 }
 
 function hostOf(url: string): string | null {
@@ -359,32 +391,16 @@ export class JudgeSettings {
 
   /** The stored connection with `input` applied, or the first field that is not acceptable. */
   private merge(input: JudgeSaveInput): StoredJudge | JudgeSaveError {
-    const next: StoredJudge = { ...this.stored };
     const key = input.key?.trim();
     if (key && !KEY_RE.test(key)) return { error: "key_invalid", field: "key" };
-
-    if (input.model !== undefined) {
-      const model = input.model.trim();
-      if (model !== "" && !MODEL_RE.test(model)) return { error: "model_invalid", field: "model" };
-      if (model === "" || model === DEFAULT_JUDGE_MODEL) delete next.model;
-      else next.model = model;
-    }
-    if (input.baseUrl !== undefined) {
-      const raw = input.baseUrl.trim();
-      const url = raw === "" ? DEFAULT_JUDGE_BASE_URL : normalizeJudgeBaseUrl(raw);
-      if (url === null) return { error: "base_url_invalid", field: "baseUrl" };
-      if (url === DEFAULT_JUDGE_BASE_URL) delete next.baseUrl;
-      else next.baseUrl = url;
-    }
-    if (input.timeoutMs !== undefined) {
-      const ms = input.timeoutMs;
-      if (!Number.isInteger(ms) || ms < JUDGE_TIMEOUT_MIN_MS || ms > JUDGE_TIMEOUT_MAX_MS) {
-        return { error: "timeout_invalid", field: "timeoutMs" };
-      }
-      if (ms === DEFAULT_JUDGE_DEADLINE_MS) delete next.timeoutMs;
-      else next.timeoutMs = ms;
-    }
-    return next;
+    const next: StoredJudge = { ...this.stored };
+    // Each applies its field to `next` or names why it cannot; the first refusal wins.
+    return (
+      mergeModel(next, input.model) ??
+      mergeBaseUrl(next, input.baseUrl) ??
+      mergeTimeout(next, input.timeoutMs) ??
+      next
+    );
   }
 
   /** Check the key in force against the backend without spending anything. Null without a key. */

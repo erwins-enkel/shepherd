@@ -31,10 +31,10 @@ describe("the Session section's searchable rows mirror the panel", () => {
   });
 });
 
-const DM_PANEL = readFileSync(
-  new URL("./components/settings/SettingsDecisionModelPanel.svelte", import.meta.url),
-  "utf8",
-);
+// The section renders its rows across the panel and its Advanced child.
+const DM_PANEL = ["SettingsDecisionModelPanel.svelte", "DecisionModelAdvanced.svelte"]
+  .map((f) => readFileSync(new URL(`./components/settings/${f}`, import.meta.url), "utf8"))
+  .join("\n");
 
 describe("the Decision model section's searchable rows (#3071)", () => {
   it("registers every row the panel renders", () => {

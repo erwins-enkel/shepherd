@@ -1,5 +1,13 @@
 import { test, expect, spyOn } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JudgeError, type Judge } from "../src/judge";
@@ -96,12 +104,18 @@ test("a verified key is stored at 0600 and arms a client without a restart", asy
     model: DEFAULT_JUDGE_MODEL,
     deadlineMs: 8_000,
   });
-  expect(statSync(path).mode & 0o777).toBe(0o600);
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-    key: KEY,
-    keyBaseUrl: DEFAULT_JUDGE_BASE_URL,
-    keySavedAt: 1_000,
-  });
+  // Readable by the owner only — mode and content read through one fd, so both describe one file.
+  const fd = openSync(path, "r");
+  try {
+    expect(fstatSync(fd).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(fd, "utf8"))).toEqual({
+      key: KEY,
+      keyBaseUrl: DEFAULT_JUDGE_BASE_URL,
+      keySavedAt: 1_000,
+    });
+  } finally {
+    closeSync(fd);
+  }
 });
 
 test("the key never appears in a status", async () => {

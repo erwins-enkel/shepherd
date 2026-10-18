@@ -5014,6 +5014,8 @@
   "upnext_preview_steer_tip_cli_body": "Die CLI des Steers, wenn er genau eine festlegt, sonst deine Voreinstellung.",
   "feat_upnext_preview_steers_title": "Als Nächstes: Issue mit einem Steer starten",
   "feat_upnext_preview_steers_body": "Steers, die du in Backlog-Issues anzeigst, stehen jetzt auch in der Vorschau von „Als Nächstes“ neben Starten. Ein Klick startet eine Session mit dem Prompt des Steers, das Issue hängt dran. Wird die Vorschau schmal, wandern die Steers, die nicht mehr passen, ins ▾ neben Starten.",
+  "feat_compose_steers_title": "Neue Aufgabe: Steers über der Tastatur",
+  "feat_compose_steers_body": "Wenn du auf Handy oder Tablet eine neue Aufgabe tippst, stehen deine Issue-Steers in der Leiste über der Tastatur, zwischen Tastatur-ausblenden und Weiter. Tippe einen an, um seinen Prompt einzufügen; ein angehängtes Issue bleibt dran. Passen nicht alle hinein, wische die Leiste zur Seite.",
   "feat_upnext_preview_title": "Als Nächstes: Issue lesen, bevor du es startest",
   "feat_upnext_preview_body": "Klick in Als Nächstes auf einen Titel, und das Issue erscheint rechts — mit Labels, Beschreibung und Starten-Button, ohne Umweg über GitHub. Jede Zeile zeigt jetzt alle ihre Labels, Gruppen klappen per Klick auf ihre Überschrift ein, und die Start-Leiste bleibt beim Scrollen sichtbar.",
   "feat_clone_access_title": "Abgelehnte Klone erklären sich",

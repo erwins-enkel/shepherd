@@ -5031,6 +5031,139 @@ describe("NewTask 7A keyboard-compose state", () => {
 // ── "shape this": the optional pre-spawn clarifying round (#2158) ────────────
 // The whole feature is inert until the button is clicked — these tests pin both halves: it does
 // nothing on its own, and when used it replaces the rough prompt with the composed brief.
+// Issue steers ride the compose action row between hide-keyboard and Next, in a strip
+// that scrolls sideways. Click-only: a pointerdown starts every swipe-to-scroll, so it
+// only guards focus (keeping the keyboard up) and never inserts.
+describe("NewTask compose steer chips", () => {
+  class FakeVisualViewport extends EventTarget {
+    height: number;
+    offsetTop = 0;
+    scale = 1;
+    constructor(height: number) {
+      super();
+      this.height = height;
+    }
+  }
+  const mkSteer = (id: string, extra: Partial<Steer> = {}): Steer => ({
+    id,
+    label: `Steer ${id}`,
+    emoji: "🔍",
+    text: `/do ${id}`,
+    inSteerBar: false,
+    onIssues: true,
+    ...extra,
+  });
+  const composeRepo = {
+    name: "compose-repo",
+    path: "/repo/compose",
+    display: "compose-repo",
+    realPath: "/repo/compose",
+  };
+  const promptField = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+  const chips = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".ca-steer"));
+  let restoreVv = () => {};
+
+  async function mountCompose(extra: Record<string, unknown> = {}) {
+    mockPointer(true);
+    await page.viewport(390, 844);
+    const fake = new FakeVisualViewport(window.innerHeight);
+    const prev = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: fake });
+    restoreVv = () => {
+      if (prev) Object.defineProperty(window, "visualViewport", prev);
+      else delete (window as unknown as { visualViewport?: unknown }).visualViewport;
+    };
+    mockListRepos.mockResolvedValue({ repos: [composeRepo], recentWindowDays: 30 });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/compose", ...extra }) });
+    await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+    promptField().focus();
+    fake.height = window.innerHeight - 300;
+    fake.dispatchEvent(new Event("resize"));
+    await expect.poll(() => document.querySelector(".card.composing")).toBeTruthy();
+  }
+
+  afterEach(() => {
+    restoreVv();
+    steers.list = [];
+  });
+
+  it("renders repo-scoped issue steers between hide-keyboard and Next", async () => {
+    steers.list = [
+      mkSteer("a"),
+      mkSteer("b", { repos: ["other-repo"] }),
+      mkSteer("c", { onIssues: false, inSteerBar: true }),
+      mkSteer("d", { repos: ["compose-repo"], emoji: undefined }),
+    ];
+    await mountCompose();
+    await expect.poll(() => chips().length).toBe(2);
+    expect(chips().map((c) => c.textContent?.trim())).toEqual(["🔍 Steer a", "⇥ Steer d"]);
+    const order = Array.from(document.querySelectorAll(".compose-actions button")).map(
+      (b) => b.getAttribute("aria-label") ?? b.className,
+    );
+    expect(order.indexOf(m.newtask_compose_hide_keyboard_aria())).toBeLessThan(
+      order.indexOf(m.issuespanel_action_aria({ label: "Steer a" })),
+    );
+    expect(document.querySelector(".compose-actions > :last-child")?.classList).toContain(
+      "ca-next",
+    );
+  });
+
+  it("renders no strip without issue steers", async () => {
+    await mountCompose();
+    expect(document.querySelector(".ca-steers")).toBeNull();
+  });
+
+  it("pointerdown alone inserts nothing; click appends once and keeps the keyboard up", async () => {
+    steers.list = [mkSteer("a")];
+    await mountCompose();
+    await expect.poll(() => chips().length).toBe(1);
+    const down = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+    chips()[0]!.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(promptField().value).toBe("");
+    chips()[0]!.click();
+    await expect.poll(() => promptField().value).toBe("/do a");
+    expect(document.activeElement).toBe(promptField());
+    expect(document.querySelector(".card.composing")).toBeTruthy();
+  });
+
+  it("with an issue attached, appends after the prompt and keeps the issue", async () => {
+    steers.list = [mkSteer("a")];
+    const issue: Issue = {
+      number: 77,
+      title: "Gap",
+      body: "",
+      url: "https://gh/o/r/issues/77",
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+      author: "bob",
+    };
+    await mountCompose({ initialIssue: issue });
+    await expect.poll(() => chips().length).toBe(1);
+    const before = promptField().value;
+    chips()[0]!.click();
+    await expect.poll(() => promptField().value).toBe(before.trim() ? `${before}\n/do a` : "/do a");
+    expect(document.querySelector(".issue-ref-link")?.textContent).toContain("#77");
+    expect(document.activeElement).toBe(promptField());
+  });
+
+  it("overflowing steers scroll sideways while Next stays fully visible", async () => {
+    steers.list = Array.from({ length: 8 }, (_, i) =>
+      mkSteer(`s${i}`, { label: `Long steer ${i}` }),
+    );
+    await mountCompose();
+    await expect.poll(() => chips().length).toBe(8);
+    const strip = document.querySelector<HTMLElement>(".ca-steers")!;
+    expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth);
+    expect(getComputedStyle(strip).overflowX).toBe("auto");
+    const row = document.querySelector<HTMLElement>(".compose-actions")!.getBoundingClientRect();
+    const next = document.querySelector<HTMLElement>(".ca-next")!.getBoundingClientRect();
+    expect(next.right).toBeLessThanOrEqual(row.right);
+    expect(next.left).toBeGreaterThan(strip.getBoundingClientRect().right - 1);
+  });
+});
+
 describe("NewTask shape round", () => {
   const round = {
     draft: { problem: "leaks", outcome: "no leaks", constraints: [], nonGoals: [] },

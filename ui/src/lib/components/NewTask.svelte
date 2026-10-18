@@ -53,6 +53,8 @@
     commandProviders,
   } from "#lib/slash.js";
   import { matchIssueTrigger } from "#lib/issue-trigger.js";
+  import { steers } from "#lib/steers.svelte.js";
+  import { steerAppliesToRepo } from "#lib/steer-scope.js";
   import { matchRepoForLinks } from "#lib/github-link.js";
   import { isFableModel } from "#lib/provider-models.js";
   import RepoSelect from "./RepoSelect.svelte";
@@ -525,6 +527,10 @@
   let recentRepoWindowDays = $state(0);
   const selectedRepo = $derived(repos.find((r) => r.path === repoPath));
   const selectedRepoName = $derived(selectedRepo?.name ?? "");
+  // Issue steers offered in the compose action row (same set as PromptSources' row menu).
+  const composeSteers = $derived(
+    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, selectedRepo?.name ?? null)),
+  );
 
   // ── Run on (#2763) and the automatic machine choice (#2772) ──────────────
   // Plain new tasks only, and only while a machine is connected: without one the dialog is
@@ -1558,6 +1564,17 @@
   function injectSteer(issue: Issue, steer: Steer) {
     issueRef = issue;
     attachedRepoPath = repoPath;
+    appendSteerText(steer);
+  }
+
+  // Compose-row steer: keeps an attached issue attached; without one it is just an
+  // ad-hoc prompt (the operator's "skill" use), so nothing gets attached.
+  function pickComposeSteer(steer: Steer) {
+    if (activeIssue) injectSteer(activeIssue, steer);
+    else appendSteerText(steer);
+  }
+
+  function appendSteerText(steer: Steer) {
     const t = steer.text;
     prompt = prompt.trim() ? `${prompt}\n${t}` : t;
     queueMicrotask(() => {
@@ -2951,6 +2968,25 @@
               <path d="M8.5 17.5 12 21l3.5-3.5"></path>
             </svg>
           </button>
+          {#if composeSteers.length > 0}
+            <!-- Click-only: every swipe-to-scroll starts with a pointerdown on a chip, and
+                 the browser suppresses the click after a pan — so pointerdown just guards
+                 focus (keeping compose up) and never inserts. -->
+            <div class="ca-steers">
+              {#each composeSteers as s (s.id)}
+                <button
+                  type="button"
+                  class="ca-steer"
+                  aria-label={m.issuespanel_action_aria({ label: s.label })}
+                  onpointerdown={(e) => e.preventDefault()}
+                  onclick={() => pickComposeSteer(s)}
+                >
+                  <span aria-hidden="true">{s.emoji || "⇥"}</span>
+                  {s.label}
+                </button>
+              {/each}
+            </div>
+          {/if}
           <button
             type="button"
             class="ca-next"
@@ -4459,7 +4495,7 @@
     .compose-meta .cm-hint {
       margin-left: auto;
     }
-    /* Pinned action row: attach · hide keyboard · Next →. */
+    /* Pinned action row: attach · hide keyboard · issue steers · Next →. */
     .compose-actions {
       flex-shrink: 0;
       display: flex;
@@ -4485,7 +4521,36 @@
     .ca-btn:disabled {
       opacity: 0.6;
     }
+    .ca-steers {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+    }
+    .ca-steers::-webkit-scrollbar {
+      display: none;
+    }
+    .ca-steer {
+      flex-shrink: 0;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      background: transparent;
+      border: 1px solid var(--color-line);
+      border-radius: 2px;
+      color: var(--color-ink);
+      font: inherit;
+      font-size: var(--fs-meta);
+      white-space: nowrap;
+      cursor: pointer;
+    }
     .ca-next {
+      flex-shrink: 0;
       margin-left: auto;
       min-height: 44px;
       display: flex;

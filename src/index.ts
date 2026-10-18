@@ -142,7 +142,8 @@ import { isFullAuto } from "./full-auto";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { AssistantViewRegistry } from "./operator-assistant-view";
 import { classifyStop } from "./autopilot-llm";
-import { createTypeSafeJudge } from "./judge-typesafe";
+import { createTypeSafeJudge, probeTypeSafeKey } from "./judge-typesafe";
+import { JudgeSettings } from "./judge-settings";
 import { JudgeSpendLedger, dayKeyBefore } from "./judge-spend";
 import { BlockBackstop } from "./block-backstop";
 import { tailLines } from "./blocked";
@@ -2516,76 +2517,82 @@ function readVisibleBuffer(id: string): string | null {
 // BOTH turns the setting on and supplies a key — the key alone is also the eval harness's
 // credential, so its presence must not arm a billed production path.
 //
-// The client is built whenever a KEY exists, and the SETTING is read per classify (see
-// `armedJudge`). A client is pure configuration — it opens nothing — so building one the operator
-// has switched off costs nothing, and it is what lets the Settings toggle take effect on the next
-// classification instead of at the next restart.
-const judgeClient = config.judgeApiKey
-  ? createTypeSafeJudge({
-      apiKey: config.judgeApiKey,
-      baseUrl: config.judgeBaseUrl,
-      model: config.judgeModel,
-      deadlineMs: config.judgeDeadlineMs,
-    })
-  : null;
-/** The judge to use right now, or null when the operator has it switched off. */
-const armedJudge = () => (config.judgeEnabled ? judgeClient : null);
-const judgeSpend = judgeClient
-  ? new JudgeSpendLedger({
-      store,
-      // Read live: the operator can move the ceiling from Settings without a restart.
-      ceilingUsd: () => config.judgeDailyUsd,
-      onCeilingReached: (spentUsd, ceilingUsd) => {
-        console.warn(
-          `[judge] daily ceiling reached ($${spentUsd.toFixed(4)} of $${ceilingUsd.toFixed(4)}) — ` +
-            `falling back to the classifier spawn for the rest of the day.`,
-        );
-        void push
-          .notify({
-            kind: "judge_ceiling",
-            sessionId: "",
-            tag: "judge-ceiling",
-            name: "judge",
-            judgeSpentUsd: spentUsd,
-            judgeCeilingUsd: ceilingUsd,
-            cooldownKey: "judge_ceiling",
-          })
-          .catch((err) => console.warn("[push] judge_ceiling notify failed:", err));
-      },
-    })
-  : null;
-if (judgeClient) {
-  console.log(
-    `[judge] key present, setting ${config.judgeEnabled ? "ON" : "OFF"} — model ${config.judgeModel}, ` +
-      `daily ceiling $${config.judgeDailyUsd.toFixed(2)}, deadline ${config.judgeDeadlineMs}ms`,
-  );
-} else if (config.judgeEnabled) {
-  console.warn("[judge] SHEPHERD_JUDGE is on but no JEV_API_KEY is set — the judge stays unarmed.");
+// The connection — key, model, base URL, timeout — comes from the environment or from Settings →
+// Decision model (#3071), and `judgeSettings` rebuilds the client whenever it changes. Every
+// consumer therefore reads `judgeSettings.client()` (or `armedJudge()`) per use and never keeps
+// one: a key saved from Settings takes effect on the next call, with no restart. The SETTING is
+// read per call too, so the toggle lands on the next classification.
+const judgeSettings = new JudgeSettings(
+  config.judgeStorePath,
+  {
+    key: config.judgeApiKey,
+    model: config.judgeModel,
+    baseUrl: config.judgeBaseUrl,
+    timeoutMs: config.judgeDeadlineMs,
+  },
+  { probe: probeTypeSafeKey, createJudge: createTypeSafeJudge },
+);
+judgeSettings.load();
+/** The judge to use right now, or null when the operator has it switched off or there is no key. */
+const armedJudge = () => (config.judgeEnabled ? judgeSettings.client() : null);
+// Built unconditionally: it is only a view over the store, and a key can arrive at any moment.
+const judgeSpend = new JudgeSpendLedger({
+  store,
+  // Read live: the operator can move the ceiling from Settings without a restart.
+  ceilingUsd: () => config.judgeDailyUsd,
+  onCeilingReached: (spentUsd, ceilingUsd) => {
+    console.warn(
+      `[judge] daily ceiling reached ($${spentUsd.toFixed(4)} of $${ceilingUsd.toFixed(4)}) — ` +
+        `falling back to the classifier spawn for the rest of the day.`,
+    );
+    void push
+      .notify({
+        kind: "judge_ceiling",
+        sessionId: "",
+        tag: "judge-ceiling",
+        name: "judge",
+        judgeSpentUsd: spentUsd,
+        judgeCeilingUsd: ceilingUsd,
+        cooldownKey: "judge_ceiling",
+      })
+      .catch((err) => console.warn("[push] judge_ceiling notify failed:", err));
+  },
+});
+{
+  const { keySource } = judgeSettings.status();
+  const { model, deadlineMs } = judgeSettings.effective();
+  if (keySource !== "none") {
+    console.log(
+      `[judge] key from ${keySource === "env" ? "JEV_API_KEY" : "Settings"}, setting ` +
+        `${config.judgeEnabled ? "ON" : "OFF"} — model ${model}, ` +
+        `daily ceiling $${config.judgeDailyUsd.toFixed(2)}, deadline ${deadlineMs}ms`,
+    );
+  } else if (config.judgeEnabled) {
+    console.warn(
+      "[judge] the stop classifier is on but there is no JEV key (JEV_API_KEY or Settings → " +
+        "Decision model) — the judge stays unarmed.",
+    );
+  }
 }
 
-// The judge BEHIND blocked.ts's regexes (#2375). Built whenever a key exists and gated on its own
-// mode, read live per block: deliberately independent of `judgeEnabled`, since coupling the two
-// would force an operator who only wants the shadow measurement to also change what `classifyStop`
-// does. Shares the judge's client and its daily ceiling — one vendor, one bill.
-const blockBackstop = judgeClient
-  ? new BlockBackstop({
-      judge: judgeClient,
-      spend: judgeSpend,
-      mode: () => config.blockJudgeMode,
-      // Best-effort by contract: the caller swallows a throw rather than lose a block emit.
-      log: (row) => store.addBlockJudgeLog(row),
-      deadlineMs: config.judgeDeadlineMs,
-    })
-  : null;
-if (blockBackstop) {
-  // Wired post-construction (the poller is built long before the judge client). Left unset without
-  // a key, in which case block emission is byte-identical to before this feature landed.
-  poller.blockBackstop = blockBackstop;
-  console.log(`[block-judge] key present, mode ${config.blockJudgeMode}`);
-} else if (config.blockJudgeMode !== "off") {
-  console.warn(
-    `[block-judge] mode is "${config.blockJudgeMode}" but no JEV_API_KEY is set — the backstop ` +
-      "stays unarmed and blocks announce exactly as they do today.",
+// The judge BEHIND blocked.ts's regexes (#2375). Gated on its own mode, read live per block:
+// deliberately independent of `judgeEnabled`, since coupling the two would force an operator who
+// only wants the shadow measurement to also change what `classifyStop` does. Shares the judge's
+// client and its daily ceiling — one vendor, one bill. Without a key it behaves exactly as `off`,
+// so block emission is byte-identical to before this feature landed; wired post-construction
+// because the poller is built long before the judge.
+poller.blockBackstop = new BlockBackstop({
+  judge: () => judgeSettings.client(),
+  spend: judgeSpend,
+  mode: () => config.blockJudgeMode,
+  // Best-effort by contract: the caller swallows a throw rather than lose a block emit.
+  log: (row) => store.addBlockJudgeLog(row),
+  deadlineMs: () => judgeSettings.effective().deadlineMs,
+});
+if (config.blockJudgeMode !== "off") {
+  console.log(
+    `[block-judge] mode ${config.blockJudgeMode}` +
+      (judgeSettings.hasKey() ? "" : " — inert until a JEV key is set"),
   );
 }
 
@@ -3902,21 +3909,18 @@ const upNext = new UpNextService({
   buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
   getEpicRun: (repoPath) => store.getEpicRun(repoPath),
   onChange: (snapshot) => events.emit("upnext:snapshot", { snapshot }),
-  // Readiness rerank (#2535): only when a key exists, and effective only while BOTH the setting and
-  // the judge itself are on — read per compute, so either toggle lands on the next refresh.
-  ...(judgeClient
-    ? {
-        readiness: {
-          enabled: () => config.upNextReadiness && armedJudge() !== null,
-          scorer: new ReadinessScorer({
-            judge: armedJudge,
-            model: () => config.judgeModel,
-            spend: judgeSpend,
-            store,
-          }),
-        },
-      }
-    : {}),
+  // Readiness rerank (#2535): effective only while BOTH the setting and the judge itself are on
+  // (which needs a key) — read per compute, so either toggle, or a key saved in Settings, lands on
+  // the next refresh.
+  readiness: {
+    enabled: () => config.upNextReadiness && armedJudge() !== null,
+    scorer: new ReadinessScorer({
+      judge: armedJudge,
+      model: () => judgeSettings.effective().model,
+      spend: judgeSpend,
+      store,
+    }),
+  },
 });
 deferredStarts.push(() => {
   upNext.start();
@@ -3947,9 +3951,9 @@ const appDeps: AppDeps = {
   usageLimits,
   usageRollup,
   codexModelUsage: (cutoff) => readCodexModelUsage(latestCodexStateDb(), cutoff),
-  // #2369: present whenever a key is configured; the server decides whether the lens shows the
-  // block (see judgeSpendForLens).
-  ...(judgeSpend ? { judgeSpend } : {}),
+  // #2369: the server decides whether the lens shows the block (see judgeSpendForLens).
+  judgeSpend,
+  judgeSettings,
   refreshUsage,
   codexReset,
   codexCapacity: codexReady,

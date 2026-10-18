@@ -186,15 +186,18 @@ export function judgeErrorReason(err: unknown): BackstopReason {
 }
 
 export interface BlockBackstopDeps {
-  judge: Judge;
+  /** Read per block: the key can be saved, replaced or removed from Settings at any time (#3071).
+   *  Null ⇒ no key, and the backstop behaves exactly as `off`. */
+  judge: () => Judge | null;
   /** The judge's shared daily ceiling. Absent ⇒ unmetered (tests only; production always wires it). */
   spend?: { allow(): boolean; record(costUsd: number): void } | null;
   /** Read LIVE per decision, so the Settings toggle applies to the next block, not the next restart. */
   mode: () => BlockJudgeMode;
   /** One row per episode that reached a decision. The arming gate reads these. */
   log: (row: BlockJudgeLogRow) => void;
-  /** Total wall-clock budget of one `ask`; bounds the provisional hold while a call is in flight. */
-  deadlineMs: number;
+  /** Total wall-clock budget of one `ask`; bounds the provisional hold while a call is in flight.
+   *  Read live, like the judge: Settings can change it. */
+  deadlineMs: () => number;
   now?: () => number;
 }
 
@@ -242,7 +245,8 @@ export class BlockBackstop {
    */
   hold(sessionId: string, reason: BlockReason): boolean {
     const mode = this.deps.mode();
-    if (mode === "off") return false;
+    const judge = this.deps.judge();
+    if (mode === "off" || judge === null) return false;
     const t = this.now();
     this.sweepAsks(t);
 
@@ -253,7 +257,8 @@ export class BlockBackstop {
     }
     ep.lastSeenAt = t;
 
-    if (!ep.pending && ep.decidedDelayMs === null) this.start(sessionId, ep, reason, t, mode);
+    if (!ep.pending && ep.decidedDelayMs === null)
+      this.start(judge, sessionId, ep, reason, t, mode);
 
     return mode === "armed" && t < this.holdUntil(ep);
   }
@@ -262,7 +267,7 @@ export class BlockBackstop {
    *  decided, and capped either way — so the worst case is one bounded hold measured from the
    *  block's first sighting. */
   private holdUntil(ep: Episode): number {
-    const budget = ep.decidedDelayMs ?? this.deps.deadlineMs + POLL_SLACK_MS;
+    const budget = ep.decidedDelayMs ?? this.deps.deadlineMs() + POLL_SLACK_MS;
     return ep.firstSeenAt + Math.min(budget, BACKSTOP_MAX_HOLD_MS);
   }
 
@@ -311,6 +316,7 @@ export class BlockBackstop {
 
   /** Decide whether to pay for an answer, and fire it if so. Never throws. */
   private start(
+    judge: Judge,
     sessionId: string,
     ep: Episode,
     reason: BlockReason,
@@ -336,13 +342,14 @@ export class BlockBackstop {
     }
     ep.pending = true;
     this.lastAskAt.set(sessionId, t);
-    const settled: Promise<void> = this.ask(sessionId, ep, reason, mode).finally(() => {
+    const settled: Promise<void> = this.ask(judge, sessionId, ep, reason, mode).finally(() => {
       this.inflight.delete(settled);
     });
     this.inflight.add(settled);
   }
 
   private async ask(
+    judge: Judge,
     sessionId: string,
     ep: Episode,
     reason: BlockReason,
@@ -352,7 +359,7 @@ export class BlockBackstop {
     let model: string | null = null;
     let costUsd = 0;
     try {
-      const result = await this.deps.judge.ask(blockJudgeState(reason.tail), {
+      const result = await judge.ask(blockJudgeState(reason.tail), {
         [BLOCK_JUDGE_QUESTION_ID]: blockJudgeQuestion(),
       });
       model = result.model;

@@ -187,11 +187,11 @@ function harness(
   } as unknown as Judge;
 
   const backstop = new BlockBackstop({
-    judge,
+    judge: () => judge,
     spend: opts.spend ?? null,
     mode: () => mode,
     log: (row) => rows.push(row),
-    deadlineMs: 8_000,
+    deadlineMs: () => 8_000,
     now: () => now,
   });
 
@@ -231,6 +231,32 @@ function harness(
 }
 
 describe("BlockBackstop — holding", () => {
+  test("without a key it is off whatever the mode says, and asks nothing (#3071)", () => {
+    const rows: BlockJudgeLogRow[] = [];
+    let key = false;
+    let asked = 0;
+    const judge = {
+      ask: () => {
+        asked++;
+        return new Promise(() => {});
+      },
+    } as unknown as Judge;
+    const backstop = new BlockBackstop({
+      judge: () => (key ? judge : null),
+      mode: () => "armed",
+      log: (row) => rows.push(row),
+      deadlineMs: () => 8_000,
+      now: () => 1_000_000,
+    });
+    expect(backstop.hold("s1", menu())).toBe(false);
+    expect(asked).toBe(0);
+    expect(rows).toEqual([]);
+    // A key saved from Settings arms it on the very next block — no restart.
+    key = true;
+    expect(backstop.hold("s1", menu())).toBe(true);
+    expect(asked).toBe(1);
+  });
+
   test("holds a confident forgery for its band, then announces", async () => {
     const h = harness();
     expect(h.backstop.hold("s1", menu())).toBe(true); // provisional, call in flight
@@ -380,14 +406,15 @@ describe("BlockBackstop — every failure path announces now", () => {
   test("a log write that throws does not break the caller", async () => {
     let now = 5_000;
     const backstop = new BlockBackstop({
-      judge: {
-        ask: async () => ({ answers: {}, model: "m", usage: {}, costUsd: 0 }),
-      } as unknown as Judge,
+      judge: () =>
+        ({
+          ask: async () => ({ answers: {}, model: "m", usage: {}, costUsd: 0 }),
+        }) as unknown as Judge,
       mode: () => "armed",
       log: () => {
         throw new Error("db locked");
       },
-      deadlineMs: 8_000,
+      deadlineMs: () => 8_000,
       now: () => now,
     });
     expect(backstop.hold("s1", menu())).toBe(true);

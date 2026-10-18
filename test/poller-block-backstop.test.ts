@@ -97,10 +97,10 @@ function rig(mode: BlockJudgeMode, p: number, over: { operatorAssistant?: boolea
     () => clock,
   );
   poller.blockBackstop = new BlockBackstop({
-    judge,
+    judge: () => judge,
     mode: () => mode,
     log: (row) => rows.push(row),
-    deadlineMs: 8_000,
+    deadlineMs: () => 8_000,
     now: () => clock,
   });
 

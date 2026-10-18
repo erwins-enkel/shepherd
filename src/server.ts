@@ -443,6 +443,7 @@ import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage"
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
+import type { JudgeSettings } from "./judge-settings";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -539,8 +540,11 @@ export interface AppDeps {
    *  actually returned a usable frame this run; absent in tests that don't wire the live
    *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
   refreshUsage?: () => Promise<{ limits: UsageLimits; scraped: boolean }>;
-  /** Today's judge spend for the usage lens (#2369); absent when the judge was never armed. */
+  /** Today's judge spend for the usage lens (#2369); absent in tests that skip it. */
   judgeSpend?: { today: () => UsageJudgeSpend };
+  /** The decision model's connection behind Settings → Decision model (#3071); absent in tests
+   *  that skip it. */
+  judgeSettings?: Pick<JudgeSettings, "hasKey">;
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
   /** Range-filtered Codex raw tokens by model; absent in tests → empty Codex model block. */
@@ -6806,7 +6810,8 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
 function judgeSpendForLens(deps: Ctx["deps"]): UsageJudgeSpend | null {
   const today = deps.judgeSpend?.today();
   if (!today) return null;
-  return config.judgeEnabled || today.calls > 0 ? today : null;
+  const armed = config.judgeEnabled && (deps.judgeSettings?.hasKey() ?? false);
+  return armed || today.calls > 0 ? today : null;
 }
 
 async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -7771,7 +7776,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // whether a credential is present WITHOUT exposing it, because the toggle is inert without
       // one and an operator needs to be able to tell those two states apart.
       judgeEnabled: config.judgeEnabled,
-      judgeHasKey: config.judgeApiKey !== null,
+      judgeHasKey: deps.judgeSettings?.hasKey() ?? false,
       judgeDailyUsd: config.judgeDailyUsd,
       // #2375: the blocked-pane backstop's own mode. Shares `judgeHasKey` above — it rides the same
       // client and the same ceiling — but is armed separately.

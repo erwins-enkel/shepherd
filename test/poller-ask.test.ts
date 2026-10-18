@@ -23,7 +23,7 @@ const ASK: PendingAsk = {
   ],
 };
 
-function rig() {
+function rig(screen = MENU) {
   const store = new SessionStore(":memory:");
   const s = store.create({
     name: "x",
@@ -37,11 +37,13 @@ function rig() {
     herdrAgentId: "term_a",
   });
   const blocks: (BlockReason | null)[] = [];
+  let buffer = screen;
+  let status: "blocked" | "working" = "blocked";
   let clock = 100_000;
   const list = (): HerdrAgent[] => [
     {
       agent: "claude",
-      agentStatus: "blocked",
+      agentStatus: status,
       cwd: "/wt",
       paneId: "p",
       tabId: "t",
@@ -53,8 +55,8 @@ function rig() {
   const herdr = {
     list,
     listAsync: () => Promise.resolve(list()),
-    read: () => MENU,
-    readAsync: () => Promise.resolve(MENU),
+    read: () => buffer,
+    readAsync: () => Promise.resolve(buffer),
   };
   const poller = new StatusPoller(
     store,
@@ -70,6 +72,8 @@ function rig() {
     poller,
     blocks,
     id: s.id,
+    setScreen: (text: string) => (buffer = text),
+    setStatus: (v: "blocked" | "working") => (status = v),
     tick: async () => {
       clock += 5000;
       await poller.tick();
@@ -116,4 +120,40 @@ test("resolve without id (Stop / SessionEnd) clears whatever is pending", async 
   const n = r.blocks.length;
   r.poller.resolveAsk(r.id); // idempotent: nothing pending → no emit
   expect(r.blocks).toHaveLength(n);
+});
+
+test("only a menu block carries the ask — never a stall or bare awaiting-input", async () => {
+  const r = rig("I wonder what to do next");
+  r.poller.ingestAsk(r.id, ASK);
+  await r.tick();
+  expect(r.blocks.at(-1)?.shape).toBe("awaiting-input");
+  expect(r.blocks.at(-1)?.ask).toBeUndefined();
+  expect(r.poller.currentAsk(r.id)).toBeNull();
+});
+
+test("the clear of the block that carried the ask drops it — no ride on a later menu", async () => {
+  const r = rig();
+  r.poller.ingestAsk(r.id, ASK);
+  await r.tick();
+  expect(r.blocks.at(-1)?.ask).toEqual(ASK);
+  r.setStatus("working"); // e.g. an Esc cancel: no PostToolUse, the session just moves on
+  await r.tick();
+  expect(r.blocks.at(-1)).toBeNull();
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(false);
+  r.setStatus("blocked"); // a later, unrelated permission menu
+  await r.tick();
+  expect(r.blocks.at(-1)?.shape).toBe("menu");
+  expect(r.blocks.at(-1)?.ask).toBeUndefined();
+});
+
+test("an ask not yet announced is not dropped by a tick with nothing announced", async () => {
+  const r = rig();
+  r.setStatus("working"); // the PreToolUse lands before the dialog paints
+  await r.tick();
+  r.poller.ingestAsk(r.id, ASK);
+  await r.tick();
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(true);
+  r.setStatus("blocked");
+  await r.tick();
+  expect(r.blocks.at(-1)?.ask).toEqual(ASK);
 });

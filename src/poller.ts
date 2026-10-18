@@ -329,8 +329,8 @@ export class StatusPoller {
    *  edge-emitted and would be absent on a fresh page load / push-then-open. */
   private lastBlockReason = new Map<string, BlockReason>();
   /** #3165: the AskUserQuestion dialog each session's agent is waiting on, from the PreToolUse
-   *  hook. `emitBlock` attaches it to every announced block as `ask` until a PostToolUse with the
-   *  same tool_use_id, a Stop/SessionEnd (a local Esc cancel sends no PostToolUse) or the next ask
+   *  hook. `emitBlock` attaches it to an announced `menu` block as `ask` until a PostToolUse with
+   *  the same tool_use_id, the clear of the block that carried it, a Stop/SessionEnd or the next ask
    *  ends it. Hook-only: the transcript holds no tool_use while the dialog is open. */
   private pendingAsk = new Map<string, PendingAsk>();
   /** #1891: last lifecycle state pushed to herdr per session, for push-on-change dedup. */
@@ -1788,7 +1788,13 @@ export class StatusPoller {
    *  fire/clear paths route through here so a fresh client can bootstrap current blocks. */
   private emitBlock(id: string, block: BlockReason | null): void {
     const ask = this.pendingAsk.get(id);
-    if (block && ask) block = { ...block, ask };
+    // Only a rendered dialog can be the AskUserQuestion — never a stall, quota or a bare prompt.
+    if (block?.shape === "menu" && ask) block = { ...block, ask };
+    // The block that carried the ask cleared: the session left the dialog (answered, Esc-cancelled,
+    // interrupted). Drop it so it can never ride a LATER unrelated menu (a permission prompt) — a
+    // cancel sends no PostToolUse and an interrupt no Stop. An ask not yet announced survives an
+    // older block's clear: its dialog is still on its way to the screen.
+    if (!block && this.lastBlockReason.get(id)?.ask) this.pendingAsk.delete(id);
     if (block) this.lastBlockReason.set(id, block);
     else this.lastBlockReason.delete(id);
     this.onBlock(id, block);

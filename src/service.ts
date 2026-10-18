@@ -571,12 +571,14 @@ export function resetUserSkillNamesCacheForTests(): void {
  *
  * `hooks` (issue #704, only when `config.hooksIngest`) adds PreToolUse(AskUserQuestion, #3165)/
  * PostToolUse/PostToolUseFailure/Notification/SessionStart/Stop/SessionEnd/SubagentStart/
- * SubagentStop HTTP hooks pointing at this session's ingest route (see buildHooksFragment). Flag off → key omitted entirely, so the
- * overlay JSON stays byte-for-byte identical to today.
+ * SubagentStop HTTP hooks pointing at this session's ingest route (see buildHooksFragment).
+ * Flag off → key omitted entirely, so the overlay JSON stays byte-for-byte identical to today.
  *
  * The `PreToolUse` tool guard (issue #2002, `config.toolGuard`) is merged into the same `hooks`
  * object from buildToolGuardFragment. It is independent of `hooksIngest` — a local `command` hook,
- * not an HTTP one — so it rides even when ingest is off, and the two never collide on an event.
+ * not an HTTP one — so it rides even when ingest is off. Both register `PreToolUse` (guard:
+ * matcher `Bash`; ingest: `AskUserQuestion`), so that one key's matcher arrays are concatenated;
+ * every other event belongs to one side only.
  *
  * `permissions` (the Operator Assistant only, #1446 — see operatorAssistantPermissions) adds Claude's
  * `permissions` block. Absent → key omitted, so every task spawn's overlay stays byte-identical.
@@ -6358,8 +6360,10 @@ export class SessionService {
     const target = agent.terminalId;
     return this.#serializeSteer(async () => {
       for (const [i, w] of writes.entries()) {
-        if (!stillValid()) return false;
         if (i > 0) await new Promise((r) => setTimeout(r, gapMs));
+        // Checked AFTER the gap, right before the write: a local answer landing during the sleep
+        // must stop the next key from reaching whatever prompt follows the dialog.
+        if (!stillValid()) return false;
         try {
           await this.deps.herdr.send(target, w);
         } catch {

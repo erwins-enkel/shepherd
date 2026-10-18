@@ -11618,6 +11618,9 @@ const MERGE_ROUTE_TIMEOUT_SEC = Math.ceil(MERGE_ASYNC_MAX_WAIT_MS / 1000) + 60;
 export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => {
   if (req.method !== "POST") return null;
   if (url.pathname === "/api/usage/refresh") return 60;
+  // answer-ask (#3165) types up to ~4 questions × ~8 keys at ASK_KEY_GAP_MS each (plus a queued
+  // steer ahead of it on the serializer), then waits up to 10 s for the verifying PostToolUse.
+  if (/^\/api\/sessions\/[^/]+\/answer-ask$/.test(url.pathname)) return 60;
   // browser_request_login long-polls up to LOGIN_WAIT_MS (50s) inside one MCP call (#2882).
   if (/^\/api\/sessions\/[^/]+\/mcp$/.test(url.pathname)) return 60;
   if (/^\/api\/sessions\/[^/]+\/epic-draft\/approve$/.test(url.pathname)) return 255;

@@ -270,6 +270,8 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
   expect(sec("POST", "/api/usage/refresh")).toBe(60); // pre-existing budget, unchanged
   // #2773: the requirements helper answers within its own 30 s deadline.
   expect(sec("POST", "/api/requirements/derive")).toBe(60);
+  // #3165: answer-ask types the keys, then waits up to 10 s for the verifying PostToolUse.
+  expect(sec("POST", "/api/sessions/abc-123/answer-ask")).toBe(60);
 
   // Screen-recording-sized uploads from phones can stall past 10s (network switch,
   // backgrounded app) — both upload routes get the 120s idle budget.

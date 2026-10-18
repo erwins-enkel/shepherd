@@ -9388,6 +9388,20 @@ test("interrupt sends ONE lone ESC to the session's live pane — no paste marke
   expect(emitted).toEqual([]);
 });
 
+test("typeKeys writes one key per send and re-checks stillValid AFTER each gap (#3165)", async () => {
+  let open = true;
+  const { service, session, sent } = interruptHarness({
+    agents: [liveAgent("term_a", "blocked")],
+    send: async (target: string, text: string) => {
+      sent.push({ target, text });
+      // The operator answers locally right after the first key: the next one must not be typed.
+      open = false;
+    },
+  });
+  expect(await service.typeKeys(session.id, ["1", "\r"], 1, () => open)).toBe(false);
+  expect(sent).toEqual([{ target: "term_a", text: "1" }]);
+});
+
 test("interrupt records no signal — `reply` carries operator words and ESC has none", async () => {
   const { service, store, session } = interruptHarness({ agents: [liveAgent("term_a")] });
 

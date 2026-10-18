@@ -406,7 +406,7 @@ test("the judge block carries today's calls, spend and ceiling while the judge i
   try {
     const { app, store } = harness({
       judgeSpend: { today: () => ({ day: "2026-09-19", calls: 7, usd: 0.00056, ceilingUsd: 1 }) },
-      judgeSettings: { hasKey: () => true },
+      judgeSettings: { hasKey: () => true } as AppDeps["judgeSettings"],
     });
     seedSnapshot(store);
     const body = await (
@@ -428,7 +428,7 @@ test("switched on without a key, the judge is not armed and the block stays out 
   try {
     const { app, store } = harness({
       judgeSpend: { today: () => ({ day: "2026-09-19", calls: 0, usd: 0, ceilingUsd: 1 }) },
-      judgeSettings: { hasKey: () => false },
+      judgeSettings: { hasKey: () => false } as AppDeps["judgeSettings"],
     });
     seedSnapshot(store);
     const body = await (

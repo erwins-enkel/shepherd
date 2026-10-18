@@ -443,7 +443,7 @@ import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage"
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
-import type { JudgeSettings } from "./judge-settings";
+import { JUDGE_FIELDS, type JudgeSaveInput, type JudgeSettings } from "./judge-settings";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -544,7 +544,7 @@ export interface AppDeps {
   judgeSpend?: { today: () => UsageJudgeSpend };
   /** The decision model's connection behind Settings → Decision model (#3071); absent in tests
    *  that skip it. */
-  judgeSettings?: Pick<JudgeSettings, "hasKey">;
+  judgeSettings?: Pick<JudgeSettings, "hasKey" | "status" | "save" | "verify" | "remove">;
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
   /** Range-filtered Codex raw tokens by model; absent in tests → empty Codex model block. */
@@ -3317,6 +3317,69 @@ async function handlePushAdmin(ctx: Ctx): Promise<Response | null> {
   if (route === "devices")
     return json({ devices: ctx.deps.store.listPushSubs().map(pushDeviceView) });
   return pushDeviceRoute(ctx, route);
+}
+
+// ── decision-model connection: Settings → Decision model (#3071) ─────────────
+// The JEV key plus model, base URL and timeout. Every route requires an INTERACTIVE operator
+// session, like push administration: a bearer token neither installs a billed credential nor
+// learns where it is sent. No response ever carries the key.
+
+/** The status Settings renders: the connection plus today's spend against the ceiling. */
+function judgeConnectionView(deps: AppDeps, settings: Pick<JudgeSettings, "status">) {
+  return { ...settings.status(), today: deps.judgeSpend?.today() ?? null };
+}
+
+/** PUT /api/judge/connection — every field optional; `timeoutMs` a number, the rest strings. */
+async function putJudgeConnection(
+  req: Request,
+  deps: AppDeps,
+  settings: Pick<JudgeSettings, "save" | "status">,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "body must be an object" }, 400);
+  }
+  const input: JudgeSaveInput = {};
+  for (const field of JUDGE_FIELDS) {
+    const value = body[field];
+    if (value === undefined) continue;
+    if (field === "timeoutMs") {
+      if (typeof value !== "number") return json({ error: "timeoutMs must be a number" }, 400);
+      input.timeoutMs = value;
+    } else {
+      if (typeof value !== "string") return json({ error: `${field} must be a string` }, 400);
+      input[field] = value;
+    }
+  }
+  const result = await settings.save(input);
+  if ("error" in result) {
+    const status = result.error === "env_locked" ? 409 : result.error === "unreachable" ? 502 : 422;
+    return json(result, status);
+  }
+  return json(judgeConnectionView(deps, settings));
+}
+
+async function handleJudgeConnection({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "judge" || parts[2] !== "connection") return null;
+  const verify = parts[3] === "verify" && parts.length === 4;
+  if (!verify && parts.length !== 3) return null;
+  // An unmatched method falls through so it 404s at the tail instead of revealing the route.
+  if (verify ? req.method !== "POST" : !["GET", "PUT", "DELETE"].includes(req.method)) return null;
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
+  const settings = deps.judgeSettings;
+  if (!settings) return json({ error: "the decision model is not available" }, 503);
+  if (verify) {
+    const status = await settings.verify();
+    if (!status) return json({ error: "no_key" }, 409);
+    return json(judgeConnectionView(deps, settings));
+  }
+  if (req.method === "GET") return json(judgeConnectionView(deps, settings));
+  if (req.method === "PUT") return putJudgeConnection(req, deps, settings);
+  await settings.remove();
+  return json(judgeConnectionView(deps, settings));
 }
 
 // Table-driven so adding a push route doesn't grow handlePush's branch count.
@@ -11171,6 +11234,7 @@ const ROUTE_HANDLERS = [
   handleDocAgent,
   handleDocAgentRuns,
   handlePushAdmin,
+  handleJudgeConnection,
   handlePush,
   handleSessionHooks,
   handleAssistantViewHook,

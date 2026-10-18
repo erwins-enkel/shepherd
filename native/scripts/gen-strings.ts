@@ -172,6 +172,23 @@ export const KEYS_CORE: readonly string[] = [
   "status_working",
 ];
 
+/** iOS terminal outage recovery. Keep alphabetical. */
+export const KEYS_IOS_RECONNECT: readonly string[] = [
+  "native_ios_reconnect_awake",
+  "native_ios_reconnect_check",
+  "native_ios_reconnect_checking",
+  "native_ios_reconnect_connecting",
+  "native_ios_reconnect_countdown",
+  "native_ios_reconnect_failed",
+  "native_ios_reconnect_last_contact",
+  "native_ios_reconnect_locked",
+  "native_ios_reconnect_not_live",
+  "native_ios_reconnect_not_live_at",
+  "native_ios_reconnect_reconnected",
+  "native_ios_reconnect_try_again",
+  "native_ios_reconnect_unreachable",
+];
+
 /** iOS connection diagnostics. Keep alphabetical. */
 export const KEYS_IOS_LATENCY: readonly string[] = [
   "native_ios_latency_app_slow",
@@ -2242,6 +2259,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_IOS_TERMINAL,
   ...KEYS_IOS_STEERS,
   ...KEYS_IOS_LATENCY,
+  ...KEYS_IOS_RECONNECT,
   ...KEYS_DETAIL,
   ...KEYS_SIDEBAR,
   ...KEYS_IOS_SIDEBAR,

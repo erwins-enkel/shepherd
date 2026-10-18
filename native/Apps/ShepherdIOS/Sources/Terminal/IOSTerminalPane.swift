@@ -12,17 +12,36 @@ struct IOSTerminalPane<Surface: View>: View {
     var rendersStaticFixture = false
     /// Saved steers above the reply draft; nil in fixtures and read-only launches.
     var steerChips: AnyView? = nil
+    @Environment(AppModel.self) private var app: AppModel?
+    @Environment(IOSServerHub.self) private var hub: IOSServerHub?
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @State private var connecting = ConnectingOverlayDebouncer()
     var inlineActions: AnyView? = nil
     var fixtureClipboard = false
     var fixtureThumbnails: [UUID: UIImage] = [:]
+    var latency: IOSLatencyMonitor? = nil
+    var reconnectFixture: IOSReconnectState? = nil
+    var fixtureServerName: String? = nil
+
+    private var recovery: IOSReconnectState? { reconnectFixture ?? model.connection?.retry }
+    private var locked: Bool { model.inputLocked || (recovery.map { $0.phase != .connected } ?? false) }
+    private var serverName: String { app?.activeProfile?.name ?? fixtureServerName ?? L.t("native_ios_latency_server") }
 
     var body: some View {
         VStack(spacing: 0) {
+            if locked && typeSize.isAccessibilitySize {
+                IOSTerminalConnectionBadge(lastContact: recovery?.lastContact).padding(10)
+            }
             ZStack {
-                surface
+                surface.opacity(locked ? 0.45 : 1)
                 overlay
+            }
+            .frame(maxWidth: .infinity, maxHeight: locked && typeSize.isAccessibilitySize ? 160 : .infinity)
+            .overlay(alignment: .top) {
+                if locked && !typeSize.isAccessibilitySize {
+                    IOSTerminalConnectionBadge(lastContact: recovery?.lastContact).padding(10)
+                }
             }
             .overlay(alignment: .bottomTrailing) {
                 if !model.followsTail {
@@ -41,7 +60,7 @@ struct IOSTerminalPane<Surface: View>: View {
             .simultaneousGesture(TapGesture().onEnded { model.closeWriting() }, including: model.writing ? .all : .none)
             .overlay(alignment: .bottom) {
                 // An open dialog's last line is its footer, not the prompt: ⌨ in the key row writes.
-                if allowsInput && !model.showsWriting && !model.dialogOpen {
+                if allowsInput && !locked && !model.showsWriting && !model.dialogOpen {
                     // Only the prompt line summons writing; output remains a terminal surface.
                     Button { model.openWriting(focus: true) } label: { Color.clear.frame(height: 44).contentShape(Rectangle()) }
                         .buttonStyle(.plain)
@@ -49,10 +68,18 @@ struct IOSTerminalPane<Surface: View>: View {
                         .accessibilityIdentifier("terminal-prompt-write")
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             // A Claude dialog is answered with keys; the question keeps the screen.
-            if let inlineActions, !(allowsInput && model.dialogOpen) { inlineActions }
-            if allowsInput && model.showsReplyBar {
+            if locked {
+                if typeSize.isAccessibilitySize {
+                    ScrollView { reconnectPanel }.frame(maxHeight: .infinity)
+                } else { reconnectPanel }
+            } else {
+                if let inlineActions, !(allowsInput && model.dialogOpen) { inlineActions }
+                if recovery?.showsReconnected == true {
+                    IOSTerminalConnectionBadge(reconnected: true).padding(.top, 8)
+                }
+            }
+            if !locked && allowsInput && model.showsReplyBar {
                 if model.answersWithKeys {
                     IOSTerminalDialogBar(model: model, startTyping: { model.openWriting(focus: true) })
                 } else {
@@ -62,26 +89,50 @@ struct IOSTerminalPane<Surface: View>: View {
             }
         }
         .accessibilityIdentifier("detail-tab-terminal")
-        .onAppear { if !rendersStaticFixture { model.visibilityChanged(visible: true, active: scenePhase == .active) } }
+        .onAppear {
+            guard !rendersStaticFixture else { return }
+            if let app {
+                if model.connection == nil {
+                    model.connection = IOSTerminalConnection(app: app, hub: hub, terminal: model, latency: latency)
+                } else { model.connection?.latency = latency }
+                model.connection?.update()
+                recovery?.appear(active: scenePhase == .active)
+            }
+            model.visibilityChanged(visible: true, active: scenePhase == .active)
+        }
+        .onChange(of: model.isUnreachable) { _, _ in model.connection?.update() }
+        .onChange(of: latency?.report) { _, _ in
+            model.connection?.latency = latency
+            model.connection?.update()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard !rendersStaticFixture else { return }
+            recovery?.setRunning(phase == .active)
             model.visibilityChanged(visible: true, active: phase == .active)
         }
         .onChange(of: model.session.phase, initial: true) { _, phase in
             connecting.phaseChanged(toConnecting: phase == .connecting)
+            if !rendersStaticFixture { model.connection?.update() }
         }
         .onDisappear {
             guard !rendersStaticFixture else { return }
+            recovery?.setRunning(false)
             model.visibilityChanged(visible: false, active: false)
             connecting.phaseChanged(toConnecting: false)
         }
+    }
+
+    private var reconnectPanel: some View {
+        IOSTerminalReconnectPanel(phase: recovery?.phase == .connected ? .offline : recovery?.phase ?? .offline,
+            serverName: serverName, secondsRemaining: recovery?.secondsRemaining ?? 30,
+            lastContact: recovery?.lastContact, retry: { recovery?.retry() })
     }
 
     @ViewBuilder private var overlay: some View {
         switch model.session.phase {
         case .idle, .live: EmptyView()
         case .connecting:
-            if connecting.isVisible {
+            if connecting.isVisible && !locked {
                 statusCard(title: L.t("native_terminal_connecting"), message: nil) {
                     ProgressView().tint(IOSTerminalStyle.ink)
                 }
@@ -97,6 +148,7 @@ struct IOSTerminalPane<Surface: View>: View {
                     }
                 }
             }
+        case .ended(.unreachable): EmptyView()
         case .ended(let closure):
             statusCard(
                 title: L.t(closure == .gone ? "native_terminal_ended_title" : "native_terminal_unreachable_title"),
@@ -112,9 +164,6 @@ struct IOSTerminalPane<Surface: View>: View {
                         .buttonStyle(IOSActionButtonStyle())
                         .frame(minHeight: 44).disabled(model.actionState?.busy == true)
                         .accessibilityIdentifier("terminal-resume")
-                    } else if closure == .unreachable {
-                        Button(L.t("viewport_reconnect_title")) { model.session.takeOver() }
-                            .frame(minHeight: 44).accessibilityIdentifier("terminal-retry")
                     }
                 }
                 if closure == .gone, let error = model.actionState?.error {

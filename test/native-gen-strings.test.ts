@@ -36,6 +36,7 @@ import {
   KEYS_IOS_TERMINAL,
   KEYS_IOS_STEERS,
   KEYS_IOS_LATENCY,
+  KEYS_IOS_RECONNECT,
   KEYS_MACHINES,
   placeholderOrder,
 } from "../native/scripts/gen-strings";
@@ -250,6 +251,7 @@ describe("gen-strings manifest", () => {
     KEYS_IOS_TERMINAL,
     KEYS_IOS_STEERS,
     KEYS_IOS_LATENCY,
+    KEYS_IOS_RECONNECT,
     KEYS_DETAIL,
     KEYS_SIDEBAR,
     KEYS_IOS_SIDEBAR,

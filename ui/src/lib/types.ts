@@ -136,6 +136,42 @@ export interface ApnsConfigError {
   error: string;
   field: ApnsField;
 }
+/** The decision model's connection (Settings → Decision model, #3071). Mirrors
+ *  JudgeConnectionStatus in src/judge-settings.ts plus today's spend; never carries the key. */
+export type JudgeConnectionField = "key" | "model" | "baseUrl" | "timeoutMs";
+export interface JudgeConnectionStatus {
+  keySource: "env" | "stored" | "none";
+  keyLast4: string | null;
+  keySavedAt: number | null;
+  staleKeyHost: string | null;
+  lastVerify: {
+    result: "ok" | "rejected" | "unreachable";
+    at: number;
+    status: number | null;
+  } | null;
+  models: string[];
+  model: string;
+  baseUrl: string;
+  timeoutMs: number;
+  defaults: { model: string; baseUrl: string; timeoutMs: number };
+  env: Record<JudgeConnectionField, boolean>;
+  authFailure: { status: number; at: number } | null;
+  lastOkAt: number | null;
+  today: { day: string; calls: number; usd: number; ceilingUsd: number } | null;
+}
+export interface JudgeConnectionError {
+  error:
+    | "env_locked"
+    | "key_invalid"
+    | "model_invalid"
+    | "base_url_invalid"
+    | "timeout_invalid"
+    | "key_required"
+    | "key_rejected"
+    | "unreachable";
+  field: JudgeConnectionField;
+  status?: number | null;
+}
 /** One registered push device in the settings list (opaque id, never the endpoint). */
 export interface PushDevice {
   id: string;

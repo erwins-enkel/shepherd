@@ -68,6 +68,10 @@ vi.mock("#lib/api.js", async (importOriginal) => {
       lastDeliveredAt: null,
     })),
     listPushDevices: vi.fn(async () => ({ devices: [] })),
+    // No connection status: the Decision model panel falls back to the payload's `judgeHasKey`.
+    getJudgeConnection: vi.fn(async () => {
+      throw new Error("not in this test");
+    }),
   };
 });
 
@@ -1148,6 +1152,14 @@ describe("Settings device — issue number on session cards", () => {
   });
 });
 
+async function mountDecisionModel() {
+  await page.viewport(1280, 900);
+  render(Settings, { initialTab: "decisionModel", onclose: noop, onsaved: noop });
+  await expect
+    .element(page.getByRole("tabpanel", { name: m.settings_tab_decision_model() }))
+    .toBeInTheDocument();
+}
+
 async function mountSession() {
   await page.viewport(1280, 900);
   render(Settings, { initialTab: "session", onclose: noop, onsaved: noop });
@@ -1335,13 +1347,14 @@ describe("rows whose flip is invisible are toggle-only", () => {
 
 // #2535: the Up Next readiness rerank only runs while the judge is armed, so its toggle is inert
 // (and says why) until then, and flips through the settings PATCH once armed.
+// Moved from Session to Decision model with the other judge rows (#3071).
 describe("Up Next readiness toggle", () => {
   const readinessSwitch = () =>
     page.getByRole("switch", { name: m.settings_up_next_readiness_label() });
 
   it("is disabled with the needs-classifier hint while the judge is off", async () => {
     mockGetSettings.mockResolvedValue(settings({ judgeEnabled: false, judgeHasKey: true }));
-    await mountSession();
+    await mountDecisionModel();
 
     await expect.element(readinessSwitch()).toBeDisabled();
     await expect
@@ -1353,7 +1366,7 @@ describe("Up Next readiness toggle", () => {
 
   it("flips on through the settings PATCH once the judge is armed", async () => {
     mockGetSettings.mockResolvedValue(settings({ judgeEnabled: true, judgeHasKey: true }));
-    await mountSession();
+    await mountDecisionModel();
 
     await expect.element(readinessSwitch()).toHaveAttribute("aria-checked", "false");
     await readinessSwitch().click();
@@ -1366,7 +1379,7 @@ describe("Up Next readiness toggle", () => {
     mockGetSettings.mockResolvedValue(settings({ judgeEnabled: true, judgeHasKey: true }));
     mockPutUpNextReadiness.mockRejectedValueOnce(new Error("boom"));
     toasts.items = [];
-    await mountSession();
+    await mountDecisionModel();
 
     await readinessSwitch().click();
 
@@ -1379,7 +1392,7 @@ describe("Up Next readiness toggle", () => {
   });
 
   it("explains itself through the structured info tip", async () => {
-    await mountSession();
+    await mountDecisionModel();
 
     const tip = page.getByRole("button", { name: m.tooltip_up_next_readiness_title() });
     await tip.hover();
@@ -1395,7 +1408,7 @@ describe("Up Next readiness toggle", () => {
   // text must not bubble into the row's toggle and silently flip the billed rerank.
   it("tapping the open info tip does not toggle the setting", async () => {
     mockGetSettings.mockResolvedValue(settings({ judgeEnabled: true, judgeHasKey: true }));
-    await mountSession();
+    await mountDecisionModel();
 
     await page.getByRole("button", { name: m.tooltip_up_next_readiness_title() }).hover();
     const panel = page.getByRole("tooltip");

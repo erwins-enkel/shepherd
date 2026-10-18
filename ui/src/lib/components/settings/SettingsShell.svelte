@@ -109,7 +109,10 @@
       onclick={() => (mobileList = true)}
       aria-label={m.settings_back_aria()}>‹</button
     >
-    <span class="htitle"><HighlightText text={activeMeta.label} query={q} /></span>
+    <span class="htitles">
+      <span class="htitle"><HighlightText text={activeMeta.label} query={q} /></span>
+      {#if activeMeta.subtitle}<span class="hsub">{activeMeta.subtitle}</span>{/if}
+    </span>
   {:else}
     <span class="htitle">{m.settings_title()}</span>
   {/if}
@@ -194,6 +197,7 @@
   <div class="pane" hidden={showList}>
     <div class="phead">
       <span class="ptitle"><HighlightText text={activeMeta.label} query={q} /></span>
+      {#if activeMeta.subtitle}<span class="psub">{activeMeta.subtitle}</span>{/if}
       {#if q}
         <span class="pmatches">
           {activeMeta.matchCount === 1
@@ -423,6 +427,24 @@
     color: var(--color-ink-bright);
     letter-spacing: 0.06em;
     text-transform: uppercase;
+  }
+  .psub {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    color: var(--color-ink);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    padding: 1px 6px;
+  }
+  .htitles {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .hsub {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
   }
   .pmatches {
     font-size: var(--fs-micro);

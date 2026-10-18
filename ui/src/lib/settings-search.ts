@@ -6,6 +6,7 @@ export const SETTINGS_SECTION_IDS = [
   "steers",
   "plugins",
   "session",
+  "decisionModel",
   "assistant",
   "notifications",
   "device",
@@ -22,6 +23,9 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   steers: "⇥",
   plugins: "✦",
   session: "⌖",
+  // U+25D0, same Geometric Shapes block as ▦/◫/◈ — a half-filled circle for a yes/no judgement.
+  // NOT ◇, the issue's pick: the Assistant section already wears it.
+  decisionModel: "◐",
   // U+25C7, same Geometric Shapes block as ▦/◫/◈ — a hollow diamond, the assistant's ✦ cousin.
   assistant: "◇",
   // Same Geometric Shapes block as ▦/◫/◈, so it shares their font coverage.
@@ -43,6 +47,8 @@ export interface SettingsSectionNav {
   label: string;
   /** Current-value summary shown on the mobile section list ("" = none). */
   summary: string;
+  /** A fixed line beside the section title, e.g. the provider behind it ("" = none). */
+  subtitle?: string;
   /** Rows matching the active search query (rail badge + header count). */
   matchCount: number;
   /** Active diagnostics issues (red rail dot / mobile ISSUE chip). */
@@ -180,28 +186,52 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
     [m.settings_usage_downgrade_pct_label(), m.settings_usage_downgrade_pct_hint()],
     [m.settings_usage_downgrade_model_label(), m.settings_usage_downgrade_model_hint()],
     [m.settings_fable_available_label(), m.settings_fable_available_hint()],
-    // Both hint variants, because the row renders whichever matches the key state and a row counts
-    // once however many of its strings hit — so the row stays findable either way.
-    [
-      m.settings_judge_enabled_label(),
-      m.settings_judge_enabled_hint(),
-      m.settings_judge_no_key_hint(),
-    ],
-    [m.settings_judge_daily_usd_label(), m.settings_judge_daily_usd_hint()],
-    // Both hint variants again — same key-state-dependent description.
-    [
-      m.settings_block_judge_label(),
-      m.settings_block_judge_hint(),
-      m.settings_block_judge_no_key_hint(),
-    ],
-    [
-      m.settings_up_next_readiness_label(),
-      m.settings_up_next_readiness_hint(),
-      m.settings_up_next_readiness_no_key_hint(),
-    ],
     [m.settings_tui_fullscreen_label(), m.settings_tui_fullscreen_hint()],
     [m.settings_tui_disable_mouse_label(), m.settings_tui_disable_mouse_hint()],
   ];
+}
+
+/** The Decision model section's rows by group (#3071). The panel derives the Advanced group's
+ *  count and search auto-expand from `advanced`, and the shell's rail badge counts all of them —
+ *  one source, as for the Coding CLI groups. Every row names JEV or TypeSafe AI somewhere, so a
+ *  search for the product finds the section; the stop classifier's description says "judge",
+ *  the name the docs and env vars use. */
+export function decisionModelRows(): {
+  connection: string[][];
+  advanced: string[][];
+  uses: string[][];
+} {
+  return {
+    connection: [
+      [m.settings_dm_key_title(), m.settings_dm_key_hint()],
+      [m.settings_judge_daily_usd_label(), m.settings_judge_daily_usd_hint()],
+    ],
+    advanced: [
+      [m.settings_dm_model_title(), m.settings_dm_model_hint()],
+      [m.settings_dm_base_url_title(), m.settings_dm_base_url_hint()],
+      [m.settings_dm_timeout_title(), m.settings_dm_timeout_hint()],
+    ],
+    // Both hint variants per feature: the row renders whichever matches the current state, and a
+    // row counts once however many of its strings hit — so it stays findable either way.
+    uses: [
+      [
+        m.settings_judge_enabled_label(),
+        m.settings_judge_enabled_hint(),
+        m.settings_judge_no_key_hint(),
+      ],
+      [
+        m.settings_up_next_readiness_label(),
+        m.settings_up_next_readiness_hint(),
+        m.settings_up_next_readiness_no_key_hint(),
+      ],
+      [m.settings_dm_rides_along()],
+      [
+        m.settings_block_judge_label(),
+        m.settings_block_judge_hint(),
+        m.settings_block_judge_no_key_hint(),
+      ],
+    ],
+  };
 }
 
 /** Searchable rows per section. Rebuilt sections (Coding CLI, Session) list
@@ -212,6 +242,7 @@ export function sectionSearchRows(ctx: {
   session?: SessionRowsCtx;
 }): Record<SettingsSectionId, string[][]> {
   const cli = codingCliRows();
+  const dm = decisionModelRows();
   return {
     workspace: [
       [m.settings_tab_workspace()],
@@ -223,6 +254,12 @@ export function sectionSearchRows(ctx: {
     steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
     session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],
+    decisionModel: [
+      [m.settings_tab_decision_model(), m.settings_dm_provider()],
+      ...dm.connection,
+      ...dm.advanced,
+      ...dm.uses,
+    ],
     assistant: [
       [m.settings_tab_assistant(), m.settings_assistant_intro()],
       [m.settings_assistant_shell_title(), m.settings_assistant_shell_hint()],

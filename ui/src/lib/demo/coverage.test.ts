@@ -212,6 +212,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/remote-instances/updates"),
   get("/api/push/apns/config"),
   get("/api/push/devices"),
+  get("/api/judge/connection"),
 
   // repo-scoped lenses (#2295)
   get("/api/prs", `/api/prs?repo=${r}`),
@@ -261,6 +262,8 @@ const INVENTORY: readonly Entry[] = [
 
   // mutations the demo flow really performs
   { method: "PUT", path: "/api/settings", body: { defaultModel: "opus" } },
+  { method: "PUT", path: "/api/judge/connection", body: { key: "jev_demo_0123456789" } },
+  post("/api/judge/connection/verify"),
   {
     method: "PUT",
     path: "/api/repo-bootstrap",

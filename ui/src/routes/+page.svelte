@@ -3931,6 +3931,14 @@
     showWhatsNew = true;
   }}
   onsettingsaskassistant={askFromSettings}
+  onsettingsopenusage={() => {
+    showSettings = false;
+    showPairing = false;
+    focusPluginId = null;
+    focusSteerId = null;
+    loadSettings();
+    showUsage = true;
+  }}
   {showUsage}
   onusageclose={() => (showUsage = false)}
   {showClone}

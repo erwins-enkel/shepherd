@@ -110,6 +110,8 @@ import type {
   ApnsConfigError,
   ApnsField,
   ApnsStatus,
+  JudgeConnectionError,
+  JudgeConnectionStatus,
   PushDevice,
   PushTestResult,
   TokenScope,
@@ -1163,6 +1165,49 @@ export async function putApnsConfig(
 export async function deleteApnsConfig(): Promise<ApnsStatus> {
   const r = await fetch("/api/push/apns/config", { method: "DELETE" });
   if (!r.ok) throw await failed(r, "remove push config");
+  return r.json();
+}
+
+// ── decision-model connection (#3071) ──────────────────────────────────────
+// Settings → Decision model. Session cookie only, like push administration.
+
+export async function getJudgeConnection(): Promise<JudgeConnectionStatus> {
+  const r = await fetch("/api/judge/connection");
+  if (!r.ok) throw await failed(r, "decision model");
+  return r.json();
+}
+
+/** Store the JEV key (verified first) and/or model, base URL, timeout. A refusal the operator can
+ *  act on (409 env-locked, 422 invalid or rejected, 502 unreachable) comes back as a value naming
+ *  the field, not as a throw. */
+export async function putJudgeConnection(body: {
+  key?: string;
+  model?: string;
+  baseUrl?: string;
+  timeoutMs?: number;
+}): Promise<JudgeConnectionStatus | JudgeConnectionError> {
+  const r = await fetch("/api/judge/connection", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  if (r.status === 409 || r.status === 422 || r.status === 502) {
+    return (await r.json()) as JudgeConnectionError;
+  }
+  if (!r.ok) throw await failed(r, "save decision model");
+  return r.json();
+}
+
+export async function deleteJudgeConnection(): Promise<JudgeConnectionStatus> {
+  const r = await fetch("/api/judge/connection", { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "remove decision-model key");
+  return r.json();
+}
+
+/** Re-check the key in force. A rejected key is a normal answer (`lastVerify.result`). */
+export async function verifyJudgeConnection(): Promise<JudgeConnectionStatus> {
+  const r = await fetch("/api/judge/connection/verify", { method: "POST" });
+  if (!r.ok) throw await failed(r, "check decision-model key");
   return r.json();
 }
 

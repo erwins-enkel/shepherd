@@ -31,6 +31,7 @@
   import SettingsCodingCliPanel from "#lib/components/settings/SettingsCodingCliPanel.svelte";
   import SettingsSessionPanel from "#lib/components/settings/SettingsSessionPanel.svelte";
   import SettingsAssistantPanel from "#lib/components/settings/SettingsAssistantPanel.svelte";
+  import SettingsDecisionModelPanel from "#lib/components/settings/SettingsDecisionModelPanel.svelte";
   import SettingsDevicePanel from "#lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsNotificationsPanel from "#lib/components/settings/SettingsNotificationsPanel.svelte";
   import SettingsAccessPanel from "#lib/components/settings/SettingsAccessPanel.svelte";
@@ -65,6 +66,7 @@
     onpluginapplied,
     onwhatsnew,
     onaskassistant,
+    onopenusage,
     initialTab = "workspace",
     initialMobileView = "list",
     initialDiagnostics = null,
@@ -90,6 +92,8 @@
     onwhatsnew?: () => void;
     /** Diagnose → "Ask the assistant" on a failing check (#1446); receives the question. */
     onaskassistant?: (question: string) => void;
+    /** Decision model → "Usage → Spend" (#3071): close Settings and open Usage. */
+    onopenusage?: () => void;
     initialTab?: SettingsSectionId;
     /** Mobile entry route: "list" shows the section list (plain gear open);
      *  "detail" drills straight into initialTab (deep links — diagnostics dot,
@@ -198,6 +202,8 @@
   let defaultAgentProvider = $state<AgentProvider>("claude");
   let defaultAgentProviderSaved: AgentProvider = "claude";
   let defaultAgentProviderBusy = $state(false);
+  // The Decision model panel owns its status; it reports the mobile section list's line back.
+  let decisionModelSummary = $state("");
   // Fable availability — shared by Coding CLI guidance and the Session toggle.
   let fableAvailable = $state(true);
   let fableAvailableBusy = $state(false);
@@ -345,6 +351,8 @@
         return m.settings_tab_plugins();
       case "session":
         return m.settings_tab_session();
+      case "decisionModel":
+        return m.settings_tab_decision_model();
       case "assistant":
         return m.settings_tab_assistant();
       case "notifications":
@@ -381,6 +389,8 @@
         return m.settings_plugins_installed_summary({ count: plugins.length });
       case "device":
         return themeSummary;
+      case "decisionModel":
+        return decisionModelSummary;
       default:
         return "";
     }
@@ -408,6 +418,7 @@
       glyph: SECTION_GLYPHS[id],
       label: sectionLabel(id),
       summary: sectionSummary(id),
+      ...(id === "decisionModel" ? { subtitle: m.settings_dm_provider() } : {}),
       matchCount: matchCount(searchRows[id], query),
       alertCount: id === "diagnose" ? diagCount : 0,
     })),
@@ -538,6 +549,22 @@
           {fableAvailable}
           {fableAvailableBusy}
           onToggleFable={toggleFableAvailable}
+        />
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-decisionModel"
+        aria-label={m.settings_tab_decision_model()}
+        hidden={active !== "decisionModel"}
+      >
+        <SettingsDecisionModelPanel
+          {payload}
+          {query}
+          active={active === "decisionModel"}
+          onsummary={(line) => (decisionModelSummary = line)}
+          {onopenusage}
         />
       </div>
 

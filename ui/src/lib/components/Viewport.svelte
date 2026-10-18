@@ -104,6 +104,7 @@
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "#lib/osc52.js";
   import type { BuildQueue, LoginRequest } from "#lib/types.js";
+  import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import { ATTACHMENTS_DIR, computeHasFiles } from "#lib/session-files.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -155,6 +156,8 @@
     variant = "session",
     typeRequest = null,
     ontyped,
+    viewReport = null,
+    ontab,
     herd = [],
     onresume,
   }: {
@@ -255,6 +258,11 @@
     /** A typeRequest's text was sent. Clear the request here: a remounted Viewport would
      *  otherwise type it again. */
     ontyped?: (tick: number) => void;
+    /** The assistant variant: the operator's current view (#3161), carried on this terminal's
+     *  socket so the server can hand it to the assistant with each message. */
+    viewReport?: AssistantViewReport | null;
+    /** The open tab, reported on every change (the assistant's view names it, #3161). */
+    ontab?: (tab: ViewTab) => void;
     /** Live herd sessions (store.sessions) whose desigs the assistant variant links. */
     herd?: Session[];
     /** Replaces the per-session resume (the assistant: its own ensure, which also starts a fresh
@@ -2423,6 +2431,15 @@
     attempt();
     return () => clearTimeout(timer);
   });
+
+  // The operator's view (#3161) rides the assistant's own socket; the server keeps the report of
+  // whichever client owns this terminal. conn.view sends on change only and again on every reopen.
+  $effect(() => {
+    const json = viewReport ? JSON.stringify(viewReport) : null;
+    if (json && conn) conn.view(json);
+  });
+
+  $effect(() => ontab?.(tab));
 
   // Unattended (window hidden or another app focused, #3035): a working agent's spinner would
   // otherwise repaint the terminal ~10×/s — the bulk of the renderer's idle cost. Pace output

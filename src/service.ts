@@ -580,11 +580,17 @@ export function resetUserSkillNamesCacheForTests(): void {
  *
  * `permissions` (the Operator Assistant only, #1446 — see operatorAssistantPermissions) adds Claude's
  * `permissions` block. Absent → key omitted, so every task spawn's overlay stays byte-identical.
+ *
+ * `assistantView` (the Operator Assistant only, #3161 — see buildAssistantViewHookFragment) adds its
+ * `UserPromptSubmit` hook to the same `hooks` object. Independent of `hooksIngest`: it is how the
+ * operator's view reaches the model, not telemetry. Absent → no such key, so task spawns keep their
+ * exact overlay.
  */
 export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
     hooks?: { sessionId: string; baseUrl: string; token: string | null };
     permissions?: { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
+    assistantView?: { sessionId: string; baseUrl: string; token: string | null };
   } = {},
 ): string {
   const settings: Record<string, unknown> = {
@@ -600,11 +606,12 @@ export function spawnSettingsOverlay(
       settings.skillOverrides = Object.fromEntries(opts.disableSkills.map((name) => [name, "off"]));
     }
   }
-  // The guard owns `PreToolUse`; the ingest hooks own the eight lifecycle events. Merged key-wise
-  // (they never collide) so either can ride alone or both together.
+  // The guard owns `PreToolUse`; the ingest hooks own the eight lifecycle events; the assistant's
+  // view hook owns `UserPromptSubmit`. Merged key-wise (they never collide) so any can ride alone.
   const hooks = {
     ...buildToolGuardFragment(),
     ...(config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {}),
+    ...(opts.assistantView ? buildAssistantViewHookFragment(opts.assistantView) : {}),
   };
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
   if (opts.permissions) settings.permissions = opts.permissions;
@@ -650,18 +657,11 @@ export function buildHooksFragment(input: {
   baseUrl: string;
   token: string | null;
 }): Record<string, unknown> {
-  const authFields: Record<string, unknown> =
-    input.token !== null
-      ? {
-          headers: { Authorization: "Bearer $SHEPHERD_TOKEN" },
-          allowedEnvVars: ["SHEPHERD_TOKEN"],
-        }
-      : {};
   const httpHook = {
     type: "http",
     url: `${input.baseUrl}/api/sessions/${input.sessionId}/hooks`,
     timeout: 5,
-    ...authFields,
+    ...hookAuthFields(input.token),
   };
   const eventEntry = [{ matcher: "*", hooks: [httpHook] }];
   return {
@@ -676,6 +676,35 @@ export function buildHooksFragment(input: {
     SubagentStart: eventEntry,
     SubagentStop: eventEntry,
   };
+}
+
+/** An http hook's auth: the `$SHEPHERD_TOKEN` placeholder, never the literal token (see
+ *  buildHooksFragment); no token → no header at all. */
+function hookAuthFields(token: string | null): Record<string, unknown> {
+  return token !== null
+    ? { headers: { Authorization: "Bearer $SHEPHERD_TOKEN" }, allowedEnvVars: ["SHEPHERD_TOKEN"] }
+    : {};
+}
+
+/**
+ * The Operator Assistant's `UserPromptSubmit` http hook (#3161): on every operator message, claude
+ * POSTs it to `<baseUrl>/api/sessions/<sessionId>/assistant-view`, whose answer carries the
+ * operator's current view as `additionalContext`. Any failure (timeout, non-2xx, Shepherd down) is
+ * non-blocking in Claude Code, so the message still goes — just without a view. Same auth as the
+ * ingest hooks.
+ */
+function buildAssistantViewHookFragment(input: {
+  sessionId: string;
+  baseUrl: string;
+  token: string | null;
+}): Record<string, unknown> {
+  const httpHook = {
+    type: "http",
+    url: `${input.baseUrl}/api/sessions/${input.sessionId}/assistant-view`,
+    timeout: 5,
+    ...hookAuthFields(input.token),
+  };
+  return { UserPromptSubmit: [{ hooks: [httpHook] }] };
 }
 
 /** The per-spawn context trim as {@link spawnSettingsOverlay} consumes it: plugin ids to switch
@@ -4609,6 +4638,7 @@ export class SessionService {
       settings: spawnSettingsOverlay({
         hooks: { sessionId: s.id, baseUrl, token: config.token },
         permissions: operatorAssistantPermissions(dirname(config.dbPath)),
+        assistantView: { sessionId: s.id, baseUrl, token: config.token },
       }),
       mcpConfig: agentMcpConfigArg(s.id, baseUrl),
       brief: operatorAssistantBrief({

@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { PtyBridge } from "../src/pty-bridge";
+import { AssistantViewRegistry } from "../src/operator-assistant-view";
 import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
@@ -3215,5 +3216,83 @@ test("a resuming pty attach yields to the current owner instead of taking over (
     for (const ws of sockets) ws.close();
     server.stop(true);
     openBridge.mockRestore();
+  }
+});
+
+test("the assistant's view follows its terminal owner and never reaches the terminal (#3161)", async () => {
+  const deps = makeDeps();
+  const registry = new AssistantViewRegistry();
+  const base = {
+    prompt: "",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_view",
+  };
+  const assistant = deps.store.create({ ...base, name: "assistant", operatorAssistant: true });
+  const openBridge = spyOn(PtyBridge.prototype, "open").mockImplementation(() => {});
+  const written: string[] = [];
+  const write = spyOn(PtyBridge.prototype, "write").mockImplementation((d: string) => {
+    written.push(d);
+  });
+  const server = serve({ ...deps, herdr: herdrWith("term_view"), assistantView: registry }, 0);
+  const sockets: WebSocket[] = [];
+  const connect = async (id: string, client: string) => {
+    const ws = new WebSocket(`ws://localhost:${server.port}/pty/${id}?${client}`);
+    sockets.push(ws);
+    await new Promise((resolve) => ws.addEventListener("open", resolve));
+    return ws;
+  };
+  const until = async (check: () => boolean) => {
+    for (let i = 0; i < 100 && !check(); i++) await Bun.sleep(10);
+    expect(check()).toBe(true);
+  };
+  const report = (platform: "macos" | "ios") => ({
+    v: 1 as const,
+    client: { kind: "browser" as const, platform },
+    repoFilter: ["/wt"],
+    focus: { kind: "none" as const },
+  });
+  const viewFrame = (r: unknown) => `\x00view:${JSON.stringify(r)}\n`;
+  try {
+    const desk = await connect(assistant.id, "clientKind=browser&clientPlatform=macos");
+    desk.send(viewFrame(report("macos")));
+    desk.send("x");
+    await until(() => written.includes("x"));
+    expect(registry.get(assistant.id)).toEqual(report("macos"));
+    // A malformed report forgets the view instead of keeping a stale one.
+    desk.send("\x00view:{nope\n");
+    await until(() => registry.get(assistant.id) === null);
+    desk.send(viewFrame(report("macos")));
+    await until(() => registry.get(assistant.id) !== null);
+
+    // A takeover publishes the new owner's view — none until it reports, never the old one.
+    const phone = await connect(assistant.id, "clientKind=pwa&clientPlatform=ios");
+    await until(() => desk.readyState === WebSocket.CLOSED);
+    expect(registry.get(assistant.id)).toBeNull();
+    phone.send(viewFrame(report("ios")));
+    await until(() => registry.get(assistant.id) !== null);
+    expect(registry.get(assistant.id)).toEqual(report("ios"));
+
+    // The owner leaving leaves no view behind.
+    phone.close();
+    await until(() => registry.get(assistant.id) === null);
+
+    // Any other session's view frame is swallowed and never recorded.
+    const task = deps.store.create({ ...base, name: "task" });
+    const term = await connect(task.id, "clientKind=browser&clientPlatform=linux");
+    term.send(viewFrame(report("macos")));
+    term.send("y");
+    await until(() => written.includes("y"));
+    expect(registry.get(task.id)).toBeNull();
+    expect(written.some((d) => d.includes("view:"))).toBe(false);
+  } finally {
+    for (const ws of sockets) ws.close();
+    server.stop(true);
+    openBridge.mockRestore();
+    write.mockRestore();
   }
 });

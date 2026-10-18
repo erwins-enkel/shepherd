@@ -140,6 +140,7 @@ import { AutoMergeService } from "./automerge";
 import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { AssistantViewRegistry } from "./operator-assistant-view";
 import { classifyStop } from "./autopilot-llm";
 import { createTypeSafeJudge } from "./judge-typesafe";
 import { JudgeSpendLedger, dayKeyBefore } from "./judge-spend";
@@ -3972,6 +3973,7 @@ const appDeps: AppDeps = {
   presence,
   poller,
   hooks: hookIngest,
+  assistantView: new AssistantViewRegistry(),
   reviewCache: {
     snapshot: () => reviewService.snapshot(),
     reviewing: () => reviewService.reviewingInflight(),

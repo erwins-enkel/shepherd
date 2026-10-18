@@ -117,6 +117,10 @@ test("ensure creates the assistant: 0700 dir, trust seeded, read-only argv, fenc
   expect(JSON.parse(after(argv, "--settings")!).permissions).toEqual(
     operatorAssistantPermissions(),
   );
+  // #3161: the operator's view rides each message through its UserPromptSubmit hook.
+  expect(JSON.parse(after(argv, "--settings")!).hooks.UserPromptSubmit[0].hooks[0].url).toEndWith(
+    `/api/sessions/${s.id}/assistant-view`,
+  );
 
   expect(s).toMatchObject({
     operatorAssistant: true,

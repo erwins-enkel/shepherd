@@ -21,6 +21,7 @@ export interface Contract {
     path: string;
     query: string[];
     resizePrefix: string;
+    viewPrefix: string;
     closeCodes: { superseded: number; gone: number; machineUnreachable: number };
   };
 }

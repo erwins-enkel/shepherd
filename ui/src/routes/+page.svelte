@@ -142,6 +142,8 @@
   import Viewport from "#lib/components/Viewport.svelte";
   import OperatorAssistantPanel from "#lib/components/OperatorAssistantPanel.svelte";
   import { AssistantLifecycle } from "#lib/operator-assistant.svelte.js";
+  import { buildAssistantViewReport, type ViewTab } from "#lib/operator-assistant-view.js";
+  import { detectTerminalClient } from "#lib/terminal-client.js";
   import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
   import RemoteSessionDetail from "#lib/components/RemoteSessionDetail.svelte";
   import { summarizeClearMerged } from "#lib/clear-merged-result.js";
@@ -1567,7 +1569,7 @@
     if (assistantLifecycle.failed || store.assistantAvailable === false)
       assistantTypeRequest = null;
   });
-  let assistantReturnScreen: "list" | "detail" = "list";
+  let assistantReturnScreen = $state<"list" | "detail">("list");
   // Like keynavFocusIntent, but for the assistant's terminal and defaulting to NO: it may take the
   // keyboard on mount only when the operator just opened the panel (not on a reload that restores
   // it open beside the session they are typing into).
@@ -1695,6 +1697,23 @@
   const shownDoneSessions = $derived(doneSessionsForRepoFilter(doneSessions.sessions, repoFilter));
   // The currently-selected done session (resolved against the filtered lazy done list).
   const doneSelected = $derived(resolveDoneSelected(shownDoneSessions, doneSelectedId));
+  // What the assistant is told about this window with each message (#3161). sessionTab is the
+  // session Viewport's open tab (ontab); on a phone it outlives the Viewport behind the assistant.
+  let sessionTab = $state<ViewTab>("term");
+  const terminalClient = detectTerminalClient();
+  const assistantViewReport = $derived(
+    buildAssistantViewReport({
+      client: terminalClient,
+      repoFilter,
+      mobile: mobile.current,
+      assistantReturnScreen,
+      doneLens: herdFilter === "done",
+      selected,
+      doneSelected,
+      selectedRemote,
+      sessionTab,
+    }),
+  );
   // Entering the Done lens lazy-loads the archived session list + repopulates the
   // shared recaps store (archived recaps persist server-side; live events dropped the
   // session's recap, /api/recaps returns it). Both are best-effort / self-handling.
@@ -3259,6 +3278,7 @@
     backgroundBusy={store.backgroundBusy}
     herd={store.sessions}
     typeRequest={assistantTypeRequest}
+    viewReport={assistantViewReport}
     ontyped={(t) => {
       if (assistantTypeRequest?.tick === t) assistantTypeRequest = null;
     }}
@@ -3515,6 +3535,7 @@
           <Viewport
             terminalOwners={store.terminalOwners}
             attended={store.attended}
+            ontab={(t) => (sessionTab = t)}
             session={selected}
             autoMergeTrain={store.autoMerge}
             mobile={mobile.current}
@@ -3720,6 +3741,7 @@
           <Viewport
             terminalOwners={store.terminalOwners}
             attended={store.attended}
+            ontab={(t) => (sessionTab = t)}
             bind:this={viewportRef}
             session={selected}
             autoMergeTrain={store.autoMerge}

@@ -26,6 +26,8 @@ const parts = (p: string) => p.split("/").filter(Boolean);
 // ── isAgentIngressRoute: exhaustive allow/deny table ────────────────────────────
 test("isAgentIngressRoute: ALLOWS exactly the agent→server routes", () => {
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/hooks`))).toBe(true);
+  // The Operator Assistant's UserPromptSubmit view hook (#3161); every other session 404s there.
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/assistant-view`))).toBe(true);
   // The session's MCP endpoint (issue #2003): the same control plane as a TOOL surface.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/mcp`))).toBe(true);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/mcp`))).toBe(true);
@@ -75,6 +77,9 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/browser`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/browser`))).toBe(false);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/browser/x`))).toBe(false);
+  // The view hook is POST-only, exact-path.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/assistant-view`))).toBe(false);
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/assistant-view/x`))).toBe(false);
   // Rename is POST-only, exact-path.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/rename`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/rename`))).toBe(false);

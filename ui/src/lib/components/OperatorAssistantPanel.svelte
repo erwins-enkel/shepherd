@@ -15,6 +15,7 @@
     type AssistantAction,
   } from "#lib/operator-assistant.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import type { AssistantViewReport } from "#lib/operator-assistant-view.js";
   import AssistantGlyph from "./AssistantGlyph.svelte";
   import Viewport from "./Viewport.svelte";
 
@@ -37,6 +38,7 @@
     herd = [],
     typeRequest = null,
     ontyped,
+    viewReport = null,
     onnavigate,
     consumeAutoFocusTerm,
     onretry,
@@ -68,6 +70,8 @@
     /** An "Ask the assistant" prefill, typed (not sent) once the terminal attaches. */
     typeRequest?: { text: string; tick: number } | null;
     ontyped?: (tick: number) => void;
+    /** The operator's current view (#3161), handed to the assistant with each message. */
+    viewReport?: AssistantViewReport | null;
     /** A desig link in the terminal was activated: select that session. */
     onnavigate?: (id: string) => void;
     /** One-shot: whether the terminal may take the keyboard when it mounts. */
@@ -228,6 +232,7 @@
         {backgroundBusy}
         {herd}
         {typeRequest}
+        {viewReport}
         {ontyped}
         {onnavigate}
         {consumeAutoFocusTerm}

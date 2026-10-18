@@ -6358,6 +6358,8 @@
   "operator_assistant_tip_open_settings": "Click to change it in Settings → Assistant.",
   "feat_assistant_permissions_title": "Decide what the Operator Assistant may do",
   "feat_assistant_permissions_body": "Settings → Assistant sets its shell and four action groups — steering, session control, approvals & merge, automation — to Off, Ask first or Allowed. By default read-only commands run without asking and every action asks. It acts only when you ask, and the chip in its panel shows the current mode.",
+  "feat_assistant_view_title": "The assistant sees what you see",
+  "feat_assistant_view_body": "Each message to the [[operator-assistant|Operator Assistant]] now carries what your window shows: the repo filter and the session in view, with its open tab and epic. Ask “why is this one stuck?” or “what’s misconfigured in the current repo?” without naming it. On a phone it’s the session you opened the assistant from.",
   "settings_house_stack_title": "House Stack",
   "settings_house_stack_hint": "Packages a new project pins to their current stable version, looked up live from npm and crates.io.",
   "settings_house_stack_npm_label": "npm packages (one per line)",

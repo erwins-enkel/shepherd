@@ -353,6 +353,12 @@ import {
   type GithubBackoff,
 } from "./agent-control";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import {
+  parseAssistantViewFrame,
+  renderAssistantView,
+  type AssistantViewRegistry,
+} from "./operator-assistant-view";
+import { terminalClientKinds, terminalClientPlatforms } from "./terminal-client";
 import type { OperatorDiagDeps } from "./operator-assistant-tools";
 import type { OperatorActionDeps } from "./operator-assistant-actions";
 import { parseAssistantPermissionsPatch } from "./operator-assistant-permissions";
@@ -666,6 +672,10 @@ export interface AppDeps {
      *  served at `GET /api/subagents` for a global bootstrap, mirror of `activity`. */
     allSubagentsSnapshot(): Record<string, SubagentEntry[]>;
   };
+  /** The Operator Assistant's view reports (#3161): written by `serve()` from the `\x00view:`
+   *  frames of the client owning the assistant's terminal, read by its `UserPromptSubmit` hook
+   *  route. Absent → no view is kept and the hook answers the "unknown" block. */
+  assistantView?: AssistantViewRegistry;
   /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
   reviewCache?: {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
@@ -5722,6 +5732,29 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   const match = raw.sessionId === session.claudeSessionId;
   deps.hooks?.record(id, { ...raw, receivedAt: Date.now(), match });
   return json({ ok: true }, 202);
+}
+
+// POST /api/sessions/:id/assistant-view — the Operator Assistant's `UserPromptSubmit` http hook
+// (#3161): answers the operator's current view as `additionalContext`, so it rides beside each
+// message. Only the assistant has one (every other session 404s, so no agent reads the operator's
+// screen), and Claude Code fails open on any error: the message then goes without a block. The body
+// is not read: its `session_id` changes on `/clear` while the pinned claudeSessionId doesn't, and
+// every message must still carry a block, so the answer depends on the session in the path alone.
+async function handleAssistantViewHook({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "assistant-view"))
+    return null;
+  const id = parts[2];
+  if (!id || parts[4] || req.method !== "POST") return null;
+  const session = deps.store.get(id);
+  if (!session || !isOperatorAssistant(session)) return json({ error: "session not found" }, 404);
+  return json({
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: renderAssistantView(deps.assistantView?.get(id) ?? null, (sid) =>
+        deps.store.get(sid),
+      ),
+    },
+  });
 }
 
 // /api/sessions/:id/queue[/steps/:stepId | /approve]
@@ -11087,6 +11120,7 @@ const ROUTE_HANDLERS = [
   handlePushAdmin,
   handlePush,
   handleSessionHooks,
+  handleAssistantViewHook,
   handleSessionMcp,
   handleSessionLoginRequest,
   handleLoginRequestsSnapshot,
@@ -11241,6 +11275,8 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
 /** Methods allowed on each exact `/api/sessions/<id>/<sub>` agent route. A Map (not an object) so a
  *  hostile sub-segment like `constructor` can never resolve through the prototype chain.
  *   - `hooks`: the push-hook ingest (issue #704).
+ *   - `assistant-view`: the Operator Assistant's `UserPromptSubmit` hook (#3161); 404 for every
+ *     other session.
  *   - `mcp`: the session's MCP endpoint (issue #2003) — its tools mirror the routes beside it,
  *     gated by the session's own capabilities (see agentTools), and neither approve gate has a
  *     tool at all. The one tool without a REST twin, `browser_request_login` (#2882), only ASKS:
@@ -11251,6 +11287,7 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *     public `video-brief` skill uses to name a session after the recording it just watched. */
 const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["hooks", ["POST"]],
+  ["assistant-view", ["POST"]],
   ["mcp", ["POST", "GET"]],
   ["queue", ["PUT", "GET"]],
   ["epic-draft", ["PUT", "GET"]],
@@ -11341,18 +11378,6 @@ export function serveAgentIngress(deps: AppDeps, port = 0) {
     websocket: makeBrowserBrokerHandlers(() => deps.sharedBrowser),
   });
 }
-
-const terminalClientKinds = ["mac-app", "pwa", "browser", "unknown"] as const;
-const terminalClientPlatforms = [
-  "macos",
-  "ios",
-  "ipados",
-  "android",
-  "windows",
-  "linux",
-  "chromeos",
-  "unknown",
-] as const;
 
 function parseTerminalClient(params: URLSearchParams) {
   return {
@@ -11584,6 +11609,15 @@ export function serve(deps: AppDeps, port: number) {
       ),
     ),
   });
+  // A `\x00view:` frame (#3161) is never input: publish it while this socket owns an Operator
+  // Assistant's terminal, and swallow it either way. False: not a view frame.
+  const takeViewFrame = (ws: ServerWebSocket<WsData & { kind: "pty" }>, frame: string) => {
+    const parsed = parseAssistantViewFrame(frame);
+    if (!parsed) return false;
+    if (ptyOwners.get(ws.data.terminalId) === ws && isOperatorAssistant(deps.store.get(ws.data.id)))
+      deps.assistantView?.set(ws.data.id, parsed.report);
+    return true;
+  };
   // A dashboard also sees who holds the terminals of mirrored sessions, as their machines report
   // it (#2764). A peer's `?host=local` socket gets this instance's own owners only, so two machines
   // connected to each other never pass owners back and forth; `tokenMap` drops the remote ids for a
@@ -11807,6 +11841,9 @@ export function serve(deps: AppDeps, port: number) {
     ptyOwners.set(tid, ws);
     deps.events.emit("terminal:owners", terminalOwners());
     if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
+    // The assistant's view is its owner's (#3161): a claim drops the previous owner's report. This
+    // client's lands with its first `\x00view:` frame, which it sends on open — after this claim.
+    if (isOperatorAssistant(cur)) deps.assistantView?.set(cur.id, null);
     const sock = {
       send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
       close: () => ws.close(),
@@ -11988,8 +12025,9 @@ export function serve(deps: AppDeps, port: number) {
           );
         // Verbatim, text or binary: the machine's own pty handler reads the frame.
         if (ws.data.kind === "remote-pty") return ws.data.terminal?.write(msg);
-        markPtyEvent("in");
         const frame = typeof msg === "string" ? msg : msg.toString();
+        if (takeViewFrame(ws as ServerWebSocket<WsData & { kind: "pty" }>, frame)) return;
+        markPtyEvent("in");
         // Stamp the operator-activity seam only for genuine keystrokes — the same
         // stream carries \x00resize: control frames that storm on mobile (#1022).
         if (isOperatorKeystroke(frame))
@@ -12017,6 +12055,8 @@ export function serve(deps: AppDeps, port: number) {
           if (ptyOwners.get(ws.data.terminalId) === ws) {
             ptyOwners.delete(ws.data.terminalId);
             deps.events.emit("terminal:owners", terminalOwners());
+            // No owner, no view (#3161): a message sent now didn't come from a Shepherd window.
+            deps.assistantView?.set(ws.data.id, null);
           }
           operatorKeystrokes.delete(ws.data.id); // don't let the seam map grow unbounded
           pruneSocketTerminalFailures(socketTerminalFailures, Date.now());

@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentIngressApp, makeApp, type AppDeps } from "../src/server";
+import { AssistantViewRegistry, UNKNOWN_VIEW } from "../src/operator-assistant-view";
 import { config } from "../src/config";
 import { hashPassword } from "../src/operator-auth";
 import { OperatorAssistantSessionError, type SessionService } from "../src/service";
@@ -423,4 +424,83 @@ test("the agent ingress serves the assistant's actions only on the assistant's o
   const direct = await ingress.fetch(post(`/api/sessions/${worker.id}/interrupt`));
   expect(direct.status).toBe(404);
   expect(interrupts).toBe(0);
+});
+
+// ── The view hook (#3161) ────────────────────────────────────────────────────────────────────
+
+const hook = (id: string, body: unknown) =>
+  new Request(`http://localhost/api/sessions/${id}/assistant-view`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+test("the view hook answers the owner's view as UserPromptSubmit additionalContext", async () => {
+  const { deps, store } = setup();
+  const registry = new AssistantViewRegistry();
+  deps.assistantView = registry;
+  const app = makeApp(deps);
+  const assistant = assistantRow(store);
+  const task = store.create({
+    name: "taegliche-101",
+    prompt: "go",
+    repoPath: "/p/shepherd",
+    baseBranch: "main",
+    branch: "shepherd/taegliche-101",
+    worktreePath: "/p/.shepherd-worktrees/shepherd-taegliche-101",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_t",
+  });
+  const prompt = { session_id: "claude-a", hook_event_name: "UserPromptSubmit", prompt: "why?" };
+
+  // Nobody reported a view yet → the explicit unknown block, never an empty answer.
+  let res = await app.fetch(hook(assistant.id, prompt));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: UNKNOWN_VIEW },
+  });
+
+  registry.set(assistant.id, {
+    v: 1,
+    client: { kind: "pwa", platform: "ios" },
+    repoFilter: ["/p/shepherd"],
+    focus: { kind: "session", id: task.id, tab: "diff" },
+  });
+  res = await app.fetch(hook(assistant.id, prompt));
+  const context: string = (await res.json()).hookSpecificOutput.additionalContext;
+  expect(context).toContain("client: pwa · ios");
+  expect(context).toContain("repo filter: shepherd (/p/shepherd)");
+  expect(context).toContain(`session in view: ${task.desig} taegliche-101 · repo shepherd`);
+  expect(context).toContain("· tab Diff ·");
+  expect(context).not.toContain(task.id);
+});
+
+test("the view hook is the assistant's alone and still answers after /clear", async () => {
+  const { deps, store } = setup();
+  deps.assistantView = new AssistantViewRegistry();
+  const app = makeApp(deps);
+  const assistant = assistantRow(store);
+  const task = store.create({
+    name: "task",
+    prompt: "go",
+    repoPath: "/p/shepherd",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_t",
+  });
+  expect((await app.fetch(hook(task.id, {}))).status).toBe(404);
+  expect((await app.fetch(hook("nope", {}))).status).toBe(404);
+  // /clear gives the conversation a new session_id while the pinned claudeSessionId stays: every
+  // later message must still get its block.
+  const cleared = await app.fetch(hook(assistant.id, { session_id: "claude-b" }));
+  expect(cleared.status).toBe(200);
+  expect((await cleared.json()).hookSpecificOutput.additionalContext).toBe(UNKNOWN_VIEW);
+  // The agent ingress serves it — that's where the assistant's claude posts its hooks.
+  const ingress = makeAgentIngressApp(deps);
+  const viaIngress = await ingress.fetch(hook(assistant.id, { session_id: "claude-a" }));
+  expect(viaIngress.status).toBe(200);
+  expect((await viaIngress.json()).hookSpecificOutput.additionalContext).toBe(UNKNOWN_VIEW);
 });

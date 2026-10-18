@@ -199,7 +199,9 @@ export async function probeTypeSafeKey(
       ...(options.fetch ? { fetch: options.fetch } : {}),
     });
     const models = await client.models.list({ signal: AbortSignal.timeout(options.deadlineMs) });
-    return { ok: true, models: models.map((m) => m.name).filter((n) => typeof n === "string") };
+    // Deduplicated: Settings renders these as a keyed list, which a repeated name would break.
+    const names = models.map((m) => m.name).filter((n) => typeof n === "string");
+    return { ok: true, models: [...new Set(names)] };
   } catch (err) {
     if (err instanceof APIError && (err.status === 401 || err.status === 403)) {
       return { ok: false, kind: "rejected", status: err.status };

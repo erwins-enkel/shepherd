@@ -279,6 +279,7 @@ test("the key check lists the account's models — a GET that reads no billed in
       models: [
         { name: "jev-1.13.0", description: "d", release_date: "2026-01-01" },
         { name: "jev-1.14.0", description: "d", release_date: "2026-05-01" },
+        { name: "jev-1.14.0", description: "alias listed twice", release_date: "2026-05-01" },
       ],
     });
   });

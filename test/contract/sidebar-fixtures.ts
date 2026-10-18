@@ -20,4 +20,19 @@ export const block: BlockReason = {
   options: [],
   tail: ["rework budget spent"],
   quotaKind: "rework",
+  // #3165: proves the AskUserQuestion payload against the contract on both the snapshot and event.
+  ask: {
+    toolUseId: "toolu_1",
+    questions: [
+      {
+        question: "Pick a color?",
+        header: "Color",
+        multiSelect: false,
+        options: [
+          { label: "Red", description: "warm" },
+          { label: "Blue", description: "cool" },
+        ],
+      },
+    ],
+  },
 };

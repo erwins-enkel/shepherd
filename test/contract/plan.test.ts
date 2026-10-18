@@ -114,6 +114,37 @@ describe("go", () => {
   });
 });
 
+describe("answer ask (#3165)", () => {
+  test("400, 404, 409 without an open dialog, then 200 with the verification result", async () => {
+    const id = await createSession("ask me");
+    const path = "/api/sessions/{id}/answer-ask";
+    const answers = [{ blockId: "toolu_1", questionId: "0", optionIndices: [0] }];
+
+    const bad = await postJson(`/api/sessions/${id}/answer-ask`, { answers: [] });
+    expect(bad.status).toBe(400);
+    await validateResponse("POST", path, bad);
+
+    const unknown = await postJson("/api/sessions/nope/answer-ask", { toolUseId: "t", answers });
+    expect(unknown.status).toBe(404);
+    await validateResponse("POST", path, unknown);
+
+    const closed = await postJson(`/api/sessions/${id}/answer-ask`, { toolUseId: "toolu_1", answers });
+    expect(closed.status).toBe(409);
+    expect(((await validateResponse("POST", path, closed)) as { error: string }).error).toBe(
+      "ask_not_open",
+    );
+
+    s.stubs.askAnswers.outcome = { ok: true, result: "verified" };
+    try {
+      const ok = await postJson(`/api/sessions/${id}/answer-ask`, { toolUseId: "toolu_1", answers });
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", path, ok)).toEqual({ result: "verified" });
+    } finally {
+      s.stubs.askAnswers.outcome = null;
+    }
+  });
+});
+
 describe("answer plan questions", () => {
   test("walks the whole guard ladder: 400, 404, 409, 409, 400, then 200", async () => {
     const id = await createSession("answer me");

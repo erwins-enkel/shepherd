@@ -16,6 +16,8 @@ final class IOSEpicDirectory {
         var summaries: [EpicSummary]
         var digests: [Int: EpicDigest]
     }
+    private var revisions: [String: Int] = [:]
+    @ObservationIgnored private var controls: [String: IOSEpicControl] = [:]
     private var entries: [String: Entry] = [:]
     @ObservationIgnored private var pending: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private let read: (ShepherdClient, String) async throws -> EpicListing
@@ -34,6 +36,10 @@ final class IOSEpicDirectory {
         "\(group.profile.id):\(group.repoPath)"
     }
 
+    private func revisionKey(_ group: IOSMergedSessionPresentation.EpicGroup) -> String {
+        "\(key(group)):\(group.parentNumber)"
+    }
+
     private func entry(_ group: IOSMergedSessionPresentation.EpicGroup, owner: AppModel) -> Entry? {
         guard let entry = entries[key(group)], entry.owner == ObjectIdentifier(owner),
             entry.generation == owner.activationGeneration else { return nil }
@@ -46,6 +52,40 @@ final class IOSEpicDirectory {
 
     func digest(_ group: IOSMergedSessionPresentation.EpicGroup, owner: AppModel) -> EpicDigest? {
         entry(group, owner: owner)?.digests[group.parentNumber]
+    }
+
+    func control(_ group: IOSMergedSessionPresentation.EpicGroup, owner: AppModel) -> IOSEpicControl {
+        let id = "\(group.id):\(ObjectIdentifier(owner)):\(owner.activationGeneration)"
+        if let control = controls[id] { return control }
+        // Retain controls only for live activations. They own request state shared by header/detail.
+        controls = controls.filter { $0.value.current }
+        let control = IOSEpicControl(group: group, owner: owner, directory: self)
+        controls[id] = control
+        return control
+    }
+
+    func accept(_ epic: Epic, group: IOSMergedSessionPresentation.EpicGroup, owner: AppModel) {
+        guard owner.activeProfile?.id == group.profile.id, epic.repoPath == group.repoPath,
+              epic.parentIssueNumber == group.parentNumber else { return }
+        let id = key(group)
+        revisions[revisionKey(group), default: 0] += 1
+        if entry(group, owner: owner) == nil {
+            entries[id] = Entry(owner: ObjectIdentifier(owner), generation: owner.activationGeneration,
+                request: UUID(), parents: [], summaries: [], digests: [:])
+        }
+        entries[id]?.digests[epic.parentIssueNumber] = EpicDigest(epic)
+        entries[id]?.parents.insert(epic.parentIssueNumber)
+        // Do not leave a stale summary beside the returned graph.
+        entries[id]?.summaries.removeAll { $0.parentIssueNumber == epic.parentIssueNumber }
+    }
+
+    func loadDetail(_ group: IOSMergedSessionPresentation.EpicGroup, owner: AppModel) async throws {
+        guard let store = owner.store else { throw ShepherdError.cancelled }
+        let generation = owner.activationGeneration, revision = revisions[revisionKey(group), default: 0]
+        let epic = try await readEpic(store.client, group.repoPath, group.parentNumber)
+        guard !Task.isCancelled, owner.store === store, owner.activationGeneration == generation,
+              revisions[revisionKey(group), default: 0] == revision else { return }
+        accept(epic, group: group, owner: owner)
     }
 
     func load(_ groups: [IOSMergedSessionPresentation.EpicGroup], owners: [UUID: AppModel],
@@ -84,9 +124,11 @@ final class IOSEpicDirectory {
                 if let listing { entries[key]?.summaries = listing.epics }
                 for parent in parents.sorted() {
                     guard current(key, request, owner, generation, store) else { return }
+                    let revisionID = "\(key):\(parent)"
+                    let revision = revisions[revisionID, default: 0]
                     let epic = try? await readEpic(store.client, group.repoPath, parent)
                     guard current(key, request, owner, generation, store) else { return }
-                    if let epic {
+                    if let epic, revisions[revisionID, default: 0] == revision {
                         entries[key]?.digests[parent] = EpicDigest(epic)
                         entries[key]?.parents.insert(parent)
                     } else {

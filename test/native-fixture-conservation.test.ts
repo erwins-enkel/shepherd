@@ -171,6 +171,7 @@ describe("native fixture conservation", () => {
       const paths = [
         "native/Apps/ShepherdMac/Tests",
         "native/Apps/ShepherdMac/UITests",
+        "native/Apps/ShepherdIOS/Tests",
         "native/Tests/ShepherdKitTests",
         "native/Tests/ShepherdAppCoreTests",
         "native/Tests/Conservation",

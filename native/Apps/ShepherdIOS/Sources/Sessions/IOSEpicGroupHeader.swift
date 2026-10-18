@@ -11,40 +11,57 @@ struct IOSEpicGroupHeader: View {
     let collapsed: Bool
     var now = 0
     let toggle: () -> Void
-    /// Opens the epic sheet; nil while the full epic is unknown, and the badge is then no button.
+    /// The complete identity surface opens detail, including before its digest arrives.
     var open: (() -> Void)? = nil
+    var control: IOSEpicControl? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Button(action: toggle) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                            .foregroundStyle(SessionListStyle.blue).frame(width: 12)
-                        Text(verbatim: group.repoName).foregroundStyle(SessionListStyle.muted).lineLimit(1)
-                    }
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        if let title {
-                            Text(verbatim: title).sessionFont(weight: .semibold)
-                                .foregroundStyle(SessionListStyle.bright).lineLimit(1).truncationMode(.tail)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 0) {
+                Button(action: toggle) {
+                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                        .foregroundStyle(SessionListStyle.blue).frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityLabel(L.t(collapsed ? "native_ios_epic_expand" : "native_ios_epic_collapse"))
+                    .accessibilityIdentifier("herd-epic-toggle-\(group.parentNumber)")
+                Button { open?() } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Text(verbatim: group.repoName).foregroundStyle(SessionListStyle.muted).lineLimit(1)
+                            Spacer(minLength: 0)
+                            badge
                         }
-                        Text(verbatim: "#\(group.parentNumber)").foregroundStyle(SessionListStyle.blue).fixedSize()
-                    }
-                    .padding(.leading, 20)
-                    if digest != nil || !group.cues.isEmpty {
-                        statusLine.padding(.leading, 20)
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            if let title {
+                                Text(verbatim: title).sessionFont(weight: .semibold)
+                                    .foregroundStyle(SessionListStyle.bright).lineLimit(2)
+                            }
+                            Text(verbatim: "#\(group.parentNumber)").foregroundStyle(SessionListStyle.blue).fixedSize()
+                        }
+                        if digest != nil || !group.cues.isEmpty { statusLine }
+                    }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityAddTraits(.isHeader)
+                    .accessibilityLabel(L.t("native_ios_epic_detail", String(group.parentNumber)))
+                    .accessibilityValue(Text(verbatim: accessibilityValue))
+                    .accessibilityIdentifier("herd-epic-open-\(group.parentNumber)")
             }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityLabel(Text(verbatim: L.t(collapsed ? "epic_group_expand_aria" : "epic_group_collapse_aria",
-                String(group.parentNumber))))
-            .accessibilityValue(Text(verbatim: accessibilityValue))
-            .accessibilityIdentifier("herd-epic-\(group.parentNumber)")
-            badge
+            if let control, control.writable, let digest {
+                let actions = IOSEpicPolicy.actions(digest.epic)
+                if !actions.isEmpty {
+                    SessionWrappingLayout(spacing: 8) {
+                        ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
+                            Button(IOSEpicControlCopy.action(action)) { Task { await control.perform(action) } }
+                                .buttonStyle(.plain).foregroundStyle(SessionListStyle.amber)
+                                .frame(minHeight: 44).disabled(control.busy)
+                        }
+                        if control.busy { ProgressView().accessibilityLabel(L.t("common_loading")) }
+                    }.padding(.leading, 44)
+                }
+            }
+            if let error = control?.error {
+                Text(verbatim: error).foregroundStyle(SessionListStyle.red).padding(.leading, 44)
+            }
         }
         .sessionFont(label: true, weight: .medium)
         .padding(.top, 10).padding(.bottom, 6)
@@ -70,22 +87,13 @@ struct IOSEpicGroupHeader: View {
         digest?.meter ?? counts.map { EpicMeter.tones(merged: $0.merged, total: $0.total) } ?? []
     }
 
-    @ViewBuilder private var badge: some View {
-        let label = Text(verbatim: badgeText).monospacedDigit().fixedSize()
+    private var badge: some View {
+        Text(verbatim: badgeText).monospacedDigit().fixedSize()
             .padding(.bottom, 5)
             .overlay(alignment: .bottom) { IOSEpicMeter(tones: tones) }
             .padding(.horizontal, 7).padding(.vertical, 4)
             .foregroundStyle(SessionListStyle.blue)
             .overlay { RoundedRectangle(cornerRadius: 2).stroke(SessionListStyle.blue, lineWidth: 1) }
-        if let open, let counts {
-            Button(action: open) { label.frame(minHeight: 44).contentShape(Rectangle()) }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(verbatim: L.t("native_ios_epic_open_aria",
-                    String(group.parentNumber), String(counts.merged), String(counts.total))))
-                .accessibilityIdentifier("herd-epic-open-\(group.parentNumber)")
-        } else {
-            label.frame(minHeight: 44).accessibilityHidden(true)
-        }
     }
 
     private var statusLine: some View {

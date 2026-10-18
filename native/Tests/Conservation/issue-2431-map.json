@@ -12792,6 +12792,10 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"foldsEveryUnmergedChildWithoutARowByStage() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"mergedBlockersLeaveNothingToWaitOn() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"nothingFoldedNoSummary() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"readyChildrenLeadTheSummary() throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/EpicFoldTests.swift\",\"CoreSeamTests.EpicFoldTests\",\"readyChildrenLeadTheSummary() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"updatesAndApprovalsEncodeRouteQueryAndSettings() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"okOnlyResponsesRereadTheGraph() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"errorsPreserveConflictsAuthenticationAndUpstreamFailures() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"malformedOrDisappearedGraphDoesNotFabricateSuccess() async throws\"]"
   ]
 }

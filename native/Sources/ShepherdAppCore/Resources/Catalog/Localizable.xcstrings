@@ -4644,6 +4644,23 @@
         }
       }
     },
+    "epic_approve_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabe fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve failed"
+          }
+        }
+      }
+    },
     "epic_badge": {
       "comment": "%1$@ = merged, %2$@ = total",
       "extractionState": "manual",
@@ -4658,6 +4675,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "EPIC %1$@/%2$@"
+          }
+        }
+      }
+    },
+    "epic_effort_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort"
           }
         }
       }
@@ -4788,6 +4822,74 @@
         }
       }
     },
+    "epic_model_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        }
+      }
+    },
+    "epic_pause": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        }
+      }
+    },
+    "epic_provider_inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inherit"
+          }
+        }
+      }
+    },
+    "epic_provider_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI"
+          }
+        }
+      }
+    },
     "epic_role_leading": {
       "extractionState": "manual",
       "localizations": {
@@ -4801,6 +4903,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "leads"
+          }
+        }
+      }
+    },
+    "epic_run_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abarbeitung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run"
+          }
+        }
+      }
+    },
+    "epic_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
           }
         }
       }
@@ -4835,6 +4971,59 @@
           "stringUnit": {
             "state": "translated",
             "value": "running"
+          }
+        }
+      }
+    },
+    "epic_supersede_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt ablösen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supersede now"
+          }
+        }
+      }
+    },
+    "epic_supersede_requeue": {
+      "comment": "%1$@ = leader",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#%1$@ als Nächstes einreihen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requeue #%1$@ next"
+          }
+        }
+      }
+    },
+    "epic_supersede_title": {
+      "comment": "%1$@ = epic",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ starten?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start epic #%1$@?"
           }
         }
       }
@@ -4921,6 +5110,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "very low"
+          }
+        }
+      }
+    },
+    "epic_update_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Aktualisierung fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic update failed"
           }
         }
       }
@@ -13032,6 +13238,125 @@
         }
       }
     },
+    "native_ios_epic_agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent"
+          }
+        }
+      }
+    },
+    "native_ios_epic_approval_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der nächste startklare Schritt wartet auf deine Freigabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The next ready step needs your approval."
+          }
+        }
+      }
+    },
+    "native_ios_epic_approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächsten freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve next"
+          }
+        }
+      }
+    },
+    "native_ios_epic_attended": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Freigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With approval"
+          }
+        }
+      }
+    },
+    "native_ios_epic_attended_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet vor jedem nächsten Schritt auf deine Freigabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waits for your approval before starting the next step."
+          }
+        }
+      }
+    },
+    "native_ios_epic_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        }
+      }
+    },
+    "native_ios_epic_auto_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet freie Schritte, sobald ein Agenten-Platz frei ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts ready steps as soon as an agent slot is free."
+          }
+        }
+      }
+    },
     "native_ios_epic_chain_aria": {
       "comment": "%1$@ = needs, %2$@ = stage, %3$@ = total, %4$@ = number, %5$@ = unlocks",
       "extractionState": "manual",
@@ -13046,6 +13371,92 @@
           "stringUnit": {
             "state": "translated",
             "value": "Needs %1$@. Stage %2$@ of %3$@: #%4$@. Unlocks %5$@."
+          }
+        }
+      }
+    },
+    "native_ios_epic_collapse": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic zuklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse epic"
+          }
+        }
+      }
+    },
+    "native_ios_epic_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beschreibung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Description"
+          }
+        }
+      }
+    },
+    "native_ios_epic_detail": {
+      "comment": "%1$@ = parent",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open epic #%1$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erledigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "native_ios_epic_expand": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic aufklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand epic"
           }
         }
       }
@@ -13104,6 +13515,40 @@
         }
       }
     },
+    "native_ios_epic_idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        }
+      }
+    },
+    "native_ios_epic_ignore_ceiling": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsgrenze ignorieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignore usage ceiling"
+          }
+        }
+      }
+    },
     "native_ios_epic_in_flight": {
       "comment": "%1$@ = count",
       "extractionState": "manual",
@@ -13153,6 +13598,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "then the epic lands"
+          }
+        }
+      }
+    },
+    "native_ios_epic_less": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weniger anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show less"
+          }
+        }
+      }
+    },
+    "native_ios_epic_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic konnte nicht geladen werden. Bitte erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load this epic. Try again."
+          }
+        }
+      }
+    },
+    "native_ios_epic_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show more"
           }
         }
       }
@@ -13227,6 +13723,23 @@
         }
       }
     },
+    "native_ios_epic_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Nächstes"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up next"
+          }
+        }
+      }
+    },
     "native_ios_epic_now": {
       "extractionState": "manual",
       "localizations": {
@@ -13258,6 +13771,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Open epic #%1$@, %2$@ of %3$@ merged"
+          }
+        }
+      }
+    },
+    "native_ios_epic_open_issue": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue auf GitHub öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open issue on GitHub"
+          }
+        }
+      }
+    },
+    "native_ios_epic_open_pr": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@ öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open PR #%1$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_open_session": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open session"
           }
         }
       }
@@ -13297,6 +13862,24 @@
         }
       }
     },
+    "native_ios_epic_parent_link": {
+      "comment": "%1$@ = parent",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Issue #%1$@ auf GitHub"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic issue #%1$@ on GitHub"
+          }
+        }
+      }
+    },
     "native_ios_epic_paused": {
       "extractionState": "manual",
       "localizations": {
@@ -13328,6 +13911,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "~%1$@ left once resumed"
+          }
+        }
+      }
+    },
+    "native_ios_epic_resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume"
+          }
+        }
+      }
+    },
+    "native_ios_epic_session_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Session ist nicht mehr in der aktuellen Liste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session is no longer in the current list."
+          }
+        }
+      }
+    },
+    "native_ios_epic_settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Einstellungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic settings"
           }
         }
       }
@@ -13422,6 +14056,127 @@
         }
       }
     },
+    "native_ios_epic_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start epic"
+          }
+        }
+      }
+    },
+    "native_ios_epic_start_anyway": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trotzdem starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start anyway"
+          }
+        }
+      }
+    },
+    "native_ios_epic_start_child": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start now"
+          }
+        }
+      }
+    },
+    "native_ios_epic_step": {
+      "comment": "%1$@ = step, %2$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schritt %1$@ von %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %1$@ of %2$@"
+          }
+        }
+      }
+    },
+    "native_ios_epic_stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        }
+      }
+    },
+    "native_ios_epic_stop_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet keine weiteren Schritte. Laufende Sessions arbeiten weiter; das nächste Epic in der Warteschlange kann starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop starting new children. Sessions already in flight finish; the next queued epic may start."
+          }
+        }
+      }
+    },
+    "native_ios_epic_supersede_message": {
+      "comment": "%1$@ = leader",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ führt dieses Repo bereits. Als Nächstes einreihen setzt es später automatisch fort; beim Ablösen ohne Einreihen bleibt es stehen. Laufende Sessions arbeiten weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ already leads this repository. Queue it next to resume automatically later, or supersede it without queueing. Running sessions finish."
+          }
+        }
+      }
+    },
     "native_ios_epic_unlocks_none": {
       "extractionState": "manual",
       "localizations": {
@@ -13435,6 +14190,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "nothing waits"
+          }
+        }
+      }
+    },
+    "native_ios_epic_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        }
+      }
+    },
+    "native_ios_epic_waits_on": {
+      "comment": "%1$@ = issues",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wartet auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for %1$@"
           }
         }
       }

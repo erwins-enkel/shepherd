@@ -43,9 +43,13 @@ extension IOSMergedSessionPresentation.EpicGroup {
     }
 }
 
-/// A sheet keeps only identity; membership is resolved from the current list snapshot.
+/// Membership follows the live list; the opening group keeps detail available after its last session leaves.
 struct IOSEpicSelection: Identifiable {
     let id: String
+    let fallback: IOSMergedSessionPresentation.EpicGroup?
+
+    init(id: String) { self.id = id; fallback = nil }
+    init(group: IOSMergedSessionPresentation.EpicGroup) { id = group.id; fallback = group }
 
     func resolve(in groups: [IOSMergedSessionPresentation.EpicGroup]) -> IOSMergedSessionPresentation.EpicGroup? {
         groups.first { $0.id == id }

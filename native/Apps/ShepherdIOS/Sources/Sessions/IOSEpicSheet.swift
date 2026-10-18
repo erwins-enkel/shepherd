@@ -2,208 +2,186 @@ import SwiftUI
 import ShepherdAppCore
 import ShepherdKit
 
-/// The epic sheet behind the EPIC badge: progress, clock and forecast, what runs now, and the
-/// whole flow by stage. It only shows; controlling an epic stays in the browser.
+/// Loads independently of the herd's summary and shares write ownership with its header.
 struct IOSEpicSheet: View {
-    let group: IOSMergedSessionPresentation.EpicGroup
-    let digest: EpicDigest
+    let control: IOSEpicControl
     let now: Int
-    /// The action that opens a child's session, or nil when this group lists none for it.
     let session: (EpicChild) -> (() -> Void)?
+    let created: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
-
-    private var parent: Int { digest.epic.parentIssueNumber }
-    private var running: [EpicChild] {
-        digest.epic.children.filter(\.isInFlight).sorted { $0.order < $1.order }
-    }
+    @State private var child: EpicChildSelection?
+    @State private var settings = false
+    @State private var stopping = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    head
-                    progress
-                    if !running.isEmpty { nowSection }
-                    flowSection
-                    footer
+                if !control.current {
+                    Text(verbatim: L.t("native_error_offline")).sessionFont().padding()
+                } else if let digest = control.digest {
+                    IOSEpicDetailContent(repo: control.group.repoName, digest: digest, now: now,
+                        busy: control.busy, writable: control.writable, error: control.error,
+                        update: { patch in Task { await control.update(patch) } },
+                        approve: { Task { await control.approve() } },
+                        settings: { settings = true }, stop: { stopping = true }, child: { value in
+                            if value.isInFlight, let open = session(value) { open(); dismiss() }
+                            else { child = .init(number: value.number) }
+                        })
+                } else {
+                    VStack(spacing: 16) {
+                        if let error = control.error {
+                            Text(verbatim: error).foregroundStyle(SessionListStyle.red)
+                            Button(L.t("common_retry")) { Task { await control.load() } }.disabled(control.busy)
+                        } else { ProgressView(L.t("common_loading")) }
+                    }.sessionFont().frame(maxWidth: .infinity, minHeight: 200).padding()
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(SessionListStyle.panel)
-            .navigationTitle(Text(verbatim: "EPIC #\(parent)"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button(L.t("common_close")) { dismiss() } }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .preferredColorScheme(.dark)
-        .accessibilityIdentifier("epic-sheet-\(group.parentNumber)")
-    }
-
-    private var head: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: group.repoName).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
-            Text(verbatim: EpicText.displayTitle(digest.epic.parentTitle)).sessionFont(weight: .semibold)
-                .foregroundStyle(SessionListStyle.bright).fixedSize(horizontal: false, vertical: true)
-            if let chip = IOSEpicCopy.runChip(digest.epic) { IOSEpicRunChip(text: chip).sessionFont(label: true) }
-        }
-    }
-
-    private var progress: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            IOSEpicMeter(tones: digest.meter, height: 4, spacing: 3)
-            Text(verbatim: [L.t("epicflow_merged", String(digest.merged), String(digest.total)),
-                            digest.inFlight > 0 ? L.t("native_ios_epic_in_flight", String(digest.inFlight)) : nil]
-                .compactMap { $0 }.joined(separator: " · "))
-                .foregroundStyle(SessionListStyle.ink)
-            let clock = [IOSEpicCopy.clock(digest.epic, now: now), IOSEpicCopy.forecast(digest.epic)].compactMap { $0 }
-            if !clock.isEmpty {
-                Text(verbatim: clock.joined(separator: " · ")).foregroundStyle(SessionListStyle.muted)
-            }
-        }
-        .sessionFont(label: true)
-    }
-
-    private var nowSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionLabel(L.t("native_ios_epic_now"))
-            ForEach(running, id: \.number) { child in
-                childButton(child) { nowRow(child) }
-            }
-        }
-    }
-
-    private func nowRow(_ child: EpicChild) -> some View {
-        HStack(spacing: 10) {
-            IOSEpicStateDot(tone: .active)
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text(verbatim: "#\(child.number)").foregroundStyle(SessionListStyle.bright)
-                    Text(verbatim: EpicText.stepTitle(child.title, parent: parent)).lineLimit(1)
-                }
-                HStack(spacing: 6) {
-                    if let pr = child.prNumber {
-                        Text(verbatim: "PR #\(pr)").padding(.horizontal, 5).padding(.vertical, 1)
-                            .overlay { RoundedRectangle(cornerRadius: 2).stroke(SessionListStyle.brightLine, lineWidth: 1) }
-                    }
-                    Text(verbatim: stateWord(child)).foregroundStyle(SessionListStyle.amber)
-                }
-                .foregroundStyle(SessionListStyle.muted)
-            }
-            Spacer(minLength: 0)
-            if session(child) != nil {
-                Image(systemName: "chevron.right").foregroundStyle(SessionListStyle.muted).accessibilityHidden(true)
-            }
-        }
-        .sessionFont(label: true)
-        .padding(10)
-        .frame(minHeight: 52)
-        .background(SessionListStyle.background)
-        .overlay { Rectangle().stroke(SessionListStyle.line, lineWidth: 1) }
-    }
-
-    private var flowSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            sectionLabel(L.t("epicflow_title"))
-            ForEach(digest.flow.stages, id: \.index) { stage in
-                HStack(spacing: 8) {
-                    Text(verbatim: stageTitle(stage).uppercased()).tracking(0.8)
-                    Spacer(minLength: 6)
-                    let after = Set(stage.children.flatMap { digest.flow.blockers[$0.number] ?? [] }).sorted()
-                    if !after.isEmpty { Text(verbatim: L.t("native_ios_epic_after", EpicText.numbers(after))) }
-                }
-                .sessionFont(label: true, weight: .medium)
-                .foregroundStyle(SessionListStyle.muted)
-                .padding(.top, 6)
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isHeader)
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(stage.children, id: \.number) { child in
-                        childButton(child) { nodeRow(child) }
+            }.background(SessionListStyle.background)
+                .navigationTitle(Text(verbatim: "EPIC #\(control.group.parentNumber)"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button(L.t("common_close")) { dismiss() } }
+                    if let epic = control.digest?.epic, let url = IOSEpicPolicy.parentURL(epic) {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Link(destination: url) { Image(systemName: "arrow.up.right.square").frame(minWidth: 44, minHeight: 44) }
+                                .accessibilityLabel(L.t("native_ios_epic_parent_link", String(epic.parentIssueNumber)))
+                        }
                     }
                 }
-                .padding(.leading, 18)
-                .overlay(alignment: .leading) {
-                    if stage.index < digest.flow.stages.count {
-                        Rectangle().fill(SessionListStyle.brightLine).frame(width: 1).padding(.leading, 3)
-                    }
+        }
+        .presentationDetents([.large]).preferredColorScheme(.dark).tint(SessionListStyle.amber)
+        .task { await control.load() }
+        .task { await control.observe() }
+        .sheet(isPresented: $settings) { if let epic = control.digest?.epic { IOSEpicSettingsSheet(control: control, epic: epic) } }
+        .sheet(item: $child) { selection in
+            if let digest = control.digest, let value = digest.epic.children.first(where: { $0.number == selection.number }) {
+                IOSEpicChildSheet(control: control, digest: digest, child: value, session: session(value), created: created)
+            }
+        }
+        .confirmationDialog(L.t("native_ios_epic_stop"), isPresented: $stopping, titleVisibility: .visible) {
+            Button(L.t("native_ios_epic_stop"), role: .destructive) { Task { await control.update(.init(status: .idle)) } }
+            Button(L.t("common_cancel"), role: .cancel) {}
+        } message: { Text(verbatim: L.t("native_ios_epic_stop_message")) }
+        .modifier(IOSEpicConfirmation(control: control, enabled: !settings && child == nil))
+        .onDisappear { control.cancelStart() }
+        .accessibilityIdentifier("epic-sheet-\(control.group.parentNumber)")
+    }
+}
+private struct EpicChildSelection: Identifiable { let number: Int; var id: Int { number } }
+
+/// Production layout also rendered by the fixture tests (no UIKit-backed scroll containers).
+struct IOSEpicDetailContent: View {
+    let repo: String
+    let digest: EpicDigest
+    let now: Int
+    var busy = false
+    var writable = true
+    var error: String?
+    var update: (Components.Schemas.EpicRunPatch) -> Void = { _ in }
+    var approve: () -> Void = {}
+    var settings: () -> Void = {}
+    var stop: () -> Void = {}
+    var child: (EpicChild) -> Void = { _ in }
+    private var epic: Epic { digest.epic }
+    private var ordered: [EpicChild] { digest.flow.stages.flatMap(\.children) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(verbatim: repo).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
+                Text(verbatim: EpicText.displayTitle(epic.parentTitle)).sessionFont(weight: .semibold).foregroundStyle(SessionListStyle.bright)
+                IOSEpicMeter(tones: digest.meter, height: 5, spacing: 3)
+                SessionWrappingLayout(spacing: 10) {
+                    count(digest.merged, "epicflow_legend_merged")
+                    Text(verbatim: L.t("native_ios_epic_in_flight", String(digest.inFlight))).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
+                    count(ordered.filter(\.isReady).count, "epicflow_legend_ready")
+                    count(ordered.filter { !$0.isMerged && !$0.isReady && !$0.isInFlight }.count, "epicflow_legend_waiting")
                 }
             }
-            SessionWrappingLayout(spacing: 12) {
-                legendItem(.active, "epicflow_legend_active")
-                legendItem(.ready, "epicflow_legend_ready")
-                legendItem(.waiting, "epicflow_legend_waiting")
-                legendItem(.merged, "epicflow_legend_merged")
+            runCard
+            children("native_ios_epic_now", ordered.filter(\.isInFlight))
+            children("native_ios_epic_next", ordered.filter(\.isReady))
+            children("native_ios_epic_waiting", ordered.filter { !$0.isMerged && !$0.isReady && !$0.isInFlight })
+            children("native_ios_epic_done", ordered.filter(\.isMerged))
+            if let url = IOSEpicPolicy.parentURL(epic) {
+                Link(destination: url) {
+                    Label(L.t("native_ios_epic_parent_link", String(epic.parentIssueNumber)), systemImage: "arrow.up.right.square")
+                        .sessionFont(label: true).frame(maxWidth: .infinity, minHeight: 44)
+                }.foregroundStyle(SessionListStyle.blue)
             }
-            .padding(.top, 6)
-            if let stage = digest.flow.firstParallelStage {
-                Text(verbatim: L.t("native_ios_epic_slots_hint", String(stage)))
-                    .sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func count(_ number: Int, _ key: StaticString) -> some View {
+        Text(verbatim: "\(number) " + L.t(key)).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
+    }
+    private var runCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                heading("epic_run_label")
+                Spacer()
+                IOSEpicRunChip(text: IOSEpicCopy.runChip(epic) ?? L.t("native_ios_epic_idle")).sessionFont(label: true)
+                if busy { ProgressView().accessibilityLabel(L.t("common_loading")) }
+            }
+            if let clock = IOSEpicCopy.clock(epic, now: now) { Text(verbatim: clock).sessionFont(label: true) }
+            if let forecast = IOSEpicCopy.forecast(epic) { Text(verbatim: forecast).sessionFont(label: true) }
+            if writable {
+                IOSEpicModePicker(mode: Binding(get: { epic.run.mode.iosValue == "attended" ? .attended : .auto },
+                    set: { update(.init(mode: $0)) })).disabled(busy)
+                if IOSEpicPolicy.actions(epic).contains(.approve) {
+                    Text(verbatim: L.t("native_ios_epic_approval_hint")).sessionFont(label: true)
+                    IOSEpicActionButton(title: L.t("native_ios_epic_approve"), icon: "checkmark", action: approve).disabled(busy)
+                }
+                HStack(spacing: 10) {
+                    if epic.run.status.rawValue == "idle" {
+                        IOSEpicActionButton(title: L.t("epic_start"), icon: "play", action: settings)
+                    } else if ["running", "paused"].contains(epic.run.status.rawValue) {
+                        let paused = epic.run.status.rawValue == "paused"
+                        IOSEpicActionButton(title: L.t(paused ? "native_ios_epic_resume" : "epic_pause"), icon: paused ? "play" : "pause") {
+                            update(.init(status: paused ? .running : .paused))
+                        }
+                        IOSEpicActionButton(title: L.t("native_ios_epic_stop"), icon: "stop", tint: SessionListStyle.muted, action: stop)
+                    }
+                }.disabled(busy)
+                Button(action: settings) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(verbatim: L.t("native_ios_epic_agent")).foregroundStyle(SessionListStyle.muted)
+                        Spacer(minLength: 0)
+                        Text(verbatim: [epic.run.agentProvider.map { L.t($0 == .claude ? "agent_provider_claude" : "agent_provider_codex") } ?? L.t("epic_provider_inherit"), epic.run.model ?? L.t("newtask_model_default"), IOSEpicSettingsContent.effort(epic.run.effort ?? "default")].joined(separator: " · "))
+                            .multilineTextAlignment(.trailing)
+                        Image(systemName: "chevron.right").foregroundStyle(SessionListStyle.muted)
+                    }.sessionFont(label: true).frame(minHeight: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(busy)
+            }
+            if let error { Text(verbatim: error).sessionFont(label: true).foregroundStyle(SessionListStyle.red) }
+        }.foregroundStyle(SessionListStyle.ink).padding(12).background(SessionListStyle.panel)
+            .overlay { Rectangle().stroke(SessionListStyle.line, lineWidth: 1) }
+    }
+    private func heading(_ key: StaticString) -> some View {
+        Text(verbatim: L.t(key).uppercased()).sessionFont(label: true, weight: .medium)
+            .tracking(0.8).foregroundStyle(SessionListStyle.muted).accessibilityAddTraits(.isHeader)
+    }
+    @ViewBuilder private func children(_ key: StaticString, _ values: [EpicChild]) -> some View {
+        if !values.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                heading(key)
+                ForEach(values, id: \.number) { value in
+                    Button { child(value) } label: {
+                        HStack(alignment: .top, spacing: 9) {
+                            IOSEpicStateDot(tone: IOSEpicStateDot.tone(value)).padding(.top, 4)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(verbatim: "#\(value.number)  " + EpicText.stepTitle(value.title, parent: epic.parentIssueNumber))
+                                    .foregroundStyle(value.isMerged ? SessionListStyle.muted : SessionListStyle.bright)
+                                Text(verbatim: IOSEpicCopy.state(value)).foregroundStyle(SessionListStyle.muted)
+                                if !value.isMerged, !value.isReady, !value.isInFlight, !value.blockedBy.isEmpty {
+                                    Text(verbatim: L.t("native_ios_epic_waits_on", EpicText.numbers(value.blockedBy)))
+                                        .foregroundStyle(SessionListStyle.muted)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").foregroundStyle(SessionListStyle.muted)
+                        }.sessionFont(label: true).padding(10).frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                            .background(SessionListStyle.panel).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("epic-child-\(value.number)")
+                }
             }
         }
-    }
-
-    private func nodeRow(_ child: EpicChild) -> some View {
-        HStack(spacing: 9) {
-            IOSEpicStateDot(tone: IOSEpicStateDot.tone(child))
-            Text(verbatim: "#\(child.number)").foregroundStyle(SessionListStyle.bright)
-            Text(verbatim: EpicText.stepTitle(child.title, parent: parent))
-                .foregroundStyle(child.isMerged ? SessionListStyle.muted : SessionListStyle.ink)
-                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-            if child.isInFlight {
-                Text(verbatim: stateWord(child)).foregroundStyle(SessionListStyle.amber).fixedSize()
-            } else if !child.isMerged, let unlocks = digest.chain(child.number)?.unlocks.count, unlocks > 0 {
-                Text(verbatim: L.t("native_ios_epic_frees", String(unlocks))).foregroundStyle(SessionListStyle.muted).fixedSize()
-            }
-        }
-        .sessionFont(label: true)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(Text(verbatim: IOSEpicCopy.state(child)))
-    }
-
-    private var footer: some View {
-        Button { openURL(group.profile.baseURL) } label: {
-            Label(L.t("native_ios_epic_open_web"), systemImage: "arrow.up.right.square")
-                .sessionFont(label: true)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .overlay { Rectangle().stroke(SessionListStyle.brightLine, lineWidth: 1) }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(SessionListStyle.ink)
-        .accessibilityIdentifier("epic-open-web")
-    }
-
-    @ViewBuilder
-    private func childButton<Content: View>(_ child: EpicChild, @ViewBuilder label: () -> Content) -> some View {
-        if let action = session(child) {
-            Button { action(); dismiss() } label: { label() }.buttonStyle(.plain)
-        } else {
-            label()
-        }
-    }
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(verbatim: text.uppercased()).sessionFont(label: true, weight: .medium).tracking(0.8)
-            .foregroundStyle(SessionListStyle.muted).accessibilityAddTraits(.isHeader)
-    }
-
-    private func legendItem(_ tone: IOSEpicDotTone, _ key: StaticString) -> some View {
-        HStack(spacing: 5) { IOSEpicStateDot(tone: tone); Text(verbatim: L.t(key)) }
-            .sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
-    }
-
-    private func stageTitle(_ stage: EpicFlow.Stage) -> String {
-        if stage.index == 1 { return L.t("epicflow_stage_first") }
-        return stage.parallel ? L.t("epicflow_stage_parallel", String(stage.index)) : String(stage.index)
-    }
-
-    private func stateWord(_ child: EpicChild) -> String {
-        L.t(child.state.rawValue == "in-review" ? "epic_state_in_review" : "epic_state_running")
     }
 }

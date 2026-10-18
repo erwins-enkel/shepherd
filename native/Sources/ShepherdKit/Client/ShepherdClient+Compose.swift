@@ -291,6 +291,45 @@ extension ShepherdClient {
         } catch { throw ShepherdError.from(error, route: "getEpic") }
     }
 
+    /// Starts, pauses or edits one epic. A saved run whose graph disappeared is re-read;
+    /// callers always receive an Epic, never a fabricated copy of the pre-write state.
+    public func updateEpic(repoPath: String, parent: Int, patch: Components.Schemas.EpicRunPatch,
+                           requeueLeader: Bool = false) async throws -> Epic {
+        do {
+            switch try await generated.patchEpicRun(.init(query: .init(repo: repoPath, parent: parent,
+                requeueLeader: requeueLeader ? ._1 : nil), body: .json(patch))) {
+            case .ok(let ok):
+                switch try ok.body.json {
+                case .Epic(let epic): return epic
+                case .Ok: return try await epic(repoPath: repoPath, parent: parent)
+                }
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .conflict(let value): throw ShepherdError.fromConflict(try value.body.json)
+            case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
+            case .undocumented(let statusCode, _):
+                throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "patchEpicRun")
+            }
+        } catch { throw ShepherdError.from(error, route: "patchEpicRun") }
+    }
+
+    public func approveEpicNext(repoPath: String, parent: Int) async throws -> Epic {
+        do {
+            switch try await generated.approveEpicNext(.init(query: .init(repo: repoPath, parent: parent))) {
+            case .ok(let ok):
+                switch try ok.body.json {
+                case .Epic(let epic): return epic
+                case .Ok: return try await epic(repoPath: repoPath, parent: parent)
+                }
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
+            case .undocumented(let statusCode, _):
+                throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "approveEpicNext")
+            }
+        } catch { throw ShepherdError.from(error, route: "approveEpicNext") }
+    }
+
     public func branches(repoPath: String) async throws -> BranchListing {
         do {
             switch try await generated.listBranches(.init(query: .init(repo: repoPath))) {

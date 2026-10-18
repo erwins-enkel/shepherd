@@ -29,29 +29,21 @@ struct SessionListView: View {
             if layout.bottomBar { bottomBar }
         }
         .sheet(item: $epicSheet) { selection in
-            if let group = selection.resolve(in: presentation.epicGroups),
-               let digest = epicDirectory.digest(group, owner: hub?.models[group.profile.id] ?? app) {
+            if let group = selection.resolve(in: presentation.epicGroups) ?? selection.fallback {
+                let owner = hub?.models[group.profile.id] ?? app
                 TimelineView(.periodic(from: .now, by: 20)) { context in
-                    IOSEpicSheet(group: group, digest: digest, now: Int(context.date.timeIntervalSince1970 * 1_000)) { child in
-                        guard selection.resolve(in: presentation.epicGroups)?.row(for: child) != nil else { return nil }
-                        return {
-                            guard let row = selection.resolve(in: presentation.epicGroups)?.row(for: child) else { return }
-                            selectRow(row.id)
-                        }
-                    }
-                }
-            } else {
-                NavigationStack {
-                    SessionListStyle.panel.ignoresSafeArea()
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button(L.t("common_close")) { epicSheet = nil }
-                                    .frame(minWidth: 44, minHeight: 44)
+                    IOSEpicSheet(control: epicDirectory.control(group, owner: owner),
+                        now: Int(context.date.timeIntervalSince1970 * 1_000), session: { child in
+                            guard selection.resolve(in: presentation.epicGroups)?.row(for: child) != nil else { return nil }
+                            return {
+                                guard let row = selection.resolve(in: presentation.epicGroups)?.row(for: child) else { return }
+                                epicSheet = nil; selectRow(row.id)
                             }
-                        }
+                        }, created: { id in
+                            epicSheet = nil
+                            selectRow(.init(profileID: group.profile.id, sessionID: id))
+                        })
                 }
-                .presentationDetents([.medium, .large])
-                .preferredColorScheme(.dark)
             }
         }
         .sheet(isPresented: $showingRepos) { IOSServerReposSheet(model: model) }
@@ -186,10 +178,13 @@ struct SessionListView: View {
                     ForEach(snapshot.epicGroups) { group in
                         let owner = hub?.models[group.profile.id] ?? app
                         let digest = epicDirectory.digest(group, owner: owner)
+                        let control = epicDirectory.control(group, owner: owner)
                         IOSEpicGroupHeader(group: group, summary: epicDirectory.summary(group, owner: owner),
                             digest: digest, collapsed: collapsedEpics.contains(group.id), now: now,
                             toggle: { if !collapsedEpics.insert(group.id).inserted { collapsedEpics.remove(group.id) } },
-                            open: digest == nil ? nil : { epicSheet = IOSEpicSelection(id: group.id) })
+                            open: { epicSheet = IOSEpicSelection(group: group) }, control: control)
+                            .modifier(IOSEpicConfirmation(control: control, enabled: epicSheet == nil))
+                            .task(id: ObjectIdentifier(control)) { await control.observe() }
                         if !collapsedEpics.contains(group.id) {
                             ForEach(group.rows) { row in
                                 card(row, showCli: showCli, now: now, leading: 22, inEpic: true, chain: chain(row, digest))
@@ -202,7 +197,7 @@ struct SessionListView: View {
                                     IOSEpicFoldRow(fold: fold, parent: group.parentNumber,
                                         expanded: expandedFolds.contains(group.id),
                                         toggle: { if !expandedFolds.insert(group.id).inserted { expandedFolds.remove(group.id) } },
-                                        open: { epicSheet = IOSEpicSelection(id: group.id) })
+                                        open: { epicSheet = IOSEpicSelection(group: group) })
                                         .listRowInsets(EdgeInsets(top: 0, leading: 22, bottom: 0, trailing: 10))
                                         .listRowBackground(IOSEpicRailBackground()).listRowSeparator(.hidden)
                                 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { terminalOwnerTitle } from "#lib/terminal-client.js";
-  import type { LoginRequest, TerminalClientInfo } from "#lib/types.js";
+  import type { LoginRequest, PendingAsk, TerminalClientInfo } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerLoginRequest } from "#lib/login-request.js";
   import type { PtyEndReason } from "#lib/pty.js";
@@ -20,6 +20,8 @@
     resumable,
     stranded = false,
     authUrl = null,
+    ask = null,
+    openAsk,
     sessionId,
     loginRequest = null,
     openBrowser = null,
@@ -47,6 +49,9 @@
     /** Pending MCP OAuth authorization URL for an awaiting-input block — the operator must
      *  open it in their browser. null when the agent isn't waiting on an auth URL. */
     authUrl?: string | null;
+    /** The open AskUserQuestion dialog (#3165); its strip reopens the answer dialog. */
+    ask?: PendingAsk | null;
+    openAsk?: () => void;
     sessionId: string;
     /** The session's open Login Request (#2897) — answered in place with Done/Cancel. */
     loginRequest?: LoginRequest | null;
@@ -106,8 +111,26 @@
     </button>
   </div>
 {/if}
-{#if tab === "term" && !parked && (authUrl || loginRequest)}
+{#if tab === "term" && !parked && (authUrl || loginRequest || ask)}
   <div class="top-strips">
+    {#if ask}
+      <!-- AskUserQuestion (#3165): the agent waits on a dialog Shepherd can answer natively. The
+           dialog stays live in the terminal too; whoever answers first wins. -->
+      <div class="auth-banner" role="status">
+        <span class="auth-icon" aria-hidden="true">?</span>
+        <div class="auth-text">
+          <span class="auth-title">{m.ask_banner_title({ count: ask.questions.length })}</span>
+          <span class="auth-url" title={ask.questions[0]?.question}
+            >{ask.questions[0]?.question}</span
+          >
+        </div>
+        <div class="auth-actions">
+          <button class="auth-btn primary" type="button" onclick={() => openAsk?.()}>
+            {m.ask_banner_answer()}
+          </button>
+        </div>
+      </div>
+    {/if}
     {#if authUrl}
       <!-- Non-modal top strip: an MCP OAuth prompt (e.g. Notion/Vercel) whose URL Claude
          word-wraps un-clickably in the terminal. Sourced from the JSONL, so the full URL

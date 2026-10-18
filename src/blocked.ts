@@ -1,5 +1,6 @@
 import { addressStallStatus } from "./review-status";
 import type { Session, ReviewVerdict, PlanGate } from "./types";
+import type { PendingAsk } from "./ask-user-question";
 
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall" | "quota";
 
@@ -20,6 +21,10 @@ export interface BlockReason {
    *  open (MCP auth flows, e.g. Notion/Vercel). Absent unless the transcript held a
    *  pending authorize URL. Sourced from the JSONL, not the word-wrapped PTY tail. */
   authUrl?: string;
+  /** #3165: the AskUserQuestion dialog on screen, as data from the PreToolUse hook — the native
+   *  answer panel renders it and answers via `POST /api/sessions/:id/answer-ask`. Absent without
+   *  hooks (the terminal still works). Attached by the poller's `emitBlock`. */
+  ask?: PendingAsk;
 }
 
 const TAIL_LINES = 15;

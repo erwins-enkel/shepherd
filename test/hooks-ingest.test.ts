@@ -355,3 +355,72 @@ test("toolUseSince: a tool / failed tool / sub-agent start after `since` → tru
   for (const name of ["PostToolUse", "PostToolUseFailure", "SubagentStart"])
     expect(toolUseSince([hookEv("Stop", 50), hookEv(name, 200)], 100)).toBe(true);
 });
+
+// ── #3165: AskUserQuestion as data ────────────────────────────────────────────
+
+test("validateHookEvent: PreToolUse(AskUserQuestion) carries validated questions + tool_use_id", () => {
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "PreToolUse",
+    tool_name: "AskUserQuestion",
+    tool_use_id: "toolu_1",
+    tool_input: {
+      questions: [
+        {
+          question: "Color?",
+          header: "Color",
+          multiSelect: false,
+          options: [
+            { label: "Red", description: "r" },
+            { label: "Blue", description: "b" },
+          ],
+        },
+      ],
+    },
+  });
+  expect(ev).toEqual({
+    event: "PreToolUse",
+    sessionId: "s1",
+    toolName: "AskUserQuestion",
+    toolUseId: "toolu_1",
+    ask: [
+      {
+        question: "Color?",
+        header: "Color",
+        multiSelect: false,
+        options: [
+          { label: "Red", description: "r" },
+          { label: "Blue", description: "b" },
+        ],
+      },
+    ],
+  });
+});
+
+test("validateHookEvent: PreToolUse with an unparseable tool_input carries no ask", () => {
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "PreToolUse",
+    tool_name: "AskUserQuestion",
+    tool_use_id: "toolu_1",
+    tool_input: { questions: [{ question: "x", kind: "number" }] },
+  });
+  expect(ev).toEqual({
+    event: "PreToolUse",
+    sessionId: "s1",
+    toolName: "AskUserQuestion",
+    toolUseId: "toolu_1",
+  });
+});
+
+test("validateHookEvent: PostToolUse(AskUserQuestion) normalizes the answers", () => {
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "PostToolUse",
+    tool_name: "AskUserQuestion",
+    tool_use_id: "toolu_1",
+    tool_response: { questions: [], answers: { "Color?": "Red", "Tops?": ["Cheese", "Ham"] } },
+  });
+  expect(ev?.toolUseId).toBe("toolu_1");
+  expect(ev?.askAnswers).toEqual({ "Color?": "Red", "Tops?": "Cheese, Ham" });
+});

@@ -8,6 +8,7 @@ import { EventHub } from "../../src/events";
 import type { AppDeps } from "../../src/server";
 import { config } from "../../src/config";
 import { CapabilityService } from "../../src/remote-instances/capability-probe";
+import type { AnswerAskOutcome } from "../../src/ask-answer-service";
 
 /** A seedable snapshot dep: the harness hands the route a live read of `rows`, and a test mutates
  *  `rows` in place for the duration of one request. Same contract as `stubs.herdr` — mutate, make
@@ -53,6 +54,8 @@ export interface ContractDeps {
     resolveForge: { forge: unknown | null };
     /** S11's. Absent ⇒ POST /api/shape answers 503 `{"error":"unavailable"}`. */
     shapeTask: { impl: ((...args: never[]) => Promise<unknown>) | null };
+    /** #3165: what POST answer-ask's service answers. null (the default) is "no open dialog". */
+    askAnswers: { outcome: AnswerAskOutcome | null };
   };
   /** Overrides MAX_UPLOAD_BYTES for POST /api/uploads so the 413 path is testable without
    *  allocating a 250 MB fixture. Assigned on `deps` directly, not through a closure, because
@@ -163,6 +166,7 @@ export function makeContractDeps(): ContractDeps {
   const autoMerge = { rows: [] as unknown[] };
   const resolveForge = { forge: null as unknown | null };
   const shapeTask = { impl: null as ((...args: never[]) => Promise<unknown>) | null };
+  const askAnswers = { outcome: null as AnswerAskOutcome | null };
   // A fixed Linux host for the capability probe (#2770): claude installed and logged in, nothing
   // else. Every seam is injected, so no binary is spawned and no sandbox self-test runs.
   const capabilities = new CapabilityService({
@@ -226,6 +230,9 @@ export function makeContractDeps(): ContractDeps {
     resolveForge: () => resolveForge.forge as never,
     shapeTask: (async (...args: never[]) =>
       shapeTask.impl ? await shapeTask.impl(...args) : { error: "unavailable" }) as never,
+    askAnswers: {
+      answer: async () => askAnswers.outcome ?? { ok: false, status: 409, error: "ask_not_open" },
+    },
   };
   return {
     deps,
@@ -249,6 +256,7 @@ export function makeContractDeps(): ContractDeps {
       autoMerge,
       resolveForge,
       shapeTask,
+      askAnswers,
     },
     setMaxUploadBytes(bytes) {
       deps.maxUploadBytes = bytes;

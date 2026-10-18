@@ -191,7 +191,8 @@ import { buildDeliveryMetrics } from "./delivery-metrics";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
-import { HookIngest, toolUseSince } from "./hooks-ingest";
+import { HookIngest, toolUseSince, type HookEvent } from "./hooks-ingest";
+import { AskAnswerService } from "./ask-answer-service";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -1495,6 +1496,13 @@ const poller = new StatusPoller(
   { onChange: (id, busy) => events.emit("session:background-busy", { id, busy }) },
 );
 
+// #3165: answer an open AskUserQuestion dialog from the native panel by typing it into the pane.
+const askAnswers = new AskAnswerService({
+  currentAsk: (id) => poller.currentAsk(id),
+  askStillOpen: (id, toolUseId) => poller.askStillOpen(id, toolUseId),
+  typeKeys: (id, writes, gapMs, stillValid) => service.typeKeys(id, writes, gapMs, stillValid),
+});
+
 // Proactively re-drive a herdr-restored plugin/account pane (herdr's bare `claude --resume` lost the
 // account's CLAUDE_CONFIG_DIR). Fire-and-forget; reDriveAccount is per-session guarded + bounded.
 // Swallow rejections so an unexpected internal throw can't surface as an unhandled rejection off the
@@ -1534,8 +1542,22 @@ if (hookSignalsWanted && !config.hooksIngest) {
       "Enable ingest first.",
   );
 } else if (hookSignalsWanted) {
+  // #3165: the AskUserQuestion dialog's lifecycle — PreToolUse opens the native panel, the matching
+  // PostToolUse closes + verifies it, and Stop / SessionEnd close it after a local Esc cancel
+  // (which sends no PostToolUse).
+  const routeAskHook = (id: string, ev: HookEvent): void => {
+    if (ev.event === "PreToolUse" && ev.ask && ev.toolUseId) {
+      poller.ingestAsk(id, { toolUseId: ev.toolUseId, questions: ev.ask });
+    } else if ((ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") && ev.toolUseId) {
+      poller.resolveAsk(id, ev.toolUseId);
+      askAnswers.onPostToolUse(id, ev.toolUseId, ev.askAnswers ?? null);
+    } else if (ev.event === "Stop" || ev.event === "SessionEnd") {
+      poller.resolveAsk(id);
+    }
+  };
   // `planStopTrigger` is declared further down and only read when a hook arrives, long after boot.
   hookIngest.setSink((id, ev) => {
+    routeAskHook(id, ev);
     if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
       planStopTrigger.cancel(id);
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });
@@ -3974,6 +3996,7 @@ const appDeps: AppDeps = {
   poller,
   hooks: hookIngest,
   assistantView: new AssistantViewRegistry(),
+  askAnswers,
   reviewCache: {
     snapshot: () => reviewService.snapshot(),
     reviewing: () => reviewService.reviewingInflight(),

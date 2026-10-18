@@ -1357,6 +1357,14 @@ test("spawnSettingsOverlay: hooksIngest on + token => all 8 lifecycle events (in
       "SubagentStop",
     ]);
     expect(parsed.hooks.PreToolUse[0].hooks[0].type).toBe("command");
+    // #3165: ingest's PreToolUse(AskUserQuestion) is concatenated after the guard's, not
+    // overwriting it.
+    expect(parsed.hooks.PreToolUse).toHaveLength(2);
+    expect(parsed.hooks.PreToolUse[0].matcher).toBe("Bash");
+    expect(parsed.hooks.PreToolUse[1].matcher).toBe("AskUserQuestion");
+    expect(parsed.hooks.PreToolUse[1].hooks[0].url).toBe(
+      "http://127.0.0.1:7330/api/sessions/sess-42/hooks",
+    );
     for (const event of [
       "PostToolUse",
       "PostToolUseFailure",
@@ -9378,6 +9386,20 @@ test("interrupt sends ONE lone ESC to the session's live pane — no paste marke
   // Unlike haltAll, a single-target interrupt reports its outcome through the HTTP status, so it
   // emits nothing (and certainly not halt:done, whose count would be a lie for one session).
   expect(emitted).toEqual([]);
+});
+
+test("typeKeys writes one key per send and re-checks stillValid AFTER each gap (#3165)", async () => {
+  let open = true;
+  const { service, session, sent } = interruptHarness({
+    agents: [liveAgent("term_a", "blocked")],
+    send: async (target: string, text: string) => {
+      sent.push({ target, text });
+      // The operator answers locally right after the first key: the next one must not be typed.
+      open = false;
+    },
+  });
+  expect(await service.typeKeys(session.id, ["1", "\r"], 1, () => open)).toBe(false);
+  expect(sent).toEqual([{ target: "term_a", text: "1" }]);
 });
 
 test("interrupt records no signal — `reply` carries operator words and ESC has none", async () => {

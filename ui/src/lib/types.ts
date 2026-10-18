@@ -618,7 +618,27 @@ export interface BlockReason {
    *  open (MCP auth flows, e.g. Notion/Vercel), sourced from the JSONL transcript rather
    *  than the word-wrapped terminal. Drives the "open in browser" affordance. */
   authUrl?: string;
+  /** The AskUserQuestion dialog on screen, as data from the PreToolUse hook (#3165). Drives the
+   *  native answer dialog; absent without hooks. Mirrors server `PendingAsk`. */
+  ask?: PendingAsk;
 }
+
+/** Mirrors server `AskQuestion` (src/ask-user-question.ts). */
+export interface AskQuestion {
+  question: string;
+  header: string;
+  options: { label: string; description: string }[];
+  multiSelect: boolean;
+}
+
+/** Mirrors server `PendingAsk`. */
+export interface PendingAsk {
+  toolUseId: string;
+  questions: AskQuestion[];
+}
+
+/** POST /api/sessions/:id/answer-ask's verdict (open enum on the wire). */
+export type AnswerAskResult = "verified" | "mismatch" | "unverified";
 
 export type HoldCode =
   | "halted-error"
@@ -982,6 +1002,11 @@ export type VisualBlock =
         prompt: string;
         kind: "single" | "multi" | "freeform";
         options?: string[];
+        /** UI-only (#3165, AskUserQuestion): an extra "Other…" choice with a text input, a muted
+         *  description per option and a short header chip. The plan gate never sets these. */
+        allowOther?: boolean;
+        optionDescriptions?: string[];
+        header?: string;
       }[];
     };
 

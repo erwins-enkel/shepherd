@@ -6629,5 +6629,19 @@
   "native_ios_reconnect_not_live_at": "Nicht live · Stand {time}",
   "native_ios_reconnect_reconnected": "Wieder verbunden",
   "native_ios_reconnect_try_again": "Erneut versuchen",
-  "native_ios_reconnect_unreachable": "{server} nicht erreichbar"
+  "native_ios_reconnect_unreachable": "{server} nicht erreichbar",
+  "qform_other": "Andere…",
+  "qform_other_placeholder": "Eigene Antwort",
+  "ask_dialog_title": "Claude fragt",
+  "ask_dialog_hint": "Deine Antwort wird ins Terminal getippt. Die Frage bleibt dort ebenfalls offen — wer zuerst antwortet, gewinnt.",
+  "ask_dialog_submit": "Im Terminal antworten",
+  "ask_banner_title": "Claude stellt {count} Frage(n)",
+  "ask_banner_answer": "Beantworten",
+  "ask_result_sending": "Antwort wird ins Terminal getippt…",
+  "ask_result_verified": "Antwort übermittelt.",
+  "ask_result_mismatch": "Die angekommene Antwort weicht von deiner Auswahl ab — bitte im Terminal prüfen.",
+  "ask_result_unverified": "Antwort konnte nicht bestätigt werden — bitte im Terminal prüfen.",
+  "ask_result_failed": "Antworten fehlgeschlagen — die Frage ist evtl. schon geschlossen. Bitte im Terminal prüfen.",
+  "feat_ask_user_question_panel_title": "Claudes Fragen ohne Terminal beantworten",
+  "feat_ask_user_question_panel_body": "Stellt ein Agent eine Frage mit Optionen, öffnet sich ein Dialog mit Radio-Buttons, Checkboxen und einem Feld „Andere“. Shepherd tippt deine Antwort ins Terminal und bestätigt, was angekommen ist."
 }

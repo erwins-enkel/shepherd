@@ -6629,5 +6629,19 @@
   "native_ios_reconnect_not_live_at": "Not live · as of {time}",
   "native_ios_reconnect_reconnected": "Reconnected",
   "native_ios_reconnect_try_again": "Try again",
-  "native_ios_reconnect_unreachable": "{server} unreachable"
+  "native_ios_reconnect_unreachable": "{server} unreachable",
+  "qform_other": "Other…",
+  "qform_other_placeholder": "Your own answer",
+  "ask_dialog_title": "Claude is asking",
+  "ask_dialog_hint": "Your answer is typed into the terminal. The question stays open there too — whoever answers first wins.",
+  "ask_dialog_submit": "Answer in terminal",
+  "ask_banner_title": "Claude is asking {count} question(s)",
+  "ask_banner_answer": "Answer",
+  "ask_result_sending": "Typing your answer into the terminal…",
+  "ask_result_verified": "Answer delivered.",
+  "ask_result_mismatch": "The answer that landed differs from your choice — check the terminal.",
+  "ask_result_unverified": "Couldn't confirm the answer — check the terminal.",
+  "ask_result_failed": "Couldn't answer — the question may already be closed. Check the terminal.",
+  "feat_ask_user_question_panel_title": "Answer Claude's questions without the terminal",
+  "feat_ask_user_question_panel_body": "When an agent asks you something with options, a dialog opens with radio buttons, checkboxes and an \"Other\" field. Shepherd types your answer into the terminal and confirms what arrived."
 }

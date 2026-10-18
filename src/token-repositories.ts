@@ -83,6 +83,7 @@ const SESSION_POSTS = new Set([
   "rename",
   "go",
   "answer-plan-questions",
+  "answer-ask",
   "review-plan",
   "review-pr",
   "amendments",

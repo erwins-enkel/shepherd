@@ -33,6 +33,7 @@ import {
   type SessionActivity,
 } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
+import type { PendingAsk } from "./ask-user-question";
 import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { MAIN_SESSION_CACHE_TTL } from "./pricing";
 import { statSync } from "node:fs";
@@ -327,6 +328,11 @@ export class StatusPoller {
    *  bootstrap via `blockSnapshot()`. Maintained by `emitBlock`; blocks are otherwise
    *  edge-emitted and would be absent on a fresh page load / push-then-open. */
   private lastBlockReason = new Map<string, BlockReason>();
+  /** #3165: the AskUserQuestion dialog each session's agent is waiting on, from the PreToolUse
+   *  hook. `emitBlock` attaches it to an announced `menu` block as `ask` until a PostToolUse with
+   *  the same tool_use_id, the clear of the block that carried it, a Stop/SessionEnd or the next ask
+   *  ends it. Hook-only: the transcript holds no tool_use while the dialog is open. */
+  private pendingAsk = new Map<string, PendingAsk>();
   /** #1891: last lifecycle state pushed to herdr per session, for push-on-change dedup. */
   private lastPushedState = new Map<string, PushableAgentState>();
   /** #1891: ms of the last detected active turn (an `emitActivity` this probe) — the terminal-scrape
@@ -1469,6 +1475,7 @@ export class StatusPoller {
         this.lastAuthPtyAt.delete(id);
         this.lastAuthUrlEmitted.delete(id);
         this.lastBlockReason.delete(id);
+        this.pendingAsk.delete(id);
         this.lastProbeAt.delete(id);
         this.codexCaptureBackoff.delete(id);
         this.lastActivitySig.delete(id);
@@ -1780,6 +1787,14 @@ export class StatusPoller {
    *  (set on a reason, delete on clear) and forward to the injected `onBlock`. All block
    *  fire/clear paths route through here so a fresh client can bootstrap current blocks. */
   private emitBlock(id: string, block: BlockReason | null): void {
+    const ask = this.pendingAsk.get(id);
+    // Only a rendered dialog can be the AskUserQuestion — never a stall, quota or a bare prompt.
+    if (block?.shape === "menu" && ask) block = { ...block, ask };
+    // The block that carried the ask cleared: the session left the dialog (answered, Esc-cancelled,
+    // interrupted). Drop it so it can never ride a LATER unrelated menu (a permission prompt) — a
+    // cancel sends no PostToolUse and an interrupt no Stop. An ask not yet announced survives an
+    // older block's clear: its dialog is still on its way to the screen.
+    if (!block && this.lastBlockReason.get(id)?.ask) this.pendingAsk.delete(id);
     if (block) this.lastBlockReason.set(id, block);
     else this.lastBlockReason.delete(id);
     this.onBlock(id, block);
@@ -1787,6 +1802,46 @@ export class StatusPoller {
     // post-routing call in reconcileAgent) so a hook-driven awaiting-input block that early-returns at
     // `tryHookAwaitingBlock` still pushes `blocked` immediately, not a tick late.
     this.maybePushAgentState(id);
+  }
+
+  /**
+   * #3165: a PreToolUse(AskUserQuestion) hook arrived — remember the dialog (replacing any earlier
+   * one) and, when a block is already announced, re-emit it carrying `ask` so clients open the
+   * panel without waiting for the next reclassify.
+   */
+  ingestAsk(id: string, ask: PendingAsk): void {
+    this.pendingAsk.set(id, ask);
+    const announced = this.lastBlockReason.get(id);
+    if (announced) this.emitBlock(id, announced);
+  }
+
+  /**
+   * #3165: the dialog ended. With a `toolUseId` (PostToolUse) only that ask clears; without one
+   * (Stop / SessionEnd) whatever is pending clears. An announced block is re-emitted without `ask`
+   * so clients close the panel even before the poller reclassifies the pane.
+   */
+  resolveAsk(id: string, toolUseId?: string): void {
+    const ask = this.pendingAsk.get(id);
+    if (!ask || (toolUseId !== undefined && ask.toolUseId !== toolUseId)) return;
+    this.pendingAsk.delete(id);
+    const announced = this.lastBlockReason.get(id);
+    if (announced?.ask) {
+      const rest = { ...announced };
+      delete rest.ask;
+      this.emitBlock(id, rest);
+    }
+  }
+
+  /** #3165: the ask a client can answer right now — only one an ANNOUNCED block carries, i.e. the
+   *  dialog is both hooked and on screen. */
+  currentAsk(id: string): PendingAsk | null {
+    return this.lastBlockReason.get(id)?.ask ?? null;
+  }
+
+  /** #3165: is this dialog still open per the hooks (no PostToolUse / Stop / newer ask yet)? The
+   *  guard WHILE typing — unlike `currentAsk` it survives a momentary block clear mid-sequence. */
+  askStillOpen(id: string, toolUseId: string): boolean {
+    return this.pendingAsk.get(id)?.toolUseId === toolUseId;
   }
 
   /** Last-emitted block reason per session, for client bootstrap. */

@@ -33,7 +33,7 @@
   import { terminalFontSize, FONT_MIN, FONT_MAX } from "#lib/terminal-font-size.svelte.js";
   import { uiScale } from "#lib/ui-scale.svelte.js";
   import { tick, untrack } from "svelte";
-  import { SvelteMap } from "svelte/reactivity";
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import { attachmentPastePayload } from "#lib/attachment-paste.js";
   import {
     getSessionUsage,
@@ -89,6 +89,7 @@
   import BuildQueuePanel from "#lib/components/BuildQueuePanel.svelte";
   import EpicDraftPanel from "#lib/components/EpicDraftPanel.svelte";
   import EpicDraftModal from "#lib/components/EpicDraftModal.svelte";
+  import AskQuestionDialog from "#lib/components/AskQuestionDialog.svelte";
   import { epicDrafts } from "#lib/epic-draft.svelte.js";
   import SessionRecap from "#lib/components/SessionRecap.svelte";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
@@ -103,7 +104,7 @@
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "#lib/osc52.js";
-  import type { BuildQueue, LoginRequest } from "#lib/types.js";
+  import type { BuildQueue, LoginRequest, PendingAsk } from "#lib/types.js";
   import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import { ATTACHMENTS_DIR, computeHasFiles } from "#lib/session-files.js";
@@ -149,6 +150,7 @@
     workingBlocked = {},
     backgroundBusy = {},
     authUrl = null,
+    ask = null,
     consumeAutoFocusTerm = () => variant !== "assistant",
     drain = null,
     autoMergeTrain = {},
@@ -230,6 +232,9 @@
      *  the block reason). Drives the "open in browser" banner above the terminal; null
      *  when the agent isn't waiting on an auth URL. */
     authUrl?: string | null;
+    /** The open AskUserQuestion dialog on this session's block (#3165): auto-opens the native
+     *  answer dialog once per tool_use id, and a top strip reopens it. */
+    ask?: PendingAsk | null;
     /** One-shot gate for the mount auto-focus: the page records whether the selection
      *  that remounted this terminal *wants* the keyboard (click / Alt-combo / Enter →
      *  yes; plain j/k chaining → no), and this consumes that intent — read it, reset
@@ -576,6 +581,20 @@
   // the fold only applies on the compact layout (it's the mobile space-saver);
   // desktop keeps its own git-actions disclosure untouched.
   const headerFolded = $derived(compact && headerCollapsed);
+
+  // AskUserQuestion answer dialog (#3165). Auto-opens ONCE per tool_use id while this session is
+  // shown — closing it is a decision the next block re-emit must not undo — and closes as soon as
+  // the ask leaves the block (answered in the terminal, cancelled, or the session switched).
+  // Hosted down the file next to EpicDraftModal for the same transform reason.
+  const askSeen = new SvelteSet<string>();
+  let askOpenId = $state<string | null>(null);
+  $effect(() => {
+    const id = ask?.toolUseId ?? null;
+    if (id && !askSeen.has(id)) {
+      askSeen.add(id);
+      askOpenId = id;
+    } else if (id !== askOpenId) askOpenId = null;
+  });
 
   // Epic-draft review dialog. Opened from the EpicDraftPanel bar, hosted DOWN THE FILE outside the
   // .viewport root: .viewport takes a transform mid-swipe, which would become the containing block
@@ -3250,6 +3269,8 @@
       {resumable}
       {stranded}
       {authUrl}
+      {ask}
+      openAsk={() => (askOpenId = ask?.toolUseId ?? null)}
       sessionId={session.id}
       {loginRequest}
       openBrowser={hasBrowser ? () => (tab = "browser") : null}
@@ -3481,6 +3502,10 @@
      carries a transform while a swipe is in flight (style:transform above), and a transformed
      ancestor becomes the containing block for position:fixed — a dialog nested inside would be
      dragged along with the pane instead of staying pinned to the viewport. -->
+{#if ask && askOpenId === ask.toolUseId}
+  <AskQuestionDialog sessionId={session.id} {ask} onclose={() => (askOpenId = null)} />
+{/if}
+
 {#if epicDraftOpen}
   <EpicDraftModal
     sessionId={session.id}

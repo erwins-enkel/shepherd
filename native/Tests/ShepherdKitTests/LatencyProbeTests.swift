@@ -38,7 +38,10 @@ struct LatencyProbeTests {
     #expect(verdict([sample(40, app: 5, lag: 10)]) == .ok)
     #expect(verdict([sample(520, app: 10, lag: 0), sample(480, app: 8, lag: 0)]) == .networkSlow)
     #expect(verdict([sample(1900, app: 1850, lag: 0)]) == .serverSlow)
-    #expect(verdict([sample(60, app: 4, lag: 5200)]) == .serverStalled)
+    #expect(verdict([sample(1400, app: 4, lag: 5200)]) == .serverStalled)
+    // A stall this client never waited on (or only waited on outside the lag window) is not shown.
+    #expect(verdict([sample(60, app: 4, lag: 5200)]) == .ok)
+    #expect(verdict([sample(1400, app: 4, age: 90), sample(60, app: 4, lag: 5200)]) == .ok)
     #expect(verdict([sample(1200), sample(1300)]) == .slowUnknown)
     #expect(verdict([sample(40)]) == .ok)
     #expect(verdict([sample(40, app: 5)], terminal: .init(connectedMs: 300, firstOutputMs: 3500)) == .terminalSlow)

@@ -44,7 +44,7 @@ final class IOSLatencyTests: XCTestCase {
         let terminal = TerminalOpenTiming(connectedMs: 120, firstOutputMs: 140, replayBytes: 2048, renderMs: 20)
         let monitor = IOSLatencyMonitor(readSamples: { samples }, readTerminal: { terminal }, probe: {
             calls += 1
-            samples = [LatencySample(operationID: "session", at: now, totalMs: 100,
+            samples = [LatencySample(operationID: "session", at: now, totalMs: 1200,
                 server: ServerTiming(appMs: 10, lagMs: 5000))]
         }, now: { now })
         XCTAssertEqual(monitor.report.verdict, .measuring)

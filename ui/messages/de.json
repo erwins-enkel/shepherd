@@ -5049,7 +5049,7 @@
   "native_ios_latency_server": "Server",
   "native_ios_latency_server_slow": "Server langsam",
   "native_ios_latency_server_slow_explanation": "Der Server verarbeitet Anfragen langsam; Auslastung und Logs prüfen.",
-  "native_ios_latency_server_stalled": "Server blockiert",
+  "native_ios_latency_server_stalled": "Server hängt",
   "native_ios_latency_server_stalled_explanation": "Die Ereignisschleife des Servers war kürzlich blockiert, daher wartet jede Anfrage – an der Verbindung liegt es nicht. Auslastung in der Diagnose des Servers prüfen.",
   "native_ios_latency_slow_unknown": "Langsam, Ursache unklar",
   "native_ios_latency_slow_unknown_explanation": "Anfragen sind langsam, die Ursache ist unklar; Shepherd auf dem Server aktualisieren, um Netzwerk- und Serverzeit zu unterscheiden.",

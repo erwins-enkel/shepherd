@@ -29,6 +29,10 @@ const STALE_MS = 24 * 60 * 60 * 1000;
  *  logged one yet and stale DB rollout paths by also considering $CODEX_HOME/sessions. */
 const ROLLOUT_SCAN_LIMIT = 24;
 const ROLLOUT_TAIL_BYTES = 1_000_000;
+/** How long `CodexUsageProvider` reuses one state-DB read and one rollout walk. Both are synchronous
+ *  on the event loop, and the state DB grows to hundreds of MB (~100 ms per aggregate), while
+ *  `snapshot()` runs inside every `limits()` call — drain alone asks once per repo per tick. */
+const STATE_TTL_MS = 15_000;
 
 interface CodexUsageRow {
   totalTokens: number | null;
@@ -411,6 +415,14 @@ export function readCodexRateLimits(paths: string[], now: number): CodexRateLimi
   return null;
 }
 
+/** A memo entry still inside {@link STATE_TTL_MS}; a clock that moved backwards counts as expired. */
+function fresh<T>(
+  entry: { at: number; value: T } | null,
+  now: number,
+): entry is { at: number; value: T } {
+  return entry !== null && now >= entry.at && now - entry.at < STATE_TTL_MS;
+}
+
 export class CodexUsageProvider implements UsageProviderSource {
   constructor(
     private stateDbPath?: string,
@@ -425,11 +437,12 @@ export class CodexUsageProvider implements UsageProviderSource {
   // per poller tick). Cache the parsed rate limits keyed on candidate path + mtime + size so a
   // re-read only happens after Codex actually logs a new turn.
   private rlCache: { key: string; value: CodexRateLimits | null } | null = null;
+  private stateCache: { at: number; value: CodexState | null } | null = null;
+  private fsCache: { at: number; value: RolloutCandidate[] } | null = null;
 
   snapshot(now: number): UsageProviderSnapshot | null {
-    const path = this.stateDbPath ?? latestCodexStateDb(this.home);
     const account = this.account?.();
-    const st = path ? readCodexState(path, now) : null;
+    const st = this.state(now);
     if (!st && !account) return null;
     const base: CodexTokenSnapshot = st
       ? tokenSnapshot(st, now)
@@ -467,11 +480,7 @@ export class CodexUsageProvider implements UsageProviderSource {
     now: number,
     resetStatus?: CodexResetStatus,
   ): CodexTokenSnapshot {
-    const fsCandidates = recentCodexRolloutPaths(this.home).flatMap((p) => {
-      const c = rolloutCandidate(p);
-      return c ? [c] : [];
-    });
-    const candidates = dedupeRolloutCandidates(st?.rolloutPaths ?? [], fsCandidates);
+    const candidates = dedupeRolloutCandidates(st?.rolloutPaths ?? [], this.fsCandidates(now));
     const rl = this.rateLimits(candidates, now);
     return {
       ...base,
@@ -483,6 +492,24 @@ export class CodexUsageProvider implements UsageProviderSource {
       rateLimitFilesScanned: rl?.filesScanned ?? candidates.length,
       rateLimitLatestEventAt: rl?.latestEventAt ?? null,
     };
+  }
+
+  private state(now: number): CodexState | null {
+    if (fresh(this.stateCache, now)) return this.stateCache.value;
+    const path = this.stateDbPath ?? latestCodexStateDb(this.home);
+    const value = path ? readCodexState(path, now) : null;
+    this.stateCache = { at: now, value };
+    return value;
+  }
+
+  private fsCandidates(now: number): RolloutCandidate[] {
+    if (fresh(this.fsCache, now)) return this.fsCache.value;
+    const value = recentCodexRolloutPaths(this.home).flatMap((p) => {
+      const c = rolloutCandidate(p);
+      return c ? [c] : [];
+    });
+    this.fsCache = { at: now, value };
+    return value;
   }
 
   private rateLimits(candidates: RolloutCandidate[], now: number): CodexRateLimits | null {

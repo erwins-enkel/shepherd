@@ -7,7 +7,10 @@ store, a transport error, an ended-unreachable PTY, or a server-stalled latency
 verdict. It uses the session's `AppModel`, never the hub's focused server.
 
 A stalled event loop can belong to a slow but reachable server. It still locks
-input because this is the operator's reported failure. Retry uses that server's
+input because this is the operator's reported failure. `LatencyReport` calls it
+stalled only once one of this device's own requests in the 60-second lag window
+waited at least a second, so a stall the device never felt neither locks input nor
+turns the header red. Retry uses that server's
 existing `app.retry()`, confirms a fresh response for the terminal's own session,
 and calls `takeOver()` only for an ended-unreachable terminal. Input stays locked
 until the outage predicate clears and a recovering attachment finishes connecting.

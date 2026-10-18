@@ -191,7 +191,7 @@ final class IOSReconnectTests: XCTestCase {
         terminal.rendererMounted(cols: 48, rows: 24)
         pty.emit(.attached)
         await settle { core.phase == .live }
-        var samples = [LatencySample(operationID: "session", at: .now, totalMs: 100, server: .init(appMs: 10, lagMs: 5000))]
+        var samples = [LatencySample(operationID: "session", at: .now, totalMs: 1200, server: .init(appMs: 10, lagMs: 5000))]
         let latency = IOSLatencyMonitor(readSamples: { samples }, readTerminal: { nil }, probe: {})
         latency.refresh()
         let connection = IOSTerminalConnection(app: app, hub: nil, terminal: terminal, latency: latency)
@@ -215,7 +215,7 @@ final class IOSReconnectTests: XCTestCase {
         XCTAssertFalse(terminal.inputLocked, "A successful response acknowledges that stall episode promptly")
         samples = [LatencySample(operationID: "session", at: .now, totalMs: 80, server: .init(appMs: 10, lagMs: 0))]
         latency.refresh(); connection.update()
-        samples = [LatencySample(operationID: "session", at: .now, totalMs: 100, server: .init(appMs: 10, lagMs: 6000))]
+        samples = [LatencySample(operationID: "session", at: .now, totalMs: 1200, server: .init(appMs: 10, lagMs: 6000))]
         latency.refresh(); connection.update()
         XCTAssertTrue(terminal.inputLocked, "A new stall after recovery locks again")
         ReconnectSessionTransport.failing.withLock { $0 = true }

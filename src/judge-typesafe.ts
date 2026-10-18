@@ -162,3 +162,48 @@ export function createTypeSafeJudge(options: TypeSafeJudgeOptions): Judge {
     },
   };
 }
+
+/** What a key check found. `rejected`: the backend refused the key (401/403). `unreachable`:
+ *  anything else — no connection, the deadline, a 5xx, or a server without `GET /v1/models`. */
+export type TypeSafeProbeResult =
+  | { ok: true; models: string[] }
+  | { ok: false; kind: "rejected" | "unreachable"; status: number | null };
+
+export interface TypeSafeProbeOptions {
+  apiKey: string;
+  baseUrl: string;
+  /** Total wall-clock budget, retries included — the same bound every `ask` runs under. */
+  deadlineMs: number;
+  /** Injected so tests drive the real SDK with no network. */
+  fetch?: Fetch;
+}
+
+/**
+ * Check a key without spending anything (#3071): `GET /v1/models` lists the models the ACCOUNT can
+ * use, so the backend has to authenticate the key to answer, but it reads no input tokens — and
+ * input tokens are all this vendor bills. Measured against the live API: a bogus key gets a 401
+ * `authentication_error`, a missing one a 403.
+ *
+ * The answer's model names are kept: they are what Settings offers as suggestions for the pinned
+ * model, so the operator picks a name this account can actually call.
+ */
+export async function probeTypeSafeKey(
+  options: TypeSafeProbeOptions,
+): Promise<TypeSafeProbeResult> {
+  try {
+    const client = new TypeSafeClient({
+      apiKey: options.apiKey,
+      baseURL: options.baseUrl,
+      timeout: attemptTimeoutMs(options.deadlineMs),
+      logLevel: "warn",
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+    });
+    const models = await client.models.list({ signal: AbortSignal.timeout(options.deadlineMs) });
+    return { ok: true, models: models.map((m) => m.name).filter((n) => typeof n === "string") };
+  } catch (err) {
+    if (err instanceof APIError && (err.status === 401 || err.status === 403)) {
+      return { ok: false, kind: "rejected", status: err.status };
+    }
+    return { ok: false, kind: "unreachable", status: err instanceof APIError ? err.status : null };
+  }
+}

@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { createTypeSafeJudge, judgeCostUsd, JUDGE_INPUT_USD_PER_MTOK } from "../src/judge-typesafe";
+import {
+  createTypeSafeJudge,
+  judgeCostUsd,
+  JUDGE_INPUT_USD_PER_MTOK,
+  probeTypeSafeKey,
+} from "../src/judge-typesafe";
 import { JudgeError } from "../src/judge";
 import { isCannotRun, isPermanent } from "../scripts/eval-core";
 
@@ -250,4 +255,73 @@ test("input is billed and output is free", () => {
   // A realistic classifier call is a couple of thousand tokens — a small fraction of a cent, which
   // is what makes the metered call admissible against the subscription-spawn doctrine at all.
   expect(judgeCostUsd(2_000)).toBeLessThan(0.001);
+});
+
+// ── the free key check (#3071) ──────────────────────────────────────────────────
+
+function probe(
+  fetchImpl: (input: string, init?: RequestInit) => Promise<Response>,
+  deadlineMs = 8_000,
+) {
+  return probeTypeSafeKey({
+    apiKey: "test-key",
+    baseUrl: "https://judge.test",
+    deadlineMs,
+    fetch: fetchImpl,
+  });
+}
+
+test("the key check lists the account's models — a GET that reads no billed input", async () => {
+  const seen: { url: string; method: string | undefined; auth: string | null }[] = [];
+  const result = await probe(async (url, init) => {
+    seen.push({ url, method: init?.method, auth: new Headers(init?.headers).get("authorization") });
+    return jsonResponse({
+      models: [
+        { name: "jev-1.13.0", description: "d", release_date: "2026-01-01" },
+        { name: "jev-1.14.0", description: "d", release_date: "2026-05-01" },
+      ],
+    });
+  });
+  expect(result).toEqual({ ok: true, models: ["jev-1.13.0", "jev-1.14.0"] });
+  expect(seen).toEqual([
+    { url: "https://judge.test/v1/models", method: "GET", auth: "Bearer test-key" },
+  ]);
+});
+
+test("a 401 or 403 is a rejected key, and is not retried", async () => {
+  for (const status of [401, 403]) {
+    let calls = 0;
+    const result = await probe(async () => {
+      calls++;
+      return jsonResponse({ detail: { error_type: "authentication_error" } }, status);
+    });
+    expect(result).toEqual({ ok: false, kind: "rejected", status });
+    expect(calls).toBe(1);
+  }
+});
+
+test("anything else is unreachable — a missing endpoint, a server error, no connection", async () => {
+  expect(await probe(async () => jsonResponse({ detail: "no" }, 404))).toEqual({
+    ok: false,
+    kind: "unreachable",
+    status: 404,
+  });
+  expect(
+    await probe(async () => {
+      throw new TypeError("fetch failed");
+    }),
+  ).toEqual({ ok: false, kind: "unreachable", status: null });
+});
+
+test("the key check gives up at its deadline", async () => {
+  const started = Date.now();
+  const result = await probe(
+    (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      }),
+    1_000,
+  );
+  expect(result).toMatchObject({ ok: false, kind: "unreachable" });
+  expect(Date.now() - started).toBeLessThan(5_000);
 });

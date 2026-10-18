@@ -137,7 +137,7 @@ public struct LatencyReport: Equatable, Sendable {
     case networkSlow
     /// Handlers themselves are slow.
     case serverSlow
-    /// The server's event loop froze recently: every request waits, however small.
+    /// The server's event loop froze recently and this client's own requests waited on it.
     case serverStalled
     /// Opening the terminal stream is slow while plain requests are fine.
     case terminalSlow
@@ -155,6 +155,10 @@ public struct LatencyReport: Equatable, Sendable {
     public static let renderMs = 500.0
     public static let unknownTotalMs = 800.0
   }
+
+  /// The span a server `lag` value covers (`LAG_WINDOW_MS` in `src/server-timing.ts`). A stall
+  /// counts only when one of this client's requests inside it waited at least `Threshold.lagMs`.
+  public static let lagWindow: TimeInterval = 60
 
   public var verdict: Verdict
   public var sampleCount: Int
@@ -186,14 +190,15 @@ public struct LatencyReport: Equatable, Sendable {
     // Only the freshest lag counts: each value already covers the server's last minute.
     lagMaxMs = recent.last(where: { $0.server?.lagMs != nil })?.server?.lagMs
     serverReportsTiming = !apps.isEmpty
+    let felt = recent.filter { now.timeIntervalSince($0.at) <= Self.lagWindow }.map(\.totalMs).max()
     verdict = Self.verdict(sampleCount: recent.count, totalMedian: totalMedianMs, network: networkMedianMs,
-      server: serverMedianMs, lag: lagMaxMs, timed: !apps.isEmpty, terminal: terminal)
+      server: serverMedianMs, lag: lagMaxMs, felt: felt, timed: !apps.isEmpty, terminal: terminal)
   }
 
   private static func verdict(sampleCount: Int, totalMedian: Double?, network: Double?, server: Double?,
-                              lag: Double?, timed: Bool, terminal: TerminalOpenTiming?) -> Verdict {
+                              lag: Double?, felt: Double?, timed: Bool, terminal: TerminalOpenTiming?) -> Verdict {
     guard sampleCount > 0 else { return .measuring }
-    if let lag, lag >= Threshold.lagMs { return .serverStalled }
+    if let lag, lag >= Threshold.lagMs, let felt, felt >= Threshold.lagMs { return .serverStalled }
     if let server, server >= Threshold.serverMs { return .serverSlow }
     if let network, network >= Threshold.networkMs { return .networkSlow }
     if !timed, let totalMedian, totalMedian >= Threshold.unknownTotalMs { return .slowUnknown }

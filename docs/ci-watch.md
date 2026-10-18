@@ -16,6 +16,7 @@ What it uses:
   Gitea there is no flake probe and triage sees no log.
 - **The judge (optional).** The classification step is the
   [fast stop classifier's](https://docs.shepherd.run/reference/configuration/#fast-stop-classifier-the-judge) JEV judge:
+  the stop classifier on and a JEV key — set both in Settings → Decision model, or with
   `SHEPHERD_JUDGE=1` plus `JEV_API_KEY`. Its spend counts toward `SHEPHERD_JUDGE_DAILY_USD`.
   Without it, classification is skipped and every failure goes to triage.
 - **Your subscription.** Triage spawns a read-only Sonnet agent per failure. Plugin agents are

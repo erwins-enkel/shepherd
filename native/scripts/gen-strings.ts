@@ -582,6 +582,15 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
 
 /** S5 — local server detection, install, start/stop/restart and the log tail. */
 export const KEYS_LOCALSERVER: readonly string[] = [
+  "native_battery_body",
+  "native_battery_changing",
+  "native_battery_continue",
+  "native_battery_pause",
+  "native_battery_pause_failed",
+  "native_battery_paused",
+  "native_battery_resume",
+  "native_battery_resume_failed",
+  "native_battery_title",
   "native_local_banner_not_installed",
   "native_local_banner_settings",
   "native_local_banner_starting",

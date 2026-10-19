@@ -639,6 +639,15 @@
 "native_banner_needs_login" = "Your session expired. Sign in again.";
 "native_banner_offline" = "Cannot reach %1$@. Retrying.";
 "native_banner_unhealthy" = "%1$@ answered but reports a problem. Retrying.";
+"native_battery_body" = "Shepherd is working in the background on this Mac and uses energy. Pause local work until external power returns? Work resumes automatically when you plug in.";
+"native_battery_changing" = "Changing battery pause…";
+"native_battery_continue" = "Keep running";
+"native_battery_pause" = "Pause until plugged in";
+"native_battery_pause_failed" = "Could not pause local work. Please try again; work has not been confirmed paused.";
+"native_battery_paused" = "Battery pause · Resumes on external power";
+"native_battery_resume" = "Resume now";
+"native_battery_resume_failed" = "Could not resume all local work. Please try Resume now again.";
+"native_battery_title" = "Your Mac is on battery";
 "native_close_confirm_body" = "The Shepherd server keeps running in the background. Running sessions and agents continue working, including on remote servers.\n\nTo stop the local server, cancel and choose Stop in “Run on this Mac”. Open Shepherd again to follow your sessions.";
 "native_close_confirm_title" = "Close the Shepherd window?";
 "native_compose_attach" = "Add attachment";

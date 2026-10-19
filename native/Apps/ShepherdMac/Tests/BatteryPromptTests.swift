@@ -1,9 +1,19 @@
 import AppKit
 import Testing
 import ShepherdKit
+import ShepherdAppCore
 @testable import Shepherd
 
 @Suite @MainActor struct BatteryPromptTests {
+    @Test func batteryDecisionCopyExistsInAppBundle() {
+        let keys: [StaticString] = [
+            "native_battery_title", "native_battery_body", "native_battery_pause",
+            "native_battery_continue", "native_battery_paused", "native_battery_changing",
+            "native_battery_resume", "native_battery_pause_failed", "native_battery_resume_failed",
+        ]
+        for key in keys { #expect(L.t(key) != "\(key)") }
+    }
+
     @Test func promptRequiresBatteryAndLocalWorkAndNeverTimesOut() {
         var policy = BatteryPromptPolicy()
         #expect(!policy.shouldPresent(localRunning: true, phase: .running))

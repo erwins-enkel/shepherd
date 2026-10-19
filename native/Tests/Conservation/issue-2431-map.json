@@ -12816,7 +12816,8 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/BatteryPromptTests.swift\",\"BatteryPromptTests\",\"continuingLastsUntilNextBatteryCycle()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/BatteryPromptTests.swift\",\"BatteryPromptTests\",\"panelStaysVisibleWithoutTakingKeyboardFocus()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/BatteryPromptTests.swift\",\"BatteryPromptTests\",\"promptRequiresBatteryAndLocalWorkAndNeverTimesOut()\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"quittingTheServerParentKeepsWorkPausedUntilPowerReturns() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"quittingTheServerParentKeepsWorkPausedUntilPowerReturns() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/BatteryPromptTests.swift\",\"BatteryPromptTests\",\"batteryDecisionCopyExistsInAppBundle()\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

@@ -11,6 +11,7 @@ import type {
   IssueFetchAttempt,
   PullRequest,
   ActivityEntry,
+  SessionMessages,
   SteerLogEntry,
   SessionUsage,
   UsageLimits,
@@ -1486,6 +1487,13 @@ export async function getSessionUsage(id: string): Promise<SessionUsage> {
 export async function getActivity(id: string): Promise<ActivityEntry[]> {
   const r = await fetch(`/api/sessions/${id}/activity`);
   if (!r.ok) throw await failed(r, "activity");
+  return r.json();
+}
+
+/** The session's newest `limit` transcript text messages, the operator's own included. */
+export async function getSessionMessages(id: string, limit: number): Promise<SessionMessages> {
+  const r = await fetch(`/api/sessions/${id}/messages?limit=${limit}&includeUser=1`);
+  if (!r.ok) throw await failed(r, "messages");
   return r.json();
 }
 

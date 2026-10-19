@@ -542,6 +542,21 @@
   export function focusTerminal() {
     if (tab === "term") termRef?.focus();
   }
+  /** The assistant's conversation view: submit `text` at the agent's prompt on this terminal's
+   *  socket (the same bracketed paste + CR as the compose bar), so the operator's view report
+   *  rides with it. False when no live terminal is attached to carry it. */
+  export function sendLine(text: string): boolean {
+    if (!ptyLive || !conn) return false;
+    sendComposed(text);
+    return true;
+  }
+  /** Interrupt the agent's turn: the lone Escape the touch Esc sends. */
+  export function sendInterrupt(): boolean {
+    if (!ptyLive || !conn) return false;
+    bumpOperatorInput();
+    conn.send("\x1b");
+    return true;
+  }
   // true when the user has scrolled up away from the latest output → show a
   // jump-to-bottom affordance bottom-right of the terminal. Two regimes
   // (see `agentOwnsScroll`):

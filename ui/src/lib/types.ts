@@ -1980,6 +1980,24 @@ export interface ActivityEntry {
   status: "ok" | "error" | "pending";
 }
 
+/** Mirrors server `AgentMessage` (src/agent-messages.ts): one transcript text message. */
+export interface AgentMessage {
+  role: "assistant" | "user";
+  /** Verbatim — untrusted agent output (and, for `user`, anything the transcript logged as input). */
+  text: string;
+  /** ms epoch; 0 when the record carried none. */
+  ts: number;
+}
+
+/** Mirrors server `SessionMessages` (GET /api/sessions/:id/messages). */
+export interface SessionMessages {
+  /** Oldest first. */
+  messages: AgentMessage[];
+  awaitingInput: boolean;
+  pendingQuestion: string | null;
+  unavailable: "no-transcript" | "file-missing" | null;
+}
+
 /**
  * One entry in a session's sub-agent roster (mirrors the server shape).
  * `startedAt`/`endedAt` are ms-epoch server time; `endedAt` absent ⇒ the

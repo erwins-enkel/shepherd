@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { recordPowerPane } from "./power-panes";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
 import {
@@ -1221,6 +1222,12 @@ export class HerdrDriver implements IHerdrDriver {
       if (tabId) await this.closeTab(tabId, { allowLastTab: true }).catch(() => {});
       throw new Error(`herdr: tab create returned an incomplete shell pane for ${label}`);
     }
+    try {
+      recordPowerPane(paneId);
+    } catch (error) {
+      await this.closeTab(tabId, { allowLastTab: true }).catch(() => {});
+      throw error;
+    }
     return { tabId, paneId, terminalId, cwd: pane.cwd ?? "" };
   }
 
@@ -1300,6 +1307,7 @@ export class HerdrDriver implements IHerdrDriver {
       // close, so a missing one is fatal.
       const paneId = rootPaneId;
       if (!paneId) throw new Error(`herdr: tab create returned no root pane for ${name}`);
+      recordPowerPane(paneId);
       const wrapped = buildWrappedArgv(argv, env);
       await this.runInReadyPane(paneId, wrapped);
       // Second defined checkpoint. It matters most for the SANDBOXED branch below, which resolves
@@ -1321,6 +1329,7 @@ export class HerdrDriver implements IHerdrDriver {
       // Retain the authoritative spawn handle (#1852): the tab is ours even if the process inside
       // dies before it next appears in `agent list`.
       this.ledger.record(agent.terminalId, tabId, name);
+      recordPowerPane(agent.paneId);
       return agent;
     } catch (err) {
       await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
@@ -1515,6 +1524,7 @@ export class HerdrDriver implements IHerdrDriver {
       // Retain the authoritative spawn handle (#1852): the tab exists and is ours even
       // if the process inside dies before it ever appears in `agent list`.
       this.ledger.record(agent.terminalId, tabId, name);
+      recordPowerPane(agent.paneId);
 
       if (rootPaneId && !isHeadlessCodexExec(argv)) {
         try {

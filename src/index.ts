@@ -1,3 +1,4 @@
+import { enablePowerPaneJournal } from "./power-panes";
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
 import { LoginRequestService } from "./login-request";
@@ -329,6 +330,7 @@ if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 const store = new SessionStore(config.dbPath);
+if (process.platform === "darwin") enablePowerPaneJournal(config.dbPath);
 const githubReadCache: GithubReadCache = new GithubReadCache(store, {
   canRefresh: () => fingerprint.backgroundReady(),
 });

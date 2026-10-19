@@ -6751,5 +6751,16 @@
   "tooltip_block_backstop_fallback": "Wenn es nicht antworten kann",
   "tooltip_block_backstop_fallback_body": "Jeder Fehler, jede Zeitüberschreitung und ein erreichtes Limit melden die Karte sofort – ein echter Dialog wird nie verborgen.",
   "feat_decision_model_settings_title": "Entscheidungsmodell in den Einstellungen",
-  "feat_decision_model_settings_body": "Füge deinen JEV-Schlüssel unter Einstellungen → Entscheidungsmodell ein, prüfe ihn und schalte den schnellen Stop-Klassifikator ein – ohne Shell, ohne Neustart. Modell, Adresse und Zeitbudget lassen sich dort ebenfalls ändern, und die Judge-Funktionen stehen gesammelt mit dem, was jede braucht."
+  "feat_decision_model_settings_body": "Füge deinen JEV-Schlüssel unter Einstellungen → Entscheidungsmodell ein, prüfe ihn und schalte den schnellen Stop-Klassifikator ein – ohne Shell, ohne Neustart. Modell, Adresse und Zeitbudget lassen sich dort ebenfalls ändern, und die Judge-Funktionen stehen gesammelt mit dem, was jede braucht.",
+  "native_battery_title": "Dein Mac läuft jetzt auf Akku",
+  "native_battery_body": "Shepherd arbeitet auf diesem Mac im Hintergrund und verbraucht dabei Energie. Möchtest du die lokale Arbeit bis zum nächsten Netzanschluss pausieren? Am Netzstrom geht es automatisch weiter.",
+  "native_battery_pause": "Bis Netzstrom pausieren",
+  "native_battery_continue": "Weiterlaufen lassen",
+  "native_battery_paused": "Akku-Pause · Weiter bei Netzstrom",
+  "native_battery_changing": "Akku-Pause wird umgestellt …",
+  "native_battery_resume": "Jetzt fortsetzen",
+  "native_battery_pause_failed": "Die lokale Arbeit konnte nicht pausiert werden. Bitte erneut versuchen; die Pause ist nicht bestätigt.",
+  "native_battery_resume_failed": "Die lokale Arbeit konnte nicht vollständig fortgesetzt werden. Bitte „Jetzt fortsetzen“ erneut wählen.",
+  "feature_native_battery_title": "Akku-Pause auf dem Mac",
+  "feature_native_battery_body": "Ein dauerhaftes Panel fragt im Akkubetrieb, ob lokale Arbeit pausieren soll. Am Netzstrom geht es automatisch weiter – auch nach dem Beenden der App."
 }

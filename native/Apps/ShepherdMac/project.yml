@@ -53,6 +53,8 @@ targets:
     sources:
       - path: Sources
     dependencies:
+      - target: ShepherdPowerHelper
+        link: false
       - package: ShepherdKit
         product: ShepherdKit
       - package: Sparkle
@@ -61,6 +63,13 @@ targets:
         product: ShepherdAppCore
       - package: SwiftTerm
         product: SwiftTerm
+    postBuildScripts:
+      - name: Embed battery pause helper
+        script: 'cp "${BUILT_PRODUCTS_DIR}/ShepherdPowerHelper" "${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/ShepherdPowerHelper"'
+        inputFiles:
+          - "$(BUILT_PRODUCTS_DIR)/ShepherdPowerHelper"
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/ShepherdPowerHelper"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.mac
@@ -95,6 +104,18 @@ targets:
         # The hardened runtime turns library validation on; ad-hoc code has no
         # Team ID, so without this the app cannot load its own embedded code.
         com.apple.security.cs.disable-library-validation: true
+  ShepherdPowerHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: ../../Helpers/ShepherdPowerHelper
+    dependencies:
+      - package: ShepherdKit
+        product: ShepherdKit
+    settings:
+      base:
+        PRODUCT_NAME: ShepherdPowerHelper
+        SKIP_INSTALL: YES
   ShepherdTests:
     type: bundle.unit-test
     platform: macOS

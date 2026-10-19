@@ -5,6 +5,22 @@ import ShepherdKit
 // server. Only the supplied temporary directory and /bin/sh fixture are used.
 #if os(macOS)
 let home = URL(fileURLWithPath: CommandLine.arguments[1])
+if CommandLine.arguments.dropFirst(2).first == "battery-parent" {
+  let child = Process()
+  child.executableURL = URL(fileURLWithPath: "/bin/sh")
+  child.arguments = [home.appendingPathComponent("fake.sh").path]
+  child.currentDirectoryURL = home
+  child.environment = ["PATH": "/usr/bin:/bin"]
+  child.standardInput = FileHandle.nullDevice
+  child.standardOutput = FileHandle.nullDevice
+  child.standardError = FileHandle.nullDevice
+  try child.run()
+  try String(child.processIdentifier).write(to: home.appendingPathComponent("server.pid"), atomically: true, encoding: .utf8)
+  while !FileManager.default.fileExists(atPath: home.appendingPathComponent("quit-parent").path) {
+    try await Task.sleep(for: .milliseconds(20))
+  }
+  exit(0)
+}
 if CommandLine.arguments.dropFirst(2).first == "runner" {
   let runner = LocalRunnerStart(environment: LocalServerEnvironment(home: home, processEnvironment: [
     "PATH": "/usr/bin:/bin", "HERDR_BIN": home.appendingPathComponent("fake runner").path,

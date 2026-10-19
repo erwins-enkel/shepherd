@@ -51,6 +51,7 @@ struct LocalConnectionBanner: View {
     private var refreshID: String { "\(app.activationGeneration):\(isOffline):\(app.retrying)" }
 
     var body: some View {
+        if !(local.batteryPauseActive && canManageLocal) {
         ConnectionBanner(kind: kind, isRetrying: app.retrying,
             localPresentation: presentation, localBusy: local.busy,
             onLocalAction: { action in
@@ -64,5 +65,6 @@ struct LocalConnectionBanner: View {
                 guard isOffline, canManageLocal, !Task.isCancelled else { return }
                 await local.refresh()
             }
+        }
     }
 }

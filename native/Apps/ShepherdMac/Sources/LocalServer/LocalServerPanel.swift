@@ -88,7 +88,7 @@ struct LocalServerPanel: View {
     @State private var discardConfirmationPaths: [String] = []
 
     private var panel: LocalServerPanelState {
-        LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged,
+        LocalServerPanelState(state: model.state, busy: model.busy || model.batteryPauseActive, externalAcknowledged: model.externalAcknowledged,
             managesUpdates: model.canManageUpdates, updateBehind: model.updateStatus?.behind ?? 0,
             checkingUpdate: model.isCheckingUpdate, updateFailed: model.updateFailure != nil,
             hasDiscardChanges: !model.pendingDiscardPaths.isEmpty,
@@ -97,6 +97,7 @@ struct LocalServerPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            BatteryPauseStatus()
             statusLine
             if model.state == .externallyManaged { externalNotice }
             if let failure = model.runnerFailure {

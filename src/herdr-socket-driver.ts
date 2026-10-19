@@ -1,5 +1,6 @@
 import { HerdrSocketClient } from "./herdr-socket-client";
 import { assertArgvWithinLimit } from "./argv-limit";
+import { recordPowerPane } from "./power-panes";
 import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
@@ -235,6 +236,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
     // rollback). A missing root pane is such a failure — on 0.7.5 that pane IS the agent pane.
     try {
       if (!rootPaneId) throw new Error(`herdr: tab.create returned no root pane for ${name}`);
+      recordPowerPane(rootPaneId);
       await this.runInReadyPane(rootPaneId, buildWrappedArgv(argv, env));
       // Second defined checkpoint — same rationale as the CLI driver: the sandboxed branch below
       // resolves without a poll loop, so this is where a cancel catches it. The catch closes the
@@ -251,6 +253,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       // Retain the authoritative spawn handle (#1852) — the tab is ours even if the process inside
       // dies before it next appears in `agent.list`.
       this.ledger.record(agent.terminalId, tabId, name);
+      recordPowerPane(agent.paneId);
       return agent;
     } catch (err) {
       await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
@@ -417,6 +420,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       const started = parseAgentInfo(agent);
       // Retain the authoritative spawn handle (#1852) — see the CLI driver's startImpl.
       this.ledger.record(started.terminalId, tabId, name);
+      recordPowerPane(started.paneId);
       if (rootPaneId && !isHeadlessCodexExec(argv)) {
         try {
           await this.client.request("pane.close", { pane_id: rootPaneId });

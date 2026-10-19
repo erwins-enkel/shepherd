@@ -126,6 +126,28 @@ describe("yesNoQuestions", () => {
     );
   });
 
+  it("recognizes a final standalone question after a separate status list", () => {
+    expect(
+      yesNoQuestions("1. PR gemergt\n2. Epic fortgesetzt\n\nSoll ich fortfahren? (Ja/Nein)"),
+    ).toEqual([{ number: null, text: "Soll ich fortfahren? (Ja/Nein)" }]);
+  });
+
+  it.each(["\n", "\n\n"])(
+    "recognizes the trailing question list after an earlier status list (%j)",
+    (separator) => {
+      expect(
+        yesNoQuestions(
+          "1. PR gemergt\n2. Epic fortgesetzt\n\n1. Starten? (Ja/Nein)" +
+            separator +
+            "2. Stoppen? (Ja/Nein)",
+        ),
+      ).toEqual([
+        { number: "1", text: "Starten? (Ja/Nein)" },
+        { number: "2", text: "Stoppen? (Ja/Nein)" },
+      ]);
+    },
+  );
+
   it("includes blank-separated list items", () => {
     expect(yesNoQuestions("1. Start? (Yes/No)\n\n2. Stop? (Yes/No)").map((q) => q.number)).toEqual([
       "1",
@@ -153,6 +175,7 @@ describe("yesNoQuestions", () => {
     "    Starten? (Ja/Nein)",
     "1. Starten? (Ja/Nein)\n2. Welche Farbe?",
     "1. Welche Farbe?\n2. Starten? (Ja/Nein)",
+    "1. Welche Farbe?\n\n2. Starten? (Ja/Nein)",
   ])("ignores unsupported content: %s", (text) => {
     expect(yesNoQuestions(text)).toEqual([]);
   });

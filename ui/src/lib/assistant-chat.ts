@@ -113,22 +113,40 @@ export function yesNoQuestions(text: string): YesNoQuestion[] {
       if (fence || quoted || /^(?: {4}|\t)/.test(line)) return null;
       return line.trim().replace(/^[*_]+|[*_]+$/g, "");
     });
-  const last = lines.at(-1);
-  if (!last) return [];
-  const numberedLine = /^\d+[.)]\s/;
-  // Reject interrupted/wrapped lists rather than answering only their final item.
-  const start = lines.findIndex((line) => line !== null && numberedLine.test(line));
-  const candidates = start < 0 ? [last] : lines.slice(start);
+  const candidates = trailingQuestionLines(lines);
   const questions = [];
   for (const line of candidates) {
     if (line === "") continue;
     if (!line) return [];
     const question = parseYesNoQuestion(line);
     if (!question) return [];
-    if (start >= 0 && question.number === null) return [];
     questions.push(question);
   }
   return questions;
+}
+
+/** Only the trailing list belongs to the answer; earlier status lists are context. */
+function trailingQuestionLines(lines: (string | null)[]): (string | null)[] {
+  const numberedLine = /^\d+[.)]\s/;
+  let start = lines.length - 1;
+  const numbered = numberedLine.test(lines[start] ?? "");
+  for (let i = start - 1; numbered && i >= 0; i--) {
+    if (lines[i] === "") {
+      const previous = lines.slice(0, i).findLastIndex((line) => line !== "");
+      // Blank lines join question items, but separate a preceding status list.
+      if (!/^\d+[.)]\s.*\?/.test(lines[previous] ?? "")) break;
+      i = previous;
+    }
+    const line = lines[i];
+    if (!line || !numberedLine.test(line)) break;
+    start = i;
+  }
+  const prefix = lines.slice(0, start);
+  const boundary = prefix.findLastIndex((line) => !line);
+  // A wrapped item in the same paragraph must not become a partial answer.
+  if (prefix.slice(boundary + 1).some((line) => line !== null && numberedLine.test(line)))
+    return [];
+  return lines.slice(start);
 }
 
 /** Validate one explicit question after its Markdown context has been checked. */

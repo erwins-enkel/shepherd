@@ -204,6 +204,10 @@ They change Shepherd state exactly like the operator's own buttons. steer: sessi
 - A group turned off answers so: tell the operator which setting would allow it. Never work around it (no Bash, curl or shepherd CLI for Shepherd state).
 - pr_merge never takes over someone else's merge: hand a merge_confirm_required answer back to the operator.
 
+## Operator decisions
+- Ask every decision or confirmation through AskUserQuestion, not as a prose-only question. For a yes/no decision provide two options in the operator's language (Ja/Nein in German, Yes/No in English), with multiSelect: false.
+- For multiple decisions, put each in its own question in AskUserQuestion; split into further calls if the tool's question limit is reached. Wait for the answers before acting. A request for confirmation never authorizes the action by itself.
+
 ## Symptom → evidence
 1. Herds "just stop": herd_status. Sessions in planPhase "planning" waiting for the operator, or blocked ones, fill the auto slots (maxAuto), so nothing new starts. Fix: answer or approve those sessions' plans (plan_answer, plan_release on request), or raise maxAuto (repo_automation_set).
 2. Epic shows "label-drain suspended" or "Paused": repo_automation({epicParent}). With autoDrainEnabled off nothing starts from labels and landing-PR repairs don't run; otherwise the pause reason names the session, the usage ceiling or the forge. Fix: right-click or long-press the repo chip → Repo automation settings → Auto-Drain on (maxAuto still applies), or resume the epic from its epic card.

@@ -91,3 +91,54 @@ export function viewFocus(
   const s = herd.find((h) => h.id === focus.id);
   return s ? { desig: s.desig, tab: focus.tab, host: null } : null;
 }
+
+type YesNoQuestion = { number: string | null; text: string };
+
+/** Explicit yes/no questions at the end of a reply, never examples in quotes or code. */
+export function yesNoQuestions(text: string): YesNoQuestion[] {
+  let fence: string | null = null;
+  let quoted = false;
+  const lines = text
+    .trimEnd()
+    .split("\n")
+    .map((line) => {
+      const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (marker) {
+        if (!fence) fence = marker;
+        else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+        return null;
+      }
+      if (!line.trim()) quoted = false;
+      if (/^\s*>/.test(line)) quoted = true;
+      if (fence || quoted || /^(?: {4}|\t)/.test(line)) return null;
+      return line.trim().replace(/^[*_]+|[*_]+$/g, "");
+    });
+  const last = lines.at(-1);
+  if (!last) return [];
+  const numberedLine = /^\d+[.)]\s/;
+  // Reject interrupted/wrapped lists rather than answering only their final item.
+  const start = lines.findIndex((line) => line !== null && numberedLine.test(line));
+  const candidates = start < 0 ? [last] : lines.slice(start);
+  const questions = [];
+  for (const line of candidates) {
+    if (line === "") continue;
+    if (!line) return [];
+    const question = parseYesNoQuestion(line);
+    if (!question) return [];
+    if (start >= 0 && question.number === null) return [];
+    questions.push(question);
+  }
+  return questions;
+}
+
+/** Validate one explicit question after its Markdown context has been checked. */
+function parseYesNoQuestion(line: string): YesNoQuestion | null {
+  const match = /^(\d+)[.)]\s+(.+)$/.exec(line);
+  const question = (match ? match[2] : line).replace(/^[*_]+|[*_]+$/g, "");
+  const plain = question.replace(/[*_]/g, "");
+  const marker = /\s*\(\s*(?:ja\s*\/\s*nein|yes\s*\/\s*no)\s*\)\s*(\?)?$/i.exec(plain);
+  if (!marker) return null;
+  const stem = plain.slice(0, marker.index).trim();
+  if ((!stem.endsWith("?") && !marker[1]) || !stem.replace(/\?$/, "").trim()) return null;
+  return { number: match?.[1] ?? null, text: question };
+}

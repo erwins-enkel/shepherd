@@ -1,5 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import {
+  epicLandingLocked,
+  effectiveEpicLanding,
   epicRunEnding,
   computeEpicOthersFlags,
   deriveChildState,
@@ -399,5 +401,18 @@ describe("epicNotYetStarted (#3101)", () => {
     expect(epicNotYetStarted([{ state: "ready" }], 1)).toBe(false);
     expect(epicNotYetStarted([{ state: "running" }], 0)).toBe(false);
     expect(epicNotYetStarted([{ state: "in-review" }], 0)).toBe(false);
+  });
+});
+
+describe("epic landing lock (#3191)", () => {
+  test("locked once the clock exists or the branch is pinned", () => {
+    expect(epicLandingLocked({ hasClock: false, pinned: false })).toBe(false);
+    expect(epicLandingLocked({ hasClock: true, pinned: false })).toBe(true);
+    expect(epicLandingLocked({ hasClock: false, pinned: true })).toBe(true);
+  });
+
+  test("absent landing is integration", () => {
+    expect(effectiveEpicLanding({})).toBe("integration");
+    expect(effectiveEpicLanding({ landing: "incremental" })).toBe("incremental");
   });
 });

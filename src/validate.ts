@@ -26,6 +26,7 @@ import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandb
 import { type Capability, parseRequirements } from "./remote-instances/capabilities";
 import { type Placement, parsePlacementRecord } from "./remote-instances/placement";
 import type { TaskText } from "./requirements-classify-core";
+import type { EpicLanding } from "./epic-core";
 import { normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
@@ -1456,6 +1457,7 @@ export type EpicRunPatch = {
   model?: string | null;
   effort?: string | null;
   ignoreUsageCeiling?: boolean;
+  landing?: EpicLanding;
 };
 
 const EPIC_RUN_PATCH_KEYS = [
@@ -1465,6 +1467,7 @@ const EPIC_RUN_PATCH_KEYS = [
   "model",
   "effort",
   "ignoreUsageCeiling",
+  "landing",
 ] as const;
 const EPIC_RUN_PATCH_KEY_SET = new Set(EPIC_RUN_PATCH_KEYS);
 type EpicRunPatchKey = (typeof EPIC_RUN_PATCH_KEYS)[number];
@@ -1476,6 +1479,11 @@ function parseEpicRunMode(v: unknown): EpicRunPatch["mode"] | null {
 
 function parseEpicRunStatus(v: unknown): EpicRunPatch["status"] | null {
   return v === "idle" || v === "running" || v === "paused" ? v : null;
+}
+
+/** An epic landing mode (#3191), or null for anything else. */
+export function parseEpicLanding(v: unknown): EpicLanding | null {
+  return v === "integration" || v === "incremental" ? v : null;
 }
 
 function parseEpicRunAgentProvider(v: unknown): AgentProvider | null | undefined {
@@ -1517,6 +1525,12 @@ const EPIC_RUN_PATCH_FIELD_VALIDATORS: Record<EpicRunPatchKey, EpicRunPatchField
   ignoreUsageCeiling(value, out) {
     if (typeof value !== "boolean") return false;
     out.ignoreUsageCeiling = value;
+    return true;
+  },
+  landing(value, out) {
+    const landing = parseEpicLanding(value);
+    if (landing === null) return false;
+    out.landing = landing;
     return true;
   },
 };

@@ -92,6 +92,7 @@ import {
   validateRetry,
   validateIconPatch,
   validateEpicRunPatch,
+  parseEpicLanding,
   type EpicRunPatch,
   validateEgressExtraHosts,
   validateBrowserAllowedHosts,
@@ -340,8 +341,13 @@ import type { StatusPoller } from "./poller";
 import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
-import type { Epic, EpicRun, EpicSource } from "./epic-core";
-import { computeEpicOthersFlags, queuedEpicRun } from "./epic-core";
+import type { Epic, EpicLanding, EpicRun, EpicSource } from "./epic-core";
+import {
+  computeEpicOthersFlags,
+  effectiveEpicLanding,
+  queuedEpicRun,
+  readEpicLandingLocked,
+} from "./epic-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import { validateEpicDraft, materializeEpicDraft, forgeSupportsIssueCreation } from "./epic-author";
@@ -5942,7 +5948,65 @@ function resolveApproveContext(
   return { session, forge, value: semantic.value };
 }
 
-async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
+/** #3191: the approve's optional `{ landing }` body. An empty body, or one not sent as JSON, keeps
+ *  today's behaviour (landing absent); a JSON body that is not an object or names an invalid
+ *  landing is a 400. */
+async function parseApproveLanding(
+  req: Request,
+): Promise<{ landing: EpicLanding | undefined } | Response> {
+  if (requireJsonContentType(req)) return { landing: undefined };
+  const text = await req.text().catch(() => "");
+  if (text.trim() === "") return { landing: undefined };
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return json({ error: "invalid approve body" }, 400);
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return json({ error: "invalid approve body" }, 400);
+  const raw = (body as { landing?: unknown }).landing;
+  if (raw === undefined) return { landing: undefined };
+  const landing = parseEpicLanding(raw);
+  return landing ? { landing } : json({ error: "invalid landing" }, 400);
+}
+
+/** Register the just-approved epic so buildEpic assembles it (mirrors handleEpicPut): it takes the
+ *  repo's run row unless another epic leads — approving a draft must not silently stop the epic
+ *  that runs. An incremental landing (#3191) is persisted where the epic's settings live: on that
+ *  new run row, else on its remembered settings when it has no run or queue row. */
+function registerApprovedEpic(
+  store: AppDeps["store"],
+  dir: string,
+  parentIssueNumber: number,
+  landing: EpicLanding | undefined,
+): void {
+  const incremental = landing === "incremental";
+  if (!leadingRun(store, dir)) {
+    const run = defaultEpicRun(dir, parentIssueNumber);
+    store.setEpicRun(incremental ? { ...run, landing } : run);
+    return;
+  }
+  if (!incremental || epicSettingsPlace(store, dir, parentIssueNumber) !== "remembered") return;
+  const { repoPath, mode, agentProvider, model, effort } = runForParent(
+    store,
+    dir,
+    parentIssueNumber,
+  );
+  store.setEpicSettings({
+    repoPath,
+    parentIssueNumber,
+    mode,
+    agentProvider,
+    model,
+    effort,
+    landing,
+  });
+}
+
+async function approveEpicDraft(deps: AppDeps, id: string, req: Request): Promise<Response> {
+  const parsed = await parseApproveLanding(req);
+  if (parsed instanceof Response) return parsed;
   const ctx = resolveApproveContext(deps, id);
   if ("done" in ctx) return ctx.done;
   const { session, forge, value } = ctx;
@@ -5961,13 +6025,10 @@ async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
       onChildCreated: (key, number) => deps.store.recordEpicDraftChild(id, key, number),
       onParentCreated: (number, url) => deps.store.recordEpicDraftParent(id, number, url),
     });
-    // Recognition: a fence in a fresh parent body is not auto-discovered — register the epic run so
-    // buildEpic assembles it (mirrors handleEpicPut). Replaces an idle prior run for this repo, but
-    // never a leading one: approving a draft must not silently stop the epic that runs.
+    // Recognition: a fence in a fresh parent body is not auto-discovered — register the epic run.
     let epic: Epic | null = null;
     if (deps.drain) {
-      if (!leadingRun(deps.store, session.repoPath))
-        deps.store.setEpicRun(defaultEpicRun(session.repoPath, result.parentNumber));
+      registerApprovedEpic(deps.store, session.repoPath, result.parentNumber, parsed.landing);
       epic = await deps.drain.buildEpic(
         session.repoPath,
         runForParent(deps.store, session.repoPath, result.parentNumber),
@@ -6010,7 +6071,7 @@ async function handleEpicDraft({ req, parts, deps }: Ctx): Promise<Response | nu
   if (req.method === "GET" && !parts[4]) return json(deps.store.getEpicDraft(id));
   if (req.method === "PUT" && !parts[4]) return putEpicDraft(req, deps, id);
   if (req.method === "POST" && parts[4] === "approve" && !parts[5])
-    return approveEpicDraft(deps, id);
+    return approveEpicDraft(deps, id, req);
   return null;
 }
 
@@ -10062,6 +10123,7 @@ function mergeEpicRunPatch(
     ...(patch.ignoreUsageCeiling !== undefined
       ? { ignoreUsageCeiling: patch.ignoreUsageCeiling }
       : {}),
+    ...(patch.landing !== undefined ? { landing: patch.landing } : {}),
     ...providerSettings,
   };
 }
@@ -10495,6 +10557,17 @@ function stopsAnotherEpicsLead(
   return !!leader && leader.parentIssueNumber !== parentIssueNumber;
 }
 
+/** #3191: the patch changes the epic's landing after it started (clock or pinned branch). Setting
+ *  the landing it already has is a no-op, never refused. */
+function changesLockedLanding(
+  store: AppDeps["store"],
+  base: EpicRun,
+  patch: EpicRunPatch,
+): boolean {
+  if (patch.landing === undefined || patch.landing === effectiveEpicLanding(base)) return false;
+  return readEpicLandingLocked(store, base.repoPath, base.parentIssueNumber);
+}
+
 interface SavedEpicRunPatch {
   /** A start cleared the epic's stale completion (the band must drop it). */
   cleared: boolean;
@@ -10565,6 +10638,24 @@ function isEpicPutRequest(req: Request, parts: string[]): boolean {
   return req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && !parts[2];
 }
 
+/** Why the PUT refuses a valid patch against the epic's current run, else null: a landing change
+ *  after the epic started (409), or a model the Codex ChatGPT login cannot run (400). */
+function refusedEpicRunPatch(deps: AppDeps, base: EpicRun, patch: EpicRunPatch): Response | null {
+  if (changesLockedLanding(deps.store, base, patch)) return json({ error: "landing locked" }, 409);
+  const incompatibleModel = incompatibleEpicModelForAuth(
+    base,
+    patch,
+    deps.readCodexAuthMode?.() ?? readCodexAuthMode(),
+  );
+  if (!incompatibleModel) return null;
+  return json(
+    {
+      error: `model "${incompatibleModel}" is not supported when using Codex with a ChatGPT account`,
+    },
+    400,
+  );
+}
+
 // PUT /api/epic?repo=&parent= — patch the EpicRun settings, re-assemble, emit.
 async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
   if (!isEpicPutRequest(req, parts)) return null;
@@ -10582,18 +10673,8 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
     return json({ error: "another epic leads" }, 409);
   const place = epicSettingsPlace(deps.store, dir, parentNumber);
   const base = runForParent(deps.store, dir, parentNumber);
-  const incompatibleModel = incompatibleEpicModelForAuth(
-    base,
-    patch,
-    deps.readCodexAuthMode?.() ?? readCodexAuthMode(),
-  );
-  if (incompatibleModel)
-    return json(
-      {
-        error: `model "${incompatibleModel}" is not supported when using Codex with a ChatGPT account`,
-      },
-      400,
-    );
+  const refused = refusedEpicRunPatch(deps, base, patch);
+  if (refused) return refused;
   const merged = patchedEpicRun(base, patch);
   if (merged instanceof Response) return merged;
   const leader = leadingRun(deps.store, dir);

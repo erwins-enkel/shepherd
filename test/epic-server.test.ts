@@ -79,6 +79,13 @@ describe("validateEpicRunPatch", () => {
     expect(validateEpicRunPatch({ ignoreUsageCeiling: null })).toBeNull();
   });
 
+  test("landing accepts integration/incremental and rejects anything else (#3191)", () => {
+    expect(validateEpicRunPatch({ landing: "incremental" })).toEqual({ landing: "incremental" });
+    expect(validateEpicRunPatch({ landing: "integration" })).toEqual({ landing: "integration" });
+    expect(validateEpicRunPatch({ landing: "bogus" })).toBeNull();
+    expect(validateEpicRunPatch({ landing: null })).toBeNull();
+  });
+
   test("invalid {status:'bogus'} → null", () => {
     expect(validateEpicRunPatch({ status: "bogus" })).toBeNull();
   });
@@ -2782,5 +2789,67 @@ describe("PUT /api/epic ignoreUsageCeiling", () => {
     await app.fetch(put(100, { ignoreUsageCeiling: true }));
     await app.fetch(put(100, { mode: "attended" }));
     expect(store.getEpicRun(repoDir)).toMatchObject({ mode: "attended", ignoreUsageCeiling: true });
+  });
+});
+
+// ── PUT /api/epic — landing + its lock (#3191) ───────────────────────────────
+
+describe("PUT /api/epic landing", () => {
+  const putLanding = (app: ReturnType<typeof makeApp>, body: unknown) =>
+    app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  test("before the epic started, a landing change persists", async () => {
+    const { app, store } = harness();
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 327, mode: "auto", status: "idle" });
+    const res = await putLanding(app, { landing: "incremental" });
+    expect(res.status).toBe(200);
+    expect(store.getEpicRun(repoDir)?.landing).toBe("incremental");
+  });
+
+  test("a remembered (no run row) epic stores the landing in its settings", async () => {
+    const { app, store } = harness();
+    expect((await putLanding(app, { landing: "incremental" })).status).toBe(200);
+    expect(store.getEpicSettings(repoDir, 327)?.landing).toBe("incremental");
+  });
+
+  test("once the clock exists, a landing change is 409 landing locked", async () => {
+    const { app, store } = harness();
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 327,
+      mode: "auto",
+      status: "running",
+    });
+    expect(store.getEpicClock(repoDir, 327)).not.toBeNull();
+    const res = await putLanding(app, { landing: "incremental" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "landing locked" });
+    expect(store.getEpicRun(repoDir)?.landing ?? "integration").toBe("integration");
+  });
+
+  test("once the integration branch is pinned, a landing change is 409", async () => {
+    const { app, store } = harness();
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 327, mode: "auto", status: "idle" });
+    store.getOrInitEpicIntegrationBranch(repoDir, 327, "epic/327-x");
+    const res = await putLanding(app, { landing: "incremental" });
+    expect(res.status).toBe(409);
+  });
+
+  test("setting the landing it already has is allowed while locked", async () => {
+    const { app, store } = harness();
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 327,
+      mode: "auto",
+      status: "running",
+    });
+    expect((await putLanding(app, { landing: "integration" })).status).toBe(200);
+    expect((await putLanding(app, { mode: "attended" })).status).toBe(200);
   });
 });

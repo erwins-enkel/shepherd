@@ -188,6 +188,32 @@ export interface EpicQueueEntry {
   createdAt: number;
 }
 
+/** An epic's landing (#3191) is fixed once it has started: its clock exists (it ran) or its
+ *  integration branch is pinned (children may already base on it). */
+export function epicLandingLocked(facts: { hasClock: boolean; pinned: boolean }): boolean {
+  return facts.hasClock || facts.pinned;
+}
+
+/** {@link epicLandingLocked} from the store's clock + pin rows for one epic. */
+export function readEpicLandingLocked(
+  store: {
+    getEpicClock(repoPath: string, parentIssueNumber: number): unknown;
+    getEpicIntegrationBranch(repoPath: string, parentIssueNumber: number): string | null;
+  },
+  repoPath: string,
+  parentIssueNumber: number,
+): boolean {
+  return epicLandingLocked({
+    hasClock: store.getEpicClock(repoPath, parentIssueNumber) != null,
+    pinned: store.getEpicIntegrationBranch(repoPath, parentIssueNumber) != null,
+  });
+}
+
+/** An epic's effective landing; absent = `integration`. */
+export function effectiveEpicLanding(run: Pick<EpicRun, "landing">): EpicLanding {
+  return run.landing ?? "integration";
+}
+
 /** A queued epic's stored settings as an (idle) run — what its detail and a promotion start from. */
 export function queuedEpicRun(entry: EpicQueueEntry): EpicRun {
   return {

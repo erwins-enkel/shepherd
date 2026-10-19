@@ -1344,6 +1344,9 @@ export interface EpicChild {
   /** Epoch ms the child was done; null while not done or when unknown. Absent from older servers. */
   endedAt?: number | null;
 }
+/** How an epic's children land (#3191): via its integration branch (default) or one by one on the
+ *  default branch. */
+export type EpicLanding = "integration" | "incremental";
 export interface EpicRun {
   repoPath: string;
   parentIssueNumber: number;

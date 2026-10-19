@@ -258,6 +258,67 @@ test("a failed materialize reverts the draft to 'draft' so a retry can resume", 
   expect(store.getEpicDraft(s.id)?.status).toBe("draft"); // reverted, not stuck at materializing
 });
 
+const approveWith = (app: ReturnType<typeof makeApp>, id: string, body: string) =>
+  app.fetch(
+    new Request(`http://x/api/sessions/${id}/epic-draft/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    }),
+  );
+
+test("approve with {landing:'incremental'} persists it on the registered run (#3191)", async () => {
+  const { app, store } = harness(fakeForge().forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  const res = await approveWith(app, s.id, JSON.stringify({ landing: "incremental" }));
+  expect(res.status).toBe(200);
+  expect(store.getEpicRun(repoDir)).toMatchObject({
+    parentIssueNumber: 102,
+    status: "idle",
+    landing: "incremental",
+  });
+});
+
+test("approve with {landing:'incremental'} behind a leader persists it as settings (#3191)", async () => {
+  const { app, store } = harness(fakeForge().forge);
+  store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 7, mode: "auto", status: "running" });
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  const res = await approveWith(app, s.id, JSON.stringify({ landing: "incremental" }));
+  expect(res.status).toBe(200);
+  expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 7, status: "running" });
+  expect(store.getEpicSettings(repoDir, 102)).toMatchObject({ landing: "incremental" });
+});
+
+test("approve with no body or an empty JSON body keeps the default landing (#3191)", async () => {
+  for (const send of [
+    (app: ReturnType<typeof makeApp>, id: string) => approve(app, id),
+    (app: ReturnType<typeof makeApp>, id: string) => approveWith(app, id, ""),
+    (app: ReturnType<typeof makeApp>, id: string) => approveWith(app, id, "{}"),
+  ]) {
+    const { app, store } = harness(fakeForge().forge);
+    const s = makeSession(store);
+    await putDraft(app, s.id);
+    expect((await send(app, s.id)).status).toBe(200);
+    const run = store.getEpicRun(repoDir);
+    expect(run?.parentIssueNumber).toBe(102);
+    expect(run?.landing ?? "integration").toBe("integration");
+  }
+});
+
+test("approve 400s on an invalid landing before materializing anything (#3191)", async () => {
+  const fk = fakeForge();
+  const { app, store } = harness(fk.forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  for (const body of [JSON.stringify({ landing: "bogus" }), "[]", "not json"]) {
+    expect((await approveWith(app, s.id, body)).status).toBe(400);
+  }
+  expect(fk.created).toEqual([]);
+  expect(store.getEpicDraft(s.id)?.status).toBe("draft");
+});
+
 // The approve request itself outruns Bun's 10s default idle timeout (~25 sequential GitHub calls for
 // a 12-child epic), so `serve()` lifts it per-request. Guard the route matching: a rename here would
 // silently sever the socket mid-materialize again, and the operator would see a bogus failure for an

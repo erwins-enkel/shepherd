@@ -31,6 +31,7 @@ import {
 } from "./epic-branch";
 import {
   epicQuiescentForCadenceRebase,
+  epicLandingLocked,
   epicNotYetStarted,
   unlandedPredecessorEpics,
   queuedEpicRun,
@@ -869,7 +870,11 @@ export class DrainService {
         epic.parentIssueNumber,
         forecast.firstFinishAt,
       );
-    return { ...timed, forecast };
+    const landingLocked = epicLandingLocked({
+      hasClock: clock != null,
+      pinned: this.deps.store.getEpicIntegrationBranch(repoPath, epic.parentIssueNumber) != null,
+    });
+    return { ...timed, forecast, landingLocked };
   }
 
   /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). Reuses the

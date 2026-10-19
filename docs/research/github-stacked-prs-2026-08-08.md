@@ -713,8 +713,9 @@ computed greedily (for #464 also checked against the Dilworth minimum, which agr
 
 - **Granularity.** Stack squash gives one commit per layer. Shape (a) more generally gives one commit
   per child on `main`, so the changelog gets N lines instead of one `feat: … (epic #N)` line. That is
-  the history-quality gain §5.2.1 already argued for. The cost is that a child typed `test:` /
-  `refactor:` / `chore:` is hidden by `release-please-config.json`'s `changelog-sections`. An epic of
+  the history-quality gain §5.2.1 already argued for. The cost is that a child typed `build:` /
+  `ci:` / `chore:` / `test:` / `style:` is hidden by `release-please-config.json`'s
+  `changelog-sections` (`refactor:` is shown, under "Code Refactoring"). An epic of
   mostly hidden types would no longer show up as one feature line. A `!` breaking marker must sit on
   the child that breaks, not on the parent.
 - **Which subject lands.**

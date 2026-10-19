@@ -90,6 +90,19 @@ final class LocalServerModel {
     private(set) var state: LocalServerState = .stopped
     private(set) var logLines: [String] = []
     private(set) var busy = false
+    private(set) var batteryPauseActive = false
+    var batteryPause: LocalBatteryPause { LocalBatteryPause(environment: environment) }
+
+    func setBatteryPauseActive(_ active: Bool) {
+        guard batteryPauseActive != active else { return }
+        batteryPauseActive = active
+        if active {
+            cancelAutomaticUpdateCheck()
+            if let pid = batteryPause.pausedServerPID { state = .running(pid: pid) }
+        } else {
+            Task { await self.refreshAtLaunch(); await self.refresh() }
+        }
+    }
     private(set) var externalIdentity: LocalServerIdentity?
     private(set) var externalAcknowledged = false
     private(set) var runnerFailure: LocalServerFailure?
@@ -300,12 +313,12 @@ final class LocalServerModel {
         default: !busy && !recoveryFailed && (state == .notInstalled || isFailed)
         }
     }
-    var canStart: Bool { !busy && !recoveryFailed && (state == .stopped || isFailed) }
-    var canStop: Bool { !busy && state.isRunning }
-    var canRestart: Bool { !busy && state.isRunning }
+    var canStart: Bool { !batteryPauseActive && !busy && !recoveryFailed && (state == .stopped || isFailed) }
+    var canStop: Bool { !batteryPauseActive && !busy && state.isRunning }
+    var canRestart: Bool { !batteryPauseActive && !busy && state.isRunning }
 
     var canManageUpdates: Bool {
-        updatesAllowed && !recoveryFailed && environment.isShepherdCheckout() && state != .notInstalled && state != .installing && state != .externallyManaged
+        !batteryPauseActive && updatesAllowed && !recoveryFailed && environment.isShepherdCheckout() && state != .notInstalled && state != .installing && state != .externallyManaged
     }
 
     /// Order matters: a server we already supervise wins over the loopback probe,
@@ -325,6 +338,7 @@ final class LocalServerModel {
     func refresh() async { _ = await refreshResolvedState() }
 
     private func refreshResolvedState() async -> Bool {
+        guard !batteryPauseActive else { return false }
         guard !busy else { return false }
         guard await ensureLaunchRecovery(), !busy else { await pullLog(); return false }
         if recoveryFailed { await pullLog(); return false }
@@ -336,13 +350,14 @@ final class LocalServerModel {
     /// Only launch may start a stopped server. A lifecycle action during
     /// discovery wins, including an operator's deliberate Stop.
     func refreshAtLaunch() async {
+        guard !batteryPauseActive else { return }
         guard !launchRefreshStarted else { return }
         launchRefreshStarted = true
         let expected = lifecycleGeneration
         // A panel refresh can supersede launch discovery. Retry before using
         // the initial stopped state, which has not yet ruled out a foreign server.
         while !(await refreshResolvedState()) {
-            guard !busy, !recoveryFailed, !quittingUpdates,
+            guard !batteryPauseActive, !busy, !recoveryFailed, !quittingUpdates,
                   lifecycleGeneration == expected else { return }
         }
         guard automaticStartAllowed, automaticChecksAllowed, startOnLaunch, !busy, !recoveryFailed,
@@ -536,6 +551,7 @@ final class LocalServerModel {
     }
 
     private var automaticChecksAllowed: Bool {
+        guard !batteryPauseActive else { return false }
         if let automaticProfileSource { return Self.allowsAutomaticUpdates(automaticProfileSource(), endpoint: baseURL) }
         return automaticUpdatesAllowed
     }
@@ -888,8 +904,9 @@ final class LocalServerModel {
     nonisolated func terminateForQuit() { supervisor.terminateForQuit() }
 
     private func act(ifLifecycleGeneration expected: Int? = nil, _ body: @MainActor () async -> Void) async {
+        guard !batteryPauseActive else { return }
         guard await ensureLaunchRecovery() else { return }
-        guard !busy, !recoveryFailed,
+        guard !batteryPauseActive, !busy, !recoveryFailed,
               expected == nil || lifecycleGeneration == expected else { return }
         busy = true
         generation += 1

@@ -28,6 +28,7 @@ enum LocalServerFeature {
         // Bind before launch work so every automatic decision reads the current
         // profile, even before its observation callback has run.
         LocalServerModel.shared.bindAutomaticProfile { [weak app] in app?.activeProfile }
+        BatteryPauseModel.shared.start()
         // Ownership recovery/adoption also runs with a remote active profile.
         Task { await LocalServerModel.shared.refreshAtLaunch() }
         // Automated launches must never fetch or mutate the operator's checkout.

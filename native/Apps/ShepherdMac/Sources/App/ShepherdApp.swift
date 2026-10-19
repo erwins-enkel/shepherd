@@ -72,6 +72,12 @@ struct ShepherdApp: App {
                 AppUpdateMenu(updater: appUpdater)
             }
             CommandGroup(after: .appSettings) {
+                if BatteryPauseModel.shared.isActive {
+                    Button(L.t("native_battery_resume")) { BatteryPauseModel.shared.resumeNow() }
+                } else {
+                    Button(L.t("native_battery_pause")) { BatteryPauseModel.shared.showDecision() }
+                        .disabled(!BatteryPauseModel.shared.canPause)
+                }
                 Button(L.t("native_local_open_web")) { NSWorkspace.shared.open(localServer.baseURL) }
                     .disabled(!(localServer.state.isRunning || localServer.state == .externallyManaged))
             }
@@ -112,6 +118,7 @@ struct RootView: View {
         @Bindable var model = model
 
         return VStack(spacing: 0) {
+            BatteryPauseStatus()
             if let warning = model.credentialAccessWarning {
                 NoticeBar(message: warning, actionTitle: L.t("common_retry"), onAction: {
                     Task { await model.retryCredentialAccess() }

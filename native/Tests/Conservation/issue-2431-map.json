@@ -12805,7 +12805,18 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QuestionFormCoreTests.swift\",\"CoreSeamTests.QuestionFormTests\",\"otherNeedsItsTextAndMakesAMultiRequired()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QuestionFormCoreTests.swift\",\"CoreSeamTests.QuestionFormTests\",\"planFormsIgnoreOtherState()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlanTests.swift\",\"ShepherdClientPlanTests\",\"answerAsk(verdict: String) async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlanTests.swift\",\"ShepherdClientPlanTests\",\"answerAskFailures(_ c: (Int, String, ShepherdError)) async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlanTests.swift\",\"ShepherdClientPlanTests\",\"answerAskFailures(_ c: (Int, String, ShepherdError)) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"abandonedGuardianRecoveryRestoresOnlyRecordedBirthIdentities() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"manualResumeAndCancellationReleaseOwnedWork() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"pausesRealWorkAndResumesOnlyOwnedProcessesOnExternalPower() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"processArgumentsAreNotMistakenForEnvironmentMarkers()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"readsOnlyThisDatabasesSessionsAndReviewers() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"returnedPowerAndInvalidOwnershipNeverStopServer() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"runnerLookupIncludesRecordedAuxiliariesAndExcludesForeignPanes() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/BatteryPromptTests.swift\",\"BatteryPromptTests\",\"continuingLastsUntilNextBatteryCycle()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/BatteryPromptTests.swift\",\"BatteryPromptTests\",\"panelStaysVisibleWithoutTakingKeyboardFocus()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/BatteryPromptTests.swift\",\"BatteryPromptTests\",\"promptRequiresBatteryAndLocalWorkAndNeverTimesOut()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"quittingTheServerParentKeepsWorkPausedUntilPowerReturns() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

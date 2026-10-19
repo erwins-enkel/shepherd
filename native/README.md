@@ -34,6 +34,18 @@ automatic updates and dev rebuilds. The next launch resumes supervision. Use **S
 **Restart** in **Run on this Mac** to control the server. A dev rebuild retains the running
 server code; **Restart** explicitly loads the updated code.
 
+On battery power, a prominent panel at the top right of the display asks whether to keep local
+work running or **Pause until plugged in**. It stays visible across app switches until you choose
+or external power returns. Continuing dismisses it for the current battery cycle. The same
+decision is available in the Shepherd menu; **Resume now** overrides an active pause.
+
+Battery pause requires the current, app-managed local backend. It suspends that server and its
+recorded agent/terminal process trees, including local tools and previews. A bundled helper
+automatically resumes only the processes it suspended when external power returns, even after
+quitting the app. Existing stopped processes stay stopped. Remote agent processes keep running,
+although a connection routed through the paused local server is unavailable until it resumes.
+Long-running network requests may time out during a pause and need retrying afterwards.
+
 Ownership and private logs in `~/.shepherd/run/` are scoped by port and canonical installation
 and database paths. Adoption and every signal validate the kernel process start time, so a
 reused PID cannot grant ownership. Generated boot passwords use a separate 0600 one-shot file,

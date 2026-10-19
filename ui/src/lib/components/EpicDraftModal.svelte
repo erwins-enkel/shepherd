@@ -7,6 +7,9 @@
   import { approveEpic } from "#lib/epic-approve.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import type { EpicLanding } from "#lib/types.js";
+  import { epicLandingExplanation } from "#lib/tooltips/explanations.js";
+  import InfoTip from "#lib/components/InfoTip.svelte";
   import { childWaves, splitMarkdownSections } from "#lib/epic-draft-outline.js";
   import EpicDraftToc from "#lib/components/EpicDraftToc.svelte";
   import EpicDraftDocument from "#lib/components/EpicDraftDocument.svelte";
@@ -85,6 +88,8 @@
   });
 
   let approving = $state(false);
+  // #3191: how the approved epic lands. Only a non-default choice is sent.
+  let landing = $state<EpicLanding>("integration");
   let abortArmed = $state(false);
   let amendText = $state("");
 
@@ -96,7 +101,7 @@
     const sid = sessionId;
     approving = true;
     try {
-      await approveEpic(sid);
+      await approveEpic(sid, landing === "incremental" ? landing : undefined);
     } finally {
       approving = false;
     }
@@ -240,6 +245,31 @@
             <span class="seen-progress"
               >{m.epicdraft_seen_progress({ seen: seen.size, total: children.length })}</span
             >
+            <div class="landing" role="radiogroup" aria-label={m.epicdraft_landing_label()}>
+              <span class="landing-label" aria-hidden="true">{m.epicdraft_landing_label()}</span>
+              <label class="landing-opt">
+                <input
+                  type="radio"
+                  name="epic-landing-{sessionId}"
+                  value="integration"
+                  bind:group={landing}
+                  disabled={approving}
+                />{m.epic_landing_integration()}
+              </label>
+              <label class="landing-opt">
+                <input
+                  type="radio"
+                  name="epic-landing-{sessionId}"
+                  value="incremental"
+                  bind:group={landing}
+                  disabled={approving}
+                />{m.epic_landing_incremental()}
+              </label>
+              <InfoTip
+                text={epicLandingExplanation(false)}
+                label={m.tooltip_epic_landing_title()}
+              />
+            </div>
             <button
               type="button"
               class="btn approve"
@@ -427,6 +457,26 @@
   .seen-progress {
     color: var(--color-muted);
     font-size: var(--fs-meta);
+  }
+
+  .landing {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .landing-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .landing-opt input {
+    accent-color: var(--color-amber);
   }
 
   .btn {

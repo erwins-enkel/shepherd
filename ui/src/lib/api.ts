@@ -3386,7 +3386,10 @@ export async function updateEpic(
   repoPath: string,
   parent: number,
   patch: Partial<
-    Pick<EpicRun, "mode" | "status" | "agentProvider" | "model" | "effort" | "ignoreUsageCeiling">
+    Pick<
+      EpicRun,
+      "mode" | "status" | "agentProvider" | "model" | "effort" | "ignoreUsageCeiling" | "landing"
+    >
   >,
   /** `requeueLeader`: a start that supersedes another epic puts it at the head of the epic queue. */
   opts: { requeueLeader?: boolean } = {},

@@ -233,6 +233,32 @@ export function epicRunStateExplanation(): TooltipExplanation {
   };
 }
 
+/** Epic landing toggle (#3191) — integration branch vs incremental, the cost of landing
+ *  incrementally, and why the choice locks once the epic has run. */
+export function epicLandingExplanation(locked: boolean): TooltipExplanation {
+  return {
+    title: m.tooltip_epic_landing_title(),
+    summary: locked ? m.tooltip_epic_landing_locked_summary() : m.tooltip_epic_landing_summary(),
+    sections: [
+      {
+        label: m.tooltip_epic_landing_integration(),
+        text: m.tooltip_epic_landing_integration_body(),
+      },
+      {
+        label: m.tooltip_epic_landing_incremental(),
+        text: m.tooltip_epic_landing_incremental_body(),
+      },
+      { label: m.tooltip_epic_landing_cost(), text: m.tooltip_epic_landing_cost_body() },
+      {
+        label: m.tooltip_epic_landing_locked(),
+        text: locked
+          ? m.tooltip_epic_landing_locked_body()
+          : m.tooltip_epic_landing_unlocked_body(),
+      },
+    ],
+  };
+}
+
 /** Terminal auto-merge strip — what full auto-merge does and when it needs the operator. */
 export function autoMergeStripExplanation(): TooltipExplanation {
   return {

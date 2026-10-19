@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { singleFlight } from "../src/single-flight";
+import { keyedSingleFlight, singleFlight } from "../src/single-flight";
 
 const defer = <T>() => {
   let resolve!: (v: T) => void;
@@ -52,4 +52,31 @@ test("the slot clears after a rejection so the next call retries", async () => {
   await expect(wrapped()).rejects.toThrow("boom");
   expect(await wrapped()).toBe("ok"); // not wedged on the failed promise
   expect(runs).toBe(2);
+});
+
+test("keyedSingleFlight: one run per key in flight; other keys run alongside; slots clear", async () => {
+  const runs: (string | null)[] = [];
+  const gates = new Map<string | null, ReturnType<typeof defer<string>>>();
+  const wrapped = keyedSingleFlight(async (key: string | null) => {
+    runs.push(key);
+    const d = defer<string>();
+    gates.set(key, d);
+    return d.promise;
+  });
+
+  const a1 = wrapped("a");
+  const a2 = wrapped("a");
+  const g = wrapped(null);
+  expect(runs).toEqual(["a", null]);
+  gates.get("a")!.resolve("A");
+  gates.get(null)!.resolve("G");
+  expect([await a1, await a2, await g]).toEqual(["A", "A", "G"]);
+
+  // Settled → the key's next call is a fresh run; a rejection clears the slot too.
+  const a3 = wrapped("a");
+  expect(runs).toEqual(["a", null, "a"]);
+  gates.get("a")!.reject(new Error("boom"));
+  await expect(a3).rejects.toThrow("boom");
+  void wrapped("a");
+  expect(runs).toEqual(["a", null, "a", "a"]);
 });

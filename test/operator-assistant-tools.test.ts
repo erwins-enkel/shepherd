@@ -251,6 +251,35 @@ test("herd_status: an unknown, archived, terminal or assistant desig is an error
   }
 });
 
+test("herd_status for a repo-scoped assistant: only its repo's sessions and held tasks", () => {
+  const { store, deps, planning, plain } = herd();
+  store.addHeldTask({
+    id: "h-beta",
+    repoPath: "/r/beta",
+    input: { repoPath: "/r/beta", baseBranch: "main", prompt: "beta work" } as never,
+    createdAt: 3,
+    reason: "usage",
+  });
+  const beta = data(applyHerdStatus(deps, {}, "/r/beta"));
+  expect(beta.sessions.map((s: any) => s.desig)).toEqual([plain.desig]);
+  expect(beta.held.map((h: any) => h.repoPath)).toEqual(["/r/beta"]);
+  expect(beta.held[0].tasks.map((t: any) => t.heldId)).toEqual(["h-beta"]);
+  // Its own repo's session in detail; another repo's is not found, naming the scope.
+  expect(data(applyHerdStatus(deps, { desig: plain.desig }, "/r/beta")).session.desig).toBe(
+    plain.desig,
+  );
+  const outside = applyHerdStatus(deps, { desig: planning.desig }, "/r/beta");
+  expect(outside.ok).toBe(false);
+  expect((outside as { status: number }).status).toBe(404);
+  expect(error(outside).error).toBe(
+    `session "${planning.desig}" not found in this assistant's repo beta`,
+  );
+  // The global assistant (null scope) still sees every repo.
+  const all = data(applyHerdStatus(deps, {}, null));
+  expect(all.sessions.map((s: any) => s.desig)).toEqual([planning.desig, plain.desig]);
+  expect(all.held.map((h: any) => h.repoPath)).toEqual(["/r/alpha", "/r/beta"]);
+});
+
 // ── repo_automation ──────────────────────────────────────────────────────────
 
 const DRAIN: DrainStatus = {
@@ -358,6 +387,25 @@ test("repo_automation: an unknown repo errors with the known basenames, an ambig
   expect(ambiguous.ok).toBe(false);
   expect(ambiguous.error).toContain("ambiguous");
   expect(ambiguous.matches).toEqual(["/a/shepherd", "/b/shepherd"]);
+});
+
+test("repo_automation for a repo-scoped assistant: defaults to its repo, refuses another", async () => {
+  const { deps } = setup();
+  for (const repo of [undefined, "", "beta", "/r/beta"]) {
+    const out = data(
+      await applyRepoAutomation(deps, repo === undefined ? {} : { repo }, "/r/beta"),
+    );
+    expect(out.repos.map((r: any) => r.repoPath)).toEqual(["/r/beta"]);
+  }
+  for (const repo of ["alpha", "/r/alpha", "nope"]) {
+    const r = await applyRepoAutomation(deps, { repo }, "/r/beta");
+    expect(r.ok).toBe(false);
+    expect((r as { status: number }).status).toBe(403);
+    expect(error(r).error).toContain("outside this assistant's repo beta (/r/beta)");
+    expect(error(r).error).toContain("global Operator Assistant");
+    // Never the known-repo list a 404 would carry.
+    expect(error(r).error).not.toContain("known repos");
+  }
 });
 
 test("repo_automation with epicParent adds the diagnosis for that repo, warnings fenced", async () => {

@@ -560,6 +560,9 @@ components:
         operatorAssistant:
           type: boolean
           description: The Operator Assistant's row (#1446). Never listed by GET /api/sessions; read it from GET /api/operator-assistant.
+        assistantRepo:
+          type: [string, "null"]
+          description: The repo a repo-scoped Operator Assistant serves (its absolute path, as GET /api/repos lists it); null for the global assistant and on every other row. Absent from servers before repo-scoped assistants.
         autoMergeEnabled: { type: [boolean, "null"] }
         auto: { type: boolean }
         issueNumber: { type: [integer, "null"] }
@@ -1755,7 +1758,7 @@ components:
     OperatorAssistantState:
       type: object
       additionalProperties: true
-      description: Whether the Operator Assistant can run, why not (read off Settings → Diagnose), its live row (null before the first open) and what the operator lets it do (Settings → Assistant).
+      description: Whether the Operator Assistant can run, why not (read off Settings → Diagnose), the global assistant's live row (null before the first open), every live assistant including the repo-scoped ones, and what the operator lets them do (Settings → Assistant).
       required: [available, reason, session]
       properties:
         available: { type: boolean }
@@ -1764,10 +1767,31 @@ components:
             - $ref: "#/components/schemas/OperatorAssistantUnavailableReason"
             - type: "null"
         session:
+          description: The GLOBAL assistant's live row, never a repo-scoped one — older clients know only this one.
           oneOf:
             - $ref: "#/components/schemas/Session"
             - type: "null"
+        sessions:
+          type: array
+          description: Every live Operator Assistant — the global one first, then one per repo (assistantRepo set), oldest first. Absent from servers before repo-scoped assistants.
+          items: { $ref: "#/components/schemas/Session" }
         permissions: { $ref: "#/components/schemas/AssistantPermissions" }
+    OperatorAssistantScopeRequest:
+      type: object
+      additionalProperties: false
+      description: Which Operator Assistant to ensure or reset. No repo (or no body at all) is the global assistant.
+      properties:
+        repo:
+          type: string
+          description: A repo's absolute path as GET /api/repos lists it (its realpath is accepted too) — that repo's scoped assistant. An unknown repo is a 400.
+    OperatorAssistantCloseRequest:
+      type: object
+      additionalProperties: false
+      required: [repo]
+      properties:
+        repo:
+          type: string
+          description: The repo whose scoped assistant to close. The global assistant is never closed this way.
     OperatorAssistantSession:
       type: object
       additionalProperties: true
@@ -1777,13 +1801,18 @@ components:
     OperatorAssistantUpdateEvent:
       type: object
       additionalProperties: true
-      description: The assistant's live row (null when none is live) and its current permissions (absent from servers before Settings → Assistant).
+      description: The global assistant's live row (null when none is live), every live assistant, and their current permissions (absent from servers before Settings → Assistant).
       required: [session]
       properties:
         session:
+          description: The GLOBAL assistant's live row, never a repo-scoped one, even when a repo assistant changed — older clients replace their one assistant with it.
           oneOf:
             - $ref: "#/components/schemas/Session"
             - type: "null"
+        sessions:
+          type: array
+          description: Every live Operator Assistant — the global one first, then the repo-scoped ones, oldest first. Absent from servers before repo-scoped assistants.
+          items: { $ref: "#/components/schemas/Session" }
         permissions: { $ref: "#/components/schemas/AssistantPermissions" }
     AssistantShellLevel:
       type: string
@@ -6916,23 +6945,33 @@ paths:
   /api/operator-assistant:
     get:
       operationId: getOperatorAssistant
-      description: Whether the Operator Assistant can run, why not, and its live session (#1446).
+      description: Whether the Operator Assistant can run, why not, the global live session, and every live assistant including the repo-scoped ones (#1446).
       responses:
         "200":
-          description: Availability and the live assistant row.
+          description: Availability and the live assistant rows.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OperatorAssistantState" }
         "401": { $ref: "#/components/responses/Unauthorized" }
     post:
       operationId: ensureOperatorAssistant
-      description: Return the live Operator Assistant, spawning it on first use or resuming it when its agent is gone. Emits operator-assistant:update.
+      description: Return the live Operator Assistant of one scope — the global one, or with repo that repo's own — spawning it on first use or resuming it when its agent is gone. At most one live assistant per scope. Emits operator-assistant:update.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OperatorAssistantScopeRequest" }
       responses:
         "200":
-          description: The live assistant.
+          description: The live assistant of that scope.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OperatorAssistantSession" }
+        "400":
+          description: The body is malformed or names an unknown repo. Nothing was spawned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
           description: Refused, e.g. herdr needs a restart first (code herdr_restart_required).
@@ -6952,13 +6991,23 @@ paths:
   /api/operator-assistant/reset:
     post:
       operationId: resetOperatorAssistant
-      description: New conversation — archive the live Operator Assistant and spawn a fresh one. Emits operator-assistant:update.
+      description: New conversation — archive the live Operator Assistant of one scope (the global one, or with repo that repo's own) and spawn a fresh one in it. Emits operator-assistant:update.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OperatorAssistantScopeRequest" }
       responses:
         "200":
           description: The fresh assistant.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OperatorAssistantSession" }
+        "400":
+          description: The body is malformed or names an unknown repo. Nothing was archived or spawned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
           description: Refused, e.g. herdr needs a restart first (code herdr_restart_required).
@@ -6975,6 +7024,32 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OperatorAssistantUnavailable" }
+  /api/operator-assistant/close:
+    post:
+      operationId: closeOperatorAssistant
+      description: Close a repo's Operator Assistant — archive its live row; nothing respawns. Never the global assistant. Works while the assistant can't run. Emits operator-assistant:update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OperatorAssistantCloseRequest" }
+      responses:
+        "200":
+          description: Closed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "400":
+          description: No repo, a malformed body, or a repo that is neither known nor has a live assistant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: That repo has no live assistant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/dispatches/{id}:
     parameters:
       - name: id
@@ -10912,7 +10987,7 @@ x-shepherd-events:
     description: The egress firewall dropped a host for an autonomous session (reported once per host).
     schema: { $ref: "#/components/schemas/SessionEgressDropEvent" }
   operator-assistant:update:
-    description: The Operator Assistant's row was created, resumed or replaced, or the operator changed its permissions (Settings → Assistant). Deliberately not session:new, so the row never joins the herd; its status changes still arrive as session:status.
+    description: An Operator Assistant's row (global or repo-scoped) was created, resumed, replaced or closed, or the operator changed their permissions (Settings → Assistant). Carries the global row as session and every live assistant as sessions. Deliberately not session:new, so no row joins the herd; status changes still arrive as session:status.
     schema: { $ref: "#/components/schemas/OperatorAssistantUpdateEvent" }
   remote:sessions:
     description: >-

@@ -1,11 +1,16 @@
-// Operator Assistant lifecycle (#1446): ensure / reset / resume through the SessionService with a
-// fake herdr, the 0700 assistant dir, the read-only argv, and the per-task verb fences.
+// Operator Assistant lifecycle (#1446): ensure / reset / close / resume through the SessionService
+// with a fake herdr, the 0700 assistant dir, the read-only argv, the per-task verb fences, and the
+// repo scopes (one global assistant plus one per repo).
 import { test, expect } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
-import { OperatorAssistantSessionError, SessionService } from "../src/service";
+import {
+  OperatorAssistantNotFoundError,
+  OperatorAssistantSessionError,
+  SessionService,
+} from "../src/service";
 import { OPERATOR_ASSISTANT_CAPABILITIES, type AgentCapabilities } from "../src/agent-control";
 import { operatorAssistantPermissions } from "../src/operator-assistant-core";
 import {
@@ -326,4 +331,88 @@ test("relaunch, replace, variant and restore refuse the assistant", async () => 
   expect(store.get(s.id)!.experimentId).toBeNull(); // refused before the experiment stamp
   store.archive(s.id);
   await expect(svc.restore(s.id)).rejects.toBeInstanceOf(OperatorAssistantSessionError);
+});
+
+// ── Repo-scoped assistants ──────────────────────────────────────────────────────────────────
+
+/** The `--append-system-prompt` brief of a start. */
+const briefOf = (start: Start) => after(start.argv, "--append-system-prompt")!;
+
+test("a repo assistant is its own scope: own row, name and brief; the global one is untouched", async () => {
+  const { store, svc, dir, calls } = harness();
+  const global = await svc.ensureOperatorAssistant();
+  const alpha = await svc.ensureOperatorAssistant("/r/alpha");
+  expect(alpha.id).not.toBe(global.id);
+  expect(alpha).toMatchObject({
+    operatorAssistant: true,
+    assistantRepo: "/r/alpha",
+    repoPath: dir, // the shared assistant dir, never the repo
+    worktreePath: dir,
+    name: "operator-assistant-alpha",
+  });
+  expect(global.assistantRepo).toBeNull();
+  expect(calls.starts.map((s) => s.name)).toEqual([
+    "operator-assistant",
+    "operator-assistant-alpha",
+  ]);
+  expect(briefOf(calls.starts[0]!)).not.toContain("<assistant-scope>");
+  expect(briefOf(calls.starts[1]!)).toContain("alpha (/r/alpha)");
+  expect(store.getLiveOperatorAssistant()?.id).toBe(global.id);
+  expect(store.getLiveOperatorAssistant("/r/alpha")?.id).toBe(alpha.id);
+  // Ensuring a scope again returns its row; the other scope is never consulted.
+  expect((await svc.ensureOperatorAssistant("/r/alpha")).id).toBe(alpha.id);
+});
+
+test("a repo assistant resumes with its scope's brief", async () => {
+  const { svc, calls, fake } = harness();
+  const alpha = await svc.ensureOperatorAssistant("/r/alpha");
+  fake.agents = [];
+  const resumed = await svc.ensureOperatorAssistant("/r/alpha");
+  expect(resumed.id).toBe(alpha.id);
+  expect(after(calls.starts[1]!.argv, "--resume")).toBe(alpha.claudeSessionId);
+  expect(briefOf(calls.starts[1]!)).toContain("alpha (/r/alpha)");
+});
+
+test("single-flight is per scope: same scope shares a run, different scopes each spawn", async () => {
+  const { svc, calls, fake } = harness();
+  let release!: () => void;
+  fake.gate = new Promise((r) => (release = r));
+  const a1 = svc.ensureOperatorAssistant("/r/alpha");
+  const a2 = svc.ensureOperatorAssistant("/r/alpha");
+  const g = svc.ensureOperatorAssistant();
+  const b = svc.ensureOperatorAssistant("/r/beta");
+  release();
+  const [sa1, sa2, sg, sb] = await Promise.all([a1, a2, g, b]);
+  expect(sa2.id).toBe(sa1.id);
+  expect(new Set([sa1.id, sg.id, sb.id]).size).toBe(3);
+  expect(calls.starts).toHaveLength(3);
+});
+
+test("reset of a repo scope replaces only that scope's assistant", async () => {
+  const { store, svc } = harness();
+  const global = await svc.ensureOperatorAssistant();
+  const alpha = await svc.ensureOperatorAssistant("/r/alpha");
+  const fresh = await svc.resetOperatorAssistant("/r/alpha");
+  expect(fresh.id).not.toBe(alpha.id);
+  expect(fresh.assistantRepo).toBe("/r/alpha");
+  expect(store.get(alpha.id)!.status).toBe("archived");
+  expect(store.get(global.id)!.status).not.toBe("archived");
+  expect(store.getLiveOperatorAssistant()?.id).toBe(global.id);
+});
+
+test("close archives a repo assistant; a scope with none live is a not-found error", async () => {
+  const { store, svc, calls } = harness();
+  const global = await svc.ensureOperatorAssistant();
+  const alpha = await svc.ensureOperatorAssistant("/r/alpha");
+  await svc.closeOperatorAssistant("/r/alpha");
+  expect(store.get(alpha.id)).toMatchObject({ status: "archived", archiveReason: "operator" });
+  expect(calls.stops).toContain(alpha.herdrAgentId);
+  expect(store.getLiveOperatorAssistant("/r/alpha")).toBeNull();
+  expect(store.getLiveOperatorAssistant()?.id).toBe(global.id);
+  await expect(svc.closeOperatorAssistant("/r/alpha")).rejects.toBeInstanceOf(
+    OperatorAssistantNotFoundError,
+  );
+  // The slot is free again.
+  const again = await svc.ensureOperatorAssistant("/r/alpha");
+  expect(again.id).not.toBe(alpha.id);
 });

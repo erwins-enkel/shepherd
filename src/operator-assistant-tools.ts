@@ -122,6 +122,35 @@ export function isHerdSession(s: Session): boolean {
   return s.status !== "archived" && !s.terminal && !isOperatorAssistant(s);
 }
 
+// ── assistant scope ──────────────────────────────────────────────────────────
+
+/** The repo a repo-scoped Operator Assistant serves (`Session.assistantRepo`), or null for the
+ *  global assistant. The server enforces it on every herd read and action tool — not the prompt. */
+export type AssistantScope = string | null;
+
+/** Whether a repo is the caller's to see: every repo for the global assistant, else its own. */
+export function inScope(scope: AssistantScope, repoPath: string): boolean {
+  return scope === null || repoPath === scope;
+}
+
+/** A scoped assistant's refusal for a target outside its repo. */
+export type ScopeRefusal = { ok: false; status: 403; error: string };
+
+/** `repo` for a scoped assistant: absent or naming its own repo (full path or basename) ⇒ the
+ *  scope; any other repo ⇒ 403 naming the scope. Never the known-repo list, which a 404 for the
+ *  global assistant carries. */
+export function resolveScopedRepo(scope: string, repo: unknown): string | ScopeRefusal {
+  if (typeof repo !== "string" || repo === "" || repo === scope || repo === basename(scope))
+    return scope;
+  return {
+    ok: false,
+    status: 403,
+    error:
+      `repo "${repo}" is outside this assistant's repo ${basename(scope)} (${scope}) — ` +
+      "the global Operator Assistant covers every repo; the operator can ask there",
+  };
+}
+
 /** Question-form questions still waiting for the operator's answer (see planQuestionsUnanswered). */
 function openQuestionCount(gate: PlanGate): number {
   const answered = new Set(gate.answeredQuestionKeys ?? []);
@@ -190,9 +219,10 @@ function planQuestions(gate: PlanGate, fence: Fence) {
 
 /** The held-task queue per repo: how many tasks wait and why, and each task's id (what `held_task`
  *  takes) with its prompt's first line, fenced and clipped — never the whole prompt. */
-function heldByRepo(deps: DiagDeps, fence: Fence) {
+function heldByRepo(deps: DiagDeps, fence: Fence, scope: AssistantScope) {
   const byRepo = new Map<string, HeldTask[]>();
   for (const h of deps.store.listHeldTasks()) {
+    if (!inScope(scope, h.repoPath)) continue;
     byRepo.set(h.repoPath, [...(byRepo.get(h.repoPath) ?? []), h]);
   }
   return [...byRepo].map(([repoPath, tasks]) => ({
@@ -255,22 +285,32 @@ function herdDetail(deps: DiagDeps, s: Session, holds: Record<string, HoldReason
   };
 }
 
+/** `scope`: a repo-scoped assistant sees only its repo's sessions and held tasks; a desig from
+ *  another repo reads as not found (in its repo). */
 export function applyHerdStatus(
   deps: DiagDeps,
   args: Record<string, unknown>,
+  scope: AssistantScope = null,
 ): ApplyResult<unknown> {
   const holds = deps.operatorDiag?.holds?.snapshot() ?? {};
   if (typeof args.desig === "string") {
     const s = deps.store.getByDesig(args.desig);
     if (!s || !isHerdSession(s)) return fail(404, `session "${args.desig}" not found`);
+    if (!inScope(scope, s.repoPath))
+      return fail(
+        404,
+        `session "${args.desig}" not found in this assistant's repo ${basename(scope!)}`,
+      );
     return ok({ session: herdDetail(deps, s, holds) });
   }
   const fence = makeFence();
-  const live = deps.store.list({ activeOnly: true }).filter(isHerdSession);
+  const live = deps.store
+    .list({ activeOnly: true })
+    .filter((s) => isHerdSession(s) && inScope(scope, s.repoPath));
   return ok({
     sessions: live.slice(0, MAX_SESSIONS).map((s) => herdRow(deps, s, holds, fence)),
     omittedSessions: Math.max(0, live.length - MAX_SESSIONS),
-    held: heldByRepo(deps, fence),
+    held: heldByRepo(deps, fence, scope),
   });
 }
 
@@ -391,18 +431,26 @@ async function drainStatuses(diag: OperatorDiagDeps) {
   }
 }
 
+function scopedRepos(scope: string, repo: unknown): string[] | ApplyResult<unknown> {
+  const resolved = resolveScopedRepo(scope, repo);
+  return typeof resolved === "string" ? [resolved] : resolved;
+}
+
 function epicParentArg(value: unknown): number | null | undefined {
   if (value === undefined) return undefined;
   return Number.isInteger(value) && (value as number) > 0 ? (value as number) : null;
 }
 
+/** `scope`: a repo-scoped assistant reads its own repo by default and is refused any other. */
 export async function applyRepoAutomation(
   deps: DiagDeps,
   args: Record<string, unknown>,
+  scope: AssistantScope = null,
 ): Promise<ApplyResult<unknown>> {
   const diag = deps.operatorDiag;
   if (!diag) return UNAVAILABLE;
-  const repos = resolveRepos(diag.repos(), args.repo);
+  const repos =
+    scope === null ? resolveRepos(diag.repos(), args.repo) : scopedRepos(scope, args.repo);
   if (!Array.isArray(repos)) return repos;
   const epicParent = epicParentArg(args.epicParent);
   if (epicParent === null) return fail(400, "epicParent must be a positive issue number");

@@ -736,6 +736,14 @@ type ToolHandler = (
   signal?: AbortSignal,
 ) => ApplyResult<unknown> | Promise<ApplyResult<unknown>>;
 
+/** The calling Operator Assistant's repo scope (`Session.assistantRepo`): a repo-scoped assistant's
+ *  herd reads and actions stay in that repo; null is the global assistant. Only an assistant's
+ *  catalog carries the tools that read it. `system_health` and `logs_tail` stay unscoped — they
+ *  are about the node, not the herd. */
+function assistantScope(deps: AgentControlDeps, sessionId: string): string | null {
+  return deps.store.get(sessionId)?.assistantRepo ?? null;
+}
+
 /** One handler per catalog tool; looked up only after the entitlement check. */
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   queue_write: (deps, id, args) => applyQueueWrite(deps, id, args),
@@ -746,8 +754,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   self_status: (deps, id) => applySelfStatus(deps, id),
   browser_request_login: (deps, id, args, signal) =>
     applyBrowserRequestLogin(deps, id, args, signal),
-  herd_status: (deps, _id, args) => applyHerdStatus(deps, args),
-  repo_automation: (deps, _id, args) => applyRepoAutomation(deps, args),
+  herd_status: (deps, id, args) => applyHerdStatus(deps, args, assistantScope(deps, id)),
+  repo_automation: (deps, id, args) => applyRepoAutomation(deps, args, assistantScope(deps, id)),
   system_health: (deps) => applySystemHealth(deps),
   logs_tail: (deps, _id, args) => applyLogsTail(deps, args),
   ...Object.fromEntries(
@@ -755,7 +763,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       .flat()
       .map((tool): [string, ToolHandler] => [
         tool,
-        (deps, _id, args) => applyOperatorAction(deps, tool as AssistantActionTool, args),
+        (deps, id, args) =>
+          applyOperatorAction(deps, tool as AssistantActionTool, args, assistantScope(deps, id)),
       ]),
   ),
 };

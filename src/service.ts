@@ -42,7 +42,7 @@ import {
 } from "./operator-assistant-core";
 import { assistantPermissionRules } from "./operator-assistant-permissions";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
-import { singleFlight } from "./single-flight";
+import { keyedSingleFlight } from "./single-flight";
 import {
   worktreePathFor,
   WorktreeMissingBaseError,
@@ -241,13 +241,21 @@ export class TerminalSessionError extends Error {
 }
 
 /** Thrown by the per-task agent verbs (relaunch, provider replace / continue-with, variant,
- *  restore) when targeted at the Operator Assistant: it is a singleton that only
+ *  restore) when targeted at an Operator Assistant: one per scope, which only
  *  `ensureOperatorAssistant` / `resetOperatorAssistant` spawn. Route-mapped to 409, like
  *  TerminalSessionError. */
 export class OperatorAssistantSessionError extends Error {
   constructor(verb: string) {
     super(`${verb} is not available for the operator assistant`);
     this.name = "OperatorAssistantSessionError";
+  }
+}
+
+/** Thrown by `closeOperatorAssistant` when the repo has no live assistant. Route-mapped to 404. */
+export class OperatorAssistantNotFoundError extends Error {
+  constructor(repo: string) {
+    super(`no live operator assistant for repo ${repo}`);
+    this.name = "OperatorAssistantNotFoundError";
   }
 }
 
@@ -4441,17 +4449,21 @@ export class SessionService {
   }
 
   // ── Operator Assistant (#1446) ─────────────────────────────────────────────
+  //
+  // One global assistant (scope null) plus at most one per repo (scope = that repo's path). Every
+  // lifecycle verb takes the scope; the no-arg calls are the global assistant, as before scopes.
 
-  /** Tail of the assistant's lifecycle chain. Ensure and reset run strictly one after the other, so
-   *  a New conversation clicked while an ensure is still spawning archives THAT row instead of
-   *  racing it into a second live assistant. */
+  /** Tail of the assistants' lifecycle chain, shared by every scope. Ensure, reset and close run
+   *  strictly one after the other, so a New conversation clicked while an ensure is still spawning
+   *  archives THAT row instead of racing it into a second live assistant of the scope. */
   private assistantChain: Promise<unknown> = Promise.resolve();
-  /** Concurrent ensures (a double-clicked Assist, two open tabs) share one run; so do resets. */
-  private readonly ensureAssistantOnce = singleFlight(() =>
-    this.serializeAssistant(() => this.ensureOperatorAssistantNow()),
+  /** Concurrent ensures of one scope (a double-clicked Assist, two open tabs) share one run; so do
+   *  resets. Different scopes never share a run. */
+  private readonly ensureAssistantOnce = keyedSingleFlight((repo: string | null) =>
+    this.serializeAssistant(() => this.ensureOperatorAssistantNow(repo)),
   );
-  private readonly resetAssistantOnce = singleFlight(() =>
-    this.serializeAssistant(() => this.resetOperatorAssistantNow()),
+  private readonly resetAssistantOnce = keyedSingleFlight((repo: string | null) =>
+    this.serializeAssistant(() => this.resetOperatorAssistantNow(repo)),
   );
 
   private serializeAssistant<T>(run: () => Promise<T>): Promise<T> {
@@ -4469,20 +4481,33 @@ export class SessionService {
    *    spawn a fresh one;
    *  - otherwise it is live → returned as is. Status `done` is not "gone": the turn finished and
    *    claude waits at its prompt.
+   *  `repo` picks the scope: null (or "") is the global assistant, a repo path that repo's own.
    */
-  ensureOperatorAssistant(): Promise<Session> {
-    return this.ensureAssistantOnce();
+  ensureOperatorAssistant(repo: string | null = null): Promise<Session> {
+    return this.ensureAssistantOnce(repo || null);
   }
 
-  /** New conversation: archive the live assistant (normal archive path; it has no worktree to
-   *  remove) and spawn a fresh one. */
-  resetOperatorAssistant(): Promise<Session> {
-    return this.resetAssistantOnce();
+  /** New conversation: archive the scope's live assistant (normal archive path; it has no worktree
+   *  to remove) and spawn a fresh one. */
+  resetOperatorAssistant(repo: string | null = null): Promise<Session> {
+    return this.resetAssistantOnce(repo || null);
   }
 
-  private async ensureOperatorAssistantNow(): Promise<Session> {
-    const live = this.deps.store.getLiveOperatorAssistant();
-    if (!live) return this.createOperatorAssistant();
+  /** Close a repo's assistant: archive its live row (the reset's archive step, without the
+   *  respawn). Never the global one — it has no repo to name. Throws OperatorAssistantNotFoundError
+   *  (route-mapped to 404) when the repo has no live assistant. */
+  closeOperatorAssistant(repo: string): Promise<void> {
+    return this.serializeAssistant(async () => {
+      // An empty repo would read the global scope; refuse it like an unknown one.
+      const live = repo ? this.deps.store.getLiveOperatorAssistant(repo) : null;
+      if (!live) throw new OperatorAssistantNotFoundError(repo);
+      await this.archive(live.id);
+    });
+  }
+
+  private async ensureOperatorAssistantNow(repo: string | null): Promise<Session> {
+    const live = this.deps.store.getLiveOperatorAssistant(repo);
+    if (!live) return this.createOperatorAssistant(repo);
     const agent = this.liveAgentFor(live.id);
     // Re-point a herdr-restored pane first, so a replace below stops the pane that is really there.
     const current = (agent && this.adoptLiveResumeAgent(live, agent)) || live;
@@ -4493,14 +4518,15 @@ export class SessionService {
     return resumed;
   }
 
-  private async resetOperatorAssistantNow(): Promise<Session> {
-    const live = this.deps.store.getLiveOperatorAssistant();
-    return live ? this.replaceOperatorAssistant(live) : this.createOperatorAssistant();
+  private async resetOperatorAssistantNow(repo: string | null): Promise<Session> {
+    const live = this.deps.store.getLiveOperatorAssistant(repo);
+    return live ? this.replaceOperatorAssistant(live) : this.createOperatorAssistant(repo);
   }
 
+  /** Archive `old` and spawn a fresh assistant in the same scope. */
   private async replaceOperatorAssistant(old: Session): Promise<Session> {
     await this.archive(old.id);
-    return this.createOperatorAssistant();
+    return this.createOperatorAssistant(old.assistantRepo ?? null);
   }
 
   /** True when a listed pane runs nothing but a shell: its agent exited and herdr kept the tab.
@@ -4521,8 +4547,11 @@ export class SessionService {
    * assistant argv through the common prepareSpawn (api-key auth, env passthrough, renderer env;
    * plugin onSpawn hooks skipped) on the `trusted` profile, then the row. No prompt rides the argv, so nothing is
    * spent until the operator asks. Model and effort are Shepherd's configured Claude defaults.
+   * Every scope shares the one assistant dir (each conversation has its own claude session id);
+   * a repo assistant is named after its repo (`operator-assistant-<repo>`) and carries `repo` as
+   * `assistantRepo`.
    */
-  private async createOperatorAssistant(): Promise<Session> {
+  private async createOperatorAssistant(repo: string | null): Promise<Session> {
     const dir = this.deps.operatorAssistantDir ?? config.operatorAssistantDir;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     await this.trustOperatorAssistantDir(dir);
@@ -4530,13 +4559,17 @@ export class SessionService {
     const claudeSessionId = randomUUID();
     const model = modelForProviderOrDefault(drainSpawnModel(config.defaultModel), "claude");
     const effort = drainSpawnEffort(engineDefaultEffortSetting("claude", config));
-    const name = this.uniqueName(OPERATOR_ASSISTANT_NAME);
+    const name = this.uniqueName(
+      repo
+        ? `${OPERATOR_ASSISTANT_NAME}-${slugifyManual(basename(repo))}`
+        : OPERATOR_ASSISTANT_NAME,
+    );
     // Served until the row exists: claude connects to its MCP server during startup (see
     // spawningMcp). Cleared however the spawn ends.
     this.spawningMcp.set(sessionId, OPERATOR_ASSISTANT_CAPABILITIES);
     try {
       const argv = this.operatorAssistantArgv(
-        { id: sessionId, worktreePath: dir, claudeSessionId, model, effort },
+        { id: sessionId, worktreePath: dir, claudeSessionId, model, effort, assistantRepo: repo },
         false,
       );
       const outcome = await this.prepareSpawnOrThrow(argv, {
@@ -4577,6 +4610,7 @@ export class SessionService {
           planGateEnabled: false,
           planPhase: null,
           operatorAssistant: true,
+          assistantRepo: repo,
         });
         // Every per-session automation override off, not just inherited: auto-merge too.
         this.deps.store.setAutoMergeState(sessionId, { enabled: false });
@@ -4635,10 +4669,13 @@ export class SessionService {
   }
 
   /** The assistant's inner argv, fresh (`--session-id`) or resumed (`--resume`) — one builder for
-   *  create and resume so the two can't drift. Syncs its permission file first, for the same
-   *  reason. */
+   *  create and resume so the two can't drift (its repo scope included). Syncs its permission file
+   *  first, for the same reason. */
   private operatorAssistantArgv(
-    s: Pick<Session, "id" | "worktreePath" | "claudeSessionId" | "model" | "effort">,
+    s: Pick<
+      Session,
+      "id" | "worktreePath" | "claudeSessionId" | "model" | "effort" | "assistantRepo"
+    >,
     resume: boolean,
   ): string[] {
     this.syncOperatorAssistantPermissions(s.worktreePath);
@@ -4657,6 +4694,7 @@ export class SessionService {
         installRoot: SHEPHERD_INSTALL_ROOT,
         assistantDir: s.worktreePath,
         language: config.operatorLanguage,
+        repo: s.assistantRepo,
       }),
       model: this.spawnModel(s.model),
       effort: s.effort,

@@ -220,3 +220,31 @@ test("brief appends the operator-language block only for a non-English operator"
   expect(brief("en")).not.toContain("<operator-language>");
   expect(brief("de").endsWith(operatorLanguageBlock("de")!)).toBe(true);
 });
+
+test("brief: the global assistant carries no repo-scope block", () => {
+  expect(brief()).not.toContain("<assistant-scope>");
+  expect(
+    operatorAssistantBrief({
+      installRoot: "/opt/shepherd",
+      assistantDir: "/home/op/.shepherd/assistant",
+      language: "en",
+      repo: null,
+    }),
+  ).toBe(brief());
+});
+
+test("brief: a repo-scoped assistant names its repo, the scoped tools and the global fallback", () => {
+  const b = operatorAssistantBrief({
+    installRoot: "/opt/shepherd",
+    assistantDir: "/home/op/.shepherd/assistant",
+    language: "de",
+    repo: "/home/op/projects/alpha",
+  });
+  expect(b).toContain("<assistant-scope>");
+  expect(b).toContain("alpha (/home/op/projects/alpha)");
+  for (const s of ["herd_status", "repo_automation", "global Operator Assistant", "⟦VIEW⟧"])
+    expect(b).toContain(s);
+  // The scope block rides inside the brief, before the operator-language block.
+  expect(b.indexOf("<assistant-scope>")).toBeLessThan(b.indexOf("<operator-language>"));
+  expect(b.endsWith(operatorLanguageBlock("de")!)).toBe(true);
+});

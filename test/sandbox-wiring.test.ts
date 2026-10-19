@@ -619,6 +619,7 @@ function defaultRepoConfig() {
     signoffAuthority: "human" as const,
     maxAuto: 2,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted" as const,
     defaultModel: "inherit",

@@ -345,7 +345,7 @@ const holderBlock = ({ desig, issueNumber, epicParent }: RunSummaryHolder) => ({
 });
 
 /** The drain's status without session ids; the run picture's lists are capped. */
-function drainBlock(status: DrainStatus | undefined) {
+function drainBlock(status: DrainStatus | undefined, fence: Fence) {
   if (!status) return null;
   const summary = status.runSummary;
   return {
@@ -367,6 +367,15 @@ function drainBlock(status: DrainStatus | undefined) {
       },
       landingRepairs: summary.landingRepairs.slice(0, MAX_LIST).map(holderBlock),
       next: summary.next.slice(0, MAX_LIST),
+      nextPriority: (summary.nextPriority ?? [])
+        .filter((item) => summary.next.slice(0, MAX_LIST).includes(item.number))
+        .slice(0, MAX_LIST)
+        .map((item) => ({
+          number: item.number,
+          labels: item.labels
+            .slice(0, MAX_LIST)
+            .map((label) => fence("priority label", label, MAX_TITLE_CHARS)),
+        })),
       after: summary.after.slice(0, MAX_LIST),
       queued: summary.queued.slice(0, MAX_LIST),
     },
@@ -378,7 +387,7 @@ function runEndBlock(deps: DiagDeps, repoPath: string, parent: number | undefine
   return end && { parentIssueNumber: parent, ...end, at: iso(end.at) };
 }
 
-function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefined) {
+function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefined, fence: Fence) {
   const cfg = deps.store.getRepoConfig(repoPath);
   const run = deps.store.getEpicRun(repoPath);
   return {
@@ -394,7 +403,7 @@ function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefi
       repoMode: cfg.repoMode,
       sandboxProfile: cfg.sandboxProfile,
     },
-    drain: drainBlock(drain),
+    drain: drainBlock(drain, fence),
     epicRun: run && {
       parentIssueNumber: run.parentIssueNumber,
       mode: run.mode,
@@ -487,11 +496,13 @@ export async function applyRepoAutomation(
   if (!issueRead.ok) return issueRead;
   const issue = issueRead.data;
   const drain = await drainStatuses(diag);
+  const fence = makeFence();
   const blocks = repos.slice(0, MAX_REPOS).map((p) => ({
     ...repoBlock(
       deps,
       p,
       drain.statuses.find((d) => d.repoPath === p),
+      fence,
     ),
     ...(issue === undefined ? {} : { issue }),
   }));

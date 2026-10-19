@@ -370,6 +370,52 @@ test("repo_automation reports every repo's knobs, drain and epic state", async (
   expect(out.drainError).toBeNull();
 });
 
+test("repo_automation nextPriority keeps reasons within the displayed next list", async () => {
+  const runSummary = {
+    ...DRAIN.runSummary!,
+    leadingEpic: null,
+    nextPriority: [
+      { number: 100, labels: ["ci-gate-rot"] },
+      { number: 119, labels: ["shepherd:priority"] },
+      { number: 120, labels: ["outside-page"] },
+    ],
+  };
+  const { deps } = setup({ drain: { snapshot: async () => [{ ...DRAIN, runSummary }] } });
+  const out = data(await applyRepoAutomation(deps, {}));
+  const reasons = out.repos[0].drain.runSummary.nextPriority;
+  expect(reasons.map((r: { number: number }) => r.number)).toEqual([100, 119]);
+  expectFencedText(reasons[0].labels[0], "ci-gate-rot");
+  expectFencedText(reasons[1].labels[0], "shepherd:priority");
+});
+
+test("repo_automation nextPriority bounds and fences label text", async () => {
+  const runSummary = {
+    ...DRAIN.runSummary!,
+    nextPriority: [
+      {
+        number: 100,
+        labels: [
+          INJECTION + "x".repeat(1000),
+          ...Array.from({ length: 30 }, (_, i) => `label-${i}`),
+        ],
+      },
+    ],
+  };
+  const { deps } = setup({ drain: { snapshot: async () => [{ ...DRAIN, runSummary }] } });
+  const labels = data(await applyRepoAutomation(deps, {})).repos[0].drain.runSummary.nextPriority[0]
+    .labels;
+  expect(labels).toHaveLength(20);
+  expectFenced(labels[0]);
+  expect(labels[0]).not.toContain("x".repeat(121));
+});
+
+test("repo_automation nextPriority defaults to empty for older snapshots", async () => {
+  const { deps } = setup({ drain: { snapshot: async () => [DRAIN] } });
+  expect(data(await applyRepoAutomation(deps, {})).repos[0].drain.runSummary.nextPriority).toEqual(
+    [],
+  );
+});
+
 test("repo_automation matches a full path or a unique basename", async () => {
   const { deps } = setup();
   for (const repo of ["/r/beta", "beta"]) {

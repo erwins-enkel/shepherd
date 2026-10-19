@@ -310,6 +310,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     signoffAuthority: "human",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -343,6 +344,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     signoffAuthority: "human",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -376,6 +378,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     signoffAuthority: "human",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -409,6 +412,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     signoffAuthority: "critic",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -442,6 +446,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     signoffAuthority: "critic",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -673,6 +678,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoDrainEnabled: false,
     maxAuto: 1,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -692,6 +698,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     signoffAuthority: "human",
     maxAuto: 3,
     autoLabel: "auto-go",
+    priorityLabels: [],
     usageCeilingPct: 65,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -715,6 +722,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoDrainEnabled: true,
     maxAuto: 3,
     autoLabel: "auto-go",
+    priorityLabels: [],
     usageCeilingPct: 65,
   });
 });
@@ -2134,6 +2142,7 @@ test("repo_config: criticAllPrs toggle doesn't disturb other fields", () => {
     autoDrainEnabled: true,
     maxAuto: 5,
     autoLabel: "go",
+    priorityLabels: [],
   };
   store.setRepoConfig("/repo/a", before);
   store.setRepoConfig("/repo/a", { ...store.getRepoConfig("/repo/a"), criticAllPrs: true });
@@ -2954,4 +2963,38 @@ test("session: plain defaults false, round-trips via create + get", () => {
   const b = s.create({ ...base, herdrAgentId: "t2", plain: true });
   expect(b.plain).toBe(true);
   expect(s.get(b.id)?.plain).toBe(true);
+});
+
+test("repo_config priorityLabels defaults, persists per repo, and clears", () => {
+  const store = new SessionStore(":memory:");
+  const cfg = store.getRepoConfig("/priority");
+  expect(cfg.priorityLabels).toEqual([]);
+  store.setRepoConfig("/priority", { ...cfg, priorityLabels: ["ci-gate-rot"] });
+  expect(store.getRepoConfig("/priority")).toEqual({ ...cfg, priorityLabels: ["ci-gate-rot"] });
+  expect(store.getRepoConfig("/other").priorityLabels).toEqual([]);
+  store.setRepoConfig("/priority", { ...cfg, priorityLabels: [] });
+  expect(store.getRepoConfig("/priority").priorityLabels).toEqual([]);
+});
+
+test("repo_config migration: an old row gains empty priorityLabels", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-priority-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE repo_config (
+      repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      updatedAt INTEGER NOT NULL)`);
+    raw.run(`INSERT INTO repo_config (repoPath, criticEnabled, updatedAt) VALUES ('/old', 1, 1)`);
+    raw.close();
+    const store = new SessionStore(dbPath);
+    expect(store.getRepoConfig("/old").priorityLabels).toEqual([]);
+    store.setRepoConfig("/old", {
+      ...store.getRepoConfig("/old"),
+      priorityLabels: ["ci-gate-rot"],
+    });
+    const reopened = new SessionStore(dbPath);
+    expect(reopened.getRepoConfig("/old").priorityLabels).toEqual(["ci-gate-rot"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

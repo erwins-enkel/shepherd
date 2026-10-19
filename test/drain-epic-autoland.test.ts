@@ -123,6 +123,7 @@ function makeHarness(opts: {
     signoffAuthority: "human",
     maxAuto: 2,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",

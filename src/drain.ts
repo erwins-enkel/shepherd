@@ -1149,7 +1149,11 @@ export class DrainService {
     } else if (cfg.autoDrainEnabled) {
       // Label mode: only hit the forge when drain is enabled — don't hammer listIssues for
       // repos that aren't draining.
-      candidates = selectCandidates(await this.listIssues(repoPath), cfg.autoLabel);
+      candidates = selectCandidates(
+        await this.listIssues(repoPath),
+        cfg.autoLabel,
+        cfg.priorityLabels,
+      );
       summaryCandidates = candidates;
     }
     // summaryCandidates ⊇ candidates: one check covers the decision and runSummary.next.
@@ -1199,6 +1203,7 @@ export class DrainService {
           autoSessions,
           maxAuto: cfg.maxAuto,
           candidates: summaryCandidates,
+          priorityLabels: cfg.priorityLabels,
           mappedIssueNumbers,
           epicChildren,
           queued: this.deps.store.listEpicQueue(repoPath).map((e) => e.parentIssueNumber),

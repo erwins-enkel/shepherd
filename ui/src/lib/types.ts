@@ -1199,6 +1199,8 @@ export interface RepoConfig {
   defaultEffort: string;
   maxAuto: number;
   autoLabel: string;
+  /** Additional priority labels; absent from older servers means none. */
+  priorityLabels?: string[];
   usageCeilingPct: number;
   /** Whether this repo uses a forge (GitHub/Gitea) or lightweight local-only mode. */
   repoMode: "forge" | "lightweight";
@@ -1328,6 +1330,8 @@ export interface DrainRunSummary {
   landingRepairs?: DrainRunSession[];
   /** Next startable issue #s in drain order — also while the epic is paused. */
   next: number[];
+  /** Matching labels explaining priority in label mode; absent from older servers. */
+  nextPriority?: { number: number; labels: string[] }[];
   /** Open epic children directly blocked by next[0]. */
   after: number[];
   /** Epics queued behind the leading one, head first (#2624); the head starts once the leader

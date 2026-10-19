@@ -5,9 +5,8 @@ import { checksCleared } from "./checks-gate";
 import { verdictStale } from "./verdict-freshness";
 import type { EpicChild, EpicRun } from "./epic-core";
 
-/** Issues carrying this label jump to the head of the drain queue. Fixed (the
- *  per-repo `autoLabel` is configurable, but the priority marker is a constant
- *  sibling so operators don't have to wire up two labels). */
+/** Issues carrying this label always jump to the head of the drain queue,
+ *  alongside any configured per-repo priority labels. */
 export const PRIORITY_LABEL = "shepherd:priority";
 
 /** The drain stamps this label on an issue when it claims it (spawns an auto
@@ -492,6 +491,8 @@ export interface RunSummary {
   landingRepairs: RunSummaryHolder[];
   /** Not-yet-mapped candidates in the order `computeNext` would pick them. */
   next: number[];
+  /** Label-mode priorities among next; optional for older-server compatibility. */
+  nextPriority?: { number: number; labels: string[] }[];
   /** Open epic children directly blocked by `next[0]`; [] in label mode. */
   after: number[];
   /** Epics queued behind the leading one (#2624), head first — the head starts once the leader
@@ -505,6 +506,7 @@ export interface RunSummaryInput {
   maxAuto: number;
   /** Ordered candidates — for an epic, computed even while the run is paused. */
   candidates: Issue[];
+  priorityLabels?: string[];
   mappedIssueNumbers: Set<number>;
   /** The leading epic's children; [] in label mode. */
   epicChildren: Pick<
@@ -533,9 +535,17 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
   const windingDown = [...byEpic]
     .sort(([a], [b]) => a - b)
     .map(([epic, inFlight]) => ({ epic, inFlight: inFlight.sort((a, b) => a - b) }));
-  const next = input.candidates
-    .filter((c) => !input.mappedIssueNumbers.has(c.number))
-    .map((c) => c.number);
+  const pending = input.candidates.filter((c) => !input.mappedIssueNumbers.has(c.number));
+  const next = pending.map((c) => c.number);
+  const nextPriority =
+    leadingEpic != null
+      ? []
+      : pending
+          .map((c) => ({
+            number: c.number,
+            labels: matchingPriorityLabels(c, input.priorityLabels),
+          }))
+          .filter((c) => c.labels.length > 0);
   const head = next[0];
   const after =
     head === undefined
@@ -554,6 +564,7 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
     },
     landingRepairs: input.autoSessions.filter((s) => s.landingRepair).map(summaryHolder),
     next,
+    nextPriority,
     after,
     queued: input.queued,
   };
@@ -625,6 +636,12 @@ export function mappedIssueSet(
   return mapped;
 }
 
+function matchingPriorityLabels(issue: Issue, priorityLabels: string[] = []): string[] {
+  return [...new Set([PRIORITY_LABEL, ...priorityLabels])].filter((label) =>
+    issue.labels.includes(label),
+  );
+}
+
 /**
  * Filter issues to those carrying `autoLabel` and NOT already claimed
  * ({@link ACTIVE_LABEL}), then order: priority-labeled first (each group by issue
@@ -633,10 +650,14 @@ export function mappedIssueSet(
  * second shepherd instance from re-taking an issue this (or another) instance is
  * already working or has a ready PR open for.
  */
-export function selectCandidates(issues: Issue[], autoLabel: string): Issue[] {
+export function selectCandidates(
+  issues: Issue[],
+  autoLabel: string,
+  priorityLabels: string[] = [],
+): Issue[] {
   const eligible = issues.filter(
     (i) => i.labels.includes(autoLabel) && !i.labels.includes(ACTIVE_LABEL),
   );
-  const prio = (i: Issue) => (i.labels.includes(PRIORITY_LABEL) ? 0 : 1);
+  const prio = (i: Issue) => (matchingPriorityLabels(i, priorityLabels).length > 0 ? 0 : 1);
   return eligible.sort((a, b) => prio(a) - prio(b) || a.number - b.number);
 }

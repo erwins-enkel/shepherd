@@ -15,13 +15,18 @@
     type AssistantAction,
   } from "#lib/operator-assistant.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
-  import type { AssistantViewReport } from "#lib/operator-assistant-view.js";
+  import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
+  import { viewFocus } from "#lib/assistant-chat.js";
+  import AssistantChat from "./AssistantChat.svelte";
   import AssistantGlyph from "./AssistantGlyph.svelte";
   import Viewport from "./Viewport.svelte";
 
   // The Operator Assistant panel (#1446). Non-modal: docked beside the selected session on
   // desktop, a full-screen phone screen with Back. Never the `drawer` / `overlay` classes — the
   // page reads those as "a modal is open" and would stand its shortcuts down while it shows.
+  // Its own warm card, so it reads as a companion beside the herd's terminals, not one more: the
+  // conversation by default, the raw terminal one switch away. The terminal stays mounted (and
+  // attached) under the conversation — every send rides its socket, view report included.
   let {
     session,
     available,
@@ -138,10 +143,57 @@
   });
   $effect(() => () => clearTimeout(resetTimer));
 
+  // Conversation or terminal: the operator's last pick, per device.
+  const VIEW_KEY = "shepherd:operator-assistant-view";
+  type PanelView = "chat" | "term";
+  function readView(): PanelView {
+    try {
+      return localStorage.getItem(VIEW_KEY) === "term" ? "term" : "chat";
+    } catch {
+      return "chat";
+    }
+  }
+  let shown = $state<PanelView>(readView());
+  function show(next: PanelView) {
+    shown = next;
+    try {
+      if (next === "term") localStorage.setItem(VIEW_KEY, "term");
+      else localStorage.removeItem(VIEW_KEY);
+    } catch {
+      // ignore: best-effort local preference
+    }
+    // Follow the switch with the keyboard; on touch that would pop the soft keyboard instead.
+    if (!mobile && !touch) queueMicrotask(focusTerminal);
+  }
+
+  // What the assistant would be told the operator is looking at, were they to send now.
+  const TAB_LABEL: Record<ViewTab, () => string> = {
+    term: m.viewport_terminal_tab,
+    todo: m.viewport_todo_tab,
+    activity: m.viewport_activity_tab,
+    diff: m.viewport_diff_tab,
+    files: m.viewport_files_tab,
+    preview: m.viewport_preview_tab,
+    browser: m.viewport_browser_tab,
+  };
+  const seen = $derived(viewFocus(viewReport, herd));
+  const seesText = $derived(
+    seen
+      ? m.operator_assistant_sees({
+          what: [seen.desig, seen.host, seen.tab && TAB_LABEL[seen.tab]()]
+            .filter(Boolean)
+            .join(" · "),
+        })
+      : m.operator_assistant_sees_nothing(),
+  );
+
   let viewport: Viewport | undefined = $state();
-  /** Hand the keyboard to the assistant's terminal (the panel was asked to open while open). */
+  let chat: AssistantChat | undefined = $state();
+  /** Hand the keyboard to the assistant (the panel was asked to open while open): the composer in
+   *  the conversation, else the terminal. */
   export function focusTerminal() {
-    viewport?.focusTerminal();
+    if (shown === "chat") chat?.focus();
+    else viewport?.focusTerminal();
   }
 </script>
 
@@ -151,7 +203,7 @@
       {#if mobile}
         <button
           type="button"
-          class="icon-btn oap-btn"
+          class="icon-btn oap-btn oap-back"
           aria-label={m.operator_assistant_back()}
           onclick={onclose}
         >
@@ -166,8 +218,33 @@
           >
         </button>
       {/if}
-      <span class="oap-mark"><AssistantGlyph size="var(--fs-base)" /></span>
-      <h2 class="oap-title">{m.operator_assistant_title()}</h2>
+      <span class="oap-mark"><AssistantGlyph size="var(--fs-lg)" /></span>
+      <div class="oap-heading">
+        <h2 class="oap-title">{m.operator_assistant_title()}</h2>
+        {#if viewReport}<span class="oap-sees">{seesText}</span>{/if}
+      </div>
+      <!-- New conversation: a glyph at rest; armed, it spells out the question it asks. -->
+      <button
+        type="button"
+        class="icon-btn oap-btn oap-new"
+        class:armed={resetArmed}
+        disabled={view !== "live"}
+        aria-label={resetArmed ? m.operator_assistant_new_confirm() : m.operator_assistant_new()}
+        title={resetArmed ? undefined : m.operator_assistant_new()}
+        onclick={onResetClick}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+          ><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg
+        >
+        {#if resetArmed}<span>{m.operator_assistant_new_confirm()}</span>{/if}
+      </button>
       {#if !mobile}
         <button
           type="button"
@@ -206,38 +283,59 @@
         </button>
       {/if}
       {#if model}<span class="badge">{model}</span>{/if}
-      <button
-        type="button"
-        class="gbtn oap-new"
-        class:armed={resetArmed}
-        disabled={view !== "live"}
-        onclick={onResetClick}
-        >{resetArmed ? m.operator_assistant_new_confirm() : m.operator_assistant_new()}</button
-      >
+      {#if view === "live"}
+        <div class="oap-switch" role="group" aria-label={m.operator_assistant_view_aria()}>
+          <button type="button" aria-pressed={shown === "chat"} onclick={() => show("chat")}
+            >{m.operator_assistant_view_chat()}</button
+          >
+          <button type="button" aria-pressed={shown === "term"} onclick={() => show("term")}
+            >{m.viewport_terminal_tab()}</button
+          >
+        </div>
+      {/if}
     </div>
   </header>
 
   {#if view === "live" && session}
-    <div class="oap-term">
-      <Viewport
-        bind:this={viewport}
-        variant="assistant"
-        {session}
-        {mobile}
-        {touch}
-        {connected}
-        {attended}
-        {terminalOwners}
-        {workingBlocked}
-        {backgroundBusy}
-        {herd}
-        {typeRequest}
-        {viewReport}
-        {ontyped}
-        {onnavigate}
-        {consumeAutoFocusTerm}
-        {onresume}
-      />
+    <!-- Both stay mounted, stacked: the hidden one keeps its scroll, draft and live socket. -->
+    <div class="oap-body">
+      <div class="oap-pane" class:off={shown !== "chat"} inert={shown !== "chat"}>
+        <AssistantChat
+          bind:this={chat}
+          sessionId={session.id}
+          status={session.status}
+          {mobile}
+          {touch}
+          prefill={shown === "chat" ? typeRequest : null}
+          onprefilled={ontyped}
+          consumeAutoFocus={shown === "chat" ? consumeAutoFocusTerm : undefined}
+          onsend={(text) => viewport?.sendLine(text) ?? false}
+          oninterrupt={() => viewport?.sendInterrupt()}
+          onterminal={() => show("term")}
+        />
+      </div>
+      <div class="oap-pane oap-term" class:off={shown !== "term"} inert={shown !== "term"}>
+        <!-- Hidden, it never takes the keyboard and paces its output like an unattended window. -->
+        <Viewport
+          bind:this={viewport}
+          variant="assistant"
+          {session}
+          {mobile}
+          {touch}
+          {connected}
+          attended={attended && shown === "term"}
+          {terminalOwners}
+          {workingBlocked}
+          {backgroundBusy}
+          {herd}
+          typeRequest={shown === "term" ? typeRequest : null}
+          {viewReport}
+          {ontyped}
+          {onnavigate}
+          consumeAutoFocusTerm={shown === "term" ? consumeAutoFocusTerm : () => false}
+          {onresume}
+        />
+      </div>
     </div>
   {:else if view === "unavailable"}
     <div class="oap-state" role="status">
@@ -271,24 +369,26 @@
 
 <style>
   /* Flex column in both homes: the desktop grid's third track (stretched to the row) and the
-     phone's main region (flex: 1 fills the screen under the hidden chrome). */
+     phone's main region (flex: 1 fills the screen under the hidden chrome). On desktop it is its
+     own warm card — the frame that tells it apart from the session console beside it. */
   .oap {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
+    background: var(--wash-assistant);
+    border: 1px solid var(--wash-assistant-edge);
+    border-radius: var(--radius-chip);
+    box-shadow: var(--shadow-popover);
   }
-  /* The header sits on the terminal like the session console's own header: hairline on three
-     sides, the terminal's top border closes it. */
   .oap-head {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px 10px;
-    background: var(--color-head);
-    border: 1px solid var(--color-line);
-    border-bottom: 0;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-line);
   }
   .oap-row {
     display: flex;
@@ -301,27 +401,84 @@
     row-gap: 6px;
   }
   .oap-mark {
-    color: var(--color-amber);
+    flex: none;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-chip);
+    background: var(--wash-assistant-chip);
+    color: var(--color-amber);
   }
-  .oap-title {
+  .oap-heading {
     flex: 1;
     min-width: 0;
-    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .oap-title,
+  .oap-sees {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .oap-title {
+    margin: 0;
     color: var(--color-ink-bright);
-    font-size: var(--fs-meta);
+    font-size: var(--fs-base);
     font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+  }
+  .oap-sees {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
   }
   .oap-btn {
     color: var(--color-muted);
   }
   .oap-close {
     margin-right: -4px;
+  }
+  .oap-new.armed {
+    width: auto;
+    gap: 6px;
+    padding: 0 8px;
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    font: inherit;
+    font-size: var(--fs-meta);
+    white-space: nowrap;
+  }
+  /* Conversation | Terminal: a segmented switch, the pressed half lifted off the card. */
+  .oap-switch {
+    margin-left: auto;
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-chip);
+  }
+  .oap-switch button {
+    padding: 3px 10px;
+    border: 0;
+    border-radius: 2px;
+    background: none;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    cursor: pointer;
+  }
+  .oap-switch button:hover {
+    color: var(--color-ink);
+  }
+  .oap-switch button[aria-pressed="true"] {
+    background: var(--wash-assistant-bubble);
+    color: var(--color-ink-bright);
+  }
+  .oap-switch button:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   /* Inline Badge recipe (/design-system): the 2px micro-label. */
   .badge {
@@ -374,20 +531,34 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  .gbtn.primary,
-  .gbtn.armed {
+  .gbtn.primary {
     border-color: var(--color-amber);
     color: var(--color-amber);
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
-  .oap-new {
-    margin-left: auto;
-  }
-  .oap-term {
+  /* The conversation and the terminal share one cell; the one not shown keeps its layout (the
+     terminal stays fitted, so switching back never reflows the agent's screen). */
+  .oap-body {
     flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  }
+  .oap-pane {
+    grid-area: 1 / 1;
+    min-width: 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  .oap-pane.off {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  /* The card is the frame: the terminal drops its own. */
+  .oap .oap-term :global(.viewport) {
+    border: 0;
+    border-radius: 0;
   }
   .oap-state {
     flex: 1;
@@ -395,8 +566,6 @@
     flex-direction: column;
     gap: 10px;
     padding: 18px 14px;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
     color: var(--color-ink);
     font-size: var(--fs-base);
     line-height: 1.45;
@@ -419,21 +588,29 @@
     margin-top: 4px;
   }
 
-  /* Phone: full-bleed chrome like the session console's merged header, thumb-sized controls. */
-  .oap.phone .oap-head {
+  /* Phone: the whole screen is the assistant — full-bleed, no card chrome (the terminal's own
+     bleed would double it), thumb-sized controls. */
+  .oap.phone {
     margin-inline: calc(-1 * var(--mobile-shell-pad));
-    border-inline: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
-  .oap.phone .oap-state {
-    margin-inline: calc(-1 * var(--mobile-shell-pad));
-    border-inline: 0;
+  .oap.phone .oap-term :global(.viewport.phone) {
+    margin-inline: 0;
   }
   .oap.phone .oap-btn {
     width: 44px;
     height: 44px;
+  }
+  .oap.phone .oap-back {
     margin-left: -10px;
   }
-  .oap.phone .gbtn {
+  .oap.phone .oap-new.armed {
+    width: auto;
+  }
+  .oap.phone .gbtn,
+  .oap.phone .oap-switch button {
     min-height: 44px;
   }
 </style>

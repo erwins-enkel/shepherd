@@ -196,6 +196,14 @@
      so it stays "nur ganz leicht" — a subordinate red that never out-competes
      the blocked pip or the --wash-blocked header. */
   --wash-attention: color-mix(in srgb, var(--color-red) 7%, var(--color-panel));
+  /* The Operator Assistant's own surface: a faint amber warmth on the panel ground, so the
+     assistant reads as a companion layer beside the herd's terminals, never as one more of them.
+     Mixed from theme tokens, so every theme and contrast layer re-derives it. */
+  --wash-assistant: color-mix(in srgb, var(--color-amber) 4%, var(--color-panel));
+  --wash-assistant-edge: color-mix(in srgb, var(--color-amber) 25%, var(--color-line));
+  --wash-assistant-chip: color-mix(in srgb, var(--color-amber) 14%, var(--color-panel));
+  /* The operator's own message in the assistant's conversation: a step off the surface. */
+  --wash-assistant-bubble: color-mix(in srgb, var(--color-ink) 8%, var(--wash-assistant));
 
   /* Wireframe mockup tokens — themed off the semantic --color-* layer (read as computed
      values by WireframeBlock and injected into its sandboxed iframe, which can't inherit these). */

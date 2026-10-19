@@ -470,6 +470,14 @@ until you ask.
 - **Ask the assistant** on a warning or error check under Settings → Diagnose does the
   same for that check.
 
+The panel shows the conversation on its own warm card, so it never reads as one more
+session terminal: your messages on the right, its replies as text, background notices as
+quiet one-liners. Write in the field at the bottom — Enter sends, Shift+Enter breaks the
+line, Esc or **Stop** interrupts a turn. **Terminal** in the panel header switches to its
+raw terminal, for a confirmation it waits on there (the conversation points you to it) or
+anything the conversation leaves out; the choice is remembered per device. The header also
+names what it sees right now, such as _sees TASK-31 · Diff_.
+
 An Ask types the question but never sends it: read it, edit it, press Enter. Whether the
 panel is open is remembered per device. The Assist button carries a pip: amber while the
 assistant works, red while a command waits for your approval. The chip in the panel
@@ -513,7 +521,7 @@ far it goes, one row each:
 
 - **The default** lets read-only commands run (grep, cat, git log, ps, systemctl status …)
   and has every action ask first.
-- **Ask first** shows Claude's confirmation in the panel before each call; **Allowed** runs
+- **Ask first** shows Claude's confirmation in the panel's terminal before each call; **Allowed** runs
   it without asking; **Off** refuses it — Shepherd itself refuses a turned-off action, not
   only Claude.
 - **Changes apply at once**, also to a running conversation: Shepherd rewrites the

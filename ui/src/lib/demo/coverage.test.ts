@@ -465,7 +465,11 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
 
   // The demo reports the Operator Assistant unavailable (GET in INVENTORY), so nothing offers a
   // New conversation; the ensure POST shares the GET's path and is covered by that classification.
-  "Operator Assistant reset": ["/api/operator-assistant/reset"],
+  // Its conversation view, the only reader of a session's messages, never renders either.
+  "Operator Assistant reset + conversation": [
+    "/api/operator-assistant/reset",
+    "/api/sessions/:p/messages",
+  ],
 };
 
 const tailPaths = new Set(Object.values(DELIBERATE_TAIL).flat());

@@ -1,0 +1,466 @@
+<script lang="ts">
+  import { onMount, untrack } from "svelte";
+  import type { SessionMessages, SessionStatus } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { getSessionMessages } from "#lib/api.js";
+  import { pollWhileVisible } from "#lib/visibility.js";
+  import { clock } from "#lib/activity.js";
+  import { chatEntries, unsettled, type PendingSend } from "#lib/assistant-chat.js";
+  import MarkdownBody from "./MarkdownBody.svelte";
+
+  // The Operator Assistant's conversation view: the transcript's text messages as a chat, and a
+  // composer. It never talks to the agent itself — a send goes through the panel's terminal
+  // socket (onsend), so the operator's view report rides along exactly as when typing there.
+  let {
+    sessionId,
+    status,
+    mobile = false,
+    touch = false,
+    prefill = null,
+    onprefilled,
+    consumeAutoFocus,
+    onsend,
+    oninterrupt,
+    onterminal,
+  }: {
+    sessionId: string;
+    status: SessionStatus;
+    mobile?: boolean;
+    touch?: boolean;
+    /** An "Ask the assistant" prefill: put into the composer (not sent) for the operator to review. */
+    prefill?: { text: string; tick: number } | null;
+    onprefilled?: (tick: number) => void;
+    /** One-shot: whether the composer may take the keyboard when it mounts. */
+    consumeAutoFocus?: () => boolean;
+    /** Submit a message at the agent's prompt; false when it could not be sent. */
+    onsend: (text: string) => boolean;
+    /** Interrupt the agent's turn (Escape). */
+    oninterrupt: () => void;
+    /** Show the terminal: the agent waits on something only the terminal can answer. */
+    onterminal: () => void;
+  } = $props();
+
+  /** The newest messages kept in view; older ones stay in the Terminal's scrollback. */
+  const LIMIT = 50;
+  const POLL_WORKING_MS = 2000;
+  const POLL_RESTING_MS = 8000;
+
+  let data = $state<SessionMessages | null>(null);
+  let pending = $state<PendingSend[]>([]);
+  let draft = $state("");
+  let sendFailed = $state(false);
+  let thread: HTMLDivElement | undefined = $state();
+  let input: HTMLTextAreaElement | undefined = $state();
+
+  const working = $derived(status === "running");
+  const blocked = $derived(status === "blocked");
+  const entries = $derived(chatEntries(data?.messages ?? []));
+  const waiting = $derived(unsettled(pending, entries));
+  // Stable keys so a new message doesn't re-render (and re-parse) every row above it.
+  const rows = $derived.by(() => {
+    const seen: Record<string, number> = {};
+    return entries.map((e) => {
+      const base = `${e.kind}:${e.ts}`;
+      const n = seen[base] ?? 0;
+      seen[base] = n + 1;
+      return { ...e, key: `${base}:${n}` };
+    });
+  });
+
+  // Poll faster while the agent works; a status change re-runs this and loads at once.
+  let loadedFor = "";
+  $effect(() => {
+    const id = sessionId;
+    const ms = working ? POLL_WORKING_MS : POLL_RESTING_MS;
+    if (id !== loadedFor) {
+      loadedFor = id;
+      data = null;
+      pending = [];
+    }
+    let alive = true;
+    const load = () =>
+      getSessionMessages(id, LIMIT)
+        .then((r) => {
+          if (alive) data = r;
+        })
+        .catch(() => {});
+    load();
+    const stop = pollWhileVisible(load, ms);
+    return () => {
+      alive = false;
+      stop();
+    };
+  });
+
+  // Follow the conversation while the operator reads its end; leave them where they scrolled to.
+  // Watches the content's size rather than the rows: a reply's Markdown renders after the row
+  // mounts (lazy marked/DOMPurify), and only then is the end where it will stay.
+  let stack: HTMLDivElement | undefined = $state();
+  let stick = true;
+  function onscroll() {
+    if (thread) stick = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48;
+  }
+  $effect(() => {
+    const el = thread;
+    const content = stack;
+    if (!el || !content) return;
+    const ro = new ResizeObserver(() => {
+      if (stick) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  });
+
+  const MAX_INPUT_PX = 160;
+  function autosize() {
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_PX)}px`;
+  }
+
+  function submit() {
+    const text = draft.trim();
+    if (!text) return;
+    if (!onsend(text)) {
+      sendFailed = true;
+      return;
+    }
+    sendFailed = false;
+    pending = [...pending, { text, at: Date.now() }];
+    draft = "";
+    stick = true;
+    queueMicrotask(autosize);
+  }
+
+  function onkeydown(e: KeyboardEvent) {
+    if (e.isComposing) return;
+    // Desktop: Enter sends, Shift+Enter breaks the line. Touch keyboards keep Enter for the
+    // newline; the Send button sends there.
+    if (e.key === "Enter" && !e.shiftKey && !mobile && !touch) {
+      e.preventDefault();
+      submit();
+    } else if (e.key === "Escape" && working) {
+      e.preventDefault();
+      e.stopPropagation();
+      oninterrupt();
+    }
+  }
+
+  let prefilledTick = -1;
+  $effect(() => {
+    const req = prefill;
+    if (!req || req.tick === prefilledTick) return;
+    prefilledTick = req.tick;
+    untrack(() => {
+      draft = req.text;
+      queueMicrotask(autosize);
+      if (!mobile && !touch) input?.focus();
+      onprefilled?.(req.tick);
+    });
+  });
+
+  onMount(() => {
+    if (consumeAutoFocus?.()) input?.focus();
+  });
+
+  /** Hand the keyboard to the composer. */
+  export function focus() {
+    input?.focus();
+  }
+</script>
+
+<div class="ac">
+  <div
+    class="ac-thread"
+    bind:this={thread}
+    {onscroll}
+    role="log"
+    aria-label={m.assistant_chat_log()}
+  >
+    <div class="ac-stack" bind:this={stack}>
+      {#if rows.length === 0 && waiting.length === 0 && !working}
+        <p class="ac-empty">{m.assistant_chat_empty()}</p>
+      {/if}
+      {#each rows as e (e.key)}
+        {#if e.kind === "assistant"}
+          <div class="ac-msg">
+            <MarkdownBody source={e.text} />
+            {#if e.ts}<span class="ac-meta">{clock(e.ts)}</span>{/if}
+          </div>
+        {:else if e.kind === "user"}
+          <div class="ac-msg ac-mine">
+            <p class="ac-bubble">{e.text}</p>
+            <span class="ac-meta"
+              >{m.assistant_chat_you()}{#if e.ts}&nbsp;· {clock(e.ts)}{/if}</span
+            >
+          </div>
+        {:else}
+          <p class="ac-event">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg
+            >
+            <span>{e.text}</span>
+          </p>
+        {/if}
+      {/each}
+      {#each waiting as p (p.at)}
+        <div class="ac-msg ac-mine ac-waiting">
+          <p class="ac-bubble">{p.text}</p>
+          <span class="ac-meta">{m.assistant_chat_sent()}</span>
+        </div>
+      {/each}
+      {#if working}
+        <p class="ac-working" role="status">
+          <span class="ac-dot" aria-hidden="true"></span>{m.assistant_chat_working()}
+        </p>
+      {/if}
+      {#if blocked}
+        <div class="ac-notice" role="status">
+          <p>{m.assistant_chat_blocked()}</p>
+          <button type="button" class="gbtn primary" onclick={onterminal}
+            >{m.assistant_chat_open_terminal()}</button
+          >
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <form
+    class="ac-composer"
+    onsubmit={(e) => {
+      e.preventDefault();
+      submit();
+    }}
+  >
+    <div class="ac-field">
+      <textarea
+        bind:this={input}
+        bind:value={draft}
+        rows="1"
+        aria-label={m.assistant_chat_input_label()}
+        placeholder={m.assistant_chat_placeholder()}
+        oninput={() => {
+          sendFailed = false;
+          autosize();
+        }}
+        {onkeydown}></textarea>
+      {#if working}
+        <button type="button" class="gbtn" onclick={oninterrupt}>{m.assistant_chat_stop()}</button>
+      {/if}
+      <button type="submit" class="gbtn primary" disabled={!draft.trim()}
+        >{m.assistant_chat_send()}</button
+      >
+    </div>
+    {#if sendFailed}
+      <p class="ac-error" role="alert">{m.assistant_chat_send_failed()}</p>
+    {:else if !mobile && !touch}
+      <p class="ac-hint">{m.assistant_chat_keys()}</p>
+    {/if}
+  </form>
+</div>
+
+<style>
+  .ac {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .ac-thread {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 18px;
+  }
+  /* Pinned to the composer, like a chat, without clipping a long conversation. */
+  .ac-stack {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ac-empty {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-base);
+    line-height: 1.55;
+  }
+  .ac-msg {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .ac-msg :global(.md-body) {
+    line-height: 1.65;
+  }
+  .ac-mine {
+    align-self: flex-end;
+    align-items: flex-end;
+    max-width: 85%;
+  }
+  .ac-bubble {
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-chip);
+    background: var(--wash-assistant-bubble);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .ac-waiting .ac-bubble {
+    opacity: 0.7;
+  }
+  .ac-meta {
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.06em;
+  }
+  .ac-event {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.45;
+  }
+  .ac-event svg {
+    flex: none;
+    width: 11px;
+    height: 11px;
+    align-self: center;
+  }
+  .ac-working {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+  }
+  .ac-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    animation: ac-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes ac-pulse {
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .ac-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--wash-assistant-edge);
+    border-radius: var(--radius-chip);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+  }
+  .ac-notice p {
+    flex: 1;
+    min-width: 12em;
+    margin: 0;
+  }
+  .ac-composer {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--color-line);
+  }
+  .ac-field {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    padding: 6px 6px 6px 12px;
+    border: 1px solid var(--color-line-bright);
+    border-radius: var(--radius-chip);
+    background: var(--color-inset);
+  }
+  .ac-field:focus-within {
+    border-color: var(--color-amber);
+  }
+  .ac-field textarea {
+    flex: 1;
+    min-width: 0;
+    align-self: center;
+    padding: 4px 0;
+    border: 0;
+    outline: none;
+    resize: none;
+    background: none;
+    color: var(--color-ink-bright);
+    font: inherit;
+    font-size: var(--fs-base);
+    line-height: 1.5;
+  }
+  .ac-field textarea::placeholder {
+    color: var(--color-muted);
+  }
+  .ac-hint,
+  .ac-error {
+    margin: 0;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
+  }
+  .ac-hint {
+    color: var(--color-muted);
+  }
+  .ac-error {
+    color: var(--color-red);
+  }
+  /* Button recipe (/design-system .gbtn). */
+  .gbtn {
+    flex: none;
+    min-height: 30px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .gbtn.primary {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
+  }
+  @media (pointer: coarse) {
+    .gbtn {
+      min-height: 44px;
+    }
+  }
+</style>

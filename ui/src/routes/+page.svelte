@@ -1691,6 +1691,14 @@
       requestedRepoAssistants = [...requestedRepoAssistants, repo];
     openAssistantScope(repo);
   }
+  /** The chip menu's repo-assistant item: none in the demo, which runs no agents. */
+  const repoAssistantItem = __DEMO__ ? undefined : openRepoAssistant;
+  /** An Ask prefill goes to the global assistant only. */
+  const assistantPrefillFor = (repo: string | null) =>
+    repo === null ? assistantTypeRequest : null;
+  /** End is a repo assistant's alone: the global one is only ever reset. */
+  const assistantEndFor = (repo: string | null) =>
+    repo === null ? undefined : () => void endRepoAssistant(repo);
   /** End a repo assistant (its End, confirmed); the dock falls back to the global one. */
   async function endRepoAssistant(repo: string) {
     // A start that never landed has nothing to archive: dropping its entry is the whole of it.
@@ -3327,7 +3335,7 @@
       onrepofilter={applyRepoFilter}
       onpinrepo={setPinnedRepo}
       oncleanterminal={openCleanTerminal}
-      onrepoassistant={__DEMO__ ? undefined : openRepoAssistant}
+      onrepoassistant={repoAssistantItem}
       {assistantRepos}
     />
   {/if}
@@ -3341,7 +3349,7 @@
     open={assistantScope}
     mobile={mobile.current}
     lifecycle={assistantLifecycle}
-    addable={!__DEMO__}
+    addable={repoAssistantItem !== undefined}
     workingBlocked={store.workingBlocked}
     backgroundBusy={store.backgroundBusy}
     onopen={openAssistantScope}
@@ -3368,7 +3376,7 @@
         workingBlocked={store.workingBlocked}
         backgroundBusy={store.backgroundBusy}
         herd={store.sessions}
-        typeRequest={repo === null ? assistantTypeRequest : null}
+        typeRequest={assistantPrefillFor(repo)}
         viewReport={scopeViewReport(assistantViewReport, repo, store.sessions)}
         ontyped={(t) => {
           if (assistantTypeRequest?.tick === t) assistantTypeRequest = null;
@@ -3378,7 +3386,7 @@
         onretry={() => void assistantLifecycle.retry(repo)}
         onresume={() => assistantLifecycle.ensure(repo)}
         onreset={() => resetAssistant(repo)}
-        onend={repo === null ? undefined : () => void endRepoAssistant(repo)}
+        onend={assistantEndFor(repo)}
         onclose={closeAssistant}
         ondiagnose={openDiagnose}
         permissions={store.assistantPermissions}

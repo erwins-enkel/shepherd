@@ -6313,7 +6313,7 @@ components:
           description: When the epic lands; null when there is no data to forecast from, or once it landed. Always sent by the current server; optional so an older server stays valid.
         landingLocked:
           type: boolean
-          description: "True once the epic's clock exists or its integration branch is pinned: run.landing can no longer change. Always sent by the current server; optional so an older server stays valid."
+          description: "True once the epic's clock exists (it ran): run.landing can no longer change. Always sent by the current server; optional so an older server stays valid."
     EpicTiming:
       type: object
       additionalProperties: true

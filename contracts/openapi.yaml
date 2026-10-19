@@ -4598,7 +4598,7 @@ components:
         landingLocked:
           {
             type: boolean,
-            description: "True once the epic's clock exists or its integration branch is pinned: run.landing can no longer change. Always sent by the current server; optional so an older server stays valid.",
+            description: "True once the epic's clock exists (it ran): run.landing can no longer change. Always sent by the current server; optional so an older server stays valid.",
           }
     EpicTiming:
       type: object

@@ -245,8 +245,7 @@ export interface Epic {
   /** When the epic lands; null when there is no data to forecast from, or once it landed. Set by
    *  `buildEpic` (see `timing`). */
   forecast?: EpicForecast | null;
-  /** True once the epic's clock exists or its integration branch is pinned: its `landing` can no
-   *  longer change. Set by `buildEpic`; optional so the many Epic test fixtures stay valid. */
+  /** True once the epic's clock exists (it ran): its `landing` can no longer change. Set by `buildEpic`; optional so the many Epic test fixtures stay valid. */
   landingLocked?: boolean;
 }
 

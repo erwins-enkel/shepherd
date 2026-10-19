@@ -25,6 +25,7 @@
   } = $props();
   let open = $state(false);
   let childrenOpen = $state(false);
+  let confirming = $state(false);
   // The land POST runs the merge before answering; show it as in flight until it settles.
   let landing = $state(false);
   const repoName = $derived(epic.repoPath.split("/").filter(Boolean).at(-1) ?? epic.repoPath);
@@ -115,7 +116,10 @@
     aria-label={open
       ? m.integrated_epics_collapse_aria({ number: epic.parentIssueNumber })
       : m.integrated_epics_expand_aria({ number: epic.parentIssueNumber })}
-    onclick={() => (open = !open)}
+    onclick={() => {
+      open = !open;
+      confirming = false;
+    }}
   >
     <span class="identity"
       ><span class="chev" class:collapsed={!open} aria-hidden="true">▾</span><span class="num"
@@ -127,7 +131,19 @@
     <span class="epic-title" class:expanded={open}>{epic.parentTitle}</span>
   </button>
   <div class="chips">
-    <span class="turn-chip">{turnLabel}</span>
+    {#if status.canLand}
+      <button
+        type="button"
+        class="turn-chip"
+        aria-label={m.integrated_epics_turn_ready_land_aria({ number: epic.parentIssueNumber })}
+        onclick={() => {
+          open = true;
+          confirming = true;
+        }}>{turnLabel}</button
+      >
+    {:else}
+      <span class="turn-chip">{turnLabel}</span>
+    {/if}
     {#if epic.landingStranded}<span class="waiting-chip"
         >{m.integrated_epics_land_stranded({ ago: formatAgo(nowMs - epic.completedAt) })}</span
       >{/if}
@@ -145,6 +161,7 @@
     <IntegratedEpicLanding
       {epic}
       {landing}
+      bind:confirming
       onland={handleLand}
       {ondismiss}
       {onackmigrations}
@@ -236,6 +253,7 @@
     cursor: pointer;
   }
   .row-head:focus-visible,
+  button.turn-chip:focus-visible,
   .children-toggle:focus-visible {
     outline: 2px solid var(--color-ink-bright);
     outline-offset: 2px;
@@ -297,6 +315,14 @@
     color: var(--color-ink);
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
+  }
+  button.turn-chip {
+    font-family: inherit;
+    cursor: pointer;
+  }
+  button.turn-chip:hover {
+    background: color-mix(in srgb, var(--epic-tone) 24%, transparent);
+    color: var(--color-ink-bright);
   }
   .waiting-chip {
     border-color: var(--status-warn);
@@ -361,6 +387,7 @@
   }
   @media (pointer: coarse) {
     .row-head,
+    button.turn-chip,
     .children-toggle {
       min-height: 44px;
     }

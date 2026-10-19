@@ -22,6 +22,7 @@
     onrepairci = async () => true,
     onopensession = () => {},
     nowMs = Date.now(),
+    confirming = $bindable(false),
     children,
   }: {
     epic: CompletedEpic;
@@ -35,9 +36,10 @@
     onrepairci?: (repoPath: string, parent: number) => Promise<boolean>;
     onopensession?: (id: string) => void;
     nowMs?: number;
+    /** The land confirm is showing; bindable so the row's READY TO LAND pill can open it. */
+    confirming?: boolean;
     children?: Snippet;
   } = $props();
-  let confirming = $state(false);
   let repairStarting = $state(false);
   let repairFailed = $state(false);
   const status = $derived(deriveIntegratedEpicStatus(epic, confirming, landing));

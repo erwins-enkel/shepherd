@@ -10557,7 +10557,7 @@ function stopsAnotherEpicsLead(
   return !!leader && leader.parentIssueNumber !== parentIssueNumber;
 }
 
-/** #3191: the patch changes the epic's landing after it started (clock or pinned branch). Setting
+/** #3191: the patch changes the epic's landing after it started (its clock exists). Setting
  *  the landing it already has is a no-op, never refused. */
 function changesLockedLanding(
   store: AppDeps["store"],
@@ -10566,6 +10566,13 @@ function changesLockedLanding(
 ): boolean {
   if (patch.landing === undefined || patch.landing === effectiveEpicLanding(base)) return false;
   return readEpicLandingLocked(store, base.repoPath, base.parentIssueNumber);
+}
+
+/** #3191: switching to incremental (only possible before the epic ran) drops the integration
+ *  branch a view of it pinned, so nothing keyed on the pin acts for an incremental epic. */
+function dropStaleIncrementalPin(store: AppDeps["store"], merged: EpicRun, patch: EpicRunPatch) {
+  if (patch.landing !== "incremental") return;
+  store.deleteEpicIntegrationBranch(merged.repoPath, merged.parentIssueNumber);
 }
 
 interface SavedEpicRunPatch {
@@ -10681,6 +10688,7 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
   const via = requestTokenName(deps.store, token);
   const requeue = requeuedLeader(url, leader);
   const saved = saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via, requeue);
+  dropStaleIncrementalPin(deps.store, merged, patch);
   if (saved.cleared)
     deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parentNumber });
   const epic = await deps.drain.buildEpic(dir, merged);

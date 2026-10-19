@@ -188,24 +188,21 @@ export interface EpicQueueEntry {
   createdAt: number;
 }
 
-/** An epic's landing (#3191) is fixed once it has started: its clock exists (it ran) or its
- *  integration branch is pinned (children may already base on it). */
-export function epicLandingLocked(facts: { hasClock: boolean; pinned: boolean }): boolean {
-  return facts.hasClock || facts.pinned;
+/** An epic's landing (#3191) is fixed once it has started, i.e. its clock exists (it ran). A
+ *  pinned integration branch alone does not lock it: buildEpic pins on every view of an
+ *  integration epic, so a pin says nothing about whether children were spawned. */
+export function epicLandingLocked(facts: { hasClock: boolean }): boolean {
+  return facts.hasClock;
 }
 
-/** {@link epicLandingLocked} from the store's clock + pin rows for one epic. */
+/** {@link epicLandingLocked} from the store's clock row for one epic. */
 export function readEpicLandingLocked(
-  store: {
-    getEpicClock(repoPath: string, parentIssueNumber: number): unknown;
-    getEpicIntegrationBranch(repoPath: string, parentIssueNumber: number): string | null;
-  },
+  store: { getEpicClock(repoPath: string, parentIssueNumber: number): unknown },
   repoPath: string,
   parentIssueNumber: number,
 ): boolean {
   return epicLandingLocked({
     hasClock: store.getEpicClock(repoPath, parentIssueNumber) != null,
-    pinned: store.getEpicIntegrationBranch(repoPath, parentIssueNumber) != null,
   });
 }
 

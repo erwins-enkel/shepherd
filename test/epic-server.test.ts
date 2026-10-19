@@ -2833,12 +2833,15 @@ describe("PUT /api/epic landing", () => {
     expect(store.getEpicRun(repoDir)?.landing ?? "integration").toBe("integration");
   });
 
-  test("once the integration branch is pinned, a landing change is 409", async () => {
+  test("pinned but never run → 200, and the stale pin is dropped", async () => {
     const { app, store } = harness();
     store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 327, mode: "auto", status: "idle" });
+    // buildEpic pins on every view of an integration epic: a pin alone is not a start.
     store.getOrInitEpicIntegrationBranch(repoDir, 327, "epic/327-x");
     const res = await putLanding(app, { landing: "incremental" });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
+    expect(store.getEpicRun(repoDir)?.landing).toBe("incremental");
+    expect(store.getEpicIntegrationBranch(repoDir, 327)).toBeNull();
   });
 
   test("setting the landing it already has is allowed while locked", async () => {

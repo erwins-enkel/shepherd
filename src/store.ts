@@ -2934,6 +2934,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return row?.branch ?? null;
   }
 
+  /** #3191: drop an epic's integration-branch pin — a stale pin left by a view of an epic whose
+   *  landing switched to incremental before it ever ran. No-op when there is none. */
+  deleteEpicIntegrationBranch(repoPath: string, parentIssueNumber: number): void {
+    this.db.run(`DELETE FROM epic_branch WHERE repoPath = ? AND parentIssueNumber = ?`, [
+      repoPath,
+      parentIssueNumber,
+    ]);
+  }
+
   /** #3101: the pinned epic branch's base-freshness facts; null when the epic has no pin. */
   getEpicBaseFreshness(
     repoPath: string,

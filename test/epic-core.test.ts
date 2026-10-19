@@ -405,10 +405,9 @@ describe("epicNotYetStarted (#3101)", () => {
 });
 
 describe("epic landing lock (#3191)", () => {
-  test("locked once the clock exists or the branch is pinned", () => {
-    expect(epicLandingLocked({ hasClock: false, pinned: false })).toBe(false);
-    expect(epicLandingLocked({ hasClock: true, pinned: false })).toBe(true);
-    expect(epicLandingLocked({ hasClock: false, pinned: true })).toBe(true);
+  test("locked once the clock exists (the epic ran), never by a pin alone", () => {
+    expect(epicLandingLocked({ hasClock: false })).toBe(false);
+    expect(epicLandingLocked({ hasClock: true })).toBe(true);
   });
 
   test("absent landing is integration", () => {

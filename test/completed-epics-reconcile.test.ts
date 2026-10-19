@@ -40,10 +40,11 @@ function issue(number: number): Issue {
   };
 }
 
-function setup(o: { open: number[]; children?: EpicChild[] }) {
+function setup(o: { open: number[]; children?: EpicChild[]; closeIssue?: () => Promise<void> }) {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const cleared: unknown[] = [];
+  const closed: number[] = [];
   events.subscribe((event, data) => {
     if (event === "epic:completed-cleared") cleared.push(data);
   });
@@ -66,9 +67,13 @@ function setup(o: { open: number[]; children?: EpicChild[] }) {
     resolveForge: () =>
       ({
         listIssues: async () => o.open.map(issue),
+        closeIssue: async (n: number) => {
+          closed.push(n);
+          await o.closeIssue?.();
+        },
       }) as any,
   };
-  return { store, deps, cleared };
+  return { store, deps, cleared, closed };
 }
 
 test("auto-dismisses a completed epic whose parent left the open set", async () => {
@@ -91,6 +96,79 @@ test("backfills an idle run whose children are all merged", async () => {
   await reconcileCompletedEpicsForRepo(deps, REPO);
   const rows = store.listEpicCompleted(REPO);
   expect(rows.map((r) => [r.parentIssueNumber, r.landingState])).toEqual([[9, "pending"]]);
+});
+
+test("#3191: an idle all-merged incremental epic closes its open parent and records nothing", async () => {
+  const { store, deps, closed } = setup({
+    open: [9],
+    children: [child(1, "merged"), child(2, "merged")],
+  });
+  store.setEpicRun({
+    repoPath: REPO,
+    parentIssueNumber: 9,
+    mode: "auto",
+    status: "idle",
+    landing: "incremental",
+  });
+  await reconcileCompletedEpicsForRepo(deps, REPO);
+  expect(closed).toEqual([9]);
+  expect(store.listEpicCompleted(REPO)).toEqual([]);
+});
+
+test("#3191: a closed parent or an unmerged child never triggers the close", async () => {
+  const done = setup({ open: [], children: [child(1, "merged")] });
+  done.store.setEpicRun({
+    repoPath: REPO,
+    parentIssueNumber: 9,
+    mode: "auto",
+    status: "idle",
+    landing: "incremental",
+  });
+  await reconcileCompletedEpicsForRepo(done.deps, REPO);
+  expect(done.closed).toEqual([]);
+
+  const partial = setup({ open: [9], children: [child(1, "merged"), child(2, "in-review")] });
+  partial.store.setEpicRun({
+    repoPath: REPO,
+    parentIssueNumber: 9,
+    mode: "auto",
+    status: "idle",
+    landing: "incremental",
+  });
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await reconcileCompletedEpicsForRepo(partial.deps, REPO);
+  } finally {
+    warn.mockRestore();
+  }
+  expect(partial.closed).toEqual([]);
+  expect(partial.store.listEpicCompleted(REPO)).toEqual([]);
+});
+
+test("#3191: a failing close only logs and records nothing", async () => {
+  const { store, deps, closed } = setup({
+    open: [9],
+    children: [child(1, "merged")],
+    closeIssue: async () => {
+      throw new Error("boom");
+    },
+  });
+  store.setEpicRun({
+    repoPath: REPO,
+    parentIssueNumber: 9,
+    mode: "auto",
+    status: "idle",
+    landing: "incremental",
+  });
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await reconcileCompletedEpicsForRepo(deps, REPO);
+    expect(warn.mock.calls[0]?.[0]).toContain("closing incremental epic");
+  } finally {
+    warn.mockRestore();
+  }
+  expect(closed).toEqual([9]);
+  expect(store.listEpicCompleted(REPO)).toEqual([]);
 });
 
 test("skips (and says so) an idle run with unmerged children", async () => {

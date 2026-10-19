@@ -1,5 +1,5 @@
 import { buildRollup, type CompletedEpic } from "./completed-epic";
-import type { Epic, EpicRun } from "./epic-core";
+import { effectiveEpicLanding, type Epic, type EpicRun } from "./epic-core";
 import type { EventHub } from "./events";
 import type { GitForge } from "./forge/types";
 import type { SessionStore } from "./store";
@@ -58,9 +58,11 @@ function autoDismissClosed(
 // Backfill: an idle run whose all-merged epic never got recorded (e.g. completion happened
 // across a restart). Needs buildEpic — no-op when drain is absent. Records the completed epic
 // when all children are merged; otherwise logs a visible skip (never silently dropped).
+// #3191: an incremental epic never records a row — its retry is closing the still-open parent.
 async function backfillIdleEpic(
   deps: CompletedEpicsReconcileDeps,
   repo: string,
+  forge: GitForge,
   openNumbers: Set<number>,
   openTruncated: boolean,
 ): Promise<void> {
@@ -76,47 +78,68 @@ async function backfillIdleEpic(
 
   const epic = await deps.drain.buildEpic(repo, run);
   if (!epic || epic.children.length === 0) return;
-  if (epic.children.every((c) => c.state === "merged")) {
-    const rollup = buildRollup(
-      epic.children,
-      deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber),
-    );
-    // completedAt: latest non-null child mergedAt, else now (not in the sync pump → Date.now OK).
-    const mergedAts = rollup.map((c) => c.mergedAt).filter((m): m is number => m !== null);
-    const completedAt = mergedAts.length > 0 ? Math.max(...mergedAts) : Date.now();
-    const completed: CompletedEpic = {
-      repoPath: repo,
-      parentIssueNumber: run.parentIssueNumber,
-      parentTitle: epic.parentTitle,
-      completedAt,
-      children: rollup,
-      // A backfilled completion (e.g. across a restart) is recorded as pending — its final
-      // state here; the autonomous drain tick (ensureLandingPrsForRepo) opens the landing PR.
-      landingPrNumber: null,
-      landingPrUrl: null,
-      landingState: "pending",
-      migrationPaths: [],
-      migrationsAckedAt: null,
-      landingRebasePauseReason: null,
-      landingRepairCount: 0,
-      landingRepairHead: null,
-      landingConflictReworkCount: 0,
-    };
-    deps.store.recordEpicCompleted({
-      repoPath: completed.repoPath,
-      parentIssueNumber: completed.parentIssueNumber,
-      parentTitle: completed.parentTitle,
-      completedAt: completed.completedAt,
-      childrenJson: JSON.stringify(rollup),
-    });
-  } else {
+  const pending = epic.children.filter((c) => c.state !== "merged").map((c) => c.number);
+  if (pending.length > 0) {
     // Visible skip — never silently drop a backfill candidate.
-    const pending = epic.children.filter((c) => c.state !== "merged").map((c) => c.number);
     console.warn(
       `[server] completed-epics backfill skipped for ${repo}#${run.parentIssueNumber}: ` +
         `children not all merged (pending: ${pending.join(", ")})`,
     );
+    return;
   }
+  if (effectiveEpicLanding(run) !== "incremental") recordBackfilledEpic(deps, repo, run, epic);
+  else if (!openTruncated) await closeIncrementalParent(forge, repo, run.parentIssueNumber);
+}
+
+/** #3191: retry closing an all-merged incremental epic's parent (the drain's close failed, or
+ *  completion happened across a restart). Best-effort: a failure only logs, the next reconcile
+ *  retries while the parent stays open. */
+async function closeIncrementalParent(forge: GitForge, repo: string, parent: number) {
+  try {
+    await forge.closeIssue?.(parent);
+  } catch (err) {
+    console.warn(`[server] closing incremental epic ${repo}#${parent} failed:`, err);
+  }
+}
+
+function recordBackfilledEpic(
+  deps: CompletedEpicsReconcileDeps,
+  repo: string,
+  run: EpicRun,
+  epic: Epic,
+): void {
+  const rollup = buildRollup(
+    epic.children,
+    deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber),
+  );
+  // completedAt: latest non-null child mergedAt, else now (not in the sync pump → Date.now OK).
+  const mergedAts = rollup.map((c) => c.mergedAt).filter((m): m is number => m !== null);
+  const completedAt = mergedAts.length > 0 ? Math.max(...mergedAts) : Date.now();
+  const completed: CompletedEpic = {
+    repoPath: repo,
+    parentIssueNumber: run.parentIssueNumber,
+    parentTitle: epic.parentTitle,
+    completedAt,
+    children: rollup,
+    // A backfilled completion (e.g. across a restart) is recorded as pending — its final
+    // state here; the autonomous drain tick (ensureLandingPrsForRepo) opens the landing PR.
+    landingPrNumber: null,
+    landingPrUrl: null,
+    landingState: "pending",
+    migrationPaths: [],
+    migrationsAckedAt: null,
+    landingRebasePauseReason: null,
+    landingRepairCount: 0,
+    landingRepairHead: null,
+    landingConflictReworkCount: 0,
+  };
+  deps.store.recordEpicCompleted({
+    repoPath: completed.repoPath,
+    parentIssueNumber: completed.parentIssueNumber,
+    parentTitle: completed.parentTitle,
+    completedAt: completed.completedAt,
+    childrenJson: JSON.stringify(rollup),
+  });
 }
 
 /**
@@ -144,5 +167,5 @@ export async function reconcileCompletedEpicsForRepo(
   const openTruncated = open.length >= 200;
 
   autoDismissClosed(deps, repo, openNumbers, openTruncated);
-  await backfillIdleEpic(deps, repo, openNumbers, openTruncated);
+  await backfillIdleEpic(deps, repo, forge, openNumbers, openTruncated);
 }

@@ -464,6 +464,70 @@ describe("epic-child spawns base on the integration branch", () => {
   });
 });
 
+// ── #3191: an incremental epic never pins an integration branch ─────────────────────────────────
+
+describe("incremental epic: children base on the default branch", () => {
+  const PARENT = 327;
+  const CHILD = 320;
+  const parentIssue: Issue = {
+    number: PARENT,
+    title: "EFI cluster",
+    body: "epic body",
+    url: `https://x/${PARENT}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+  const subIssues: SubIssueRef[] = [
+    { number: CHILD, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+  ];
+  const mk = (over: Parameters<typeof makeHarness>[0] = {}) => {
+    const h = makeHarness({
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async () => [],
+      epicStacksEnabled: true,
+      stacks: true,
+      ...over,
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+      landing: "incremental",
+    });
+    return h;
+  };
+
+  test("pump + tick: no pin, no ensureBranch, bare prompt, incrementalEpicParent stamped", async () => {
+    const h = mk();
+
+    await h.drain.pump(REPO);
+    await h.drain.tick();
+
+    expect(h.store.getEpicIntegrationBranch(REPO, PARENT)).toBeNull();
+    expect(h.forgeRec.ensured).toEqual([]);
+    expect(h.creates).toHaveLength(1);
+    const created = h.creates[0]!;
+    expect(created.issueRef?.number).toBe(CHILD);
+    expect(created.baseBranch).toBe("main");
+    expect(created.prompt).not.toContain("--base");
+    expect(created.prompt).not.toContain("part of an epic");
+    expect(created.epicParent ?? null).toBeNull();
+    expect(created.incrementalEpicParent).toBe(PARENT);
+  });
+
+  test("viewing the epic never pins, and a forge without ensureBranch raises no warning", async () => {
+    const h = mk({ noEnsureBranch: true });
+    const epic = await h.drain.buildEpic(REPO, h.store.getEpicRun(REPO)!);
+    expect(epic).not.toBeNull();
+    expect(epic!.warnings).toEqual([]);
+    expect(h.store.getEpicIntegrationBranch(REPO, PARENT)).toBeNull();
+  });
+});
+
 // ── #1757: the two epic-base failure modes are NOT the same ─────────────────────────────────────
 //
 // A child degraded onto the default branch is NOT stuck: the base-mismatch gate needs the session

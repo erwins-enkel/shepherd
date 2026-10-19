@@ -8560,6 +8560,20 @@ test("relaunch keeps research:true; explicit override flips it to false", async 
   expect(flipped.research).toBe(false);
 });
 
+test("#3191: relaunch carries incrementalEpicParent; re-pointing the base drops it", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store, { incrementalEpicParent: 327 });
+  expect(orig.incrementalEpicParent).toBe(327);
+
+  const fresh = await service.relaunch(orig.id);
+  expect(fresh.incrementalEpicParent).toBe(327);
+  expect(fresh.epicParent ?? null).toBeNull();
+
+  const moved = await service.relaunch(orig.id, undefined, { baseBranch: "main" });
+  expect(moved.incrementalEpicParent ?? null).toBeNull();
+});
+
 // ── agent base-URL selection (issue #711 Task 4) ────────────────────────────────
 // The URL baked into a spawn's hooks (and build-queue) calls: an egress-confined autonomous
 // spawn on a host-loopback-capable slirp with a known ingress port reaches Shepherd via the

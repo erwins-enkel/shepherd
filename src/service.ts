@@ -2303,9 +2303,10 @@ function pickOverride<T>(override: T | undefined, original: T): T {
 function carriedEpicParent(
   original: Session,
   overrides: RelaunchOverrides | undefined,
+  field: "epicParent" | "incrementalEpicParent" = "epicParent",
 ): number | null {
   const repointed = overrides?.repoPath !== undefined || overrides?.baseBranch !== undefined;
-  return repointed ? null : (original.epicParent ?? null);
+  return repointed ? null : (original[field] ?? null);
 }
 
 /** Resolve the relaunch model for the EFFECTIVE provider. `validateRelaunchOverrides` is
@@ -4915,6 +4916,8 @@ export class SessionService {
       // Carry the bootstrap flag; the relaunch's create re-resolves the House Stack (#3109).
       bootstrap: pickOverride(overrides?.bootstrap, original.bootstrap),
       epicParent: carriedEpicParent(original, overrides),
+      // #3191: an incremental epic child stays one across a relaunch (same repoint rule).
+      incrementalEpicParent: carriedEpicParent(original, overrides, "incrementalEpicParent"),
       // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.
       carriedAmendments,
       images,

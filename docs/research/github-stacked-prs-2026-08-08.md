@@ -19,6 +19,9 @@ stale:
 - **The atomicity contradiction is settled.** #2060 Step 1 → PR #2064 (merged); the spike note is on
   `main` at `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md`. Result folded into §5.2.1 and §7.
   Step 2 (shape (b)) is now #2063; a defect the spike surfaced is #2062.
+- **Re-assessed 2026-10-19 (#3189) — see §10.** Stacks are GA (2026-10-06), shape (b) shipped but is
+  enabled on no repo, and the recommendation is now a hybrid: shape (b) stays default, shape (a)
+  becomes an opt-in per-epic "incremental landing" mode.
 
 ---
 
@@ -425,9 +428,15 @@ unattended agents will wedge on the TUI.
 Tier 0 shipped in PR #2061; #2062 is its outstanding follow-on defect. Tier 2 is #2063, unblocked by
 the atomicity spike (§5.2.1) but not dependent on it. Tiers 1 and 3 are unfiled.
 
+_2026-10-19:_ Tier 2 shipped (#2066/#2068/#2069/#2070) behind `epicStacksEnabled`, which no repo has
+turned on. Follow-up drafts for shape (a) and stack-aware CI are in §10.8.
+
 ---
 
 ## 7. Evaluated and recommended against (for now)
+
+> **Superseded in part by §10 (2026-10-19).** Item 5 (preview churn) is gone with GA; shape (a) is
+> now recommended as an opt-in per-epic mode, not as a replacement for the integration branch.
 
 **Retiring the `epic/` integration branch and the landing PR outright (§5.2.1 shape (a)) — not yet, but
 this is a "when", not a "no".** The prize is real and large: the entire landing-repair surface deleted,
@@ -509,6 +518,280 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
 - Does the one-PR-per-session invariant become _one stack per session_ (the honest generalization), or
   does a stack imply multiple sessions? This decides whether `reviews`/`build_queue_state`
   (`sessionId PRIMARY KEY`) need to change.
+
+---
+
+## 10. Re-assessment 2026-10-19 — epics vs. stacks, shape (a), CI cost (#3189)
+
+**Brief.** #3189 asks whether epics should keep landing through the integration branch and a landing
+PR (shape (b), shipped via #2063) or whether GitHub stacks are now good enough for shape (a). Inputs:
+GitHub's docs and changelog as of 2026-10-19, a manual stack merge in aetherial (stack #583 =
+aetherial#578 → #580 → #582, `gh stack` 0.2.1), the dependency graphs of six aetherial epics, the CI
+run history behind them, and the live Shepherd DB. Research only — no code, no running epic touched.
+Sections 1–9 above stay as the August record; this section supersedes them where they disagree.
+
+### 10.1 TL;DR
+
+- **Recommendation: hybrid.** Keep shape (b) as the default. Add shape (a) as an **opt-in, per-epic
+  "incremental landing" mode** for epics whose children are each independently shippable. Do not flip
+  the default.
+- **Most of what shape (a) deletes comes from dropping the integration branch, not from stacks.** On
+  real aetherial epics, chains carry only 3 of 11 dependency edges (#464), and 27–57% across the
+  six epics measured (§10.5). In #464, 7 of 13 children have no in-epic blocker, so under shape (a)
+  they would simply be plain PRs to `main`. Stacks only help along the few real chains.
+- **The aetherial stack merge worked, and it shipped an untested combination.** aetherial#579 landed on
+  `main` after #578's only CI run. The stack merge landed all three layers on top of it without any
+  CI on the merged result: aetherial has no required checks and no CI on `push` to `main`. Shape (a)
+  makes that the normal case unless the check moves to merge time (§10.3).
+- **CI: the answer is a merge queue, not position-gating alone.** Since GA, a stack enters the merge
+  queue as one merge group. Run the expensive jobs on `merge_group`, and run `quality` plus
+  top-of-stack e2e on `pull_request`. The org is on the Enterprise plan, so the merge queue is
+  available for the private aetherial repo.
+- **Shape (b) stacks have zero production mileage.** `epicStacksEnabled` is `0` for all 63 repos in the
+  live DB, and `epic_stack` / `epic_stack_wedge` are empty. The August plan's "first move" is built
+  but has never run.
+
+### 10.2 What changed since August
+
+| Item                              | August (§2, spike)                         | 2026-10-19                                                                                                                                                                                                                                                |
+| --------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status                            | Public preview (2026-07-30)                | **Generally available 2026-10-06**, all github.com plans; GHES "upcoming" ([changelog](https://github.blog/changelog/2026-10-06-stacked-pull-requests-generally-available/))                                                                              |
+| Async merge API                   | Required for stacks; preview               | **GA 2026-10-01**, still the only API that merges a stack ([changelog](https://github.blog/changelog/2026-10-01-github-async-merge-api-generally-available/))                                                                                             |
+| Atomic stack merge                | Spike: nothing lands on validation failure | Docs: "single, all-or-nothing operation" (`gh stack merge`). aetherial stack #583: three squash commits `5338881`/`c0e66c8`/`2822fd9` within 3 s, no manual rebase despite #579 landing in between                                                        |
+| Merge queue                       | "Still rolling out"; spike untested        | **Shipped.** A stack enters the queue as one merge group (the group may exceed max size by 50% to stay together); ejecting a layer ejects every layer above it ([reference](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests))    |
+| Server-side "Rebase stack"        | UI only, commits unsigned                  | Still **UI only — no REST/GraphQL endpoint**. GA changelog says it now keeps approvals and signs commits; the Managing page still says "not signed" (doc contradiction)                                                                                   |
+| Reorder / insert / drop one layer | No API                                     | **Unchanged.** REST is list/create/get/`add`/`unstack`; GraphQL is read-only, "there are no stack mutations" ([APIs](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests-apis-and-webhooks))                                         |
+| Auto-merge                        | Not supported                              | "Rolling out over the next few weeks" (GA changelog) vs. "not supported" (Merging page) — treat as **not available yet**                                                                                                                                  |
+| Admin/bypass                      | Not supported                              | Bottom PR mergeable with bypass rules (GA changelog)                                                                                                                                                                                                      |
+| Base branch deleted               | —                                          | Stack is re-targeted (GA changelog)                                                                                                                                                                                                                       |
+| `gh stack`                        | v0.0.x, TUI wedge hazard                   | v0.2.1 (2026-10-09). `link` composes **existing** PRs into a stack, with no prompts. `merge -y`, or with no TTY, is headless. `sync` aborts safely without a TTY ([CLI ref](https://docs.github.com/en/pull-requests/reference/stacked-prs-cli-commands)) |
+| Shepherd shape (b)                | Planned (#2063)                            | Shipped: #2066 chains, #2068 forge surface, #2069 stacked spawn, #2070 bottom-up retire + wedge repair; #2062 merge-queue defect fixed. Opt-in `epicStacksEnabled`, **enabled nowhere**                                                                   |
+
+Remaining doc contradiction: the reference and GA changelog say a queued stack lands as one merge
+group, while the CLI page says queued PRs "can land in separate groups". Verify on the first real
+queued stack before relying on group atomicity.
+
+### 10.3 Issue point 2 — CI cost per layer
+
+**Measured (aetherial stack #583, Actions job durations incl. setup):**
+
+| PR             | Full CI runs   | e2e min               | Job-min | Note                                                                                             |
+| -------------- | -------------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| #578 (layer 1) | 1              | 16.7                  | 31.2    | Never re-run after #579 landed on `main`                                                         |
+| #580 (layer 2) | 1              | 16.5                  | 32.1    |                                                                                                  |
+| #582 (layer 3) | 1 (+2 aborted) | 14.9 (+4.3 wasted)    | 40.5    | Restack = `head_ref_force_pushed` + `base_ref_changed` 1 s apart → two runs, one cancelled empty |
+| **Stack**      | 3              | **52.4** (4.3 wasted) | 103.8   | 10.9 job-min (10%) wasted by the restack                                                         |
+
+The issue comment reports 15.1 / 15.0 / 13.5 min for the same e2e jobs, which is the same order of
+magnitude.
+
+For comparison, epic #464 under today's shape (b): 13 child PRs → 24 CI runs, **691 e2e min / 1451
+job-min**. The landing PR aetherial#543 added 11 runs, **88 e2e min / 217 job-min** (13% on top).
+Caveat: child runs before aetherial#558 (15:52Z) used three hosted shards, which inflates the early
+children's numbers.
+
+**Cost model.** Let _d_ be stack depth and _r_ the number of restacks (each trunk move the stack
+must absorb, plus each push to a lower layer).
+
+- Ungated per-layer CI ≈ `d + Σ(layers above each restack point)` full runs. A restack force-pushes
+  every layer above the change, and GitHub documents that CI re-triggers ("CI checks are
+  re-triggered", [Managing](https://docs.github.com/en/pull-requests/how-tos/create-pull-requests/managing-stacked-pull-requests)).
+- After a **partial** stack merge, GitHub auto-rebases the remainder. The docs do not say explicitly
+  that every remaining layer gets a `synchronize`, so assume it does.
+- Shape (b) today costs `Σ child runs + landing-PR runs`. Shape (a) removes the landing term (13% on
+  #464) and adds the restack term.
+
+**What a workflow can see.** `github.event.pull_request.stack.{number,size,position,base.ref,base.sha}`
+is in the `pull_request` payload (`null` when not stacked); no API call is needed. GitHub's own
+recipe ([Optimizing CI](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/optimizing-ci-for-stacked-pull-requests)):
+
+```yaml
+# lowest unmerged layer
+if: github.event.pull_request.stack != null && github.event.pull_request.stack.base.ref == github.event.pull_request.base.ref
+# top layer
+if: github.event.pull_request.stack != null && github.event.pull_request.stack.position == github.event.pull_request.stack.size
+```
+
+`on.pull_request.branches: [main]` matches against the **stack base**, so such a workflow runs for every
+layer. Required checks and rulesets are also evaluated against the stack base. A layer can merge only
+when every layer below it passes them.
+
+**The three options from the issue:**
+
+| Option                                               | e2e runs per stack                      | Gap                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| e2e only where `stack == null` or `position == size` | 1 per top-layer push/restack            | Lower layers carry no e2e. Fine if they only ever land **with** the top; wrong for a bottom-up partial merge, which is exactly what Shepherd's retire gate does (`src/epic-stack.ts` → `stackRetireGate()`). A job skipped by `if:` reports success (general Actions rule; the stack docs are silent), so a required e2e check does not block lower layers |
+| Draft until merge (aetherial#558)                    | 0 while draft, then **d at once**       | `gh stack merge` requires every layer to be open and non-draft. Flipping a stack to ready fires _d_ full e2e runs at the same moment, so on 3 runners a depth-4 stack waits about one extra e2e cycle. Saves cost, not latency                                                                                                                             |
+| Full check only at stack merge (merge queue)         | 1 per merge group (+ retry on ejection) | Needs a merge queue on `main`, `merge_group` triggers, and **required checks** (aetherial has none: `rules/branches/main` = `[]`, no protection). Shepherd must enqueue with `merge_action=merge_queue` and without `merge_method` (#2062 fixed that path)                                                                                                 |
+
+**The stack #583 merge shows why the third option matters.** All three layers were green and the
+merge was atomic, yet the content that landed was never tested together with aetherial#579, which hit
+`main` in between. No CI ran on the merged commits. Top-layer gating would not have caught this,
+because the top layer was green against a trunk SHA that had already moved. Only a merge-time check
+on the real merge result does. This is spike finding 4 ("a conflict against the trunk is invisible
+until merge time"), observed live with a semantic rather than a textual conflict.
+
+**Recommended CI shape for a stacked repo:**
+
+- On `pull_request`, run cheap jobs (`quality`, PR title) on every layer.
+- Run e2e on `pull_request` only when `stack == null || position == size`, as an early signal.
+- Run `db` and `e2e` as **required** checks on `merge_group`.
+
+Drafts stop being a cost lever once that is in place.
+
+### 10.4 Issue points 1 and 3 — shape (a) re-evaluated, abandoned children
+
+**What shape (a) deletes** (per epic in the mode):
+
+- the landing PR and every `landing*` column on `epic_completed` (`src/store.ts`: `landingState`,
+  `landingAttempts`, `landingRebase*`, `landingRepair*`, `landingRerun*`, `landingConflict*`)
+- `src/landing-rebase.ts`, the pre-warm draft, `DrainService.tryAutoLandEpic()` race reconciliation
+- `epic_branch` pinning plus `baseBehindSince` / `baseConflictSince`
+- divergence detection and `epic_base_mismatch` for the epic branch
+
+**The live DB says that cost is real.** 50 epics completed since 2026-08-10. Of those, **18 (36%)** had
+`landingConflictReworkCount > 0`, and one needed an agent repair session. In aetherial, 2 of 12. This
+is the drift cost §5.2.1 predicted, still being paid three months later.
+
+**What shape (a) has to replace:**
+
+| Today (shape (b))                                                                                                                                                                        | Replacement under shape (a)                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Closes #parent` in `buildLandingPrBody()` (`src/epic-landing.ts`)                                                                                                                       | Shepherd closes the parent when the last child integrates. Every child PR already carries its own `Closes #child`                                                       |
+| One normalized title, `buildLandingPrTitle()`                                                                                                                                            | N child titles land as N subjects. See §10.6: already gated wherever the PR targets `main`                                                                              |
+| Whole-epic critic: `src/standalone-critic.ts` reviews the open landing PR (`isEpicIntegrationBranch(headRefName)`)                                                                       | Per-child critic already runs. The whole-epic pass has no single artifact, because siblings land at different times. Accept that, or review the top layer of each chain |
+| Migration gate on the landing diff (`migrationPaths` / `migrationsAckedAt`, `src/completed-epic.ts`)                                                                                     | Per child PR. Every child that touches migrations gates individually, which is stricter, not weaker                                                                     |
+| Cross-chain wait gate (`selectEpicCandidates()`, `src/epic-core.ts`)                                                                                                                     | **Unchanged.** A cross-chain blocker counts as done once it is merged to `main` (issue closed). For wide epics this is the primary mechanism (§10.5)                    |
+| `DrainService.resolveSpawnBase()` (`src/drain.ts`) fails closed rather than "silently base an epic child on the default branch"; `epicChildBaseOk()` (`src/epic-stack.ts`) guards retire | **Inverted by design** for epics in the mode. This is the semantic change shape (a) really means: the epic lands **incrementally** on `main`, not atomically            |
+
+**The real question is not stacks.** Shape (a) means "this epic may be partly on `main`". The August
+objection was a half-epic stranded by a failed merge. GA and the spike make that case very unlikely,
+because validation is all-or-nothing. But shape (a) produces a half-epic on `main` **by design** as soon
+as the first chain or standalone child merges. That is fine for epics whose children are each
+shippable, and wrong for epics that ship one feature in slices. Only the operator can know which
+kind an epic is, so it has to be an explicit per-epic mode, not a global switch.
+
+**Abandoned children (issue point 3).** #2070's handling (`detectStackWedge()` → `forge.unstack()` → a
+blocking `assembleEpic` warning) carries over. The repair primitive is still unstack-and-recreate, and
+there is still no drop-one or reorder API. Two things change when the trunk is `main`:
+
+- Layers **below** the hole may already be on `main`. Unstack keeps merged PRs linked, so they are
+  not victims. What is left is exactly the "half-epic on `main`" state the incremental mode accepts
+  anyway, so the wedge is a latency problem, not a correctness one.
+- The stranded layers above the hole must be rebased onto `main` minus the lost layer's commits.
+  Today they rebase onto the integration branch instead. It is the same work, and under shape (a) it
+  happens against a branch that moves faster. #2070's "fail-visible, leave the branches, operator or
+  repair steer" stays the right policy, and no new mechanism is needed.
+
+### 10.5 Issue point 4 — how linear are real epics?
+
+aetherial epics with an `epic-dag` fence (native `blocked_by` / sub-issues are empty), chain cover
+computed greedily (for #464 also checked against the Dilworth minimum, which agreed):
+
+| Epic                  | Nodes | Edges | Fan-in >1   | Fan-out >1 | Isolated | Longest path | Chains | In-chain / cross edges |
+| --------------------- | ----- | ----- | ----------- | ---------- | -------- | ------------ | ------ | ---------------------- |
+| #464 M4 Lückenanalyse | 13    | 11    | 2 (#462: 5) | 2          | 3        | 2            | 10     | **3 / 8**              |
+| #433 M0–M3 gaps       | 16    | 7     | 2 (max 3)   | 2          | 9        | 2            | 12     | 4 / 3                  |
+| #58 M4 Nachbereitung  | 12    | 8     | 0           | 2          | 2        | 3            | 8      | 4 / 4                  |
+| #57 M3 Vor Ort        | 18    | 19    | 5 (max 2)   | 3          | 1        | 3            | 10     | 8 / 11                 |
+| #59 M5 KI (open)      | 11    | 12    | 2           | 2          | 0        | 3            | 6      | 5 / 7                  |
+| #521 Sponsoren        | 5     | 2     | 0           | 1          | 2        | 1            | 4      | 1 / 1                  |
+
+- **Real epics are wide and shallow.** The longest path is at most three edges. #464 has 10 chains
+  for 13 children: two non-trivial ones (#451 → #452 and #459 → #460 → #462), and the longer one
+  ends in a five-way fan-in that a stack cannot express.
+- **Stacks would replace only part of the wait gate's edges.** In-chain edges are 3/11, 4/7, 4/8,
+  8/19, 5/12 and 1/2 (27–57%); cross-chain edges are the majority in three of six epics and half in
+  two more. The gate in `selectEpicCandidates()` stays the primary ordering mechanism.
+- **Consequence for shape (b).** The parallelism #2063 bought (spawning a child on its predecessor's
+  branch) applies to one child per in-chain edge (1–8 per epic here), and only while that child's
+  predecessor is still unmerged. For #464 that is 3 of 13 children.
+- **Consequence for shape (a).** Most children would be unstacked PRs to `main`. The mode is "children
+  land on `main` as they finish", with stacks as an optimization for the occasional chain.
+
+### 10.6 Issue point 5 — commit history, release-please, commitlint
+
+- **Granularity.** Stack squash gives one commit per layer. Shape (a) more generally gives one commit
+  per child on `main`, so the changelog gets N lines instead of one `feat: … (epic #N)` line. That is
+  the history-quality gain §5.2.1 already argued for. The cost is that a child typed `test:` /
+  `refactor:` / `chore:` is hidden by `release-please-config.json`'s `changelog-sections`. An epic of
+  mostly hidden types would no longer show up as one feature line. A `!` breaking marker must sit on
+  the child that breaks, not on the parent.
+- **Which subject lands.**
+  - aetherial sets `squash_merge_commit_title = PR_TITLE`, and its `pr-title.yml` (commitlint) has no
+    `branches:` filter, so it gates every layer today.
+  - Shepherd sets `COMMIT_OR_PR_TITLE`. `pr-title.yml` is filtered to `branches: [main]`, which
+    GitHub matches against the stack base, so it covers every layer of a stack rooted at `main` and
+    every unstacked child targeting `main`. Single-commit PRs are covered by the commit-msg hook (see
+    the workflow header).
+  - Under shape (b) child PRs into `epic/*` are not title-gated at all. That is correct today, because
+    only the landing title reaches `main`, and it becomes unnecessary under shape (a).
+- **Nothing in shape (a) breaks release-please.** The one thing to keep is `buildLandingPrTitle()`'s
+  guarantee that the **parent** semantics show up somewhere. Leave that to the children's own types,
+  or prefix the first child's title. That is a product choice for the follow-up, not a blocker.
+
+### 10.7 Recommendation
+
+**Hybrid. Keep shape (b) as the default and add shape (a) as an opt-in "incremental landing" mode per
+epic.**
+
+1. **Why not stay put.** 36% of recent epics paid landing-PR conflict rework, and #464's landing PR
+   cost 13% extra CI. That cost exists only because of the integration branch, and for epics whose
+   children ship independently it buys nothing. GA removed the preview-churn objection (§7 item 5).
+   The spike already removed the partial-merge objection for every failure reachable from outside
+   GitHub (§7 item 2).
+2. **Why not flip the default.** Many epics must not be half-shipped, and only the integration branch
+   gives atomic landing. Auto-merge for stacks is not available yet, the restack API still does not
+   exist, and the stack-mergeability gaps from spike findings 3 and 4 remain open. The #583 merge
+   showed finding 4 live.
+3. **Why stacks are secondary.** Real epic DAGs are wide and shallow (§10.5). Shape (a)'s value is
+   "children land on `main`". Stacks only add parallelism along the rare chain. Do not build the mode
+   around stacks. Treat stacks as an optional layer on top of it, reusing #2066/#2068/#2069 code.
+4. **Shape (b) stacks.** These are built, unused, and low-value on this portfolio. Leave them opt-in.
+   Do not invest further until a deep-chain epic actually shows up.
+
+**What would flip this to shape (a) as the default:**
+
+- stack auto-merge is GA in the docs (not only the changelog) and
+- a merge-queue-gated repo has run a few dozen stacked merges without an ejection anomaly and
+- most epics are marked "independently shippable" once the mode exists.
+
+**What would retire shape (a):** a confirmed partial landing outside the validation phase (the
+troubleshooting page's "intermittent failure" path).
+
+### 10.8 Follow-up issue drafts (not filed)
+
+**Shepherd — `feat(epic): opt-in incremental landing mode (children → main, no landing PR)`**
+
+- Per-epic setting (`epic_settings`) chosen at epic approval. Children base on and target the default
+  branch, with no `epic/` branch, no landing PR, and no `landing*` state.
+- The parent closes when the last child integrates. The migration gate runs per child PR. The
+  cross-chain gate is unchanged, with "merged to `main`" as the done signal.
+- `resolveSpawnBase`'s "never base an epic child on the default branch" becomes conditional on the
+  mode.
+- Stacks are optional, rooted at `main`, behind `epicStacksEnabled`.
+
+**Shepherd — `fix(forge): stack merge must not land a combination nobody tested`**
+
+- Before `merge-async` on a stack outside a merge queue, refuse when the top layer's last green run
+  was against a `stack.base.sha` other than the trunk's current SHA. Restack first, or route through
+  `merge_action=merge_queue` when the repo requires one.
+- Evidence: aetherial stack #583 vs. #579.
+- This also applies to shape (b), where the trunk is the epic branch.
+
+**aetherial — `ci: stack-aware e2e and merge queue on main`**
+
+- `quality` and PR title on every PR.
+- `db`/`e2e` on `pull_request` only when `stack == null || stack.position == stack.size`.
+- Enable the merge queue on `main` (Enterprise plan) and add a `merge_group` trigger.
+- Make `quality` / `db` / `e2e` **required checks** (there are none today).
+- Revisit the draft gate (#558) afterwards; it should become unnecessary.
+
+**Shepherd (doc-only, small) — `docs: stacked-PR facts after GA`**
+
+- Refresh §2 of this note: GA, merge queue, signed restack, the read-only API, the doc contradictions
+  in §10.2.
+- Alternatively fold this into whichever implementation issue lands first.
 
 ---
 

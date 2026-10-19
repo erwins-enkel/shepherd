@@ -1200,3 +1200,106 @@ test("#3104: no-CI repo with mergeWithoutCi → merges", async () => {
   await new AutoMergeService(noCiDeps(true, merge)).pump("/r");
   expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
 });
+
+// ── Incremental epic child touching migrations: held, never merged by the train ────────────
+
+/** Deps for an incremental-epic child; `prChangedPaths` is the forge's PR-files read (omit the
+ *  key to model a forge without it). */
+function migrationsDeps(
+  prChangedPaths: ((n: number) => Promise<string[]>) | undefined,
+  sessionOver: any = { incrementalEpicParent: 100 },
+) {
+  const session = baseSession(sessionOver);
+  const merge = mock(async () => {});
+  const emitStatus = mock(() => {});
+  const forge: any = {
+    kind: "github",
+    mergeMethod: "squash",
+    merge,
+    closeIssue: mock(async () => {}),
+  };
+  if (prChangedPaths) forge.prChangedPaths = prChangedPaths;
+  const base = deps();
+  const d = deps({
+    store: { ...base.store, get: () => session as any, list: () => [session as any] } as any,
+    resolveForge: () => forge,
+    emitStatus,
+  });
+  return { d, merge, emitStatus };
+}
+
+const statesOf = (emitStatus: any) => emitStatus.mock.calls.map((c: any[]) => c[0]?.state);
+
+test("migrations: incremental child touching a migration → `migrations` hold, no merge", async () => {
+  const paths = mock<(n: number) => Promise<string[]>>(async () => [
+    "src/a.ts",
+    "db/migrations/0001_init.sql",
+  ]);
+  const { d, merge, emitStatus } = migrationsDeps(paths);
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
+  expect(paths.mock.calls[0]).toEqual([7]);
+  expect(statesOf(emitStatus)).toContain("migrations");
+  const last = (emitStatus as any).mock.calls.at(-1)[0];
+  expect(last).toMatchObject({ detail: "TASK-01", sessionId: "s1" });
+  expect(last.waiting).toEqual([{ sessionId: "s1", code: "migrations" }]);
+});
+
+test("migrations: incremental child with no migration paths → merges", async () => {
+  const { d, merge } = migrationsDeps(async () => ["src/a.ts", "README.md"]);
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls.length).toBe(1);
+});
+
+test("migrations: prChangedPaths throws → held (fail closed)", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  const { d, merge, emitStatus } = migrationsDeps(async () => {
+    throw new Error("gh down");
+  });
+  await new AutoMergeService(d).pump("/r");
+  warn.mockRestore();
+  expect(merge.mock.calls.length).toBe(0);
+  expect(statesOf(emitStatus)).toContain("migrations");
+});
+
+test("migrations: forge without prChangedPaths → held (fail closed)", async () => {
+  const { d, merge, emitStatus } = migrationsDeps(undefined);
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
+  expect(statesOf(emitStatus)).toContain("migrations");
+});
+
+test("migrations: non-incremental session never probes changed paths, merges", async () => {
+  const paths = mock(async () => ["db/migrations/0001_init.sql"]);
+  const { d, merge } = migrationsDeps(paths, {});
+  await new AutoMergeService(d).pump("/r");
+  expect(paths.mock.calls.length).toBe(0);
+  expect(merge.mock.calls.length).toBe(1);
+});
+
+test("migrations: probe cached per (session, head) — same head → one forge call", async () => {
+  const paths = mock(async () => ["drizzle/0001.sql"]);
+  const { d } = migrationsDeps(paths);
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  await svc.pump("/r");
+  await svc.snapshot();
+  expect(paths.mock.calls.length).toBe(1);
+});
+
+test("migrations: a new head re-probes", async () => {
+  const paths = mock(async () => ["drizzle/0001.sql"]);
+  let head = "h1";
+  const { d } = migrationsDeps(paths);
+  d.prCache = {
+    snapshot: () => ({
+      s1: { state: "open", checks: "success", mergeable: true, number: 7, headSha: head },
+    }),
+  } as any;
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  head = "h2";
+  await svc.pump("/r");
+  expect(paths.mock.calls.length).toBe(2);
+});

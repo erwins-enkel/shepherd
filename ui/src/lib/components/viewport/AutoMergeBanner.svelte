@@ -85,6 +85,8 @@
         return m.automergebanner_manual_steps();
       case "stacked":
         return m.automergebanner_stacked();
+      case "migrations":
+        return m.automergebanner_migrations();
       case "signoff":
         return m.automergebanner_signoff();
       case "no_ci":

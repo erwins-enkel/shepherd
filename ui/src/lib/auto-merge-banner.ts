@@ -41,6 +41,7 @@ const OPERATOR_CODES: ReadonlySet<MergeWaitCode> = new Set([
   "merge_backoff",
   "manual_steps",
   "stacked",
+  "migrations",
   "signoff",
   "protection_blocked",
   "no_ci",

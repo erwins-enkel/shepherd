@@ -1228,8 +1228,8 @@ export interface RepoConfig {
 export interface AutoMergeStatus {
   repoPath: string;
   enabled: boolean;
-  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" | "stacked" while acting/paused;
-   *  null when idle. */
+  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" | "stacked" | "migrations" | other
+   *  hold codes while acting/paused; null when idle. */
   state: string | null;
   /** A desig for the operator banner, when relevant. */
   detail: string | null;
@@ -1256,6 +1256,7 @@ export type MergeWaitCode =
   | "critic_pending"
   | "stacked"
   | "manual_steps"
+  | "migrations"
   | "no_ci";
 
 /** One held full-auto PR on {@link AutoMergeStatus.waiting}. */

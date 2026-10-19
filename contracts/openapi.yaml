@@ -1280,6 +1280,7 @@ components:
           critic_pending,
           stacked,
           manual_steps,
+          migrations,
           no_ci,
         ]
     LimitWindow:

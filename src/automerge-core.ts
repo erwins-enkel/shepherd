@@ -17,11 +17,11 @@ export const OWNERSHIP_TTL_MS = 2 * REBASE_DEDUP_TTL_MS;
 
 /** Why the merge train is holding — surfaced on automerge:status. */
 export interface MergeHoldReason {
-  code: "disabled" | "rebase_cap" | "idle" | "manual_steps" | "stacked";
-  /** A desig (rebase_cap / manual_steps / stacked) for the operator banner. */
+  code: "disabled" | "rebase_cap" | "idle" | "manual_steps" | "stacked" | "migrations";
+  /** A desig (rebase_cap / manual_steps / stacked / migrations) for the operator banner. */
   detail?: string;
   /** The affected session's id, so the push deep-link selects it (rebase_cap / manual_steps /
-   *  stacked). */
+   *  stacked / migrations). */
   sessionId?: string;
 }
 
@@ -82,6 +82,13 @@ export interface MergeSessionView {
    *  merge error — so it costs the session none of its MERGE_ERROR_CAP budget. The operator
    *  lands it from the Backlog, where the stack is visible. */
   stacked: boolean;
+  /** True when this PR is a child of an incremental-landing epic (it targets the default branch
+   *  directly) AND touches database-migration paths on its CURRENT head — or that could not be
+   *  determined (fail closed). The train never lands it: a migration needs a human to run and
+   *  verify it, and an incremental child ships straight to the default branch. Surfaced as a named
+   *  `migrations` hold. Unlike `stacked` it does NOT stop the rebase path: the PR is still kept
+   *  current with its base (a plain rebase is correct for it), it is just never merged. */
+  migrations: boolean;
   /** Manual operator steps detected in the PR body (#1059); [] when none. A non-`POST-MERGE`
    *  step that is still un-acked (`manualStepsAckedAt == null`) holds auto-merge (#1060). */
   manualSteps: ManualStep[];
@@ -149,7 +156,7 @@ function readyExceptManualSteps(
  *    `conflict` (the train steers a rebase), `not_mergeable` (forge still computing mergeability),
  *    `changes_requested` (auto-address — or the operator — answers the critic).
  *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
- *    `stacked`, `signoff`, `protection_blocked` (branch protection holds a green PR — typically a
+ *    `stacked`, `migrations`, `signoff`, `protection_blocked` (branch protection holds a green PR — typically a
  *    required human approval, which Shepherd never gives), `no_ci` (a GitHub repo with zero
  *    workflows and no `mergeWithoutCi` opt-in, #3104). */
 export type MergeWaitCode =
@@ -167,6 +174,7 @@ export type MergeWaitCode =
   | "critic_pending"
   | "stacked"
   | "manual_steps"
+  | "migrations"
   | "no_ci";
 
 /** The first readiness gate this PR fails, as a wait code — or null when it passes every gate of
@@ -278,6 +286,7 @@ export function mergeWaitReason(
     return rebaseBlocker(s, criticEnabled, draftMode, signoffAuthority) ?? rebaseGate;
   if (gate) return gate;
   if (s.stacked) return "stacked";
+  if (s.migrations) return "migrations";
   if (hasBlockingManualSteps(s)) return "manual_steps";
   return null;
 }
@@ -293,7 +302,8 @@ function readyToMerge(
   return (
     readyExceptManualSteps(s, criticEnabled, draftMode, authority) &&
     !hasBlockingManualSteps(s) &&
-    !s.stacked // #2059 — the train never lands a stack; see MergeSessionView.stacked
+    !s.stacked && // #2059 — the train never lands a stack; see MergeSessionView.stacked
+    !s.migrations // incremental epic child touching migrations; see MergeSessionView.migrations
   );
 }
 
@@ -456,6 +466,20 @@ export function computeMerge(state: MergeRepoState): MergeDecision {
     return {
       kind: "hold",
       reason: { code: "stacked", detail: heldStacked.desig, sessionId: heldStacked.id },
+    };
+  }
+
+  // An otherwise-ready incremental-epic child that touches migrations. Terminal like `stacked`
+  // (the train never clears it; a human merges), so it is scanned before the manual-steps hold.
+  const heldMigrations = state.sessions.find(
+    (s) =>
+      readyExceptManualSteps(s, state.criticEnabled, state.draftMode, state.signoffAuthority) &&
+      s.migrations,
+  );
+  if (heldMigrations) {
+    return {
+      kind: "hold",
+      reason: { code: "migrations", detail: heldMigrations.desig, sessionId: heldMigrations.id },
     };
   }
 

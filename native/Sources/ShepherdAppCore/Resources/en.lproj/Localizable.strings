@@ -45,6 +45,7 @@
 "ask_result_verified" = "Answer delivered.";
 "automerge_state_merge_error" = "Merge failed, needs attention";
 "automerge_state_merging" = "Merging…";
+"automerge_state_migrations" = "PR touches database migrations, merge it manually";
 "automerge_state_rebase_cap" = "Rebase limit reached, needs attention";
 "automerge_state_rebasing" = "Rebasing onto main…";
 "automerge_state_stacked" = "Stacked PR, merge it manually";

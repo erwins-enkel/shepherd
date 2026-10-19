@@ -9,6 +9,7 @@ public enum MergeOverviewCopy {
         case "merge_error": L.t("automerge_state_merge_error")
         case "rebase_cap": L.t("automerge_state_rebase_cap")
         case "stacked": L.t("automerge_state_stacked")
+        case "migrations": L.t("automerge_state_migrations")
         default: state ?? "—"
         }
     }

@@ -45,6 +45,7 @@
 "ask_result_verified" = "Antwort übermittelt.";
 "automerge_state_merge_error" = "Merge fehlgeschlagen, Eingriff nötig";
 "automerge_state_merging" = "Wird gemergt…";
+"automerge_state_migrations" = "PR ändert Datenbank-Migrationen, manuell mergen";
 "automerge_state_rebase_cap" = "Rebase-Limit erreicht, Eingriff nötig";
 "automerge_state_rebasing" = "Rebase auf main…";
 "automerge_state_stacked" = "Gestapelter PR, manuell mergen";

@@ -296,10 +296,6 @@ struct ShepherdClientPlanTests {
       ),
       (.answers, 409, "no plan questions", .conflict(code: nil, message: "no plan questions")),
       (.answers, 404, "not found", .notFound),
-      (.ask, 409, "ask_not_open", .conflict(code: nil, message: "ask_not_open")),
-      (.ask, 409, "ask_in_flight", .conflict(code: nil, message: "ask_in_flight")),
-      (.ask, 400, "answers do not fit", .badRequest("answers do not fit")),
-      (.ask, 404, "not found", .notFound),
       (.review, 404, "not found", .notFound),
       (.resume, 404, "not found", .notFound),
       (.resume, 404, "no forge for this repo", .notFound),
@@ -315,6 +311,22 @@ struct ShepherdClientPlanTests {
     try c.0.stub(server, status: c.1, message: c.2)
     let client = try makeClient(server)
     await #expect(throws: c.3) { try await c.0.call(client) }
+  }
+
+  @Test(
+    "answer-ask keeps its conflicts and rejections",
+    arguments: [
+      (409, "ask_not_open", ShepherdError.conflict(code: nil, message: "ask_not_open")),
+      (409, "ask_in_flight", .conflict(code: nil, message: "ask_in_flight")),
+      (400, "answers do not fit", .badRequest("answers do not fit")),
+      (404, "not found", .notFound),
+    ])
+  func answerAskFailures(_ c: (Int, String, ShepherdError)) async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try Route.ask.stub(server, status: c.0, message: c.1)
+    let client = try makeClient(server)
+    await #expect(throws: c.2) { try await Route.ask.call(client) }
   }
 
   @Test("future plan phases and wireframe surfaces decode without losing their wire value")

@@ -5,7 +5,9 @@
     Session,
     TerminalClientInfo,
   } from "#lib/types.js";
+  import type { Snippet } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
+  import { basename } from "#lib/basename.js";
   import { modelLabel } from "#lib/model-label.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { operatorAssistantExplanation } from "#lib/tooltips/explanations.js";
@@ -18,7 +20,7 @@
   import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import { viewFocus } from "#lib/assistant-chat.js";
   import AssistantChat from "./AssistantChat.svelte";
-  import AssistantGlyph from "./AssistantGlyph.svelte";
+  import AssistantMark from "./AssistantMark.svelte";
   import Viewport from "./Viewport.svelte";
 
   // The Operator Assistant panel (#1446). Non-modal: docked beside the selected session on
@@ -27,7 +29,13 @@
   // Its own warm card, so it reads as a companion beside the herd's terminals, not one more: the
   // conversation by default, the raw terminal one switch away. The terminal stays mounted (and
   // attached) under the conversation — every send rides its socket, view report included.
+  // One panel per assistant: the global one, or a repo assistant (`repo`), which sees and acts on
+  // that one repo and can be ended. In the dock's stack (`stacked`) the dock's strip owns Close.
   let {
+    repo = null,
+    stacked = false,
+    switcher,
+    onend,
     session,
     available,
     reason,
@@ -54,6 +62,14 @@
     permissions = null,
     onpermissions,
   }: {
+    /** A repo assistant's repo; null = the global assistant. */
+    repo?: string | null;
+    /** Shown in the dock's stack: the strip above closes the dock, so no Close here. */
+    stacked?: boolean;
+    /** Phone: the dock's tabs, under the title row. */
+    switcher?: Snippet;
+    /** End this repo assistant (confirmed): archive it. Repo assistants only. */
+    onend?: () => void;
     /** The assistant's live row (store.assistant); null until one is spawned. */
     session: Session | null;
     /** store.assistantAvailable: null until the bootstrap GET lands. */
@@ -114,8 +130,17 @@
   const unavailableText = $derived(
     reason ? UNAVAILABLE[reason]() : m.operator_assistant_unavailable_generic(),
   );
-  const errorText = $derived(
-    failed === "reset" ? m.operator_assistant_error_reset() : m.operator_assistant_error_ensure(),
+  const ERROR_TEXT = {
+    ensure: m.operator_assistant_error_ensure,
+    reset: m.operator_assistant_error_reset,
+    close: m.operator_assistant_error_close,
+  };
+  const errorText = $derived(ERROR_TEXT[failed ?? "ensure"]());
+  const title = $derived(repo ? basename(repo) : m.operator_assistant_title());
+  // A repo assistant names its kind; in the stack the global one names its reach, so the two read
+  // apart at a glance.
+  const scopeText = $derived(
+    repo ? m.operator_assistant_repo_kind() : stacked ? m.assistant_dock_all_repos() : null,
   );
 
   // Two-step arm → confirm for New conversation, like the card menu's armed actions: the first
@@ -142,6 +167,22 @@
     if (view !== "live") disarmReset();
   });
   $effect(() => () => clearTimeout(resetTimer));
+
+  // End (repo assistants): the same arm → confirm, so one stray click never archives it.
+  let endArmed = $state(false);
+  let endTimer: ReturnType<typeof setTimeout> | undefined;
+  function onEndClick() {
+    if (endArmed) {
+      endArmed = false;
+      clearTimeout(endTimer);
+      onend?.();
+      return;
+    }
+    endArmed = true;
+    clearTimeout(endTimer);
+    endTimer = setTimeout(() => (endArmed = false), RESET_ARM_MS);
+  }
+  $effect(() => () => clearTimeout(endTimer));
 
   // Conversation or terminal: the operator's last pick, per device.
   const VIEW_KEY = "shepherd:operator-assistant-view";
@@ -197,7 +238,11 @@
   }
 </script>
 
-<aside class="oap" class:phone={mobile} aria-label={m.operator_assistant_title()}>
+<aside
+  class="oap"
+  class:phone={mobile}
+  aria-label={repo ? m.operator_assistant_repo_aria({ repo: title }) : m.operator_assistant_title()}
+>
   <header class="oap-head">
     <div class="oap-row">
       {#if mobile}
@@ -218,15 +263,19 @@
           >
         </button>
       {/if}
-      <span class="oap-mark"><AssistantGlyph size="var(--fs-lg)" /></span>
+      <AssistantMark {repo} />
       <div class="oap-heading">
-        <h2 class="oap-title">{m.operator_assistant_title()}</h2>
-        {#if viewReport}<span class="oap-sees">{seesText}</span>{/if}
+        <h2 class="oap-title">{title}</h2>
+        {#if viewReport || scopeText}
+          <span class="oap-sees"
+            >{[scopeText, viewReport ? seesText : null].filter(Boolean).join(" · ")}</span
+          >
+        {/if}
       </div>
       <!-- New conversation: a glyph at rest; armed, it spells out the question it asks. -->
       <button
         type="button"
-        class="icon-btn oap-btn oap-new"
+        class="icon-btn oap-btn oap-arm"
         class:armed={resetArmed}
         disabled={view !== "live"}
         aria-label={resetArmed ? m.operator_assistant_new_confirm() : m.operator_assistant_new()}
@@ -245,7 +294,29 @@
         >
         {#if resetArmed}<span>{m.operator_assistant_new_confirm()}</span>{/if}
       </button>
-      {#if !mobile}
+      {#if repo && onend}
+        <!-- End: a stop square at rest; armed, it asks. Only a repo assistant can be ended. -->
+        <button
+          type="button"
+          class="icon-btn oap-btn oap-arm"
+          class:armed={endArmed}
+          disabled={pending !== null}
+          aria-label={endArmed ? m.operator_assistant_end_confirm() : m.operator_assistant_end()}
+          title={endArmed ? undefined : m.operator_assistant_end()}
+          onclick={onEndClick}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linejoin="round"
+            aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="1.5" /></svg
+          >
+          {#if endArmed}<span>{m.operator_assistant_end_confirm()}</span>{/if}
+        </button>
+      {/if}
+      {#if !mobile && !stacked}
         <button
           type="button"
           class="icon-btn oap-btn oap-close"
@@ -263,6 +334,7 @@
         </button>
       {/if}
     </div>
+    {#if switcher}{@render switcher()}{/if}
     <div class="oap-row oap-meta">
       <!-- The mode chip: what Settings → Assistant lets it do; a click opens that section. Absent
            until the permissions are known (bootstrap, or an older server). -->
@@ -283,6 +355,9 @@
         </button>
       {/if}
       {#if model}<span class="badge">{model}</span>{/if}
+      {#if repo}<span class="badge oap-scope"
+          >{m.operator_assistant_scope_badge({ repo: title })}</span
+        >{/if}
       {#if view === "live"}
         <div class="oap-switch" role="group" aria-label={m.operator_assistant_view_aria()}>
           <button type="button" aria-pressed={shown === "chat"} onclick={() => show("chat")}
@@ -400,17 +475,6 @@
     flex-wrap: wrap;
     row-gap: 6px;
   }
-  .oap-mark {
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: var(--radius-chip);
-    background: var(--wash-assistant-chip);
-    color: var(--color-amber);
-  }
   .oap-heading {
     flex: 1;
     min-width: 0;
@@ -440,7 +504,7 @@
   .oap-close {
     margin-right: -4px;
   }
-  .oap-new.armed {
+  .oap-arm.armed {
     width: auto;
     gap: 6px;
     padding: 0 8px;
@@ -500,6 +564,11 @@
   .oap-mode:hover,
   .oap-mode:focus-visible {
     border-color: var(--color-muted);
+    color: var(--color-ink);
+  }
+  /* A repo assistant's reach: brighter than the info badges, it changes what it can see. */
+  .oap-scope {
+    border-color: var(--color-line-bright);
     color: var(--color-ink);
   }
   /* Something runs without asking: worth noticing, not alarming. */
@@ -606,7 +675,7 @@
   .oap.phone .oap-back {
     margin-left: -10px;
   }
-  .oap.phone .oap-new.armed {
+  .oap.phone .oap-arm.armed {
     width: auto;
   }
   .oap.phone .gbtn,

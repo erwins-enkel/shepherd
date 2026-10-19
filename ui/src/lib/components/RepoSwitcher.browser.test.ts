@@ -297,6 +297,52 @@ describe("RepoSwitcher — filter rail", () => {
     expect(document.querySelector(".rs-menu"), "menu closes after filtering").toBeNull();
   });
 
+  it("the repo chip menu starts the repo's own assistant, or opens the one that runs", async () => {
+    const onrepoassistant = vi.fn();
+    const props = {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter: vi.fn(),
+      onrepoassistant,
+    };
+    const view = await render(RepoSwitcher, props);
+    const openMenu = async () => {
+      (document.querySelector(".rs-chip") as HTMLElement).dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+      await tick();
+    };
+    await openMenu();
+    const start = page.getByRole("menuitem", { name: m.repo_chip_assistant_start() });
+    await expect.element(start).toBeVisible();
+    (start.element() as HTMLElement).click();
+    await tick();
+    expect(onrepoassistant).toHaveBeenCalledWith("/repo/alpha");
+    expect(document.querySelector(".rs-menu"), "menu closes after starting").toBeNull();
+
+    await view.rerender({ ...props, assistantRepos: new Set(["/repo/alpha"]) });
+    await openMenu();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.repo_chip_assistant_open() }))
+      .toBeVisible();
+  });
+
+  it("offers no assistant item without a handler (the demo)", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter: vi.fn(),
+    });
+    (document.querySelector(".rs-chip") as HTMLElement).dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.repo_chip_add_filter() }))
+      .toBeVisible();
+    expect(page.getByRole("menuitem", { name: m.repo_chip_assistant_start() }).query()).toBeNull();
+  });
+
   it("opens the selected repo's automation settings from the chip menu", async () => {
     render(RepoSwitcher, {
       chips: [

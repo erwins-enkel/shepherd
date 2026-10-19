@@ -12,6 +12,8 @@
  *    whatever Claude's own permission rules say or how fast it re-reads them;
  *  - target resolution: sessions by desig, and only herd sessions (live, an agent, not the
  *    assistant itself, never another machine's); repos by path or unique basename;
+ *  - the repo scope: a repo-scoped assistant reaches only its repo's sessions, held tasks and
+ *    repo settings, and no herd-wide action (see HERD_WIDE_ACTIONS);
  *  - bounded answers: never a route's body (session rows carry ids and prompts), only whitelisted
  *    scalars, and route errors redacted and clipped;
  *  - one audit line per action in Shepherd's log.
@@ -28,7 +30,13 @@ import {
   type AssistantActionTool,
   type AssistantPermissions,
 } from "./operator-assistant-permissions";
-import { isHerdSession, resolveRepos } from "./operator-assistant-tools";
+import {
+  inScope,
+  isHerdSession,
+  resolveRepos,
+  resolveScopedRepo,
+  type AssistantScope,
+} from "./operator-assistant-tools";
 import { redactSecretText } from "./redact";
 
 export interface OperatorActionRequest {
@@ -237,15 +245,37 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
   },
 };
 
-function resolver(deps: ActionDeps): Resolve {
+/**
+ * How a repo-scoped assistant's actions stay in its repo, per tool:
+ *  - every desig-targeted tool (steer, plan_answer, the sessions and approve groups,
+ *    session_automation_set) and herd_retry (by desigs) resolve through `session()`, which refuses
+ *    a session of another repo;
+ *  - repo_automation_set and epic_run_set resolve through `repo()`, which refuses another repo;
+ *  - held_task resolves through `held()`, which refuses another repo's held task;
+ *  - herd_halt interrupts every working session of every repo (`/api/halt` takes no target), so it
+ *    is refused outright here — the global assistant halts the herd; a scoped one can interrupt
+ *    its own sessions one by one.
+ */
+const HERD_WIDE_ACTIONS: ReadonlySet<AssistantActionTool> = new Set(["herd_halt"]);
+
+const outsideScope = (what: string, scope: string) =>
+  fail(
+    403,
+    `${what} is outside this assistant's repo ${basename(scope)} — the global Operator Assistant ` +
+      "covers every repo; the operator can ask there",
+  );
+
+function resolver(deps: ActionDeps, scope: AssistantScope): Resolve {
   return {
     session(desig) {
       const s = typeof desig === "string" ? deps.store.getByDesig(desig) : null;
       if (!s || !isHerdSession(s)) return fail(404, `session "${String(desig)}" not found`);
+      if (!inScope(scope, s.repoPath)) return outsideScope(`session "${s.desig}"`, scope!);
       return { id: s.id, desig: s.desig };
     },
     repo(repo) {
       if (typeof repo !== "string" || repo === "") return fail(400, "repo is required");
+      if (scope !== null) return resolveScopedRepo(scope, repo);
       const known = deps.operatorDiag?.repos() ?? [];
       const resolved = resolveRepos(known, repo);
       if (!Array.isArray(resolved)) {
@@ -256,9 +286,13 @@ function resolver(deps: ActionDeps): Resolve {
       return resolved[0]!;
     },
     held(id) {
-      return typeof id === "string" && deps.store.listHeldTasks().some((h) => h.id === id)
-        ? id
-        : fail(404, `held task "${String(id)}" not found — herd_status lists held tasks`);
+      const task =
+        typeof id === "string" ? deps.store.listHeldTasks().find((h) => h.id === id) : undefined;
+      if (!task)
+        return fail(404, `held task "${String(id)}" not found — herd_status lists held tasks`);
+      return inScope(scope, task.repoPath)
+        ? task.id
+        : outsideScope(`held task "${task.id}"`, scope!);
     },
   };
 }
@@ -283,10 +317,13 @@ function answerFields(body: unknown): Record<string, unknown> {
   return out;
 }
 
+/** Run one action tool. `scope` is the caller's repo scope (`Session.assistantRepo`): null for the
+ *  global assistant, which reaches the whole herd. */
 export async function applyOperatorAction(
   deps: ActionDeps,
   tool: AssistantActionTool,
   args: Record<string, unknown>,
+  scope: AssistantScope = null,
 ): Promise<ApplyResult<unknown>> {
   const actions = deps.operatorActions;
   if (!actions) return fail(503, "operator actions unavailable");
@@ -298,7 +335,15 @@ export async function applyOperatorAction(
         "would allow it; do not work around it",
     );
   }
-  const built = ACTIONS[tool](args, resolver(deps));
+  if (scope !== null && HERD_WIDE_ACTIONS.has(tool)) {
+    return fail(
+      403,
+      `${tool} acts on the whole herd, and this assistant serves only repo ${basename(scope)} — ` +
+        "the global Operator Assistant can do it; here, interrupt this repo's sessions one by one " +
+        "with session_interrupt",
+    );
+  }
+  const built = ACTIONS[tool](args, resolver(deps, scope));
   if (isFail(built)) return built;
   const log = actions.log ?? ((line: string) => console.info(line));
   let last: unknown = null;

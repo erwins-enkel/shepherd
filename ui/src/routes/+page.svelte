@@ -141,8 +141,13 @@
   } from "#lib/components/merge-train.js";
   import Viewport from "#lib/components/Viewport.svelte";
   import OperatorAssistantPanel from "#lib/components/OperatorAssistantPanel.svelte";
-  import { AssistantLifecycle } from "#lib/operator-assistant.svelte.js";
-  import { buildAssistantViewReport, type ViewTab } from "#lib/operator-assistant-view.js";
+  import OperatorAssistantDock from "#lib/components/OperatorAssistantDock.svelte";
+  import { AssistantLifecycle, assistantEntries } from "#lib/operator-assistant.svelte.js";
+  import {
+    buildAssistantViewReport,
+    scopeViewReport,
+    type ViewTab,
+  } from "#lib/operator-assistant-view.js";
   import { detectTerminalClient } from "#lib/terminal-client.js";
   import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
   import RemoteSessionDetail from "#lib/components/RemoteSessionDetail.svelte";
@@ -736,7 +741,8 @@
   function loadOperatorAssistant() {
     getOperatorAssistant()
       .then((s) => store.seedAssistant(s))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => (assistantBooted = true));
   }
   // Bootstrap the loaded-plugins list (issue #1124). Best-effort: a missing registry
   // returns an empty list, keeping the Settings → Plugins tab hidden. Live `plugin:status`
@@ -1537,14 +1543,28 @@
   // Every open re-ensures the assistant (one request at a time): the server returns a live row as
   // is and resumes one whose pane died with herdr, so opening is also the way back after restarts.
   const ASSISTANT_OPEN_KEY = "shepherd:operator-assistant-open";
+  // Which assistant the dock has open: a repo assistant's repo, or null for the global one. Per
+  // device, like open/closed.
+  const ASSISTANT_SCOPE_KEY = "shepherd:operator-assistant-scope";
   let showAssistant = $state(false);
+  let assistantScopePick = $state<string | null>(null);
   onMount(() => {
     try {
       showAssistant = localStorage.getItem(ASSISTANT_OPEN_KEY) === "1";
+      assistantScopePick = localStorage.getItem(ASSISTANT_SCOPE_KEY) || null;
     } catch {
       // private mode / blocked storage: the panel starts closed
     }
   });
+  function pickAssistantScope(repo: string | null) {
+    assistantScopePick = repo;
+    try {
+      if (repo) localStorage.setItem(ASSISTANT_SCOPE_KEY, repo);
+      else localStorage.removeItem(ASSISTANT_SCOPE_KEY);
+    } catch {
+      // ignore: best-effort local preference
+    }
+  }
   function rememberAssistantOpen(open: boolean) {
     showAssistant = open;
     try {
@@ -1557,13 +1577,37 @@
   const assistantLifecycle = new AssistantLifecycle(store);
   const assistantOpen = $derived(mobile.current ? mobileScreen === "assistant" : showAssistant);
   const assistantDocked = $derived(showAssistant && !mobile.current);
-  // The panel showing (re-)ensures. Untracked: only the open transition re-runs this, never the
-  // request's own state writes.
+  // Repo assistants the operator started that have no row yet: their entry shows at once (spawning,
+  // or the error of a failed start) instead of waiting for the row.
+  let requestedRepoAssistants = $state<string[]>([]);
+  // The first bootstrap GET has settled: until then a restored pick of a repo assistant can't be
+  // told from one that is gone, and ensuring the global one in its place would start it for nothing.
+  let assistantBooted = $state(false);
+  const assistantDockEntries = $derived(
+    assistantEntries(store.assistants, requestedRepoAssistants),
+  );
+  // The open assistant; a pick whose assistant is gone (ended elsewhere) falls back to the global.
+  const assistantScope = $derived(
+    assistantDockEntries.some((e) => e.repo === assistantScopePick) ? assistantScopePick : null,
+  );
+  const assistantRepos = $derived(
+    new Set(store.assistants.flatMap((s) => (s.assistantRepo ? [s.assistantRepo] : []))),
+  );
+  // A start is settled once its row lands: from then on the row is the entry, so ending it
+  // elsewhere drops it here too instead of leaving a placeholder that would start it again.
   $effect(() => {
-    if (!assistantOpen) return;
+    const live = assistantRepos;
+    if (requestedRepoAssistants.some((r) => live.has(r)))
+      requestedRepoAssistants = requestedRepoAssistants.filter((r) => !live.has(r));
+  });
+  // The open assistant showing (re-)ensures it: opening the dock, or opening another assistant in
+  // it. Untracked: only those transitions re-run this, never the request's own state writes.
+  $effect(() => {
+    if (!assistantOpen || !assistantBooted) return;
+    const repo = assistantScope;
     // The demo runs no agents; its GET already reports the assistant unavailable.
     if (__DEMO__) return;
-    untrack(() => void assistantLifecycle.ensure());
+    untrack(() => void assistantLifecycle.ensure(repo));
   });
   // A prefill whose ensure failed or found the assistant unavailable is dropped, not typed into
   // whatever conversation a later Retry brings up.
@@ -1619,6 +1663,7 @@
     if (wasOpen) void tick().then(() => assistantPanelRef?.focusTerminal());
   }
   function askAssistant(text: string) {
+    pickAssistantScope(null);
     openAssistant();
     assistantTypeRequest = { text, tick: ++assistantTypeSeq };
   }
@@ -1629,9 +1674,42 @@
     showSettings = false;
     askAssistant(question);
   }
-  function resetAssistant() {
+  function resetAssistant(repo: string | null) {
     assistantFocusIntent = true;
-    void assistantLifecycle.reset();
+    void assistantLifecycle.reset(repo);
+  }
+  /** Open one of the dock's assistants. */
+  function openAssistantScope(repo: string | null) {
+    if (repo !== assistantScope) assistantFocusIntent = true;
+    pickAssistantScope(repo);
+    openAssistant();
+  }
+  /** A repo chip's menu or the dock's + Repo assistant: start that repo's assistant, or open the
+   *  one that runs. */
+  function openRepoAssistant(repo: string) {
+    if (!requestedRepoAssistants.includes(repo))
+      requestedRepoAssistants = [...requestedRepoAssistants, repo];
+    openAssistantScope(repo);
+  }
+  /** The chip menu's repo-assistant item: none in the demo, which runs no agents. */
+  const repoAssistantItem = __DEMO__ ? undefined : openRepoAssistant;
+  /** An Ask prefill goes to the global assistant only. */
+  const assistantPrefillFor = (repo: string | null) =>
+    repo === null ? assistantTypeRequest : null;
+  /** End is a repo assistant's alone: the global one is only ever reset. */
+  const assistantEndFor = (repo: string | null) =>
+    repo === null ? undefined : () => void endRepoAssistant(repo);
+  /** End a repo assistant (its End, confirmed); the dock falls back to the global one. */
+  async function endRepoAssistant(repo: string) {
+    // A start that never landed has nothing to archive: dropping its entry is the whole of it.
+    if (assistantRepos.has(repo)) {
+      await assistantLifecycle.close(repo);
+      if (assistantLifecycle.failedFor(repo)) return;
+    } else {
+      assistantLifecycle.forget(repo);
+    }
+    requestedRepoAssistants = requestedRepoAssistants.filter((r) => r !== repo);
+    if (assistantScopePick === repo) pickAssistantScope(null);
   }
   function openDiagnose() {
     settingsTab = "diagnose";
@@ -3257,43 +3335,65 @@
       onrepofilter={applyRepoFilter}
       onpinrepo={setPinnedRepo}
       oncleanterminal={openCleanTerminal}
+      onrepoassistant={repoAssistantItem}
+      {assistantRepos}
     />
   {/if}
 {/snippet}
 
-<!-- The Operator Assistant panel (#1446): the desktop grid's third track, or a phone's assistant
-     screen. One definition so the two homes can't drift. -->
+<!-- The Operator Assistant dock (#1446): the desktop grid's third track, or a phone's assistant
+     screen — every assistant stacked, one open. One definition so the two homes can't drift. -->
 {#snippet assistantPanel()}
-  <OperatorAssistantPanel
-    bind:this={assistantPanelRef}
-    session={store.assistant}
-    available={store.assistantAvailable}
-    reason={store.assistantUnavailableReason}
-    pending={assistantLifecycle.pending}
-    failed={assistantLifecycle.failed}
+  <OperatorAssistantDock
+    entries={assistantDockEntries}
+    open={assistantScope}
     mobile={mobile.current}
-    touch={touch.current}
-    connected={store.connected}
-    attended={store.attended}
-    terminalOwners={store.terminalOwners}
+    lifecycle={assistantLifecycle}
+    addable={repoAssistantItem !== undefined}
     workingBlocked={store.workingBlocked}
     backgroundBusy={store.backgroundBusy}
-    herd={store.sessions}
-    typeRequest={assistantTypeRequest}
-    viewReport={assistantViewReport}
-    ontyped={(t) => {
-      if (assistantTypeRequest?.tick === t) assistantTypeRequest = null;
-    }}
-    onnavigate={jumpToSession}
-    consumeAutoFocusTerm={consumeAssistantFocus}
-    onretry={() => void assistantLifecycle.retry()}
-    onresume={() => assistantLifecycle.ensure()}
-    onreset={resetAssistant}
+    onopen={openAssistantScope}
+    onstart={openRepoAssistant}
     onclose={closeAssistant}
-    ondiagnose={openDiagnose}
-    permissions={store.assistantPermissions}
-    onpermissions={openAssistantSettings}
-  />
+  >
+    {#snippet panel(entry, switcher)}
+      {@const repo = entry.repo}
+      <OperatorAssistantPanel
+        bind:this={assistantPanelRef}
+        {repo}
+        stacked
+        {switcher}
+        session={entry.session}
+        available={store.assistantAvailable}
+        reason={store.assistantUnavailableReason}
+        pending={assistantLifecycle.pendingFor(repo)}
+        failed={assistantLifecycle.failedFor(repo)}
+        mobile={mobile.current}
+        touch={touch.current}
+        connected={store.connected}
+        attended={store.attended}
+        terminalOwners={store.terminalOwners}
+        workingBlocked={store.workingBlocked}
+        backgroundBusy={store.backgroundBusy}
+        herd={store.sessions}
+        typeRequest={assistantPrefillFor(repo)}
+        viewReport={scopeViewReport(assistantViewReport, repo, store.sessions)}
+        ontyped={(t) => {
+          if (assistantTypeRequest?.tick === t) assistantTypeRequest = null;
+        }}
+        onnavigate={jumpToSession}
+        consumeAutoFocusTerm={consumeAssistantFocus}
+        onretry={() => void assistantLifecycle.retry(repo)}
+        onresume={() => assistantLifecycle.ensure(repo)}
+        onreset={() => resetAssistant(repo)}
+        onend={assistantEndFor(repo)}
+        onclose={closeAssistant}
+        ondiagnose={openDiagnose}
+        permissions={store.assistantPermissions}
+        onpermissions={openAssistantSettings}
+      />
+    {/snippet}
+  </OperatorAssistantDock>
 {/snippet}
 
 <div
@@ -3360,6 +3460,7 @@
         }}
         settingsChordAllowed={() => !anyOverlayOpen()}
         assistant={store.assistant}
+        assistants={store.assistants}
         {assistantOpen}
         onassistant={toggleAssistant}
       />

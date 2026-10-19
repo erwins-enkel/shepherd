@@ -1,18 +1,22 @@
 /**
  * The Operator Assistant's operator routes (#1446): GET /api/operator-assistant and the ensure /
- * reset POSTs — availability from Settings → Diagnose, 503 without a spawn when unavailable, the
- * `operator-assistant:update` event on success, the auth gate, and the agent ingress never
- * reaching them.
+ * reset / close POSTs — availability from Settings → Diagnose, 503 without a spawn when
+ * unavailable, the repo scopes, the `operator-assistant:update` event on success, the auth gate,
+ * and the agent ingress never reaching them.
  */
 import { afterEach, test, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentIngressApp, makeApp, type AppDeps } from "../src/server";
 import { AssistantViewRegistry, UNKNOWN_VIEW } from "../src/operator-assistant-view";
 import { config } from "../src/config";
 import { hashPassword } from "../src/operator-auth";
-import { OperatorAssistantSessionError, type SessionService } from "../src/service";
+import {
+  OperatorAssistantNotFoundError,
+  OperatorAssistantSessionError,
+  type SessionService,
+} from "../src/service";
 import { SessionStore } from "../src/store";
 import type { EventHub } from "../src/events";
 import type { EpicRun } from "../src/epic-core";
@@ -24,9 +28,12 @@ const OK_CHECKS: DiagnosticCheck[] = [
   { id: "codex", state: "optional", hintKey: "diagnostics_hint_codex_optional" },
 ];
 
-function assistantRow(store: SessionStore): Session {
+function assistantRow(store: SessionStore, assistantRepo: string | null = null): Session {
+  const name = assistantRepo
+    ? `operator-assistant-${assistantRepo.split("/").pop()}`
+    : "operator-assistant";
   return store.create({
-    name: "operator-assistant",
+    name,
     prompt: "",
     repoPath: "/assistant",
     baseBranch: "",
@@ -34,10 +41,11 @@ function assistantRow(store: SessionStore): Session {
     worktreePath: "/assistant",
     isolated: false,
     herdrSession: "default",
-    herdrAgentId: "term_a",
-    claudeSessionId: "claude-a",
+    herdrAgentId: `term_${name}`,
+    claudeSessionId: `claude-${name}`,
     model: null,
     operatorAssistant: true,
+    assistantRepo,
   });
 }
 
@@ -46,16 +54,25 @@ function setup(checks: DiagnosticCheck[] = OK_CHECKS) {
   const emitted: { event: string; data: unknown }[] = [];
   const calls: string[] = [];
   let failWith: unknown = null;
-  const lifecycle = (verb: string) => async () => {
-    calls.push(verb);
-    if (failWith) throw failWith;
-    return store.getLiveOperatorAssistant() ?? assistantRow(store);
-  };
+  const lifecycle =
+    (verb: string) =>
+    async (repo: string | null = null) => {
+      calls.push(repo ? `${verb} ${repo}` : verb);
+      if (failWith) throw failWith;
+      return store.getLiveOperatorAssistant(repo) ?? assistantRow(store, repo);
+    };
   const deps: AppDeps = {
     store,
     service: {
       ensureOperatorAssistant: lifecycle("ensure"),
       resetOperatorAssistant: lifecycle("reset"),
+      closeOperatorAssistant: async (repo: string) => {
+        calls.push(`close ${repo}`);
+        const live = store.getLiveOperatorAssistant(repo);
+        if (!live) throw new OperatorAssistantNotFoundError(repo);
+        store.archive(live.id);
+      },
+      syncOperatorAssistantPermissions: () => {},
     } as unknown as SessionService,
     events: {
       emit: (event: string, data: unknown) => emitted.push({ event, data }),
@@ -77,17 +94,59 @@ function setup(checks: DiagnosticCheck[] = OK_CHECKS) {
   };
 }
 
-const post = (path: string) =>
+const post = (path: string, body?: unknown) =>
   new Request(`http://localhost${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    ...(body !== undefined && { body: typeof body === "string" ? body : JSON.stringify(body) }),
   });
+
+/** Exactly one `operator-assistant:update`: the global row's id as `session`, every live
+ *  assistant's id as `sessions`, and the current permissions. */
+function expectOneUpdate(
+  emitted: { event: string; data: unknown }[],
+  sessionId: string | null,
+  sessionIds: string[],
+) {
+  expect(emitted.map((e) => e.event)).toEqual(["operator-assistant:update"]);
+  const data = emitted[0]!.data as {
+    session: Session | null;
+    sessions: Session[];
+    permissions: unknown;
+  };
+  expect(data.session?.id ?? null).toBe(sessionId);
+  expect(data.sessions.map((s) => s.id)).toEqual(sessionIds);
+  expect(data.permissions).toEqual(config.assistantPermissions);
+}
 
 let restore: (() => void) | null = null;
 afterEach(() => {
   restore?.();
   restore = null;
 });
+
+/** A repo root holding `alpha` and `beta`, set as config.repoRoot until the test ends — through a
+ *  symlink, so a repo's listed path (`alpha`) and its realpath (`alphaReal`) differ. */
+function withRepos() {
+  const real = realpathSync(mkdtempSync(join(tmpdir(), "oa-repos-")));
+  const root = join(real, "root");
+  mkdirSync(root);
+  for (const name of ["alpha", "beta"]) mkdirSync(join(root, name));
+  const link = join(real, "link");
+  symlinkSync(root, link);
+  const saved = config.repoRoot;
+  restore = () => {
+    config.repoRoot = saved;
+    rmSync(real, { recursive: true, force: true });
+  };
+  config.repoRoot = link;
+  return {
+    root: link,
+    alpha: join(link, "alpha"),
+    alphaReal: join(root, "alpha"),
+    beta: join(link, "beta"),
+  };
+}
 
 test("GET reports available with no session before the first open", async () => {
   const { app } = setup();
@@ -97,6 +156,7 @@ test("GET reports available with no session before the first open", async () => 
     available: true,
     reason: null,
     session: null,
+    sessions: [],
     permissions: config.assistantPermissions,
   });
 });
@@ -119,12 +179,7 @@ test("POST ensures the assistant and emits operator-assistant:update with it", a
   const { session } = await res.json();
   expect(session.operatorAssistant).toBe(true);
   expect(calls).toEqual(["ensure"]);
-  expect(emitted).toEqual([
-    {
-      event: "operator-assistant:update",
-      data: { session, permissions: config.assistantPermissions },
-    },
-  ]);
+  expectOneUpdate(emitted, session.id, [session.id]);
   expect(emitted.some((e) => e.event === "session:new")).toBe(false);
 });
 
@@ -134,12 +189,7 @@ test("POST /reset starts a new conversation and emits the update", async () => {
   expect(res.status).toBe(200);
   const { session } = await res.json();
   expect(calls).toEqual(["reset"]);
-  expect(emitted).toEqual([
-    {
-      event: "operator-assistant:update",
-      data: { session, permissions: config.assistantPermissions },
-    },
-  ]);
+  expectOneUpdate(emitted, session.id, [session.id]);
 });
 
 const UNAVAILABLE: [string, DiagnosticCheck[]][] = [
@@ -174,6 +224,7 @@ for (const [reason, checks] of UNAVAILABLE) {
       available: false,
       reason,
       session: null,
+      sessions: [],
       permissions: config.assistantPermissions,
     });
     for (const path of ["/api/operator-assistant", "/api/operator-assistant/reset"]) {
@@ -239,19 +290,207 @@ test("the routes require operator auth", async () => {
   );
   expect((await app.fetch(post("/api/operator-assistant"))).status).toBe(401);
   expect((await app.fetch(post("/api/operator-assistant/reset"))).status).toBe(401);
+  expect((await app.fetch(post("/api/operator-assistant/close", { repo: "/r" }))).status).toBe(401);
   expect(calls).toEqual([]);
 });
 
 test("the agent ingress never reaches them", async () => {
-  const { deps, calls } = setup();
+  const { deps, calls, store } = setup();
+  const { alpha } = withRepos();
+  assistantRow(store, alpha);
   const ingress = makeAgentIngressApp(deps);
   for (const req of [
     new Request("http://localhost/api/operator-assistant"),
     post("/api/operator-assistant"),
+    post("/api/operator-assistant", { repo: alpha }),
     post("/api/operator-assistant/reset"),
+    post("/api/operator-assistant/reset", { repo: alpha }),
+    post("/api/operator-assistant/close", { repo: alpha }),
   ])
     expect((await ingress.fetch(req)).status).toBe(404);
   expect(calls).toEqual([]);
+  expect(store.getLiveOperatorAssistant(alpha)).not.toBeNull();
+});
+
+// ── Repo-scoped assistants ───────────────────────────────────────────────────────────────────
+
+const getState = async (app: ReturnType<typeof makeApp>) =>
+  (await app.fetch(new Request("http://localhost/api/operator-assistant"))).json();
+
+test("GET lists every live assistant as sessions; session stays the global one", async () => {
+  const { app, store } = setup();
+  const { alpha } = withRepos();
+  const scoped = assistantRow(store, alpha);
+  let body = await getState(app);
+  // Only a repo assistant: older clients see no assistant at all.
+  expect(body.session).toBeNull();
+  expect(body.sessions.map((s: Session) => s.id)).toEqual([scoped.id]);
+  const global = assistantRow(store);
+  body = await getState(app);
+  expect(body.session.id).toBe(global.id);
+  expect(body.sessions.map((s: Session) => [s.id, s.assistantRepo])).toEqual([
+    [global.id, null],
+    [scoped.id, alpha],
+  ]);
+});
+
+test("POST {repo} ensures that repo's assistant; the event's session is still the global row", async () => {
+  const { app, store, emitted, calls } = setup();
+  const { alpha, alphaReal } = withRepos();
+  const res = await app.fetch(post("/api/operator-assistant", { repo: alpha }));
+  expect(res.status).toBe(200);
+  const { session } = await res.json();
+  expect(session.assistantRepo).toBe(alpha);
+  expect(calls).toEqual([`ensure ${alpha}`]);
+  // No global assistant yet: the event says so, and lists the repo one.
+  expect(emitted).toHaveLength(1);
+  expect(emitted[0]!.event).toBe("operator-assistant:update");
+  const first = emitted[0]!.data as { session: Session | null; sessions: Session[] };
+  expect(first.session).toBeNull();
+  expect(first.sessions.map((s) => s.id)).toEqual([session.id]);
+
+  const global = assistantRow(store);
+  // A realpath names the same repo, answered in the repo-list form; an empty body is global.
+  expect((await app.fetch(post("/api/operator-assistant/reset", { repo: alphaReal }))).status).toBe(
+    200,
+  );
+  expect((await app.fetch(post("/api/operator-assistant", { repo: "" }))).status).toBe(200);
+  expect(calls).toEqual([`ensure ${alpha}`, `reset ${alpha}`, "ensure"]);
+  for (const e of emitted.slice(1)) {
+    const data = e.data as { session: Session; sessions: Session[] };
+    expect(data.session.id).toBe(global.id);
+    expect(data.sessions.map((s) => s.id)).toEqual([global.id, session.id]);
+  }
+});
+
+test("POST with an unknown or malformed repo is a 400 and spawns nothing", async () => {
+  const { app, emitted, calls } = setup();
+  const { root } = withRepos();
+  for (const path of ["/api/operator-assistant", "/api/operator-assistant/reset"]) {
+    for (const body of [
+      { repo: join(root, "gamma") },
+      { repo: "/etc" },
+      { repo: "alpha" }, // a basename is not a repo path
+      { repo: 7 },
+      "not json",
+      "[]",
+    ]) {
+      const res = await app.fetch(post(path, body));
+      expect(res.status).toBe(400);
+      expect(typeof (await res.json()).error).toBe("string");
+    }
+  }
+  expect(calls).toEqual([]);
+  expect(emitted).toEqual([]);
+});
+
+test("POST /close archives a repo's assistant and emits the update; 400 without repo, 404 without one live", async () => {
+  const { app, store, emitted, calls } = setup();
+  const { root, alpha, beta } = withRepos();
+  const global = assistantRow(store);
+  const scoped = assistantRow(store, alpha);
+  const res = await app.fetch(post("/api/operator-assistant/close", { repo: alpha }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(store.get(scoped.id)!.status).toBe("archived");
+  expect(emitted).toHaveLength(1);
+  const data = emitted[0]!.data as { session: Session; sessions: Session[] };
+  expect(data.session.id).toBe(global.id);
+  expect(data.sessions.map((s) => s.id)).toEqual([global.id]);
+
+  for (const body of [undefined, {}, { repo: "" }, { repo: null }]) {
+    const missing = await app.fetch(post("/api/operator-assistant/close", body));
+    expect(missing.status).toBe(400);
+  }
+  expect(
+    (await app.fetch(post("/api/operator-assistant/close", { repo: join(root, "gamma") }))).status,
+  ).toBe(400);
+  const none = await app.fetch(post("/api/operator-assistant/close", { repo: beta }));
+  expect(none.status).toBe(404);
+  expect(calls).toEqual([`close ${alpha}`, `close ${beta}`]);
+  expect(emitted).toHaveLength(1);
+  // The global assistant is never closed this way.
+  expect(store.get(global.id)!.status).not.toBe("archived");
+});
+
+test("POST /close still closes the assistant of a repo that left the repo root", async () => {
+  const { app, store, calls } = setup();
+  withRepos();
+  const scoped = assistantRow(store, "/gone/repo");
+  const res = await app.fetch(post("/api/operator-assistant/close", { repo: "/gone/repo" }));
+  expect(res.status).toBe(200);
+  expect(calls).toEqual(["close /gone/repo"]);
+  expect(store.get(scoped.id)!.status).toBe("archived");
+});
+
+test("close needs no availability: it works while the assistant can't run", async () => {
+  const { app, store } = setup([
+    { id: "claude", state: "error", hintKey: "diagnostics_hint_claude_missing" },
+  ]);
+  const { alpha } = withRepos();
+  assistantRow(store, alpha);
+  expect((await app.fetch(post("/api/operator-assistant/close", { repo: alpha }))).status).toBe(
+    200,
+  );
+  expect((await app.fetch(post("/api/operator-assistant", { repo: alpha }))).status).toBe(503);
+});
+
+test("the settings-change emit carries the global row and every live assistant", async () => {
+  const saved = config.assistantPermissions;
+  restore = () => (config.assistantPermissions = saved);
+  const { app, store, emitted } = setup();
+  const global = assistantRow(store);
+  const scoped = assistantRow(store, "/r/alpha");
+  const res = await app.fetch(
+    new Request("http://localhost/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ assistantPermissions: { steer: "allow" } }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const update = emitted.find((e) => e.event === "operator-assistant:update");
+  const data = update!.data as { session: Session; sessions: Session[] };
+  expect(data.session.id).toBe(global.id);
+  expect(data.sessions.map((s) => s.id)).toEqual([global.id, scoped.id]);
+});
+
+test("a repo assistant's MCP tools are scoped to its repo by the server", async () => {
+  const { deps, store } = setup();
+  const saved = config.assistantPermissions;
+  restore = () => (config.assistantPermissions = saved);
+  config.assistantPermissions = { ...saved, sessions: "allow" };
+  let interrupts = 0;
+  deps.service = { interrupt: async () => (interrupts++, true) } as unknown as SessionService;
+  const app = makeApp(deps);
+  const scoped = assistantRow(store, "/r/beta");
+  const alphaWorker = workerRow(store);
+  const betaWorker = store.create({
+    name: "beta-worker",
+    prompt: "p",
+    repoPath: "/r/beta",
+    baseBranch: "main",
+    branch: "shepherd/beta-worker",
+    worktreePath: "/wt-beta",
+    isolated: false,
+    herdrSession: "default",
+    herdrAgentId: "term_b",
+  });
+  const herd = await callTool(app, scoped.id, "herd_status", {});
+  expect(herd.data.sessions.map((s: { desig: string }) => s.desig)).toEqual([betaWorker.desig]);
+  const refused = await callTool(app, scoped.id, "session_interrupt", { desig: alphaWorker.desig });
+  expect(refused.isError).toBe(true);
+  expect(refused.data.error).toContain("outside this assistant's repo beta");
+  const halt = await callTool(app, scoped.id, "herd_halt", {});
+  expect(halt.isError).toBe(true);
+  expect(
+    (await callTool(app, scoped.id, "session_interrupt", { desig: betaWorker.desig })).isError,
+  ).toBe(false);
+  expect(interrupts).toBe(1);
+  // The global assistant still sees the whole herd.
+  const global = assistantRow(store);
+  const all = await callTool(app, global.id, "herd_status", {});
+  expect(all.data.sessions).toHaveLength(2);
 });
 
 test("the assistant's MCP endpoint reads the real services: drain, epic diagnosis, config log paths", async () => {

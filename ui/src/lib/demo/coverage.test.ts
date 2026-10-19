@@ -464,10 +464,12 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   "New Task Shape + Attach": ["/api/shape", "/api/shape/brief", "/api/uploads"],
 
   // The demo reports the Operator Assistant unavailable (GET in INVENTORY), so nothing offers a
-  // New conversation; the ensure POST shares the GET's path and is covered by that classification.
-  // Its conversation view, the only reader of a session's messages, never renders either.
-  "Operator Assistant reset + conversation": [
+  // New conversation or ends a repo assistant (the demo offers no repo assistant to start); the
+  // ensure POST shares the GET's path and is covered by that classification. Its conversation
+  // view and the dock's bars, the only readers of a session's messages, never render either.
+  "Operator Assistant reset + close + conversation": [
     "/api/operator-assistant/reset",
+    "/api/operator-assistant/close",
     "/api/sessions/:p/messages",
   ],
 };

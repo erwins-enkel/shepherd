@@ -1756,6 +1756,9 @@ export interface Session {
    *  list — it reaches the UI only through `/api/operator-assistant` and its update event. Optional
    *  like the server mirror — absent and false are equivalent. */
   operatorAssistant?: boolean;
+  /** A repo assistant's repo (absolute path): it sees and acts on that one repo only. Null/absent on
+   *  the global Operator Assistant and on every herd row. */
+  assistantRepo?: string | null;
   /** Epic-authoring task kind: attended guided shaping → an EPIC draft; writes no GitHub issues. */
   epicAuthoring: boolean;
   /** Plain task kind: the agent without guards — no plan gate, autopilot or build queue. Optional
@@ -3186,7 +3189,9 @@ export type WsEvent =
   | { event: "repo:untrusted-author"; data: { repoPath: string; issue: number } }
   | {
       event: "operator-assistant:update";
-      data: { session: Session | null; permissions?: AssistantPermissions };
+      /** `session` is always the global assistant (older clients read only it); `sessions` every
+       *  live assistant, global first (absent from an older server). */
+      data: { session: Session | null; sessions?: Session[]; permissions?: AssistantPermissions };
     };
 
 /** Why the Operator Assistant can't run: no `claude` on the node, or herdr is down. */
@@ -3212,7 +3217,10 @@ export type AssistantPermissions = { shell: AssistantShellLevel } & Record<
 export interface OperatorAssistantState {
   available: boolean;
   reason: OperatorAssistantUnavailableReason | null;
+  /** The global assistant's live row. */
   session: Session | null;
+  /** Every live assistant, global first, then the repo assistants (absent from an older server). */
+  sessions?: Session[];
   permissions?: AssistantPermissions;
 }
 

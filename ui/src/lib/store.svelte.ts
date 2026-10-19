@@ -71,10 +71,13 @@ function isSafeHttpUrl(raw: string): boolean {
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
-  /** The Operator Assistant's live row (#1446). Never part of `sessions` (the herd): seeded by GET
+  /** Every live Operator Assistant row (#1446): the global one first, then the repo assistants in
+   *  the order they started. Never part of `sessions` (the herd): seeded by GET
    *  /api/operator-assistant, replaced by `operator-assistant:update`, and kept live by the ordinary
-   *  per-session events (patchSession matches it by id). null = none spawned yet, or archived. */
-  assistant = $state<Session | null>(null);
+   *  per-session events (patchSession matches them by id). */
+  assistants = $state<Session[]>([]);
+  /** The global assistant's row: null = none spawned yet, or archived. */
+  readonly assistant = $derived(this.assistants.find((s) => !s.assistantRepo) ?? null);
   /** Whether the assistant can run right now; null until the bootstrap GET lands. */
   assistantAvailable = $state<boolean | null>(null);
   /** Why it can't run (`assistantAvailable === false`); null otherwise. */
@@ -227,19 +230,34 @@ export class HerdStore {
   }
   /** Seed (or replace) the assistant's availability + row after the bootstrap GET. */
   seedAssistant(state: OperatorAssistantState) {
-    this.assistant = state.session;
+    this.setAssistants(state.sessions ?? (state.session ? [state.session] : []));
     this.assistantAvailable = state.available;
     this.assistantUnavailableReason = state.available ? null : state.reason;
     if (state.permissions) this.assistantPermissions = state.permissions;
   }
-  /** Replace the assistant's row (`operator-assistant:update`, or an ensure/reset response). The
-   *  server only hands one out after it spawned or resumed it, so a row also proves availability. */
+  /** Replace one assistant's row (an ensure/reset response, or an older server's update event):
+   *  the row of the same scope gives way. null clears the global one. The server only hands a row
+   *  out after it spawned or resumed it, so a row also proves availability. */
   setAssistant(session: Session | null) {
-    this.assistant = session;
+    const scope = session?.assistantRepo ?? null;
+    const rest = this.assistants.filter((s) => (s.assistantRepo ?? null) !== scope);
+    this.setAssistants(session ? [...rest, session] : rest);
     if (session) {
       this.assistantAvailable = true;
       this.assistantUnavailableReason = null;
     }
+  }
+  /** Replace every assistant row, kept in dock order: global first, then repo ones by start. */
+  setAssistants(list: Session[]) {
+    this.assistants = [...list].sort(
+      (a, b) =>
+        Number(Boolean(a.assistantRepo)) - Number(Boolean(b.assistantRepo)) ||
+        a.createdAt - b.createdAt,
+    );
+  }
+  /** Forget a repo's assistant at once when the operator ends it (its archive event follows). */
+  dropAssistantScope(repo: string) {
+    this.assistants = this.assistants.filter((s) => s.assistantRepo !== repo);
   }
   /** An ensure/reset came back 503: the assistant can't run, for `reason`. */
   setAssistantUnavailable(reason: OperatorAssistantUnavailableReason) {
@@ -500,7 +518,7 @@ export class HerdStore {
   private patchSession(id: string, patch: Partial<Session>) {
     // The assistant is not in the herd, but its status/rename/… pushes arrive as the same per-session
     // events, so it is the one other row this chokepoint patches.
-    const s = this.byId(id) ?? (this.assistant?.id === id ? this.assistant : undefined);
+    const s = this.byId(id) ?? this.assistants.find((a) => a.id === id);
     // `Object.assign` uses [[Set]], so an own `__proto__` key in a decoded WS payload would set the
     // target's prototype instead of landing as a property. Guarded HERE rather than in the callers
     // because this is the single Object.assign chokepoint — every present and future caller of
@@ -519,10 +537,11 @@ export class HerdStore {
     this.patchSession(d.id, patch);
   }
 
-  /** Clear the assistant when its row is archived (New conversation archives it server-side; the
+  /** Drop an assistant when its row is archived (New conversation archives it server-side; the
    *  fresh row follows as `operator-assistant:update`). */
   private dropAssistant(id: string) {
-    if (this.assistant?.id === id) this.assistant = null;
+    if (this.assistants.some((s) => s.id === id))
+      this.assistants = this.assistants.filter((s) => s.id !== id);
   }
 
   /** Append a session on session:new, ignoring a duplicate id (pushes can race the bootstrap). */
@@ -1015,7 +1034,8 @@ export class HerdStore {
         this.spawnProgress = ev.data;
         return true;
       case "operator-assistant:update":
-        this.setAssistant(ev.data.session);
+        if (ev.data.sessions) this.setAssistants(ev.data.sessions);
+        else this.setAssistant(ev.data.session);
         if (ev.data.permissions) this.assistantPermissions = ev.data.permissions;
         return true;
     }

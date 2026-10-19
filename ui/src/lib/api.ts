@@ -3625,23 +3625,35 @@ export async function getOperatorAssistant(): Promise<OperatorAssistantState> {
   return r.json();
 }
 
-/** POST an Operator Assistant lifecycle route. A 503 (`claude` missing, herdr unreachable) throws
- *  an {@link ApiError} whose `code` is the server's `reason` — read it with
+/** POST an Operator Assistant lifecycle route for one scope: a repo's assistant, or the global one
+ *  (`repo` null — no body, as before repo assistants). A 503 (`claude` missing, herdr unreachable)
+ *  throws an {@link ApiError} whose `code` is the server's `reason` — read it with
  *  {@link operatorAssistantUnavailableReason}. */
-async function postOperatorAssistant(url: string, label: string): Promise<{ session: Session }> {
-  const r = await fetch(url, { method: "POST", headers: JSON_HEADERS });
+async function postOperatorAssistant<T = { session: Session }>(
+  url: string,
+  label: string,
+  repo: string | null,
+): Promise<T> {
+  const body = repo === null ? undefined : JSON.stringify({ repo });
+  const r = await fetch(url, { method: "POST", headers: JSON_HEADERS, body });
   if (!r.ok) throw await reasonFailed(r, label);
   return r.json();
 }
 
-/** Return the live assistant, spawning it on first use or resuming it when its agent is gone. */
-export function ensureOperatorAssistant(): Promise<{ session: Session }> {
-  return postOperatorAssistant("/api/operator-assistant", "operator assistant");
+/** Return the live assistant of a scope, spawning it on first use or resuming it when its agent is
+ *  gone. `repo` null is the global assistant. */
+export function ensureOperatorAssistant(repo: string | null = null): Promise<{ session: Session }> {
+  return postOperatorAssistant("/api/operator-assistant", "operator assistant", repo);
 }
 
-/** New conversation: archive the current assistant and spawn a fresh one. */
-export function resetOperatorAssistant(): Promise<{ session: Session }> {
-  return postOperatorAssistant("/api/operator-assistant/reset", "operator assistant reset");
+/** New conversation: archive the scope's current assistant and spawn a fresh one. */
+export function resetOperatorAssistant(repo: string | null = null): Promise<{ session: Session }> {
+  return postOperatorAssistant("/api/operator-assistant/reset", "operator assistant reset", repo);
+}
+
+/** End a repo's assistant (archive it). The global assistant is never ended, only reset. */
+export function closeOperatorAssistant(repo: string): Promise<{ ok: true }> {
+  return postOperatorAssistant("/api/operator-assistant/close", "operator assistant close", repo);
 }
 
 /** The unavailable reason carried by a failed ensure/reset, or null for any other failure. */

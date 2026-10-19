@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAssistantViewReport } from "./operator-assistant-view";
+import { buildAssistantViewReport, scopeViewReport } from "./operator-assistant-view";
 
 const BASE: Parameters<typeof buildAssistantViewReport>[0] = {
   client: { kind: "browser", platform: "macos" },
@@ -58,5 +58,30 @@ describe("buildAssistantViewReport", () => {
     expect(buildAssistantViewReport({ ...phone, assistantReturnScreen: "list" }).focus).toEqual({
       kind: "none",
     });
+  });
+});
+
+describe("scopeViewReport", () => {
+  const report = buildAssistantViewReport(BASE);
+  const herd = [
+    { id: "live-1", repoPath: "/p/shepherd" },
+    { id: "live-2", repoPath: "/p/calendar" },
+  ];
+
+  it("hands the global assistant the report as it is", () => {
+    expect(scopeViewReport(report, null, herd)).toBe(report);
+  });
+
+  it("a repo assistant sees its repo as the filter and its own session in view", () => {
+    expect(scopeViewReport(report, "/p/shepherd", herd)).toEqual({
+      ...report,
+      repoFilter: ["/p/shepherd"],
+    });
+  });
+
+  it("a session from another repo, or a mirrored one, is not in a repo assistant's view", () => {
+    expect(scopeViewReport(report, "/p/calendar", herd).focus).toEqual({ kind: "none" });
+    const remote = { ...report, focus: { kind: "remote" as const, desig: "TASK-1", host: "mac" } };
+    expect(scopeViewReport(remote, "/p/shepherd", herd).focus).toEqual({ kind: "none" });
   });
 });

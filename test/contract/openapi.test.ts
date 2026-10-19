@@ -1443,17 +1443,80 @@ describe("repos", () => {
 
 describe("operator assistant", () => {
   const BASE = "/api/operator-assistant";
-  const call = (method: string, path: string) =>
+  const call = (method: string, path: string, body?: unknown) =>
     fetch(`${s.baseUrl}${path}`, {
       method,
       headers: { "content-type": "application/json", ...bearer(token) },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+  /** A live assistant row; `assistantRepo` set ⇒ that repo's scoped one. */
+  const assistantRow = (assistantRepo: string | null = null) =>
+    s.deps.store.create({
+      name: assistantRepo ? "operator-assistant-repo" : "operator-assistant",
+      prompt: "",
+      repoPath: s.tmpRoot,
+      baseBranch: "",
+      branch: null,
+      worktreePath: s.tmpRoot,
+      isolated: false,
+      herdrSession: "default",
+      herdrAgentId: assistantRepo ? "term_assistant_repo" : "term_assistant",
+      claudeSessionId: assistantRepo ? "claude-assistant-repo" : "claude-assistant",
+      model: null,
+      operatorAssistant: true,
+      assistantRepo,
     });
 
-  test("GET /api/operator-assistant reports availability and the live row", async () => {
-    const res = await call("GET", BASE);
-    const body = await validateResponse("GET", BASE, res);
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({ available: true, reason: null });
+  test("GET /api/operator-assistant reports availability and the live rows", async () => {
+    const scoped = assistantRow(s.validRepo);
+    try {
+      const res = await call("GET", BASE);
+      const body = (await validateResponse("GET", BASE, res)) as {
+        session: unknown;
+        sessions: { id: string; assistantRepo: string | null }[];
+      };
+      expect(res.status).toBe(200);
+      expect(body).toMatchObject({ available: true, reason: null, session: null });
+      expect(body.sessions.map((r) => [r.id, r.assistantRepo])).toEqual([[scoped.id, s.validRepo]]);
+    } finally {
+      s.deps.store.archive(scoped.id);
+    }
+  });
+
+  test("POST /api/operator-assistant/close: 200 + operator-assistant:update, 400, 404", async () => {
+    const service = s.deps.service as unknown as Record<string, unknown>;
+    const path = `${BASE}/close`;
+    const scoped = assistantRow(s.validRepo);
+    const expectStatus = async (status: number, body?: unknown) => {
+      if (body !== undefined && status !== 400) validateRequest("POST", path, body);
+      const res = await call("POST", path, body);
+      const out = await validateResponse("POST", path, res);
+      expect(res.status).toBe(status);
+      return out as Record<string, unknown>;
+    };
+    try {
+      // The real close archives through the full archive path (herdr stop, worktree); stand in.
+      service.closeOperatorAssistant = async (repo: string) => {
+        expect(repo).toBe(s.validRepo);
+        s.deps.store.archive(scoped.id);
+      };
+      const frames = await collectEvents(s, token, async () => {
+        expect(await expectStatus(200, { repo: s.validRepo })).toEqual({ ok: true });
+      });
+      const update = frames.find((f) => f.event === "operator-assistant:update");
+      expect(update, "operator-assistant:update not received").toBeTruthy();
+      validateEvent("operator-assistant:update", update!.data);
+      expect(update!.data).toMatchObject({ session: null, sessions: [] });
+      delete service.closeOperatorAssistant;
+
+      await expectStatus(400, {});
+      await expectStatus(400, { repo: join(s.tmpRoot, "no-such-repo") });
+      // The real service: nothing live for the repo any more.
+      await expectStatus(404, { repo: s.validRepo });
+    } finally {
+      delete service.closeOperatorAssistant;
+      if (s.deps.store.get(scoped.id)?.status !== "archived") s.deps.store.archive(scoped.id);
+    }
   });
 
   // The real ensure/reset would create the assistant dir and seed Claude's trust file on this
@@ -1493,6 +1556,36 @@ describe("operator assistant", () => {
         const update = frames.find((f) => f.event === "operator-assistant:update");
         expect(update, "operator-assistant:update not received").toBeTruthy();
         validateEvent("operator-assistant:update", update!.data);
+
+        // A repo scope: the body names the repo, the event's session stays the global row.
+        const scoped = assistantRow(s.validRepo);
+        try {
+          validateRequest("POST", path, { repo: s.validRepo });
+          service[method] = async (repo: string | null) => {
+            expect(repo).toBe(s.validRepo);
+            return scoped;
+          };
+          const scopedFrames = await collectEvents(s, token, async () => {
+            const res = await call("POST", path, { repo: s.validRepo });
+            expect(await validateResponse("POST", path, res)).toMatchObject({
+              session: { id: scoped.id, assistantRepo: s.validRepo },
+            });
+          });
+          const scopedUpdate = scopedFrames.find((f) => f.event === "operator-assistant:update");
+          validateEvent("operator-assistant:update", scopedUpdate!.data);
+          const data = scopedUpdate!.data as {
+            session: { id: string };
+            sessions: { id: string }[];
+          };
+          expect(data.session.id).toBe(live.id);
+          expect(data.sessions.map((r) => r.id)).toEqual([live.id, scoped.id]);
+        } finally {
+          s.deps.store.archive(scoped.id);
+        }
+
+        const unknown = await call("POST", path, { repo: join(s.tmpRoot, "no-such-repo") });
+        await validateResponse("POST", path, unknown);
+        expect(unknown.status).toBe(400);
 
         service[method] = async () => {
           throw Object.assign(new Error("herdr protocol mismatch"), { code: "protocol_mismatch" });

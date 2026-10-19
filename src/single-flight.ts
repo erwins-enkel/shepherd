@@ -14,3 +14,21 @@ export function singleFlight<T>(fn: () => Promise<T>): () => Promise<T> {
   let inflight: Promise<T> | null = null;
   return () => (inflight ??= fn().finally(() => (inflight = null)));
 }
+
+/**
+ * {@link singleFlight} per key: concurrent calls with the SAME key share one in-flight run, calls
+ * with different keys run independently. A key's slot clears once its run settles.
+ *
+ * Used for the Operator Assistant's lifecycle, one slot per scope (null = the global assistant).
+ */
+export function keyedSingleFlight<K, T>(fn: (key: K) => Promise<T>): (key: K) => Promise<T> {
+  const inflight = new Map<K, Promise<T>>();
+  return (key) => {
+    let run = inflight.get(key);
+    if (!run) {
+      run = fn(key).finally(() => inflight.delete(key));
+      inflight.set(key, run);
+    }
+    return run;
+  };
+}

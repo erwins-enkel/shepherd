@@ -484,6 +484,34 @@ assistant works, red while a command waits for your approval. The chip in the pa
 header shows what it may do — _Read-only_, _Asks first_ or _Acts itself_ — and opens
 Settings → Assistant.
 
+### Repo assistants
+
+The Operator Assistant covers everything. When you work on one repo for a while, give it
+its own assistant: **Assistant for this repo only** in a repo chip's right-click /
+long-press menu, or **+ Repo assistant** at the top of the panel, which lists every repo.
+There is at most one per repo; on a repo that has one, the same entries open it.
+
+- **It sees one repo.** Its herd and repo-automation tools show only that repo's sessions,
+  held tasks and settings, and its actions refuse a session or repo outside it. Shepherd
+  enforces this, not only the prompt. With every message it gets that repo as its filter,
+  and the session in view only when it belongs there. Questions about the node — health,
+  logs — still work.
+- **Everything else stays with the global assistant.** Ask there about the whole herd or
+  about another repo. Halting the whole herd is the global one's too: a repo assistant
+  interrupts its repo's sessions one by one instead.
+- **All of them stack in the panel.** The global one is always on top, repo assistants
+  follow in the order you started them, and that order never changes. One is open; the
+  others fold into bars that show the repo, whether it is working (amber) or waiting for you
+  (red), its newest reply and how many replies came in since you folded it. Click a bar to
+  open it. On a phone the stack becomes tabs under the assistant's title.
+- **The Assist button counts them** once there are two or more, and its pip shows the most
+  urgent: red as soon as any one waits for your approval.
+- **End** (the square in a repo assistant's header, clicked twice) archives it. The global
+  assistant is never ended, only started over with **New conversation**.
+
+Each repo assistant is a Claude session of its own, with the same model, effort and
+**Settings → Assistant** permissions, and its tokens count like the global one's.
+
 ### What it reads
 
 Through four read-only tools, which never ask:

@@ -22,7 +22,7 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 function addSession(
   store: SessionStore,
   name: string,
-  opts: { terminal?: boolean; operatorAssistant?: boolean } = {},
+  opts: { terminal?: boolean; operatorAssistant?: boolean; repoPath?: string } = {},
 ) {
   return store.create({
     name,
@@ -69,7 +69,10 @@ function setup(
   const worker = addSession(store, "worker");
   const run = (tool: AssistantActionTool, args: Record<string, unknown>) =>
     applyOperatorAction(deps, tool, args);
-  return { store, deps, requests, logs, worker, run };
+  /** `run` as a repo-scoped assistant of `scope`. */
+  const runScoped = (scope: string, tool: AssistantActionTool, args: Record<string, unknown>) =>
+    applyOperatorAction(deps, tool, args, scope);
+  return { store, deps, requests, logs, worker, run, runScoped };
 }
 
 test("the catalog is exactly the action groups' tools, in group order", () => {
@@ -266,6 +269,108 @@ test("herd_halt and herd_retry: the herd routes, retry by desig", async () => {
     path: "/api/retry",
     body: { text: "continue", ids: [worker.id] },
   });
+});
+
+// ── repo-scoped assistant ────────────────────────────────────────────────────
+
+/** The refusal's status and message, or null when the action ran. */
+const refusal = (res: Awaited<ReturnType<typeof applyOperatorAction>>) =>
+  res.ok ? null : { status: res.status, error: res.error };
+
+test("a scoped assistant acts on its own repo's sessions and refuses every other one", async () => {
+  const { store, worker, requests, runScoped } = setup();
+  const beta = addSession(store, "beta-worker", { repoPath: "/r/beta" });
+  // Every desig-targeted tool, plus herd_retry, goes through the same scoped resolver.
+  for (const [tool, args] of [
+    ["session_steer", { text: "hi" }],
+    ["session_interrupt", {}],
+    ["session_archive", {}],
+    ["plan_release", {}],
+    ["pr_merge", {}],
+    ["session_automation_set", { autopilot: true }],
+  ] as [AssistantActionTool, Record<string, unknown>][]) {
+    expect(refusal(await runScoped("/r/beta", tool, { desig: worker.desig, ...args }))).toEqual({
+      status: 403,
+      error: `session "${worker.desig}" is outside this assistant's repo beta — the global Operator Assistant covers every repo; the operator can ask there`,
+    });
+  }
+  expect(
+    refusal(await runScoped("/r/beta", "herd_retry", { desigs: [beta.desig, worker.desig] })),
+  ).toMatchObject({ status: 403 });
+  expect(requests).toEqual([]);
+
+  expect((await runScoped("/r/beta", "session_interrupt", { desig: beta.desig })).ok).toBe(true);
+  expect((await runScoped("/r/beta", "herd_retry", { desigs: [beta.desig] })).ok).toBe(true);
+  expect(requests.map((r) => r.path)).toEqual([`/api/sessions/${beta.id}/interrupt`, "/api/retry"]);
+  // Unknown stays 404, as for the global assistant.
+  expect(
+    refusal(await runScoped("/r/beta", "session_interrupt", { desig: "TASK-999" })),
+  ).toMatchObject({ status: 404 });
+});
+
+test("a scoped assistant's repo tools default to nothing but accept only its own repo", async () => {
+  const { requests, runScoped } = setup();
+  for (const repo of ["beta", "/r/beta"]) {
+    expect((await runScoped("/r/beta", "repo_automation_set", { repo, maxAuto: 2 })).ok).toBe(true);
+  }
+  expect(
+    (await runScoped("/r/beta", "epic_run_set", { repo: "beta", epicParent: 3, status: "paused" }))
+      .ok,
+  ).toBe(true);
+  for (const res of [
+    await runScoped("/r/beta", "repo_automation_set", { repo: "alpha", maxAuto: 2 }),
+    await runScoped("/r/beta", "epic_run_set", {
+      repo: "/r/alpha",
+      epicParent: 3,
+      status: "paused",
+    }),
+  ]) {
+    expect(refusal(res)?.status).toBe(403);
+    expect(refusal(res)?.error).toContain("outside this assistant's repo beta (/r/beta)");
+  }
+  // repo stays required for the action tools, scoped or not.
+  expect(refusal(await runScoped("/r/beta", "repo_automation_set", { maxAuto: 2 }))?.status).toBe(
+    400,
+  );
+  expect(requests.map((r) => r.path)).toEqual([
+    "/api/repo-config?repo=%2Fr%2Fbeta",
+    "/api/repo-config?repo=%2Fr%2Fbeta",
+    "/api/epic?repo=%2Fr%2Fbeta&parent=3",
+  ]);
+});
+
+test("a scoped assistant's held_task reaches only its repo's held tasks", async () => {
+  const { store, requests, runScoped } = setup();
+  for (const [id, repoPath] of [
+    ["held-a", "/r/alpha"],
+    ["held-b", "/r/beta"],
+  ] as const) {
+    store.addHeldTask({
+      id,
+      repoPath,
+      input: { prompt: "x" } as never,
+      createdAt: 1,
+      reason: "usage",
+    });
+  }
+  expect(
+    refusal(await runScoped("/r/beta", "held_task", { heldId: "held-a", action: "spawn" })),
+  ).toMatchObject({ status: 403 });
+  expect((await runScoped("/r/beta", "held_task", { heldId: "held-b", action: "spawn" })).ok).toBe(
+    true,
+  );
+  expect(requests).toEqual([{ method: "POST", path: "/api/held/held-b/spawn" }]);
+});
+
+test("herd_halt is herd-wide: refused for a scoped assistant, pointing at the global one", async () => {
+  const { requests, runScoped, run } = setup();
+  const res = refusal(await runScoped("/r/beta", "herd_halt", {}));
+  expect(res?.status).toBe(403);
+  expect(res?.error).toContain("global Operator Assistant");
+  expect(res?.error).toContain("session_interrupt");
+  expect(requests).toEqual([]);
+  // The global assistant still halts the herd.
+  expect((await run("herd_halt", {})).ok).toBe(true);
 });
 
 test("answers never carry a route's body: no session row, no UUID", async () => {

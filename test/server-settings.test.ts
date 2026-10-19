@@ -1568,7 +1568,7 @@ test("assistantPermissions: GET reports the set; a partial PUT/PATCH merges, per
     expect(syncs).toBe(1); // the running assistant's file is rewritten
     expect(frames.at(-1)).toEqual({
       event: "operator-assistant:update",
-      data: { session: null, permissions: merged },
+      data: { session: null, sessions: [], permissions: merged },
     });
 
     const res2 = await patch(app, { assistantPermissions: { shell: "all" } });

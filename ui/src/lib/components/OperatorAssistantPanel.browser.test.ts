@@ -220,3 +220,49 @@ describe("OperatorAssistantPanel", () => {
     expect(onclose).toHaveBeenCalledOnce();
   });
 });
+
+describe("OperatorAssistantPanel as a repo assistant", () => {
+  const REPO = "/home/op/src/shepherd";
+  const repoRow = { ...assistantRow, id: "oa-r", assistantRepo: REPO } as Session;
+
+  it("is named for its repo and says what it sees", async () => {
+    await mount({ repo: REPO, stacked: true, session: repoRow });
+    await expect
+      .element(
+        page.getByRole("complementary", {
+          name: m.operator_assistant_repo_aria({ repo: "shepherd" }),
+        }),
+      )
+      .toBeInTheDocument();
+    await expect.element(page.getByRole("heading", { name: "shepherd" })).toBeVisible();
+    await expect.element(page.getByText(m.operator_assistant_repo_kind())).toBeVisible();
+    await expect
+      .element(page.getByText(m.operator_assistant_scope_badge({ repo: "shepherd" })))
+      .toBeVisible();
+  });
+
+  it("leaves Close to the dock's strip when stacked", async () => {
+    await mount({ stacked: true, session: assistantRow });
+    expect(page.getByRole("button", { name: m.operator_assistant_close() }).query()).toBeNull();
+    await expect.element(page.getByText(m.assistant_dock_all_repos())).toBeVisible();
+  });
+
+  it("End needs a second click, and only a repo assistant offers it", async () => {
+    const onend = vi.fn();
+    await mount({ repo: REPO, stacked: true, session: repoRow, onend });
+    await page.getByRole("button", { name: m.operator_assistant_end() }).click();
+    expect(onend).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.operator_assistant_end_confirm() }).click();
+    expect(onend).toHaveBeenCalledOnce();
+  });
+
+  it("the global assistant has no End", async () => {
+    await mount({ stacked: true, session: assistantRow, onend: vi.fn() });
+    expect(page.getByRole("button", { name: m.operator_assistant_end() }).query()).toBeNull();
+  });
+
+  it("reports a failed end", async () => {
+    await mount({ repo: REPO, stacked: true, session: repoRow, failed: "close" });
+    await expect.element(page.getByText(m.operator_assistant_error_close())).toBeVisible();
+  });
+});

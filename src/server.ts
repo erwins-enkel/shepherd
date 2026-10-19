@@ -8,6 +8,7 @@ import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
 import {
   emitSessionAmendments,
+  OperatorAssistantNotFoundError,
   OperatorAssistantSessionError,
   PREVIEW_SETUP_STEER,
   RestoreError,
@@ -6135,32 +6136,108 @@ async function operatorAssistantUnavailable(
   return null;
 }
 
-// GET /api/operator-assistant → {available, reason, session}; POST → ensure the assistant is live;
-// POST /api/operator-assistant/reset → New conversation (#1446). Operator app only: none of these
-// sits under /api/sessions/<id>, so isAgentIngressRoute never admits them. Unavailable ⇒ 503
-// {error, reason} and nothing spawns. A successful ensure/reset emits `operator-assistant:update`,
-// deliberately not `session:new`, so the row never joins another client's herd.
+/** `operator-assistant:update`: the GLOBAL live row as `session` — older clients (the iOS app)
+ *  replace their one assistant with it, so a repo assistant must never ride there — every live
+ *  assistant as `sessions`, and the current permissions. */
+function emitOperatorAssistantUpdate(deps: AppDeps): void {
+  deps.events.emit("operator-assistant:update", {
+    session: deps.store.getLiveOperatorAssistant(),
+    sessions: deps.store.listLiveOperatorAssistants(),
+    permissions: config.assistantPermissions,
+  });
+}
+
+/** The `repo` of an Operator Assistant POST body (`{repo?: string}`): a missing or empty body, or
+ *  an absent / null / "" repo, is null (the global assistant). A malformed body is a 400. */
+async function operatorAssistantRepoArg(req: Request): Promise<string | null | Response> {
+  const text = await req.text().catch(() => "");
+  if (text.trim() === "") return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return json({ error: "body must be JSON: {repo?: string}" }, 400);
+  }
+  if (body === null || typeof body !== "object" || Array.isArray(body))
+    return json({ error: "body must be {repo?: string}" }, 400);
+  const repo = (body as { repo?: unknown }).repo;
+  if (repo === undefined || repo === null || repo === "") return null;
+  return typeof repo === "string" ? repo : json({ error: "repo must be a string" }, 400);
+}
+
+/** A repo an assistant may be scoped to: one `listRepos` enumerates, named by its path or its
+ *  realpath, answered in the path form sessions carry as `repoPath` (what the scope filters on).
+ *  Null when unknown. */
+function knownAssistantRepo(repo: string): string | null {
+  return (
+    listRepos(config.repoRoot).find((r) => r.path === repo || r.realPath === repo)?.path ?? null
+  );
+}
+
+// POST /api/operator-assistant/close {repo} → archive that repo's assistant. A repo that left the
+// repo root still closes while its assistant is live. Needs no availability: nothing spawns.
+async function closeOperatorAssistantRoute(req: Request, deps: AppDeps): Promise<Response> {
+  const repo = await operatorAssistantRepoArg(req);
+  if (repo instanceof Response) return repo;
+  if (repo === null) return json({ error: "repo is required" }, 400);
+  // A repo that left the repo root is no longer listed, but its live assistant still closes.
+  const scope =
+    knownAssistantRepo(repo) ?? (deps.store.getLiveOperatorAssistant(repo) ? repo : null);
+  if (!scope) return json({ error: `unknown repo: ${repo}` }, 400);
+  try {
+    await deps.service.closeOperatorAssistant(scope);
+  } catch (e) {
+    if (e instanceof OperatorAssistantNotFoundError) return json({ error: e.message }, 404);
+    return createErrorResponse(e);
+  }
+  emitOperatorAssistantUpdate(deps);
+  return json({ ok: true });
+}
+
+// GET /api/operator-assistant → {available, reason, session, sessions, permissions}; POST
+// {repo?} → ensure that scope's assistant is live; POST /api/operator-assistant/reset {repo?} →
+// New conversation; POST /api/operator-assistant/close {repo} → close a repo's assistant (#1446).
+// No repo is the global assistant, exactly as before scopes. Operator app only: none of these sits
+// under /api/sessions/<id>, so isAgentIngressRoute never admits them. Unavailable ⇒ 503
+// {error, reason} and nothing spawns. A successful ensure/reset/close emits
+// `operator-assistant:update`, deliberately not `session:new`, so no row joins another client's
+// herd.
 async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (!(parts[0] === "api" && parts[1] === "operator-assistant")) return null;
-  const reset = parts[2] === "reset" && !parts[3];
-  if (parts[2] && !reset) return null;
-  if (req.method === "GET" && !reset) {
+  if (!(parts[0] === "api" && parts[1] === "operator-assistant") || parts[3]) return null;
+  const verb = parts[2] ?? "";
+  if (verb !== "" && verb !== "reset" && verb !== "close") return null;
+  if (req.method === "GET" && verb === "") {
     const reason = await operatorAssistantUnavailable(deps);
-    const session = deps.store.getLiveOperatorAssistant();
-    const permissions = config.assistantPermissions;
-    return json({ available: reason === null, reason, session, permissions });
+    return json({
+      available: reason === null,
+      reason,
+      session: deps.store.getLiveOperatorAssistant(),
+      sessions: deps.store.listLiveOperatorAssistants(),
+      permissions: config.assistantPermissions,
+    });
   }
   if (req.method !== "POST") return null;
+  if (verb === "close") return closeOperatorAssistantRoute(req, deps);
+  return spawnOperatorAssistantRoute(req, deps, verb === "reset");
+}
+
+// POST /api/operator-assistant[/reset] {repo?} → ensure (or reset) that scope's assistant.
+async function spawnOperatorAssistantRoute(
+  req: Request,
+  deps: AppDeps,
+  reset: boolean,
+): Promise<Response> {
+  const raw = await operatorAssistantRepoArg(req);
+  if (raw instanceof Response) return raw;
+  const repo = raw === null ? null : knownAssistantRepo(raw);
+  if (raw !== null && repo === null) return json({ error: `unknown repo: ${raw}` }, 400);
   const reason = await operatorAssistantUnavailable(deps);
   if (reason) return json({ error: "operator assistant unavailable", reason }, 503);
   try {
     const session = reset
-      ? await deps.service.resetOperatorAssistant()
-      : await deps.service.ensureOperatorAssistant();
-    deps.events.emit("operator-assistant:update", {
-      session,
-      permissions: config.assistantPermissions,
-    });
+      ? await deps.service.resetOperatorAssistant(repo)
+      : await deps.service.ensureOperatorAssistant(repo);
+    emitOperatorAssistantUpdate(deps);
     return json({ session });
   } catch (e) {
     return createErrorResponse(e);
@@ -8184,10 +8261,7 @@ function putAssistantPermissions(value: unknown, deps: Ctx["deps"]): Response {
   config.assistantPermissions = { ...config.assistantPermissions, ...parsed.patch };
   deps.store.setSetting("assistantPermissions", JSON.stringify(config.assistantPermissions));
   deps.service.syncOperatorAssistantPermissions();
-  deps.events.emit("operator-assistant:update", {
-    session: deps.store.getLiveOperatorAssistant(),
-    permissions: config.assistantPermissions,
-  });
+  emitOperatorAssistantUpdate(deps);
   return json({ assistantPermissions: config.assistantPermissions });
 }
 

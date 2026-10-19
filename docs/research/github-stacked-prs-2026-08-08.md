@@ -429,7 +429,7 @@ Tier 0 shipped in PR #2061; #2062 is its outstanding follow-on defect. Tier 2 is
 the atomicity spike (§5.2.1) but not dependent on it. Tiers 1 and 3 are unfiled.
 
 _2026-10-19:_ Tier 2 shipped (#2066/#2068/#2069/#2070) behind `epicStacksEnabled`, which no repo has
-turned on. Follow-up drafts for shape (a) and stack-aware CI are in §10.8.
+turned on. Follow-up issues (#3191, #3192, #3193, aetherial#585) are in §10.8.
 
 ---
 
@@ -759,9 +759,9 @@ epic.**
 **What would retire shape (a):** a confirmed partial landing outside the validation phase (the
 troubleshooting page's "intermittent failure" path).
 
-### 10.8 Follow-up issue drafts (not filed)
+### 10.8 Follow-up issues
 
-**Shepherd — `feat(epic): opt-in incremental landing mode (children → main, no landing PR)`**
+**#3191 — `feat(epic): opt-in incremental landing mode (children → main, no landing PR)`**
 
 - Per-epic setting (`epic_settings`) chosen at epic approval. Children base on and target the default
   branch, with no `epic/` branch, no landing PR, and no `landing*` state.
@@ -771,7 +771,7 @@ troubleshooting page's "intermittent failure" path).
   mode.
 - Stacks are optional, rooted at `main`, behind `epicStacksEnabled`.
 
-**Shepherd — `fix(forge): stack merge must not land a combination nobody tested`**
+**#3192 — `fix(forge): stack merge must not land a combination nobody tested`**
 
 - Before `merge-async` on a stack outside a merge queue, refuse when the top layer's last green run
   was against a `stack.base.sha` other than the trunk's current SHA. Restack first, or route through
@@ -779,7 +779,7 @@ troubleshooting page's "intermittent failure" path).
 - Evidence: aetherial stack #583 vs. #579.
 - This also applies to shape (b), where the trunk is the epic branch.
 
-**aetherial — `ci: stack-aware e2e and merge queue on main`**
+**aetherial#585 — `ci: stack-aware e2e and merge queue on main`**
 
 - `quality` and PR title on every PR.
 - `db`/`e2e` on `pull_request` only when `stack == null || stack.position == stack.size`.
@@ -787,7 +787,7 @@ troubleshooting page's "intermittent failure" path).
 - Make `quality` / `db` / `e2e` **required checks** (there are none today).
 - Revisit the draft gate (#558) afterwards; it should become unnecessary.
 
-**Shepherd (doc-only, small) — `docs: stacked-PR facts after GA`**
+**#3193 — `docs: refresh stacked-PR facts after GA`**
 
 - Refresh §2 of this note: GA, merge queue, signed restack, the read-only API, the doc contradictions
   in §10.2.

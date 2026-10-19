@@ -74,6 +74,38 @@ struct QuestionFormTests {
         #expect(third.canSubmit)
     }
 
+    @Test func otherNeedsItsTextAndMakesAMultiRequired() {
+        let m = QuestionFormModel(block: block(), answerContext: context, writer: nil, allowsOther: true)
+        m.freeform["text"] = "x"
+        m.single["single"] = .some(QuestionFormModel.otherIndex)
+        #expect(!m.answersComplete, "Other without text")
+        m.otherText["single"] = "  mine  "
+        #expect(!m.answersComplete, "a multi with Other needs a choice")
+        m.otherChecked["multi"] = true
+        #expect(!m.answersComplete, "a checked Other needs its text")
+        m.otherText["multi"] = "also"
+        #expect(m.answersComplete)
+        #expect(!m.canSubmit, "no writer: only the ask sheet submits this form")
+        m.otherChecked["multi"] = false
+        m.multi["multi"] = [2, 0]
+        #expect(m.answersComplete)
+        #expect(m.buildAnswers() == [
+            .init(blockId: "block", questionId: "single", optionIndices: [], text: "mine"),
+            .init(blockId: "block", questionId: "multi", optionIndices: [0, 2]),
+            .init(blockId: "block", questionId: "text", text: "x"),
+        ])
+        m.otherChecked["multi"] = true
+        #expect(m.buildAnswers()[1] == .init(blockId: "block", questionId: "multi", optionIndices: [0, 2], text: "also"))
+    }
+
+    @Test func planFormsIgnoreOtherState() {
+        let m = model(QuestionFormFakeClient())
+        fill(m)
+        m.otherChecked["multi"] = true
+        #expect(m.canSubmit)
+        #expect(m.buildAnswers()[1].text == nil)
+    }
+
     @Test func buildsEveryAnswerWithWireIDsSortedOptionsAndUntrimmedText() {
         let m = model(QuestionFormFakeClient())
         #expect(m.buildAnswers() == [

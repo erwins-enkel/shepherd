@@ -34,6 +34,13 @@ public final class QuestionFormModel {
     public var single: [String: Int?] = [:]
     public var multi: [String: Set<Int>] = [:]
     public var freeform: [String: String] = [:]
+    /// AskUserQuestion forms (#3165) add an "Other…" choice with its own text to every
+    /// single/multi question. Single: `single[id] == otherIndex`. Multi: `otherChecked[id]`.
+    /// Plan-gate forms never allow it, so they are unchanged.
+    public let allowsOther: Bool
+    public static let otherIndex = -1
+    public var otherChecked: [String: Bool] = [:]
+    public var otherText: [String: String] = [:]
     public private(set) var submitting = false
     private(set) var submitted = false
     private(set) var delivered = true
@@ -52,10 +59,12 @@ public final class QuestionFormModel {
     #endif
     private var pending: (sessionID: String, answers: [RawAnswer])?
 
-    public init(block: VisualBlockQuestionForm, answerContext: QuestionAnswerContext?, writer: QuestionFormWriter?) {
+    public init(block: VisualBlockQuestionForm, answerContext: QuestionAnswerContext?, writer: QuestionFormWriter?,
+                allowsOther: Bool = false) {
         self.block = block
         self.answerContext = answerContext
         self.writer = writer
+        self.allowsOther = allowsOther
         for question in block.questions {
             switch question.kind.known {
             case .single: single[question.id] = .some(nil)
@@ -73,29 +82,50 @@ public final class QuestionFormModel {
     var locked: Bool { submitting || submitted || answerContext?.locked == true }
     #endif
     public var inputsDisabled: Bool { !interactive || locked }
-    public var canSubmit: Bool {
-        guard interactive, !locked, writer != nil else { return false }
+    public var canSubmit: Bool { writer != nil && answersComplete }
+
+    /// Every question answered, writer aside: the AskUserQuestion sheet submits without one.
+    public var answersComplete: Bool {
+        guard interactive, !locked else { return false }
         return block.questions.allSatisfy { question in
             switch question.kind.known {
-            case .single: (single[question.id] ?? nil) != nil
-            case .multi: true // Empty is the real answer "none".
+            case .single: (single[question.id] ?? nil) != nil && otherComplete(question)
+            // Empty is the real answer "none" — except with Other, where "none" goes through Other.
+            case .multi: !allowsOther || (otherComplete(question) && (!(multi[question.id] ?? []).isEmpty || otherOn(question)))
             case .freeform: !(freeform[question.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             case nil: false // A future kind must never send an invented answer.
             }
         }
     }
 
-    func buildAnswers() -> [RawAnswer] {
+    public func otherOn(_ question: PlanQuestion) -> Bool {
+        guard allowsOther else { return false }
+        return question.kind.known == .single
+            ? (single[question.id] ?? nil) == Self.otherIndex
+            : otherChecked[question.id] == true
+    }
+
+    private func trimmedOther(_ id: String) -> String {
+        (otherText[id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func otherComplete(_ question: PlanQuestion) -> Bool {
+        !otherOn(question) || !trimmedOther(question.id).isEmpty
+    }
+
+    public func buildAnswers() -> [RawAnswer] {
         block.questions.map { question in
+            let other = otherOn(question) ? trimmedOther(question.id) : nil
             switch question.kind.known {
             case .single:
-                RawAnswer(blockId: block.id, questionId: question.id,
-                          optionIndices: (single[question.id] ?? nil).map { [$0] } ?? [])
+                let index = single[question.id] ?? nil
+                return RawAnswer(blockId: block.id, questionId: question.id,
+                          optionIndices: index.flatMap { $0 == Self.otherIndex ? nil : [$0] } ?? [], text: other)
             case .multi:
-                RawAnswer(blockId: block.id, questionId: question.id,
-                          optionIndices: (multi[question.id] ?? []).sorted())
+                return RawAnswer(blockId: block.id, questionId: question.id,
+                          optionIndices: (multi[question.id] ?? []).sorted(), text: other)
             case .freeform, nil:
-                RawAnswer(blockId: block.id, questionId: question.id, text: freeform[question.id] ?? "")
+                return RawAnswer(blockId: block.id, questionId: question.id, text: freeform[question.id] ?? "")
             }
         }
     }

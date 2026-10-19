@@ -12796,7 +12796,16 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"updatesAndApprovalsEncodeRouteQueryAndSettings() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"okOnlyResponsesRereadTheGraph() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"errorsPreserveConflictsAuthenticationAndUpstreamFailures() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"malformedOrDisappearedGraphDoesNotFabricateSuccess() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientEpicControlTests.swift\",\"ShepherdClientEpicControlTests\",\"malformedOrDisappearedGraphDoesNotFabricateSuccess() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AskAnswerFlowTests.swift\",\"CoreSeamTests.AskAnswerFlowTests\",\"answersThreeMixedQuestionsAndReportsTheVerdict() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AskAnswerFlowTests.swift\",\"CoreSeamTests.AskAnswerFlowTests\",\"keepsTheDraftAcrossReopenButNotAcrossAsks()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AskAnswerFlowTests.swift\",\"CoreSeamTests.AskAnswerFlowTests\",\"mapsTheAskToAFormKeyedByToolUseIDAndQuestionIndex()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AskAnswerFlowTests.swift\",\"CoreSeamTests.AskAnswerFlowTests\",\"opensOncePerToolUseIDAndClosesWhenTheAskLeaves()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AskAnswerFlowTests.swift\",\"CoreSeamTests.AskAnswerFlowTests\",\"refusesAnIncompleteFormAndReportsAFailedWrite() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QuestionFormCoreTests.swift\",\"CoreSeamTests.QuestionFormTests\",\"otherNeedsItsTextAndMakesAMultiRequired()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QuestionFormCoreTests.swift\",\"CoreSeamTests.QuestionFormTests\",\"planFormsIgnoreOtherState()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlanTests.swift\",\"ShepherdClientPlanTests\",\"answerAsk(verdict: String) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlanTests.swift\",\"ShepherdClientPlanTests\",\"answerAskFailures(_ c: (Int, String, ShepherdError)) async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

@@ -632,6 +632,23 @@ final class IOSPlanTests: XCTestCase {
         await send.value
         try render("question-undelivered", IOSQuestionFormView(model: form, fixture: true).padding(16), height: 850)
 
+        let ask = PendingAsk(toolUseId: "tu1", questions: [
+            .init(question: "Which mode?", header: "Mode", multiSelect: false,
+                  options: [.init(label: "Fast", description: "Skips the slow checks"), .init(label: "Safe", description: "Safe")]),
+            .init(question: "Which parts?", header: "Parts", multiSelect: true,
+                  options: [.init(label: "API", description: ""), .init(label: "UI", description: "")]),
+        ])
+        let flow = AskAnswerFlow()
+        flow.sync(ask: ask)
+        let askForm = flow.form(sessionID: session().id, ask: ask)
+        askForm.single["0"] = 0
+        askForm.otherChecked["1"] = true
+        askForm.otherText["1"] = "Docs"
+        try render("ask-form", IOSQuestionFormView(model: askForm, fixture: true, ask: ask, onSubmit: {}).padding(16), height: 900)
+        try render("ask-strip", IOSAskStrip(ask: ask, status: nil, open: { _ in }, clear: { _ in }), height: 120)
+        try render("ask-strip-mismatch", IOSAskStrip(ask: nil,
+            status: .init(sessionID: "s1", toolUseID: "tu1", phase: .mismatch), open: { _ in }, clear: { _ in }), height: 120)
+
         var s = session()
         s.autopilotPaused = true
         let card = IOSSessionListPresentation.card(s, displayed: s, questionsUnanswered: true,

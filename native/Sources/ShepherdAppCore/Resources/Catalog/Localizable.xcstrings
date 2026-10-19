@@ -601,6 +601,177 @@
         }
       }
     },
+    "ask_banner_answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beantworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer"
+          }
+        }
+      }
+    },
+    "ask_banner_title": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude stellt %1$@ Frage(n)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is asking %1$@ question(s)"
+          }
+        }
+      }
+    },
+    "ask_dialog_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Antwort wird ins Terminal getippt. Die Frage bleibt dort ebenfalls offen — wer zuerst antwortet, gewinnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your answer is typed into the terminal. The question stays open there too — whoever answers first wins."
+          }
+        }
+      }
+    },
+    "ask_dialog_submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Terminal antworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer in terminal"
+          }
+        }
+      }
+    },
+    "ask_dialog_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude fragt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is asking"
+          }
+        }
+      }
+    },
+    "ask_result_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten fehlgeschlagen — die Frage ist evtl. schon geschlossen. Bitte im Terminal prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't answer — the question may already be closed. Check the terminal."
+          }
+        }
+      }
+    },
+    "ask_result_mismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die angekommene Antwort weicht von deiner Auswahl ab — bitte im Terminal prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The answer that landed differs from your choice — check the terminal."
+          }
+        }
+      }
+    },
+    "ask_result_sending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort wird ins Terminal getippt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing your answer into the terminal…"
+          }
+        }
+      }
+    },
+    "ask_result_unverified": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort konnte nicht bestätigt werden — bitte im Terminal prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't confirm the answer — check the terminal."
+          }
+        }
+      }
+    },
+    "ask_result_verified": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort übermittelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer delivered."
+          }
+        }
+      }
+    },
     "automerge_state_merge_error": {
       "extractionState": "manual",
       "localizations": {
@@ -28639,6 +28810,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Send answers to %1$@ questions to the planning agent? These answers will guide its work."
+          }
+        }
+      }
+    },
+    "qform_other": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other…"
+          }
+        }
+      }
+    },
+    "qform_other_placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Antwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your own answer"
           }
         }
       }

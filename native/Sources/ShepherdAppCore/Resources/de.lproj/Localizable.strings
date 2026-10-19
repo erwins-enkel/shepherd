@@ -33,6 +33,16 @@
 "amend_steer_offline" = "Dem Agenten mitteilen (kein aktiver Agent)";
 "amend_submit" = "Ergänzen";
 "amend_title" = "Aufgabe ergänzen — %1$@";
+"ask_banner_answer" = "Beantworten";
+"ask_banner_title" = "Claude stellt %1$@ Frage(n)";
+"ask_dialog_hint" = "Deine Antwort wird ins Terminal getippt. Die Frage bleibt dort ebenfalls offen — wer zuerst antwortet, gewinnt.";
+"ask_dialog_submit" = "Im Terminal antworten";
+"ask_dialog_title" = "Claude fragt";
+"ask_result_failed" = "Antworten fehlgeschlagen — die Frage ist evtl. schon geschlossen. Bitte im Terminal prüfen.";
+"ask_result_mismatch" = "Die angekommene Antwort weicht von deiner Auswahl ab — bitte im Terminal prüfen.";
+"ask_result_sending" = "Antwort wird ins Terminal getippt…";
+"ask_result_unverified" = "Antwort konnte nicht bestätigt werden — bitte im Terminal prüfen.";
+"ask_result_verified" = "Antwort übermittelt.";
 "automerge_state_merge_error" = "Merge fehlgeschlagen, Eingriff nötig";
 "automerge_state_merging" = "Wird gemergt…";
 "automerge_state_rebase_cap" = "Rebase-Limit erreicht, Eingriff nötig";
@@ -1667,6 +1677,8 @@
 "qform_kind_multi_optional" = "Alle zutreffenden auswählen (optional)";
 "qform_kind_single" = "Eine Option wählen";
 "qform_native_confirm_body" = "Antworten auf %1$@ Fragen an den Planungsagenten senden? Diese Antworten steuern seine Arbeit.";
+"qform_other" = "Andere…";
+"qform_other_placeholder" = "Eigene Antwort";
 "qform_sent" = "Antworten an den Planungsagenten gesendet.";
 "qform_sent_undelivered" = "Planungsagent nicht erreichbar – er ist möglicherweise bereits weitergezogen.";
 "qform_submit" = "Antworten an Planungsagent senden";

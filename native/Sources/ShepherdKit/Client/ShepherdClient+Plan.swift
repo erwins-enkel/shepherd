@@ -42,6 +42,9 @@ public typealias PlanQuotaResult = Components.Schemas.PlanQuotaResult
 public typealias RawAnswer = Components.Schemas.RawAnswer
 public typealias AnswerPlanQuestionsRequest = Components.Schemas.AnswerPlanQuestionsRequest
 public typealias AnswerPlanQuestionsResult = Components.Schemas.AnswerPlanQuestionsResult
+public typealias PendingAsk = Components.Schemas.PendingAsk
+public typealias AskQuestion = Components.Schemas.AskQuestion
+public typealias AnswerAskResult = Components.Schemas.AnswerAskResult
 public typealias SessionPlanGateEvent = Components.Schemas.SessionPlanGateEvent
 public typealias SessionPlanGateReviewingEvent = Components.Schemas.SessionPlanGateReviewingEvent
 public typealias SessionPlanGateActivityEvent = Components.Schemas.SessionPlanGateActivityEvent
@@ -116,6 +119,26 @@ extension ShepherdClient {
         throw ShepherdError.fromUndocumented(statusCode: status, route: "answerPlanQuestions")
       }
     } catch { throw ShepherdError.from(error, route: "answerPlanQuestions") }
+  }
+
+  /// `POST /api/sessions/{id}/answer-ask` (#3165). The server types the answers into the terminal
+  /// and waits up to 10 s for PostToolUse. A 409 (`ask_not_open`, `ask_in_flight`) throws.
+  public func answerAsk(
+    sessionID: String, toolUseID: String, answers: [RawAnswer]
+  ) async throws -> AnswerAskResult {
+    do {
+      switch try await generated.answerAsk(
+        .init(path: .init(id: sessionID), body: .json(.init(toolUseId: toolUseID, answers: answers)))
+      ) {
+      case .ok(let ok): return try ok.body.json
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "answerAsk")
+      }
+    } catch { throw ShepherdError.from(error, route: "answerAsk") }
   }
 
   /// `POST /api/sessions/{id}/review-plan`. Accepted; the review finishes asynchronously.

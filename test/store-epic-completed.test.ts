@@ -578,6 +578,7 @@ test("listEpicRuns returns all persisted epic_run rows", () => {
       model: null,
       effort: null,
       ignoreUsageCeiling: false,
+      landing: "integration",
     },
     {
       repoPath: "/b",
@@ -588,6 +589,7 @@ test("listEpicRuns returns all persisted epic_run rows", () => {
       model: null,
       effort: null,
       ignoreUsageCeiling: false,
+      landing: "integration",
     },
   ]);
 });

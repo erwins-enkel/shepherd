@@ -35,6 +35,10 @@ export interface EpicChild {
    *  fact; null while it is not done, or when unknown. Set by `buildEpic` (see `startedAt`). */
   endedAt?: number | null;
 }
+/** How an epic's children land (#3191): `integration` (default) bases them on and merges them into
+ *  the epic's integration branch, which lands as one PR; `incremental` bases and merges each child
+ *  on the default branch, one at a time, with no integration branch. */
+export type EpicLanding = "integration" | "incremental";
 /** Persisted `epic_run` store row (stands alone; repoPath/parentIssueNumber are intentionally self-contained, not a duplication bug). */
 export interface EpicRun {
   repoPath: string;
@@ -47,13 +51,15 @@ export interface EpicRun {
   /** The operator lifted the repo's usage ceiling for this run. Persisted only while `running`:
    *  every write that leaves running (pause, stop, completion, supersession) clears it. */
   ignoreUsageCeiling?: boolean;
+  /** How the epic's children land; absent = `integration`. */
+  landing?: EpicLanding;
 }
 /** An epic's run settings without a status. They live in exactly one place: the repo's `epic_run`
  *  row while the epic holds it, its `epic_queue` row while queued, else its `epic_settings` row
  *  (absent = the defaults). */
 export type EpicSettings = Pick<
   EpicRun,
-  "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort"
+  "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort" | "landing"
 >;
 /** Why an epic stopped leading its repo: the operator ended it, another epic was started over it,
  *  or all its children merged. */
@@ -177,6 +183,8 @@ export interface EpicQueueEntry {
   agentProvider?: AgentProvider | null;
   model?: string | null;
   effort?: string | null;
+  /** How the epic's children land once promoted; absent = `integration`. */
+  landing?: EpicLanding;
   createdAt: number;
 }
 
@@ -190,6 +198,7 @@ export function queuedEpicRun(entry: EpicQueueEntry): EpicRun {
     agentProvider: entry.agentProvider ?? null,
     model: entry.model ?? null,
     effort: entry.effort ?? null,
+    landing: entry.landing ?? "integration",
   };
 }
 export interface Epic {
@@ -213,6 +222,9 @@ export interface Epic {
   /** When the epic lands; null when there is no data to forecast from, or once it landed. Set by
    *  `buildEpic` (see `timing`). */
   forecast?: EpicForecast | null;
+  /** True once the epic's clock exists or its integration branch is pinned: its `landing` can no
+   *  longer change. Set by `buildEpic`; optional so the many Epic test fixtures stay valid. */
+  landingLocked?: boolean;
 }
 
 /** Child lifecycle state from its issue/session/PR facts. `done` = the set of member

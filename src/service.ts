@@ -4363,6 +4363,7 @@ export class SessionService {
         // Epic-child identity (#2067) — set only by the drain's epic spawn path. Passed through
         // as-is (no `??`): the store's row builder normalizes absent to null.
         epicParent: spawnInput.epicParent,
+        incrementalEpicParent: spawnInput.incrementalEpicParent,
         // Provider-agnostic (TASK-413): Codex persists the flag too, no longer forced off.
         planGateEnabled: spawnInput.planGateEnabled ?? null,
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,

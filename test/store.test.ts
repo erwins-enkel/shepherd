@@ -2360,6 +2360,15 @@ test("epicParent round-trips at create and defaults to null", () => {
   expect(s.get(plain.id)?.epicParent).toBeNull();
 });
 
+test("incrementalEpicParent round-trips at create, defaults to null, and is not epicParent", () => {
+  const s = mk();
+  const child = s.create({ ...base, incrementalEpicParent: 12 });
+  expect(s.get(child.id)?.incrementalEpicParent).toBe(12);
+  expect(s.get(child.id)?.epicParent).toBeNull();
+  const plain = s.create({ ...base, herdrAgentId: "term_2", branch: "shepherd/plain" });
+  expect(s.get(plain.id)?.incrementalEpicParent).toBeNull();
+});
+
 test("getEpicParentByBranch resolves the stamp by work branch, newest row first", () => {
   const s = mk();
   // A dead predecessor session on the same branch, spawned before the stamp existed.

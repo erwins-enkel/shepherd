@@ -10507,9 +10507,9 @@ interface SavedEpicRunPatch {
 function requeueSuperseded(store: AppDeps["store"], leader: EpicRun, started: EpicRun): void {
   if (started.status !== "running" || leader.parentIssueNumber === started.parentIssueNumber)
     return;
-  const { repoPath, parentIssueNumber, mode, agentProvider, model, effort } = leader;
+  const { repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing } = leader;
   store.enqueueEpic(
-    { repoPath, parentIssueNumber, mode, agentProvider, model, effort },
+    { repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing },
     { head: true },
   );
   store.deleteEpicSettings(repoPath, parentIssueNumber);
@@ -10650,8 +10650,20 @@ function enqueueBehindLeader(
   if (!leader) return json({ error: "no leading epic" }, 409);
   if (leader.parentIssueNumber === parentIssueNumber)
     return json({ error: "epic already leads" }, 409);
-  const { mode, agentProvider, model, effort } = runForParent(store, dir, parentIssueNumber);
-  store.enqueueEpic({ repoPath: dir, parentIssueNumber, mode, agentProvider, model, effort });
+  const { mode, agentProvider, model, effort, landing } = runForParent(
+    store,
+    dir,
+    parentIssueNumber,
+  );
+  store.enqueueEpic({
+    repoPath: dir,
+    parentIssueNumber,
+    mode,
+    agentProvider,
+    model,
+    effort,
+    landing,
+  });
   store.deleteEpicSettings(dir, parentIssueNumber);
   return null;
 }

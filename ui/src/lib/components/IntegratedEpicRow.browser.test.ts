@@ -57,6 +57,39 @@ describe("IntegratedEpicRow", () => {
       .toBeInTheDocument();
     expect(document.querySelector(".landing-path")).toBeNull();
   });
+  it("opens the land confirm from the READY TO LAND pill", async () => {
+    const p = props(epic());
+    await render(IntegratedEpicRow, p);
+    await page.getByRole("button", { name: "Land epic #327…" }).click();
+    await expect.element(page.getByText("Merge landing PR #55 into main now?")).toBeInTheDocument();
+    expect(p.onland).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: "Yes, land now" }).click();
+    expect(p.onland).toHaveBeenCalledExactlyOnceWith("/repo", 327);
+  });
+  it("does not land when the pill's confirm is cancelled", async () => {
+    const p = props(epic());
+    await render(IntegratedEpicRow, p);
+    await page.getByRole("button", { name: "Land epic #327…" }).click();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Land epic", exact: true }))
+      .toBeVisible();
+    expect(p.onland).not.toHaveBeenCalled();
+  });
+  it("drops a pending pill confirm when the row is collapsed", async () => {
+    await render(IntegratedEpicRow, props(epic()));
+    await page.getByRole("button", { name: "Land epic #327…" }).click();
+    await page.getByRole("button", { name: "Collapse epic #327" }).click();
+    await page.getByRole("button", { name: "Expand epic #327" }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Land epic", exact: true }))
+      .toBeVisible();
+  });
+  it("keeps the pill inert when the epic is not ready", async () => {
+    await render(IntegratedEpicRow, props(epic({ landingChecks: "failure" })));
+    await expect.element(page.getByText("YOUR TURN", { exact: true })).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Land epic #327…" }).query()).toBeNull();
+  });
   it("shows the land as in flight until the request settles", async () => {
     let settle!: () => void;
     const p = { ...props(epic()), onland: vi.fn(() => new Promise<void>((r) => (settle = r))) };

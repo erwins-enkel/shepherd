@@ -102,6 +102,19 @@ jobs:
         run: native/scripts/uitest-lock.sh native/scripts/build-ios-app.sh Debug
       - name: Run isolated hosted unit tests
         run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit --result-bundle-path "$RUNNER_TEMP/ios-unit.xcresult"
+      - name: Diagnose reconnect failures with Address Sanitizer
+        if: failure()
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          export SHEPHERD_ISOLATED=1 TEST_RUNNER_SHEPHERD_ISOLATED=1
+          cd native/Apps/ShepherdIOS
+          ../../scripts/uitest-lock.sh xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath .build \
+            -parallel-testing-enabled NO -only-testing:ShepherdIOSTests/IOSReconnectTests \
+            -enableAddressSanitizer YES -resultBundlePath "$RUNNER_TEMP/ios-reconnect-asan.xcresult" \
+            -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system \
+            CODE_SIGNING_ALLOWED=NO test
       - name: Run isolated iPhone UI tests
         run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh ui --family iPhone --result-bundle-path "$RUNNER_TEMP/ios-iphone.xcresult"
       - name: Run isolated iPad UI tests

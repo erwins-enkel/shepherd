@@ -59,3 +59,19 @@ function mainPaneFocus(i: Parameters<typeof buildAssistantViewReport>[0]) {
   }
   return { kind: "none" as const };
 }
+
+/**
+ * The report a repo assistant gets: its repo stands in for the herd filter, and the session in
+ * view counts only when it belongs to that repo (a mirrored one never does). The global assistant
+ * (`repo` null) gets the report as it is.
+ */
+export function scopeViewReport(
+  report: AssistantViewReport,
+  repo: string | null,
+  herd: Pick<Session, "id" | "repoPath">[],
+): AssistantViewReport {
+  if (repo === null) return report;
+  const f = report.focus;
+  const inRepo = f.kind === "session" && herd.some((s) => s.id === f.id && s.repoPath === repo);
+  return { ...report, repoFilter: [repo], focus: inRepo ? f : { kind: "none" } };
+}

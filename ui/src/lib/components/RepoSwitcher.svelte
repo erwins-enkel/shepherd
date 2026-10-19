@@ -10,6 +10,7 @@
   import RepoChipTelemetry from "./repo-switcher/RepoChipTelemetry.svelte";
   import { longPress } from "./longpress";
   import AutomationPanel from "./AutomationPanel.svelte";
+  import AssistantGlyph from "./AssistantGlyph.svelte";
 
   let {
     chips,
@@ -18,6 +19,8 @@
     onrepofilter,
     onpinrepo = () => {},
     oncleanterminal = () => {},
+    onrepoassistant,
+    assistantRepos = new Set(),
     mobile = false,
   }: {
     chips: RepoChip[];
@@ -32,6 +35,10 @@
     onpinrepo?: (repoPath: string | null) => void;
     // open (or focus) the repo's clean-terminal session — a bare shell in the MAIN checkout
     oncleanterminal?: (repoPath: string) => void;
+    // start (or open, when one runs) the repo's own Operator Assistant; absent = no menu item
+    onrepoassistant?: (repoPath: string) => void;
+    // repos whose assistant runs: their item opens it instead of starting one
+    assistantRepos?: ReadonlySet<string>;
     // true when rendered on a phone-sized viewport — suppresses the lone-repo
     // telemetry band (collapses into the selected-state subline instead)
     mobile?: boolean;
@@ -269,6 +276,13 @@
     closeMenu();
   }
 
+  function commitRepoAssistant() {
+    if (!menu || !onrepoassistant) return;
+    const { repoPath } = menu.chip;
+    closeMenu();
+    onrepoassistant(repoPath);
+  }
+
   function commitCleanTerminal() {
     if (!menu) return;
     const { repoPath } = menu.chip;
@@ -475,6 +489,20 @@
         ? m.repo_chip_unpin()
         : m.repo_chip_pin()}
     </button>
+    {#if onrepoassistant}
+      <button
+        class="rs-menu-item rs-menu-assistant"
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        onclick={commitRepoAssistant}
+      >
+        <span class="rs-menu-icon" aria-hidden="true"><AssistantGlyph size="1em" /></span
+        >{assistantRepos.has(menu.chip.repoPath)
+          ? m.repo_chip_assistant_open()
+          : m.repo_chip_assistant_start()}
+      </button>
+    {/if}
     <button
       class="rs-menu-item"
       type="button"
@@ -709,6 +737,12 @@
     font-size: var(--fs-meta);
     text-align: center;
     flex-shrink: 0;
+  }
+  /* The assistant's sparkle, in its own amber: the item starts a companion, not a repo setting. */
+  .rs-menu-assistant .rs-menu-icon {
+    display: flex;
+    justify-content: center;
+    color: var(--color-amber);
   }
 
   /* A zero-size fixed anchor lets AutomationPanel keep its established desktop

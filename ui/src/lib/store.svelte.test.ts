@@ -1729,6 +1729,37 @@ describe("Operator Assistant row (#1446)", () => {
     expect(s.assistant?.status).toBe("idle");
   });
 
+  test("repo assistants sit beside the global one, which stays `assistant`", () => {
+    const s = new HerdStore();
+    const repo = { ...assistantRow("oa-r"), assistantRepo: "/p/a", createdAt: 1 };
+    const global = { ...assistantRow("oa-g"), createdAt: 9 };
+    s.seedAssistant({ available: true, reason: null, session: global, sessions: [repo, global] });
+    expect(s.assistants.map((x) => x.id)).toEqual(["oa-g", "oa-r"]);
+    expect(s.assistant?.id).toBe("oa-g");
+    // An ensure response replaces only its own scope.
+    s.setAssistant({ ...repo, id: "oa-r2" });
+    expect(s.assistants.map((x) => x.id)).toEqual(["oa-g", "oa-r2"]);
+    // Per-session pushes reach a repo assistant too.
+    s.apply({ event: "session:status", data: { id: "oa-r2", status: "blocked" } });
+    expect(s.assistants[1].status).toBe("blocked");
+    // The update event's list is the whole set; its `session` is only the global row.
+    s.apply({ event: "operator-assistant:update", data: { session: global, sessions: [global] } });
+    expect(s.assistants.map((x) => x.id)).toEqual(["oa-g"]);
+    s.setAssistant(repo);
+    s.dropAssistantScope("/p/a");
+    expect(s.assistants.map((x) => x.id)).toEqual(["oa-g"]);
+    expect(s.sessions).toEqual([]);
+  });
+
+  test("an older server's update (no list) replaces only the global row", () => {
+    const s = new HerdStore();
+    const repo = { ...assistantRow("oa-r"), assistantRepo: "/p/a" };
+    s.setAssistants([assistantRow("oa-g"), repo]);
+    s.apply({ event: "operator-assistant:update", data: { session: null } });
+    expect(s.assistant).toBeNull();
+    expect(s.assistants.map((x) => x.id)).toEqual(["oa-r"]);
+  });
+
   test("archiving the assistant clears it; archiving a herd session leaves it", () => {
     const s = new HerdStore();
     s.setAll([session("s1")]);

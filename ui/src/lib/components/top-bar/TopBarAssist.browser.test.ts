@@ -79,4 +79,23 @@ describe("TopBarAssist", () => {
     await view.rerender(props({ assistant: row("blocked"), workingBlocked: { oa: true } }));
     await vi.waitFor(() => expect(pip()?.dataset.pip).toBe("working"));
   });
+
+  it("counts repo assistants beside the global one, with the most urgent pip of all", async () => {
+    const global = row("idle");
+    const repo = { ...row("blocked"), id: "oa-r", assistantRepo: "/p/a" } as Session;
+    const view = await render(TopBarAssist, props({ assistant: global, assistants: [global] }));
+    expect(document.querySelector(".assist-count")).toBeNull();
+    expect(pip()).toBeNull();
+
+    await view.rerender(props({ assistant: global, assistants: [global, repo] }));
+    await vi.waitFor(() => expect(document.querySelector(".assist-count")?.textContent).toBe("2"));
+    expect(pip()?.dataset.pip).toBe("blocked");
+    await expect
+      .element(
+        page.getByRole("button", {
+          name: m.topbar_assist_count({ label: m.topbar_assist_blocked(), count: 2 }),
+        }),
+      )
+      .toBeInTheDocument();
+  });
 });

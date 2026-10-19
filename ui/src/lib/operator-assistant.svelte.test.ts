@@ -3,22 +3,29 @@ import type { Session } from "./types";
 
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api")>();
-  return { ...actual, ensureOperatorAssistant: vi.fn(), resetOperatorAssistant: vi.fn() };
+  return {
+    ...actual,
+    ensureOperatorAssistant: vi.fn(),
+    resetOperatorAssistant: vi.fn(),
+    closeOperatorAssistant: vi.fn(),
+  };
 });
 
-const { ApiError, ensureOperatorAssistant, resetOperatorAssistant } = await import("./api");
-const { AssistantLifecycle, assistantMode, assistantPanelView } =
+const { ApiError, closeOperatorAssistant, ensureOperatorAssistant, resetOperatorAssistant } =
+  await import("./api");
+const { AssistantLifecycle, assistantEntries, assistantMode, assistantPanelView } =
   await import("./operator-assistant.svelte");
 
 const row = { id: "oa-1", desig: "TASK-90", operatorAssistant: true } as Session;
 
 function sink() {
-  return { setAssistant: vi.fn(), setAssistantUnavailable: vi.fn() };
+  return { setAssistant: vi.fn(), setAssistantUnavailable: vi.fn(), dropAssistantScope: vi.fn() };
 }
 
 beforeEach(() => {
   vi.mocked(ensureOperatorAssistant).mockReset();
   vi.mocked(resetOperatorAssistant).mockReset();
+  vi.mocked(closeOperatorAssistant).mockReset();
 });
 
 describe("AssistantLifecycle", () => {
@@ -72,6 +79,82 @@ describe("AssistantLifecycle", () => {
     expect(ensureOperatorAssistant).not.toHaveBeenCalled();
     expect(s.setAssistant).toHaveBeenCalledWith(row);
     expect(life.failed).toBeNull();
+  });
+});
+
+describe("AssistantLifecycle per scope", () => {
+  const REPO = "/p/shepherd";
+  const repoRow = { ...row, id: "oa-2", assistantRepo: REPO } as Session;
+
+  it("asks for the repo's assistant, and tracks its request apart from the global one", async () => {
+    let finish!: (v: { session: Session }) => void;
+    vi.mocked(ensureOperatorAssistant).mockReturnValueOnce(new Promise((r) => (finish = r)));
+    vi.mocked(ensureOperatorAssistant).mockResolvedValueOnce({ session: row });
+    const s = sink();
+    const life = new AssistantLifecycle(s);
+    const repoRun = life.ensure(REPO);
+    expect(life.pendingFor(REPO)).toBe("ensure");
+    expect(life.pending).toBeNull();
+    // The global one is not held up by the repo's spawn.
+    await life.ensure();
+    expect(ensureOperatorAssistant).toHaveBeenNthCalledWith(1, REPO);
+    expect(ensureOperatorAssistant).toHaveBeenNthCalledWith(2, null);
+    finish({ session: repoRow });
+    await repoRun;
+    expect(s.setAssistant).toHaveBeenCalledWith(repoRow);
+    expect(life.pendingFor(REPO)).toBeNull();
+  });
+
+  it("a failure stays with its scope, and Retry re-runs it there", async () => {
+    vi.mocked(resetOperatorAssistant).mockRejectedValueOnce(new ApiError(500, "boom"));
+    vi.mocked(resetOperatorAssistant).mockResolvedValueOnce({ session: repoRow });
+    const life = new AssistantLifecycle(sink());
+    await life.reset(REPO);
+    expect(life.failedFor(REPO)).toBe("reset");
+    expect(life.failed).toBeNull();
+    await life.retry(REPO);
+    expect(resetOperatorAssistant).toHaveBeenLastCalledWith(REPO);
+    expect(life.failedFor(REPO)).toBeNull();
+  });
+
+  it("ends a repo assistant and drops its row; a failed end is kept for Retry", async () => {
+    vi.mocked(closeOperatorAssistant).mockResolvedValueOnce({ ok: true });
+    const s = sink();
+    const life = new AssistantLifecycle(s);
+    await life.close(REPO);
+    expect(closeOperatorAssistant).toHaveBeenCalledWith(REPO);
+    expect(s.dropAssistantScope).toHaveBeenCalledWith(REPO);
+
+    vi.mocked(closeOperatorAssistant).mockRejectedValueOnce(new ApiError(500, "boom"));
+    await life.close(REPO);
+    expect(life.failedFor(REPO)).toBe("close");
+    life.forget(REPO);
+    expect(life.failedFor(REPO)).toBeNull();
+  });
+});
+
+describe("assistantEntries", () => {
+  const at = (id: string, createdAt: number, assistantRepo: string | null = null) =>
+    ({ id, createdAt, assistantRepo, operatorAssistant: true }) as Session;
+
+  it("puts the global assistant first, even before it was ever opened", () => {
+    expect(assistantEntries([], [])).toEqual([{ repo: null, session: null }]);
+    const global = at("g", 5);
+    const repo = at("r", 1, "/p/a");
+    expect(assistantEntries([repo, global], []).map((e) => e.session?.id ?? null)).toEqual([
+      "g",
+      "r",
+    ]);
+  });
+
+  it("adds a requested repo assistant without a row yet, once", () => {
+    const repo = at("r", 1, "/p/a");
+    const entries = assistantEntries([repo], ["/p/a", "/p/b"]);
+    expect(entries.map((e) => [e.repo, e.session?.id ?? null])).toEqual([
+      [null, null],
+      ["/p/a", "r"],
+      ["/p/b", null],
+    ]);
   });
 });
 

@@ -5,13 +5,17 @@
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { operatorAssistantExplanation } from "#lib/tooltips/explanations.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { urgentPip } from "#lib/assistant-dock.js";
   import AssistantGlyph from "../AssistantGlyph.svelte";
 
   // The top bar's Assist toggle (#1446): opens and closes the Operator Assistant panel. A pip
   // carries the assistant's own state so a turn finishing (or a command waiting for approval)
   // reads from anywhere: amber while it works, red while it waits for the operator, none at rest.
+  // With repo assistants beside the global one, a count says how many run and the pip carries the
+  // most urgent of them.
   let {
     assistant,
+    assistants = [],
     open,
     compact,
     mobile = false,
@@ -20,6 +24,8 @@
     onclick,
   }: {
     assistant: Session | null;
+    /** Every live assistant (store.assistants); the global one included. */
+    assistants?: Session[];
     open: boolean;
     compact: boolean;
     /** Phone layout (width-only): the chip takes the 44px floor the gear has. */
@@ -29,10 +35,9 @@
     onclick: () => void;
   } = $props();
 
-  const status = $derived(
-    assistant ? displayStatus(assistant, workingBlocked, backgroundBusy) : null,
-  );
-  const pip = $derived(status === "running" ? "working" : status === "blocked" ? "blocked" : null);
+  const all = $derived(assistants.length > 0 ? assistants : assistant ? [assistant] : []);
+  const pip = $derived(urgentPip(all.map((s) => displayStatus(s, workingBlocked, backgroundBusy))));
+  const count = $derived(all.length > 1 ? all.length : null);
   const label = $derived(
     pip === "working"
       ? m.topbar_assist_working()
@@ -40,6 +45,7 @@
         ? m.topbar_assist_blocked()
         : m.operator_assistant_title(),
   );
+  const aria = $derived(count ? m.topbar_assist_count({ label, count }) : label);
 </script>
 
 <button
@@ -50,7 +56,7 @@
   class:phone={mobile}
   class:on={open}
   aria-pressed={open}
-  aria-label={label}
+  aria-label={aria}
   {onclick}
   use:statusTip={{
     text: operatorAssistantExplanation(),
@@ -61,6 +67,7 @@
 >
   <AssistantGlyph size={mobile ? "var(--fs-xl)" : "var(--fs-lg)"} />
   {#if !compact}<span class="assist-label">{m.topbar_assist()}</span>{/if}
+  {#if count}<span class="assist-count" aria-hidden="true">{count}</span>{/if}
   {#if pip}<span class="assist-pip {pip}" data-pip={pip} aria-hidden="true"></span>{/if}
 </button>
 
@@ -124,6 +131,21 @@
   }
   /* The status pip (DESIGN.md "Status Pip"): pinned to the chip's top-right corner, ringed in the
      bar's ground so it reads against the border. Working pulses; blocked stays solid red. */
+  /* How many assistants run: the inline Badge recipe, on the chip's own line. */
+  .assist-count {
+    padding: 0 5px;
+    border: 1px solid var(--wash-assistant-edge);
+    border-radius: 2px;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-micro);
+    letter-spacing: 0;
+  }
+  .assist.phone .assist-count {
+    position: absolute;
+    bottom: 4px;
+    right: 3px;
+    padding: 0 3px;
+  }
   .assist-pip {
     position: absolute;
     top: -4px;

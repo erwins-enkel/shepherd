@@ -89,6 +89,7 @@
     onmanageplugins,
     settingsChordAllowed = () => true,
     assistant = null,
+    assistants = [],
     assistantOpen = false,
     onassistant,
   }: {
@@ -148,6 +149,8 @@
     settingsChordAllowed?: () => boolean;
     /** The Operator Assistant's live row (#1446); its status lights the Assist toggle's pip. */
     assistant?: Session | null;
+    /** Every live assistant (store.assistants), for the Assist chip's count and pip. */
+    assistants?: Session[];
     /** Whether the Operator Assistant panel is open (the toggle's pressed state). */
     assistantOpen?: boolean;
     /** Toggles the Operator Assistant panel. Absent → no Assist toggle and no sheet row. */
@@ -980,6 +983,7 @@
       <!-- Icon-only on a phone: the label would crowd the wrapping bar. -->
       <TopBarAssist
         {assistant}
+        {assistants}
         open={assistantOpen}
         compact={compactBadges || mobile}
         {mobile}

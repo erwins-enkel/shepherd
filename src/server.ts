@@ -6218,6 +6218,15 @@ async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Respo
   }
   if (req.method !== "POST") return null;
   if (verb === "close") return closeOperatorAssistantRoute(req, deps);
+  return spawnOperatorAssistantRoute(req, deps, verb === "reset");
+}
+
+// POST /api/operator-assistant[/reset] {repo?} → ensure (or reset) that scope's assistant.
+async function spawnOperatorAssistantRoute(
+  req: Request,
+  deps: AppDeps,
+  reset: boolean,
+): Promise<Response> {
   const raw = await operatorAssistantRepoArg(req);
   if (raw instanceof Response) return raw;
   const repo = raw === null ? null : knownAssistantRepo(raw);
@@ -6225,10 +6234,9 @@ async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Respo
   const reason = await operatorAssistantUnavailable(deps);
   if (reason) return json({ error: "operator assistant unavailable", reason }, 503);
   try {
-    const session =
-      verb === "reset"
-        ? await deps.service.resetOperatorAssistant(repo)
-        : await deps.service.ensureOperatorAssistant(repo);
+    const session = reset
+      ? await deps.service.resetOperatorAssistant(repo)
+      : await deps.service.ensureOperatorAssistant(repo);
     emitOperatorAssistantUpdate(deps);
     return json({ session });
   } catch (e) {

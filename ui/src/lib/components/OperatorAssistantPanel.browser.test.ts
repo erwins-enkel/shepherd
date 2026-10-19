@@ -12,7 +12,14 @@ const ptyIds: string[] = [];
 vi.mock("#lib/pty.js", () => ({
   connectPty: vi.fn((...args: Parameters<typeof connectPty>) => {
     ptyIds.push(args[0]);
-    return { send: vi.fn(), resize: vi.fn(), close: vi.fn(), poke: vi.fn(), takeover: vi.fn() };
+    return {
+      send: vi.fn(),
+      resize: vi.fn(),
+      close: vi.fn(),
+      poke: vi.fn(),
+      takeover: vi.fn(),
+      view: vi.fn(),
+    };
   }),
 }));
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -20,7 +27,14 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   return {
     ...actual,
     getSessionMessages: vi.fn(async () => ({
-      messages: [{ role: "assistant", text: "TASK-31 TASK-32 TASK-99", ts: 1 }],
+      messages: [
+        ...Array.from({ length: 30 }, (_, i) => ({
+          role: "user" as const,
+          text: `Message ${i} ${"conversation ".repeat(30)}`,
+          ts: i + 1,
+        })),
+        { role: "assistant" as const, text: "TASK-31 TASK-32 TASK-99", ts: 31 },
+      ],
       awaitingInput: false,
       pendingQuestion: null,
       unavailable: null,
@@ -187,6 +201,36 @@ describe("OperatorAssistantPanel", () => {
     expect(container.querySelector("[role=tablist]")).toBeNull();
     await expect.element(page.getByText(m.operator_assistant_readonly())).toBeVisible();
     await expect.element(page.getByText(m.model_label_opus_5_5())).toBeVisible();
+  });
+
+  it("keeps the chat node and reading position across context/status and terminal switches", async () => {
+    const view = await mount({ session: assistantRow });
+    const log = view.container.querySelector<HTMLElement>(".ac-thread")!;
+    const bottom = () => Math.abs(log.scrollHeight - log.clientHeight - log.scrollTop);
+    await expect.poll(() => log.scrollHeight).toBeGreaterThan(log.clientHeight);
+    await expect.poll(bottom).toBeLessThanOrEqual(2);
+    await view.rerender({
+      ...view.props,
+      session: { ...assistantRow, status: "running" },
+      viewReport: {
+        v: 1,
+        client: { kind: "browser", platform: "macos" },
+        repoFilter: [],
+        focus: { kind: "none" },
+      },
+    });
+    expect(view.container.querySelector(".ac-thread")).toBe(log);
+    await expect.poll(bottom).toBeLessThanOrEqual(2);
+    await page.getByRole("button", { name: m.viewport_terminal_tab(), exact: true }).click();
+    await page.getByRole("button", { name: m.operator_assistant_view_chat(), exact: true }).click();
+    await expect.poll(bottom).toBeLessThanOrEqual(2);
+    await page.getByRole("log").wheel({ delta: { y: -400 } });
+    await expect.poll(bottom).toBeGreaterThan(100);
+    const top = log.scrollTop;
+    await page.getByRole("button", { name: m.viewport_terminal_tab(), exact: true }).click();
+    await page.getByRole("button", { name: m.operator_assistant_view_chat(), exact: true }).click();
+    expect(view.container.querySelector(".ac-thread")).toBe(log);
+    expect(log.scrollTop).toBe(top);
   });
 
   it("the mode chip names what Settings → Assistant allows and opens that section", async () => {

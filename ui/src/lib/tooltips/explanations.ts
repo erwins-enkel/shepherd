@@ -18,6 +18,7 @@ import {
   assistantShellLevelLabel,
 } from "#lib/assistant-permissions.js";
 import { basename } from "#lib/basename.js";
+import type { AssistantLayout } from "#lib/assistant-layout.svelte.js";
 import { lastKnownLabel, platformName, type MirroredSession } from "#lib/remote-sessions.js";
 import { capabilityList, placementReason } from "#lib/placement.js";
 import { isBlocked, missingList, offlineLabel } from "#lib/remote-dispatches.js";
@@ -767,5 +768,54 @@ export function bootstrapExplanation(): TooltipExplanation {
       { label: m.tooltip_bootstrap_exit(), text: m.tooltip_bootstrap_exit_body() },
       { label: m.tooltip_bootstrap_override(), text: m.tooltip_bootstrap_override_body() },
     ],
+  };
+}
+
+/** An assistant layout's name (the top bar's layout switch, assistant-layout.svelte.ts). */
+export function assistantLayoutName(layout: AssistantLayout): string {
+  switch (layout) {
+    case "standard":
+      return m.assistant_layout_standard();
+    case "half":
+      return m.assistant_layout_half();
+    case "wide":
+      return m.assistant_layout_wide();
+    case "talk":
+      return m.assistant_layout_talk();
+  }
+}
+
+/** One assistant layout: the split it makes, what it is good for, what it costs the terminal. */
+export function assistantLayoutExplanation(layout: AssistantLayout): TooltipExplanation {
+  const [summary, good, cost] = {
+    standard: [
+      m.assistant_layout_standard_summary,
+      m.assistant_layout_standard_good,
+      m.assistant_layout_standard_cost,
+    ],
+    half: [
+      m.assistant_layout_half_summary,
+      m.assistant_layout_half_good,
+      m.assistant_layout_half_cost,
+    ],
+    wide: [
+      m.assistant_layout_wide_summary,
+      m.assistant_layout_wide_good,
+      m.assistant_layout_wide_cost,
+    ],
+    talk: [
+      m.assistant_layout_talk_summary,
+      m.assistant_layout_talk_good,
+      m.assistant_layout_talk_cost,
+    ],
+  }[layout];
+  return {
+    title: assistantLayoutName(layout),
+    summary: summary(),
+    sections: [
+      { label: m.assistant_layout_tip_good(), text: good() },
+      { label: m.assistant_layout_tip_cost(), text: cost() },
+    ],
+    footer: [m.assistant_layout_tip_remembered()],
   };
 }

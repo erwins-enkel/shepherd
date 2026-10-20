@@ -48,6 +48,7 @@
   import TopBarBadges from "./top-bar/TopBarBadges.svelte";
   import TopBarSearch from "./top-bar/TopBarSearch.svelte";
   import TopBarAssist from "./top-bar/TopBarAssist.svelte";
+  import TopBarLayout from "./top-bar/TopBarLayout.svelte";
   import TopBarGear from "./top-bar/TopBarGear.svelte";
   import TopBarMobileSheet from "./top-bar/TopBarMobileSheet.svelte";
 
@@ -979,6 +980,10 @@
         {diagnosticsOverall}
         {ondiagnose}
       />{/if}
+    {#if assistantOpen && !mobile}
+      <!-- Left of the Assist toggle so opening the panel doesn't move the button just clicked. -->
+      <TopBarLayout />
+    {/if}
     {#if onassistant}
       <!-- Icon-only on a phone: the label would crowd the wrapping bar. -->
       <TopBarAssist

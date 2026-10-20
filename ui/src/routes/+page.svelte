@@ -142,6 +142,7 @@
   import Viewport from "#lib/components/Viewport.svelte";
   import OperatorAssistantPanel from "#lib/components/OperatorAssistantPanel.svelte";
   import OperatorAssistantDock from "#lib/components/OperatorAssistantDock.svelte";
+  import TerminalStrip from "#lib/components/TerminalStrip.svelte";
   import { AssistantLifecycle, assistantEntries } from "#lib/operator-assistant.svelte.js";
   import {
     buildAssistantViewReport,
@@ -185,6 +186,7 @@
   import { version } from "#lib/build-info.js";
   import { sidebarCollapse, sidebarShouldCollapse } from "#lib/sidebar-collapse.svelte.js";
   import { herdWidth } from "#lib/herd-width.svelte.js";
+  import { assistantLayout } from "#lib/assistant-layout.svelte.js";
   import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
   // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
   // builds along with every other __DEMO__-guarded reference below.
@@ -1577,6 +1579,11 @@
   const assistantLifecycle = new AssistantLifecycle(store);
   const assistantOpen = $derived(mobile.current ? mobileScreen === "assistant" : showAssistant);
   const assistantDocked = $derived(showAssistant && !mobile.current);
+  // The docked panel's share of the grid (assistant-layout.svelte.ts), set as the .grid's
+  // data-layout. "talk" folds the session column into a strip; closing the panel unfolds it, since
+  // a layout only splits the width the session column shares with the panel.
+  const assistantGridLayout = $derived(assistantDocked ? assistantLayout.layout : undefined);
+  const sessionFolded = $derived(assistantGridLayout === "talk");
   // Repo assistants the operator started that have no row yet: their entry shows at once (spawning,
   // or the error of a failed start) instead of waiting for the row.
   let requestedRepoAssistants = $state<string[]>([]);
@@ -1769,6 +1776,10 @@
   // Panel-only lenses (owed, #1061 + up next): the rail swaps in a dedicated panel. The main
   // area shows Up Next's issue preview, or a neutral pointer for Owed.
   const panelOnlyLens = $derived(herdFilter === "owed" || herdFilter === "next");
+  // The session a folded session column names on its strip: the one whose Viewport it holds.
+  const foldedSession = $derived(
+    panelOnlyLens || herdFilter === "done" || selectedRemote ? null : selected,
+  );
 
   // Done lens: separate selection state. selectedId resolves against store.sessions
   // (the live list), which has EVICTED archived sessions — so reusing it for a done
@@ -3684,6 +3695,7 @@
         class:resized={herdResized}
         class:resizing={herdResizing}
         class:assistant={assistantDocked}
+        data-layout={assistantGridLayout}
         style={herdWidthStyle}
       >
         {#if sidebarCollapsed}
@@ -3794,94 +3806,105 @@
             ></div>
           </div>
         {/if}
-        {#if herdFilter === "next"}
-          <!-- Up Next lens: the rail lists the queue; a clicked title reads here. -->
-          <UpNextPreview launchContext={upNextLaunch} />
-        {:else if panelOnlyLens}
-          <!-- Owed lens renders its panel inside the rail (left); the main area shows a neutral
-               pointer so the right pane never reads as empty. -->
-          <div class="empty">{m.owed_main_hint()}</div>
-        {:else if herdFilter === "done"}
-          <!-- Done lens: read-only recap for the picked archived session -->
-          {#if doneSelected}
-            <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
-          {:else}
-            <div class="empty">{m.herd_done_empty()}</div>
-          {/if}
-        {:else if selectedRemote}
-          <RemoteSessionDetail
-            bind:this={remoteDetailRef}
-            session={selectedRemote}
-            {nowMs}
-            terminalOwners={store.terminalOwners}
-            previewTick={store.remotePreviewTick[selectedRemote.id]}
-            compact={remoteDetailCompact}
-            ondecommission={onarchive}
-            onedit={openSteersEditor}
-          />
-        {:else if store.sessions.length === 0}
-          <BacklogView
-            payload={backlog}
-            mobile={false}
-            {onissue}
-            onquick={onquickissue}
-            oninject={oninjectissue}
-            {onpr}
-            {onadopt}
-            {onlaunchtrain}
-            onaddclone={addRepoClone}
-            onaddfork={addRepoFork}
-            onaddnewproject={addRepoNewProject}
-            selectPath={backlogSelectPath}
-            epics={store.epics}
-            {inTrainPrs}
-            drain={store.drain}
-            docAgentEnabled={settings?.docAgentEnabled ?? false}
-            docAgentAct={settings?.docAgentAct ?? false}
-            docAgentDone={store.docAgentDone}
-            taskDefaults={backlogTaskDefaults}
-          />
-        {:else if selected}
-          <Viewport
-            terminalOwners={store.terminalOwners}
-            attended={store.attended}
-            ontab={(t) => (sessionTab = t)}
-            bind:this={viewportRef}
-            session={selected}
-            autoMergeTrain={store.autoMerge}
-            touch={touch.current}
-            git={store.git[selected.id]}
-            activity={store.activity[selected.id]}
-            previewPort={store.preview[selected.id] ?? null}
-            liveness={store.claudeAlive[selected.id]}
-            previewMap={store.preview}
-            previewHost={settings?.previewHost ?? null}
-            previewServeFailed={store.previewServe[selected.id] === "failed"}
-            {openPreviewTick}
-            {browserRequest}
-            loginRequest={store.loginRequests[selected.id]}
-            {renameRequest}
-            buildQueue={store.buildQueues[selected.id] ?? null}
-            onSeedBuildQueue={(q) => store.setBuildQueue(q)}
-            queue={blockedEntries.map((e) => e.session.id)}
-            switchOrder={store.sessions.map((s) => s.id)}
-            onnavigate={(id) => void jumpHandlers.navigateFromViewport(id)}
-            {consumeAutoFocusTerm}
-            {onarchive}
+        <!-- The session column: invisible to the grid until the "talk" assistant layout folds it
+             into a strip (see .session-col). Its content stays mounted while folded. -->
+        <div class="session-col" class:folded={sessionFolded}>
+          <TerminalStrip
+            folded={sessionFolded}
+            session={foldedSession}
             workingBlocked={store.workingBlocked}
             backgroundBusy={store.backgroundBusy}
-            authUrl={selectedAuthUrl}
-            ask={selectedAsk}
-            onretry={() => (showRetry = true)}
-            retryHaltedCount={haltedCount}
-            {retryReady}
-            onedit={openSteersEditor}
-            drain={store.drain[selected.repoPath] ?? null}
-            subagents={store.subagents}
+            onunfold={() => assistantLayout.unfold()}
           />
-        {:else}
-          <div class="empty">{m.main_no_unit_selected()}</div>
-        {/if}
+          {#if herdFilter === "next"}
+            <!-- Up Next lens: the rail lists the queue; a clicked title reads here. -->
+            <UpNextPreview launchContext={upNextLaunch} />
+          {:else if panelOnlyLens}
+            <!-- Owed lens renders its panel inside the rail (left); the main area shows a neutral
+               pointer so the right pane never reads as empty. -->
+            <div class="empty">{m.owed_main_hint()}</div>
+          {:else if herdFilter === "done"}
+            <!-- Done lens: read-only recap for the picked archived session -->
+            {#if doneSelected}
+              <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
+            {:else}
+              <div class="empty">{m.herd_done_empty()}</div>
+            {/if}
+          {:else if selectedRemote}
+            <RemoteSessionDetail
+              bind:this={remoteDetailRef}
+              session={selectedRemote}
+              {nowMs}
+              terminalOwners={store.terminalOwners}
+              previewTick={store.remotePreviewTick[selectedRemote.id]}
+              compact={remoteDetailCompact}
+              ondecommission={onarchive}
+              onedit={openSteersEditor}
+            />
+          {:else if store.sessions.length === 0}
+            <BacklogView
+              payload={backlog}
+              mobile={false}
+              {onissue}
+              onquick={onquickissue}
+              oninject={oninjectissue}
+              {onpr}
+              {onadopt}
+              {onlaunchtrain}
+              onaddclone={addRepoClone}
+              onaddfork={addRepoFork}
+              onaddnewproject={addRepoNewProject}
+              selectPath={backlogSelectPath}
+              epics={store.epics}
+              {inTrainPrs}
+              drain={store.drain}
+              docAgentEnabled={settings?.docAgentEnabled ?? false}
+              docAgentAct={settings?.docAgentAct ?? false}
+              docAgentDone={store.docAgentDone}
+              taskDefaults={backlogTaskDefaults}
+            />
+          {:else if selected}
+            <Viewport
+              terminalOwners={store.terminalOwners}
+              attended={store.attended}
+              ontab={(t) => (sessionTab = t)}
+              bind:this={viewportRef}
+              session={selected}
+              autoMergeTrain={store.autoMerge}
+              touch={touch.current}
+              git={store.git[selected.id]}
+              activity={store.activity[selected.id]}
+              previewPort={store.preview[selected.id] ?? null}
+              liveness={store.claudeAlive[selected.id]}
+              previewMap={store.preview}
+              previewHost={settings?.previewHost ?? null}
+              previewServeFailed={store.previewServe[selected.id] === "failed"}
+              {openPreviewTick}
+              {browserRequest}
+              loginRequest={store.loginRequests[selected.id]}
+              {renameRequest}
+              buildQueue={store.buildQueues[selected.id] ?? null}
+              onSeedBuildQueue={(q) => store.setBuildQueue(q)}
+              queue={blockedEntries.map((e) => e.session.id)}
+              switchOrder={store.sessions.map((s) => s.id)}
+              onnavigate={(id) => void jumpHandlers.navigateFromViewport(id)}
+              {consumeAutoFocusTerm}
+              {onarchive}
+              workingBlocked={store.workingBlocked}
+              backgroundBusy={store.backgroundBusy}
+              authUrl={selectedAuthUrl}
+              ask={selectedAsk}
+              onretry={() => (showRetry = true)}
+              retryHaltedCount={haltedCount}
+              {retryReady}
+              onedit={openSteersEditor}
+              drain={store.drain[selected.repoPath] ?? null}
+              subagents={store.subagents}
+            />
+          {:else}
+            <div class="empty">{m.main_no_unit_selected()}</div>
+          {/if}
+        </div>
         {#if assistantDocked}
           {@render assistantPanel()}
         {/if}
@@ -4355,22 +4378,52 @@
      minmax(0, 1fr) so its terminal shrinks instead of widening the page: at 1024px the herd's
      and the panel's floors still leave it a column, with no horizontal scroll. */
   .grid {
+    --session-w: minmax(0, 1fr);
     --assistant-w: clamp(360px, 30vw, 560px);
   }
   .grid.assistant {
-    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) var(--assistant-w);
+    grid-template-columns: minmax(300px, 360px) var(--session-w) var(--assistant-w);
   }
   .grid.assistant.resized {
-    grid-template-columns: var(--herd-w) minmax(0, 1fr) var(--assistant-w);
+    grid-template-columns: var(--herd-w) var(--session-w) var(--assistant-w);
   }
   .grid.assistant.compact {
-    grid-template-columns: minmax(244px, 288px) minmax(0, 1fr) var(--assistant-w);
+    grid-template-columns: minmax(244px, 288px) var(--session-w) var(--assistant-w);
   }
   /* Collapsed drops the gap so the reopen tab abuts the terminal; with a panel docked the
      compact gap comes back, or the two terminals' hairlines would fuse into one double rule. */
   .grid.assistant.compact.collapsed {
-    grid-template-columns: 44px minmax(0, 1fr) var(--assistant-w);
+    grid-template-columns: 44px var(--session-w) var(--assistant-w);
     gap: 10px;
+  }
+  /* The operator's layout pick (assistant-layout.svelte.ts) re-sizes the two tracks every herd
+     variant above shares. "half" and "wide" keep Standard's 360px floor, so on a small screen
+     they never leave the panel narrower than Standard does; "talk" folds the session column
+     into a strip as wide as the herd's reopen tab. */
+  .grid.assistant[data-layout="half"] {
+    --assistant-w: minmax(360px, 1fr);
+  }
+  .grid.assistant[data-layout="wide"] {
+    --assistant-w: minmax(360px, 2fr);
+  }
+  .grid.assistant[data-layout="talk"] {
+    --session-w: 44px;
+    --assistant-w: minmax(0, 1fr);
+  }
+  /* The session column's wrapper takes no box of its own, so its content stays the grid item it
+     always was — until "talk" folds it. Then it is the strip track itself and hides, without
+     unmounting, what it holds: the terminal keeps its connection, and a hidden Viewport never
+     refits (its refit() bails while offsetParent is null), so the PTY keeps its size. */
+  .session-col {
+    display: contents;
+  }
+  .session-col.folded {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+  }
+  .session-col.folded > :global(:not(.terminal-strip)) {
+    display: none;
   }
   .reopen-tab {
     height: 100%;

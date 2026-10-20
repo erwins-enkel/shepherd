@@ -853,6 +853,9 @@ export interface GitForge {
    *  without it, or a transient failure, yields an empty set and the exclusion degrades to
    *  `shepherd:active`-only. Optional: only hosts with the GraphQL field implement it. */
   listOpenPrClosingIssues?(): Promise<number[]>;
+  /** Fresh, strict existence check for claim release. Throws on unknown/error; never returns
+   *  a best-effort false. Includes manually linked and keyword-linked OPEN PRs. */
+  hasOpenPrForIssue?(issueNumber: number): Promise<boolean>;
   /** Like {@link listOpenPrClosingIssues} but keyed by closed-issue number and carrying the
    *  open PR's number + author — the epic-summary route's "someone else is already working
    *  this" signal (the pill's "by {author}"). Same single bounded query

@@ -3922,6 +3922,36 @@ export class GithubForge implements GitForge {
     };
   }
 
+  /** Direct, uncached existence check. totalCount covers the whole connection regardless of
+   *  first:1; GraphQL errors must never turn a failed verification into permission to release. */
+  async hasOpenPrForIssue(issueNumber: number): Promise<boolean> {
+    const [owner, repo] = this.slug.split("/");
+    const query =
+      "query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){closedByPullRequestsReferences(first:1,includeClosedPrs:false){totalCount}}}}";
+    const raw = await this.run([
+      "api",
+      "graphql",
+      "-f",
+      `query=${withRateLimit(query)}`,
+      "-f",
+      `owner=${owner}`,
+      "-f",
+      `repo=${repo}`,
+      "-F",
+      `num=${issueNumber}`,
+    ]);
+    const response = JSON.parse(raw) as {
+      errors?: unknown[];
+      data?: {
+        repository?: { issue?: { closedByPullRequestsReferences?: { totalCount?: number } } };
+      };
+    } | null;
+    const count = response?.data?.repository?.issue?.closedByPullRequestsReferences?.totalCount;
+    if (response?.errors?.length || !Number.isSafeInteger(count) || count! < 0)
+      throw new Error("open PR links could not be verified");
+    return count! > 0;
+  }
+
   /** Numbers-only view of {@link listOpenPrLinkedIssues} for Up Next (#1169), which only needs
    *  "does an open PR close this issue?". Delegates to the one linked-issues query so the two
    *  callers share a single fetch/parse path. */

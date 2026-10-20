@@ -35,6 +35,7 @@ export const ASSISTANT_ACTION_GROUPS = {
   approve: ["plan_release", "queue_approve", "pr_ready", "pr_merge"],
   automation: [
     "repo_automation_set",
+    "drain_enqueue",
     "session_automation_set",
     "epic_run_set",
     "held_task",

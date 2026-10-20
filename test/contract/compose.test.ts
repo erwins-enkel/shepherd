@@ -970,6 +970,102 @@ describe("optional voice plugin contract", () => {
   });
 });
 
+test("issue drain operations validate requests and guarded route responses", async () => {
+  const template = "/api/issues/{number}/drain";
+  const path = `${s.baseUrl}/api/issues/42/drain?repo=${encodeURIComponent(s.validRepo)}`;
+  const labels = new Set<string>(["shepherd:active"]);
+  let state: "open" | "closed" = "open";
+  let found = true;
+  let openPr = false;
+  let failWrite = false;
+  s.stubs.resolveForge.forge = fx.fakeForge({
+    getIssue: async () =>
+      found
+        ? {
+            number: 42,
+            title: "fixture",
+            body: "",
+            url: "",
+            createdAt: 0,
+            assignees: [],
+            state,
+            labels: [...labels],
+          }
+        : null,
+    addIssueLabel: async (_n: number, label: string) => {
+      if (failWrite) throw new Error("write failed");
+      labels.add(label);
+    },
+    removeIssueLabel: async (_n: number, label: string) => {
+      labels.delete(label);
+    },
+    hasOpenPrForIssue: async () => openPr,
+  });
+  const request = async (body: unknown, status: number) => {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { ...bearer(token), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(status);
+    return validateResponse("POST", template, res);
+  };
+  try {
+    for (const operation of [
+      { operation: "queue", enabled: true },
+      { operation: "priority", priority: "low" },
+      { operation: "release" },
+    ]) {
+      validateRequest("POST", template, operation);
+      expect(await request(operation, 200)).toMatchObject({
+        issueNumber: 42,
+        operation: operation.operation,
+      });
+    }
+    const unauthenticated = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ operation: "release" }),
+    });
+    expect(unauthenticated.status).toBe(401);
+    await validateResponse("POST", template, unauthenticated);
+    const wrongType = await fetch(path, { method: "POST", headers: bearer(token), body: "{}" });
+    expect(wrongType.status).toBe(415);
+    await validateResponse("POST", template, wrongType);
+    const cookie = await login(s);
+    const restricted = await mintToken(s, cookie, "drain no repos");
+    const restrictedPatch = await fetch(`${s.baseUrl}/api/access-tokens/${restricted.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ repoPaths: [] }),
+    });
+    expect(restrictedPatch.status).toBe(200);
+    const denied = await fetch(path, {
+      method: "POST",
+      headers: { ...bearer(restricted.token), "content-type": "application/json" },
+      body: JSON.stringify({ operation: "release" }),
+    });
+    expect(denied.status).toBe(403);
+    await validateResponse("POST", template, denied);
+    await request({ operation: "release", force: true }, 400);
+    state = "closed";
+    await request({ operation: "queue", enabled: true }, 409);
+    state = "open";
+    labels.add("shepherd:active");
+    openPr = true;
+    await request({ operation: "release" }, 409);
+    found = false;
+    await request({ operation: "release" }, 404);
+    found = true;
+    failWrite = true;
+    await request({ operation: "priority", priority: "high" }, 502);
+    s.stubs.resolveForge.forge = null;
+    await request({ operation: "release" }, 503);
+  } finally {
+    s.stubs.resolveForge.forge = null;
+  }
+});
+
 describe("compose coverage gate", () => {
   test("every compose operation and event was exercised", () => {
     const { operations, events } = coverage();

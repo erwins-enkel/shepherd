@@ -149,3 +149,26 @@ test("caches a null answer for a gone issue", async () => {
   await peekIssue(forge, "/repo", 72);
   expect(calls).toBe(1);
 });
+
+test("invalidating a mutated issue prevents an old in-flight preview from refilling the cache", async () => {
+  const { invalidateIssuePeek } = await import("../src/issue-peek");
+  let finish!: (issue: Issue) => void;
+  let reads = 0;
+  const forge = fakeForge({
+    getIssue: async () => {
+      reads++;
+      if (reads === 1)
+        return new Promise<Issue>((resolve) => {
+          finish = resolve;
+        });
+      return { ...ISSUE, labels: ["new"] };
+    },
+  });
+  const stale = peekIssue(forge, "/repo", 72);
+  invalidateIssuePeek("/repo", 72);
+  expect((await peekIssue(forge, "/repo", 72))!.labels).toEqual(["new"]);
+  finish(ISSUE);
+  await stale;
+  expect((await peekIssue(forge, "/repo", 72))!.labels).toEqual(["new"]);
+  expect(reads).toBe(2);
+});

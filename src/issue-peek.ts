@@ -35,6 +35,13 @@ export function clearIssuePeekCacheForTests(): void {
   inflight.clear();
 }
 
+/** A label mutation must not leave a stale preview or let an old in-flight read refill it. */
+export function invalidateIssuePeek(repoPath: string, issueNumber: number): void {
+  const key = `${repoPath}\0${issueNumber}`;
+  cache.delete(key);
+  inflight.delete(key);
+}
+
 function truncateBody(issue: Issue): Issue {
   if (issue.body.length <= PEEK_BODY_MAX) return issue;
   return { ...issue, body: issue.body.slice(0, PEEK_BODY_MAX) };
@@ -59,26 +66,30 @@ export async function peekIssue(
   if (hit && now() - hit.at < PEEK_TTL_MS) return hit.issue;
   const joined = inflight.get(key);
   if (joined) return joined;
-  const p = (async () => {
-    let issue: Issue | null;
-    try {
-      const fetched = await forge.getIssue!(issueNumber);
-      issue = fetched ? truncateBody(fetched) : null;
-    } catch {
-      // getIssue is documented best-effort, but a host that throws must not take the
-      // route down with it — a failed peek is an empty preview, not a 500.
-      issue = null;
-    }
-    const at = now();
-    for (const [k, v] of cache) {
-      if (at - v.at >= PEEK_TTL_MS) cache.delete(k);
-    }
-    while (cache.size >= PEEK_CACHE_MAX) {
-      cache.delete(cache.keys().next().value!);
-    }
-    cache.set(key, { at, issue });
-    return issue;
-  })().finally(() => inflight.delete(key));
+  const p: Promise<Issue | null> = Promise.resolve()
+    .then(async () => {
+      let issue: Issue | null;
+      try {
+        const fetched = await forge.getIssue!(issueNumber);
+        issue = fetched ? truncateBody(fetched) : null;
+      } catch {
+        // getIssue is documented best-effort, but a host that throws must not take the
+        // route down with it — a failed peek is an empty preview, not a 500.
+        issue = null;
+      }
+      const at = now();
+      for (const [k, v] of cache) {
+        if (at - v.at >= PEEK_TTL_MS) cache.delete(k);
+      }
+      while (cache.size >= PEEK_CACHE_MAX) {
+        cache.delete(cache.keys().next().value!);
+      }
+      if (inflight.get(key) === p) cache.set(key, { at, issue });
+      return issue;
+    })
+    .finally(() => {
+      if (inflight.get(key) === p) inflight.delete(key);
+    });
   inflight.set(key, p);
   return p;
 }

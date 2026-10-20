@@ -6,7 +6,9 @@ import {
   clampOffset,
   snapOffset,
   pressDecom,
-  paneSwipeAction,
+  paneSwipeOutcome,
+  resistOffset,
+  PANE_FLICK_VELOCITY,
   isSwipeUp,
 } from "./swipe";
 
@@ -33,24 +35,40 @@ describe("snapOffset", () => {
   it("snaps a full drag open", () => expect(snapOffset(-REVEAL_PX)).toBe(-REVEAL_PX));
 });
 
-describe("paneSwipeAction (queue paging swipe)", () => {
-  const T = 120; // commit threshold (px)
-  it("short drag in either direction commits to nothing", () => {
-    expect(paneSwipeAction(40, T, true, 1)).toBe("none");
-    expect(paneSwipeAction(-40, T, true, 1)).toBe("none");
+describe("paneSwipeOutcome (pane swipe: right = list, left = next)", () => {
+  const T = 90; // commit threshold (px)
+  const V = PANE_FLICK_VELOCITY;
+  it("short slow drag in either direction commits to nothing", () => {
+    expect(paneSwipeOutcome(40, 0, T, true, true)).toBe("none");
+    expect(paneSwipeOutcome(-40, 0, T, true, true)).toBe("none");
   });
-  it("leftward past threshold pages to the next agent when a queue exists", () =>
-    expect(paneSwipeAction(-T, T, true, 0)).toBe("next"));
-  it("leftward no-ops when there's no queue to page", () =>
-    expect(paneSwipeAction(-T, T, false, -1)).toBe("none"));
-  it("rightward mid-queue pages to the previous agent", () =>
-    expect(paneSwipeAction(T, T, true, 2)).toBe("prev"));
-  it("rightward at the queue start falls back to the list", () =>
-    expect(paneSwipeAction(T, T, true, 0)).toBe("back"));
-  it("rightward for a session not in the queue goes back to the list", () =>
-    expect(paneSwipeAction(T, T, true, -1)).toBe("back"));
-  it("rightward goes back when paging is unavailable", () =>
-    expect(paneSwipeAction(T, T, false, -1)).toBe("back"));
+  it("rightward past threshold always goes back to the list", () =>
+    expect(paneSwipeOutcome(T, 0, T, true, true)).toBe("back"));
+  it("rightward no-ops without a back target", () =>
+    expect(paneSwipeOutcome(T, 0, T, false, true)).toBe("none"));
+  it("leftward past threshold pages to the next agent", () =>
+    expect(paneSwipeOutcome(-T, 0, T, true, true)).toBe("next"));
+  it("leftward no-ops when there's no agent to page to", () =>
+    expect(paneSwipeOutcome(-T, 0, T, true, false)).toBe("none"));
+  it("a fast flick commits a short drag", () => {
+    expect(paneSwipeOutcome(40, V, T, true, true)).toBe("back");
+    expect(paneSwipeOutcome(-40, -V, T, true, true)).toBe("next");
+  });
+  it("a flick against the drag direction does not commit", () =>
+    expect(paneSwipeOutcome(40, -V, T, true, true)).toBe("none"));
+  it("a flick under the minimum travel does not commit", () =>
+    expect(paneSwipeOutcome(20, V, T, true, true)).toBe("none"));
+});
+
+describe("resistOffset", () => {
+  it("follows the finger 1:1 up to the soft limit", () => {
+    expect(resistOffset(100)).toBe(100);
+    expect(resistOffset(-140)).toBe(-140);
+  });
+  it("damps past the soft limit and keeps the sign", () => {
+    expect(resistOffset(240)).toBeCloseTo(175);
+    expect(resistOffset(-240)).toBeCloseTo(-175);
+  });
 });
 
 describe("isSwipeUp (ctrl-row → compose sheet)", () => {

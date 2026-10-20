@@ -72,7 +72,13 @@
   import DiffPanel from "#lib/components/DiffPanel.svelte";
   import FilesPanel from "./viewport/FilesPanel.svelte";
   import { enterKey } from "#lib/controlKeys.js";
-  import { lockAxis, paneSwipeAction, type Axis } from "./swipe";
+  import {
+    lockAxis,
+    paneSwipeOutcome,
+    resistOffset,
+    PANE_SWIPE_THRESHOLD,
+    type Axis,
+  } from "./swipe";
   import GitRail from "#lib/components/GitRail.svelte";
   import AutopilotBadge from "#lib/components/AutopilotBadge.svelte";
   import PlanGateBadge from "#lib/components/PlanGateBadge.svelte";
@@ -307,10 +313,12 @@
 
   let el: HTMLDivElement | undefined = $state();
   // root element + live signed offset (px) for the phone horizontal swipe gesture:
-  // negative pages to the next queued agent, positive to the previous / back to list
+  // negative pages to the next agent, positive returns to the list (iOS parity)
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
+  // the drag has cleared the commit threshold: releasing now navigates (reveal turns amber)
+  let swipeArmed = $state(false);
   let tab = $state<"term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser">("term");
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
@@ -2516,12 +2524,15 @@
     conn?.resize(term.cols, term.rows);
   });
 
-  // Phone: horizontal swipe over the pane pages through *all* live agents —
-  // left = next agent, right = previous — so the operator never has to detour back
-  // through the list to reach another running agent. At the list's start (or for a
-  // session not in the list) a rightward swipe instead returns to the session list,
-  // preserving the original swipe-back affordance. Capture-phase so a recognised
-  // horizontal drag can stop the terminal's own touch-scroll handler (on a
+  const swipeThreshold = (root: HTMLElement) =>
+    Math.min(PANE_SWIPE_THRESHOLD, root.clientWidth * 0.33);
+
+  // Phone: horizontal swipe over the pane, mirroring the iOS app — right always
+  // returns to the session list, left pages to the next live agent (wraps) so the
+  // operator can still reach every agent without the list. A reveal panel behind the
+  // sliding pane names the destination; past the threshold (or on a fast flick) a
+  // release commits, and the pane rubber-bands past a soft limit. Capture-phase so a
+  // recognised horizontal drag can stop the terminal's own touch-scroll handler (on a
   // descendant) from also firing; we only lock + suppress once the gesture is
   // clearly horizontal *and* actionable, so vertical scrolling — and any horizontal
   // drag with nowhere to go — falls through to the terminal untouched. The slop/axis
@@ -2538,6 +2549,20 @@
     let armed = false; // a single-finger touch is in progress and eligible
     let axis: Axis = null; // resolved gesture axis once movement clears slop
     let locked = false; // recognised as an actionable horizontal swipe
+    let dx = 0; // raw finger travel (swipeX is the rubber-banded display offset)
+    let lastX = 0;
+    let lastT = 0;
+    let velocity = 0; // px/s, from the last two touchmove samples
+    const sampleVelocity = (x: number, t: number) => {
+      if (t > lastT) velocity = ((x - lastX) / (t - lastT)) * 1000;
+      lastX = x;
+      lastT = t;
+    };
+    const updateArmed = () => {
+      const nowArmed = Math.abs(dx) >= swipeThreshold(root);
+      if (nowArmed && !swipeArmed) navigator.vibrate?.(8); // haptic tick (no-op on iOS)
+      swipeArmed = nowArmed;
+    };
     const onStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       const t = e.target as Element | null;
@@ -2559,17 +2584,23 @@
       axis = null;
       locked = false;
       swiping = false;
+      dx = 0;
+      lastX = startX;
+      lastT = e.timeStamp;
+      velocity = 0;
     };
     const onMove = (e: TouchEvent) => {
       if (!armed || e.touches.length !== 1) return;
-      const dx = e.touches[0].clientX - startX;
+      const x = e.touches[0].clientX;
+      dx = x - startX;
       const dy = e.touches[0].clientY - startY;
+      sampleVelocity(x, e.timeStamp);
       if (!locked) {
         if (axis === null) axis = lockAxis(dx, dy);
         if (axis === null) return; // still within slop — keep waiting
-        // leftward needs a queue to page; rightward acts if it can page OR fall
-        // back to the list. Non-actionable horizontal drags stay with the terminal.
-        const actionable = axis === "x" && (dx > 0 ? canSwitch || !!onback : canSwitch);
+        // rightward needs the list to return to, leftward an agent to page to.
+        // Non-actionable horizontal drags stay with the terminal.
+        const actionable = axis === "x" && (dx > 0 ? !!onback : canSwitch);
         if (actionable) {
           locked = true;
           swiping = true;
@@ -2580,19 +2611,20 @@
       }
       e.preventDefault();
       e.stopPropagation();
-      swipeX = dx; // signed: positive = rightward, negative = leftward
+      swipeX = resistOffset(dx); // signed: positive = rightward, negative = leftward
+      updateArmed();
     };
-    const onEnd = () => {
+    const onEnd = (e: TouchEvent) => {
       if (locked) {
-        const threshold = Math.min(120, root.clientWidth * 0.33);
-        const action = paneSwipeAction(swipeX, threshold, canSwitch, switchIdx);
+        // a finger that paused before lifting isn't flicking: drop the stale velocity
+        if (e.timeStamp - lastT > 100) velocity = 0;
+        const action = paneSwipeOutcome(dx, velocity, swipeThreshold(root), !!onback, canSwitch);
         swiping = false;
         swipeX = 0;
+        swipeArmed = false;
         if (action === "next")
           gotoSwitch(1); // leftward: next agent (wraps)
-        else if (action === "prev")
-          gotoSwitch(-1); // rightward: previous agent
-        else if (action === "back") onback?.(); // rightward at the start: to list
+        else if (action === "back") onback?.(); // rightward: to list
         if (action !== "none") return;
       }
       armed = false;
@@ -2610,6 +2642,24 @@
     };
   });
 </script>
+
+{#if swipeX !== 0}
+  <!-- Phone swipe reveal (iOS parity): sits behind the sliding pane (a later, transformed
+       sibling paints over it) and names where a release goes. Decorative — the header
+       ☰ / › buttons are the accessible equivalents. -->
+  {@const back = swipeX > 0}
+  <div class="swipe-reveal" class:back class:armed={swipeArmed} aria-hidden="true">
+    <div class="sr-cue" style:width="{Math.max(96, Math.abs(swipeX))}px">
+      <span class="sr-icon">{back ? "☰" : "›"}</span>
+      <span class="sr-label">{back ? m.viewport_swipe_back() : m.viewport_swipe_next()}</span>
+      {#if swipeArmed}
+        <span class="sr-hint"
+          >{back ? m.viewport_swipe_back_release() : m.viewport_swipe_next_release()}</span
+        >
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <div
   class="viewport"
@@ -3562,6 +3612,56 @@
 
   .viewport.swiping {
     transition: none;
+  }
+
+  /* Phone swipe reveal: fills the pane host (incl. the .phone full-bleed margin) behind
+     the translated .viewport; the cue hugs the edge the pane slides away from. */
+  .swipe-reveal {
+    position: absolute;
+    inset: 0 calc(-1 * var(--mobile-shell-pad));
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    background: var(--color-panel);
+    pointer-events: none;
+  }
+  .swipe-reveal.back {
+    justify-content: flex-start;
+  }
+  .sr-cue {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding-inline: 8px;
+    text-align: center;
+  }
+  .sr-icon {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--color-panel-2);
+    color: var(--color-ink);
+    font-size: var(--fs-xl);
+  }
+  .sr-label {
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    font-weight: 600;
+  }
+  .sr-hint {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+  }
+  .swipe-reveal.armed .sr-icon {
+    background: var(--color-amber);
+    color: var(--color-bg);
+  }
+  .swipe-reveal.armed .sr-label {
+    color: var(--color-amber);
   }
 
   /* Short viewports (unfolded foldable split-screen landscape, phone landscape):

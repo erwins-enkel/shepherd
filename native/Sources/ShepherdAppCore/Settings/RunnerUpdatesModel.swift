@@ -106,10 +106,10 @@ public struct RunnerUpdateProgress {
     public var herdrActions: [RunnerUpdateAction] {
         guard let herdr else { return [] }
         if herdr.currentUnsupported == true { return [.downgradeHerdr] }
-        if let runtime = herdr.runtime, runtime.state != "ready" {
-            return ["restart_required", "offline"].contains(runtime.state) && runtime.installedVersion != nil
-                ? [.restartHerdr(runtime)] : []
+        if let runtime = herdr.runtime, ["restart_required", "offline"].contains(runtime.state) {
+            return runtime.installedVersion != nil ? [.restartHerdr(runtime)] : []
         }
+        // An unknown runtime (failed probe) can't be repaired here, but the installer still works.
         var actions: [RunnerUpdateAction] = []
         if herdr.updateAvailable && herdr.latestUnsupported != true { actions.append(.updateHerdr) }
         if herdr.sandboxIdleRegressed == true && herdr.latestUnsupported != true {

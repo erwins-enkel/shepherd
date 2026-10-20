@@ -316,6 +316,23 @@ describe("HerdrUpdateModal", () => {
     expect(restartHerdrServer).not.toHaveBeenCalled();
   });
 
+  it("offers the update when the runtime probe is unknown", async () => {
+    const { applyHerdrUpdate } = await import("#lib/api.js");
+    const snapshot: HerdrUpdateStatus = {
+      ...update,
+      current: "0.8.2",
+      latest: "0.9.5",
+      phase: "idle",
+      revision: 1,
+      runtime: { state: "unknown", installedVersion: "0.8.2", serverVersion: null },
+    };
+    await render(HerdrUpdateModal, { props: { update: snapshot } });
+    expect(document.querySelector(".recovery")).toBeNull();
+    expect(document.querySelector(".versions")?.textContent).toBe("0.8.2 → 0.9.5");
+    await page.getByRole("button", { name: m.herdrupdate_confirm_plain(), exact: true }).click();
+    expect(applyHerdrUpdate).toHaveBeenCalledOnce();
+  });
+
   it("allows retrying a persisted downgrade failure after reopening", async () => {
     const { applyHerdrDowngrade } = await import("#lib/api.js");
     vi.mocked(applyHerdrDowngrade).mockClear();

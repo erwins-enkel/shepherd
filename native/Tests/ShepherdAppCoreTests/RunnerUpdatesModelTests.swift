@@ -42,6 +42,8 @@ import ShepherdKit
         guard case .restartHerdr(let runtime) = action else { Issue.record("expected restart"); return }
         #expect(runtime.installedVersion == "0.9.3" && runtime.serverVersion == "0.8.2")
         status(#""runtime":{"state":"unknown","installedVersion":null,"serverVersion":null}"#)
+        #expect(model.herdrActions == [.updateHerdr])
+        status(#""runtime":{"state":"offline","installedVersion":null,"serverVersion":null}"#)
         #expect(model.herdrActions.isEmpty)
         model.teardown()
     }

@@ -1,24 +1,47 @@
 <script lang="ts">
+  import { linkifySessionDesignations } from "#lib/markdownSessionLinks.js";
   import { m } from "#lib/paraglide/messages.js";
 
   // Shared reading surface for forge Markdown (issue descriptions, #2617): renders `source`
   // through marked + DOMPurify, styled from tokens only. Same lazy-import recipe as GitRail's
   // review body — marked/DOMPurify stay off the first-paint critical path, and the browser-only
   // sanitizer never runs during SSR (effects don't run there).
-  let { source }: { source: string } = $props();
+  let {
+    source,
+    sessionDesigs = new Map(),
+    onSessionLink,
+  }: {
+    source: string;
+    sessionDesigs?: ReadonlyMap<string, string>;
+    onSessionLink?: (id: string) => void;
+  } = $props();
 
   let rendered = $state("");
   // A failed load falls back to the plain (escaped) text — never to unsanitized markup.
   let failed = $state(false);
   $effect(() => {
     const body = source;
+    const live = sessionDesigs;
+    const linkSessions = !!onSessionLink;
     rendered = "";
     failed = false;
     if (!body.trim()) return;
     let alive = true;
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive) rendered = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+        if (!alive) return;
+        const html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string, {
+          // This marker belongs only to links we generate, never to the Markdown source.
+          FORBID_ATTR: ["data-session-id"],
+        });
+        if (linkSessions && live.size > 0) {
+          const root = document.createElement("div");
+          root.innerHTML = html;
+          linkifySessionDesignations(root, live);
+          rendered = root.innerHTML;
+        } else {
+          rendered = html;
+        }
       })
       .catch((e) => {
         console.warn("Markdown render failed", e);
@@ -36,6 +59,11 @@
     const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
     if (!(a instanceof HTMLAnchorElement)) return;
     e.preventDefault();
+    const id = a.dataset.sessionId;
+    if (id !== undefined) {
+      if (sessionDesigs.get(a.textContent!.toUpperCase()) === id) onSessionLink?.(id);
+      return;
+    }
     window.open(a.href, "_blank", "noopener");
   }
 </script>
@@ -120,6 +148,13 @@
   .md-body :global(a) {
     color: var(--color-amber);
     text-decoration: underline;
+  }
+  .md-body :global(a[data-session-id]) {
+    cursor: pointer;
+  }
+  .md-body :global(a[data-session-id]:focus-visible) {
+    outline: 1px solid var(--color-amber);
+    outline-offset: 2px;
   }
   .md-body :global(strong) {
     color: var(--color-ink-bright);

@@ -15,6 +15,19 @@ vi.mock("#lib/pty.js", () => ({
     return { send: vi.fn(), resize: vi.fn(), close: vi.fn(), poke: vi.fn(), takeover: vi.fn() };
   }),
 }));
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
+  return {
+    ...actual,
+    getSessionMessages: vi.fn(async () => ({
+      messages: [{ role: "assistant", text: "TASK-31 TASK-32 TASK-99", ts: 1 }],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    })),
+  };
+});
+
 const { default: OperatorAssistantPanel } = await import("./OperatorAssistantPanel.svelte");
 type Props = ComponentProps<typeof OperatorAssistantPanel>;
 
@@ -264,5 +277,42 @@ describe("OperatorAssistantPanel as a repo assistant", () => {
   it("reports a failed end", async () => {
     await mount({ repo: REPO, stacked: true, session: repoRow, failed: "close" });
     await expect.element(page.getByText(m.operator_assistant_error_close())).toBeVisible();
+  });
+});
+
+describe("OperatorAssistantPanel chat session scope", () => {
+  it.each([null, "/repo/a"])("passes scoped links to the chat (repo=%s)", async (repo) => {
+    localStorage.removeItem("shepherd:operator-assistant-view");
+    const onnavigate = vi.fn();
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const herd = [
+      {
+        ...assistantRow,
+        id: "s31",
+        desig: "TASK-31",
+        repoPath: "/repo/a",
+        operatorAssistant: false,
+      },
+      {
+        ...assistantRow,
+        id: "s32",
+        desig: "TASK-32",
+        repoPath: "/repo/b",
+        operatorAssistant: false,
+      },
+    ];
+    const view = await mount({ repo, session: assistantRow, herd, onnavigate });
+    await page.getByRole("link", { name: "TASK-31" }).click();
+    expect(onnavigate).toHaveBeenCalledWith("s31");
+    expect(view.container.querySelectorAll(".ac a")).toHaveLength(repo === null ? 2 : 1);
+    expect(view.container.querySelector(".ac")?.textContent).toContain("TASK-99");
+    if (repo === null) {
+      await page.getByRole("link", { name: "TASK-32" }).click();
+      expect(onnavigate).toHaveBeenLastCalledWith("s32");
+    }
+    await view.rerender({ ...view.props, herd: [] });
+    await expect.poll(() => view.container.querySelectorAll(".ac a").length).toBe(0);
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 });

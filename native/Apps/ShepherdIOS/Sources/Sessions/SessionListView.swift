@@ -154,7 +154,7 @@ struct SessionListView: View {
                 if !warnings.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(warnings) { bar in
-                            Label(L.t("native_ios_usage_warning", L.t(bar.nameKey), String(Int(bar.pct))), systemImage: "exclamationmark.triangle")
+                            Label(UsageMeter.warning(bar), systemImage: "exclamationmark.triangle")
                                 .foregroundStyle(bar.pct > 90 ? SessionListStyle.red : SessionListStyle.amber)
                         }
                     }

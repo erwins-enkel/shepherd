@@ -40,6 +40,19 @@ struct UsageMeterTests {
         #expect(UsageMeter.bars(limits(fiveHour: 30, stale: true)).first?.stale == true)
     }
 
+    @Test func warningNamesTheAgentAndAddsTheResetOnlyWhenItIsAhead() {
+        let week = UsageMeter.bars(limits(week: 62.4)).first!
+        let before = Date(timeIntervalSince1970: 0)  // week resets at 2 ms
+        #expect(UsageMeter.warning(week, now: before)
+            .hasPrefix(L.t("native_compose_engine_claude") + " · " + L.t("usage_limits_window_week")))
+        #expect(UsageMeter.warning(week, now: before)
+            != L.t("native_ios_usage_warning", L.t("native_compose_engine_claude"),
+                   L.t("usage_limits_window_week"), "62"))
+        #expect(UsageMeter.warning(week, now: Date(timeIntervalSince1970: 10))
+            == L.t("native_ios_usage_warning", L.t("native_compose_engine_claude"),
+                   L.t("usage_limits_window_week"), "62"))
+    }
+
     @Test func noticeCoversApiKeyModeAndNoWindowsAtAll() {
         let apiKey = limits(fiveHour: 30, subscriptionOnly: true)
         #expect(UsageMeter.bars(apiKey).isEmpty)

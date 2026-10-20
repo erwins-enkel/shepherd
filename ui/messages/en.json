@@ -4931,7 +4931,7 @@
   "native_ios_open_session_hint": "Opens session details.",
   "native_ios_session_age": "Age: {age}",
   "native_ios_open_items_count": "{count} open records",
-  "native_ios_usage_warning": "{window}: {pct}% used",
+  "native_ios_usage_warning": "{agent} · {window}: {pct}% used",
   "native_ios_group_collapsed": "Collapsed",
   "native_ios_group_expanded": "Expanded",
   "native_ios_next_waiting": "Waiting for server recommendations. Refresh Up Next in the web or Mac app to compute them.",
@@ -6852,5 +6852,6 @@
   "feat_full_swipe_decommission_body": "On your phone, swipe a session in the list all the way left and let go to decommission it in one move. A shorter swipe still reveals the button. Sessions with an open PR still ask what to do with it, and Undo stays available.",
   "unitrow_swipe_release_decommission": "release to decommission",
   "feat_assistant_session_links_title": "Open sessions from assistant replies",
-  "feat_assistant_session_links_body": "Click a session designation in an assistant reply to open it directly. Repository assistants link sessions from their own repository; the global assistant links the whole herd."
+  "feat_assistant_session_links_body": "Click a session designation in an assistant reply to open it directly. Repository assistants link sessions from their own repository; the global assistant links the whole herd.",
+  "native_ios_usage_warning_reset": "{agent} · {window}: {pct}% used · resets {time}"
 }

@@ -16410,19 +16410,37 @@
       }
     },
     "native_ios_usage_warning": {
-      "comment": "%1$@ = window, %2$@ = pct",
+      "comment": "%1$@ = agent, %2$@ = window, %3$@ = pct",
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@: %2$@%% verbraucht"
+            "value": "%1$@ · %2$@: %3$@%% verbraucht"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@: %2$@%% used"
+            "value": "%1$@ · %2$@: %3$@%% used"
+          }
+        }
+      }
+    },
+    "native_ios_usage_warning_reset": {
+      "comment": "%1$@ = agent, %2$@ = window, %3$@ = pct, %4$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@: %3$@%% verbraucht · Reset %4$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@: %3$@%% used · resets %4$@"
           }
         }
       }

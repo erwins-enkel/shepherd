@@ -1387,7 +1387,7 @@ describe("Viewport mobile page-swipe scoping", () => {
   // the module-scope `fakeTouch` carries our chosen target up to that root listener.
 
   // A leftward drag with a large dx clears the axis slop and the commit threshold
-  // (Math.min(120, width*0.33)), committing to "next" → onnavigate(switchOrder[1]).
+  // (Math.min(90, width*0.33)), committing to "next" → onnavigate(switchOrder[1]).
   function leftwardDrag(el: Element) {
     el.dispatchEvent(fakeTouch("touchstart", 300, 100));
     el.dispatchEvent(fakeTouch("touchmove", 0, 100));
@@ -1424,6 +1424,36 @@ describe("Viewport mobile page-swipe scoping", () => {
 
     expect(onnavigate).toHaveBeenCalledTimes(1);
     expect(onnavigate).toHaveBeenCalledWith("v2");
+  });
+
+  it("returns to the list on a rightward drag, even mid switch order (iOS parity)", async () => {
+    const onnavigate = vi.fn();
+    const onback = vi.fn();
+    const { container } = await render(Viewport, {
+      session: session({ id: "v2" }),
+      mobile: true,
+      switchOrder: ["v1", "v2", "v3"],
+      onnavigate,
+      onback,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const body = container.querySelector(".vp-body")!;
+    const mount = body.querySelector(".term-mount") ?? body;
+    mount.dispatchEvent(fakeTouch("touchstart", 0, 100));
+    mount.dispatchEvent(fakeTouch("touchmove", 300, 100));
+    await tick();
+    // mid-drag: the reveal behind the pane names the list and is armed past the threshold
+    const reveal = container.querySelector(".swipe-reveal");
+    expect(reveal, "reveal should render mid-drag").not.toBeNull();
+    expect(reveal!.classList.contains("back")).toBe(true);
+    expect(reveal!.classList.contains("armed")).toBe(true);
+    mount.dispatchEvent(fakeTouch("touchend", 300, 100));
+    await tick();
+
+    expect(onback).toHaveBeenCalledTimes(1);
+    expect(onnavigate).not.toHaveBeenCalled();
+    expect(container.querySelector(".swipe-reveal"), "reveal gone after release").toBeNull();
   });
 
   it("does NOT page when the same drag starts on the header chrome (.vp-head)", async () => {

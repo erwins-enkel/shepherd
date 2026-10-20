@@ -39,25 +39,43 @@ export function snapOffset(
 }
 
 /** Commit decision for a released horizontal pane swipe (Viewport). */
-export type PaneSwipeAction = "next" | "prev" | "back" | "none";
+export type PaneSwipeOutcome = "back" | "next" | "none";
+
+/** Pane-swipe tuning, copied from the iOS app's IOSSteerSwipe so both feel alike. */
+export const PANE_SWIPE_THRESHOLD = 90; // px past which a release commits
+export const PANE_FLICK_VELOCITY = 700; // px/s that commits a shorter flick…
+const PANE_FLICK_MIN = 30; // …once it has travelled at least this far
+const PANE_SOFT_LIMIT = 140; // px beyond which the pane follows with resistance
+const PANE_DAMPING = 0.35;
 
 /**
- * Resolve a released horizontal pane swipe into a queue action. Mirrors the
- * ‹ / › header buttons: leftward pages to the next queued agent, rightward to the
- * previous — except at the queue's start (or when the session isn't in the queue,
- * queueIdx === -1), where rightward falls back to the session list. A drag shorter
- * than `threshold` commits to nothing. `canPage` is false when there's no queue to
- * page (≤1 session), so leftward no-ops and rightward can only go back.
+ * Resolve a released horizontal pane swipe. Mirrors the iOS app: rightward always
+ * returns to the session list, leftward pages to the next agent. Commits past
+ * `threshold`, or earlier on a fast flick moving the same way as the drag.
+ * `canBack` / `canNext` say whether each direction has somewhere to go.
  */
-export function paneSwipeAction(
+export function paneSwipeOutcome(
   dx: number,
+  velocity: number,
   threshold: number,
-  canPage: boolean,
-  queueIdx: number,
-): PaneSwipeAction {
-  if (dx >= threshold) return canPage && queueIdx > 0 ? "prev" : "back";
-  if (dx <= -threshold) return canPage ? "next" : "none";
-  return "none";
+  canBack: boolean,
+  canNext: boolean,
+): PaneSwipeOutcome {
+  const flick =
+    Math.abs(velocity) >= PANE_FLICK_VELOCITY &&
+    Math.abs(dx) >= PANE_FLICK_MIN &&
+    velocity < 0 === dx < 0;
+  if (Math.abs(dx) < threshold && !flick) return "none";
+  if (dx > 0) return canBack ? "back" : "none";
+  return canNext ? "next" : "none";
+}
+
+/** Rubber-band a drag offset: 1:1 up to the soft limit, damped past it, sign kept. */
+export function resistOffset(dx: number, softLimit: number = PANE_SOFT_LIMIT): number {
+  const magnitude = Math.abs(dx);
+  if (magnitude <= softLimit) return dx;
+  const damped = softLimit + (magnitude - softLimit) * PANE_DAMPING;
+  return dx < 0 ? -damped : damped;
 }
 
 /**

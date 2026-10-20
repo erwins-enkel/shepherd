@@ -3645,7 +3645,7 @@
           />
         </div>
       {:else if selected}
-        <div class="col">
+        <div class="col pane-host">
           <Viewport
             terminalOwners={store.terminalOwners}
             attended={store.attended}
@@ -4464,6 +4464,10 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  /* mobile session pane: anchors Viewport's swipe reveal, which sits behind the sliding pane */
+  .pane-host {
+    position: relative;
   }
   /* Done-lens mobile back affordance: a quiet text trigger above the recap panel. */
   .done-back {

@@ -167,6 +167,17 @@ jobs:
           SHEPHERD_KEYCHAIN_TESTS: "1"
         run: |
           set -euo pipefail
+          # Capture the blocked runner before the step timeout erases it.
+          (
+            sleep 300
+            ps -axo pid,ppid,stat,command
+            for pid in $(pgrep -f 'swiftpm-testing|ShepherdKitPackageTests' || true); do
+              sample "$pid" 3 -file "$RUNNER_TEMP/kit-stack-$pid.txt" || true
+              cat "$RUNNER_TEMP/kit-stack-$pid.txt" || true
+            done
+          ) &
+          diagnostics_pid=$!
+          trap 'kill "$diagnostics_pid" 2>/dev/null || true' EXIT
           swift test --package-path native --skip-build --no-parallel --filter ShepherdKitTests --xunit-output "$RUNNER_TEMP/kit.xml" 2>&1 | tee "$RUNNER_TEMP/kit.log"
           python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/kit-swift-testing.xml" --target ShepherdKitTests --require-keychain
 

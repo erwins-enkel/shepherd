@@ -6938,5 +6938,10 @@
   "gitrail_merge_into_epic_tip_run": "Lauf",
   "gitrail_merge_into_epic_tip_run_body": "Der Epic-Lauf bleibt gestoppt: kein nächstes Kind startet.",
   "feat_epic_run_stopped_title": "Sehen, warum der fertige PR eines Epic-Kinds wartet",
-  "feat_epic_run_stopped_body": "Ist der PR eines Epic-Kinds bereit, der Epic-Lauf aber gestoppt oder pausiert, sagt seine Zeile jetzt „Wartet auf Epic-Lauf“ und bietet Starten oder Fortsetzen direkt an. Die Git-Leiste markiert das gestoppte Epic, und ihr Merge-Button heißt „In Epic mergen“."
+  "feat_epic_run_stopped_body": "Ist der PR eines Epic-Kinds bereit, der Epic-Lauf aber gestoppt oder pausiert, sagt seine Zeile jetzt „Wartet auf Epic-Lauf“ und bietet Starten oder Fortsetzen direkt an. Die Git-Leiste markiert das gestoppte Epic, und ihr Merge-Button heißt „In Epic mergen“.",
+  "diagnostics_label_docker_compose": "Compose-Stacks der Worktrees",
+  "diagnostics_hint_docker_compose_count": "Verwaiste Compose-Projekte: {count}. Die Bereinigung läuft beim Start und stündlich. Volumes bleiben erhalten.",
+  "diagnostics_hint_docker_compose_unavailable": "Docker Compose kann lokal nicht geprüft werden. Die Bereinigung wird übersprungen.",
+  "feat_compose_cleanup_title": "Compose-Stacks beim Archivieren herunterfahren",
+  "feat_compose_cleanup_body": "Beim Archivieren werden die Docker-Compose-Stacks der Session im Hintergrund abgebaut. Beim Start und stündlich werden auch Stacks gelöschter Worktrees bereinigt. Volumes bleiben erhalten. Einstellungen → Diagnose zeigt die Anzahl verwaister Projekte."
 }

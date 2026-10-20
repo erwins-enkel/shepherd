@@ -122,6 +122,7 @@ function healthyDeps(): DiagnosticsDeps {
     // the probe's fail-safe reject would report herdr_health as optional/uninspectable and break
     // the all-ok assertions. Override per case to model leftover / husk / uninspectable.
     readHerdrFleet: async () => ({ orphanLive: 0, orphanHusk: 0 }),
+    readComposeOrphans: async () => 0,
     // tmp_inodes (#1862): a roomy temp filesystem → ok. Injected because the default statfs's the
     // REAL tmpdir(), whose inode use varies by host — without pinning it, every all-ok/overall
     // assertion here would flip on a machine whose /tmp happens to be under pressure.
@@ -215,13 +216,14 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(15);
+    expect(snap.checks).toHaveLength(16);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "chromium",
       "claude",
       "claude_trust",
       "codex",
+      "docker_compose",
       "gh",
       "git",
       "herdr",
@@ -800,6 +802,48 @@ describe("DiagnosticsService probes", () => {
   });
 });
 
+describe("compose cleanup diagnostics", () => {
+  it.each([0, 3])(
+    "reports %s orphan projects without offering a destructive fix",
+    async (count) => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        readComposeOrphans: async () => count,
+      });
+      const snap = await svc.check(0);
+      const row = byId(snap.checks, "docker_compose");
+      expect(row).toEqual({
+        id: "docker_compose",
+        state: count ? "warning" : "ok",
+        hintKey: "diagnostics_hint_docker_compose_count",
+        hintParams: { count: String(count) },
+      });
+      assertPure(row);
+      expect(snap.overall).toBe(count ? "warning" : "ok");
+    },
+  );
+
+  it.each(["unwired", "null", "reject"])("degrades unavailable %s to optional", async (mode) => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readComposeOrphans:
+        mode === "unwired"
+          ? undefined
+          : async () => {
+              if (mode === "reject") throw new Error("unavailable");
+              return null;
+            },
+    });
+    const snap = await svc.check(0);
+    expect(byId(snap.checks, "docker_compose")).toEqual({
+      id: "docker_compose",
+      state: "optional",
+      hintKey: "diagnostics_hint_docker_compose_unavailable",
+    });
+    expect(snap.overall).toBe("ok");
+  });
+});
+
 // ── gh probe: repo-mode-aware downgrade ──────────────────────────────────────
 describe("DiagnosticsService gh probe repo-mode awareness", () => {
   it("gh failure + anyForgeRepo=false → warning + not_required hint", async () => {
@@ -1027,13 +1071,14 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(16);
+    expect(snap.checks).toHaveLength(17);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "chromium",
       "claude",
       "claude_trust",
       "codex",
+      "docker_compose",
       "gh",
       "git",
       "git_mergetree",

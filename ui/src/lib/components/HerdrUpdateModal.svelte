@@ -49,8 +49,13 @@
   const outcome = $derived(
     status.phase !== undefined ? (requesting ? null : (status.result ?? null)) : done,
   );
+  // An unknown runtime (failed probe) can't be repaired here, so an installable update wins.
+  const updateInstallable = $derived(status.updateAvailable && !status.latestUnsupported);
   const recovery = $derived(
-    !status.currentUnsupported && status.runtime && status.runtime.state !== "ready",
+    !status.currentUnsupported &&
+      status.runtime &&
+      status.runtime.state !== "ready" &&
+      !(status.runtime.state === "unknown" && updateInstallable),
   );
   const restartNeeded = $derived(recovery && status.runtime?.state === "restart_required");
   const canRepair = $derived(recovery && (restartNeeded || status.runtime?.state === "offline"));

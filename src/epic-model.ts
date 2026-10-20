@@ -40,8 +40,9 @@ export interface AssembleInput {
    *  them in; assembleEpic does NO I/O). */
   /** The pinned canonical integration-branch name (`epic_run.integrationBranch`). Drives
    *  signals (a)/(b)/(c): a freshly-derived name, a child's recorded merge base, or a stray
-   *  host branch is "divergent" iff it differs from this. */
-  persistedBranch: string;
+   *  host branch is "divergent" iff it differs from this. Null for an incremental epic (#3191),
+   *  which has no integration branch — none of the branch warnings apply. */
+  persistedBranch: string | null;
   /** Per integrated-child recorded merge base (`epic_integrated.mergedBase`). A child whose
    *  base is non-null and `!== persistedBranch` merged into the WRONG epic branch → warn (b).
    *  Null/absent entries (legacy rows) never fire. */
@@ -203,6 +204,7 @@ export function assembleEpic(input: AssembleInput): Epic {
 function divergenceWarnings(input: AssembleInput): string[] {
   const out: string[] = [];
   const pinned = input.persistedBranch;
+  if (pinned == null) return out;
   // (a) title drift
   const canonical = epicIntegrationBranch(input.parent.number, input.parent.title);
   if (canonical !== pinned) {

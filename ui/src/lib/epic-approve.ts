@@ -2,6 +2,7 @@ import { ApiError, approveEpicDraft, isPreviewBlocked } from "./api";
 import { epicDrafts } from "./epic-draft.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "./paraglide/messages";
+import type { EpicLanding } from "./types";
 
 /**
  * Approving an epic draft, and reporting what it actually did.
@@ -89,10 +90,11 @@ async function reconcile(sessionId: string, e: unknown) {
   failed(sessionId, authored ? e.message : undefined);
 }
 
-/** Approve a session's epic draft and toast the outcome. Never throws. */
-export async function approveEpic(sessionId: string): Promise<void> {
+/** Approve a session's epic draft and toast the outcome. Never throws. `landing`: how the epic's
+ *  children land (#3191); omitted = the server default (integration branch). */
+export async function approveEpic(sessionId: string, landing?: EpicLanding): Promise<void> {
   try {
-    const r = await approveEpicDraft(sessionId);
+    const r = await approveEpicDraft(sessionId, landing);
     succeeded(sessionId, r.parentNumber);
   } catch (e) {
     await reconcile(sessionId, e);

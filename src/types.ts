@@ -184,6 +184,11 @@ export interface Session {
    *  in-flight epic child. OPTIONAL (like `autoMergeRebaseSteeredAt`) so existing Session fixtures
    *  stay valid — absent and null are equivalent; the store always hydrates a real number|null. */
   epicParent?: number | null;
+  /** The parent of an incremental-landing epic (#3191) this session was spawned as a child of;
+   *  null/absent otherwise. NOT an epic-child identity: such a child bases on and merges into the
+   *  default branch like an ordinary session, and {@link isEpicChild} ignores this field. OPTIONAL
+   *  like {@link Session.epicParent}; the store always hydrates a real number|null. */
+  incrementalEpicParent?: number | null;
   /** Sandbox profile actually applied at spawn; null for legacy rows spawned before the feature. */
   sandboxApplied: SandboxProfile | null;
   /** True when a sandboxed profile was requested but no backend was available → ran unconfined. */
@@ -380,6 +385,9 @@ export interface StandardCreateInput {
    *  no HTTP route passes it, they all build this input field-by-field. Persisted verbatim as
    *  `Session.epicParent`. */
   epicParent?: number | null;
+  /** Incremental-landing epic parent for a child the drain spawned on the default branch (#3191);
+   *  absent/null otherwise. Persisted verbatim as `Session.incrementalEpicParent`. */
+  incrementalEpicParent?: number | null;
   /** Research task kind; absent → false. */
   research?: boolean;
   /** Epic-authoring task kind; absent → false. Attended guided shaping → EPIC draft, no code PR. */

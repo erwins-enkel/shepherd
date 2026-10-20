@@ -1,6 +1,10 @@
 import { test, expect, describe } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SessionStore } from "../src/store";
-import type { EpicRun } from "../src/epic-core";
+import { queuedEpicRun, type EpicRun } from "../src/epic-core";
 
 describe("epic_run", () => {
   test("absent until set", () =>
@@ -22,6 +26,7 @@ describe("epic_run", () => {
       model: null,
       effort: null,
       ignoreUsageCeiling: false,
+      landing: "integration",
     });
     s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 400, mode: "auto", status: "idle" }); // replaces
     expect(s.getEpicRun("/repo")!.parentIssueNumber).toBe(400);
@@ -131,6 +136,7 @@ describe("epic_settings (an epic off the run row)", () => {
       agentProvider: null,
       model: null,
       effort: null,
+      landing: "integration",
     });
     s.deleteEpicSettings("/repo", 7);
     expect(s.getEpicSettings("/repo", 7)).toBeNull();
@@ -260,5 +266,108 @@ describe("getOrInitEpicIntegrationBranch (pin-and-record)", () => {
     expect(s.getOrInitEpicIntegrationBranch("/repo", 327, "epic/327-whatever-now")).toBe(
       "epic/327-alpha",
     );
+  });
+});
+
+describe("landing (#3191) survives every run/queue/settings move", () => {
+  test("legacy default is integration on run, settings and queue rows", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 1, mode: "auto", status: "idle" });
+    expect(s.getEpicRun("/repo")!.landing).toBe("integration");
+    s.setEpicSettings({
+      repoPath: "/repo",
+      parentIssueNumber: 2,
+      mode: "auto",
+      agentProvider: null,
+      model: null,
+      effort: null,
+    });
+    expect(s.getEpicSettings("/repo", 2)!.landing).toBe("integration");
+    s.enqueueEpic({
+      repoPath: "/repo",
+      parentIssueNumber: 3,
+      mode: "auto",
+      agentProvider: null,
+      model: null,
+      effort: null,
+    });
+    expect(s.getEpicQueueEntry("/repo", 3)!.landing).toBe("integration");
+    expect(s.listEpicQueue("/repo")[0]!.landing).toBe("integration");
+  });
+
+  test("run -> supersede (settings) -> enqueue -> promote keeps incremental", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun({
+      repoPath: "/repo",
+      parentIssueNumber: 1,
+      mode: "auto",
+      status: "running",
+      landing: "incremental",
+    });
+    expect(s.getEpicRun("/repo")!.landing).toBe("incremental");
+    // Another epic takes the row: #1's settings move to epic_settings.
+    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 2, mode: "auto", status: "running" });
+    const saved = s.getEpicSettings("/repo", 1)!;
+    expect(saved.landing).toBe("incremental");
+    // Queue it from its remembered settings, as enqueueBehindLeader does.
+    s.enqueueEpic(saved);
+    s.deleteEpicSettings("/repo", 1);
+    expect(s.getEpicQueueEntry("/repo", 1)!.landing).toBe("incremental");
+    // Promotion: shift the head and start it from its queued settings.
+    const head = s.shiftEpicQueue("/repo")!;
+    s.setEpicRun({ ...queuedEpicRun(head), status: "running" });
+    expect(s.getEpicRun("/repo")).toMatchObject({ parentIssueNumber: 1, landing: "incremental" });
+    // And #2 (integration) moved to settings unchanged.
+    expect(s.getEpicSettings("/repo", 2)!.landing).toBe("integration");
+  });
+
+  test("updateEpicQueueSettings rewrites landing in place", () => {
+    const s = new SessionStore(":memory:");
+    const e = {
+      repoPath: "/repo",
+      parentIssueNumber: 5,
+      mode: "auto" as const,
+      agentProvider: null,
+      model: null,
+      effort: null,
+    };
+    s.enqueueEpic(e);
+    s.updateEpicQueueSettings({ ...e, landing: "incremental" });
+    expect(s.getEpicQueueEntry("/repo", 5)!.landing).toBe("incremental");
+  });
+
+  test("a pre-landing database migrates every epic table to integration", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-epic-landing-migrate-"));
+    const dbPath = join(dir, "test.db");
+    const db = new Database(dbPath);
+    db.run(`CREATE TABLE epic_run (
+      repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
+    db.run(
+      `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, updatedAt) VALUES ('/repo', 4, 'auto', 'running', 1)`,
+    );
+    db.run(`CREATE TABLE epic_queue (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, position INTEGER NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
+      createdAt INTEGER NOT NULL, PRIMARY KEY (repoPath, parentIssueNumber))`);
+    db.run(
+      `INSERT INTO epic_queue (repoPath, parentIssueNumber, position, mode, createdAt) VALUES ('/repo', 5, 1, 'auto', 1)`,
+    );
+    db.run(`CREATE TABLE epic_settings (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
+      updatedAt INTEGER NOT NULL, PRIMARY KEY (repoPath, parentIssueNumber))`);
+    db.run(
+      `INSERT INTO epic_settings (repoPath, parentIssueNumber, mode, updatedAt) VALUES ('/repo', 6, 'auto', 1)`,
+    );
+    db.close();
+    try {
+      const s = new SessionStore(dbPath);
+      expect(s.getEpicRun("/repo")!.landing).toBe("integration");
+      expect(s.getEpicQueueEntry("/repo", 5)!.landing).toBe("integration");
+      expect(s.getEpicSettings("/repo", 6)!.landing).toBe("integration");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -1120,6 +1120,7 @@ export const KEYS_PLAN: readonly string[] = [
 export const KEYS_MERGE: readonly string[] = [
   "automerge_state_merge_error",
   "automerge_state_merging",
+  "automerge_state_migrations",
   "automerge_state_rebase_cap",
   "automerge_state_rebasing",
   "automerge_state_stacked",

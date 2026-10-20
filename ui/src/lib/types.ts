@@ -1228,8 +1228,8 @@ export interface RepoConfig {
 export interface AutoMergeStatus {
   repoPath: string;
   enabled: boolean;
-  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" | "stacked" while acting/paused;
-   *  null when idle. */
+  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" | "stacked" | "migrations" | other
+   *  hold codes while acting/paused; null when idle. */
   state: string | null;
   /** A desig for the operator banner, when relevant. */
   detail: string | null;
@@ -1256,6 +1256,7 @@ export type MergeWaitCode =
   | "critic_pending"
   | "stacked"
   | "manual_steps"
+  | "migrations"
   | "no_ci";
 
 /** One held full-auto PR on {@link AutoMergeStatus.waiting}. */
@@ -1344,6 +1345,9 @@ export interface EpicChild {
   /** Epoch ms the child was done; null while not done or when unknown. Absent from older servers. */
   endedAt?: number | null;
 }
+/** How an epic's children land (#3191): via its integration branch (default) or one by one on the
+ *  default branch. */
+export type EpicLanding = "integration" | "incremental";
 export interface EpicRun {
   repoPath: string;
   parentIssueNumber: number;
@@ -1354,6 +1358,8 @@ export interface EpicRun {
   effort?: string | null;
   /** The operator lifted the repo's usage ceiling for this run; only ever true while running. */
   ignoreUsageCeiling?: boolean;
+  /** How the children land (#3191); absent = "integration". */
+  landing?: EpicLanding;
 }
 export interface Epic {
   repoPath: string;
@@ -1373,6 +1379,8 @@ export interface Epic {
   /** When the epic lands; null when there is no data to forecast from, or once it landed. Absent
    *  from older servers. */
   forecast?: EpicForecast | null;
+  /** True once the epic has ever run: its landing mode can no longer change (#3191). */
+  landingLocked?: boolean;
 }
 /** The epic clock (mirrors src/epic-core.ts), epoch ms. It runs only while the epic's run is
  *  running; running time is `(pausedAt ?? now) − startedAt − pausedMs`. */

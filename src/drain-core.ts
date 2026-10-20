@@ -68,6 +68,10 @@ export type DrainDecision =
        *  forge. Set only when `epicStacksEnabled` and the forge exposes the stacked-PR surface. */
       stackedBase?: string;
       epicProviderSettings?: EpicProviderSettings;
+      /** #3191: the incremental epic this child belongs to — stamped as
+       *  `Session.incrementalEpicParent`, never as `epicParent` (the child bases on the default
+       *  branch and lands on its own). Undefined for integration epics and label-drain. */
+      incrementalEpicParent?: number;
     }
   | { kind: "retire"; sessionId: string; prNumber: number }
   | { kind: "hold"; reason: HoldReason };
@@ -162,6 +166,9 @@ export interface DrainRepoState {
    *  when the repo opted into `epicStacksEnabled` AND the predecessor's PR is open; absent
    *  everywhere else, which leaves every child on the integration branch as before. */
   epicStackBases?: Map<number, string> | null;
+  /** #3191: the running epic's parent while it lands incrementally (no integration branch, so
+   *  `epicIntegrationBranch` and `epicParent` stay null); null/undefined otherwise. */
+  epicIncrementalParent?: number | null;
   /** Epic mode (#1757): the integration branch a RECENT epic-child spawn failed to ensure on the
    *  forge (`ensureBranch` threw), while that failure is still inside its cooldown window; null
    *  otherwise. Set ONLY for that specific, typed failure — never for an ordinary spawn error —
@@ -397,6 +404,7 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     epicParent: state.epicParent ?? undefined,
     epicProviderSettings: state.epicProviderSettings ?? undefined,
     stackedBase: state.epicStackBases?.get(next.number),
+    incrementalEpicParent: state.epicIncrementalParent ?? undefined,
   };
 }
 

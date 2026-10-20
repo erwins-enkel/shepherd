@@ -79,6 +79,7 @@ import {
   epicRunEnding,
   type EpicClock,
   type EpicQueueEntry,
+  type EpicLanding,
   type EpicRun,
   type EpicRunEnd,
   type EpicSettings,
@@ -122,13 +123,32 @@ function parseStrandedChildren(raw: string | null | undefined): number[] {
 }
 
 const EPIC_RUN_COLUMNS =
-  "repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling";
+  "repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, landing";
+
+/** The stored `landing` column read back as an {@link EpicLanding}: anything but `incremental`
+ *  (including a legacy row's default) is `integration`. */
+function epicLandingFromColumn(v: unknown): EpicLanding {
+  return v === "incremental" ? "incremental" : "integration";
+}
 
 /** An `epic_run` row as SQLite returns it: the ceiling override is a 0/1 integer. */
-type EpicRunRow = Omit<EpicRun, "ignoreUsageCeiling"> & { ignoreUsageCeiling: number };
+type EpicRunRow = Omit<EpicRun, "ignoreUsageCeiling" | "landing"> & {
+  ignoreUsageCeiling: number;
+  landing: string;
+};
 
 function epicRunFromRow(row: EpicRunRow): EpicRun {
-  return { ...row, ignoreUsageCeiling: row.ignoreUsageCeiling === 1 };
+  return {
+    ...row,
+    ignoreUsageCeiling: row.ignoreUsageCeiling === 1,
+    landing: epicLandingFromColumn(row.landing),
+  };
+}
+
+/** Normalize an epic row read from `epic_settings`/`epic_queue`: its `landing` column as an
+ *  {@link EpicLanding}. */
+function withEpicLanding<T extends { landing?: unknown }>(row: T): T & { landing: EpicLanding } {
+  return { ...row, landing: epicLandingFromColumn(row.landing) };
 }
 
 /** The persisted override: only a running run may lift the ceiling, so every other write clears it. */
@@ -746,7 +766,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId,
-  plain, operatorAssistant, baseCommit, assistantRepo`;
+  plain, operatorAssistant, baseCommit, assistantRepo, incrementalEpicParent`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -807,6 +827,7 @@ type SessionRow = {
   auto: number;
   issueNumber: number | null;
   epicParent: number | null;
+  incrementalEpicParent: number | null;
   sandboxApplied: string | null;
   sandboxDegraded: number;
   egressApplied: number;
@@ -1759,6 +1780,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       model: "TEXT",
       effort: "TEXT",
       ignoreUsageCeiling: "INTEGER NOT NULL DEFAULT 0",
+      landing: "TEXT NOT NULL DEFAULT 'integration'",
     });
     // #2624: epics queued behind the repo's leading epic, promoted in `position` order when the
     // leader completes — each with its own settings, so a promotion never resets them to defaults.
@@ -1767,6 +1789,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
       createdAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
+    this.addMissingColumns("epic_queue", { landing: "TEXT NOT NULL DEFAULT 'integration'" });
     // The remembered settings of an epic that neither holds the repo's epic_run row nor waits in
     // its queue — so editing an idle epic never has to touch (and so supersede) the leading run.
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_settings (
@@ -1774,6 +1797,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
       updatedAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
+    this.addMissingColumns("epic_settings", { landing: "TEXT NOT NULL DEFAULT 'integration'" });
     // Why an epic last stopped leading its repo (EpicRunEnd) — the epic_run row is overwritten by
     // the next run, so without this an ended or superseded epic cannot say why it does not run.
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run_end (
@@ -2636,8 +2660,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       if (prev && prev.parentIssueNumber !== r.parentIssueNumber) this.setEpicSettings(prev);
       this.deleteEpicSettings(r.repoPath, r.parentIssueNumber);
       this.db.run(
-        `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, updatedAt) VALUES (?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, ignoreUsageCeiling=excluded.ignoreUsageCeiling, updatedAt=excluded.updatedAt`,
+        `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, landing, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, ignoreUsageCeiling=excluded.ignoreUsageCeiling, landing=excluded.landing, updatedAt=excluded.updatedAt`,
         [
           r.repoPath,
           r.parentIssueNumber,
@@ -2647,6 +2671,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           r.agentProvider ? (r.model ?? null) : null,
           r.agentProvider ? (r.effort ?? null) : null,
           epicRunCeilingColumn(r),
+          epicLandingFromColumn(r.landing),
           Date.now(),
         ],
       );
@@ -2732,20 +2757,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** The remembered settings of an epic that neither holds its repo's run row nor waits in its
    *  queue; null when it has none (it runs with the defaults). */
   getEpicSettings(repoPath: string, parentIssueNumber: number): EpicSettings | null {
-    return (
-      (this.db
-        .query(
-          `SELECT repoPath, parentIssueNumber, mode, agentProvider, model, effort
-          FROM epic_settings WHERE repoPath = ? AND parentIssueNumber = ?`,
-        )
-        .get(repoPath, parentIssueNumber) as EpicSettings | null) ?? null
-    );
+    const row = this.db
+      .query(
+        `SELECT repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing
+        FROM epic_settings WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber) as EpicSettings | null;
+    return row ? withEpicLanding(row) : null;
   }
 
   setEpicSettings(s: EpicSettings): void {
     this.db.run(
-      `INSERT INTO epic_settings (repoPath, parentIssueNumber, mode, agentProvider, model, effort, updatedAt) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(repoPath, parentIssueNumber) DO UPDATE SET mode=excluded.mode, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, updatedAt=excluded.updatedAt`,
+      `INSERT INTO epic_settings (repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing, updatedAt) VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(repoPath, parentIssueNumber) DO UPDATE SET mode=excluded.mode, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, landing=excluded.landing, updatedAt=excluded.updatedAt`,
       [
         s.repoPath,
         s.parentIssueNumber,
@@ -2753,6 +2777,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         s.agentProvider ?? null,
         s.agentProvider ? (s.model ?? null) : null,
         s.agentProvider ? (s.effort ?? null) : null,
+        epicLandingFromColumn(s.landing),
         Date.now(),
       ],
     );
@@ -2776,8 +2801,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       ? "COALESCE(MIN(position), 1) - 1"
       : "COALESCE(MAX(position), 0) + 1";
     this.db.run(
-      `INSERT INTO epic_queue (repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, createdAt)
-      VALUES (?, ?, (SELECT ${position} FROM epic_queue WHERE repoPath = ?), ?, ?, ?, ?, ?)
+      `INSERT INTO epic_queue (repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, createdAt)
+      VALUES (?, ?, (SELECT ${position} FROM epic_queue WHERE repoPath = ?), ?, ?, ?, ?, ?, ?)
       ON CONFLICT(repoPath, parentIssueNumber) DO NOTHING`,
       [
         e.repoPath,
@@ -2787,6 +2812,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         e.agentProvider ?? null,
         e.agentProvider ? (e.model ?? null) : null,
         e.agentProvider ? (e.effort ?? null) : null,
+        epicLandingFromColumn(e.landing),
         Date.now(),
       ],
     );
@@ -2794,40 +2820,42 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** The repo's queue, head first. */
   listEpicQueue(repoPath: string): EpicQueueEntry[] {
-    return this.db
-      .query(
-        `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, createdAt
-        FROM epic_queue WHERE repoPath = ? ORDER BY position`,
-      )
-      .all(repoPath) as EpicQueueEntry[];
+    return (
+      this.db
+        .query(
+          `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, createdAt
+          FROM epic_queue WHERE repoPath = ? ORDER BY position`,
+        )
+        .all(repoPath) as EpicQueueEntry[]
+    ).map(withEpicLanding);
   }
 
   getEpicQueueEntry(repoPath: string, parentIssueNumber: number): EpicQueueEntry | null {
-    return (
-      (this.db
-        .query(
-          `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, createdAt
-          FROM epic_queue WHERE repoPath = ? AND parentIssueNumber = ?`,
-        )
-        .get(repoPath, parentIssueNumber) as EpicQueueEntry | null) ?? null
-    );
+    const row = this.db
+      .query(
+        `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, createdAt
+        FROM epic_queue WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber) as EpicQueueEntry | null;
+    return row ? withEpicLanding(row) : null;
   }
 
   /** Replace a queued epic's settings in place (position unchanged). */
   updateEpicQueueSettings(
     e: Pick<
       EpicQueueEntry,
-      "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort"
+      "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort" | "landing"
     >,
   ): void {
     this.db.run(
-      `UPDATE epic_queue SET mode = ?, agentProvider = ?, model = ?, effort = ?
+      `UPDATE epic_queue SET mode = ?, agentProvider = ?, model = ?, effort = ?, landing = ?
       WHERE repoPath = ? AND parentIssueNumber = ?`,
       [
         e.mode,
         e.agentProvider ?? null,
         e.agentProvider ? (e.model ?? null) : null,
         e.agentProvider ? (e.effort ?? null) : null,
+        epicLandingFromColumn(e.landing),
         e.repoPath,
         e.parentIssueNumber,
       ],
@@ -2904,6 +2932,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(`SELECT branch FROM epic_branch WHERE repoPath = ? AND parentIssueNumber = ?`)
       .get(repoPath, parentIssueNumber) as { branch: string } | null;
     return row?.branch ?? null;
+  }
+
+  /** #3191: drop an epic's integration-branch pin — a stale pin left by a view of an epic whose
+   *  landing switched to incremental before it ever ran. No-op when there is none. */
+  deleteEpicIntegrationBranch(repoPath: string, parentIssueNumber: number): void {
+    this.db.run(`DELETE FROM epic_branch WHERE repoPath = ? AND parentIssueNumber = ?`, [
+      repoPath,
+      parentIssueNumber,
+    ]);
   }
 
   /** #3101: the pinned epic branch's base-freshness facts; null when the epic has no pin. */
@@ -3614,6 +3651,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       auto: input.auto ?? false,
       issueNumber: input.issueNumber ?? null,
       epicParent: numOrNull(input.epicParent),
+      incrementalEpicParent: numOrNull(input.incrementalEpicParent),
       sandboxApplied: input.sandboxApplied ?? null,
       sandboxDegraded: input.sandboxDegraded ?? false,
       egressApplied: input.egressApplied ?? false,
@@ -3660,7 +3698,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -3728,6 +3766,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           Number(s.operatorAssistant),
           strOrNull(s.baseCommit), // the worktree's HEAD at create (#2761); null without one
           strOrNull(s.assistantRepo), // an Operator Assistant's repo scope; null = global / not one
+          numOrNull(s.incrementalEpicParent), // incremental-landing epic parent (#3191); null otherwise
         ],
       );
       this.setBootstrap(s.id, input);
@@ -6277,6 +6316,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // default — legacy rows migrate to NULL, which the shared predicate reads as "unknown" and
     // answers from the base-branch name instead, so in-flight epics survive the deploy.
     add("epicParent", `epicParent INTEGER`);
+    // Incremental-landing epic parent (#3191): NOT an epic-child identity (see Session). Nullable.
+    add("incrementalEpicParent", `incrementalEpicParent INTEGER`);
     // sandbox badge/banner: applied profile (nullable for legacy rows) + degrade flag.
     add("sandboxApplied", `sandboxApplied TEXT`);
     add("sandboxDegraded", `sandboxDegraded INTEGER NOT NULL DEFAULT 0`);
@@ -7221,6 +7262,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,
       epicParent: r.epicParent,
+      incrementalEpicParent: r.incrementalEpicParent,
       sandboxApplied: isSandboxProfile(r.sandboxApplied) ? r.sandboxApplied : null,
       sandboxDegraded: !!r.sandboxDegraded,
       egressApplied: !!r.egressApplied,

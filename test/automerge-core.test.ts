@@ -30,6 +30,7 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
     busy: false,
     mergeBlocked: false,
     stacked: false,
+    migrations: false,
     manualSteps: [],
     manualStepsAckedAt: null,
     ...o,
@@ -597,6 +598,53 @@ test("stacked: a stacked PR does not starve a mergeable sibling", () => {
   expect(
     computeMerge(state([sess({ stacked: true }), sess({ id: "s2", desig: "TASK-02", number: 8 })])),
   ).toEqual({ kind: "merge", sessionId: "s2", prNumber: 8, headSha: "h1" });
+});
+
+// ── Incremental epic child touching migrations: held, never landed by the train ─────────────
+
+test("migrations: an otherwise-ready PR holds instead of merging", () => {
+  expect(computeMerge(state([sess({ migrations: true })]))).toEqual({
+    kind: "hold",
+    reason: { code: "migrations", detail: "TASK-01", sessionId: "s1" },
+  });
+});
+
+test("migrations: stacked outranks it; it outranks the manual-steps hold", () => {
+  const step = { id: "ms1", text: "set env", postMerge: false };
+  expect(computeMerge(state([sess({ migrations: true, stacked: true })]))).toEqual({
+    kind: "hold",
+    reason: { code: "stacked", detail: "TASK-01", sessionId: "s1" },
+  });
+  expect(computeMerge(state([sess({ migrations: true, manualSteps: [step] })]))).toEqual({
+    kind: "hold",
+    reason: { code: "migrations", detail: "TASK-01", sessionId: "s1" },
+  });
+});
+
+test("migrations: still rebased when behind (kept current, just never merged)", () => {
+  expect(computeMerge(state([sess({ migrations: true, behind: true })]))).toEqual({
+    kind: "rebase",
+    sessionId: "s1",
+    headSha: "h1",
+    conflict: false,
+  });
+});
+
+test("migrations: does not starve a mergeable sibling", () => {
+  expect(
+    computeMerge(
+      state([sess({ migrations: true }), sess({ id: "s2", desig: "TASK-02", number: 8 })]),
+    ),
+  ).toEqual({ kind: "merge", sessionId: "s2", prNumber: 8, headSha: "h1" });
+});
+
+test("mergeWaitReason: migrations on an otherwise-ready PR; red gate first", () => {
+  const s = sess({ migrations: true });
+  expect(mergeWaitReason(s, state([s]))).toBe("migrations");
+  const red = sess({ migrations: true, checks: "pending" });
+  expect(mergeWaitReason(red, state([red]))).toBe("checks_pending");
+  const behind = sess({ migrations: true, behind: true });
+  expect(mergeWaitReason(behind, state([behind]))).toBe("behind");
 });
 
 // ── Stale verdict under conflict: a verdict on an older head counts as no verdict ────────────

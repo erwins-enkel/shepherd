@@ -806,6 +806,23 @@
         }
       }
     },
+    "automerge_state_migrations": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR ändert Datenbank-Migrationen, manuell mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR touches database migrations, merge it manually"
+          }
+        }
+      }
+    },
     "automerge_state_rebase_cap": {
       "extractionState": "manual",
       "localizations": {

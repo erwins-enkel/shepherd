@@ -1,4 +1,5 @@
 import type {
+  EpicLanding,
   AssistantPermissions,
   Session,
   ClearMergedPreview,
@@ -3232,10 +3233,12 @@ export async function getEpicDraft(sessionId: string): Promise<EpicDraft | null>
  *  Returns the created parent number/url + child numbers. */
 export async function approveEpicDraft(
   sessionId: string,
+  landing?: EpicLanding,
 ): Promise<{ parentNumber: number; parentUrl: string; childNumbers: Record<string, number> }> {
   const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/epic-draft/approve`, {
     method: "POST",
     headers: JSON_HEADERS,
+    ...(landing ? { body: JSON.stringify({ landing }) } : {}),
   });
   if (!r.ok) throw await failed(r, "epic-draft approve");
   return r.json();
@@ -3383,7 +3386,10 @@ export async function updateEpic(
   repoPath: string,
   parent: number,
   patch: Partial<
-    Pick<EpicRun, "mode" | "status" | "agentProvider" | "model" | "effort" | "ignoreUsageCeiling">
+    Pick<
+      EpicRun,
+      "mode" | "status" | "agentProvider" | "model" | "effort" | "ignoreUsageCeiling" | "landing"
+    >
   >,
   /** `requeueLeader`: a start that supersedes another epic puts it at the head of the epic queue. */
   opts: { requeueLeader?: boolean } = {},

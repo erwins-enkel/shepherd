@@ -23,6 +23,8 @@ const NO_USAGE: UsageLimitsType = {
 function fakeForge(
   subIssues: SubIssueRef[],
   listBlockedByImpl?: (n: number) => Promise<number[]>,
+  closed: number[] = [],
+  closeIssueImpl?: () => Promise<void>,
 ): GitForge {
   return {
     kind: "github",
@@ -38,7 +40,10 @@ function fakeForge(
     merge: async () => {},
     redeploy: async () => {},
     postReview: async () => ({}),
-    closeIssue: async () => {},
+    closeIssue: async (n: number) => {
+      closed.push(n);
+      if (closeIssueImpl) await closeIssueImpl();
+    },
     ensureIssueLink: async () => {},
     addIssueLabel: async () => {},
     removeIssueLabel: async () => {},
@@ -76,6 +81,9 @@ interface HarnessOpts {
   recordImpl?: () => void;
   /** Override listBlockedBy on the forge (defaults to always returning []). */
   listBlockedByImpl?: (n: number) => Promise<number[]>;
+  /** #3191: the epic's landing. */
+  landing?: "integration" | "incremental";
+  closeIssueImpl?: () => Promise<void>;
 }
 
 interface Harness {
@@ -83,6 +91,7 @@ interface Harness {
   drain: DrainService;
   completedEmits: CompletedEpic[];
   telemetryEvents: { name: string; props: any }[];
+  closed: number[];
 }
 
 function makeHarness(opts: HarnessOpts): Harness {
@@ -121,13 +130,15 @@ function makeHarness(opts: HarnessOpts): Harness {
     parentIssueNumber: PARENT,
     mode: "auto",
     status: "running",
+    ...(opts.landing ? { landing: opts.landing } : {}),
   });
 
   if (opts.recordImpl) {
     store.recordEpicCompleted = opts.recordImpl as typeof store.recordEpicCompleted;
   }
 
-  const forge = fakeForge(opts.subIssues, opts.listBlockedByImpl);
+  const closed: number[] = [];
+  const forge = fakeForge(opts.subIssues, opts.listBlockedByImpl, closed, opts.closeIssueImpl);
   const completedEmits: CompletedEpic[] = [];
   const telemetryEvents: { name: string; props: any }[] = [];
 
@@ -154,7 +165,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     rebaseCap: 5,
   });
 
-  return { store, drain, completedEmits, telemetryEvents };
+  return { store, drain, completedEmits, telemetryEvents, closed };
 }
 
 describe("epic auto-complete → record before idle flip (#635)", () => {
@@ -260,5 +271,40 @@ describe("epic auto-complete → record before idle flip (#635)", () => {
     expect(closed.mergedAt).toBeNull();
 
     expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+  });
+});
+
+describe("incremental epic completion (#3191)", () => {
+  test("all merged: no epic_completed row, parent closed, run idle(completed), queue promoted", async () => {
+    const h = makeHarness({ subIssues: [sub(320, true), sub(321, true)], landing: "incremental" });
+    h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: 400, mode: "auto" });
+
+    await h.drain.pump(REPO);
+
+    expect(h.store.listEpicCompleted(REPO)).toHaveLength(0);
+    expect(h.completedEmits).toHaveLength(0);
+    expect(h.closed).toEqual([PARENT]);
+    expect(h.store.getEpicRunEnd(REPO, PARENT)).toMatchObject({ cause: "completed" });
+    expect(h.store.getEpicIntegrationBranch(REPO, PARENT)).toBeNull();
+    // The queue's head took over the repo.
+    expect(h.store.getEpicRun(REPO)).toMatchObject({ parentIssueNumber: 400, status: "running" });
+    expect(h.telemetryEvents.filter((e) => e.name === "epic_drained")).toHaveLength(1);
+  });
+
+  test("a failed parent close only logs: the run still completes", async () => {
+    // console.warn "[drain] closing incremental epic …" is expected here
+    const h = makeHarness({
+      subIssues: [sub(320, true)],
+      landing: "incremental",
+      closeIssueImpl: async () => {
+        throw new Error("rate limited");
+      },
+    });
+
+    await h.drain.pump(REPO);
+
+    expect(h.closed).toEqual([PARENT]);
+    expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    expect(h.store.listEpicCompleted(REPO)).toHaveLength(0);
   });
 });

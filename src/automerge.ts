@@ -13,12 +13,14 @@ import {
 } from "./automerge-core";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
+import { detectMigrationPaths } from "./epic-migrations";
 
 /** Live per-repo merge-train status pushed to clients. */
 export interface AutoMergeStatus {
   repoPath: string;
   enabled: boolean;
-  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" while acting/paused; null when idle. */
+  /** "merging" | "rebasing" | "merge_error" | "rebase_cap", or a hold code ("stacked",
+   *  "migrations", "manual_steps") while acting/paused; null when idle. */
   state: string | null;
   /** A desig for the operator banner, when relevant. */
   detail: string | null;
@@ -117,6 +119,10 @@ export class AutoMergeService {
    *  PR from then on instead of re-probing every pump. Keyed by head so a new push re-tests: a PR
    *  can leave a stack. In-memory only; a restart simply re-learns on the next attempt. */
   private stackedHold = new Map<string, string>();
+  /** Incremental-epic children's migration probe, keyed by session and the head SHA it was read
+   *  on: a new push re-probes. Only successful reads are cached (a failed read holds this pump and
+   *  retries on the next). Pruned to live sessions on every buildState. In-memory only. */
+  private migrationsCache = new Map<string, { head: string; migrations: boolean }>();
   /** Per-repo wait reasons from the latest buildState, attached to every emitted status. */
   private waiting = new Map<string, AutoMergeWait[]>();
   private now: () => number;
@@ -219,17 +225,50 @@ export class AutoMergeService {
       busy: s.status === "running" || s.status === "blocked",
       mergeBlocked: this.computeMergeBlocked(s.id, pr.headSha),
       stacked: this.stackedHold.get(s.id) === (pr.headSha ?? ""),
+      migrations: await this.touchesMigrations(s, pr.state, pr.number, pr.headSha),
       manualSteps: s.manualSteps,
       manualStepsAckedAt: s.manualStepsAckedAt,
     };
   }
 
+  /** Does this incremental-epic child's open PR touch migration paths? Fails CLOSED (true) when
+   *  the forge cannot list PR files or the read throws, so a human merges. Sessions that are not
+   *  incremental-epic children (or have no open PR) never probe — zero extra forge calls. */
+  private async touchesMigrations(
+    s: Session,
+    state: string,
+    prNumber: number | null,
+    headSha: string | null,
+  ): Promise<boolean> {
+    if (s.incrementalEpicParent == null || state !== "open" || !prNumber) return false;
+    const hit = this.migrationsCache.get(s.id);
+    if (hit && headSha !== null && hit.head === headSha) return hit.migrations;
+    const forge = this.deps.resolveForge(s.repoPath);
+    if (!forge?.prChangedPaths) return true;
+    try {
+      const migrations = detectMigrationPaths(await forge.prChangedPaths(prNumber)).length > 0;
+      if (headSha !== null) this.migrationsCache.set(s.id, { head: headSha, migrations });
+      return migrations;
+    } catch (err) {
+      console.warn(`[automerge] pr#${prNumber} changed-paths read failed; holding ${s.id}:`, err);
+      return true;
+    }
+  }
+
+  /** Drop migration-probe entries for sessions no longer live, so the cache stays bounded. */
+  private pruneMigrationsCache(live: Session[]): void {
+    if (this.migrationsCache.size === 0) return;
+    const ids = new Set(live.filter((s) => s.status !== "archived").map((s) => s.id));
+    for (const id of this.migrationsCache.keys()) if (!ids.has(id)) this.migrationsCache.delete(id);
+  }
+
   private async buildState(repoPath: string): Promise<MergeRepoState> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
     const snapshot = this.deps.prCache.snapshot();
+    const all = this.deps.store.list();
+    this.pruneMigrationsCache(all);
     const sessions: MergeSessionView[] = await Promise.all(
-      this.deps.store
-        .list()
+      all
         .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
         .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi)),
     );

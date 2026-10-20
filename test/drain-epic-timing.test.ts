@@ -129,7 +129,8 @@ describe("buildEpic attaches the epic clock and per-child timing", () => {
       landedAt: null,
       agentMs: 26 * MIN,
       idleMs: 34 * MIN,
-    });
+    }); // #3191: the clock exists, so the epic's landing can no longer change.
+    expect(epic.landingLocked).toBe(true);
   });
 
   test("an epic that never ran reports no clock", async () => {

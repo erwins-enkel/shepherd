@@ -18,7 +18,8 @@
     ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
-  import { epicRunStateExplanation } from "#lib/tooltips/explanations.js";
+  import { epicLandingExplanation, epicRunStateExplanation } from "#lib/tooltips/explanations.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import {
     epicBaseActions,
     epicRole,
@@ -239,6 +240,25 @@
     }).catch(updateFailed);
   }
 
+  // #3191: integration branch vs incremental. Fixed once the epic has run — the server answers a
+  // late change with 409, which gets its own toast.
+  const landing = $derived(epic.run.landing ?? "integration");
+  const landingLocked = $derived(epic.landingLocked === true);
+  const landingText = $derived(
+    landing === "incremental" ? m.epic_landing_incremental() : m.epic_landing_integration(),
+  );
+
+  function toggleLanding() {
+    if (landingLocked) return;
+    updateEpic(repoPath, parent, {
+      landing: landing === "incremental" ? "integration" : "incremental",
+    }).catch((err: unknown) => {
+      if (err instanceof ApiError && err.status === 409) {
+        toasts.info(m.epic_landing_locked_failed(), { alert: true, key: "epic-update-fail" });
+      } else updateFailed();
+    });
+  }
+
   function approveNext() {
     approveEpicNext(repoPath, parent).catch(() =>
       toasts.info(m.epic_approve_failed(), { alert: true, key: "epic-approve-fail" }),
@@ -291,6 +311,22 @@
       onclick={toggleMode}
     >
       {epic.run.mode === "auto" ? m.epic_mode_auto() : m.epic_mode_attended()}
+    </button>
+    <!-- aria-disabled, not disabled: a locked toggle must stay hoverable/focusable so its
+         explanation (why it is locked) is still reachable. -->
+    <button
+      class="gbtn"
+      type="button"
+      data-epic-landing={landing}
+      aria-label={m.epic_landing_aria({ landing: landingText })}
+      aria-disabled={landingLocked}
+      use:statusTip={{
+        text: epicLandingExplanation(landingLocked),
+        stopClickPropagation: false,
+      }}
+      onclick={toggleLanding}
+    >
+      {landingText}
     </button>
     {#if position != null && !running}
       <button class="gbtn" type="button" title={m.epic_unqueue_title()} onclick={unqueue}
@@ -526,13 +562,17 @@
     padding: 2px 8px;
     cursor: pointer;
   }
-  .gbtn:hover:not(:disabled),
+  .gbtn:hover:not(:disabled, [aria-disabled="true"]),
   .gbtn[aria-expanded="true"] {
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
   .gbtn:disabled {
     cursor: progress;
+    opacity: 0.6;
+  }
+  .gbtn[aria-disabled="true"] {
+    cursor: not-allowed;
     opacity: 0.6;
   }
   .gbtn:focus-visible {

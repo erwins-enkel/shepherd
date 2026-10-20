@@ -140,6 +140,28 @@ waiting; starting a different epic puts that one in front of the queue.
 A landing-PR repair session (CI repair or conflict rework) does not take one of the repo's agent
 slots.
 
+### Incremental landing
+
+By default an epic lands through its integration branch: children merge into `epic/<#>-<slug>`,
+and one landing PR ships the whole epic to `main` at once. For an epic whose children can each ship
+on their own, switch **Landing** to **Incremental** in the epic's run area, or pick it when you
+approve an epic draft.
+
+In incremental mode:
+
+- Each child bases on `main` and opens its PR against `main`. There is no integration branch and no
+  landing PR.
+- A child PR merges like any other PR in the repo. The merge train lands it when the session is
+  full-auto. Otherwise it waits for you to merge it.
+- A child PR that touches database migrations is never merged by the merge train. It is held as
+  **migrations**, and you merge it by hand.
+- Shepherd closes the parent issue when the last child is done.
+- `main` holds a partly shipped epic until the last child lands. Don't use this mode for an epic
+  that ships one feature in slices.
+- Stacked epic children are not used in this mode.
+
+You can change **Landing** only before the epic first runs. After that it is locked.
+
 ## How long will this epic take?
 
 Hover an epic's **EPIC** badge in the Herd to see how long it has run and when it is forecast to

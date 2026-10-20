@@ -1280,6 +1280,7 @@ components:
           critic_pending,
           stacked,
           manual_steps,
+          migrations,
           no_ci,
         ]
     LimitWindow:
@@ -4482,6 +4483,10 @@ components:
       type: string
       x-shepherd-open-enum: true
       enum: [auto, attended]
+    EpicLanding:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [integration, incremental]
     EpicRunStatus:
       type: string
       x-shepherd-open-enum: true
@@ -4560,6 +4565,11 @@ components:
             type: boolean,
             description: The operator lifted the repo's usage ceiling for this run. Only ever true while status is running; any write that leaves running clears it.,
           }
+        landing:
+          {
+            $ref: "#/components/schemas/EpicLanding",
+            description: "How the epic's children land (EpicLanding in src/epic-core.ts): integration bases and merges them into the epic's integration branch, which lands as one PR; incremental bases and merges each on the default branch. Absent = integration.",
+          }
     Epic:
       type: object
       additionalProperties: true
@@ -4584,6 +4594,11 @@ components:
           {
             "oneOf": [{ "$ref": "#/components/schemas/EpicForecast" }, { "type": "null" }],
             description: "When the epic lands; null when there is no data to forecast from, or once it landed. Always sent by the current server; optional so an older server stays valid.",
+          }
+        landingLocked:
+          {
+            type: boolean,
+            description: "True once the epic's clock exists (it ran): run.landing can no longer change. Always sent by the current server; optional so an older server stays valid.",
           }
     EpicTiming:
       type: object
@@ -4741,7 +4756,9 @@ components:
         PUT /api/epic body (validateEpicRunPatch in src/validate.ts). Every field optional; absent
         keeps the stored value. model/effort null or "default" clear back to the provider default;
         model is checked against agentProvider when both are sent. ignoreUsageCeiling true lifts
-        the repo's usage ceiling for this run and needs the resulting run to be running.
+        the repo's usage ceiling for this run and needs the resulting run to be running. landing
+        can change only until the epic started (Epic.landingLocked); sending the current value is
+        a no-op.
       properties:
         mode: { type: string, enum: [auto, attended] }
         status: { type: string, enum: [idle, running, paused] }
@@ -4750,6 +4767,7 @@ components:
         model: { type: [string, "null"] }
         effort: { type: [string, "null"] }
         ignoreUsageCeiling: { type: boolean }
+        landing: { type: string, enum: [integration, incremental] }
     EpicUpdateResult:
       description: >-
         PUT /api/epic and POST /api/epic/approve-next answer the re-assembled Epic, or `{ok: true}`
@@ -9248,7 +9266,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
-          description: 'error is "another epic leads": status idle or paused for an epic that does not lead while another one runs or is paused; or "epic not running": ignoreUsageCeiling true while the resulting run is not running.'
+          description: 'error is "another epic leads": status idle or paused for an epic that does not lead while another one runs or is paused; or "epic not running": ignoreUsageCeiling true while the resulting run is not running; or "landing locked": a landing change once the epic started (Epic.landingLocked).'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

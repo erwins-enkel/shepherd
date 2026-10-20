@@ -31,6 +31,8 @@ import {
 } from "./epic-branch";
 import {
   epicQuiescentForCadenceRebase,
+  epicLandingLocked,
+  effectiveEpicLanding,
   epicNotYetStarted,
   unlandedPredecessorEpics,
   queuedEpicRun,
@@ -729,34 +731,12 @@ export class DrainService {
       }));
     const integrated = this.deps.store.listEpicIntegrated(repoPath, run.parentIssueNumber);
     const parentTitle = struct.parent?.title ?? `#${run.parentIssueNumber}`;
-    // The pinned canonical name (#645) — divergence is measured against THIS, not the live title.
-    const persistedBranch = this.deps.store.getOrInitEpicIntegrationBranch(
-      repoPath,
-      run.parentIssueNumber,
-      epicBranchName(run.parentIssueNumber, parentTitle),
-    );
-    // (b) recorded merge base per integrated child (null bases — legacy rows — are skipped).
     const integratedDetails = this.deps.store.listEpicIntegratedDetails(
       repoPath,
       run.parentIssueNumber,
     );
-    const integratedBases = new Map<number, string>();
-    for (const d of integratedDetails) {
-      if (d.mergedBase) integratedBases.set(d.childNumber, d.mergedBase);
-    }
-    // (c) throttled host scan for stray epic/* refs that reference this epic.
-    const divergentBranches = await this.scanDivergentEpicBranches(
-      repoPath,
-      run.parentIssueNumber,
-      persistedBranch,
-    );
-    // (Task 2) children parked at retire because their PR targets the wrong base.
-    const recordedMismatches = this.deps.store.listEpicBaseMismatches(
-      repoPath,
-      run.parentIssueNumber,
-    );
-    // (#3102) children whose PR merged out of band into a non-epic branch.
-    const recordedOffEpic = offEpicMerges(repoPath, run.parentIssueNumber, all, integrated);
+    const facts = await this.epicBranchFacts(repoPath, run, parentTitle, all, integratedDetails);
+    const { persistedBranch, recordedMismatches, recordedOffEpic } = facts;
     const base = {
       repoPath,
       run,
@@ -772,8 +752,8 @@ export class DrainService {
       openIssuesTruncated,
       sessions,
       persistedBranch,
-      integratedBases,
-      divergentBranches,
+      integratedBases: facts.integratedBases,
+      divergentBranches: facts.divergentBranches,
       // (#2070) stacks dissolved after losing a middle layer — blocking, and it supersedes the
       // generic base-mismatch remedy for the children it stranded.
       stackWedges: this.deps.store.listEpicStackWedges(repoPath, run.parentIssueNumber),
@@ -785,7 +765,9 @@ export class DrainService {
       // the forge is gone), and the warning asserts a specific, checkable fact — "this forge cannot
       // create branches". Claiming that when we simply couldn't ask would be a false statement to
       // the operator, so no-forge stays silent (true) rather than warning for the wrong reason.
-      integrationBranchSupported: forgeCanEnsureBranch(this.deps.resolveForge(repoPath)),
+      // #3191: an incremental epic never uses an integration branch, so the degrade is moot.
+      integrationBranchSupported:
+        persistedBranch == null || forgeCanEnsureBranch(this.deps.resolveForge(repoPath)),
     };
     // Self-heal orphaned base-mismatch markers (#645). The marker is only cleared inside the
     // retire path (doRetire → epicChildBaseBlocked), which re-runs only while the child PR is
@@ -820,6 +802,59 @@ export class DrainService {
         : assembleEpic({ ...base, baseMismatches: liveMismatches, offEpicMerges: liveOffEpic });
     const runEnd = this.deps.store.getEpicRunEnd(repoPath, run.parentIssueNumber);
     return this.timeEpic(repoPath, runEnd ? { ...epic, runEnd } : epic, all, integratedDetails);
+  }
+
+  /** The pin-keyed inputs of {@link buildEpic}'s divergence / base warnings. An incremental epic
+   *  (#3191) has no integration branch: nothing is pinned (a view must never pin — that would
+   *  re-arm every branch-keyed pass) and none of these warnings apply. */
+  private async epicBranchFacts(
+    repoPath: string,
+    run: EpicRun,
+    parentTitle: string,
+    all: Session[],
+    integratedDetails: ReturnType<SessionStore["listEpicIntegratedDetails"]>,
+  ): Promise<{
+    persistedBranch: string | null;
+    integratedBases: Map<number, string>;
+    divergentBranches: string[];
+    recordedMismatches: ReturnType<SessionStore["listEpicBaseMismatches"]>;
+    recordedOffEpic: { childNumber: number; spawnBase: string }[];
+  }> {
+    const integratedBases = new Map<number, string>();
+    if (effectiveEpicLanding(run) === "incremental")
+      return {
+        persistedBranch: null,
+        integratedBases,
+        divergentBranches: [],
+        recordedMismatches: [],
+        recordedOffEpic: [],
+      };
+    const parent = run.parentIssueNumber;
+    // The pinned canonical name (#645) — divergence is measured against THIS, not the live title.
+    const persistedBranch = this.deps.store.getOrInitEpicIntegrationBranch(
+      repoPath,
+      parent,
+      epicBranchName(parent, parentTitle),
+    );
+    // (b) recorded merge base per integrated child (null bases — legacy rows — are skipped).
+    for (const d of integratedDetails) {
+      if (d.mergedBase) integratedBases.set(d.childNumber, d.mergedBase);
+    }
+    return {
+      persistedBranch,
+      integratedBases,
+      // (c) throttled host scan for stray epic/* refs that reference this epic.
+      divergentBranches: await this.scanDivergentEpicBranches(repoPath, parent, persistedBranch),
+      // (Task 2) children parked at retire because their PR targets the wrong base.
+      recordedMismatches: this.deps.store.listEpicBaseMismatches(repoPath, parent),
+      // (#3102) children whose PR merged out of band into a non-epic branch.
+      recordedOffEpic: offEpicMerges(
+        repoPath,
+        parent,
+        all,
+        new Set(integratedDetails.map((d) => d.childNumber)),
+      ),
+    };
   }
 
   /** Attach the epic clock and per-child start/end (see {@link withEpicTiming}), then the forecast
@@ -869,7 +904,8 @@ export class DrainService {
         epic.parentIssueNumber,
         forecast.firstFinishAt,
       );
-    return { ...timed, forecast };
+    const landingLocked = epicLandingLocked({ hasClock: clock != null });
+    return { ...timed, forecast, landingLocked };
   }
 
   /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). Reuses the
@@ -1046,6 +1082,7 @@ export class DrainService {
     let epicProviderSettings: DrainRepoState["epicProviderSettings"] = null;
     let epicStackBases: DrainRepoState["epicStackBases"] = null;
     let stackHeldSessions: ReadonlySet<string> = EMPTY_SESSION_SET;
+    let epicIncrementalParent: number | null = null;
     let spawnAgentProvider = config.defaultAgentProvider;
     let builtEpic: Epic | null = null;
     // Read-only runSummary.next source: the epic's candidates even while the run is PAUSED (the
@@ -1068,21 +1105,13 @@ export class DrainService {
             }
           : null;
         spawnAgentProvider = epicRun!.agentProvider ?? config.defaultAgentProvider;
-        // Pin the canonical name once (#645): re-deriving from the live title would re-point
-        // spawns + the landing base on a mid-run title edit, orphaning already-merged children.
-        epicIntegrationBranch = this.deps.store.getOrInitEpicIntegrationBranch(
-          repoPath,
-          builtEpic.parentIssueNumber,
-          epicBranchName(builtEpic.parentIssueNumber, builtEpic.parentTitle),
-        );
-        // #2069: with `epicStacksEnabled`, a child whose only outstanding blocker is a chain
-        // predecessor with an OPEN PR is admitted early and based on that predecessor's branch.
-        // An absent `ctx` (flag off / no forge support / nothing stackable) ⇒ the pre-#2069 call.
-        const stack = this.epicStackContext(repoPath, cfg, builtEpic);
-        epicStackBases = stack.baseByChild;
-        stackHeldSessions = this.stackHeldSessions(repoPath, cfg, builtEpic);
+        const branchState = this.epicBranchState(repoPath, cfg, epicRun!, builtEpic);
+        epicIntegrationBranch = branchState.integrationBranch;
+        epicStackBases = branchState.stackBases;
+        stackHeldSessions = branchState.stackHeld;
+        epicIncrementalParent = branchState.incrementalParent;
         epicChildren = builtEpic.children;
-        summaryCandidates = selectEpicCandidates(epicChildren, stack.ctx);
+        summaryCandidates = selectEpicCandidates(epicChildren, branchState.ctx);
         if (epicRun!.status === "running") candidates = summaryCandidates;
         epicAttended = epicRun!.mode === "attended";
       }
@@ -1124,6 +1153,7 @@ export class DrainService {
         epicIntegrationBranch,
         epicProviderSettings,
         epicStackBases,
+        epicIncrementalParent,
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
         epicUnreadable: stall.epicUnreadable,
@@ -1140,6 +1170,50 @@ export class DrainService {
         }),
       },
       epic: builtEpic,
+    };
+  }
+
+  /** The branch half of {@link buildState} for the active epic: its pinned integration branch and
+   *  stacks. An incremental epic (#3191) has none of them — children base on the default branch
+   *  and land one at a time — so nothing is pinned; only its parent is carried, to stamp each
+   *  child's `incrementalEpicParent`. */
+  private epicBranchState(
+    repoPath: string,
+    cfg: RepoConfig,
+    run: EpicRun,
+    epic: Epic,
+  ): {
+    integrationBranch: string | null;
+    stackBases: DrainRepoState["epicStackBases"];
+    stackHeld: ReadonlySet<string>;
+    ctx: EpicStackContext | undefined;
+    incrementalParent: number | null;
+  } {
+    if (effectiveEpicLanding(run) === "incremental")
+      return {
+        integrationBranch: null,
+        stackBases: null,
+        stackHeld: EMPTY_SESSION_SET,
+        ctx: undefined,
+        incrementalParent: run.parentIssueNumber,
+      };
+    // Pin the canonical name once (#645): re-deriving from the live title would re-point
+    // spawns + the landing base on a mid-run title edit, orphaning already-merged children.
+    const integrationBranch = this.deps.store.getOrInitEpicIntegrationBranch(
+      repoPath,
+      epic.parentIssueNumber,
+      epicBranchName(epic.parentIssueNumber, epic.parentTitle),
+    );
+    // #2069: with `epicStacksEnabled`, a child whose only outstanding blocker is a chain
+    // predecessor with an OPEN PR is admitted early and based on that predecessor's branch.
+    // An absent `ctx` (flag off / no forge support / nothing stackable) ⇒ the pre-#2069 call.
+    const stack = this.epicStackContext(repoPath, cfg, epic);
+    return {
+      integrationBranch,
+      stackBases: stack.baseByChild,
+      stackHeld: this.stackHeldSessions(repoPath, cfg, epic),
+      ctx: stack.ctx,
+      incrementalParent: null,
     };
   }
 
@@ -1772,71 +1846,98 @@ export class DrainService {
    * Returns true when it auto-completed the epic this call (running→idle).
    */
   private handleEpicSideEffects(repoPath: string, epicRun: EpicRun, epic: Epic): boolean {
-    if (
+    const allMerged =
       epicRun.status === "running" &&
       epic.children.length > 0 &&
-      epic.children.every((c) => c.state === "merged")
-    ) {
-      // CONTRACT(#635): record before status flip — persist the durable completed-epic
-      // rollup (+ emit) BEFORE flipping to idle, and gate the flip on the record succeeding.
-      // A failed record leaves the epic running so the next pump re-observes all-merged and
-      // retries the idempotent upsert, rather than silently losing the rollup.
-      try {
-        const rollup = buildRollup(
-          epic.children,
-          this.deps.store.listEpicIntegratedDetails(repoPath, epicRun.parentIssueNumber),
-        );
-        const completed: CompletedEpic = {
-          repoPath,
-          parentIssueNumber: epicRun.parentIssueNumber,
-          parentTitle: epic.parentTitle,
-          completedAt: this.now(),
-          children: rollup,
-          integrationBranch: this.deps.store.getEpicIntegrationBranch(
-            repoPath,
-            epicRun.parentIssueNumber,
-          ),
-          // Recorded as pending — its final state here; ensureLandingPr (driven by the
-          // autonomous tick) opens the landing PR and transitions landingState/landingPrNumber.
-          landingPrNumber: null,
-          landingPrUrl: null,
-          landingState: "pending",
-          // Migration detection (#645) runs at landing-open, not completion — see ensureLandingPr.
-          migrationPaths: [],
-          migrationsAckedAt: null,
-          landingRebasePauseReason: null,
-          landingRepairCount: 0,
-          landingRepairHead: null,
-          landingConflictReworkCount: 0,
-        };
-        this.deps.store.recordEpicCompleted({
-          repoPath: completed.repoPath,
-          parentIssueNumber: completed.parentIssueNumber,
-          parentTitle: completed.parentTitle,
-          completedAt: completed.completedAt,
-          childrenJson: JSON.stringify(rollup),
-        });
-        this.deps.emitEpicCompleted?.(completed);
-      } catch (err) {
-        console.warn(
-          `[drain] epic-completed record failed for ${repoPath}#${epicRun.parentIssueNumber}:`,
-          err,
-        );
-        this.emitEpicIfChanged(repoPath, epic);
-        return false; // CONTRACT(#635): stay running, retry next pump
-      }
-      const completedRun = { ...epicRun, status: "idle" as const };
-      this.deps.store.setEpicRun(completedRun, { completed: true });
-      // Emit a final epic:update reflecting the completed/idle state before
-      // the next buildState sees idle and stops emitting epicParent — re-timed, so it carries
-      // the stopped clock and the landing start the completion just recorded.
-      this.emitEpicIfChanged(repoPath, this.timeEpic(repoPath, { ...epic, run: completedRun }));
-      this.deps.telemetry?.event("epic_drained", { childCount: epic.children.length });
-      this.promoteQueuedEpic(repoPath);
-      return true;
-    } else {
+      epic.children.every((c) => c.state === "merged");
+    // #3191: an incremental epic's children already landed on the default branch — there is no
+    // rollup to record and no landing PR; pumpStep closes its parent instead.
+    const recorded =
+      allMerged &&
+      (effectiveEpicLanding(epicRun) === "incremental" ||
+        this.recordEpicCompletion(repoPath, epicRun, epic));
+    if (!recorded) {
+      // Not done — or CONTRACT(#635): the record failed, stay running and retry next pump.
       this.emitEpicIfChanged(repoPath, epic);
       return false;
+    }
+    const completedRun = { ...epicRun, status: "idle" as const };
+    this.deps.store.setEpicRun(completedRun, { completed: true });
+    // Emit a final epic:update reflecting the completed/idle state before
+    // the next buildState sees idle and stops emitting epicParent — re-timed, so it carries
+    // the stopped clock and the landing start the completion just recorded.
+    this.emitEpicIfChanged(repoPath, this.timeEpic(repoPath, { ...epic, run: completedRun }));
+    this.deps.telemetry?.event("epic_drained", { childCount: epic.children.length });
+    this.promoteQueuedEpic(repoPath);
+    return true;
+  }
+
+  /** CONTRACT(#635): record before status flip — persist the durable completed-epic rollup (+ emit)
+   *  BEFORE {@link handleEpicSideEffects} flips the run to idle, and gate the flip on the record
+   *  succeeding. A failed record (false) leaves the epic running so the next pump re-observes
+   *  all-merged and retries the idempotent upsert, rather than silently losing the rollup. */
+  private recordEpicCompletion(repoPath: string, epicRun: EpicRun, epic: Epic): boolean {
+    try {
+      const rollup = buildRollup(
+        epic.children,
+        this.deps.store.listEpicIntegratedDetails(repoPath, epicRun.parentIssueNumber),
+      );
+      const completed: CompletedEpic = {
+        repoPath,
+        parentIssueNumber: epicRun.parentIssueNumber,
+        parentTitle: epic.parentTitle,
+        completedAt: this.now(),
+        children: rollup,
+        integrationBranch: this.deps.store.getEpicIntegrationBranch(
+          repoPath,
+          epicRun.parentIssueNumber,
+        ),
+        // Recorded as pending — its final state here; ensureLandingPr (driven by the
+        // autonomous tick) opens the landing PR and transitions landingState/landingPrNumber.
+        landingPrNumber: null,
+        landingPrUrl: null,
+        landingState: "pending",
+        // Migration detection (#645) runs at landing-open, not completion — see ensureLandingPr.
+        migrationPaths: [],
+        migrationsAckedAt: null,
+        landingRebasePauseReason: null,
+        landingRepairCount: 0,
+        landingRepairHead: null,
+        landingConflictReworkCount: 0,
+      };
+      this.deps.store.recordEpicCompleted({
+        repoPath: completed.repoPath,
+        parentIssueNumber: completed.parentIssueNumber,
+        parentTitle: completed.parentTitle,
+        completedAt: completed.completedAt,
+        childrenJson: JSON.stringify(rollup),
+      });
+      this.deps.emitEpicCompleted?.(completed);
+      return true;
+    } catch (err) {
+      console.warn(
+        `[drain] epic-completed record failed for ${repoPath}#${epicRun.parentIssueNumber}:`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  /** The completion edge after {@link handleEpicSideEffects} flipped the run idle: an integration
+   *  epic opens its landing PR; an incremental one (#3191) closes its parent issue. */
+  private async afterEpicCompleted(repoPath: string, epic: Epic): Promise<void> {
+    if (effectiveEpicLanding(epic.run) === "incremental")
+      await this.closeIncrementalParent(repoPath, epic.parentIssueNumber);
+    else await this.openLandingPrOnComplete(repoPath, epic);
+  }
+
+  /** #3191: every child of an incremental epic landed on its own, so the epic is done — close its
+   *  parent issue. Best-effort: a failure only logs; the completed-epics reconcile retries it. */
+  private async closeIncrementalParent(repoPath: string, parent: number): Promise<void> {
+    try {
+      await this.deps.resolveForge(repoPath)?.closeIssue?.(parent);
+    } catch (err) {
+      console.warn(`[drain] closing incremental epic #${parent} failed for ${repoPath}:`, err);
     }
   }
 
@@ -3972,7 +4073,7 @@ export class DrainService {
         const epicRun = this.deps.store.getEpicRun(repoPath);
         if (epicRun) epicAutoCompleted = this.handleEpicSideEffects(repoPath, epicRun, epic);
       }
-      if (epicAutoCompleted && epic) await this.openLandingPrOnComplete(repoPath, epic);
+      if (epicAutoCompleted && epic) await this.afterEpicCompleted(repoPath, epic);
       decision = computeNext(state);
       // When the epic just auto-completed (running→idle), the state we built still
       // carries epicParent from the now-idle run. Emit a corrected status built from
@@ -4609,6 +4710,8 @@ export class DrainService {
         auto: true,
         issueRef: { number, url, title, body },
         epicParent, // persisted epic-child identity; null for a label-drain or degraded spawn
+        // #3191: an incremental epic's child — an ordinary session that lands on its own.
+        incrementalEpicParent: decision.incrementalEpicParent ?? null,
       });
       this.spawnFailures.delete(failKey); // #790: clear any prior failure cooldown on success
       // The new auto session appears in the next buildState → counts toward the

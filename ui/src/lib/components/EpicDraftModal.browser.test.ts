@@ -9,6 +9,9 @@ import { expectMinPx } from "#lib/test-support/geometry.js";
 import { m } from "#lib/paraglide/messages.js";
 import EpicDraftModal from "./EpicDraftModal.svelte";
 
+const approve = vi.hoisted(() => ({ approveEpic: vi.fn(async () => {}) }));
+vi.mock("#lib/epic-approve.js", () => approve);
+
 function longDraft(sessionId: string): EpicDraft {
   return {
     sessionId,
@@ -378,6 +381,42 @@ describe("EpicDraftModal — seen marks", () => {
       m.epicdraft_seen_progress({ seen: ticks(), total: 12 }),
     );
 
+    unmount();
+  });
+});
+
+describe("EpicDraftModal landing choice (#3191)", () => {
+  beforeEach(() => approve.approveEpic.mockClear());
+
+  it("defaults to the integration branch and sends no landing", async () => {
+    const sessionId = "epic-draft-landing-default";
+    epicDrafts.upsert(longDraft(sessionId));
+    const { unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+
+    await expect
+      .element(page.getByRole("radio", { name: m.epic_landing_integration() }))
+      .toBeChecked();
+    await page.getByRole("button", { name: m.epicdraft_approve_count({ count: 13 }) }).click();
+    expect(approve.approveEpic).toHaveBeenCalledWith(sessionId, undefined);
+    unmount();
+  });
+
+  it("passes incremental through to approveEpic", async () => {
+    const sessionId = "epic-draft-landing-incremental";
+    epicDrafts.upsert(longDraft(sessionId));
+    const { unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+
+    await page.getByRole("radio", { name: m.epic_landing_incremental() }).click();
+    await page.getByRole("button", { name: m.epicdraft_approve_count({ count: 13 }) }).click();
+    expect(approve.approveEpic).toHaveBeenCalledWith(sessionId, "incremental");
     unmount();
   });
 });

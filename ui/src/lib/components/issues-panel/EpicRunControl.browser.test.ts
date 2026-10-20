@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
@@ -243,6 +244,65 @@ describe("EpicRunControl actions", () => {
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { status: "paused" });
     await page.getByRole("button", { name: m.epic_mode_auto_aria() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { mode: "attended" });
+  });
+
+  it("landing toggle switches integration → incremental (#3191)", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: { ...epic(B, { status: "idle" }), landingLocked: false },
+      drain: drain(),
+      titleFor,
+    });
+
+    const toggle = page.getByRole("button", {
+      name: m.epic_landing_aria({ landing: m.epic_landing_integration() }),
+    });
+    await expect.element(toggle).toHaveTextContent(m.epic_landing_integration());
+    await expect.element(toggle).not.toHaveAttribute("aria-disabled", "true");
+    await toggle.click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { landing: "incremental" });
+  });
+
+  it("landing toggle is locked once the epic has run, explaining why (#3191)", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: { ...epic(B, { landing: "incremental" }), landingLocked: true },
+      drain: drain(),
+      titleFor,
+    });
+
+    const toggle = page.getByRole("button", {
+      name: m.epic_landing_aria({ landing: m.epic_landing_incremental() }),
+    });
+    await expect.element(toggle).toHaveAttribute("aria-disabled", "true");
+    expect(toggle.element().getAttribute("aria-description")).toContain(
+      m.tooltip_epic_landing_locked_body(),
+    );
+    // Playwright refuses to click an aria-disabled control; the DOM click still reaches the handler.
+    (toggle.element() as HTMLButtonElement).click();
+    await tick();
+    expect(api.updateEpic).not.toHaveBeenCalled();
+  });
+
+  it("a 409 landing change toasts the lock (#3191)", async () => {
+    api.updateEpic.mockRejectedValueOnce(new ApiError(409, "landing locked"));
+    toasts.dismissKey("epic-update-fail");
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B, { status: "idle" }),
+      drain: drain(),
+      titleFor,
+    });
+
+    await page
+      .getByRole("button", { name: m.epic_landing_aria({ landing: m.epic_landing_integration() }) })
+      .click();
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.epic_landing_locked_failed())).toBe(true),
+    );
   });
 
   it("an idle epic outside the run shows Start and no steps", async () => {

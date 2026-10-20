@@ -95,6 +95,49 @@ import type {
   WorkflowRun,
 } from "./types";
 
+type ClaimReferenceSubject = { __typename: string; number?: number; url?: string; state?: string };
+type ClaimReferenceTimeline = {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  nodes: ({
+    __typename?: string;
+    source: ClaimReferenceSubject | null;
+    subject?: ClaimReferenceSubject | null;
+  } | null)[];
+};
+
+function collectClaimReferences(
+  timeline: ClaimReferenceTimeline,
+  references: Map<string, IssuePullRequestReference>,
+): boolean {
+  for (const event of timeline.nodes) {
+    if (
+      !event?.source ||
+      !["Issue", "PullRequest"].includes(event.source.__typename) ||
+      (event.__typename === "ConnectedEvent" && !event.subject)
+    )
+      return false;
+    if (!collectClaimPullRequests([event.source, event.subject], references)) return false;
+  }
+  return true;
+}
+
+function collectClaimPullRequests(
+  subjects: (ClaimReferenceSubject | null | undefined)[],
+  references: Map<string, IssuePullRequestReference>,
+): boolean {
+  for (const pr of subjects) {
+    if (!pr || pr.__typename !== "PullRequest") continue;
+    if (!pr.number || !pr.url || !["OPEN", "MERGED", "CLOSED"].includes(pr.state ?? ""))
+      return false;
+    references.set(pr.url, {
+      number: pr.number,
+      url: pr.url,
+      state: pr.state!.toLowerCase() as IssuePullRequestReference["state"],
+    });
+  }
+  return true;
+}
+
 /** Poll cadence for GitHub's async merge API (#2059). Bounded by ATTEMPTS rather than wall
  *  clock so an injected no-op sleeper makes the budget-exhaustion path testable instantly.
  *  15 × 2s = 30s, after which the merge is still in flight host-side — see MergePendingError,
@@ -3980,11 +4023,6 @@ export class GithubForge implements GitForge {
     const query = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){timelineItems(first:100,after:$cursor,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT]){pageInfo{hasNextPage endCursor}nodes{__typename ... on CrossReferencedEvent{source{${fields}}} ... on ConnectedEvent{source{${fields}} subject{${fields}}}}}}}`;
     const references = new Map<string, IssuePullRequestReference>();
     let cursor: string | null = null;
-    type Subject = { __typename: string; number?: number; url?: string; state?: string };
-    type Timeline = {
-      pageInfo: { hasNextPage: boolean; endCursor: string | null };
-      nodes: ({ __typename?: string; source: Subject | null; subject?: Subject | null } | null)[];
-    };
     try {
       for (let page = 0; page < 10; page++) {
         const args = [
@@ -4002,29 +4040,12 @@ export class GithubForge implements GitForge {
         if (cursor !== null) args.push("-f", `cursor=${cursor}`);
         const result = JSON.parse(await this.run(args)) as {
           errors?: unknown[];
-          data?: { repository?: { issue?: { timelineItems?: Timeline } } };
+          data?: { repository?: { issue?: { timelineItems?: ClaimReferenceTimeline } } };
         };
         const timeline = result.data?.repository?.issue?.timelineItems;
         if (result.errors?.length || !timeline?.pageInfo || !Array.isArray(timeline.nodes))
           return null;
-        for (const event of timeline.nodes) {
-          if (
-            !event?.source ||
-            !["Issue", "PullRequest"].includes(event.source.__typename) ||
-            (event.__typename === "ConnectedEvent" && !event.subject)
-          )
-            return null;
-          for (const pr of [event.source, event.subject]) {
-            if (!pr || pr.__typename !== "PullRequest") continue;
-            if (!pr.number || !pr.url || !["OPEN", "MERGED", "CLOSED"].includes(pr.state ?? ""))
-              return null;
-            references.set(pr.url, {
-              number: pr.number,
-              url: pr.url,
-              state: pr.state!.toLowerCase() as IssuePullRequestReference["state"],
-            });
-          }
-        }
+        if (!collectClaimReferences(timeline, references)) return null;
         if (timeline.pageInfo.hasNextPage === false) return [...references.values()];
         const next = timeline.pageInfo.endCursor;
         if (!next || next === cursor) return null;

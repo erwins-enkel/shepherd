@@ -1203,33 +1203,13 @@ export class DrainService {
         refs.some((p) => p.state === "open")
       )
         return { ok: false, error: "changed" };
-      if (issue.state === "closed" && action === "close") return { ok: true };
-      if (issue.state !== "open") return { ok: false, error: "unverified" };
-      if (!issue.labels.includes(ACTIVE_LABEL)) {
-        return action === "release" && this.deps.store.getSetting(key) !== null
-          ? { ok: true }
-          : { ok: false, error: "changed" };
-      }
+      const stateResult = this.claimStateResult(issue, action, key);
+      if (stateResult) return stateResult;
       if (action === "close") {
         if (!refs.some((p) => p.state === "merged")) return { ok: false, error: "changed" };
         await forge.closeIssue!(number);
       } else {
-        const ids = this.deps.store
-          .list()
-          .filter(
-            (s) => s.repoPath === repoPath && s.issueNumber === number && s.status === "archived",
-          )
-          .map((s) => s.id);
-        const previous = this.deps.store.getSetting(key);
-        // Persist before removing the remote label so a crash cannot strand local dedup.
-        this.deps.store.setSetting(key, JSON.stringify(ids));
-        try {
-          await forge.removeIssueLabel!(number, ACTIVE_LABEL);
-        } catch (error) {
-          if (previous === null) this.deps.store.deleteSetting(key);
-          else this.deps.store.setSetting(key, previous);
-          throw error;
-        }
+        await this.releaseArchivedClaim(repoPath, number, key, forge);
       }
       this.claimReads.delete(repoPath);
       this.issuesCache.delete(repoPath);
@@ -1239,6 +1219,39 @@ export class DrainService {
       return { ok: false, error: "failed" };
     } finally {
       this.resolvingClaims.delete(key);
+    }
+  }
+
+  private claimStateResult(issue: Issue, action: "release" | "close", key: string) {
+    if (issue.state === "closed" && action === "close") return { ok: true as const };
+    if (issue.state !== "open") return { ok: false as const, error: "unverified" as const };
+    if (!issue.labels.includes(ACTIVE_LABEL)) {
+      return action === "release" && this.deps.store.getSetting(key) !== null
+        ? { ok: true as const }
+        : { ok: false as const, error: "changed" as const };
+    }
+    return null;
+  }
+
+  private async releaseArchivedClaim(
+    repoPath: string,
+    number: number,
+    key: string,
+    forge: GitForge,
+  ): Promise<void> {
+    const ids = this.deps.store
+      .list()
+      .filter((s) => s.repoPath === repoPath && s.issueNumber === number && s.status === "archived")
+      .map((s) => s.id);
+    const previous = this.deps.store.getSetting(key);
+    // Persist before removing the remote label so a crash cannot strand local dedup.
+    this.deps.store.setSetting(key, JSON.stringify(ids));
+    try {
+      await forge.removeIssueLabel!(number, ACTIVE_LABEL);
+    } catch (error) {
+      if (previous === null) this.deps.store.deleteSetting(key);
+      else this.deps.store.setSetting(key, previous);
+      throw error;
     }
   }
 

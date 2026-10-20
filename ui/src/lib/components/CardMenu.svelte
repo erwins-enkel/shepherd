@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
 
   // Small anchored, non-blocking context menu for a session card (right-click on
@@ -111,17 +112,29 @@
 
   // Clamp the menu inside the viewport so it never spills off the bottom/right
   // edge when opened near them. Measured after mount; until then the template
-  // falls back to the raw pointer position (x/y).
+  // falls back to the raw pointer position (x/y). The CSS `max-content` width makes
+  // the measurement independent of where the menu currently sits, so it lands in
+  // its final spot in one pass — and stays there when UnitRow's `{...menuActions}`
+  // spread (rebuilt every session poll) re-fires this effect. Before, each re-run
+  // re-measured a squeezed box and hopped the menu while the operator aimed at it.
   let pos = $state<{ left: number; top: number } | null>(null);
   $effect(() => {
     const node = el;
+    const px = x;
+    const py = y;
     if (!node) return;
-    const r = node.getBoundingClientRect();
-    const margin = 8;
-    const left = Math.min(x, window.innerWidth - r.width - margin);
-    const top = Math.min(y, window.innerHeight - r.height - margin);
-    pos = { left: Math.max(margin, left), top: Math.max(margin, top) };
-    items()[0]?.focus(); // open with the first item focused, per the menu pattern
+    untrack(() => {
+      const r = node.getBoundingClientRect();
+      const margin = 8;
+      const left = Math.min(px, window.innerWidth - r.width - margin);
+      const top = Math.min(py, window.innerHeight - r.height - margin);
+      pos = { left: Math.max(margin, left), top: Math.max(margin, top) };
+    });
+  });
+  // Open with the first item focused, per the menu pattern — once, on mount, so a
+  // poll never yanks focus back from where the operator moved it.
+  $effect(() => {
+    if (el) untrack(() => items()[0]?.focus());
   });
 
   // The menu items, in DOM order (only the ones actually rendered).
@@ -297,6 +310,10 @@
     position: fixed;
     z-index: 60;
     min-width: 180px;
+    /* Natural width, not shrink-to-fit: a fixed box opened near the right edge would
+       otherwise wrap its labels into the leftover space and the JS clamp would
+       measure that squeezed width. */
+    width: max-content;
     /* Never wider than the viewport minus the JS clamp's 8px margin per side,
        so the position clamp above can always fit the menu on narrow phones
        (long labels wrap instead of overflowing). */

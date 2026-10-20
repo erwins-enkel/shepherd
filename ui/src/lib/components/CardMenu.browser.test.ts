@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { flushSync, mount, unmount, tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import CardMenu from "./CardMenu.svelte";
+import CardMenuSpreadHarness from "./CardMenuSpreadHarness.test.svelte";
 import { m } from "#lib/paraglide/messages.js";
 
 // A real, connected opener: the menu measures its rect for positioning and
@@ -193,5 +195,70 @@ describe("CardMenu ask-the-assistant action (#1446)", () => {
     render(CardMenu, { props: base({ onaskassistant }) });
     await page.getByRole("menuitem", { name: m.operator_assistant_ask() }).click();
     expect(onaskassistant).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Regression: a long-press near the right edge opened the menu squeezed (labels wrapped,
+// so it measured too narrow), then every session poll re-ran the clamp through UnitRow's
+// `{...menuActions}` spread and hopped it further left — a moving target — and yanked
+// keyboard focus back to the first item.
+describe("CardMenu placement stability", () => {
+  const nearRight = () => ({ x: window.innerWidth - 20, y: 40 });
+  const menu = () => document.querySelector<HTMLElement>(".card-menu")!;
+  const place = () => ({ left: menu().style.left, top: menu().style.top });
+
+  function mountHarness() {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const harness = mount(CardMenuSpreadHarness, { target, props: nearRight() }) as unknown as {
+      refresh(): void;
+    };
+    flushSync();
+    return { harness, cleanup: () => void unmount(harness) };
+  }
+
+  it("opens near the right edge at its natural width, fully inside the viewport", async () => {
+    render(CardMenu, {
+      props: base({ ...nearRight(), onrelaunchElsewhere: vi.fn(), oncleanTerminal: vi.fn() }),
+    });
+    await tick();
+    const r = menu().getBoundingClientRect();
+    expect(r.right).toBeLessThanOrEqual(window.innerWidth - 8);
+    // no label wraps: every row is as tall as a single-line row
+    const heights = Array.from(menu().querySelectorAll<HTMLElement>(".cm-item")).map(
+      (b) => b.getBoundingClientRect().height,
+    );
+    expect(Math.max(...heights)).toBeLessThanOrEqual(Math.min(...heights) + 1);
+  });
+
+  it("does not move when the spread actions object is replaced (a session poll)", async () => {
+    const { harness, cleanup } = mountHarness();
+    try {
+      await tick();
+      const before = place();
+      for (let i = 0; i < 3; i++) {
+        harness.refresh();
+        flushSync();
+        await tick();
+      }
+      expect(place()).toEqual(before);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps keyboard focus where the operator put it across a session poll", async () => {
+    const { harness, cleanup } = mountHarness();
+    try {
+      await tick();
+      const third = menu().querySelectorAll<HTMLButtonElement>(".cm-item")[2]!;
+      third.focus();
+      harness.refresh();
+      flushSync();
+      await tick();
+      expect(document.activeElement).toBe(third);
+    } finally {
+      cleanup();
+    }
   });
 });

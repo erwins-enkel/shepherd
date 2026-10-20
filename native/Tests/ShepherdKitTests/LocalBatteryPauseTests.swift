@@ -248,7 +248,15 @@ import Testing
       guard child.isRunning else { return }
       killpg(child.processIdentifier, SIGCONT)
       killpg(child.processIdentifier, SIGKILL)
-      child.waitUntilExit()
+      // After an await, Foundation's run-loop wait can miss an already-reaped
+      // child's exit. Observe the OS directly and bound fixture cleanup.
+      let deadline = Date().addingTimeInterval(2)
+      while Date() < deadline {
+        let result = waitpid(child.processIdentifier, nil, WNOHANG)
+        if result == child.processIdentifier || (result == -1 && errno == ECHILD) { return }
+        Thread.sleep(forTimeInterval: 0.01)
+      }
+      Issue.record("Battery fixture child did not exit: \(child.processIdentifier)")
     }
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
     func writeOwnership(_ child: Process) throws {

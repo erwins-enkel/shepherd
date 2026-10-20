@@ -84,6 +84,24 @@ export async function recordEpicIntegrationIfChild(
   }
 }
 
+/** #3197: stamp an incremental epic child's recorded stack layer as landed once its PR merges —
+ *  the stack retire gate's "landed" signal for an epic with no `epic_integrated` rows. Called
+ *  beside {@link recordEpicIntegrationIfChild} on the train and poller merge paths. A no-op for
+ *  anything else (no incremental parent, no issue, or no recorded layer for that PR). Never
+ *  throws: the merge already happened. */
+export function recordIncrementalStackLanding(
+  s: Session,
+  prNumber: number | null | undefined,
+  store: Pick<SessionStore, "markEpicStackLanded">,
+): void {
+  if (s.incrementalEpicParent == null || s.issueNumber == null || prNumber == null) return;
+  try {
+    store.markEpicStackLanded(s.repoPath, s.incrementalEpicParent, s.issueNumber, prNumber);
+  } catch (err) {
+    console.warn(`[epic] stack-landing stamp failed for ${s.id} (pr#${prNumber}):`, err);
+  }
+}
+
 /** The merged PR's actual base per the resolution order documented on
  *  {@link recordEpicIntegrationIfChild}; null ⇒ unresolvable on a base-capable forge (fail closed). */
 async function resolveMergedBase(

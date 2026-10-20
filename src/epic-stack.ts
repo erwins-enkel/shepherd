@@ -2,7 +2,7 @@
  *
  *  A stacked child is spawned on its chain predecessor's PR head branch instead of waiting for
  *  that predecessor to merge, and the resulting PRs are linked into a GitHub stack rooted at the
- *  epic's pinned integration branch. Everything the drain DECIDES about that lives here; the drain
+ *  epic's pinned integration branch (or, for an incremental epic, the default branch — #3197). Everything the drain DECIDES about that lives here; the drain
  *  only reads the forge/store and applies the result.
  *
  *  Chains come from {@link decomposeEpicChains} (#2066) and the stack API from #2068. */
@@ -12,14 +12,21 @@ import { stackPredecessorOf } from "./epic-chains";
 import type { EpicChild } from "./epic-core";
 import type { StackInfo } from "./forge/types";
 
-/** Does this stack land on the epic's integration branch? THE definition of "rooted at the epic",
- *  shared by the retire base gate and the composition planner so the two can never disagree.
+/** #2069: re-run the stack-composition pass for one epic at most this often. Composition only has
+ *  work to do when a child PR has just opened, so a per-tick re-read of the host's stack state
+ *  would be pure overhead; each pass takes at most one step anyway. Also the window a refused
+ *  live-stack confirmation holds a layer for, in the drain's retire path and the merge train. */
+export const EPIC_STACK_COMPOSE_TTL_MS = 60_000;
+
+/** Does this stack land on `trunk` — the epic's pinned integration branch, or the default branch
+ *  for an incremental epic (#3197)? THE definition of "rooted", shared by the retire base gate,
+ *  the merge train and the composition planner so they can never disagree.
  *
  *  Reads the stack's TRUNK, never a PR's direct base: the moment a lower layer merges, GitHub
  *  auto-restacks the remainder and re-targets the next PR to the trunk, so a direct-base test
  *  would start failing on every stacked child exactly when its predecessor lands. */
-export function stackRootedAtEpic(stack: StackInfo | null, pinnedBranch: string | null): boolean {
-  return !!stack && !!pinnedBranch && stack.baseRef === pinnedBranch;
+export function stackRootedAt(stack: StackInfo | null, trunk: string | null): boolean {
+  return !!stack && !!trunk && stack.baseRef === trunk;
 }
 
 /** Is this session's spawn base a STACKED base — a sibling's head branch rather than the epic's
@@ -30,8 +37,8 @@ export function stackRootedAtEpic(stack: StackInfo | null, pinnedBranch: string 
  *  unsafe equality below would come back for exactly the children it is unsafe for. The
  *  epic-branch test keeps a child of a SUPERSEDED epic (base `epic/<other>-<slug>`, so not the
  *  currently pinned branch) on the old equality rule, which is what it has always had. */
-export function isStackedBase(sessionBase: string, pinnedBranch: string | null): boolean {
-  return sessionBase !== pinnedBranch && !isEpicIntegrationBranch(sessionBase);
+export function isStackedBase(sessionBase: string, trunk: string | null): boolean {
+  return sessionBase !== trunk && !isEpicIntegrationBranch(sessionBase);
 }
 
 export interface EpicChildBaseInput {
@@ -41,8 +48,9 @@ export interface EpicChildBaseInput {
   sessionBase: string;
   /** The stack the PR belongs to, or null when it belongs to none / could not be read. */
   stack: StackInfo | null;
-  /** The epic's pinned integration branch, or null when unpinned. */
-  pinnedBranch: string | null;
+  /** The stack trunk: the epic's pinned integration branch (null when unpinned), or the default
+   *  branch for an incremental epic (#3197). */
+  trunk: string | null;
 }
 
 /** May this epic child's PR be merged at retire? The ONE base rule; `epicChildBaseBlocked` derives
@@ -57,8 +65,8 @@ export interface EpicChildBaseInput {
  *    there. Fail closed instead; the existing `epic_base_mismatch` marker surfaces the remedy.
  *  - Otherwise (the session bases on the epic branch) the historical rule applies unchanged. */
 export function epicChildBaseOk(i: EpicChildBaseInput): boolean {
-  if (stackRootedAtEpic(i.stack, i.pinnedBranch)) return true;
-  if (isStackedBase(i.sessionBase, i.pinnedBranch)) return false;
+  if (stackRootedAt(i.stack, i.trunk)) return true;
+  if (isStackedBase(i.sessionBase, i.trunk)) return false;
   return i.actualBase === i.sessionBase;
 }
 
@@ -79,16 +87,16 @@ export type DeadStackBaseAction = "retarget" | "adopt" | "none";
 export function deadStackBaseAction(i: {
   /** The child session's spawn base (`Session.baseBranch`). */
   sessionBase: string;
-  pinnedBranch: string | null;
+  trunk: string | null;
   /** True when the session whose head IS `sessionBase` is an integrated child of this epic. */
   predecessorIntegrated: boolean;
   /** The child PR's live base, or null when it has no PR / the base is unknown. */
   prBase: string | null;
 }): DeadStackBaseAction {
-  if (!i.pinnedBranch || !i.predecessorIntegrated || i.prBase == null) return "none";
-  if (!isStackedBase(i.sessionBase, i.pinnedBranch)) return "none";
+  if (!i.trunk || !i.predecessorIntegrated || i.prBase == null) return "none";
+  if (!isStackedBase(i.sessionBase, i.trunk)) return "none";
   if (i.prBase === i.sessionBase) return "retarget";
-  if (i.prBase === i.pinnedBranch) return "adopt";
+  if (i.prBase === i.trunk) return "adopt";
   return "none";
 }
 
@@ -159,6 +167,15 @@ export interface EpicStackMember {
   stackNumber: number;
   prNumber: number;
   position: number;
+  /** #3197: when this layer's PR was observed merged — set only for incremental epics, whose
+   *  children never get an `epic_integrated` row. Null while unmerged. */
+  landedAt?: number | null;
+}
+
+/** #3197: the children whose recorded layer has landed — an incremental epic's stand-in for the
+ *  integrated set {@link stackRetireGate} and {@link detectStackWedge} read. */
+export function landedStackChildren(rows: EpicStackMember[]): Set<number> {
+  return new Set(rows.filter((r) => r.landedAt != null).map((r) => r.childNumber));
 }
 
 /** Why a stacked child may not merge yet (#2070). Named so the drain can log it and the retire
@@ -278,7 +295,7 @@ export function detectStackWedge(input: {
   rows: EpicStackMember[];
   facts: Map<number, WedgeChildFact>;
   closedPrs: ReadonlySet<number>;
-  pinnedBranch: string | null;
+  trunk: string | null;
 }): StackWedge | null {
   const ordered = [...input.rows].sort((a, b) => a.position - b.position);
   const fact = (r: EpicStackMember) => input.facts.get(r.childNumber);
@@ -302,7 +319,7 @@ export function detectStackWedge(input: {
     const stranded = inStack
       .filter((r) => {
         const base = fact(r)?.spawnBase;
-        return live(r) && base != null && isStackedBase(base, input.pinnedBranch);
+        return live(r) && base != null && isStackedBase(base, input.trunk);
       })
       .map((r) => r.childNumber);
     return { stackNumber: row.stackNumber, lostChild: row.childNumber, stranded };
@@ -331,13 +348,13 @@ export interface StrandedChildFact {
 export function wedgeCleared(input: {
   stranded: number[];
   facts: Map<number, StrandedChildFact>;
-  pinnedBranch: string | null;
+  trunk: string | null;
 }): boolean {
   return input.stranded.every((n) => {
     const f = input.facts.get(n);
     if (!f) return true; // no longer a child of this epic
     if (f.integrationMerged || f.issueClosed) return true;
-    return f.spawnBase === null || !isStackedBase(f.spawnBase, input.pinnedBranch);
+    return f.spawnBase === null || !isStackedBase(f.spawnBase, input.trunk);
   });
 }
 

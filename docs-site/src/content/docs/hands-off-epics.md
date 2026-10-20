@@ -158,7 +158,9 @@ In incremental mode:
 - Shepherd closes the parent issue when the last child is done.
 - `main` holds a partly shipped epic until the last child lands. Don't use this mode for an epic
   that ships one feature in slices.
-- Stacked epic children are not used in this mode.
+- With [stacked epic children](/reference/stacked-epic-children/) on, a dependent child starts on
+  its predecessor's open PR, and the stack is rooted at `main`. The merge train lands it one layer
+  at a time, bottom first.
 
 You can change **Landing** only before the epic first runs. After that it is locked.
 

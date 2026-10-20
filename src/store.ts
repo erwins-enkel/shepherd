@@ -1856,6 +1856,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       stackNumber INTEGER NOT NULL, prNumber INTEGER NOT NULL,
       baseBranch TEXT NOT NULL, position INTEGER NOT NULL, createdAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
+    // #3197: when an incremental epic's layer PR was observed merged (incremental children never
+    // get an `epic_integrated` row). Null while unmerged, and always null for integration epics.
+    this.addMissingColumns("epic_stack", { landedAt: "INTEGER" });
     // #2070: a stack that lost a middle layer. GitHub has no reorder/drop-one API, so the repair is
     // unstack-and-recreate: the drain dissolves the stack, DELETES its epic_stack rows and records
     // this marker, which halts stacking for the epic and drives the blocking assembleEpic warning.
@@ -3179,10 +3182,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     prNumber: number;
     baseBranch: string;
     position: number;
+    landedAt: number | null;
   }[] {
     return this.db
       .query(
-        `SELECT childNumber, stackNumber, prNumber, baseBranch, position FROM epic_stack
+        `SELECT childNumber, stackNumber, prNumber, baseBranch, position, landedAt FROM epic_stack
          WHERE repoPath = ? AND parentIssueNumber = ? ORDER BY position`,
       )
       .all(repoPath, parentIssueNumber) as {
@@ -3191,7 +3195,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       prNumber: number;
       baseBranch: string;
       position: number;
+      landedAt: number | null;
     }[];
+  }
+
+  /** #3197: stamp an incremental epic's stack layer as merged. Keyed on the PR too, so a merge of
+   *  some OTHER pull request of the same child (a re-spawn) never marks the recorded layer. Keeps
+   *  the first stamp; a no-op when the child has no row. */
+  markEpicStackLanded(
+    repoPath: string,
+    parentIssueNumber: number,
+    childNumber: number,
+    prNumber: number,
+  ): void {
+    this.db.run(
+      `UPDATE epic_stack SET landedAt = ?
+       WHERE repoPath = ? AND parentIssueNumber = ? AND childNumber = ? AND prNumber = ?
+         AND landedAt IS NULL`,
+      [Date.now(), repoPath, parentIssueNumber, childNumber, prNumber],
+    );
   }
 
   /** Drop every recorded layer of one stack (#2070) — called after `unstack` dissolved it. A row

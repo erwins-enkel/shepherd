@@ -854,3 +854,88 @@ describe("#2069 stacked epic-child spawn base", () => {
     expect(h.creates).toHaveLength(0);
   });
 });
+
+// ── #3197: an incremental epic stacks too — rooted at the default branch ─────────────────────────
+
+describe("#3197 incremental epic: stacked child spawn base", () => {
+  const PARENT = 327;
+  const LOWER = 320;
+  const UPPER = 321;
+  const LOWER_BRANCH = "shepherd/auto-320";
+  const subIssues: SubIssueRef[] = [
+    { number: LOWER, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+    { number: UPPER, title: "boot", url: "u321", body: "spec 321", closed: false, labels: [] },
+  ];
+  const parentIssue: Issue = {
+    number: PARENT,
+    title: "EFI cluster",
+    body: "epic body",
+    url: `https://x/${PARENT}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+  const mk = (over: Parameters<typeof makeHarness>[0]) => {
+    const h = makeHarness({
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async (n) => (n === UPPER ? [LOWER] : []),
+      ...over,
+    });
+    const s = h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: "main",
+      branch: LOWER_BRANCH,
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: LOWER,
+      incrementalEpicParent: PARENT,
+    });
+    h.prCache[s.id] = {
+      kind: "github",
+      state: "open",
+      number: 900,
+      checks: "none",
+      deployConfigured: false,
+    };
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+      landing: "incremental",
+    });
+    return h;
+  };
+
+  test("spawns the successor on the predecessor's branch, trunk main, incremental stamp only", async () => {
+    const h = mk({ epicStacksEnabled: true, stacks: true });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    const created = h.creates[0]!;
+    expect(created.issueRef?.number).toBe(UPPER);
+    expect(created.baseBranch).toBe(LOWER_BRANCH);
+    expect(h.forgeRec.ensured).toEqual([]);
+    expect(h.store.getEpicIntegrationBranch(REPO, PARENT)).toBeNull();
+    expect(created.epicParent ?? null).toBeNull();
+    expect(created.incrementalEpicParent).toBe(PARENT);
+    expect(created.prompt).toContain(`--base ${LOWER_BRANCH}`);
+    expect(created.prompt).toContain("lands on `main`");
+  });
+
+  test("flag OFF: the successor waits for its blocker to merge (#3191 behaviour)", async () => {
+    const h = mk({ epicStacksEnabled: false, stacks: true });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(0);
+  });
+});

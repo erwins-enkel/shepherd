@@ -554,6 +554,32 @@ test("epic_stack: layers round-trip bottom→top, upsert by child, scoped per ep
   expect(store.listEpicStack(repo, 327)[1]?.stackNumber).toBe(8);
 });
 
+// #3197: an incremental epic's layer is stamped landed on its merge — PR-keyed, kept on upsert.
+test("epic_stack: markEpicStackLanded stamps the matching PR only and survives an upsert", () => {
+  const store = new SessionStore(":memory:");
+  const repo = "/repo/landed";
+  const member = {
+    childNumber: 320,
+    stackNumber: 7,
+    prNumber: 900,
+    baseBranch: "main",
+    position: 1,
+  };
+  store.recordEpicStackMember(repo, 327, member);
+  expect(store.listEpicStack(repo, 327)[0]?.landedAt).toBeNull();
+
+  store.markEpicStackLanded(repo, 327, 320, 999); // a different PR of the same child
+  expect(store.listEpicStack(repo, 327)[0]?.landedAt).toBeNull();
+
+  store.markEpicStackLanded(repo, 327, 320, 900);
+  const at = store.listEpicStack(repo, 327)[0]?.landedAt;
+  expect(at).toBeNumber();
+
+  store.recordEpicStackMember(repo, 327, { ...member, stackNumber: 8 });
+  store.markEpicStackLanded(repo, 327, 320, 900); // idempotent
+  expect(store.listEpicStack(repo, 327)[0]).toMatchObject({ stackNumber: 8, landedAt: at });
+});
+
 // #2070: dissolving a stack drops its layers; the wedge marker outlives them.
 test("epic_stack_wedge: deleteEpicStack drops one stack, wedges round-trip and clear", () => {
   const store = new SessionStore(":memory:");

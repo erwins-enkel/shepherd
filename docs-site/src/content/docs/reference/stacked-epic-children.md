@@ -34,6 +34,24 @@ branch, the epic still lands as one final pull request, and progress is still tr
 chain that Shepherd cannot stack falls back to waiting for merges, which is the pre-stacking
 behaviour, not an error.
 
+## Incremental epics
+
+An epic that [lands incrementally](/hands-off-epics/) has no integration branch, so its stacks are
+rooted at the **default branch** instead. Everything above still applies, with three differences:
+
+- **The merge train lands the stack**, not the drain. For a full-auto child it merges only the
+  bottom-most layer that has not landed, after checking the live stack. A layer above it waits as
+  **stacked**. A child that is not full-auto waits for you, and GitHub enforces the same bottom-up
+  order.
+- **Only the bottom layer is kept current with `main`.** When `main` moves, the train asks that
+  layer to rebase. The layers above are not touched; GitHub restacks them after each merge.
+- **A layer's own diff decides the migrations hold.** A bottom layer held for migrations keeps
+  every layer above it waiting, too.
+
+When a layer below lands, a child spawned on its branch is moved onto `main` the same way as
+described in the predecessor section below. A lost middle layer is repaired the same way too, and a
+stranded child is fixed by abandoning it or merging its PR into `main` yourself.
+
 ## Repository settings that break stacking
 
 ### A ruleset that requires a status check on *all* branches

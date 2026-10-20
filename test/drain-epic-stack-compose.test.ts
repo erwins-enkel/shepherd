@@ -61,6 +61,10 @@ interface ForgeOpts {
   noStacks?: boolean;
   /** Children whose ISSUE reads closed (done in the epic's eyes). */
   closedChildren?: number[];
+  /** Live PR state reported by prReviewMeta (default "open"). */
+  prState?: (prNumber: number) => PrReviewMeta["state"];
+  /** The trunk a created stack reports (default the epic branch). */
+  trunk?: string;
 }
 
 function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
@@ -112,7 +116,7 @@ function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
         body: "",
         baseRefName: opts.baseRefName?.(prNumber) ?? EPIC_BRANCH,
         isCrossRepository: false,
-        state: "open",
+        state: opts.prState?.(prNumber) ?? "open",
       };
     },
   };
@@ -123,7 +127,7 @@ function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
     };
     f.createStack = async (prNumbers: number[]) => {
       rec.created.push(prNumbers);
-      return { number: STACK_NUMBER, baseRef: EPIC_BRANCH, prNumbers };
+      return { number: STACK_NUMBER, baseRef: opts.trunk ?? EPIC_BRANCH, prNumbers };
     };
     f.addToStack = async (stackNumber: number, prNumber: number) => {
       rec.added.push({ stackNumber, prNumber });
@@ -155,6 +159,8 @@ function makeHarness(
     now?: () => number;
     /** #2805: the GitHub REST write backoff seam. */
     restWritesBlocked?: () => boolean;
+    /** #3197: an incremental epic — no pin, children on main, `incrementalEpicParent` stamps. */
+    incremental?: boolean;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -192,8 +198,11 @@ function makeHarness(
     parentIssueNumber: PARENT,
     mode: "auto",
     status: opts.epicStatus ?? "running",
+    ...(opts.incremental ? { landing: "incremental" as const } : {}),
   });
-  if (opts.pin !== false) store.getOrInitEpicIntegrationBranch(REPO, PARENT, EPIC_BRANCH);
+  if (opts.pin !== false && !opts.incremental)
+    store.getOrInitEpicIntegrationBranch(REPO, PARENT, EPIC_BRANCH);
+  const trunk = opts.incremental ? "main" : EPIC_BRANCH;
 
   // One live session per child; the ones in `withPr` also have an open PR in the cache.
   const prCache: Record<string, GitState> = {};
@@ -204,7 +213,7 @@ function makeHarness(
       name: "auto",
       prompt: "p",
       repoPath: REPO,
-      baseBranch: child === LOWER ? EPIC_BRANCH : `shepherd/auto-${child - 1}`,
+      baseBranch: child === LOWER ? trunk : `shepherd/auto-${child - 1}`,
       branch: `shepherd/auto-${child}`,
       worktreePath: "/wt",
       isolated: true,
@@ -212,7 +221,7 @@ function makeHarness(
       herdrAgentId: "t",
       auto: true,
       issueNumber: child,
-      epicParent: PARENT,
+      ...(opts.incremental ? { incrementalEpicParent: PARENT } : { epicParent: PARENT }),
     });
     sessionOf[child] = s.id;
     if (withPr.has(child)) {
@@ -233,7 +242,10 @@ function makeHarness(
     reviewMetaCalls: [],
     unstacked: [],
   };
-  const forge = fakeForge(rec, opts);
+  const forge = fakeForge(rec, {
+    ...opts,
+    ...(opts.incremental ? { trunk: "main", baseRefName: opts.baseRefName ?? (() => "main") } : {}),
+  });
   const drain = new DrainService({
     store,
     service: {
@@ -668,5 +680,107 @@ describe("mid-stack loss: closed issues and the opt-out (#2070)", () => {
     expect(h.rec.created).toEqual([]);
     expect(h.rec.unstacked).toEqual([]);
     expect(h.rec.stackReads).toEqual([]);
+  });
+});
+
+// ── #3197: an incremental epic's stacks are rooted at the default branch ─────────────────────────
+
+describe("incremental epic: stacks rooted at main (#3197)", () => {
+  /** Re-point the drain at a forge that reports different live facts from now on. */
+  const swapForge = (h: Harness, opts: ForgeOpts) => {
+    const forge = fakeForge(h.rec, { trunk: "main", baseRefName: () => "main", ...opts });
+    (h.drain as unknown as { deps: { resolveForge: () => GitForge } }).deps.resolveForge = () =>
+      forge;
+  };
+  const seeded = async (opts: Parameters<typeof makeHarness>[0] = {}) => {
+    let t = 1_000_000;
+    const h = makeHarness({
+      incremental: true,
+      withPr: [LOWER, MIDDLE, UPPER],
+      now: () => t,
+      ...opts,
+    });
+    await compose(h); // seeds 320+321 on main
+    t += 120_000;
+    await compose(h); // extends with 322
+    return { h, advance: () => (t += 120_000) };
+  };
+
+  test("seeds on main with no pinned branch, and records the layers", async () => {
+    const h = makeHarness({ incremental: true });
+
+    await compose(h);
+
+    expect(h.store.getEpicIntegrationBranch(REPO, PARENT)).toBeNull();
+    expect(h.rec.created).toEqual([[PR_OF[LOWER]!, PR_OF[MIDDLE]!]]);
+    expect(h.store.listEpicStack(REPO, PARENT)[0]?.baseBranch).toBe("main");
+  });
+
+  test("refuses to seed when the bottom PR does not target main", async () => {
+    const h = makeHarness({ incremental: true, baseRefName: () => "release" });
+
+    await compose(h);
+
+    expect(h.rec.created).toHaveLength(0);
+  });
+
+  test("a landed bottom layer is not stacked onto again", async () => {
+    const h = makeHarness({ incremental: true, withPr: [LOWER, MIDDLE, UPPER] });
+    h.store.recordEpicStackMember(REPO, PARENT, {
+      childNumber: LOWER,
+      stackNumber: STACK_NUMBER,
+      prNumber: PR_OF[LOWER]!,
+      baseBranch: "main",
+      position: 1,
+    });
+    h.store.markEpicStackLanded(REPO, PARENT, LOWER, PR_OF[LOWER]!);
+
+    await compose(h);
+
+    // The live segment starts at MIDDLE: a fresh stack of MIDDLE+UPPER is seeded.
+    expect(h.rec.created).toEqual([[PR_OF[MIDDLE]!, PR_OF[UPPER]!]]);
+  });
+
+  test("closed issue whose PR MERGED: stamped landed, no wedge", async () => {
+    const { h, advance } = await seeded();
+    const merged = new Set<number>([PR_OF[MIDDLE]!]);
+    swapForge(h, {
+      closedChildren: [MIDDLE],
+      prState: (pr) => (merged.has(pr) ? "merged" : "open"),
+    });
+    advance();
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([]);
+    expect(h.store.listEpicStackWedges(REPO, PARENT)).toEqual([]);
+    expect(
+      h.store.listEpicStack(REPO, PARENT).find((r) => r.childNumber === MIDDLE)?.landedAt,
+    ).toBeNumber();
+  });
+
+  test("closed issue whose PR is still OPEN: not a lost layer", async () => {
+    const { h, advance } = await seeded();
+    swapForge(h, { closedChildren: [MIDDLE] });
+    advance();
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([]);
+    expect(h.store.listEpicStackWedges(REPO, PARENT)).toEqual([]);
+  });
+
+  test("closed issue whose PR was CLOSED unmerged: the stack is dissolved and wedged", async () => {
+    const { h, advance } = await seeded();
+    swapForge(h, {
+      closedChildren: [MIDDLE],
+      prState: (pr) => (pr === PR_OF[MIDDLE] ? "closed" : "open"),
+    });
+    advance();
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([STACK_NUMBER]);
+    expect(h.store.listEpicStackWedges(REPO, PARENT).map((w) => w.childNumber)).toEqual([MIDDLE]);
   });
 });

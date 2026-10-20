@@ -2232,6 +2232,7 @@ test("createSession: appends the issueRef body out-of-band, keeps the stored pro
   expect(promptArg).toContain("https://github.com/o/r/issues/42");
   expect(promptArg).toContain("the long issue body");
   expect(promptArg).toContain("⟦/UNTRUSTED:issue #42 body:");
+  expect(promptArg).toContain("Closes #42");
   // stored prompt stays the clean human text — the body never lands in it
   expect(store.get(s.id)?.prompt).toBe("fix it");
 });

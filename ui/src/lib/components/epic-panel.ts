@@ -97,6 +97,10 @@ export function epicHoldLine(
       return m.epic_hold_awaiting_approval({ num: desig });
     case "awaiting_signoff":
       return m.epic_hold_awaiting_signoff({ desig });
+    case "claim_check_failed":
+      return m.drain_claims_load_failed();
+    case "orphaned_claims":
+      return m.drain_claims_status();
     case "empty":
       return children.some((c) => c.state === "running" || c.state === "in-review")
         ? m.epic_hold_waiting_inflight()

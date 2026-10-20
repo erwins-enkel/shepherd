@@ -147,6 +147,9 @@ interface Harness {
 
 function makeHarness(
   opts: {
+    now?: () => number;
+    claimListing?: () => Promise<Issue[]>;
+    claimReferences?: import("../src/forge/types").IssuePullRequestReference[] | null;
     capacity?: import("../src/codex-capacity").CapacityCheck;
     issues?: Issue[];
     maxAuto?: number;
@@ -232,6 +235,15 @@ function makeHarness(
     listBlockedBy: opts.listBlockedByImpl,
   });
 
+  if (opts.claimListing) forge.listClaimedIssues = opts.claimListing;
+  if ("claimReferences" in opts) {
+    forge.issuePullRequestReferences = async () => opts.claimReferences ?? null;
+    const get = forge.getIssue!;
+    forge.getIssue = async (n) => {
+      const i = await get(n);
+      return i ? { ...i, state: "open" } : null;
+    };
+  }
   const prCache: Record<string, GitState> = {};
   const reviews: Record<string, { decision: ReviewDecision; headSha: string }> = {};
   const creates: StandardCreateInput[] = [];
@@ -305,6 +317,7 @@ function makeHarness(
       : null) as typeof store.getReview;
 
   const drain = new DrainService({
+    now: opts.now,
     capacity: opts.capacity,
     bootstrapMustHaves: opts.bootstrapMustHaves,
     openPrSnapshot: opts.openPrSnapshot,
@@ -2526,4 +2539,249 @@ test("a failed listIssues is cached for the TTL and warned once, not re-fetched 
   } finally {
     warn.mockRestore();
   }
+});
+
+describe("claim diagnostics and explicit resolution", () => {
+  test("active without session/PR replaces empty and is reported with drain disabled", async () => {
+    for (const enabled of [true, false]) {
+      const h = makeHarness({
+        autoDrainEnabled: enabled,
+        issues: [issue(133, { labels: [ACTIVE_LABEL, "shepherd:auto"] })],
+        claimReferences: [],
+      });
+      const [status] = await h.drain.snapshot();
+      expect(status!.claimDiagnostics).toMatchObject([
+        { number: 133, ownership: "unknown", evidence: "complete" },
+      ]);
+      expect(status!.reason).toBe(enabled ? "orphaned_claims" : "disabled");
+    }
+  });
+  test("an open PR excludes a claim, failed evidence is unknown", async () => {
+    for (const refs of [[{ number: 212, url: "pr", state: "open" as const }], null]) {
+      const h = makeHarness({
+        issues: [issue(133, { labels: [ACTIVE_LABEL] })],
+        claimReferences: refs,
+      });
+      const [status] = await h.drain.snapshot();
+      expect(status!.claimDiagnostics).toEqual(
+        refs === null ? [expect.objectContaining({ evidence: "unknown" })] : [],
+      );
+      expect(status!.reason).not.toBe("orphaned_claims");
+    }
+  });
+  test("explicit release survives restart and bypasses only the released archived attempts", async () => {
+    const i = issue(133, { labels: [ACTIVE_LABEL, "shepherd:auto"] });
+    const h = makeHarness({ issues: [i], claimReferences: [] });
+    const old = h.store.create({
+      name: "old",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      baseBranch: "main",
+      repoPath: REPO,
+      prompt: "old",
+      branch: "old",
+      worktreePath: "/old",
+      issueNumber: 133,
+    });
+    h.store.archive(old.id);
+    expect(await h.drain.resolveClaim(REPO, 133, "release")).toEqual({ ok: true });
+    expect(h.forgeRec.removed).toContainEqual({ number: 133, label: ACTIVE_LABEL });
+    i.labels = ["shepherd:auto"];
+    expect((await h.drain.queue(REPO)).map((x) => x.number)).toEqual([133]);
+    const next = h.store.create({
+      name: "next",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      baseBranch: "main",
+      repoPath: REPO,
+      prompt: "next",
+      branch: "next",
+      worktreePath: "/next",
+      issueNumber: 133,
+    });
+    h.store.archive(next.id);
+    expect(await h.drain.queue(REPO)).toEqual([]);
+  });
+  test("fresh session and open PR prevent mutation, even after a diagnosis", async () => {
+    const h = makeHarness({
+      issues: [issue(133, { labels: [ACTIVE_LABEL] })],
+      claimReferences: [],
+    });
+    await h.drain.snapshot();
+    h.store.create({
+      name: "manual",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      baseBranch: "main",
+      repoPath: REPO,
+      prompt: "manual",
+      branch: "live",
+      worktreePath: "/live",
+      issueNumber: 133,
+    });
+    expect(await h.drain.resolveClaim(REPO, 133, "release")).toEqual({
+      ok: false,
+      error: "changed",
+    });
+    expect(h.forgeRec.removed).toEqual([]);
+  });
+});
+
+test("claim resolution rechecks PRs and requires merge evidence to close", async () => {
+  const refs: import("../src/forge/types").IssuePullRequestReference[] = [];
+  const h = makeHarness({
+    issues: [issue(133, { labels: [ACTIVE_LABEL] })],
+    claimReferences: refs,
+  });
+  await h.drain.snapshot();
+  expect(await h.drain.resolveClaim(REPO, 133, "close")).toEqual({ ok: false, error: "changed" });
+  refs.push({ number: 212, url: "https://github.com/o/r/pull/212", state: "open" });
+  expect(await h.drain.resolveClaim(REPO, 133, "release")).toEqual({ ok: false, error: "changed" });
+  expect(h.forgeRec.removed).toEqual([]);
+  refs[0]!.state = "merged";
+  expect(await h.drain.resolveClaim(REPO, 133, "close")).toEqual({ ok: true });
+  expect(h.forgeRec.closedIssues).toEqual([133]);
+});
+
+test("claim resolution refuses unknown evidence and surfaces mutation failures", async () => {
+  const h = makeHarness({
+    issues: [issue(133, { labels: [ACTIVE_LABEL] })],
+    claimReferences: null,
+  });
+  expect(await h.drain.resolveClaim(REPO, 133, "release")).toEqual({
+    ok: false,
+    error: "unverified",
+  });
+  expect(h.forgeRec.removed).toEqual([]);
+  const failed = makeHarness({
+    issues: [issue(133, { labels: [ACTIVE_LABEL] })],
+    claimReferences: [{ number: 212, url: "merged", state: "merged" }],
+    closeIssueImpl: async () => {
+      throw Error("offline");
+    },
+  });
+  expect(await failed.drain.resolveClaim(REPO, 133, "close")).toEqual({
+    ok: false,
+    error: "failed",
+  });
+});
+
+test("cached claim evidence never reports a newly live manual session", async () => {
+  const h = makeHarness({ issues: [issue(133, { labels: [ACTIVE_LABEL] })], claimReferences: [] });
+  expect((await h.drain.snapshot())[0]!.claimDiagnostics).toHaveLength(1);
+  h.store.create({
+    name: "manual",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    baseBranch: "main",
+    repoPath: REPO,
+    prompt: "manual",
+    branch: "live",
+    worktreePath: "/live",
+    issueNumber: 133,
+  });
+  expect((await h.drain.snapshot())[0]!.claimDiagnostics).toEqual([]);
+});
+
+test("claim discovery failure preserves unknown rows and a visible failure flag", async () => {
+  let now = 0;
+  let fail = false;
+  const h = makeHarness({
+    now: () => now,
+    claimReferences: [],
+    claimListing: async () => {
+      if (fail) throw Error("offline");
+      return [issue(133, { labels: [ACTIVE_LABEL] })];
+    },
+  });
+  expect((await h.drain.snapshot())[0]!.claimDiagnostics).toHaveLength(1);
+  fail = true;
+  now = 20_000;
+  const [status] = await h.drain.snapshot();
+  expect(status!.claimDiagnosticsFailed).toBe(true);
+  expect(status!.claimDiagnostics).toMatchObject([{ number: 133, evidence: "unknown" }]);
+  expect(status!.reason).toBe("claim_check_failed");
+});
+
+test("claim scans coalesce while pending even after the result TTL", async () => {
+  let now = 0;
+  let calls = 0;
+  let finish!: (issues: Issue[]) => void;
+  const pending = new Promise<Issue[]>((resolve) => {
+    finish = resolve;
+  });
+  let start!: () => void;
+  const started = new Promise<void>((resolve) => {
+    start = resolve;
+  });
+  const h = makeHarness({
+    now: () => now,
+    claimReferences: [],
+    claimListing: () => {
+      calls++;
+      start();
+      return pending;
+    },
+  });
+  const first = h.drain.snapshot();
+  await started;
+  now = 20_000;
+  const second = h.drain.snapshot();
+  finish([]);
+  await Promise.all([first, second]);
+  expect(calls).toBe(1);
+});
+
+test("disabled drain reports unknown evidence without PR capability", async () => {
+  const h = makeHarness({
+    autoDrainEnabled: false,
+    claimListing: async () => [issue(133, { labels: [ACTIVE_LABEL] })],
+  });
+  expect((await h.drain.snapshot())[0]!.claimDiagnostics).toMatchObject([
+    { number: 133, evidence: "unknown" },
+  ]);
+});
+
+test("release retries cannot exempt later archived attempts or unclaimed issues", async () => {
+  const i = issue(133, { labels: ["shepherd:auto"] });
+  const h = makeHarness({ issues: [i], claimReferences: [] });
+  expect(await h.drain.resolveClaim(REPO, 133, "release")).toEqual({ ok: false, error: "changed" });
+  i.labels.push(ACTIVE_LABEL);
+  expect(await h.drain.resolveClaim(REPO, 133, "release")).toEqual({ ok: true });
+  i.labels = ["shepherd:auto"];
+  const later = h.store.create({
+    name: "later",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    baseBranch: "main",
+    repoPath: REPO,
+    prompt: "later",
+    branch: "later",
+    worktreePath: "/later",
+    issueNumber: 133,
+  });
+  h.store.archive(later.id);
+  expect(await h.drain.resolveClaim(REPO, 133, "release")).toEqual({ ok: true });
+  expect(await h.drain.queue(REPO)).toEqual([]);
+});
+
+test("first failed claim discovery remains visible even with Drain disabled", async () => {
+  const h = makeHarness({
+    autoDrainEnabled: false,
+    claimReferences: [],
+    claimListing: async () => {
+      throw Error("offline");
+    },
+  });
+  const [status] = await h.drain.snapshot();
+  expect(status).toMatchObject({
+    enabled: false,
+    claimDiagnosticsFailed: true,
+    claimDiagnostics: [],
+  });
 });

@@ -80,9 +80,12 @@
 
   function runLine(p: BacklogProject): { text: string; paused: boolean } | null {
     const d = drain?.[p.path];
+    if (!d) return null;
     const s = repoRunState(d);
-    if (!s || !d) return null;
-    if (s.kind === "paused") return { text: pausedText(d), paused: true };
+    if (s?.kind === "paused") return { text: pausedText(d), paused: true };
+    if (d?.claimDiagnosticsFailed) return { text: m.drain_claims_load_failed(), paused: false };
+    if (d?.claimDiagnostics?.length) return { text: m.drain_claims_status(), paused: false };
+    if (!s) return null;
     const agents = s.inFlight > 0 ? m.drain_inflight({ count: s.inFlight, max: s.max }) : null;
     const lead = s.kind === "epic" ? m.repooverview_leading_only({ epic: s.epic }) : null;
     return { text: [lead, agents].filter((t) => t !== null).join(" · "), paused: false };

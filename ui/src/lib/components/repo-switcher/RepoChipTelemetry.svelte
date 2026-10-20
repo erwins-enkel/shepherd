@@ -82,6 +82,11 @@
     {/if}
   {/if}
 
+  {#if d?.claimDiagnosticsFailed}
+    <span class="rs-pause">{m.drain_claims_load_failed()}</span>
+  {:else if d?.claimDiagnostics?.length}
+    <span class="rs-pause">{m.drain_claims_status()}</span>
+  {/if}
   {#if d?.paused}
     <span class="rs-pause" title={pausedText(d)}>{pausedText(d)}</span>
     {#if d.reason === "usage" && d.epicParent != null}

@@ -357,6 +357,12 @@ function drainBlock(status: DrainStatus | undefined, fence: Fence) {
     inFlight: status.inFlight,
     max: status.max,
     epicParent: status.epicParent,
+    claimDiagnosticsFailed: status.claimDiagnosticsFailed ?? false,
+    claimDiagnostics:
+      status.claimDiagnostics?.slice(0, MAX_LIST).map((c) => ({
+        ...c,
+        title: fence(`issue #${c.number} title`, c.title),
+      })) ?? [],
     runSummary: summary && {
       leadingEpic: summary.leadingEpic,
       windingDown: summary.windingDown.slice(0, MAX_LIST),

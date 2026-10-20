@@ -3537,3 +3537,37 @@ test("#2743: a targeted poll queued during the prefetch wins over the older pref
   expect(poller.get(s.id)?.state).toBe("open");
   expect(live).toBe(2); // the targeted poll, then the tick's live re-read instead of the stale prefetch
 });
+
+test("issue PR linking runs early for manual sessions, retries failures, and skips epic children", async () => {
+  const store = new SessionStore(":memory:");
+  const normal = store.create({ ...baseSession, issueNumber: 133, auto: false });
+  const epic = store.create({ ...baseSession, branch: "child", issueNumber: 134, epicParent: 40 });
+  const legacy = store.create({
+    ...baseSession,
+    branch: "legacy",
+    baseBranch: "epic/40-legacy",
+    issueNumber: 135,
+  });
+  const forge = forgeReturning(() => OPEN);
+  const calls: [number, number][] = [];
+  let fail = true;
+  forge.ensureIssueLink = async (pr, issue) => {
+    calls.push([pr, issue]);
+    if (fail) throw Error("offline");
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+  await poller.pollNow(normal.id);
+  fail = false;
+  await poller.pollNow(normal.id);
+  await poller.pollNow(normal.id);
+  await poller.pollNow(epic.id);
+  await poller.pollNow(legacy.id);
+  expect(calls).toEqual([
+    [7, 133],
+    [7, 133],
+  ]);
+});

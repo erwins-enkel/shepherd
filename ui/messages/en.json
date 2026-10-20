@@ -6978,5 +6978,21 @@
   "backlog_ff_branch": "Fast-forward {branch}",
   "operator_assistant_tip_shortcut": "{chord} opens or closes it from anywhere.",
   "feat_assistant_shortcut_title": "Toggle the Operator Assistant with ⌘J / Ctrl+J",
-  "feat_assistant_shortcut_body": "Press ⌘J on a Mac or Ctrl+J elsewhere to open or close the Operator Assistant, even while a terminal has focus. In terminals, use Shift+Enter for a new line."
+  "feat_assistant_shortcut_body": "Press ⌘J on a Mac or Ctrl+J elsewhere to open or close the Operator Assistant, even while a terminal has focus. In terminals, use Shift+Enter for a new line.",
+  "drain_claims_title": "Possibly orphaned issue claims",
+  "drain_claims_summary": "These issues are claimed, but have no live session here and no known open pull request. Check ownership before changing them.",
+  "drain_claims_ownership": "Ownership unchecked — another Shepherd instance may still be working on this issue.",
+  "drain_claims_unverified": "PR evidence could not be verified. Actions are unavailable until a complete check succeeds.",
+  "drain_claims_release": "Release claim",
+  "drain_claims_close": "Close issue",
+  "drain_claims_confirm": "Confirm action",
+  "drain_claims_confirm_release": "Confirm that no other instance is working on this issue. Releasing its claim can start a new Drain session.",
+  "drain_claims_confirm_close": "Confirm that no other instance is working on this issue and that the linked merged PR resolved it. A mention alone does not prove completion.",
+  "drain_claims_merged": "Merged PR references",
+  "drain_claims_failed": "The claim action failed. Nothing was confirmed; refresh and try again.",
+  "drain_claims_changed": "The issue changed or now has a live session or open PR. Refresh before trying again.",
+  "drain_claims_load_failed": "Issue claim diagnostics could not be loaded.",
+  "drain_claims_status": "Possibly orphaned claims — check Settings → Diagnose",
+  "feat_drain_claims_title": "Find stranded issue claims",
+  "feat_drain_claims_body": "Settings → Diagnose shows claimed issues with no local session or open PR. Review ownership, release a claim, or close an issue after checking a merged PR."
 }

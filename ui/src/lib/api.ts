@@ -3176,6 +3176,19 @@ export async function getDrain(): Promise<DrainStatus[]> {
   return getJson("/api/drain", "drain");
 }
 
+export async function resolveDrainClaim(
+  repoPath: string,
+  issueNumber: number,
+  action: "release" | "close",
+): Promise<void> {
+  const response = await fetch("/api/drain/claims/resolve", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repoPath, issueNumber, action, confirmUnknownOwnership: true }),
+  });
+  if (!response.ok) throw await failed(response, "claim resolution");
+}
+
 /** The backlog issues behind a repo's `queued` count — fetched lazily when the
  *  QueueStrip popover opens (the drain:status WS event stays count-only). */
 export async function getDrainQueue(repoPath: string): Promise<QueuedItem[]> {

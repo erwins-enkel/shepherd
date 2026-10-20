@@ -288,3 +288,52 @@ describe("ReposGrid keyboard", () => {
     expect(onselect).toHaveBeenCalledWith("/r/bravo");
   });
 });
+
+it("shows claim diagnostics on an idle repo with no running agents", async () => {
+  await render(
+    ReposGrid,
+    props({
+      drain: {
+        "/r/alpha": drainOf({
+          inFlight: 0,
+          epicParent: null,
+          runSummary: undefined,
+          claimDiagnostics: [
+            {
+              number: 133,
+              title: "claim",
+              url: "https://github.com/o/r/issues/133",
+              ownership: "unknown",
+              evidence: "complete",
+              mergedPrs: [],
+            },
+          ],
+        }),
+      },
+    }),
+  );
+  await expect
+    .element(page.getByRole("button", { name: m.drain_claims_status(), exact: false }))
+    .toBeVisible();
+});
+
+it("keeps a blocked-session reason ahead of claim diagnostics", async () => {
+  await render(
+    ReposGrid,
+    props({
+      drain: {
+        "/r/alpha": drainOf({
+          paused: true,
+          reason: "blocked",
+          detail: "TASK-1",
+          claimDiagnosticsFailed: true,
+        }),
+      },
+    }),
+  );
+  await expect
+    .element(
+      page.getByRole("button", { name: m.drain_paused_blocked({ desig: "TASK-1" }), exact: false }),
+    )
+    .toBeVisible();
+});

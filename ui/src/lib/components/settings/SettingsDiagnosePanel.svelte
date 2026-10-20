@@ -3,6 +3,7 @@
   import { getDiagnostics, fixDiagnostic } from "#lib/api.js";
   import { type DiagnosticCheck } from "#lib/types.js";
   import DiagnoseRows from "#lib/components/DiagnoseRows.svelte";
+  import DrainClaimDiagnostics from "./DrainClaimDiagnostics.svelte";
   import PwaInstallRow from "#lib/components/PwaInstallRow.svelte";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -47,11 +48,13 @@
   // untrack: initialDiagnostics is intentionally only read once as the seed value.
   let diagChecks = $state<DiagnosticCheck[] | null>(untrack(() => initialDiagnostics ?? null));
   let diagBusy = $state(false);
+  let claimRefreshToken = $state(0);
   let diagError = $state<string | null>(null);
 
   async function rerunDiagnostics() {
     if (diagBusy) return;
     diagBusy = true;
+    claimRefreshToken++;
     diagError = null;
     try {
       const snap = await getDiagnostics(true);
@@ -117,6 +120,7 @@
 <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this
      row renders independently of the server snapshot's load/fail/empty state. -->
 <PwaInstallRow />
+<DrainClaimDiagnostics refreshToken={claimRefreshToken} />
 {#if diagError}
   <p class="hint err">{diagError}</p>
 {/if}

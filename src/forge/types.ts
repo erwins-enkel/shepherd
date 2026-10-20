@@ -20,6 +20,12 @@ export interface EpicStructure {
   blockedBy: Map<number, number[]>;
 }
 
+export interface IssuePullRequestReference {
+  number: number;
+  url: string;
+  state: "open" | "merged" | "closed";
+}
+
 export interface Issue {
   number: number;
   title: string;
@@ -633,6 +639,8 @@ export interface GitForge {
    *  readonly property is used here for consistency with the other capability flags. */
   readonly isLightweight?: boolean;
   listIssues(): Promise<Issue[]>;
+  /** Active-label issues, paginated independently of the general backlog's display cap. */
+  listClaimedIssues?(): Promise<Issue[]>;
   /** Open PRs for the backlog PRs tab (newest first), capped server-side. */
   listPullRequests(): Promise<PullRequest[]>;
   /** Lightweight issue/PR counts (+ GitHub CI rollup / PR-kind split) for the overview
@@ -813,6 +821,9 @@ export interface GitForge {
    *  prompt stays body-only. Best-effort — the caller wraps the call so a failure never
    *  blocks or fails a spawn. */
   listIssueComments?(issueNumber: number): Promise<IssueComment[]>;
+  /** Fresh, complete mention/link evidence, including PRs without closing keywords.
+   * null means unreadable or incomplete; callers must not infer absence from it. */
+  issuePullRequestReferences?(issueNumber: number): Promise<IssuePullRequestReference[] | null>;
   /** Open a new issue (capture-extension delivery path). Returns the created
    *  issue's number + URL. Optional: hosts without an issue-create API omit it
    *  and POST /api/issues 400s. */

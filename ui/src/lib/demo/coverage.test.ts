@@ -447,6 +447,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/herdr-update/downgrade",
     "/api/herdr-update/downgrade/sandbox",
     "/api/diagnostics/fix",
+    // Demo drain rows carry no claim diagnostics, so there is no claim to resolve.
+    "/api/drain/claims/resolve",
     "/api/provider-failover",
     "/api/usage/refresh",
     "/api/usage/codex/reset",

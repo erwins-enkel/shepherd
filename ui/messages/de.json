@@ -6978,5 +6978,21 @@
   "backlog_ff_branch": "{branch} vorspulen",
   "operator_assistant_tip_shortcut": "{chord} öffnet oder schließt ihn von überall.",
   "feat_assistant_shortcut_title": "Operator-Assistent mit ⌘J / Strg+J ein- und ausblenden",
-  "feat_assistant_shortcut_body": "Drück ⌘J auf dem Mac oder Strg+J auf anderen Systemen, um den Operator-Assistenten zu öffnen oder zu schließen – auch wenn ein Terminal den Fokus hat. Einen Zeilenumbruch im Terminal machst du mit Umschalt+Enter."
+  "feat_assistant_shortcut_body": "Drück ⌘J auf dem Mac oder Strg+J auf anderen Systemen, um den Operator-Assistenten zu öffnen oder zu schließen – auch wenn ein Terminal den Fokus hat. Einen Zeilenumbruch im Terminal machst du mit Umschalt+Enter.",
+  "drain_claims_title": "Möglicherweise verwaiste Issue-Claims",
+  "drain_claims_summary": "Diese Issues sind reserviert, haben hier aber keine lebende Session und keinen bekannten offenen Pull Request. Vor Änderungen den Besitz prüfen.",
+  "drain_claims_ownership": "Besitz ungeprüft — eine andere Shepherd-Instanz könnte noch an diesem Issue arbeiten.",
+  "drain_claims_unverified": "Die PR-Evidenz konnte nicht vollständig geprüft werden. Aktionen sind bis zu einer erfolgreichen Prüfung nicht verfügbar.",
+  "drain_claims_release": "Claim freigeben",
+  "drain_claims_close": "Issue schließen",
+  "drain_claims_confirm": "Aktion bestätigen",
+  "drain_claims_confirm_release": "Bestätige, dass keine andere Instanz an diesem Issue arbeitet. Die Freigabe kann eine neue Drain-Session starten.",
+  "drain_claims_confirm_close": "Bestätige, dass keine andere Instanz an diesem Issue arbeitet und der verlinkte gemergte PR es erledigt hat. Eine Erwähnung allein belegt keinen Abschluss.",
+  "drain_claims_merged": "Referenzen auf gemergte PRs",
+  "drain_claims_failed": "Die Claim-Aktion ist fehlgeschlagen. Es wurde kein Erfolg bestätigt; aktualisiere die Anzeige und versuche es erneut.",
+  "drain_claims_changed": "Das Issue hat sich geändert oder hat jetzt eine lebende Session oder einen offenen PR. Vor einem erneuten Versuch aktualisieren.",
+  "drain_claims_load_failed": "Die Issue-Claim-Diagnose konnte nicht geladen werden.",
+  "drain_claims_status": "Möglicherweise verwaiste Claims — Einstellungen → Diagnose prüfen",
+  "feat_drain_claims_title": "Liegengebliebene Issue-Claims finden",
+  "feat_drain_claims_body": "Einstellungen → Diagnose zeigt reservierte Issues ohne lokale Session oder offenen PR. Prüfe den Besitz, gib einen Claim frei oder schließe ein Issue nach Prüfung eines gemergten PRs."
 }

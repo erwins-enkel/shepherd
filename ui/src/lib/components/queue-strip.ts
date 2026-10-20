@@ -78,7 +78,14 @@ export function chipRailVisible(chips: RepoChip[], repoFilter: ReadonlySet<strin
  *  a band of vertical space, so it is hidden too. */
 export function chipHasTelemetry(chip: RepoChip): boolean {
   const d = chip.drain;
-  return d !== null && (d.inFlight > 0 || d.queued > 0 || d.paused);
+  return (
+    d !== null &&
+    (d.inFlight > 0 ||
+      d.queued > 0 ||
+      d.paused ||
+      !!d.claimDiagnostics?.length ||
+      !!d.claimDiagnosticsFailed)
+  );
 }
 
 /** Selected repos that no longer have any live session (no chip) — a filter on a vanished
@@ -199,6 +206,10 @@ export function bootstrapMissingText(detail: string): string {
 export function pausedText(d: DrainStatus): string {
   const desig = d.detail ?? "";
   switch (d.reason) {
+    case "claim_check_failed":
+      return m.drain_claims_load_failed();
+    case "orphaned_claims":
+      return m.drain_claims_status();
     case "blocked":
       return m.drain_paused_blocked({ desig });
     case "changes_requested":

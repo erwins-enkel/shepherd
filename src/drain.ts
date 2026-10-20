@@ -1092,10 +1092,17 @@ export class DrainService {
     return ids.includes(s.id);
   }
 
-  /** Read-only diagnostics share the same short-lived in-flight read across status consumers. */
+  /** Claim scans share a five-minute cache (including failures) across status consumers. */
   async claimDiagnostics(repoPath: string): Promise<ClaimDiagnostic[]> {
     const hit = this.claimReads.get(repoPath);
-    if (hit && (hit.pending || this.now() - hit.at < this.issuesTtlMs))
+    const run = this.deps.store.getEpicRun(repoPath);
+    const managed =
+      this.deps.store.getRepoConfig(repoPath).autoDrainEnabled ||
+      run?.status === "running" ||
+      run?.status === "paused";
+    // Disabled repos retain known diagnostics without starting any forge reads.
+    if (!managed) return this.withoutLiveClaims(repoPath, (await hit?.value) ?? []);
+    if (hit && (hit.pending || this.now() - hit.at < 5 * 60_000))
       return this.withoutLiveClaims(repoPath, await hit.value);
     const forge = this.deps.resolveForge(repoPath);
     // Unsupported hosts can explain already-known claims, but diagnostics must not add
@@ -2192,9 +2199,11 @@ export class DrainService {
       enabled: state.enabled,
       paused,
       reason:
-        hold?.code === "empty" && this.claimListingFailed.has(repoPath)
+        hold?.code === "empty" && state.epicParent == null && this.claimListingFailed.has(repoPath)
           ? "claim_check_failed"
-          : hold?.code === "empty" && state.claimDiagnostics?.some((c) => c.evidence === "complete")
+          : hold?.code === "empty" &&
+              state.epicParent == null &&
+              state.claimDiagnostics?.some((c) => c.evidence === "complete")
             ? "orphaned_claims"
             : (hold?.code ?? null),
       claimDiagnostics: state.claimDiagnostics ?? [],
@@ -5519,11 +5528,7 @@ export class DrainService {
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);
-      else if (
-        this.deps.resolveForge(repoPath)?.issuePullRequestReferences ||
-        this.deps.resolveForge(repoPath)?.listClaimedIssues ||
-        this.owesRunPicture(repoPath, er, epicChildRepos)
-      )
+      else if (this.owesRunPicture(repoPath, er, epicChildRepos))
         await this.refreshRunPicture(repoPath);
     }
   }

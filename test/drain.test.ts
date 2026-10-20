@@ -2542,13 +2542,16 @@ test("a failed listIssues is cached for the TTL and warned once, not re-fetched 
 });
 
 describe("claim diagnostics and explicit resolution", () => {
-  test("active without session/PR replaces empty and is reported with drain disabled", async () => {
+  test("active without session/PR replaces empty and stays cached after disabling", async () => {
     for (const enabled of [true, false]) {
       const h = makeHarness({
-        autoDrainEnabled: enabled,
+        autoDrainEnabled: true,
         issues: [issue(133, { labels: [ACTIVE_LABEL, "shepherd:auto"] })],
         claimReferences: [],
       });
+      await h.drain.snapshot();
+      if (!enabled)
+        h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), autoDrainEnabled: false });
       const [status] = await h.drain.snapshot();
       expect(status!.claimDiagnostics).toMatchObject([
         { number: 133, ownership: "unknown", evidence: "complete" },
@@ -2700,7 +2703,7 @@ test("claim discovery failure preserves unknown rows and a visible failure flag"
   });
   expect((await h.drain.snapshot())[0]!.claimDiagnostics).toHaveLength(1);
   fail = true;
-  now = 20_000;
+  now = 300_001;
   const [status] = await h.drain.snapshot();
   expect(status!.claimDiagnosticsFailed).toBe(true);
   expect(status!.claimDiagnostics).toMatchObject([{ number: 133, evidence: "unknown" }]);
@@ -2729,16 +2732,16 @@ test("claim scans coalesce while pending even after the result TTL", async () =>
   });
   const first = h.drain.snapshot();
   await started;
-  now = 20_000;
+  now = 300_001;
   const second = h.drain.snapshot();
   finish([]);
   await Promise.all([first, second]);
   expect(calls).toBe(1);
 });
 
-test("disabled drain reports unknown evidence without PR capability", async () => {
+test("enabled drain reports unknown evidence without PR capability", async () => {
   const h = makeHarness({
-    autoDrainEnabled: false,
+    autoDrainEnabled: true,
     claimListing: async () => [issue(133, { labels: [ACTIVE_LABEL] })],
   });
   expect((await h.drain.snapshot())[0]!.claimDiagnostics).toMatchObject([
@@ -2770,18 +2773,83 @@ test("release retries cannot exempt later archived attempts or unclaimed issues"
   expect(await h.drain.queue(REPO)).toEqual([]);
 });
 
-test("first failed claim discovery remains visible even with Drain disabled", async () => {
+test("failed claim discovery remains visible after disabling Drain", async () => {
   const h = makeHarness({
-    autoDrainEnabled: false,
+    autoDrainEnabled: true,
     claimReferences: [],
     claimListing: async () => {
       throw Error("offline");
     },
   });
+  await h.drain.snapshot();
+  h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), autoDrainEnabled: false });
   const [status] = await h.drain.snapshot();
   expect(status).toMatchObject({
     enabled: false,
     claimDiagnosticsFailed: true,
     claimDiagnostics: [],
   });
+});
+
+test("disabled unmanaged repos do not scan claims or emit status on ticks and snapshots", async () => {
+  let calls = 0;
+  const h = makeHarness({
+    autoDrainEnabled: false,
+    claimReferences: [],
+    claimListing: async () => {
+      calls++;
+      return [];
+    },
+  });
+  for (let i = 0; i < 3; i++) {
+    await h.drain.tick();
+    expect(await h.drain.snapshot()).toEqual([]);
+  }
+  expect(calls).toBe(0);
+  expect(h.forgeRec.listIssuesCalls).toBe(0);
+  expect(h.statuses).toEqual([]);
+});
+
+test("claim scans use a five minute cache including failures across ticks and snapshots", async () => {
+  for (const fail of [false, true]) {
+    let now = 0;
+    let calls = 0;
+    const h = makeHarness({
+      now: () => now,
+      claimReferences: [],
+      claimListing: async () => {
+        calls++;
+        if (fail) throw Error("offline");
+        return [];
+      },
+    });
+    await h.drain.snapshot();
+    for (now = 30_000; now < 300_000; now += 30_000) {
+      await h.drain.tick();
+      await h.drain.snapshot();
+    }
+    expect(calls).toBe(1);
+    await h.drain.snapshot();
+    expect(calls).toBe(2);
+  }
+});
+
+test("a running epic keeps its empty hold despite unrelated claims or a failed claim check", async () => {
+  for (const fail of [false, true]) {
+    const h = makeHarness({
+      claimReferences: [],
+      claimListing: async () => {
+        if (fail) throw Error("offline");
+        return [issue(133, { labels: [ACTIVE_LABEL] })];
+      },
+      getIssueImpl: async (n) =>
+        n === 4 ? issue(4, { body: "Epic with no eligible children" }) : null,
+    });
+    h.store.setEpicRun({ repoPath: REPO, parentIssueNumber: 4, mode: "auto", status: "running" });
+    const [status] = await h.drain.snapshot();
+    expect(status!.epicParent).toBe(4);
+    expect(status!.reason).toBe("empty");
+    expect(status!.claimDiagnosticsFailed).toBe(fail);
+    expect(status!.claimDiagnostics).toHaveLength(fail ? 0 : 1);
+  }
 });

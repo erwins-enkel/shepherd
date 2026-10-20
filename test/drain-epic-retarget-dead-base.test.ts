@@ -569,3 +569,78 @@ test("tick runs the pass", async () => {
   expect(h.forgeRec.retargets).toEqual([{ prNumber: PR, base: EPIC_BRANCH }]);
   expect(h.store.get(s.id)?.baseBranch).toBe(EPIC_BRANCH);
 });
+
+// #3197: an incremental epic's stacks are rooted at the default branch. A child whose predecessor
+// merged to main moves onto main, so the train's behind-check and rebase steer use main.
+describe("incremental epic: dead stacked base → main (#3197)", () => {
+  function seedIncremental(h: Harness, predReason: "merged" | "operator"): Session {
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+      landing: "incremental",
+    });
+    const p = h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: "main",
+      branch: PRED_BRANCH,
+      worktreePath: "/wt-pred",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: PRED,
+      incrementalEpicParent: PARENT,
+    });
+    h.store.archive(p.id, predReason);
+    const s = h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: PRED_BRANCH,
+      branch: `shepherd/auto-${CHILD}`,
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: CHILD,
+      incrementalEpicParent: PARENT,
+    });
+    h.prCache[s.id] = openGreen(PR);
+    return s;
+  }
+
+  test("PR still on the dead branch: re-targeted onto main, session base flipped", async () => {
+    const h = makeHarness({ baseRefName: PRED_BRANCH });
+    const s = seedIncremental(h, "merged");
+
+    await retargetPass(h);
+
+    expect(h.forgeRec.retargets).toEqual([{ prNumber: PR, base: "main" }]);
+    expect(h.store.get(s.id)?.baseBranch).toBe("main");
+  });
+
+  test("GitHub already re-targeted it to main: adopted without a write", async () => {
+    const h = makeHarness({ baseRefName: "main" });
+    const s = seedIncremental(h, "merged");
+
+    await retargetPass(h);
+
+    expect(h.forgeRec.retargets).toHaveLength(0);
+    expect(h.store.get(s.id)?.baseBranch).toBe("main");
+  });
+
+  test("predecessor archived WITHOUT merging: untouched, no forge call", async () => {
+    const h = makeHarness({ baseRefName: PRED_BRANCH });
+    const s = seedIncremental(h, "operator");
+
+    await retargetPass(h);
+
+    expect(h.forgeRec.reviewMetaCalls).toBe(0);
+    expect(h.store.get(s.id)?.baseBranch).toBe(PRED_BRANCH);
+  });
+});

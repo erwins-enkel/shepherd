@@ -11,9 +11,21 @@ import {
   type MergeRepoState,
   type MergeSessionView,
 } from "./automerge-core";
-import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
+import {
+  recordEpicIntegrationIfChild,
+  recordIncrementalStackLanding,
+  settleMergedSession,
+} from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
 import { detectMigrationPaths } from "./epic-migrations";
+import {
+  EPIC_STACK_COMPOSE_TTL_MS,
+  bottomMostUnmergedPr,
+  epicChildBaseOk,
+  isStackedBase,
+  landedStackChildren,
+  stackRetireGate,
+} from "./epic-stack";
 
 /** Live per-repo merge-train status pushed to clients. */
 export interface AutoMergeStatus {
@@ -69,6 +81,8 @@ export interface AutoMergeDeps {
     | "getEpicRun"
     | "getEpicIntegrationBranch"
     | "recordEpicIntegrated"
+    | "markEpicStackLanded"
+    | "listEpicStack"
   >;
   service: {
     archive(id: string, reapKeys?: string[], reason?: SessionArchiveReason): Promise<number>;
@@ -123,6 +137,11 @@ export class AutoMergeService {
    *  on: a new push re-probes. Only successful reads are cached (a failed read holds this pump and
    *  retries on the next). Pruned to live sessions on every buildState. In-memory only. */
   private migrationsCache = new Map<string, { head: string; migrations: boolean }>();
+  /** #3197: incremental-epic stack layers whose live-stack confirmation refused at merge time,
+   *  per repo, with when. TIME-BOXED (EPIC_STACK_COMPOSE_TTL_MS) rather than head-keyed like
+   *  {@link stackedHold}: the layer below can land without this layer's head moving, so a
+   *  head-keyed hold would never lift. Cleared for the repo on every successful train merge. */
+  private stackConfirmHeld = new Map<string, Map<string, number>>();
   /** Per-repo wait reasons from the latest buildState, attached to every emitted status. */
   private waiting = new Map<string, AutoMergeWait[]>();
   private now: () => number;
@@ -224,11 +243,104 @@ export class AutoMergeService {
       // Mirrors autopilot.tick()'s running/blocked skip, which the train otherwise lacks.
       busy: s.status === "running" || s.status === "blocked",
       mergeBlocked: this.computeMergeBlocked(s.id, pr.headSha),
-      stacked: this.stackedHold.get(s.id) === (pr.headSha ?? ""),
+      stacked:
+        this.stackedHold.get(s.id) === (pr.headSha ?? "") ||
+        (pr.state === "open" && (await this.incrementalStackHeld(s))),
       migrations: await this.touchesMigrations(s, pr.state, pr.number, pr.headSha),
       manualSteps: s.manualSteps,
       manualStepsAckedAt: s.manualStepsAckedAt,
     };
+  }
+
+  /** #3197: the default branch — an incremental epic's stack trunk — or null when unreadable. The
+   *  forge caches it, so this is free after the first read. */
+  private async trunkOf(repoPath: string): Promise<string | null> {
+    try {
+      return (await this.deps.resolveForge(repoPath)?.defaultBranch()) ?? null;
+    } catch (err) {
+      console.warn(`[automerge] default-branch read failed for ${repoPath}:`, err);
+      return null;
+    }
+  }
+
+  /** #3197: is this incremental-epic child a stack layer the train may not land yet? Store-only
+   *  (plus the cached trunk). A recorded layer waits while a layer below it has not landed; a
+   *  child on a SIBLING's branch that no stack holds yet waits outright — a plain merge would
+   *  squash it into that sibling's branch. A refused live confirmation holds for its window. */
+  private async incrementalStackHeld(s: Session): Promise<boolean> {
+    const parent = s.incrementalEpicParent;
+    if (parent == null || s.issueNumber == null) return false;
+    if (this.freshConfirmHold(s)) return true;
+    const rows = this.deps.store.listEpicStack(s.repoPath, parent);
+    if (rows.some((r) => r.childNumber === s.issueNumber)) {
+      const gate = stackRetireGate({
+        rows,
+        childNumber: s.issueNumber,
+        integratedChildren: landedStackChildren(rows),
+      });
+      return gate.kind === "hold";
+    }
+    const trunk = await this.trunkOf(s.repoPath);
+    return trunk === null || isStackedBase(s.baseBranch, trunk);
+  }
+
+  private freshConfirmHold(s: Session): boolean {
+    const held = this.stackConfirmHeld.get(s.repoPath);
+    const at = held?.get(s.id);
+    if (at === undefined) return false;
+    if (this.now() - at < EPIC_STACK_COMPOSE_TTL_MS) return true;
+    held!.delete(s.id);
+    return false;
+  }
+
+  private holdStackConfirm(s: Session): void {
+    const held = this.stackConfirmHeld.get(s.repoPath) ?? new Map<string, number>();
+    held.set(s.id, this.now());
+    this.stackConfirmHeld.set(s.repoPath, held);
+  }
+
+  /** #3197: may this incremental-epic child land now, and does it need `allowStacked`? `false` →
+   *  an ordinary PR, merge as before. `true` → the bottom-most unmerged layer of a stack rooted at
+   *  the default branch, so exactly one PR lands. `null` → hold: the live stack refused (a foreign
+   *  PR below, a layer not yet stamped landed, a stack rooted elsewhere) — time-boxed — or the
+   *  trunk could not be read (no hold; the next pump retries). The rows say what Shepherd
+   *  composed; only the live read can vouch that nothing ungated sits beneath this layer. */
+  private async confirmIncrementalStack(
+    forge: GitForge,
+    s: Session,
+    prNumber: number,
+  ): Promise<boolean | null> {
+    const parent = s.incrementalEpicParent;
+    if (parent == null || s.issueNumber == null) return false;
+    const rows = this.deps.store.listEpicStack(s.repoPath, parent);
+    const member = rows.some((r) => r.childNumber === s.issueNumber);
+    const trunk = await this.trunkOf(s.repoPath);
+    if (trunk === null) return null;
+    if (!member && !isStackedBase(s.baseBranch, trunk)) return false;
+    const stack = (await forge.stackForPr?.(prNumber)) ?? null;
+    const actualBase =
+      this.deps.prCache.snapshot()[s.id]?.baseRefName ??
+      (await forge.prReviewMeta?.(prNumber))?.baseRefName ??
+      "";
+    const landedPrs = new Set(rows.filter((r) => r.landedAt != null).map((r) => r.prNumber));
+    const ok =
+      epicChildBaseOk({ actualBase, sessionBase: s.baseBranch, stack, trunk }) &&
+      (!stack || bottomMostUnmergedPr(stack.prNumbers, landedPrs) === prNumber);
+    if (ok) return !!stack;
+    console.warn(
+      `[automerge] incremental epic layer pr#${prNumber} (issue #${s.issueNumber}) is not the bottom-most unmerged layer of a stack on \`${trunk}\` — held`,
+    );
+    this.holdStackConfirm(s);
+    return null;
+  }
+
+  /** Is another live session based on this one's branch? Then merging must keep that branch: a
+   *  stacked successor that has not opened its PR yet would lose its base (#2069 keep-branch). */
+  private hasLiveSuccessorOn(s: Session): boolean {
+    if (!s.branch) return false;
+    return this.deps.store
+      .list({ activeOnly: true })
+      .some((o) => o.id !== s.id && o.repoPath === s.repoPath && o.baseBranch === s.branch);
   }
 
   /** Does this incremental-epic child's open PR touch migration paths? Fails CLOSED (true) when
@@ -400,12 +512,34 @@ export class AutoMergeService {
     const forge = this.deps.resolveForge(repoPath);
     const s = this.deps.store.get(sessionId);
     if (!forge || !s) return false;
+    let stacked: boolean | null;
+    try {
+      stacked = await this.confirmIncrementalStack(forge, s, prNumber);
+    } catch (err) {
+      console.warn(`[automerge] stack confirm for pr#${prNumber} failed; retrying later:`, err);
+      return false; // no hold: the next pump re-reads
+    }
+    if (stacked === null) return false;
     this.deps.emitStatus(this.status(repoPath, true, "merging", s.desig, s.id));
     try {
-      // No `allowStacked`: the train must never land a stack — merging a layer also lands every
-      // unmerged layer below it, and those were never gated by our CI check or the critic (#2059).
-      await forge.merge(prNumber, { method: forge.mergeMethod, deleteBranch: true });
+      // `allowStacked` ONLY for the confirmed bottom-most unmerged layer of an incremental epic's
+      // stack (#3197): merging it lands exactly one PR. Anything else is refused by the forge — the
+      // train must never land a stack, since merging a layer also lands every unmerged layer below
+      // it, and those were never gated by our CI check or the critic (#2059).
+      await forge.merge(prNumber, {
+        method: forge.mergeMethod,
+        deleteBranch: !this.hasLiveSuccessorOn(s),
+        ...(stacked ? { allowStacked: true } : {}),
+      });
     } catch (err) {
+      if (err instanceof StackedMergeRefusedError && s.incrementalEpicParent != null) {
+        // An incremental child the live read did not see stacked: time-box it like a refused
+        // confirmation so it is re-checked once the layer below lands.
+        console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
+        this.holdStackConfirm(s);
+        this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
+        return false;
+      }
       if (err instanceof StackedMergeRefusedError) {
         // NOT a merge failure: the forge refused before mutating anything. Recording it would
         // burn MERGE_ERROR_CAP against a PR that will never become train-mergeable, so instead
@@ -428,6 +562,7 @@ export class AutoMergeService {
     }
     this.mergeFail.delete(sessionId); // success clears any backoff
     this.stackedHold.delete(sessionId); // a landed PR was evidently not stacked
+    this.stackConfirmHeld.delete(repoPath); // a layer landed: every other layer's answer changed
     this.deps.noteMergedForRecap?.({ sessionId, prNumber, headSha });
     // Clear the behind-cache so sibling sessions get a fresh read now that main has moved.
     this.behindCache.clear();
@@ -446,6 +581,7 @@ export class AutoMergeService {
       { number: prNumber, url: git?.url, baseRefName: git?.baseRefName },
       { store: this.deps.store, forge },
     );
+    recordIncrementalStackLanding(s, prNumber, this.deps.store);
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,
       archive: (id, reason) => this.deps.service.archive(id, undefined, reason),

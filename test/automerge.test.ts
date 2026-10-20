@@ -38,6 +38,8 @@ function deps(over: Partial<AutoMergeDeps> = {}): AutoMergeDeps {
       getEpicRun: () => null,
       getEpicIntegrationBranch: () => null,
       recordEpicIntegrated: mock(() => {}),
+      listEpicStack: () => [],
+      markEpicStackLanded: mock(() => {}),
     } as any,
     service: {
       archive: mock(() => 1),
@@ -1217,6 +1219,7 @@ function migrationsDeps(
     mergeMethod: "squash",
     merge,
     closeIssue: mock(async () => {}),
+    defaultBranch: async () => "main",
   };
   if (prChangedPaths) forge.prChangedPaths = prChangedPaths;
   const base = deps();
@@ -1302,4 +1305,207 @@ test("migrations: a new head re-probes", async () => {
   head = "h2";
   await svc.pump("/r");
   expect(paths.mock.calls.length).toBe(2);
+});
+
+// ── #3197: an incremental epic's stack (trunk = main) is landed bottom-up by the train ─────────
+
+interface LayerOpts {
+  /** Recorded `epic_stack` rows (parent 100). */
+  rows?: { childNumber: number; prNumber: number; position: number; landedAt?: number | null }[];
+  /** The live stack the host reports for a PR; throw to model a failed read. */
+  stackForPr?: (pr: number) => Promise<any>;
+  sessions?: any[];
+  prs?: Record<string, any>;
+  prChangedPaths?: (n: number) => Promise<string[]>;
+  now?: () => number;
+}
+
+function layerDeps(o: LayerOpts = {}) {
+  const sessions = o.sessions ?? [baseSession({ incrementalEpicParent: 100 })];
+  const merge = mock<(pr: number, o: any) => Promise<void>>(async () => {});
+  const emitStatus = mock(() => {});
+  const markEpicStackLanded = mock<(r: string, p: number, c: number, pr: number) => void>(() => {});
+  const stackForPr = mock(o.stackForPr ?? (async () => null));
+  const forge: any = {
+    kind: "github",
+    mergeMethod: "squash",
+    merge,
+    closeIssue: mock(async () => {}),
+    defaultBranch: async () => "main",
+    stackForPr,
+    prChangedPaths: o.prChangedPaths ?? (async () => ["src/a.ts"]),
+  };
+  const base = deps();
+  const rows = (o.rows ?? []).map((r) => ({
+    stackNumber: 4,
+    baseBranch: "main",
+    landedAt: null,
+    ...r,
+  }));
+  const d = deps({
+    store: {
+      ...base.store,
+      get: (id: string) => sessions.find((x) => x.id === id),
+      list: () => sessions,
+      listEpicStack: () => rows,
+      markEpicStackLanded,
+    } as any,
+    resolveForge: () => forge,
+    prCache: {
+      snapshot: () =>
+        o.prs ?? {
+          s1: {
+            state: "open",
+            checks: "success",
+            mergeable: true,
+            number: 7,
+            headSha: "h1",
+            baseRefName: "main",
+          },
+        },
+    } as any,
+    emitStatus,
+    ...(o.now ? { now: o.now } : {}),
+  });
+  return { d, merge, emitStatus, stackForPr, markEpicStackLanded };
+}
+
+const waitingOf = (emitStatus: any) => (emitStatus as any).mock.calls.at(-1)?.[0]?.waiting;
+
+test("#3197 layer: a layer above an unlanded one is held `stacked`, never merged", async () => {
+  const { d, merge, emitStatus, stackForPr } = layerDeps({
+    rows: [
+      { childNumber: 8, prNumber: 6, position: 1 },
+      { childNumber: 9, prNumber: 7, position: 2 },
+    ],
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
+  expect(stackForPr.mock.calls.length).toBe(0); // store-only hold
+  expect(waitingOf(emitStatus)).toEqual([{ sessionId: "s1", code: "stacked" }]);
+});
+
+test("#3197 layer: the bottom-most unmerged layer merges with allowStacked and is stamped landed", async () => {
+  const { d, merge, markEpicStackLanded } = layerDeps({
+    rows: [
+      { childNumber: 8, prNumber: 6, position: 1, landedAt: 1 },
+      { childNumber: 9, prNumber: 7, position: 2 },
+    ],
+    stackForPr: async () => ({ number: 4, baseRef: "main", prNumbers: [6, 7] }),
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls[0]).toEqual([
+    7,
+    { method: "squash", deleteBranch: true, allowStacked: true },
+  ]);
+  expect(markEpicStackLanded.mock.calls[0]).toEqual(["/r", 100, 9, 7]);
+});
+
+test("#3197 layer: an uncomposed child on a sibling's branch is held, no stack read", async () => {
+  const { d, merge, stackForPr, emitStatus } = layerDeps({
+    sessions: [baseSession({ incrementalEpicParent: 100, baseBranch: "shepherd/sib" })],
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
+  expect(stackForPr.mock.calls.length).toBe(0);
+  expect(waitingOf(emitStatus)).toEqual([{ sessionId: "s1", code: "stacked" }]);
+});
+
+test("#3197 layer: a foreign PR below is held for the window, then re-confirmed and merged", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  let t = 1_000_000;
+  let live = [5, 7];
+  const { d, merge, emitStatus, stackForPr } = layerDeps({
+    rows: [{ childNumber: 9, prNumber: 7, position: 1 }],
+    stackForPr: async () => ({ number: 4, baseRef: "main", prNumbers: live }),
+    now: () => t,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
+  expect(statesOf(emitStatus)).not.toContain("merge_error");
+
+  await svc.pump("/r"); // inside the window: held without another read
+  expect(stackForPr.mock.calls.length).toBe(1);
+
+  live = [7];
+  t += 61_000;
+  await svc.pump("/r");
+  expect(merge.mock.calls[0]).toEqual([
+    7,
+    { method: "squash", deleteBranch: true, allowStacked: true },
+  ]);
+  warn.mockRestore();
+});
+
+test("#3197 layer: a throwing stack read sets no hold — the next pump retries", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  const { d, merge, stackForPr } = layerDeps({
+    rows: [{ childNumber: 9, prNumber: 7, position: 1 }],
+    stackForPr: async () => {
+      throw new Error("gh down");
+    },
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  await svc.pump("/r");
+  expect(stackForPr.mock.calls.length).toBe(2);
+  expect(merge.mock.calls.length).toBe(0);
+  warn.mockRestore();
+});
+
+test("#3197 keep-branch: a merged branch a live session is based on is not deleted", async () => {
+  const successor = baseSession({
+    id: "s2",
+    incrementalEpicParent: 100,
+    issueNumber: 10,
+    baseBranch: "shepherd/x",
+    branch: "shepherd/y",
+  });
+  const { d, merge } = layerDeps({
+    sessions: [baseSession({ incrementalEpicParent: 100 }), successor],
+    rows: [
+      { childNumber: 9, prNumber: 7, position: 1 },
+      { childNumber: 10, prNumber: 8, position: 2 },
+    ],
+    stackForPr: async () => ({ number: 4, baseRef: "main", prNumbers: [7, 8] }),
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls[0]).toEqual([
+    7,
+    { method: "squash", deleteBranch: false, allowStacked: true },
+  ]);
+});
+
+test("#3197 migrations: a held bottom layer keeps the layer above it held", async () => {
+  const upper = baseSession({
+    id: "s2",
+    incrementalEpicParent: 100,
+    issueNumber: 10,
+    baseBranch: "shepherd/x",
+    branch: "shepherd/y",
+  });
+  const pr = (number: number, headSha: string) => ({
+    state: "open",
+    checks: "success",
+    mergeable: true,
+    number,
+    headSha,
+    baseRefName: "main",
+  });
+  const { d, merge, emitStatus } = layerDeps({
+    sessions: [baseSession({ incrementalEpicParent: 100 }), upper],
+    prs: { s1: pr(7, "h1"), s2: pr(8, "h2") },
+    rows: [
+      { childNumber: 9, prNumber: 7, position: 1 },
+      { childNumber: 10, prNumber: 8, position: 2 },
+    ],
+    prChangedPaths: async (n) => (n === 7 ? ["db/migrations/0001.sql"] : ["src/a.ts"]),
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
+  expect(waitingOf(emitStatus)).toEqual([
+    { sessionId: "s1", code: "migrations" },
+    { sessionId: "s2", code: "stacked" },
+  ]);
 });

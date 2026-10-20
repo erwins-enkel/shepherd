@@ -10,7 +10,8 @@ import {
   liveChainSegment,
   planStackComposition,
   stackRetireGate,
-  stackRootedAtEpic,
+  landedStackChildren,
+  stackRootedAt,
   wedgeCleared,
   type EpicStackMember,
   type StrandedChildFact,
@@ -54,15 +55,15 @@ function stack(baseRef: string, prNumbers = [10, 11]): StackInfo {
   return { number: 7, baseRef, prNumbers };
 }
 
-describe("stackRootedAtEpic", () => {
+describe("stackRootedAt", () => {
   test("true only when the stack's trunk is the pinned branch", () => {
-    expect(stackRootedAtEpic(stack(EPIC), EPIC)).toBe(true);
-    expect(stackRootedAtEpic(stack("main"), EPIC)).toBe(false);
+    expect(stackRootedAt(stack(EPIC), EPIC)).toBe(true);
+    expect(stackRootedAt(stack("main"), EPIC)).toBe(false);
   });
 
   test("null stack or unpinned epic is never rooted", () => {
-    expect(stackRootedAtEpic(null, EPIC)).toBe(false);
-    expect(stackRootedAtEpic(stack(EPIC), null)).toBe(false);
+    expect(stackRootedAt(null, EPIC)).toBe(false);
+    expect(stackRootedAt(stack(EPIC), null)).toBe(false);
   });
 });
 
@@ -82,7 +83,7 @@ describe("isStackedBase", () => {
 
 describe("epicChildBaseOk", () => {
   test("unstacked child on the epic branch: today's equality rule", () => {
-    const base = { sessionBase: EPIC, stack: null, pinnedBranch: EPIC };
+    const base = { sessionBase: EPIC, stack: null, trunk: EPIC };
     expect(epicChildBaseOk({ ...base, actualBase: EPIC })).toBe(true);
     expect(epicChildBaseOk({ ...base, actualBase: "main" })).toBe(false);
   });
@@ -95,7 +96,7 @@ describe("epicChildBaseOk", () => {
         actualBase: EPIC,
         sessionBase: PRED_BRANCH,
         stack: stack(EPIC),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(true);
   });
@@ -106,7 +107,7 @@ describe("epicChildBaseOk", () => {
         actualBase: PRED_BRANCH,
         sessionBase: PRED_BRANCH,
         stack: stack(EPIC),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(true);
   });
@@ -118,7 +119,7 @@ describe("epicChildBaseOk", () => {
         actualBase: PRED_BRANCH,
         sessionBase: PRED_BRANCH,
         stack: null,
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(false);
   });
@@ -129,9 +130,50 @@ describe("epicChildBaseOk", () => {
         actualBase: PRED_BRANCH,
         sessionBase: PRED_BRANCH,
         stack: stack("main"),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(false);
+  });
+});
+
+// #3197: an incremental epic's stacks are rooted at the default branch — same rules, trunk = main.
+describe("trunk = default branch (incremental epic)", () => {
+  test("a stack on main is rooted; one on an epic branch is not", () => {
+    expect(stackRootedAt(stack("main"), "main")).toBe(true);
+    expect(stackRootedAt(stack(EPIC), "main")).toBe(false);
+  });
+
+  test("a child on main is plain; one on a sibling's head is stacked", () => {
+    expect(isStackedBase("main", "main")).toBe(false);
+    expect(isStackedBase(PRED_BRANCH, "main")).toBe(true);
+  });
+
+  test("an uncomposed sibling-based child is refused; a stack rooted at main is accepted", () => {
+    const i = { actualBase: PRED_BRANCH, sessionBase: PRED_BRANCH, trunk: "main" };
+    expect(epicChildBaseOk({ ...i, stack: null })).toBe(false);
+    expect(epicChildBaseOk({ ...i, stack: stack("main") })).toBe(true);
+    expect(epicChildBaseOk({ ...i, actualBase: "main", stack: stack("main") })).toBe(true);
+  });
+
+  test("a dead sibling base re-targets onto main, or is adopted once it already targets main", () => {
+    const i = { sessionBase: PRED_BRANCH, trunk: "main", predecessorIntegrated: true };
+    expect(deadStackBaseAction({ ...i, prBase: PRED_BRANCH })).toBe("retarget");
+    expect(deadStackBaseAction({ ...i, prBase: "main" })).toBe("adopt");
+  });
+
+  test("landedStackChildren reads only the rows stamped landed", () => {
+    const rows: EpicStackMember[] = [
+      { childNumber: 1, stackNumber: 7, prNumber: 10, position: 1, landedAt: 5 },
+      { childNumber: 2, stackNumber: 7, prNumber: 11, position: 2, landedAt: null },
+      { childNumber: 3, stackNumber: 7, prNumber: 12, position: 3 },
+    ];
+    expect([...landedStackChildren(rows)]).toEqual([1]);
+    expect(
+      stackRetireGate({ rows, childNumber: 2, integratedChildren: landedStackChildren(rows) }),
+    ).toEqual({ kind: "confirm", stackNumber: 7 });
+    expect(
+      stackRetireGate({ rows, childNumber: 3, integratedChildren: landedStackChildren(rows) }),
+    ).toEqual({ kind: "hold", reason: "stack_layer_below_unmerged", belowChild: 2 });
   });
 });
 
@@ -430,7 +472,7 @@ describe("detectStackWedge", () => {
     facts: Map<number, WedgeChildFact>,
     closedPrs: ReadonlySet<number> = new Set(),
     r = rows,
-  ) => detectStackWedge({ rows: r, facts, closedPrs, pinnedBranch: EPIC });
+  ) => detectStackWedge({ rows: r, facts, closedPrs, trunk: EPIC });
 
   test("a healthy stack is not a wedge", () => {
     expect(wedge(healthy)).toBeNull();
@@ -555,7 +597,7 @@ describe("wedgeCleared", () => {
       wedgeCleared({
         stranded: [322],
         facts: new Map([[322, fact()]]),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(false);
   });
@@ -565,7 +607,7 @@ describe("wedgeCleared", () => {
       wedgeCleared({
         stranded: [322],
         facts: new Map([[322, fact({ spawnBase: null })]]),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(true);
   });
@@ -575,7 +617,7 @@ describe("wedgeCleared", () => {
       wedgeCleared({
         stranded: [322],
         facts: new Map([[322, fact({ spawnBase: EPIC })]]),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(true);
   });
@@ -588,7 +630,7 @@ describe("wedgeCleared", () => {
           [322, fact({ integrationMerged: true })],
           [323, fact({ issueClosed: true })],
         ]),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(true);
   });
@@ -601,7 +643,7 @@ describe("wedgeCleared", () => {
           [322, fact({ integrationMerged: true })],
           [323, fact()],
         ]),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(false);
   });
@@ -615,7 +657,7 @@ describe("wedgeCleared", () => {
           [321, fact({ issueClosed: true })],
           [322, fact()],
         ]),
-        pinnedBranch: EPIC,
+        trunk: EPIC,
       }),
     ).toBe(false);
   });
@@ -624,7 +666,7 @@ describe("wedgeCleared", () => {
 describe("deadStackBaseAction (#3102)", () => {
   const PINNED = "epic/54-epic-m0-fundament";
   const DEAD = "shepherd/m0-projektgeruest-60";
-  const base = { sessionBase: DEAD, pinnedBranch: PINNED, predecessorIntegrated: true };
+  const base = { sessionBase: DEAD, trunk: PINNED, predecessorIntegrated: true };
 
   test("PR still on the landed predecessor's branch → retarget", () => {
     expect(deadStackBaseAction({ ...base, prBase: DEAD })).toBe("retarget");
@@ -647,6 +689,6 @@ describe("deadStackBaseAction (#3102)", () => {
     expect(deadStackBaseAction({ ...base, prBase: "main" })).toBe("none");
   });
   test("unpinned epic → none", () => {
-    expect(deadStackBaseAction({ ...base, pinnedBranch: null, prBase: DEAD })).toBe("none");
+    expect(deadStackBaseAction({ ...base, trunk: null, prBase: DEAD })).toBe("none");
   });
 });

@@ -169,7 +169,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Stacked epic children",
     path: "/reference/stacked-epic-children/",
     keywords:
-      "what changes when an epic stacks its children's pull requests on each other — bottom-up merge order, how a lost middle layer is repaired, and the repository settings that quietly break stacking. what changes, and what doesn't repository settings that break stacking a ruleset that requires a status check on *all* branches ci that runs the whole workflow per layer when a middle layer is lost when a predecessor lands before its successor opens a pr known gaps",
+      "what changes when an epic stacks its children's pull requests on each other — bottom-up merge order, how a lost middle layer is repaired, and the repository settings that quietly break stacking. what changes, and what doesn't incremental epics repository settings that break stacking a ruleset that requires a status check on *all* branches ci that runs the whole workflow per layer when a middle layer is lost when a predecessor lands before its successor opens a pr known gaps",
   },
   {
     title: "Shepherd 2.0",

@@ -5,7 +5,11 @@ import type { CreateSessionInput, Session, SessionArchiveReason } from "./types"
 import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
 import type { TelemetryService } from "./telemetry";
-import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
+import {
+  recordEpicIntegrationIfChild,
+  recordIncrementalStackLanding,
+  settleMergedSession,
+} from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
 import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import {
@@ -52,10 +56,12 @@ import {
   epicChildBaseOk,
   hasLiveStackedSuccessor,
   isStackedBase,
+  EPIC_STACK_COMPOSE_TTL_MS,
+  landedStackChildren,
   liveChainSegment,
   planStackComposition,
   stackRetireGate,
-  stackRootedAtEpic,
+  stackRootedAt,
   wedgeCleared,
   type EpicStackMember,
   type StackComposition,
@@ -97,11 +103,6 @@ import type { NotifyInput } from "./push";
  *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
  *  keeps `gh api matching-refs` off the per-pump hot path. */
 const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
-
-/** #2069: re-run the stack-composition pass for one epic at most this often. Composition only has
- *  work to do when a child PR has just opened, so a per-tick re-read of the host's stack state
- *  would be pure overhead; each pass takes at most one step anyway. */
-const EPIC_STACK_COMPOSE_TTL_MS = 60_000;
 
 /** #2070: the "nothing is stack-held" answer, shared so every non-stacked repo's state carries the
  *  same empty set instead of allocating one per pump iteration. */
@@ -369,6 +370,7 @@ export interface DrainDeps {
     | "latestSessionManualStepsForIssue"
     | "recordEpicStackMember"
     | "listEpicStack"
+    | "markEpicStackLanded"
     | "deleteEpicStack"
     | "recordEpicStackWedge"
     | "listEpicStackWedges"
@@ -465,7 +467,8 @@ function forgeHasStacks(forge: GitForge | null): forge is StackForge {
 interface StackComposeCtx {
   repoPath: string;
   parent: number;
-  /** The epic's pinned integration branch — the trunk every stack of this epic must have. */
+  /** The trunk every stack of this epic must have: its pinned integration branch, or the default
+   *  branch for an incremental epic (#3197). */
   pinned: string;
   /** PR number → the epic child it belongs to (live children only). */
   childByPr: Map<number, number>;
@@ -1174,9 +1177,9 @@ export class DrainService {
   }
 
   /** The branch half of {@link buildState} for the active epic: its pinned integration branch and
-   *  stacks. An incremental epic (#3191) has none of them — children base on the default branch
-   *  and land one at a time — so nothing is pinned; only its parent is carried, to stamp each
-   *  child's `incrementalEpicParent`. */
+   *  stacks. An incremental epic (#3191) has no integration branch — children base on the default
+   *  branch and land one at a time — so nothing is pinned; its parent is carried to stamp each
+   *  child's `incrementalEpicParent`, and its stacks (#3197) are rooted at the default branch. */
   private epicBranchState(
     repoPath: string,
     cfg: RepoConfig,
@@ -1189,14 +1192,18 @@ export class DrainService {
     ctx: EpicStackContext | undefined;
     incrementalParent: number | null;
   } {
-    if (effectiveEpicLanding(run) === "incremental")
+    if (effectiveEpicLanding(run) === "incremental") {
+      // #3197: stacks still apply — rooted at the default branch. The merge train lands them, not
+      // the drain's retire path, so nothing is retire-held here.
+      const stack = this.epicStackContext(repoPath, cfg, epic);
       return {
         integrationBranch: null,
-        stackBases: null,
+        stackBases: stack.baseByChild,
         stackHeld: EMPTY_SESSION_SET,
-        ctx: undefined,
+        ctx: stack.ctx,
         incrementalParent: run.parentIssueNumber,
       };
+    }
     // Pin the canonical name once (#645): re-deriving from the live title would re-point
     // spawns + the landing base on a mid-run title edit, orphaning already-merged children.
     const integrationBranch = this.deps.store.getOrInitEpicIntegrationBranch(
@@ -1255,12 +1262,16 @@ export class DrainService {
       if (forge.kind === "github" && this.deps.restWritesBlocked?.()) return;
       const sessions = this.deps.store.list().filter((s) => s.repoPath === repoPath);
       const snap = this.deps.prCache.snapshot();
+      // #3197: an incremental epic's stacks are rooted at the default branch (cached by the forge).
+      const defaultBranch = sessions.some((s) => s.incrementalEpicParent != null && s.auto)
+        ? await forge.defaultBranch()
+        : null;
       for (const s of sessions) {
-        const pinned = this.landedStackBasePinned(s, sessions);
+        const trunk = this.landedStackBaseTrunk(s, sessions, defaultBranch);
         const pr = snap[s.id];
-        if (!pinned || pr?.state !== "open" || pr.number == null) continue; // no PR yet — next tick
+        if (!trunk || pr?.state !== "open" || pr.number == null) continue; // no PR yet — next tick
         if (!this.deadBaseProbeDue(s.id)) continue;
-        if (await this.retargetDeadStackBase(forge, s, pr, pinned)) {
+        if (await this.retargetDeadStackBase(forge, s, pr, trunk)) {
           this.deadBaseCheckedAt.delete(s.id);
         } else {
           this.deadBaseCheckedAt.set(s.id, this.now());
@@ -1277,10 +1288,23 @@ export class DrainService {
     return at === undefined || this.now() - at >= EPIC_BASE_RECHECK_TTL_MS;
   }
 
-  /** #3102: the pinned branch of `s`'s epic when `s` is a live stacked child whose spawn branch
-   *  belongs to an integrated sibling (its base has landed), else null. Store-only. */
-  private landedStackBasePinned(s: Session, repoSessions: Session[]): string | null {
+  /** #3102: the stack trunk of `s`'s epic when `s` is a live stacked child whose spawn branch
+   *  belongs to a sibling that has landed, else null. Store-only. An integration epic's trunk is
+   *  its pinned branch and "landed" is an `epic_integrated` row; an incremental epic's (#3197) is
+   *  the default branch and "landed" is the sibling's session having been archived as merged. */
+  private landedStackBaseTrunk(
+    s: Session,
+    repoSessions: Session[],
+    defaultBranch: string | null,
+  ): string | null {
     if (s.status === "archived" || !s.auto || s.issueNumber == null) return null;
+    if (s.incrementalEpicParent != null) {
+      if (!defaultBranch || !isStackedBase(s.baseBranch, defaultBranch)) return null;
+      const landed = repoSessions.some(
+        (p) => p.branch === s.baseBranch && p.archiveReason === "merged",
+      );
+      return landed ? defaultBranch : null;
+    }
     const parent = sessionEpicParent(s);
     if (parent == null) return null;
     const pinned = this.deps.store.getEpicIntegrationBranch(s.repoPath, parent);
@@ -1292,21 +1316,22 @@ export class DrainService {
       : null;
   }
 
-  /** #3102: may a head land on the epic without carrying unreviewed content? Yes when it contains
-   *  the landed predecessor's final tip (`deadBase`) or the epic branch's tip (`pinned`). */
-  private async headSafeOnEpic(
+  /** #3102: may a head land on the trunk without carrying unreviewed content? Yes when it contains
+   *  the landed predecessor's final tip (`deadBase`) or the trunk's tip. */
+  private async headSafeOnTrunk(
     forge: GitForge,
     headSha: string,
     deadBase: string,
-    pinned: string,
+    trunk: string,
   ): Promise<boolean> {
     return (
       (await forge.branchContains!(deadBase, headSha)) ||
-      (await forge.branchContains!(pinned, headSha))
+      (await forge.branchContains!(trunk, headSha))
     );
   }
 
-  /** One candidate: probe, then move it. True only when the session was moved onto `pinned`. */
+  /** One candidate: probe, then move it. True only when the session was moved onto `pinned` (the
+   *  stack trunk — the epic branch, or the default branch for an incremental epic). */
   private async retargetDeadStackBase(
     forge: GitForge,
     s: Session,
@@ -1318,14 +1343,14 @@ export class DrainService {
       const prBase = (await forge.prReviewMeta!(prNumber))?.baseRefName ?? null;
       const action = deadStackBaseAction({
         sessionBase: s.baseBranch,
-        pinnedBranch: pinned,
+        trunk: pinned,
         predecessorIntegrated: true,
         prBase,
       });
       if (action === "none") return false;
       // The dead base is kept on the remote (keepBranchForStackedSuccessor), so its tip IS the
       // predecessor's merged head. Unknown head ⇒ cannot vouch ⇒ hold.
-      if (!pr.headSha || !(await this.headSafeOnEpic(forge, pr.headSha, s.baseBranch, pinned))) {
+      if (!pr.headSha || !(await this.headSafeOnTrunk(forge, pr.headSha, s.baseBranch, pinned))) {
         if (!this.deadBaseCheckedAt.has(s.id)) {
           console.log(
             `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed, but the branch contains neither its final tip nor \`${pinned}\` — holding (rebase it onto \`${pinned}\`)`,
@@ -1335,7 +1360,8 @@ export class DrainService {
       }
       if (action === "retarget") await forge.retargetPr!(prNumber, pinned);
       this.deps.store.setSessionBaseBranch(s.id, pinned);
-      this.deps.store.clearEpicBaseMismatch(s.repoPath, sessionEpicParent(s)!, s.issueNumber!);
+      const parent = sessionEpicParent(s);
+      if (parent != null) this.deps.store.clearEpicBaseMismatch(s.repoPath, parent, s.issueNumber!);
       console.log(
         `[drain] epic child pr#${prNumber} (issue #${s.issueNumber}): base \`${s.baseBranch}\` already landed — ${action === "retarget" ? "re-targeted onto" : "adopted"} \`${pinned}\``,
       );
@@ -1346,7 +1372,8 @@ export class DrainService {
     }
   }
 
-  /** #2069: link an epic's child PRs into a GitHub stack rooted at its pinned integration branch,
+  /** #2069: link an epic's child PRs into a GitHub stack rooted at its trunk (pinned integration
+   *  branch, or the default branch for an incremental epic — #3197),
    *  one step per pass. Runs from `tick()` beside the other self-guarding epic passes — NOT from
    *  `pumpStep`, which iterates up to 100 times per pump.
    *
@@ -1375,9 +1402,8 @@ export class DrainService {
           : null;
       const wedged = this.deps.store.listEpicStackWedges(repoPath, parent).length > 0;
       if (!stackForge && !wedged) return;
-      // READ-ONLY getter: never INSERT a title-drifted pin from a side path (see tryAutoLandEpic).
-      // Unpinned ⇒ no epic child has been based on anything yet ⇒ nothing to compose.
-      const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+      const incremental = effectiveEpicLanding(er) === "incremental";
+      const pinned = await this.epicStackTrunk(repoPath, parent, incremental, forge);
       if (!pinned) return;
       const key = `${repoPath}#${parent}`;
       const last = this.epicStackComposedAt.get(key);
@@ -1392,16 +1418,85 @@ export class DrainService {
           this.sweepEpicStackWedges(repoPath, parent, pinned, epic); // opted out — clearing only
           return;
         }
-        // #2070: repair before composing. A live wedge halts stacking for the epic entirely —
-        // composing over a dissolved stack would just rebuild the shape the operator has to fix.
-        if (await this.repairEpicStack(stackForge, repoPath, parent, pinned, epic)) return;
-        await this.composeOneEpicStack(stackForge, repoPath, parent, pinned, epic);
+        await this.repairOrComposeEpicStack(
+          stackForge,
+          repoPath,
+          parent,
+          pinned,
+          epic,
+          incremental,
+        );
       } finally {
         this.epicStackInFlight.delete(key);
       }
     } catch (err) {
       console.warn(`[drain] epic stack composition failed for ${repoPath}:`, err);
     }
+  }
+
+  /** One composition pass for an opted-in epic: heal, repair, then compose at most one step. */
+  private async repairOrComposeEpicStack(
+    forge: StackForge,
+    repoPath: string,
+    parent: number,
+    trunk: string,
+    epic: Epic,
+    incremental: boolean,
+  ): Promise<void> {
+    // #3197: an incremental epic's closed-issue layers are probed for a merge before the wedge
+    // detector may read the closed issue as a lost layer.
+    const stillLive = incremental
+      ? await this.healLandedStackLayers(forge, repoPath, parent, epic)
+      : undefined;
+    // #2070: repair before composing. A live wedge halts stacking for the epic entirely —
+    // composing over a dissolved stack would just rebuild the shape the operator has to fix.
+    if (await this.repairEpicStack(forge, repoPath, parent, trunk, epic, stillLive)) return;
+    await this.composeOneEpicStack(forge, repoPath, parent, trunk, epic);
+  }
+
+  /** The trunk this epic's stacks must be rooted at: its pinned integration branch — a READ-ONLY
+   *  getter, never INSERTing a title-drifted pin from a side path (see tryAutoLandEpic); unpinned ⇒
+   *  no child has been based on anything yet ⇒ nothing to compose — or, for an incremental epic
+   *  (#3197), the default branch (cached by the forge). Null when it cannot be known. */
+  private async epicStackTrunk(
+    repoPath: string,
+    parent: number,
+    incremental: boolean,
+    forge: GitForge | null,
+  ): Promise<string | null> {
+    if (!incremental) return this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    return forge ? await forge.defaultBranch() : null;
+  }
+
+  /** #3197: an incremental child's issue closes when its PR merges (`Closes #N`), and that close
+   *  can be observed before the merge event stamps the layer landed. The wedge detector reads a
+   *  closed issue on an unlanded layer as LOST — so first ask the host about exactly those rows:
+   *  a merged PR is stamped landed (self-healing a missed event too), a closed one stays lost, and
+   *  an open one — or an unreadable state — is still a live layer for this pass. Returns those
+   *  still-live children. */
+  private async healLandedStackLayers(
+    forge: GitForge,
+    repoPath: string,
+    parent: number,
+    epic: Epic,
+  ): Promise<Set<number>> {
+    const stillLive = new Set<number>();
+    const closedIssues = new Set(epic.children.filter((c) => c.issueClosed).map((c) => c.number));
+    for (const row of this.deps.store.listEpicStack(repoPath, parent)) {
+      if (row.landedAt != null || !closedIssues.has(row.childNumber)) continue;
+      let state: string | null = null;
+      try {
+        state = (await forge.prReviewMeta?.(row.prNumber))?.state ?? null;
+      } catch (err) {
+        console.warn(`[drain] epic #${parent}: layer pr#${row.prNumber} state read failed:`, err);
+      }
+      if (state === "merged") {
+        this.deps.store.markEpicStackLanded(repoPath, parent, row.childNumber, row.prNumber);
+      } else if (state !== "closed") {
+        stillLive.add(row.childNumber);
+      }
+    }
+    return stillLive;
   }
 
   /** #2070: mid-stack loss. A closed or abandoned middle layer blocks every layer above it, and
@@ -1418,17 +1513,21 @@ export class DrainService {
     parent: number,
     pinned: string,
     epic: Epic,
+    /** #3197: closed-issue layers whose PR is still open (see healLandedStackLayers). */
+    stillLive?: ReadonlySet<number>,
   ): Promise<boolean> {
     if (this.sweepEpicStackWedges(repoPath, parent, pinned, epic)) return true;
     const rows = this.deps.store.listEpicStack(repoPath, parent);
     if (rows.length === 0) return false;
     const spawnBases = this.epicChildSpawnBases(repoPath);
+    const landed = landedStackChildren(rows);
     const facts = new Map<number, WedgeChildFact>(
       epic.children.map((c) => [
         c.number,
         {
-          integrationMerged: c.integrationMerged,
-          issueClosed: c.issueClosed,
+          // #3197: an incremental epic's landed layer counts as integrated (it has no rows there).
+          integrationMerged: c.integrationMerged || landed.has(c.number),
+          issueClosed: c.issueClosed && !stillLive?.has(c.number),
           prNumber: c.prNumber,
           spawnBase: spawnBases.get(c.number) ?? null,
         },
@@ -1438,7 +1537,7 @@ export class DrainService {
       rows,
       facts,
       closedPrs: this.closedEpicChildPrs(repoPath),
-      pinnedBranch: pinned,
+      trunk: pinned,
     });
     if (!wedge) return false;
     await forge.unstack(wedge.stackNumber);
@@ -1468,11 +1567,12 @@ export class DrainService {
     const wedges = this.deps.store.listEpicStackWedges(repoPath, parent);
     if (wedges.length === 0) return false;
     const spawnBases = this.epicChildSpawnBases(repoPath);
+    const landed = landedStackChildren(this.deps.store.listEpicStack(repoPath, parent));
     const facts = new Map<number, StrandedChildFact>(
       epic.children.map((c) => [
         c.number,
         {
-          integrationMerged: c.integrationMerged,
+          integrationMerged: c.integrationMerged || landed.has(c.number),
           issueClosed: c.issueClosed,
           spawnBase: spawnBases.get(c.number) ?? null,
         },
@@ -1480,7 +1580,7 @@ export class DrainService {
     );
     let live = 0;
     for (const w of wedges) {
-      if (wedgeCleared({ stranded: w.stranded, facts, pinnedBranch: pinned })) {
+      if (wedgeCleared({ stranded: w.stranded, facts, trunk: pinned })) {
         this.deps.store.clearEpicStackWedge(repoPath, parent, w.childNumber);
         console.log(`[drain] epic #${parent}: stack wedge on child #${w.childNumber} cleared`);
       } else {
@@ -1513,17 +1613,19 @@ export class DrainService {
     pinned: string,
     epic: Epic,
   ): Promise<void> {
+    const rows = this.deps.store.listEpicStack(repoPath, parent);
+    const landed = landedStackChildren(rows);
     const liveChildren = new Set(
-      epic.children.filter((c) => !c.integrationMerged && !c.issueClosed).map((c) => c.number),
+      epic.children
+        .filter((c) => !c.integrationMerged && !landed.has(c.number) && !c.issueClosed)
+        .map((c) => c.number),
     );
     const live = (n: number) => liveChildren.has(n);
     const prByChild = new Map<number, number>();
     for (const c of epic.children) {
       if (c.prNumber != null && live(c.number)) prByChild.set(c.number, c.prNumber);
     }
-    const existing = new Map<number, EpicStackMember>(
-      this.deps.store.listEpicStack(repoPath, parent).map((r) => [r.childNumber, r]),
-    );
+    const existing = new Map<number, EpicStackMember>(rows.map((r) => [r.childNumber, r]));
     const ctx: StackComposeCtx = {
       repoPath,
       parent,
@@ -1617,7 +1719,7 @@ export class DrainService {
   ): Promise<boolean> {
     const stack = await forge.stackForPr(prNumber);
     if (!stack) return false;
-    if (!stackRootedAtEpic(stack, ctx.pinned)) {
+    if (!stackRootedAt(stack, ctx.pinned)) {
       console.warn(
         `[drain] epic #${ctx.parent}: pr#${prNumber} is in stack ${stack.number} rooted at \`${stack.baseRef}\`, not \`${ctx.pinned}\` — leaving it alone`,
       );
@@ -4201,7 +4303,7 @@ export class DrainService {
         actualBase: actual ?? "",
         sessionBase: s.baseBranch,
         stack,
-        pinnedBranch: pinned,
+        trunk: pinned,
       })
     ) {
       this.deps.store.clearEpicBaseMismatch(repoPath, parent, child);
@@ -4538,21 +4640,8 @@ export class DrainService {
     decision: Extract<DrainDecision, { kind: "spawn" }>,
   ): Promise<{ base: string; prompt: string; epicParent: number | null }> {
     const { number, title } = decision.issue;
-    // #2069: a STACKED child bases on its chain predecessor's live PR head. `ensureBranch` is
-    // deliberately NOT called: the branch already exists (an open PR implies it was pushed), and
-    // "ensuring" it would create it at the default branch's tip if it had since been deleted —
-    // silently basing the child on an EMPTY predecessor. It is still an epic child, so the
-    // `epicParent` stamp is kept: it must stay off the merge train and retire into the epic.
-    if (decision.stackedBase && decision.integrationBranch) {
-      return {
-        base: decision.stackedBase,
-        prompt: `${issueSpawnPrompt(number, title)}\n\n${epicStackedBaseDirective(
-          decision.stackedBase,
-          decision.integrationBranch,
-        )}`,
-        epicParent: decision.epicParent ?? null,
-      };
-    }
+    const stacked = await this.stackedSpawnBase(forge, decision);
+    if (stacked) return stacked;
     const def = await forge.defaultBranch();
     let base = def;
     if (decision.integrationBranch && forge.ensureBranch) {
@@ -4589,6 +4678,29 @@ export class DrainService {
     // would silently reroute every gitea/local epic through the squash-into-integration path.
     const epicParent = usingEpicBase ? (decision.epicParent ?? null) : null;
     return { base, prompt, epicParent };
+  }
+
+  /** #2069: a STACKED child bases on its chain predecessor's live PR head. `ensureBranch` is
+   *  deliberately NOT called: the branch already exists (an open PR implies it was pushed), and
+   *  "ensuring" it would create it at the default branch's tip if it had since been deleted —
+   *  silently basing the child on an EMPTY predecessor. An integration epic's child keeps its
+   *  `epicParent` stamp: it must stay off the merge train and retire into the epic. #3197: an
+   *  incremental epic's stacked child lands on the default branch — its trunk — and stays an
+   *  ordinary session (`incrementalEpicParent` is stamped by doSpawn, never `epicParent`). Null
+   *  when the child is not stacked. */
+  private async stackedSpawnBase(
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+  ): Promise<{ base: string; prompt: string; epicParent: number | null } | null> {
+    const stackBase = decision.stackedBase;
+    if (!stackBase || !(decision.integrationBranch || decision.incrementalEpicParent)) return null;
+    const trunk = decision.integrationBranch ?? (await forge.defaultBranch());
+    const { number, title } = decision.issue;
+    return {
+      base: stackBase,
+      prompt: `${issueSpawnPrompt(number, title)}\n\n${epicStackedBaseDirective(stackBase, trunk)}`,
+      epicParent: decision.integrationBranch ? (decision.epicParent ?? null) : null,
+    };
   }
 
   private async spawnCapacity(
@@ -4776,6 +4888,7 @@ export class DrainService {
    *  over the shared helper (which owns the gates: issue-linked, active epic, merged base ==
    *  pinned integration branch, never-throws). Ungated by `s.auto` — see handle()/onGit(). */
   private async recordEpicIntegrationForMerge(s: Session, git: GitState): Promise<void> {
+    recordIncrementalStackLanding(s, git.number, this.deps.store);
     await recordEpicIntegrationIfChild(
       s,
       { number: git.number, url: git.url, baseRefName: git.baseRefName },

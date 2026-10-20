@@ -76,6 +76,25 @@ function attemptTimeoutMs(deadlineMs: number): number {
   return Math.max(1_000, Math.floor(deadlineMs / 3));
 }
 
+/**
+ * SDK 0.7's `bufferResponse` takes — and immediately releases — a reader on the ORIGINAL
+ * response body so an abort can cancel a body mid-delivery. Node lets the body still be read
+ * after that lock/unlock; Bun 1.x marks it used, so under Bun (shepherd's runtime, CI and prod
+ * alike) every SDK 0.7 response dies in the SDK's `parseBody` with `Body already used`
+ * (`ERR_BODY_ALREADY_USED`) — ask AND key check — before the caller sees a byte. Shield the
+ * response instead of the payload: shadowing `body` with `null` hides the original stream
+ * from the SDK's reader dance while `text()` — which reads the internal body — keeps working;
+ * the SDK's timeout buffering still drains its `clone()`, the one body Bun tolerates being
+ * read alongside the original.
+ */
+function shieldBunBody(fetch: Fetch): Fetch {
+  return (input, init) =>
+    fetch(input, init).then((res) => {
+      Object.defineProperty(res, "body", { get: () => null, configurable: true });
+      return res;
+    });
+}
+
 function toSdkQuestion(q: JudgeQuestion): SdkQuestion {
   // A noul's `criteria` is optional at the seam and optional in the SDK, so an absent one rides as
   // `undefined` and JSON-drops — a caller shipping a verbatim prompt gets the byte-identical
@@ -125,7 +144,7 @@ export function createTypeSafeJudge(options: TypeSafeJudgeOptions): Judge {
     // NEVER `debug`: at that level the SDK logs request bodies unredacted, and a body here carries
     // untrusted PTY output and the operator's task prompt.
     logLevel: "warn",
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    fetch: shieldBunBody(options.fetch ?? globalThis.fetch),
   });
 
   return {
@@ -196,7 +215,7 @@ export async function probeTypeSafeKey(
       baseURL: options.baseUrl,
       timeout: attemptTimeoutMs(options.deadlineMs),
       logLevel: "warn",
-      ...(options.fetch ? { fetch: options.fetch } : {}),
+      fetch: shieldBunBody(options.fetch ?? globalThis.fetch),
     });
     const models = await client.models.list({ signal: AbortSignal.timeout(options.deadlineMs) });
     // Deduplicated: Settings renders these as a keyed list, which a repeated name would break.

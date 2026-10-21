@@ -8,6 +8,7 @@
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
+  import { swipeBack } from "./swipe-back";
 
   let {
     repoFilter = EMPTY_REPO_FILTER,
@@ -17,6 +18,7 @@
     focusNonce = 0,
     focusHandledNonce = 0,
     onfocusresolved = undefined,
+    onback = undefined,
   }: {
     /** Active repo chip filter (selected repo paths; empty = all repos). Scopes the visible card
      *  list and empty state — but NOT the focus/frozen-card resolution, which must see every repo. */
@@ -28,7 +30,12 @@
     focusNonce?: number;
     focusHandledNonce?: number;
     onfocusresolved?: (nonce: number) => void;
+    /** Phone, entered via a card's manual-steps chip: a rightward swipe returns to that lens. */
+    onback?: () => void;
   } = $props();
+
+  let dragX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const backSwipe = swipeBack({ onback: () => onback?.(), onoffset: (px) => (dragX = px) });
 
   // Unfiltered store — the source of truth for focus/frozen-card resolution (the #1275
   // "live record always wins / never a dead end" invariant must see records across ALL repos).
@@ -137,7 +144,13 @@
   const doneCount = (rec: PostMergeSteps) => rec.steps.filter((s) => s.doneAt != null).length;
 </script>
 
-<div class="owed" bind:this={listEl}>
+<div
+  class="owed"
+  class:swiping={dragX > 0}
+  bind:this={listEl}
+  {@attach onback ? backSwipe : undefined}
+  style:transform={dragX > 0 ? `translateX(${dragX}px)` : undefined}
+>
   <div class="ow-head">
     <span class="ow-title">{m.owed_title()}</span>
   </div>
@@ -262,6 +275,12 @@
     overflow: auto;
     min-height: 0;
     flex: 1;
+    transition: transform 0.18s ease-out;
+  }
+  /* Mid swipe-back: follows the finger 1:1, lifted off the shell behind it. */
+  .owed.swiping {
+    transition: none;
+    box-shadow: var(--shadow-popover);
   }
   .ow-head {
     display: flex;

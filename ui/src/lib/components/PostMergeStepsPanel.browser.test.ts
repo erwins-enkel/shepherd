@@ -395,3 +395,64 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     expect(onfocusresolved.mock.calls.length).toBe(1);
   });
 });
+
+describe("PostMergeStepsPanel — phone swipe right back to the prior lens", () => {
+  // Synthetic touches: the attachment reads only clientX/clientY from `touches`. Each one lands
+  // 500ms after the last, so back-to-back dispatches never read as a flick.
+  let clock = 0;
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
+    return e;
+  }
+  function drag(el: Element, from: [number, number], to: [number, number]) {
+    el.dispatchEvent(fakeTouch("touchstart", ...from));
+    el.dispatchEvent(fakeTouch("touchmove", ...to));
+    el.dispatchEvent(fakeTouch("touchend", ...to));
+  }
+  async function open(onback?: () => void) {
+    await page.viewport(390, 844);
+    postMergeSteps.records = [record({ sessionId: "s1" })];
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+    const screen = await render(PostMergeStepsPanel, onback ? { onback } : {});
+    return screen.container.querySelector<HTMLElement>(".owed")!;
+  }
+
+  it("a rightward drag goes back", async () => {
+    const onback = vi.fn();
+    const owed = await open(onback);
+    drag(owed, [10, 300], [300, 300]);
+    expect(onback).toHaveBeenCalledOnce();
+  });
+
+  it("the panel follows the finger mid-drag", async () => {
+    const onback = vi.fn();
+    const owed = await open(onback);
+    owed.dispatchEvent(fakeTouch("touchstart", 10, 300));
+    owed.dispatchEvent(fakeTouch("touchmove", 60, 300));
+    await expect.poll(() => owed.style.transform).toBe("translateX(50px)");
+    owed.dispatchEvent(fakeTouch("touchend", 60, 300));
+    await expect.poll(() => owed.style.transform).toBe("");
+    expect(onback).not.toHaveBeenCalled();
+  });
+
+  it("short, leftward and vertical drags stay", async () => {
+    const onback = vi.fn();
+    const owed = await open(onback);
+    drag(owed, [10, 300], [40, 300]);
+    drag(owed, [300, 300], [10, 300]);
+    drag(owed, [100, 100], [110, 500]);
+    expect(onback).not.toHaveBeenCalled();
+  });
+
+  it("no swipe without `onback` (desktop / direct lens entry)", async () => {
+    const owed = await open();
+    drag(owed, [10, 300], [300, 300]);
+    expect(owed.style.transform).toBe("");
+  });
+});

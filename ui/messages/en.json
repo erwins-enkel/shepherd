@@ -472,7 +472,7 @@
   "feat_swipe_back_to_herd_title": "Swipe right to return to the herd",
   "feat_swipe_back_to_herd_body": "On your phone, swipe right across a session to go back to the session list, like in the iOS app. Swipe left still jumps to the next agent; a panel behind the session shows where a release takes you.",
   "feat_swipe_back_to_issues_title": "Swipe right to return to the issues",
-  "feat_swipe_back_to_issues_body": "On your phone, swipe right across an open issue in the Backlog or the Next view to go back to the list, the same gesture as on a session. The issue follows your finger; let go past the threshold to return.",
+  "feat_swipe_back_to_issues_body": "On your phone, swipe right across an open issue in the Backlog or the Next view to go back to the list, the same gesture as on a session. The issue follows your finger; let go past the threshold to return. The same swipe takes you back from the Owed view when you opened it from a card's Resolve steps chip.",
   "viewport_back_button": "‹ Herd",
   "viewport_queue_prev_aria": "Previous waiting session",
   "viewport_queue_next_aria": "Next waiting session",

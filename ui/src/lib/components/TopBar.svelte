@@ -962,7 +962,7 @@
       />
     {/if}
     <div class="conn tip" data-tip={connText} aria-label={connText}>
-      <span class="dot" class:on={connected}>●</span>
+      <span class="dot" class:on={connected}>{connected ? "●" : "○"}</span>
     </div>
     {#if !mobile && !foldBadges}<TopBarBadges
         {compactBadges}
@@ -1163,9 +1163,9 @@
     display: flex;
     align-items: center;
   }
-  /* connection dot: informational, so it stays in the neutral ink ramp — bright
-     when connected vs faint when dropped (brightness, not a status hue, carries
-     the cue; the tooltip/aria text names the state). */
+  /* connection dot: informational, so it stays in the neutral ink ramp — a bright
+     filled ● when connected vs a faint hollow ○ when dropped (shape plus brightness,
+     not a status hue, carries the cue; the tooltip/aria text names the state). */
   .conn .dot {
     color: var(--color-faint);
   }

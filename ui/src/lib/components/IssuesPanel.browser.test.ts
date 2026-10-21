@@ -1204,6 +1204,71 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect.poll(() => document.querySelector(".detail-col")).toBeNull();
     expect(option("s:42")?.getAttribute("aria-selected")).toBe("false");
   });
+
+  describe("mobile: swipe right back to the list (iOS parity)", () => {
+    // Synthetic touches: the component reads only clientX/clientY from `touches`.
+    function fakeTouch(type: string, x: number, y: number): Event {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "touches", {
+        value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+        configurable: true,
+      });
+      return e;
+    }
+    function drag(el: Element, from: [number, number], to: [number, number]) {
+      el.dispatchEvent(fakeTouch("touchstart", ...from));
+      el.dispatchEvent(fakeTouch("touchmove", ...to));
+      el.dispatchEvent(fakeTouch("touchend", ...to));
+    }
+    async function openDetail() {
+      await page.viewport(390, 844);
+      seed([plain(42, { body: "**hi**" })]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, mobile: true });
+      await selectRow("s:42");
+      await expect.poll(() => document.querySelector(".detail-col.overlay")).not.toBeNull();
+      return document.querySelector<HTMLElement>(".detail-col.overlay")!;
+    }
+    const detailOpen = () => document.querySelector(".detail-col") != null;
+
+    it("a rightward drag returns to the list", async () => {
+      const col = await openDetail();
+      drag(col, [10, 300], [300, 300]);
+      await expect.poll(detailOpen).toBe(false);
+      expect(option("s:42")?.getAttribute("aria-selected")).toBe("false");
+    });
+
+    it("the detail follows the finger mid-drag", async () => {
+      const col = await openDetail();
+      col.dispatchEvent(fakeTouch("touchstart", 10, 300));
+      col.dispatchEvent(fakeTouch("touchmove", 60, 300));
+      await expect.poll(() => col.style.transform).toBe("translateX(50px)");
+      col.dispatchEvent(fakeTouch("touchend", 60, 300));
+      await expect.poll(() => col.style.transform).toBe("");
+      expect(detailOpen()).toBe(true);
+    });
+
+    it("short, leftward and vertical drags keep the detail open", async () => {
+      const col = await openDetail();
+      drag(col, [10, 300], [40, 300]);
+      drag(col, [300, 300], [10, 300]);
+      drag(col, [100, 100], [110, 500]);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(detailOpen()).toBe(true);
+    });
+
+    it("ignores drags starting in a text field or a horizontal scroller", async () => {
+      const col = await openDetail();
+      const field = document.createElement("textarea");
+      const scroller = document.createElement("div");
+      scroller.style.cssText = "width:100px;overflow-x:auto";
+      scroller.innerHTML = '<div style="width:1000px;height:20px"></div>';
+      col.append(field, scroller);
+      drag(field, [10, 300], [300, 300]);
+      drag(scroller.firstElementChild!, [10, 300], [300, 300]);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(detailOpen()).toBe(true);
+    });
+  });
 });
 
 describe("IssuesPanel epic badge", () => {

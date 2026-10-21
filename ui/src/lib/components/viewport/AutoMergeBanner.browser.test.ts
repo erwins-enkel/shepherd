@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import "../../../app.css";
 import { m } from "#lib/paraglide/messages.js";
 import { reviews, repoConfig } from "#lib/reviews.svelte.js";
@@ -113,6 +114,21 @@ describe("AutoMergeBanner", () => {
     mount("behind", { tab: "diff" });
     await new Promise((r) => setTimeout(r, 20));
     expect(banner()).toBeNull();
+  });
+
+  it("phone width: wraps so the reason after the dash is never clipped", async () => {
+    const [w, h] = [window.innerWidth, window.innerHeight];
+    await page.viewport(360, 800);
+    try {
+      mount("protection_blocked");
+      await expect.poll(() => banner()).not.toBeNull();
+      const text = banner()!.querySelector<HTMLElement>(".am-text")!;
+      expect(text.textContent).toContain(m.automergebanner_protection_blocked());
+      expect(getComputedStyle(text).whiteSpace).not.toBe("nowrap");
+      expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth);
+    } finally {
+      await page.viewport(w, h);
+    }
   });
 
   it("offers the structured full auto-merge explanation", async () => {

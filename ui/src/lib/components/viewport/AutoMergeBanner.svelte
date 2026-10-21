@@ -145,12 +145,12 @@
     flex-shrink: 0;
     color: var(--accent);
   }
+  /* Wraps rather than truncating: on phones the lead alone fills a line, and the reason after
+     the dash is the part the operator needs. The bound height grows with it. */
   .am-text {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     color: var(--color-ink-bright);
   }
   .am-lead {

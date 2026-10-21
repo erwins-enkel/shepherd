@@ -10,10 +10,10 @@
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { m } from "#lib/paraglide/messages.js";
-  import { shouldAutoReload } from "#lib/client-error.js";
+  import { nextAutoReloadDelay } from "#lib/client-error.js";
 
   // A chunk that never arrived is a transport failure, not an app fault — it gets a different
-  // explanation (and the one-shot reload below) from a genuine crash.
+  // explanation (and the bounded backoff reload below) from a genuine crash.
   const isChunk = $derived(page.error?.kind === "chunk");
   const detail = $derived(page.error?.message ?? "");
 
@@ -25,13 +25,17 @@
   }
 
   onMount(() => {
-    // A missing chunk is usually a moved deploy (`bun run update` rewrites every hashed chunk);
-    // one reload picks up the new manifest and the operator never sees this page. The guard caps
-    // it at once per tab so a flaky link lands here instead of looping.
-    if (page.error?.kind && shouldAutoReload(page.error.kind, globalThis.sessionStorage)) {
-      reloading = true;
-      location.reload();
-    }
+    // A missing chunk is usually a moved deploy (`bun run update` rewrites every hashed chunk) or
+    // a slow link that dropped one; a reload picks up the new manifest or the chunks that landed
+    // (they are cached `immutable`). Bounded backoff per tab (see client-error.ts), so a dead
+    // link lands on this page instead of looping.
+    const delay = page.error?.kind
+      ? nextAutoReloadDelay(page.error.kind, globalThis.sessionStorage)
+      : null;
+    if (delay === null) return;
+    reloading = true;
+    const timer = setTimeout(() => location.reload(), delay);
+    return () => clearTimeout(timer);
   });
 </script>
 

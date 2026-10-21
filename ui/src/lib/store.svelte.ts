@@ -1145,6 +1145,11 @@ export class HerdStore {
     let ws: WebSocket | null = null;
     let stopped = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // Consecutive short-lived connections — drives the reconnect backoff. Cleared only by a socket
+    // that stayed open a while: on a flapping link the handshake often succeeds and the socket
+    // dies seconds later, and resetting on every open would pin the loop at its 1 s floor.
+    let failures = 0;
+    let openedAt: number | null = null;
     // Report whether this window is actively in use so the server can suppress
     // push banners while it is (the live UI already shows the change). Page-context
     // focus+visibility is reliable on Android, unlike a SW's WindowClient.focused.
@@ -1185,6 +1190,7 @@ export class HerdStore {
       }
       ws = makeWs();
       ws.onopen = () => {
+        openedAt = Date.now();
         this.connected = true;
         this.connectionEpoch += 1;
         reportPresence();
@@ -1199,11 +1205,13 @@ export class HerdStore {
       ws.onclose = () => {
         this.terminalOwners = null;
         this.connected = false;
+        if (openedAt !== null && Date.now() - openedAt >= STABLE_SOCKET_MS) failures = 0;
+        openedAt = null;
         if (!stopped && !reconnectTimer)
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
             open();
-          }, 1000);
+          }, reconnectDelay(failures++));
       };
       ws.onerror = () => ws?.close();
     };
@@ -1261,6 +1269,17 @@ export class HerdStore {
       ws?.close();
     };
   }
+}
+
+/** Reconnect backoff for the /events socket: full jitter over 1 s doubling to a 30 s cap. A flat
+ *  1 s loop on a flapping link (in-flight Wi-Fi) reopened constantly, and every reopen fires a
+ *  forced ~20-request resync — saturating the very link that was failing. */
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_CAP_MS = 30_000;
+/** A socket open at least this long counts as a recovered link and resets the backoff. */
+const STABLE_SOCKET_MS = 10_000;
+export function reconnectDelay(attempt: number, rand: () => number = Math.random): number {
+  return Math.round(rand() * Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** attempt));
 }
 
 export function wsUrl(path: string): string {

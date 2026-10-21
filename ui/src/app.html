@@ -92,15 +92,121 @@
         } catch (e) {}
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Boot shell + boot-failure recovery (slow-link PWA, see src/lib/client-error.ts).
+         The shell paints before any bundle lands, so a phone on a slow link sees progress
+         instead of a blank page; +layout.svelte removes it once something real renders.
+         If the kit-generated boot import() rejects (a chunk never arrived), reload with the
+         same bounded backoff and sessionStorage key as client-error.ts — this runs before any
+         bundle, so it cannot import that module; src/app-html.test.ts keeps both in sync.
+         Hashed chunks are cached `immutable`, so every retry keeps what already landed.
+         Colors are literals: app.css is not loaded yet (same deviation as src/error.html). -->
+    <style>
+      /* Beneath in-flow content (z-index -1): if SvelteKit paints its own bare fallback
+         instead of the app, that text stays visible rather than under a spinner. */
+      #boot-shell {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        display: grid;
+        place-items: center;
+        background: #0a0d0c;
+      }
+      [data-theme="light"] #boot-shell {
+        background: #e7ebe9;
+      }
+      #boot-shell .spin {
+        width: 28px;
+        height: 28px;
+        border: 2px solid #1b2422;
+        border-top-color: #e8a13a;
+        border-radius: 50%;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      [data-theme="light"] #boot-shell .spin {
+        border-color: #d2dad6;
+        border-top-color: #a8680a;
+      }
+      #boot-shell button {
+        display: none;
+        width: 44px;
+        height: 44px;
+        font-size: 22px;
+        line-height: 1;
+        background: transparent;
+        color: #e8a13a;
+        border: 1px solid #1b2422;
+        border-radius: 2px;
+        cursor: pointer;
+      }
+      [data-theme="light"] #boot-shell button {
+        color: #a8680a;
+        border-color: #d2dad6;
+      }
+      #boot-shell[data-failed] .spin {
+        display: none;
+      }
+      #boot-shell[data-failed] button {
+        display: block;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-shell .spin {
+          animation-duration: 2.4s;
+        }
+      }
+    </style>
+    <script>
+      (function () {
+        var KEY = "shepherd:chunk-reloads";
+        var DELAYS_MS = [2000, 4000, 8000, 16000, 30000];
+        var CHUNK = /dynamically imported module|importing a module script failed/i;
+        window.addEventListener("unhandledrejection", function (e) {
+          var shell = document.getElementById("boot-shell");
+          var reason = e.reason && (e.reason.message || String(e.reason));
+          if (!shell || !CHUNK.test(reason || "")) return;
+          var delay = null;
+          try {
+            var done = Number(sessionStorage.getItem(KEY)) || 0;
+            if (done < DELAYS_MS.length) {
+              sessionStorage.setItem(KEY, String(done + 1));
+              delay = DELAYS_MS[done];
+            }
+          } catch (err) {}
+          if (delay === null) {
+            // Budget spent (or storage blocked): stop and offer a manual retry.
+            shell.setAttribute("data-failed", "");
+            return;
+          }
+          setTimeout(function () {
+            location.reload();
+          }, delay);
+        });
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
+    <!-- aria-label: inline EN/DE (no catalog before the bundle loads), same hand-synced
+         precedent as src/error.html. -->
+    <div id="boot-shell" aria-busy="true">
+      <div class="spin"></div>
+      <button type="button" onclick="location.reload()">&#x21bb;</button>
+    </div>
+    <script>
+      (function () {
+        var b = document.querySelector("#boot-shell button");
+        var lang = "";
+        try {
+          lang = localStorage.getItem("PARAGLIDE_LOCALE") || "";
+        } catch (e) {}
+        lang = lang || navigator.language || "en";
+        b.setAttribute("aria-label", /^de\b/i.test(lang) ? "Erneut versuchen" : "Retry");
+      })();
+    </script>
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

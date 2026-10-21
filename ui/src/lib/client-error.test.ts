@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   classifyClientError,
   errorText,
-  RELOAD_GUARD_KEY,
-  shouldAutoReload,
+  RELOAD_COUNT_KEY,
+  RELOAD_DELAYS_MS,
+  nextAutoReloadDelay,
+  resetAutoReload,
 } from "#lib/client-error.js";
 
 /** Minimal in-memory stand-in for `sessionStorage`. */
@@ -12,6 +14,7 @@ function fakeStorage(initial: Record<string, string> = {}) {
   return {
     getItem: (k: string) => map.get(k) ?? null,
     setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
   };
 }
 
@@ -55,21 +58,30 @@ describe("errorText", () => {
   });
 });
 
-describe("shouldAutoReload", () => {
-  it("reloads once for a chunk error, then never again in the same tab", () => {
+describe("nextAutoReloadDelay", () => {
+  it("backs off through the schedule, then stops", () => {
     const storage = fakeStorage();
-    expect(shouldAutoReload("chunk", storage)).toBe(true);
-    expect(storage.getItem(RELOAD_GUARD_KEY)).toBe("1");
-    // The whole guard: a flaky link must not loop the tab.
-    expect(shouldAutoReload("chunk", storage)).toBe(false);
+    const delays = RELOAD_DELAYS_MS.map(() => nextAutoReloadDelay("chunk", storage));
+    expect(delays).toEqual([2_000, 4_000, 8_000, 16_000, 30_000]);
+    expect(storage.getItem(RELOAD_COUNT_KEY)).toBe("5");
+    // The whole guard: a dead link must not loop the tab.
+    expect(nextAutoReloadDelay("chunk", storage)).toBeNull();
+  });
+
+  it("starts over after a successful boot resets the count", () => {
+    const storage = fakeStorage();
+    nextAutoReloadDelay("chunk", storage);
+    nextAutoReloadDelay("chunk", storage);
+    resetAutoReload(storage);
+    expect(nextAutoReloadDelay("chunk", storage)).toBe(2_000);
   });
 
   it("never reloads for a non-chunk error", () => {
-    expect(shouldAutoReload("unknown", fakeStorage())).toBe(false);
+    expect(nextAutoReloadDelay("unknown", fakeStorage())).toBeNull();
   });
 
   it("does not reload when storage is missing or throws", () => {
-    expect(shouldAutoReload("chunk", null)).toBe(false);
+    expect(nextAutoReloadDelay("chunk", null)).toBeNull();
     const hostile = {
       getItem() {
         throw new Error("blocked");
@@ -77,7 +89,11 @@ describe("shouldAutoReload", () => {
       setItem() {
         throw new Error("blocked");
       },
+      removeItem() {
+        throw new Error("blocked");
+      },
     };
-    expect(shouldAutoReload("chunk", hostile)).toBe(false);
+    expect(nextAutoReloadDelay("chunk", hostile)).toBeNull();
+    expect(() => resetAutoReload(hostile)).not.toThrow();
   });
 });

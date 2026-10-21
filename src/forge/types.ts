@@ -710,6 +710,10 @@ export interface GitForge {
    *  refs API omit it and the caller skips epic-branch orchestration. */
   ensureBranch?(branch: string, fromRef: string): Promise<void>;
   merge(prNumber: number, o: MergeInput): Promise<void>;
+  /** PR numbers currently in `base`'s merge queue, or null when `base` has no merge queue
+   *  (#3223). Throws when the host could not be asked. Optional: hosts without merge queues
+   *  omit it and the merge train keeps its queue-less behavior. */
+  mergeQueueEntries?(base: string): Promise<number[] | null>;
   /** Post a plain issue comment on a PR (`gh pr comment`). Optional: only hosts
    *  with a comment API (GitHub) implement it; others omit it and the
    *  dependabot-rebase endpoint 400s. */

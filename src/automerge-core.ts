@@ -57,6 +57,10 @@ export interface MergeSessionView {
   reviewSpawnAborted?: boolean;
   /** The PR is a draft (not ready-for-review). false when unknown/no PR. */
   isDraft: boolean;
+  /** The PR sits in its base's merge queue, or the train just enqueued it (#3223). The queue owns
+   *  it now: never merged again, never rebased — the train moves on to the next ready PR. Absent =
+   *  false. */
+  queued?: boolean;
   /** A human submitted an APPROVED review on the PR (forge data). */
   humanApproved: boolean;
   /** The latest critic verdict's discrete findings ([] = clean / none). */
@@ -154,6 +158,7 @@ function readyExceptManualSteps(
  *  - Shepherd resolves it on its own: `critic_pending` (a verdict for the current head is still
  *    due), `checks_pending`/`checks_failed` (CI running / autopilot steers the fix), `behind`/
  *    `conflict` (the train steers a rebase), `not_mergeable` (forge still computing mergeability),
+ *    `queued` (in the base's merge queue; GitHub lands it once the queue's CI passes),
  *    `changes_requested` (auto-address — or the operator — answers the critic).
  *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
  *    `stacked`, `migrations`, `signoff`, `protection_blocked` (branch protection holds a green PR — typically a
@@ -175,7 +180,8 @@ export type MergeWaitCode =
   | "stacked"
   | "manual_steps"
   | "migrations"
-  | "no_ci";
+  | "no_ci"
+  | "queued";
 
 /** The first readiness gate this PR fails, as a wait code — or null when it passes every gate of
  *  readyExceptManualSteps (which is literally `readyGateFailure(...) === null`, so the reported
@@ -193,6 +199,7 @@ function readyGateFailure(
 ): MergeWaitCode | "not_open" | null {
   if (s.mergeBlocked) return "merge_backoff"; // backed off after repeated merge failures → skip, try siblings
   if (s.state !== "open" || !s.number) return "not_open";
+  if (s.queued) return "queued"; // in flight in the merge queue — nothing to land (#3223)
   const forge = forgeGateFailure(s);
   if (forge) return forge;
   if (s.behind !== false) return "behind"; // true=stale, null=unknown → not now
@@ -330,6 +337,8 @@ function rebaseEligible(
   authority: SignoffAuthority,
 ): boolean {
   if (s.state !== "open" || !s.number) return false;
+  // #3223: a queued PR is the queue's — GitHub retests it against the latest base itself.
+  if (s.queued) return false;
   // #2059: a stack layer is RESTACKED (its base is the layer below), never rebased onto the
   // default branch. Steering the agent to `git rebase origin/main` would be actively wrong, and
   // the train can't land it anyway — so it warrants no rebase either.
@@ -348,6 +357,7 @@ function rebaseEligible(
  *  critic. A conflicting PR can't run CI at all, and CI/review on a behind PR is spent on a base
  *  the rebase is about to replace (review.ts holds the critic while the PR is behind). */
 function rebaseUrgent(s: MergeSessionView): boolean {
+  if (s.queued) return false; // #3223: the merge queue owns it — nothing to rebase
   return s.behind === true || isDefiniteConflict(s);
 }
 

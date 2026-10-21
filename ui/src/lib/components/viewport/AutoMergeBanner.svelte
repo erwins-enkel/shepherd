@@ -51,47 +51,39 @@
 
   const sha = $derived(git?.headSha ? git.headSha.slice(0, 7) : "");
 
+  /** Codes whose copy takes no arguments. */
+  const PLAIN: Record<
+    Exclude<MergeWaitCode, "critic_pending" | "changes_requested">,
+    () => string
+  > = {
+    checks_pending: m.automergebanner_checks_pending,
+    checks_failed: m.automergebanner_checks_failed,
+    behind: m.automergebanner_behind,
+    conflict: m.automergebanner_conflict,
+    not_mergeable: m.automergebanner_not_mergeable,
+    protection_blocked: m.automergebanner_protection_blocked,
+    critic_error: m.automergebanner_critic_error,
+    rebase_cap: m.automergebanner_rebase_cap,
+    merge_backoff: m.automergebanner_merge_backoff,
+    manual_steps: m.automergebanner_manual_steps,
+    stacked: m.automergebanner_stacked,
+    migrations: m.automergebanner_migrations,
+    signoff: m.automergebanner_signoff,
+    no_ci: m.automergebanner_no_ci,
+    queued: m.automergebanner_queued,
+  };
+
   function reason(code: MergeWaitCode): string {
     // Autopilot stopped driving the agent; its question / reason shows on the autopilot badge.
     if (handedBack) return m.automergebanner_handed_back();
-    switch (code) {
-      // A running critic owns the slot itself (ReviewInFlightBanner), so this is the gap
-      // between a new head and its critic run.
-      case "critic_pending":
-        return m.automergebanner_critic_pending({ sha });
-      case "checks_pending":
-        return m.automergebanner_checks_pending();
-      case "checks_failed":
-        return m.automergebanner_checks_failed();
-      case "behind":
-        return m.automergebanner_behind();
-      case "conflict":
-        return m.automergebanner_conflict();
-      case "not_mergeable":
-        return m.automergebanner_not_mergeable();
-      case "protection_blocked":
-        return m.automergebanner_protection_blocked();
-      case "changes_requested":
-        return view.code !== null && view.owner === "shepherd"
-          ? m.automergebanner_changes_auto()
-          : m.automergebanner_changes_manual();
-      case "critic_error":
-        return m.automergebanner_critic_error();
-      case "rebase_cap":
-        return m.automergebanner_rebase_cap();
-      case "merge_backoff":
-        return m.automergebanner_merge_backoff();
-      case "manual_steps":
-        return m.automergebanner_manual_steps();
-      case "stacked":
-        return m.automergebanner_stacked();
-      case "migrations":
-        return m.automergebanner_migrations();
-      case "signoff":
-        return m.automergebanner_signoff();
-      case "no_ci":
-        return m.automergebanner_no_ci();
-    }
+    // A running critic owns the slot itself (ReviewInFlightBanner), so this is the gap
+    // between a new head and its critic run.
+    if (code === "critic_pending") return m.automergebanner_critic_pending({ sha });
+    if (code === "changes_requested")
+      return view.code !== null && view.owner === "shepherd"
+        ? m.automergebanner_changes_auto()
+        : m.automergebanner_changes_manual();
+    return PLAIN[code]();
   }
 
   const shown = $derived(view.show && tab === "term");

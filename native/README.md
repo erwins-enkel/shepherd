@@ -29,10 +29,13 @@ Use a server on your Mac or connect to a remote one. If your agents run on a Lin
 Mac app gives you a native place to follow and steer that work. Your existing Shepherd sessions
 are there when you connect.
 
-A local server started by the app keeps running when you quit or restart the app, including
-automatic updates and dev rebuilds. The next launch resumes supervision. Use **Stop** or
-**Restart** in **Run on this Mac** to control the server. A dev rebuild retains the running
-server code; **Restart** explicitly loads the updated code.
+When closing the window or quitting, choose whether to keep the app-managed local backend
+running or stop it too. Keeping it running lets sessions and other clients continue; stopping
+it makes its web UI and client connections unavailable until it is started again and may
+interrupt local work. Remote servers keep running in either case. App restarts, automatic
+updates and dev rebuilds keep the backend running; the next launch resumes supervision.
+You can also use **Stop** or **Restart** in **Run on this Mac** to control the server. A dev
+rebuild retains the running server code; **Restart** explicitly loads the updated code.
 
 On battery power, a prominent panel at the top right of the display asks whether to keep local
 work running or **Pause until plugged in**. It stays visible across app switches until you choose

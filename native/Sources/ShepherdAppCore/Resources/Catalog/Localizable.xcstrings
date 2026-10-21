@@ -11022,19 +11022,36 @@
         }
       }
     },
+    "native_close_backend_choices": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend weiterlaufen lassen: Das lokale Backend bleibt im Hintergrund aktiv. Laufende Sessions und Agents arbeiten weiter und bleiben von anderen Clients erreichbar. Öffne Shepherd erneut, um sie zu verfolgen.\n\nBackend ebenfalls beenden: Das lokale Backend wird gestoppt. Seine Weboberfläche und Verbindungen anderer Clients sind bis zum erneuten Start nicht verfügbar. Laufende lokale Arbeiten können unterbrochen werden.\n\nEntfernte Server laufen in beiden Fällen weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep backend running: the local backend stays in the background. Running sessions and agents continue working and remain accessible from other clients. Open Shepherd again to follow them.\n\nStop backend too: the local backend stops. Its web UI and connections from other clients become unavailable until you start it again. Running local work may be interrupted.\n\nRemote servers keep running in either case."
+          }
+        }
+      }
+    },
     "native_close_confirm_body": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Shepherd-Server läuft im Hintergrund weiter. Laufende Sessions und Agents arbeiten weiter, auch auf entfernten Servern.\n\nUm den lokalen Server zu stoppen, wähle Abbrechen und dann Stop unter „Auf diesem Mac ausführen“. Öffne Shepherd erneut, um deine Sessions zu verfolgen."
+            "value": "Beim Schließen des Fensters oder Beenden der App bleiben die Backend-Server unverändert. Ein laufendes oder pausiertes Backend behält seinen Zustand. Entfernte Server sind nicht betroffen. Öffne Shepherd erneut, um deine Sessions zu verfolgen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Shepherd server keeps running in the background. Running sessions and agents continue working, including on remote servers.\n\nTo stop the local server, cancel and choose Stop in “Run on this Mac”. Open Shepherd again to follow your sessions."
+            "value": "Closing this window or quitting the app leaves backend servers unchanged. A running or paused backend keeps its current state. Remote servers are unaffected. Open Shepherd again to follow your sessions."
           }
         }
       }
@@ -11052,6 +11069,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Close the Shepherd window?"
+          }
+        }
+      }
+    },
+    "native_close_keep_backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend weiterlaufen lassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep backend running"
+          }
+        }
+      }
+    },
+    "native_close_stop_backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend ebenfalls beenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop backend too"
           }
         }
       }

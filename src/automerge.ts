@@ -71,9 +71,9 @@ function rebaseSteer(baseBranch: string): string {
 const MERGE_ERROR_CAP = 3;
 /** Backoff window once the cap trips: one retry allowed per window thereafter. */
 const MERGE_ERROR_BACKOFF_MS = 300_000;
-/** How long a train-enqueued PR counts as queued while a readable queue does not list it (#3223):
- *  since the enqueue (read lag) or its last sighting in the queue (poller lag on a merge). Past it,
- *  the PR was ejected. */
+/** How long a marked PR counts as queued while a readable queue does not list it (#3223): since
+ *  the enqueue (read lag) or its last sighting in the queue. Past it, a live read decides merged vs
+ *  ejected. */
 const ENQUEUE_GRACE_MS = 60_000;
 
 /** A base's merge queue as the train sees it: its PR numbers, null = the base has no queue (or the
@@ -199,37 +199,57 @@ export class AutoMergeService {
     return read;
   }
 
-  /** Is this PR the merge queue's (#3223)? Listed in the queue, or enqueued by the train on its
-   *  current head and still inside the grace window (or the queue is unreadable). A train-enqueued
-   *  PR missing from a readable queue past the grace was ejected — typically a failed
-   *  merge_group run — which counts as a merge failure, so a deterministic ejection backs off at
-   *  MERGE_ERROR_CAP instead of looping enqueue/eject forever. */
-  private reconcileQueued(
-    id: string,
+  /** Is this PR the merge queue's (#3223)? Listed in the queue, or marked (enqueued by the train,
+   *  or seen listed) on its current head and still inside the grace window, or the queue is
+   *  unreadable. A marked PR missing from a readable queue past the grace left it: merged (the
+   *  poller's snapshot can lag a full sweep behind) or ejected — typically a failed merge_group
+   *  run. {@link leftQueue} tells the two apart with a live read. */
+  private async reconcileQueued(
+    s: Session,
     pr: { state: string; number: number | null; headSha: string | null },
     queue: QueueRead,
-  ): boolean {
-    const mark = this.enqueued.get(id);
+  ): Promise<boolean> {
+    const mark = this.enqueued.get(s.id);
     if (pr.state !== "open" || !pr.number) {
-      this.enqueued.delete(id);
+      this.enqueued.delete(s.id);
       return false;
     }
+    const head = pr.headSha ?? "";
     const listed = Array.isArray(queue) && queue.includes(pr.number);
-    if (!mark) return listed;
-    if (mark.head !== (pr.headSha ?? "")) {
-      this.enqueued.delete(id); // a push dequeues: not an ejection worth counting
-      return listed;
-    }
     if (listed) {
-      // Restart the grace from the last sighting: a PR that leaves the queue BY MERGING gets the
-      // same window for the poller to report it merged before it could read as ejected.
-      mark.at = this.now();
+      // (Re)start the grace from the last sighting — whoever enqueued it — so a PR that leaves
+      // the queue is judged by leftQueue, never re-merged on a stale "open" snapshot.
+      this.enqueued.set(s.id, { head, at: this.now() });
       return true;
     }
+    if (!mark) return false;
+    if (mark.head !== head) {
+      this.enqueued.delete(s.id); // a push dequeues: not an ejection worth counting
+      return false;
+    }
     if (queue === "unknown" || this.now() - mark.at < ENQUEUE_GRACE_MS) return true;
-    console.warn(`[automerge] pr#${pr.number} left the merge queue unmerged; counting a failure`);
-    this.enqueued.delete(id);
-    this.recordMergeFailure(id, pr.headSha);
+    return this.leftQueue(s, pr.number, head);
+  }
+
+  /** A marked PR is gone from a readable queue. Ask the forge whether it is still open: merged or
+   *  closed (or unreadable) keeps it queued — nothing to land, and the poller settles it — and
+   *  only a live open PR counts as an ejection, a merge failure, so a deterministic ejection backs
+   *  off at MERGE_ERROR_CAP instead of looping enqueue/eject forever. */
+  private async leftQueue(s: Session, prNumber: number, head: string): Promise<boolean> {
+    const forge = this.deps.resolveForge(s.repoPath);
+    let state: string | null = null;
+    try {
+      state = (await forge?.prReviewMeta?.(prNumber))?.state ?? null;
+    } catch (err) {
+      console.warn(`[automerge] pr#${prNumber} state read failed; keeping it queued:`, err);
+    }
+    if (state !== "open") {
+      this.enqueued.set(s.id, { head, at: this.now() }); // re-ask after another grace, not every pump
+      return true;
+    }
+    console.warn(`[automerge] pr#${prNumber} left the merge queue unmerged; counting a failure`);
+    this.enqueued.delete(s.id);
+    this.recordMergeFailure(s.id, head);
     return false;
   }
 
@@ -314,7 +334,7 @@ export class AutoMergeService {
       ...pr,
       noCiHold: pr.noCi && !mergeWithoutCi,
       behind,
-      queued: this.reconcileQueued(s.id, pr, queue),
+      queued: await this.reconcileQueued(s, pr, queue),
       ...AutoMergeService.reviewFields(this.deps.store.getReview(s.id)),
       rebaseCount: s.autoMergeRebaseCount,
       rebaseSteeredHead: s.autoMergeRebaseHead,

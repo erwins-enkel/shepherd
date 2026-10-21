@@ -1551,6 +1551,8 @@ function queueRig(o: {
   behind?: boolean;
   merge?: (n: number) => Promise<void>;
   heads?: Record<string, string>;
+  /** Live PR state from the forge (prReviewMeta); default "open" = a real ejection. */
+  liveState?: () => "open" | "merged" | "closed";
 }) {
   const ids = ["s1", "s2", "s3"];
   const sessions = ids.map((id, i) => baseSession({ id, desig: `TASK-0${i + 1}` }));
@@ -1563,6 +1565,12 @@ function queueRig(o: {
     throw new MergeEnqueuedError(n);
   });
   const queueReads = mock(o.queue);
+  const metaReads = mock(async () => ({
+    body: "",
+    baseRefName: "main",
+    isCrossRepository: false,
+    state: o.liveState?.() ?? "open",
+  }));
   const reply = mock(() => true);
   const d = deps({
     now: () => clock,
@@ -1583,6 +1591,7 @@ function queueRig(o: {
         mergeMethod: "squash",
         merge,
         mergeQueueEntries: queueReads,
+        prReviewMeta: metaReads,
         closeIssue: mock(async () => {}),
       }) as any,
     worktree: { behindBase: async () => o.behind ?? false } as any,
@@ -1607,6 +1616,7 @@ function queueRig(o: {
     svc: new AutoMergeService(d),
     merged,
     queueReads,
+    metaReads,
     reply,
     advance: (ms: number) => (clock += ms),
   };
@@ -1700,13 +1710,43 @@ test("#3223: queue reads are shared across one pump's sessions", async () => {
 });
 
 test("#3223: a PR seen in the queue gets a fresh grace once it leaves (merge, poller lag)", async () => {
-  let listed = true;
+  let listed = false;
   const rig = queueRig({ queue: async () => (listed ? [7, 8, 9] : []) });
   await rig.svc.pump("/r"); // enqueue all three
+  listed = true;
   rig.advance(120_000);
   await rig.svc.pump("/r"); // still listed: grace restarts now
   listed = false;
   rig.advance(30_000); // left the queue 30s ago — inside the fresh grace
   await rig.svc.pump("/r");
   expect(rig.merged).toEqual([7, 8, 9]); // not read as ejected → no re-merge
+});
+
+test("#3223: a PR the queue merged never reads as ejected while the poller lags a full sweep", async () => {
+  let listed = false;
+  const rig = queueRig({ queue: async () => (listed ? [7, 8, 9] : []), liveState: () => "merged" });
+  await rig.svc.pump("/r"); // enqueue all three
+  listed = true;
+  rig.advance(30_000);
+  await rig.svc.pump("/r"); // seen in the queue
+  listed = false; // the queue merged them; the snapshot still says open
+  for (let i = 0; i < 6; i++) {
+    rig.advance(61_000); // > a 300s cold sweep in total
+    await rig.svc.pump("/r");
+  }
+  expect(rig.merged).toEqual([7, 8, 9]); // never re-merged
+  const [st] = await rig.svc.snapshot();
+  expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "queued" });
+  expect(st!.waiting).not.toContainEqual({ sessionId: "s1", code: "merge_backoff" });
+});
+
+test("#3223: an unreadable live state keeps a vanished PR queued, counting nothing", async () => {
+  const rig = queueRig({ queue: async () => [] });
+  rig.metaReads.mockImplementation(async () => {
+    throw new Error("gh down");
+  });
+  await rig.svc.pump("/r");
+  rig.advance(61_000);
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([7, 8, 9]);
 });

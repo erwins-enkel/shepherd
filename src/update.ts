@@ -89,6 +89,19 @@ const EXIT_MARKER = "__SHEPHERD_UPDATE_EXIT__";
  *  treated as dead (crashed/killed) so a stuck launch can't block retries. */
 const DEPLOY_STALE_MS = 15 * 60_000;
 const APP_PICKUP_TIMEOUT_MS = 60_000;
+/** The Mac app that owns the handoff (native/Apps/ShepherdMac/project.yml). */
+const MAC_APP_BUNDLE_ID = "run.shepherd.mac";
+
+/** Launch (or no-op if running) the Shepherd app in the background. Best effort: a failure
+ *  surfaces as the pickup timeout. */
+function wakeMacApp(): void {
+  const child = spawn("open", ["-g", "-b", MAC_APP_BUNDLE_ID], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.on("error", () => {});
+  child.unref();
+}
 
 // ESC[…m colour codes; built from the ESC char so no control literal sits in source
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
@@ -260,6 +273,9 @@ export interface UpdateDeps {
   gitHashStream?: GitHashStreamer;
   /** inject point for tests; defaults to launching the deploy script detached */
   launch?: (discard?: DiscardLaunch) => void;
+  /** inject point for tests; defaults to launching the Shepherd app in the background, which
+   *  adopts this server and claims the handoff (the server outlives a quit app) */
+  wakeApp?: () => void;
   /** cap the commit list shown in the UI */
   limit?: number;
   /** cap the total signature bytes hashed before falling back to sig:null */
@@ -286,6 +302,7 @@ export class UpdateService {
   private gitRaw: GitRawRunner;
   private gitHashStream: GitHashStreamer;
   private launch: (discard?: DiscardLaunch) => void;
+  private wakeApp: () => void;
   private limit: number;
   private sigMaxBytes: number;
   private sigTimeoutMs: number;
@@ -326,6 +343,7 @@ export class UpdateService {
     this.gitHashStream =
       deps.gitHashStream ?? ((args, hash, limit) => this.streamGit(args, hash, limit));
     this.launch = deps.launch ?? ((discard) => this.defaultLaunch(discard));
+    this.wakeApp = deps.wakeApp ?? wakeMacApp;
   }
 
   /** Default {@link GitHashStreamer}: spawn `git` and pipe stdout into `hash`,
@@ -396,6 +414,8 @@ export class UpdateService {
       } finally {
         rmSync(temporaryPath, { force: true });
       }
+      // A remote fleet update arrives while the app may be quit; wake it to claim the request.
+      this.wakeApp();
       return;
     }
     if (this.platform === "darwin") {

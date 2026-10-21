@@ -1968,7 +1968,7 @@ test("discard cleans up the private dir when the launch fails", async () => {
 test("app-managed discard refusal still cleans the server's private pathspec dir", async () => {
   const dir = join(tmpRoot, "app-update");
   mkdirSync(dir);
-  const updates = new UpdateService({ appUpdateDir: dir });
+  const updates = new UpdateService({ appUpdateDir: dir, wakeApp: () => {} });
   let capturedDir: string | undefined;
   const app = harnessWithUpdates({
     current: () => BEHIND,

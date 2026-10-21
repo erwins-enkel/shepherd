@@ -3166,10 +3166,14 @@
     }
   }
 
+  // Lens the chip was tapped from: phone swipe-back from Owed returns there (chip entry only).
+  let owedReturnFilter = $state<HerdFilter | null>(null);
+
   // Manual-steps chip -> Owed lens (#1275): switch lenses and snapshot the session's steps so the
   // panel can scroll-to + highlight the live card, or fall back to a read-only frozen card when no
   // live outstanding record exists (pre-merge, cleared, dismissed, or load-failed).
   function onShowOwed(id: string) {
+    if (herdFilter !== "owed") owedReturnFilter = herdFilter;
     const s = store.sessions.find((x) => x.id === id);
     if (s) {
       owedFocusSnapshot = {
@@ -3189,6 +3193,10 @@
     void postMergeStepsStore.load();
   }
 
+  function onOwedBack() {
+    if (owedReturnFilter) herdFilter = owedReturnFilter;
+  }
+
   // Reports the panel's resolution of a focus click (live scroll+flash, frozen fallback, or a
   // still-loading wait that later resolved) so a later remount of the panel (lens toggled away and
   // back) can tell an already-handled click from a fresh one.
@@ -3203,6 +3211,7 @@
     if (herdFilter !== "owed") {
       owedFocusId = null;
       owedFocusSnapshot = null;
+      owedReturnFilter = null;
     }
   });
 
@@ -3580,6 +3589,7 @@
             {owedFocusNonce}
             {owedFocusHandledNonce}
             onfocusresolved={onOwedFocusResolved}
+            onowedback={owedReturnFilter ? onOwedBack : undefined}
             onbacklog={() => (showBacklog = true)}
             {upNextLaunch}
           />

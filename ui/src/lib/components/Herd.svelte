@@ -120,6 +120,7 @@
     owedFocusNonce = 0,
     owedFocusHandledNonce = 0,
     onfocusresolved = undefined,
+    onowedback = undefined,
     onbacklog = undefined,
     upNextLaunch = null,
   }: {
@@ -280,6 +281,8 @@
     owedFocusNonce?: number;
     owedFocusHandledNonce?: number;
     onfocusresolved?: (nonce: number) => void;
+    // phone, Owed entered via a manual-steps chip: swipe right back to the prior lens
+    onowedback?: () => void;
     // open the Backlog overlay (Up Next empty-state link → page owns showBacklog)
     onbacklog?: () => void;
     // Up Next start needs capacity-aware launch context. Keep it bundled so Herd does not become
@@ -836,6 +839,7 @@
         focusNonce={owedFocusNonce}
         focusHandledNonce={owedFocusHandledNonce}
         {onfocusresolved}
+        onback={onowedback}
       />
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the

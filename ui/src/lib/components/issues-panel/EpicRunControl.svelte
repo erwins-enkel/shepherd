@@ -303,90 +303,96 @@
   data-epic-run
 >
   {#snippet actions()}
-    <button
-      class="gbtn"
-      type="button"
-      title={epic.run.mode === "auto" ? m.epic_mode_auto_title() : m.epic_mode_attended_title()}
-      aria-label={epic.run.mode === "auto" ? m.epic_mode_auto_aria() : m.epic_mode_attended_aria()}
-      onclick={toggleMode}
-    >
-      {epic.run.mode === "auto" ? m.epic_mode_auto() : m.epic_mode_attended()}
-    </button>
-    <!-- aria-disabled, not disabled: a locked toggle must stay hoverable/focusable so its
+    <div class="act-group" data-group="settings">
+      <button
+        class="gbtn"
+        type="button"
+        title={epic.run.mode === "auto" ? m.epic_mode_auto_title() : m.epic_mode_attended_title()}
+        aria-label={epic.run.mode === "auto"
+          ? m.epic_mode_auto_aria()
+          : m.epic_mode_attended_aria()}
+        onclick={toggleMode}
+      >
+        {epic.run.mode === "auto" ? m.epic_mode_auto() : m.epic_mode_attended()}
+      </button>
+      <!-- aria-disabled, not disabled: a locked toggle must stay hoverable/focusable so its
          explanation (why it is locked) is still reachable. -->
-    <button
-      class="gbtn"
-      type="button"
-      data-epic-landing={landing}
-      aria-label={m.epic_landing_aria({ landing: landingText })}
-      aria-disabled={landingLocked}
-      use:statusTip={{
-        text: epicLandingExplanation(landingLocked),
-        stopClickPropagation: false,
-      }}
-      onclick={toggleLanding}
-    >
-      {landingText}
-    </button>
-    {#if position != null && !running}
-      <button class="gbtn" type="button" title={m.epic_unqueue_title()} onclick={unqueue}
-        >{m.epic_unqueue()}</button
-      >
-    {/if}
-    {#if canQueue}
-      <button class="gbtn" type="button" title={m.epic_queue_title()} onclick={queue}
-        >{m.epic_queue()}</button
-      >
-    {/if}
-    {#if running}
       <button
         class="gbtn"
         type="button"
-        title={m.epic_pause_title()}
-        onclick={() => setStatus("paused")}>{m.epic_pause()}</button
+        data-epic-landing={landing}
+        aria-label={m.epic_landing_aria({ landing: landingText })}
+        aria-disabled={landingLocked}
+        use:statusTip={{
+          text: epicLandingExplanation(landingLocked),
+          stopClickPropagation: false,
+        }}
+        onclick={toggleLanding}
       >
-    {:else if role === "winding" && otherLeader == null}
-      <button
-        class="gbtn"
-        type="button"
-        title={m.epic_run_restart_title()}
-        disabled={checking}
-        aria-busy={checking}
-        onclick={start}>{m.epic_run_restart()}</button
-      >
-    {:else if role === "winding"}
-      <button
-        class="gbtn"
-        type="button"
-        title={m.epic_run_rejoin_title()}
-        disabled={checking}
-        aria-busy={checking}
-        onclick={start}>{m.epic_run_rejoin()}</button
-      >
-    {:else}
-      <button
-        class="gbtn"
-        type="button"
-        title={otherLeader != null
-          ? m.epic_start_supersede_title({ leader: otherLeader })
-          : m.epic_start_title()}
-        disabled={checking}
-        aria-busy={checking}
-        onclick={start}>{m.epic_start()}</button
-      >
-    {/if}
-    {#if menuItems.length}
-      <button
-        bind:this={menuBtn}
-        class="gbtn more"
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        aria-label={m.epic_run_more()}
-        title={m.epic_run_more()}
-        onclick={() => (menuOpen = !menuOpen)}>⋯</button
-      >
-    {/if}
+        {landingText}
+      </button>
+    </div>
+    <div class="act-group" data-group="commands">
+      {#if position != null && !running}
+        <button class="gbtn" type="button" title={m.epic_unqueue_title()} onclick={unqueue}
+          >{m.epic_unqueue()}</button
+        >
+      {/if}
+      {#if canQueue}
+        <button class="gbtn" type="button" title={m.epic_queue_title()} onclick={queue}
+          >{m.epic_queue()}</button
+        >
+      {/if}
+      {#if running}
+        <button
+          class="gbtn"
+          type="button"
+          title={m.epic_pause_title()}
+          onclick={() => setStatus("paused")}>{m.epic_pause()}</button
+        >
+      {:else if role === "winding" && otherLeader == null}
+        <button
+          class="gbtn"
+          type="button"
+          title={m.epic_run_restart_title()}
+          disabled={checking}
+          aria-busy={checking}
+          onclick={start}>{m.epic_run_restart()}</button
+        >
+      {:else if role === "winding"}
+        <button
+          class="gbtn"
+          type="button"
+          title={m.epic_run_rejoin_title()}
+          disabled={checking}
+          aria-busy={checking}
+          onclick={start}>{m.epic_run_rejoin()}</button
+        >
+      {:else}
+        <button
+          class="gbtn"
+          type="button"
+          title={otherLeader != null
+            ? m.epic_start_supersede_title({ leader: otherLeader })
+            : m.epic_start_title()}
+          disabled={checking}
+          aria-busy={checking}
+          onclick={start}>{m.epic_start()}</button
+        >
+      {/if}
+      {#if menuItems.length}
+        <button
+          bind:this={menuBtn}
+          class="gbtn more"
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label={m.epic_run_more()}
+          title={m.epic_run_more()}
+          onclick={() => (menuOpen = !menuOpen)}>⋯</button
+        >
+      {/if}
+    </div>
   {/snippet}
 
   {#if why.length}
@@ -548,6 +554,28 @@
   .run-foot {
     padding-top: 6px;
     border-top: 1px solid var(--color-line);
+  }
+
+  /* Settings (mode, landing) and commands (queue, pause/start, ⋯) wrap as units. On a narrow
+     panel each takes a full row whose buttons share the width, the primary command first. */
+  .act-group {
+    display: flex;
+    gap: 6px;
+  }
+  @container run-panel (max-width: 560px) {
+    .act-group {
+      flex-basis: 100%;
+    }
+    .act-group[data-group="commands"] {
+      order: -1;
+    }
+    .act-group > .gbtn {
+      flex: 1 1 auto;
+    }
+    .act-group > .gbtn.more {
+      flex: none;
+      min-width: 44px;
+    }
   }
 
   /* Canonical .gbtn recipe from /design-system (scoped copy, as in EpicPanel). */

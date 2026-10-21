@@ -1,4 +1,9 @@
 <script lang="ts">
+  // Self-hosted (was Google Fonts): a cross-origin stylesheet in app.html blocked the inline
+  // boot script, so an unreachable fonts.googleapis.com stalled the whole PWA on a slow link.
+  import "@fontsource/jetbrains-mono/400.css";
+  import "@fontsource/jetbrains-mono/500.css";
+  import "@fontsource/jetbrains-mono/700.css";
   import "../app.css";
   import { onMount } from "svelte";
   import { page } from "$app/state";
@@ -8,12 +13,22 @@
   import { auth } from "#lib/auth.svelte.js";
   import { getMe } from "#lib/api.js";
   import Login from "#lib/components/Login.svelte";
+  import { resetAutoReload } from "#lib/client-error.js";
   // Demo-only marketing chrome (Task 7). __DEMO__ is a compile-time constant
   // (vite `define`), so the `{#if __DEMO__}` guard below dead-code-eliminates
   // both this import and the component from a production build.
   import DemoRibbon from "#lib/demo/DemoRibbon.svelte";
 
   let { children } = $props();
+
+  // Something real is on screen (app, login or error page): retire app.html's boot shell. Only a
+  // genuine boot resets the reload budget — resetting while the error page renders through this
+  // layout would let a dead link reload forever.
+  $effect(() => {
+    if (!auth.checked && !page.error) return;
+    document.getElementById("boot-shell")?.remove();
+    if (!page.error) resetAutoReload(globalThis.sessionStorage);
+  });
 
   // keep `data-theme` in sync with OS changes when the preference is "system"
   onMount(() => {

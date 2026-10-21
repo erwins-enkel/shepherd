@@ -48,32 +48,50 @@ export function classifyClientError(error: unknown): ClientErrorKind {
 }
 
 /**
- * Session-scoped guard for the one-shot reload the error page performs on a `chunk` error.
+ * Session-scoped, bounded backoff for the reloads a `chunk` error triggers.
  *
- * A chunk can go missing for two very different reasons, and one reload distinguishes them:
- *   - the deploy moved (`bun run update` rewrites every hashed chunk) — the reload fetches the new
- *     manifest and the app comes back permanently;
- *   - the link is flaky — the reload probably fails too.
+ * A chunk can go missing for two very different reasons:
+ *   - the deploy moved (`bun run update` rewrites every hashed chunk) — the first reload fetches
+ *     the new manifest and the app comes back permanently;
+ *   - the link is slow or lossy (in-flight Wi-Fi) — each reload gets further, because hashed
+ *     chunks are served `immutable` and every one that already landed comes from cache.
  *
- * So: reload at most ONCE per tab, then fall through to the error page rather than looping on a
- * connection that cannot serve the app. `sessionStorage` (not `localStorage`) scopes the flag to
- * the tab and clears itself when the tab closes; every access is guarded because it throws in
+ * So: retry a bounded number of times with growing delays, then fall through to the error page
+ * rather than looping on a connection that cannot serve the app. `src/app.html`'s inline boot
+ * script mirrors this schedule and key (it runs before any bundle loads, so it cannot import
+ * this module); `src/app-html.test.ts` keeps the two in sync. `sessionStorage` (not
+ * `localStorage`) scopes the count to the tab; every access is guarded because it throws in
  * private-mode and partitioned contexts.
  */
-export const RELOAD_GUARD_KEY = "shepherd:error-reloaded";
+export const RELOAD_COUNT_KEY = "shepherd:chunk-reloads";
+export const RELOAD_DELAYS_MS = [2_000, 4_000, 8_000, 16_000, 30_000] as const;
 
-export function shouldAutoReload(
+type ReloadStorage = Pick<Storage, "getItem" | "setItem">;
+
+/** Delay before the next auto-reload (and count it), or `null` when none should happen. */
+export function nextAutoReloadDelay(
   kind: ClientErrorKind,
-  storage: Pick<Storage, "getItem" | "setItem"> | null | undefined,
-): boolean {
-  if (kind !== "chunk" || !storage) return false;
+  storage: ReloadStorage | null | undefined,
+): number | null {
+  if (kind !== "chunk" || !storage) return null;
   try {
-    if (storage.getItem(RELOAD_GUARD_KEY)) return false;
-    storage.setItem(RELOAD_GUARD_KEY, "1");
-    return true;
+    const done = Number(storage.getItem(RELOAD_COUNT_KEY)) || 0;
+    const delay = RELOAD_DELAYS_MS[done];
+    if (delay === undefined) return null;
+    storage.setItem(RELOAD_COUNT_KEY, String(done + 1));
+    return delay;
   } catch {
     // Storage unavailable (private mode, blocked cookies): prefer the error page over a
     // reload we cannot bound — an unguarded reload on a dead link is an infinite loop.
-    return false;
+    return null;
+  }
+}
+
+/** Forget the count once the app has genuinely booted, so a later deploy gets the full budget. */
+export function resetAutoReload(storage: Pick<Storage, "removeItem"> | null | undefined): void {
+  try {
+    storage?.removeItem(RELOAD_COUNT_KEY);
+  } catch {
+    /* storage unavailable — nothing was counted either */
   }
 }

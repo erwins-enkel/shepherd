@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { amendments } from "./amendments.svelte";
-import { HerdStore } from "./store.svelte";
+import { HerdStore, reconnectDelay } from "./store.svelte";
 import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
@@ -529,6 +529,38 @@ test("reconnects after the socket drops while the tab is open", () => {
   expect(s.connected).toBe(false);
   vi.advanceTimersByTime(1000);
   expect(made.length).toBe(2); // backoff reopened
+  dispose();
+});
+
+test("reconnectDelay: full jitter over a doubling window capped at 30s", () => {
+  const max = () => 0.999999;
+  expect([0, 1, 2, 3, 4, 5, 6, 10].map((a) => reconnectDelay(a, max))).toEqual([
+    1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000,
+  ]);
+  expect(reconnectDelay(3, () => 0)).toBe(0);
+});
+
+test("repeated failed reconnects back off; only a socket that stayed open resets it", () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0.999999);
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].close(); // never opened → attempt 0: ≤1s
+  vi.advanceTimersByTime(1_000);
+  expect(made.length).toBe(2);
+  made[1].accept(); // flapping: opens, then dies at once — must NOT reset
+  made[1].close(); // attempt 1: ≤2s — not yet at 1s
+  vi.advanceTimersByTime(1_000);
+  expect(made.length).toBe(2);
+  vi.advanceTimersByTime(1_000);
+  expect(made.length).toBe(3);
+  made[2].accept();
+  vi.advanceTimersByTime(10_000); // stayed open → link recovered
+  made[2].close();
+  vi.advanceTimersByTime(1_000);
+  expect(made.length).toBe(4);
+  vi.restoreAllMocks();
   dispose();
 });
 

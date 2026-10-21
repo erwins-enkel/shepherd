@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite dev",
     "dev:demo": "SHEPHERD_DEMO=1 vite dev",
-    "build": "vite build",
-    "build:demo": "SHEPHERD_DEMO=1 vite build",
+    "build": "vite build && bun scripts/precompress.ts build",
+    "build:demo": "SHEPHERD_DEMO=1 vite build && bun scripts/precompress.ts build-demo",
     "preview": "vite preview",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "prepare": "svelte-kit sync || echo '' && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide || echo ''",
@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@floating-ui/dom": "^1.8.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
     "@pierre/diffs": "1.5.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",

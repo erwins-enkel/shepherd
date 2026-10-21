@@ -397,7 +397,17 @@ import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot"
 import { dirname, join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import type { Server, ServerWebSocket } from "bun";
+import type { BunFile, Server, ServerWebSocket } from "bun";
+import {
+  ENCODING_SUFFIX,
+  cacheControlFor,
+  etagFor,
+  etagMatches,
+  isAssetPath,
+  isCompressible,
+  pickEncodings,
+  type Encoding,
+} from "./static-assets";
 import { execFileSync, markPtyEvent } from "./instrument";
 import { opStart } from "./loop-watchdog";
 import { startLoopLagMonitor, withServerTiming } from "./server-timing";
@@ -464,7 +474,40 @@ import {
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
-async function serveStatic(pathname: string): Promise<Response> {
+/** The precompressed sibling the client can take, else the file itself (see static-assets.ts). */
+async function negotiateFile(
+  resolved: string,
+  rel: string,
+  acceptEncoding: string | null,
+): Promise<{ file: BunFile; encoding: Encoding | null }> {
+  if (isCompressible(rel)) {
+    for (const encoding of pickEncodings(acceptEncoding)) {
+      const sibling = Bun.file(resolved + ENCODING_SUFFIX[encoding]);
+      if (await sibling.exists()) return { file: sibling, encoding };
+    }
+  }
+  return { file: Bun.file(resolved), encoding: null };
+}
+
+async function serveFile(req: Request, resolved: string, rel: string): Promise<Response> {
+  const original = Bun.file(resolved);
+  const { file, encoding } = await negotiateFile(resolved, rel, req.headers.get("accept-encoding"));
+  const etag = etagFor(file.size, file.lastModified, encoding);
+  const headers: Record<string, string> = {
+    "content-type": rel.endsWith(".webmanifest")
+      ? "application/manifest+json"
+      : original.type || "application/octet-stream",
+    "cache-control": cacheControlFor(rel),
+    etag,
+  };
+  if (isCompressible(rel)) headers.vary = "Accept-Encoding";
+  if (encoding) headers["content-encoding"] = encoding;
+  if (etagMatches(req.headers.get("if-none-match"), etag))
+    return new Response(null, { status: 304, headers });
+  return new Response(file, { headers });
+}
+
+async function serveStatic(req: Request, pathname: string): Promise<Response> {
   // strip leading traversal, normalize
   const rel = normalize(pathname)
     .replace(/^(\.\.(\/|\\|$))+/, "")
@@ -473,17 +516,13 @@ async function serveStatic(pathname: string): Promise<Response> {
   const resolved = join(UI_DIR, target);
   // extra traversal guard: resolved path must stay within UI_DIR
   if (!resolved.startsWith(UI_DIR + "/") && resolved !== UI_DIR) {
-    return new Response(Bun.file(join(UI_DIR, "index.html")), {
-      headers: { "content-type": "text/html" },
-    });
+    return serveFile(req, join(UI_DIR, "index.html"), "index.html");
   }
-  const file = Bun.file(resolved);
-  const headers: Record<string, string> = {};
-  if (target.endsWith(".webmanifest")) headers["content-type"] = "application/manifest+json";
-  if (await file.exists()) return new Response(file, { headers });
-  return new Response(Bun.file(join(UI_DIR, "index.html")), {
-    headers: { "content-type": "text/html" },
-  });
+  if (await Bun.file(resolved).exists()) return serveFile(req, resolved, target);
+  // A missing hashed chunk must fail as a chunk (→ the client's bounded reload), not parse the
+  // SPA fallback as a JS module.
+  if (isAssetPath(target)) return new Response("not found", { status: 404 });
+  return serveFile(req, join(UI_DIR, "index.html"), "index.html");
 }
 
 export interface AppDeps {
@@ -11547,7 +11586,7 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
 
       if (url.pathname.startsWith("/api")) return json({ error: "not found" }, 404);
       if (req.method === "GET" || req.method === "HEAD") {
-        const res = await serveStatic(url.pathname);
+        const res = await serveStatic(req, url.pathname);
         // HEAD: same status/headers as GET, but no body
         return req.method === "HEAD"
           ? new Response(null, { status: res.status, headers: res.headers })

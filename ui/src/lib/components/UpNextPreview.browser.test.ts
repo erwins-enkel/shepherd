@@ -292,3 +292,64 @@ describe("UpNextPreview — issue steers", () => {
     expect(upNextUi.previewKey).toBe(key(7));
   });
 });
+
+describe("UpNextPreview — phone swipe right back to the list", () => {
+  // Synthetic touches: the component reads only clientX/clientY from `touches`. Each one
+  // lands 500ms after the last, so back-to-back dispatches never read as a flick.
+  let clock = 0;
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
+    return e;
+  }
+  function drag(el: Element, from: [number, number], to: [number, number]) {
+    el.dispatchEvent(fakeTouch("touchstart", ...from));
+    el.dispatchEvent(fakeTouch("touchmove", ...to));
+    el.dispatchEvent(fakeTouch("touchend", ...to));
+  }
+  async function open(onback?: () => void) {
+    await page.viewport(390, 844);
+    upNextUi.previewKey = key(7);
+    render(UpNextPreview, onback ? { onback } : {});
+    await expect.poll(() => document.querySelector(".unp-body")).not.toBeNull();
+    return document.querySelector<HTMLElement>(".unp")!;
+  }
+
+  it("a rightward drag goes back", async () => {
+    const onback = vi.fn();
+    const unp = await open(onback);
+    drag(unp, [10, 300], [300, 300]);
+    expect(onback).toHaveBeenCalledOnce();
+  });
+
+  it("the preview follows the finger mid-drag", async () => {
+    const onback = vi.fn();
+    const unp = await open(onback);
+    unp.dispatchEvent(fakeTouch("touchstart", 10, 300));
+    unp.dispatchEvent(fakeTouch("touchmove", 60, 300));
+    await expect.poll(() => unp.style.transform).toBe("translateX(50px)");
+    unp.dispatchEvent(fakeTouch("touchend", 60, 300));
+    await expect.poll(() => unp.style.transform).toBe("");
+    expect(onback).not.toHaveBeenCalled();
+  });
+
+  it("short, leftward and vertical drags stay", async () => {
+    const onback = vi.fn();
+    const unp = await open(onback);
+    drag(unp, [10, 300], [40, 300]);
+    drag(unp, [300, 300], [10, 300]);
+    drag(unp, [100, 100], [110, 500]);
+    expect(onback).not.toHaveBeenCalled();
+  });
+
+  it("no swipe without `onback` (desktop)", async () => {
+    const unp = await open();
+    drag(unp, [10, 300], [300, 300]);
+    expect(upNextUi.previewKey).toBe(key(7));
+    expect(unp.style.transform).toBe("");
+  });
+});

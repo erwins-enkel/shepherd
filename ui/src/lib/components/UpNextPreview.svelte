@@ -13,6 +13,7 @@
   import MarkdownBody from "./MarkdownBody.svelte";
   import UpNextStartPicker from "./UpNextStartPicker.svelte";
   import UpNextSteerMenu from "./UpNextSteerMenu.svelte";
+  import { swipeBack } from "./swipe-back";
 
   // Reading view for the Up Next row whose title was clicked: the issue's head and rendered
   // description, with Start and the batch tick beside it — so the operator reads before
@@ -118,6 +119,10 @@
     if (onback) onback();
     else upNextUi.previewKey = null;
   }
+  // Phone (`onback` set): a rightward swipe returns to the list, as on a backlog issue.
+  let dragX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const backSwipe = swipeBack({ onback: () => onback?.(), onoffset: (px) => (dragX = px) });
+
   // Esc closes the preview while focus is inside it; the CLI picker and the steer menu
   // handle their own Esc.
   function onkeydown(e: KeyboardEvent) {
@@ -133,7 +138,14 @@
 
 <!-- Esc closes the preview while focus is inside it (the handler only listens). -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<section class="unp" aria-label={m.upnext_preview_aria()} {onkeydown}>
+<section
+  class="unp"
+  class:swiping={dragX > 0}
+  aria-label={m.upnext_preview_aria()}
+  {onkeydown}
+  {@attach onback ? backSwipe : undefined}
+  style:transform={dragX > 0 ? `translateX(${dragX}px)` : undefined}
+>
   <div class="unp-bar">
     {#if onback}
       <button type="button" class="unp-back" onclick={onback}>← {m.issuedetail_back()}</button>
@@ -281,6 +293,12 @@
     min-height: 0;
     min-width: 0;
     flex: 1;
+    transition: transform 0.18s ease-out;
+  }
+  /* Mid swipe-back: follows the finger 1:1, lifted off the shell behind it. */
+  .unp.swiping {
+    transition: none;
+    box-shadow: var(--shadow-popover);
   }
 
   .unp-bar {

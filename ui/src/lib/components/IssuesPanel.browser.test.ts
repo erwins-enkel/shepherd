@@ -1206,13 +1206,16 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
   });
 
   describe("mobile: swipe right back to the list (iOS parity)", () => {
-    // Synthetic touches: the component reads only clientX/clientY from `touches`.
+    // Synthetic touches: the component reads only clientX/clientY from `touches`. Each one
+    // lands 500ms after the last, so back-to-back dispatches never read as a flick.
+    let clock = 0;
     function fakeTouch(type: string, x: number, y: number): Event {
       const e = new Event(type, { bubbles: true, cancelable: true });
       Object.defineProperty(e, "touches", {
         value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
         configurable: true,
       });
+      Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
       return e;
     }
     function drag(el: Element, from: [number, number], to: [number, number]) {

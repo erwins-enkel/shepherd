@@ -427,7 +427,7 @@ for mode in ("term", "kill", "exit"):
         `${mode}: serialized; descendant cleaned; owned group gone`,
       );
   }, 30_000);
-  test("CI runs blocking simulator and advisory UI in parallel with scoped Kit opt-in", () => {
+  test("CI runs blocking simulator, app and advisory UI in parallel with scoped Kit opt-in", () => {
     const source = readFileSync(".github/workflows/native.yml", "utf8");
     const workflow = Bun.YAML.parse(source) as {
       on: Record<"pull_request" | "push", { paths: string[] }>;
@@ -467,6 +467,15 @@ for mode in ("term", "kill", "exit"):
     const core = kit.steps.find((step) => step.run?.includes("--filter ShepherdAppCoreTests"))!;
     expect(core.run).toContain("unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS");
     expect(core.env).toBeUndefined();
+    // The Mac app builds in its own blocking job, off the Kit job's critical path.
+    const app = jobs["shepherd-mac-app"]!;
+    expect(app).toBeDefined();
+    expect(app["continue-on-error"]).not.toBe(true);
+    const appRun = app.steps.map((step) => step.run ?? "").join("\n");
+    expect(appRun).toContain("native/scripts/build-app.sh Release");
+    expect(appRun).toContain("-only-testing:ShepherdTests");
+    const kitRun = kit.steps.map((step) => step.run ?? "").join("\n");
+    expect(kitRun).not.toMatch(/native\/scripts\/(build|test)-app\.sh|xcodegen/);
     expect(source).not.toMatch(/SHEPHERD_LIVE_|\/Users\//);
     for (const job of Object.values(jobs)) {
       expect(hasOptIn(job.env)).toBe(false);

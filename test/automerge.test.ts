@@ -1541,3 +1541,246 @@ test("#3197 migrations: a held bottom layer keeps the layer above it held", asyn
     { sessionId: "s2", code: "stacked" },
   ]);
 });
+
+// ── #3223: merge-queue base ─────────────────────────────────────────────────────────────────
+
+/** Three green full-auto PRs (#7/#8/#9) on `main`, a forge whose merge enqueues and whose queue
+ *  read answers from `queue()`, and a controllable clock. */
+function queueRig(o: {
+  queue: () => Promise<number[] | null>;
+  behind?: boolean;
+  merge?: (n: number) => Promise<void>;
+  heads?: Record<string, string>;
+  /** Live PR state from the forge (prReviewMeta); default "open" = a real ejection. */
+  liveState?: () => "open" | "merged" | "closed";
+}) {
+  const ids = ["s1", "s2", "s3"];
+  const sessions = ids.map((id, i) => baseSession({ id, desig: `TASK-0${i + 1}` }));
+  const heads = o.heads ?? {};
+  let clock = 1_000_000;
+  const merged: number[] = [];
+  const merge = mock(async (n: number) => {
+    merged.push(n);
+    if (o.merge) return o.merge(n);
+    throw new MergeEnqueuedError(n);
+  });
+  const queueReads = mock(o.queue);
+  const metaReads = mock(async () => ({
+    body: "",
+    baseRefName: "main",
+    isCrossRepository: false,
+    state: o.liveState?.() ?? "open",
+  }));
+  const reply = mock(() => true);
+  const d = deps({
+    now: () => clock,
+    store: {
+      ...deps().store,
+      get: (id: string) => sessions.find((s) => s.id === id) as any,
+      list: () => sessions as any,
+    } as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+    resolveForge: () =>
+      ({
+        kind: "github",
+        mergeMethod: "squash",
+        merge,
+        mergeQueueEntries: queueReads,
+        prReviewMeta: metaReads,
+        closeIssue: mock(async () => {}),
+      }) as any,
+    worktree: { behindBase: async () => o.behind ?? false } as any,
+    prCache: {
+      snapshot: () =>
+        Object.fromEntries(
+          ids.map((id, i) => [
+            id,
+            {
+              state: "open",
+              checks: "success",
+              mergeable: true,
+              number: 7 + i,
+              headSha: heads[id] ?? "h1",
+              baseRefName: "main",
+            },
+          ]),
+        ),
+    } as any,
+  });
+  return {
+    svc: new AutoMergeService(d),
+    merged,
+    queueReads,
+    metaReads,
+    reply,
+    advance: (ms: number) => (clock += ms),
+  };
+}
+
+test("#3223: one pump enqueues every green PR, each exactly once", async () => {
+  const rig = queueRig({ queue: async () => [] });
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([7, 8, 9]);
+  // A second pump inside the grace window re-merges nothing.
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([7, 8, 9]);
+});
+
+test("#3223: queue base + behind → merges, never steers a rebase", async () => {
+  const rig = queueRig({ queue: async () => [], behind: true });
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([7, 8, 9]);
+  expect(rig.reply).not.toHaveBeenCalled();
+});
+
+test("#3223: a PR already in the queue (enqueued by anyone) is skipped and reads as queued", async () => {
+  const rig = queueRig({ queue: async () => [7] });
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([8, 9]);
+  const [st] = await rig.svc.snapshot();
+  expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "queued" });
+});
+
+test("#3223: unreadable queue → behind gates as before (fail open to queue-less behavior)", async () => {
+  const rig = queueRig({
+    queue: async () => {
+      throw new Error("graphql rate limit backoff");
+    },
+    behind: true,
+  });
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([]);
+  expect(rig.reply).toHaveBeenCalled(); // rebase steer, today's behavior
+});
+
+test("#3223: no queue on the base → behind still gates", async () => {
+  const rig = queueRig({ queue: async () => null, behind: true });
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([]);
+});
+
+test("#3223: ejection on the same head counts a failure; backs off at the cap", async () => {
+  // Queue always reads empty: every enqueue is "ejected" once the grace lapses.
+  const rig = queueRig({ queue: async () => [] });
+  await rig.svc.pump("/r"); // enqueue #1 (all three)
+  for (let i = 0; i < 3; i++) {
+    rig.advance(61_000); // past grace + queue TTL
+    await rig.svc.pump("/r"); // ejection counted, re-enqueued
+  }
+  const count7 = () => rig.merged.filter((n) => n === 7).length;
+  expect(count7()).toBe(3); // the 3rd ejection hits MERGE_ERROR_CAP → backed off
+  const [st] = await rig.svc.snapshot();
+  expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "merge_backoff" });
+});
+
+test("#3223: a head change while queued drops the mark without counting a failure", async () => {
+  const heads: Record<string, string> = {};
+  const rig = queueRig({ queue: async () => [], heads });
+  await rig.svc.pump("/r");
+  for (let i = 0; i < 4; i++) {
+    heads.s1 = `h${i + 2}`; // agent pushed: GitHub dequeues it
+    rig.advance(61_000);
+    await rig.svc.pump("/r");
+  }
+  // Never backed off: every re-enqueue followed a new head, not an ejection.
+  expect(rig.merged.filter((n) => n === 7).length).toBe(5);
+});
+
+test("#3223: a forge without merge queues keeps today's behavior", async () => {
+  const merge = mock(async () => {});
+  const d = deps({
+    worktree: { behindBase: async () => true } as any,
+    resolveForge: () =>
+      ({ kind: "gitea", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(merge).not.toHaveBeenCalled();
+  expect(d.service.reply).toHaveBeenCalled();
+});
+
+test("#3223: queue reads are shared across one pump's sessions", async () => {
+  const rig = queueRig({ queue: async () => [] });
+  await rig.svc.pump("/r");
+  expect(rig.queueReads.mock.calls.length).toBe(1);
+});
+
+test("#3223: a PR seen in the queue gets a fresh grace once it leaves (merge, poller lag)", async () => {
+  let listed = false;
+  const rig = queueRig({ queue: async () => (listed ? [7, 8, 9] : []) });
+  await rig.svc.pump("/r"); // enqueue all three
+  listed = true;
+  rig.advance(120_000);
+  await rig.svc.pump("/r"); // still listed: grace restarts now
+  listed = false;
+  rig.advance(30_000); // left the queue 30s ago — inside the fresh grace
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([7, 8, 9]); // not read as ejected → no re-merge
+});
+
+test("#3223: a PR the queue merged never reads as ejected while the poller lags a full sweep", async () => {
+  let listed = false;
+  const rig = queueRig({ queue: async () => (listed ? [7, 8, 9] : []), liveState: () => "merged" });
+  await rig.svc.pump("/r"); // enqueue all three
+  listed = true;
+  rig.advance(30_000);
+  await rig.svc.pump("/r"); // seen in the queue
+  listed = false; // the queue merged them; the snapshot still says open
+  for (let i = 0; i < 6; i++) {
+    rig.advance(61_000); // > a 300s cold sweep in total
+    await rig.svc.pump("/r");
+  }
+  expect(rig.merged).toEqual([7, 8, 9]); // never re-merged
+  const [st] = await rig.svc.snapshot();
+  expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "queued" });
+  expect(st!.waiting).not.toContainEqual({ sessionId: "s1", code: "merge_backoff" });
+});
+
+test("#3223: an unreadable live state keeps a vanished PR queued, counting nothing", async () => {
+  const rig = queueRig({ queue: async () => [] });
+  rig.metaReads.mockImplementation(async () => {
+    throw new Error("gh down");
+  });
+  await rig.svc.pump("/r");
+  rig.advance(61_000);
+  await rig.svc.pump("/r");
+  expect(rig.merged).toEqual([7, 8, 9]);
+});
+
+test("#3223: snapshot() never reconciles marks — no live read, no ejection counted", async () => {
+  const rig = queueRig({ queue: async () => [] });
+  await rig.svc.pump("/r"); // enqueue all three
+  rig.advance(61_000); // past grace: a pump would now ask + count
+  for (let i = 0; i < 4; i++) {
+    const [st] = await rig.svc.snapshot();
+    expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "queued" });
+  }
+  expect(rig.metaReads).not.toHaveBeenCalled();
+  // The pump then counts exactly ONE ejection per PR (count 1 < cap → re-enqueued, not backed off).
+  await rig.svc.pump("/r");
+  expect(rig.metaReads.mock.calls.length).toBe(3);
+  expect(rig.merged).toEqual([7, 8, 9, 7, 8, 9]);
+});
+
+test("#3223: an ejection claimed during its live read is counted once, not by both readers", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const rig = queueRig({ queue: async () => [] });
+  await rig.svc.pump("/r");
+  rig.advance(61_000);
+  rig.metaReads.mockImplementation(async () => {
+    await gate;
+    return { body: "", baseRefName: "main", isCrossRepository: false, state: "open" as const };
+  });
+  const first = rig.svc.pump("/r"); // blocks inside the live read, holding the claim
+  await Promise.resolve();
+  const [st] = await rig.svc.snapshot(); // overlapping reader: sees the claim, counts nothing
+  expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "queued" });
+  release();
+  await first;
+  expect(rig.merged.filter((n) => n === 7).length).toBe(2); // one ejection → one re-enqueue
+});

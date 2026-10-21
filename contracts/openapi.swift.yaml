@@ -1605,6 +1605,7 @@ components:
         - manual_steps
         - migrations
         - no_ci
+        - queued
     LimitWindow:
       type: object
       additionalProperties: true

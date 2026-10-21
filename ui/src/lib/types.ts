@@ -1258,7 +1258,8 @@ export type MergeWaitCode =
   | "stacked"
   | "manual_steps"
   | "migrations"
-  | "no_ci";
+  | "no_ci"
+  | "queued";
 
 /** One held full-auto PR on {@link AutoMergeStatus.waiting}. */
 export interface AutoMergeWait {

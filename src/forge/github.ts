@@ -2876,6 +2876,44 @@ export class GithubForge implements GitForge {
     if (!tested) throw new StackUntestedError(prNumber, trunk);
   }
 
+  /** PR numbers in `base`'s merge queue, or null when `base` has none (#3223). One GraphQL read
+   *  answers both questions: `mergeQueue(branch:)` is null on a queue-less branch. Any entry
+   *  state counts — an UNMERGEABLE entry is still the queue's until GitHub ejects it. Throws on
+   *  any failure (rate-limit backoff included): the caller decides how to fail. */
+  async mergeQueueEntries(base: string): Promise<number[] | null> {
+    if (!isPathSafeRef(base))
+      throw new Error(`base ${JSON.stringify(base)} is not a probeable ref`);
+    if (graphRateLimit.blocked()) throw new Error("graphql rate limit backoff");
+    const [owner, name] = this.slug.split("/");
+    const out = await this.run([
+      "api",
+      "graphql",
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `name=${name}`,
+      "-f", // raw: `-F` would type a branch named e.g. `123` as a number
+      `branch=${base}`,
+      "-f",
+      `query=${withRateLimit("query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){mergeQueue(branch:$branch){entries(first:100){nodes{pullRequest{number}}}}}}")}`,
+    ]);
+    const json = JSON.parse(out) as {
+      data?: {
+        repository?: {
+          mergeQueue?: {
+            entries?: { nodes?: Array<{ pullRequest?: { number?: number } | null }> };
+          } | null;
+        } | null;
+      };
+    };
+    const repo = json.data?.repository;
+    if (!repo) throw new Error(`merge-queue read for ${this.slug} returned no repository`);
+    if (!repo.mergeQueue) return null;
+    return (repo.mergeQueue.entries?.nodes ?? [])
+      .map((n) => n.pullRequest?.number)
+      .filter((n): n is number => typeof n === "number");
+  }
+
   /** Does `base` require a merge queue? For a stack it is the trunk: a `merge_queue` rule there
    *  makes `merge_method` illegal on the merge request (#2062), so the answer decides the PUT's
    *  shape. For an unstacked PR it is the PR's own base (#3219).

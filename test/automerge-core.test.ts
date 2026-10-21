@@ -873,3 +873,24 @@ test("mergeWaitReason agrees with computeMerge: null for a ready PR ⇔ it merge
     }
   }
 });
+
+test("#3223: a queued PR is never merged again — the next ready sibling is", () => {
+  const d = computeMerge(state([sess({ queued: true }), sess({ id: "s2", number: 8 })]));
+  expect(d).toEqual({ kind: "merge", sessionId: "s2", prNumber: 8, headSha: "h1" });
+});
+
+test("#3223: a queued PR is never rebased, even when conflicting or behind", () => {
+  const q = sess({ queued: true, behind: true, mergeable: false, mergeStateStatus: "dirty" });
+  expect(computeMerge(state([q]))).toEqual({ kind: "hold", reason: { code: "idle" } });
+  expect(mergeWaitReason(q, state([q]))).toBe("queued");
+});
+
+test("#3223: a queued PR at the rebase cap still reads as queued", () => {
+  const q = sess({ queued: true, behind: true, rebaseCount: 5 });
+  expect(mergeWaitReason(q, state([q]))).toBe("queued");
+});
+
+test("#3223: a merged PR with a stale queued flag waits on nothing", () => {
+  const q = sess({ queued: true, state: "merged" });
+  expect(mergeWaitReason(q, state([q]))).toBeNull();
+});

@@ -1,6 +1,7 @@
 import type { SessionStore } from "./store";
 import type { GitForge, GitState } from "./forge/types";
 import {
+  MergeEnqueuedError,
   MergeNotCompletedError,
   StackedMergeRefusedError,
   StackUntestedError,
@@ -70,6 +71,14 @@ function rebaseSteer(baseBranch: string): string {
 const MERGE_ERROR_CAP = 3;
 /** Backoff window once the cap trips: one retry allowed per window thereafter. */
 const MERGE_ERROR_BACKOFF_MS = 300_000;
+/** How long a marked PR counts as queued while a readable queue does not list it (#3223): since
+ *  the enqueue (read lag) or its last sighting in the queue. Past it, a live read decides merged vs
+ *  ejected. */
+const ENQUEUE_GRACE_MS = 60_000;
+
+/** A base's merge queue as the train sees it: its PR numbers, null = the base has no queue (or the
+ *  forge has no queues), "unknown" = the read failed (fail open to queue-less behavior). */
+type QueueRead = number[] | null | "unknown";
 
 export interface AutoMergeDeps {
   capacity?: (session: Session) => Promise<boolean>;
@@ -129,6 +138,13 @@ export interface AutoMergeDeps {
 export class AutoMergeService {
   private pumping = new Set<string>();
   private behindCache = new Map<string, { behind: boolean | null; ts: number }>();
+  /** Per (repo, base) merge-queue read, same TTL as {@link behindCache}. The promise is cached so
+   *  the concurrent toView calls of one buildState share a single forge read. */
+  private queueCache = new Map<string, { read: Promise<QueueRead>; ts: number }>();
+  /** PRs the train handed to a merge queue (#3223), keyed by session, with the head enqueued and
+   *  when. Counts the PR as queued through the read's lag, and is what tells a queue ejection
+   *  (same head, no longer listed) apart from a PR nobody enqueued. In-memory only. */
+  private enqueued = new Map<string, { head: string; at: number }>();
   /** Per-session merge-error backoff: consecutive failures on a head + when it's blocked until. */
   private mergeFail = new Map<string, { head: string; count: number; blockedUntil: number }>();
   /** Sessions whose PR was found to belong to a GitHub stack (#2059), keyed by the head SHA it
@@ -166,6 +182,91 @@ export class AutoMergeService {
     const behind = await this.deps.worktree.behindBase(worktreePath, baseBranch);
     this.behindCache.set(key, { behind, ts: this.now() });
     return behind;
+  }
+
+  /** `base`'s merge queue (#3223), cached per (repo, base) for the behind TTL. */
+  private cachedQueue(repoPath: string, base: string): Promise<QueueRead> {
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge?.mergeQueueEntries) return Promise.resolve(null);
+    const key = `${repoPath}\0${base}`;
+    const hit = this.queueCache.get(key);
+    if (hit && this.now() - hit.ts < this.behindTtlMs) return hit.read;
+    const read = forge.mergeQueueEntries(base).catch((err: unknown): QueueRead => {
+      console.warn(`[automerge] merge-queue read for ${base} failed; assuming none:`, err);
+      return "unknown";
+    });
+    this.queueCache.set(key, { read, ts: this.now() });
+    return read;
+  }
+
+  /** Is this PR the merge queue's (#3223)? Listed in the queue, or marked (enqueued by the train,
+   *  or seen listed) on its current head and still inside the grace window, or the queue is
+   *  unreadable. A marked PR missing from a readable queue past the grace left it: merged (the
+   *  poller's snapshot can lag a full sweep behind) or ejected — typically a failed merge_group
+   *  run. {@link leftQueue} tells the two apart with a live read. */
+  private async reconcileQueued(
+    s: Session,
+    pr: { state: string; number: number | null; headSha: string | null },
+    queue: QueueRead,
+  ): Promise<boolean> {
+    const mark = this.enqueued.get(s.id);
+    if (pr.state !== "open" || !pr.number) {
+      this.enqueued.delete(s.id);
+      return false;
+    }
+    const head = pr.headSha ?? "";
+    const listed = Array.isArray(queue) && queue.includes(pr.number);
+    if (listed) {
+      // (Re)start the grace from the last sighting — whoever enqueued it — so a PR that leaves
+      // the queue is judged by leftQueue, never re-merged on a stale "open" snapshot.
+      this.enqueued.set(s.id, { head, at: this.now() });
+      return true;
+    }
+    if (!mark) return false;
+    if (mark.head !== head) {
+      this.enqueued.delete(s.id); // a push dequeues: not an ejection worth counting
+      return false;
+    }
+    if (queue === "unknown" || this.now() - mark.at < ENQUEUE_GRACE_MS) return true;
+    return this.leftQueue(s, pr.number, head);
+  }
+
+  /** Read-only {@link reconcileQueued} for snapshot(): listed, or marked on the current head. A
+   *  mark past its grace still reads as queued — whether it merged or was ejected is the pump's
+   *  call, made with a live read. */
+  private peekQueued(
+    id: string,
+    pr: { state: string; number: number | null; headSha: string | null },
+    queue: QueueRead,
+  ): boolean {
+    if (pr.state !== "open" || !pr.number) return false;
+    if (Array.isArray(queue) && queue.includes(pr.number)) return true;
+    return this.enqueued.get(id)?.head === (pr.headSha ?? "");
+  }
+
+  /** A marked PR is gone from a readable queue. Ask the forge whether it is still open: merged or
+   *  closed (or unreadable) keeps it queued — nothing to land, and the poller settles it — and
+   *  only a live open PR counts as an ejection, a merge failure, so a deterministic ejection backs
+   *  off at MERGE_ERROR_CAP instead of looping enqueue/eject forever. */
+  private async leftQueue(s: Session, prNumber: number, head: string): Promise<boolean> {
+    // Claim the mark BEFORE the await: a fresh grace makes any overlapping caller read it as
+    // queued, and only the holder of this exact claim may count the ejection — never twice.
+    const claim = { head, at: this.now() };
+    this.enqueued.set(s.id, claim);
+    const forge = this.deps.resolveForge(s.repoPath);
+    let state: string | null = null;
+    try {
+      state = (await forge?.prReviewMeta?.(prNumber))?.state ?? null;
+    } catch (err) {
+      console.warn(`[automerge] pr#${prNumber} state read failed; keeping it queued:`, err);
+    }
+    // Merged/closed/unreadable: keep the claim — re-ask after another grace, not every pump.
+    // A claim replaced meanwhile (re-sighted in the queue, a new head) is someone else's answer.
+    if (state !== "open" || this.enqueued.get(s.id) !== claim) return true;
+    console.warn(`[automerge] pr#${prNumber} left the merge queue unmerged; counting a failure`);
+    this.enqueued.delete(s.id);
+    this.recordMergeFailure(s.id, head);
+    return false;
   }
 
   /** Effective full-auto: a session is a candidate when both autopilot AND auto-merge resolve
@@ -228,11 +329,21 @@ export class AutoMergeService {
     s: Session,
     git: GitState | null,
     mergeWithoutCi: boolean,
+    reconcile: boolean,
   ): Promise<MergeSessionView> {
     const pr = AutoMergeService.prFields(git);
+    const queue: QueueRead =
+      pr.state === "open"
+        ? await this.cachedQueue(s.repoPath, git?.baseRefName ?? s.baseBranch)
+        : null;
+    // #3223: on a merge-queue base GitHub retests each PR against the latest base itself, so
+    // `behind` neither gates the merge nor warrants a rebase. Conflicts still do (mergeable/dirty).
+    const onQueueBase = Array.isArray(queue);
     const behind =
       git?.state === "open" && s.worktreePath && s.branch
-        ? await this.cachedBehind(s.worktreePath, s.baseBranch)
+        ? onQueueBase
+          ? false
+          : await this.cachedBehind(s.worktreePath, s.baseBranch)
         : null;
     return {
       id: s.id,
@@ -240,6 +351,9 @@ export class AutoMergeService {
       ...pr,
       noCiHold: pr.noCi && !mergeWithoutCi,
       behind,
+      queued: reconcile
+        ? await this.reconcileQueued(s, pr, queue)
+        : this.peekQueued(s.id, pr, queue),
       ...AutoMergeService.reviewFields(this.deps.store.getReview(s.id)),
       rebaseCount: s.autoMergeRebaseCount,
       rebaseSteeredHead: s.autoMergeRebaseHead,
@@ -378,15 +492,25 @@ export class AutoMergeService {
     for (const id of this.migrationsCache.keys()) if (!ids.has(id)) this.migrationsCache.delete(id);
   }
 
-  private async buildState(repoPath: string): Promise<MergeRepoState> {
+  /** Drop enqueue marks for sessions no longer live (archived by the poller once merged). */
+  private pruneEnqueued(live: Session[]): void {
+    if (this.enqueued.size === 0) return;
+    const ids = new Set(live.filter((s) => s.status !== "archived").map((s) => s.id));
+    for (const id of this.enqueued.keys()) if (!ids.has(id)) this.enqueued.delete(id);
+  }
+
+  /** `reconcile` = false (snapshot) reads the merge-queue marks without touching them: no live PR
+   *  read, no mark rewrite, no ejection counted — those belong to the pump alone (#3223). */
+  private async buildState(repoPath: string, reconcile = true): Promise<MergeRepoState> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
     const snapshot = this.deps.prCache.snapshot();
     const all = this.deps.store.list();
     this.pruneMigrationsCache(all);
+    if (reconcile) this.pruneEnqueued(all);
     const sessions: MergeSessionView[] = await Promise.all(
       all
         .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
-        .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi)),
+        .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi, reconcile)),
     );
     const state: MergeRepoState = {
       enabled: sessions.length > 0,
@@ -449,13 +573,15 @@ export class AutoMergeService {
     if (decision.kind === "merge") {
       if (attempted.has(decision.sessionId)) return "break";
       attempted.add(decision.sessionId);
-      const ok = await this.doMerge(
+      const outcome = await this.doMerge(
         repoPath,
         decision.sessionId,
         decision.prNumber,
         decision.headSha,
       );
-      return ok ? "continue" : "break";
+      // "enqueued" keeps pumping too: the PR now reads as queued, so the next decision is the
+      // next ready PR — every green PR enters the queue in one pump (#3223).
+      return outcome === false ? "break" : "continue";
     }
     if (decision.kind === "rebase") {
       if (attempted.has(decision.sessionId)) return "break";
@@ -507,14 +633,15 @@ export class AutoMergeService {
   }
 
   /** Classify a failed `forge.merge` from {@link doMerge}: a named hold, an in-flight merge, or a
-   *  counted failure. The caller reports the merge as not landed either way. */
+   *  counted failure. Returns what {@link doMerge} reports for it: "enqueued" when a merge queue
+   *  took the PR (#3223), else false (not landed). */
   private onMergeError(
     err: unknown,
     repoPath: string,
     s: Session,
     prNumber: number,
     headSha: string | null,
-  ): void {
+  ): false | "enqueued" {
     const sessionId = s.id;
     if (err instanceof StackedMergeRefusedError && s.incrementalEpicParent != null) {
       // An incremental child the live read did not see stacked: time-box it like a refused
@@ -522,7 +649,7 @@ export class AutoMergeService {
       console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
       this.holdStackConfirm(s);
       this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
-      return;
+      return false;
     }
     if (err instanceof StackedMergeRefusedError) {
       // NOT a merge failure: the forge refused before mutating anything. Recording it would
@@ -531,7 +658,7 @@ export class AutoMergeService {
       console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
       this.stackedHold.set(sessionId, headSha ?? "");
       this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
-      return;
+      return false;
     }
     if (err instanceof StackUntestedError) {
       // #3192: the stack was not tested against the trunk's current tip. Refused before any
@@ -539,26 +666,35 @@ export class AutoMergeService {
       // behind gate normally steers that rebase first — this is the race backstop).
       console.warn(`[automerge] pr#${prNumber} untested against trunk; holding:`, err.message);
       this.deps.emitStatus(this.status(repoPath, true, "stack_untested", s.desig, s.id));
-      return;
+      return false;
+    }
+    if (err instanceof MergeEnqueuedError) {
+      // In flight in the merge queue: neither settled nor a failure. Marked so the train stops
+      // re-merging it and moves on; the PR poller reconciles the eventual merge.
+      console.warn(`[automerge] pr#${prNumber} enqueued in the merge queue`);
+      this.enqueued.set(sessionId, { head: headSha ?? "", at: this.now() });
+      return "enqueued";
     }
     if (err instanceof MergeNotCompletedError) {
-      // The merge is in flight host-side (merge queue, or a poll that outlived its budget).
+      // The merge is in flight host-side (a poll that outlived its budget).
       // Neither settle the session nor count a failure — the PR poller reconciles.
       console.warn(`[automerge] merge pr#${prNumber} not completed (${err.code}):`, err.message);
-      return;
+      return false;
     }
     console.warn(`[automerge] merge pr#${prNumber} failed for ${sessionId}:`, err);
     this.recordMergeFailure(sessionId, headSha);
     this.deps.emitStatus(this.status(repoPath, true, "merge_error", s.desig, s.id));
+    return false;
   }
 
-  /** Land a ready PR. Returns true on success (session settled), false on a fail-closed error. */
+  /** Land a ready PR. Returns true on success (session settled), "enqueued" when a merge queue
+   *  took it (#3223), false on a fail-closed error. */
   private async doMerge(
     repoPath: string,
     sessionId: string,
     prNumber: number,
     headSha: string | null,
-  ): Promise<boolean> {
+  ): Promise<boolean | "enqueued"> {
     const forge = this.deps.resolveForge(repoPath);
     const s = this.deps.store.get(sessionId);
     if (!forge || !s) return false;
@@ -582,10 +718,10 @@ export class AutoMergeService {
         ...(stacked ? { allowStacked: true } : {}),
       });
     } catch (err) {
-      this.onMergeError(err, repoPath, s, prNumber, headSha);
-      return false;
+      return this.onMergeError(err, repoPath, s, prNumber, headSha);
     }
     this.mergeFail.delete(sessionId); // success clears any backoff
+    this.enqueued.delete(sessionId);
     this.stackedHold.delete(sessionId); // a landed PR was evidently not stacked
     this.stackConfirmHeld.delete(repoPath); // a layer landed: every other layer's answer changed
     this.deps.noteMergedForRecap?.({ sessionId, prNumber, headSha });
@@ -725,13 +861,14 @@ export class AutoMergeService {
     }
   }
 
-  /** Client bootstrap: a status per full-auto-active repo, no side effects. */
+  /** Client bootstrap: a status per full-auto-active repo. Never pumps and never reconciles the
+   *  merge-queue marks (see buildState's `reconcile`). */
   async snapshot(): Promise<AutoMergeStatus[]> {
     const out: AutoMergeStatus[] = [];
     const live = this.fullAutoRepos();
     for (const repoPath of this.deps.repos()) {
       if (!live.has(repoPath)) continue;
-      const d = computeMerge(await this.buildState(repoPath));
+      const d = computeMerge(await this.buildState(repoPath, false));
       const reason = d.kind === "hold" ? (d.reason.code === "idle" ? null : d.reason.code) : d.kind;
       const detail = d.kind === "hold" ? (d.reason.detail ?? null) : null;
       const sessionId = d.kind === "hold" ? (d.reason.sessionId ?? null) : d.sessionId;

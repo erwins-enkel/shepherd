@@ -83,9 +83,10 @@ Run commands from the repository root.
      a different port gets its own saved profile and credential. HOME remains your home
      directory; `SHEPHERD_REF` is preserved. These settings
      are resolved when the app's local supervisor is created, so relaunch after changing them.
-     Quitting or restarting the app leaves its local server and sessions running, including
-     update relaunches and dev rebuilds. The next launch adopts the recorded server when its
-     live pid, process group and health identity match. **Stop** and **Restart** explicitly
+     When closing the window or quitting, choose whether to keep the local backend running
+     or stop it too. Update relaunches and dev rebuilds leave the server and sessions running.
+     The next launch adopts the recorded server when its live pid, process group and health
+     identity match. **Stop** and **Restart** explicitly
      stop the server; a generated password is offered only for a new boot in this app run.
      A foreign server already answering locally is shown with its reported install and database paths.
      Older servers that do not report paths are explicitly marked unknown. Choose **Keep using

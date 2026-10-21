@@ -27,7 +27,8 @@ local server and sessions running; `--yes` and `--force` remain accepted for com
 **Start** and **Restart** first ensure herdr is answering (`herdr agent list`), then start or
 restart the server. An answering daemon is never restarted or stopped. A missing or timed-out
 runner still allows the server to start, with a separate runner failure shown in the panel.
-Only the local panel's **Stop**/**Restart** signal the server group. herdr remains independent.
+The local panel's **Stop**/**Restart** and the close/quit dialog's **Stop backend too** signal
+the server group. herdr remains independent.
 
 Launch discovery/adoption runs for every profile. With the local endpoint active, or no profile
 yet, the app ensures herdr for an adopted healthy server without restarting it, or starts herdr

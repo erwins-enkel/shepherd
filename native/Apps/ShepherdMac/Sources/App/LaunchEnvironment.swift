@@ -446,8 +446,17 @@ final class IsolatedLaunch {
 @MainActor
 final class IsolatedTerminationDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if IsolatedLaunch.current == nil, !CloseConfirmation.confirm(quitting: true) {
-            return .terminateCancel
+        if IsolatedLaunch.current == nil {
+            switch CloseConfirmation.confirm(quitting: true) {
+            case .cancel: return .terminateCancel
+            case .keepBackend: return .terminateNow
+            case .stopBackend:
+                Task {
+                    let stopped = await CloseConfirmation.stopBackend()
+                    sender.reply(toApplicationShouldTerminate: stopped)
+                }
+                return .terminateLater
+            }
         }
         guard let launch = IsolatedLaunch.current, launch.needsDeferredTermination else { return .terminateNow }
         Task {

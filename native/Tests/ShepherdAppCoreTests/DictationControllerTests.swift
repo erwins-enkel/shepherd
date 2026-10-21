@@ -102,10 +102,13 @@ import Testing
         let host = Host(), engine = FakeDictationEngine(); engine.recording = .init(clips: [.init(wav: Data([1]), appleText: "Apple")], appleText: "Apple")
         let finalizer = WhisperFinalizer(status: { true }, transcribe: { _, _ in "Whisper" })
         let c = make(host, engine, finalizer: finalizer); await c.begin(locked: true)
-        engine.emit(.final("Apple")); await settle(); #expect(host.text == "Existing. Apple")
-        host.date.addTimeInterval(1); c.finalize(); await settle(); #expect(host.text == "Existing. Whisper")
+        engine.emit(.final("Apple")); #expect(await eventually { host.text == "Existing. Apple" })
+        host.date.addTimeInterval(1); c.finalize()
+        #expect(await eventually { host.text == "Existing. Whisper" && c.state == .idle })
         c.teardown(); await settle(); #expect(host.text == "Existing. Whisper")
-        await c.begin(locked: true); engine.emit(.final("Temporary")); await settle(); c.cancel(); await settle()
+        await c.begin(locked: true); engine.emit(.final("Temporary"))
+        #expect(await eventually { host.text == "Existing. Whisper Temporary" })
+        c.cancel(); await settle()
         #expect(host.text == "Existing. Whisper")
     }
     @Test func interruptionAndDurationCapFinalizeWithoutSending() async {

@@ -472,7 +472,7 @@
   "feat_swipe_back_to_herd_title": "Nach rechts wischen zurück zum Herd",
   "feat_swipe_back_to_herd_body": "Auf dem Telefon bringt dich ein Wisch nach rechts über eine Sitzung zurück zur Sitzungsliste, wie in der iOS-App. Nach links wischen springt weiter zum nächsten Agent; ein Panel hinter der Sitzung zeigt, wohin das Loslassen führt.",
   "feat_swipe_back_to_issues_title": "Nach rechts wischen zurück zu den Issues",
-  "feat_swipe_back_to_issues_body": "Auf dem Telefon bringt dich ein Wisch nach rechts über ein geöffnetes Issue im Backlog zurück zur Issue-Liste, dieselbe Geste wie bei einer Sitzung. Beim Ziehen erscheint die Liste darunter; lass hinter der Schwelle los, um zurückzukehren.",
+  "feat_swipe_back_to_issues_body": "Auf dem Telefon bringt dich ein Wisch nach rechts über ein geöffnetes Issue im Backlog oder in der Ansicht „Nächstes“ zurück zur Liste, dieselbe Geste wie bei einer Sitzung. Das Issue folgt deinem Finger; lass hinter der Schwelle los, um zurückzukehren.",
   "viewport_back_button": "‹ Herd",
   "viewport_queue_prev_aria": "Vorherige wartende Session",
   "viewport_queue_next_aria": "Nächste wartende Session",

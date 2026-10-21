@@ -5042,16 +5042,18 @@ export class DrainService {
     // task creation (via the create route). Release fires UNLESS retainClaim is set:
     // a retire (ready PR still open) or merged-but-close-failed (issue still open),
     // both of which keep the claim. The remaining case is an ABANDON (manual archive
-    // of a session that never retired), which re-queues the issue. NOTE: the
-    // abandoning instance still maps this issue via its own archived session, so the
-    // release re-queues it for OTHER instances — and for this one only after its
-    // archived session is pruned.
+    // of a session that never retired), which re-queues the issue. NOTE: the release
+    // re-queues it for OTHER instances at once; this instance keeps mapping it via its
+    // archived session for ARCHIVED_MAPPING_GRACE_MS, then only while that session's
+    // branch has an open PR (or open PRs are unknown) — see mappedIssueSet (#3238).
     // CAVEAT: an abandon does not inspect PR state, so manually archiving a session
     // (auto OR a manually-linked one) that already opened a PR — without going through
-    // the retire path — releases the claim and lets another instance / the drain spawn
-    // a DUPLICATE against that still-open PR. Accepted: a manual archive is a deliberate
-    // "drop this" signal, and the retire path (not manual archive) is how a ready PR is
-    // normally handed off with its claim kept. Unconditional of the drain toggle
+    // the retire path — releases the claim and lets ANOTHER instance spawn a DUPLICATE
+    // against that still-open PR. This instance's own drain is held off by the open-PR
+    // check on GitHub (non-fork); on forges without an open-PR snapshot it stays mapped
+    // (fail-closed). Accepted: a manual archive is a deliberate "drop this" signal, and the
+    // retire path (not manual archive) is how a ready PR is normally handed off with its
+    // claim kept. Unconditional of the drain toggle
     // (mirrors onGit's closeIssue) so a disabled-mid-flight session still frees its
     // claim. A session without an issueNumber never set a claim, so it's skipped.
     // A legacy manual session created before issue-link stamping carries an

@@ -954,7 +954,8 @@
 "native_ios_terminal_reply" = "Reply";
 "native_ios_terminal_submit_draft" = "Send terminal input (Enter)";
 "native_ios_terminal_superseded_body" = "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device.";
-"native_ios_usage_warning" = "%1$@: %2$@%% used";
+"native_ios_usage_warning" = "%1$@ · %2$@: %3$@%% used";
+"native_ios_usage_warning_reset" = "%1$@ · %2$@: %3$@%% used · resets %4$@";
 "native_ios_welcome_subtitle" = "Connect to a Shepherd server to follow your sessions.";
 "native_keychain_unavailable" = "Cannot read the saved token from Keychain. Unlock it or allow access, then retry.";
 "native_keychain_waiting" = "Waiting for Keychain access. Allow access to reconnect with your saved token.";

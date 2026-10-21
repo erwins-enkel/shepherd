@@ -235,6 +235,7 @@ import Testing
       child.environment = env.merging(["PATH": "/usr/bin:/bin"]) { value, _ in value }
       child.standardOutput = FileHandle.nullDevice
       child.standardError = FileHandle.nullDevice
+      child.terminationHandler = { _ in }
       try child.run()
       // Production ownership is granted only after health succeeds, never during shell startup.
       let deadline = Date().addingTimeInterval(2)

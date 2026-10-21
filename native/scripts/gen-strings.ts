@@ -437,6 +437,7 @@ export const KEYS_IOS_SIDEBAR: readonly string[] = [
   "native_ios_open_session_hint",
   "native_ios_session_age",
   "native_ios_usage_warning",
+  "native_ios_usage_warning_reset",
   "newtask_info_aria",
   "topbar_settings_aria",
 ];

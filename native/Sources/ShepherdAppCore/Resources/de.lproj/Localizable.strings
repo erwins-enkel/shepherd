@@ -954,7 +954,8 @@
 "native_ios_terminal_reply" = "Antworten";
 "native_ios_terminal_submit_draft" = "Terminal-Eingabe absenden (Enter)";
 "native_ios_terminal_superseded_body" = "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät.";
-"native_ios_usage_warning" = "%1$@: %2$@%% verbraucht";
+"native_ios_usage_warning" = "%1$@ · %2$@: %3$@%% verbraucht";
+"native_ios_usage_warning_reset" = "%1$@ · %2$@: %3$@%% verbraucht · Reset %4$@";
 "native_ios_welcome_subtitle" = "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen.";
 "native_keychain_unavailable" = "Das gespeicherte Token ist im Schlüsselbund nicht zugänglich. Entsperre ihn oder erlaube den Zugriff und versuche es erneut.";
 "native_keychain_waiting" = "Warte auf Schlüsselbund-Zugriff. Erlaube den Zugriff, um dich mit dem gespeicherten Token zu verbinden.";

@@ -8,6 +8,8 @@ public struct UsageBar: Identifiable {
     public let id: String
     public let nameKey: StaticString
     public let pct: Double
+    /// Epoch milliseconds when the window resets; `0` or past means unknown.
+    public let resetAt: Int
     public let stale: Bool
 }
 
@@ -32,16 +34,29 @@ public enum UsageMeter {
         if let window = limits.session5h {
             bars.append(
                 .init(
-                    id: "5H", nameKey: "usage_limits_window_5h", pct: window.pct,
+                    id: "5H", nameKey: "usage_limits_window_5h", pct: window.pct, resetAt: window.resetAt,
                     stale: limits.stale))
         }
         if let window = limits.week {
             bars.append(
                 .init(
-                    id: "WK", nameKey: "usage_limits_window_week", pct: window.pct,
+                    id: "WK", nameKey: "usage_limits_window_week", pct: window.pct, resetAt: window.resetAt,
                     stale: limits.stale))
         }
         return bars
+    }
+
+    /// The phone's warning line for a hot window. The top-level windows are Claude's (Codex reports
+    /// its own under `providers`), so the agent is named; the reset time is added when it is known.
+    public static func warning(_ bar: UsageBar, now: Date = Date()) -> String {
+        let agent = L.t("native_compose_engine_claude")
+        let pct = String(Int(bar.pct))
+        let reset = Date(timeIntervalSince1970: Double(bar.resetAt) / 1000)
+        if reset > now {
+            return L.t("native_ios_usage_warning_reset", agent, L.t(bar.nameKey), pct,
+                       reset.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
+        }
+        return L.t("native_ios_usage_warning", agent, L.t(bar.nameKey), pct)
     }
 
     /// What to say when there is no bar to draw; `nil` means the bars speak for themselves.

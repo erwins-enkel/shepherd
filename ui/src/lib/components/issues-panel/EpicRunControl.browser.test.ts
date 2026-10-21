@@ -980,3 +980,48 @@ describe("EpicRunControl base conflict hold (#3101)", () => {
     await expectToast(m.epic_base_action_failed());
   });
 });
+
+describe("EpicRunControl narrow layout", () => {
+  const box = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+  const mount = () =>
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain(),
+      titleFor,
+    });
+
+  it("phone: state alone, commands row above settings row, each full width", async () => {
+    await page.viewport(360, 800);
+    mount();
+    await expect.element(page.getByRole("button", { name: m.epic_pause() })).toBeInTheDocument();
+
+    const actions = box("[data-epic-run] .run-actions");
+    const commands = box('[data-group="commands"]');
+    const settings = box('[data-group="settings"]');
+    expect(box("[data-epic-run] .run-state").bottom).toBeLessThanOrEqual(commands.top);
+    expect(commands.top).toBeLessThan(settings.top);
+    expect(Math.abs(commands.width - actions.width)).toBeLessThanOrEqual(2);
+    expect(Math.abs(settings.width - actions.width)).toBeLessThanOrEqual(2);
+    // The row is filled: the last button ends at the row's edge and Pause takes the slack.
+    const buttons = [...document.querySelectorAll('[data-group="commands"] > button')];
+    const last = buttons.at(-1)!.getBoundingClientRect();
+    expect(Math.abs(last.right - commands.right)).toBeLessThanOrEqual(2);
+    const pause = page.getByRole("button", { name: m.epic_pause() }).element();
+    expect(pause.getBoundingClientRect().width).toBeGreaterThan(commands.width / 2);
+  });
+
+  it("desktop: state and every action share one row", async () => {
+    await page.viewport(1100, 800);
+    mount();
+    await expect.element(page.getByRole("button", { name: m.epic_pause() })).toBeInTheDocument();
+
+    const mid = (r: DOMRect) => r.top + r.height / 2;
+    const state = mid(box("[data-epic-run] .run-state"));
+    const pause = page.getByRole("button", { name: m.epic_pause() }).element();
+    const auto = page.getByRole("button", { name: m.epic_mode_auto_aria() }).element();
+    expect(Math.abs(mid(pause.getBoundingClientRect()) - state)).toBeLessThanOrEqual(4);
+    expect(Math.abs(mid(auto.getBoundingClientRect()) - state)).toBeLessThanOrEqual(4);
+  });
+});

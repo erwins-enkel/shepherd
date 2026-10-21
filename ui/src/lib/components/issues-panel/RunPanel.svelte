@@ -44,7 +44,9 @@
       >
     {/if}
     <span class="spacer"></span>
-    {@render actions?.()}
+    {#if actions}
+      <div class="run-actions">{@render actions()}</div>
+    {/if}
   </div>
   {@render children()}
 </section>
@@ -67,6 +69,7 @@
     box-shadow: var(--shadow-popover);
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
+    container: run-panel / inline-size;
   }
 
   .run-head {
@@ -112,6 +115,20 @@
 
   .spacer {
     flex: 1;
+  }
+
+  .run-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  /* Narrow panel: the actions leave the state's line and take a full-width row of their own,
+     so buttons never strand one by one around the state. */
+  @container run-panel (max-width: 560px) {
+    .run-actions {
+      flex-basis: 100%;
+    }
   }
 
   @media (max-width: 768px) {

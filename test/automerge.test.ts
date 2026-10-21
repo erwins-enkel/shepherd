@@ -1750,3 +1750,37 @@ test("#3223: an unreadable live state keeps a vanished PR queued, counting nothi
   await rig.svc.pump("/r");
   expect(rig.merged).toEqual([7, 8, 9]);
 });
+
+test("#3223: snapshot() never reconciles marks — no live read, no ejection counted", async () => {
+  const rig = queueRig({ queue: async () => [] });
+  await rig.svc.pump("/r"); // enqueue all three
+  rig.advance(61_000); // past grace: a pump would now ask + count
+  for (let i = 0; i < 4; i++) {
+    const [st] = await rig.svc.snapshot();
+    expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "queued" });
+  }
+  expect(rig.metaReads).not.toHaveBeenCalled();
+  // The pump then counts exactly ONE ejection per PR (count 1 < cap → re-enqueued, not backed off).
+  await rig.svc.pump("/r");
+  expect(rig.metaReads.mock.calls.length).toBe(3);
+  expect(rig.merged).toEqual([7, 8, 9, 7, 8, 9]);
+});
+
+test("#3223: an ejection claimed during its live read is counted once, not by both readers", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const rig = queueRig({ queue: async () => [] });
+  await rig.svc.pump("/r");
+  rig.advance(61_000);
+  rig.metaReads.mockImplementation(async () => {
+    await gate;
+    return { body: "", baseRefName: "main", isCrossRepository: false, state: "open" as const };
+  });
+  const first = rig.svc.pump("/r"); // blocks inside the live read, holding the claim
+  await Promise.resolve();
+  const [st] = await rig.svc.snapshot(); // overlapping reader: sees the claim, counts nothing
+  expect(st!.waiting).toContainEqual({ sessionId: "s1", code: "queued" });
+  release();
+  await first;
+  expect(rig.merged.filter((n) => n === 7).length).toBe(2); // one ejection → one re-enqueue
+});

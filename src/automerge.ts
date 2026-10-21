@@ -231,11 +231,28 @@ export class AutoMergeService {
     return this.leftQueue(s, pr.number, head);
   }
 
+  /** Read-only {@link reconcileQueued} for snapshot(): listed, or marked on the current head. A
+   *  mark past its grace still reads as queued — whether it merged or was ejected is the pump's
+   *  call, made with a live read. */
+  private peekQueued(
+    id: string,
+    pr: { state: string; number: number | null; headSha: string | null },
+    queue: QueueRead,
+  ): boolean {
+    if (pr.state !== "open" || !pr.number) return false;
+    if (Array.isArray(queue) && queue.includes(pr.number)) return true;
+    return this.enqueued.get(id)?.head === (pr.headSha ?? "");
+  }
+
   /** A marked PR is gone from a readable queue. Ask the forge whether it is still open: merged or
    *  closed (or unreadable) keeps it queued — nothing to land, and the poller settles it — and
    *  only a live open PR counts as an ejection, a merge failure, so a deterministic ejection backs
    *  off at MERGE_ERROR_CAP instead of looping enqueue/eject forever. */
   private async leftQueue(s: Session, prNumber: number, head: string): Promise<boolean> {
+    // Claim the mark BEFORE the await: a fresh grace makes any overlapping caller read it as
+    // queued, and only the holder of this exact claim may count the ejection — never twice.
+    const claim = { head, at: this.now() };
+    this.enqueued.set(s.id, claim);
     const forge = this.deps.resolveForge(s.repoPath);
     let state: string | null = null;
     try {
@@ -243,10 +260,9 @@ export class AutoMergeService {
     } catch (err) {
       console.warn(`[automerge] pr#${prNumber} state read failed; keeping it queued:`, err);
     }
-    if (state !== "open") {
-      this.enqueued.set(s.id, { head, at: this.now() }); // re-ask after another grace, not every pump
-      return true;
-    }
+    // Merged/closed/unreadable: keep the claim — re-ask after another grace, not every pump.
+    // A claim replaced meanwhile (re-sighted in the queue, a new head) is someone else's answer.
+    if (state !== "open" || this.enqueued.get(s.id) !== claim) return true;
     console.warn(`[automerge] pr#${prNumber} left the merge queue unmerged; counting a failure`);
     this.enqueued.delete(s.id);
     this.recordMergeFailure(s.id, head);
@@ -313,6 +329,7 @@ export class AutoMergeService {
     s: Session,
     git: GitState | null,
     mergeWithoutCi: boolean,
+    reconcile: boolean,
   ): Promise<MergeSessionView> {
     const pr = AutoMergeService.prFields(git);
     const queue: QueueRead =
@@ -334,7 +351,9 @@ export class AutoMergeService {
       ...pr,
       noCiHold: pr.noCi && !mergeWithoutCi,
       behind,
-      queued: await this.reconcileQueued(s, pr, queue),
+      queued: reconcile
+        ? await this.reconcileQueued(s, pr, queue)
+        : this.peekQueued(s.id, pr, queue),
       ...AutoMergeService.reviewFields(this.deps.store.getReview(s.id)),
       rebaseCount: s.autoMergeRebaseCount,
       rebaseSteeredHead: s.autoMergeRebaseHead,
@@ -480,16 +499,18 @@ export class AutoMergeService {
     for (const id of this.enqueued.keys()) if (!ids.has(id)) this.enqueued.delete(id);
   }
 
-  private async buildState(repoPath: string): Promise<MergeRepoState> {
+  /** `reconcile` = false (snapshot) reads the merge-queue marks without touching them: no live PR
+   *  read, no mark rewrite, no ejection counted — those belong to the pump alone (#3223). */
+  private async buildState(repoPath: string, reconcile = true): Promise<MergeRepoState> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
     const snapshot = this.deps.prCache.snapshot();
     const all = this.deps.store.list();
     this.pruneMigrationsCache(all);
-    this.pruneEnqueued(all);
+    if (reconcile) this.pruneEnqueued(all);
     const sessions: MergeSessionView[] = await Promise.all(
       all
         .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
-        .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi)),
+        .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi, reconcile)),
     );
     const state: MergeRepoState = {
       enabled: sessions.length > 0,
@@ -840,13 +861,14 @@ export class AutoMergeService {
     }
   }
 
-  /** Client bootstrap: a status per full-auto-active repo, no side effects. */
+  /** Client bootstrap: a status per full-auto-active repo. Never pumps and never reconciles the
+   *  merge-queue marks (see buildState's `reconcile`). */
   async snapshot(): Promise<AutoMergeStatus[]> {
     const out: AutoMergeStatus[] = [];
     const live = this.fullAutoRepos();
     for (const repoPath of this.deps.repos()) {
       if (!live.has(repoPath)) continue;
-      const d = computeMerge(await this.buildState(repoPath));
+      const d = computeMerge(await this.buildState(repoPath, false));
       const reason = d.kind === "hold" ? (d.reason.code === "idle" ? null : d.reason.code) : d.kind;
       const detail = d.kind === "hold" ? (d.reason.detail ?? null) : null;
       const sessionId = d.kind === "hold" ? (d.reason.sessionId ?? null) : d.sessionId;

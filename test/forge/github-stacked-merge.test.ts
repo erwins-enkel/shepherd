@@ -441,3 +441,96 @@ test("merge: a malformed trunk ref is never interpolated into the API path (#206
   expect(joined().some((c) => c.includes("pulls/1/merge"))).toBe(false);
   expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
 });
+
+// ── Unstacked PR on a merge-queue base (#3219) ─────────────────────────────────────────────────
+// `gh pr merge` refuses `--delete-branch` when the base requires a merge queue, and on success it
+// only ENQUEUES (or arms auto-merge) — so resolving would settle a session whose PR has not landed.
+
+/** An unstacked PR whose own base is `main`. */
+const unstackedOnMain = (): string =>
+  JSON.stringify({ stack: null, sha: HEAD_SHA, baseRef: TRUNK });
+const prMergeCall = (calls: string[][]): string[] | undefined =>
+  calls.find((c) => c[0] === "pr" && c[1] === "merge");
+
+test("merge: unstacked on a merge-queue base enqueues without method/-d (#3219)", async () => {
+  const { forge, calls } = harness([
+    [PROBE, unstackedOnMain],
+    [RULES, () => "1"],
+  ]);
+
+  const err = await forge
+    .merge(7, { method: "squash", deleteBranch: true })
+    .catch((e: unknown) => e);
+
+  expect(calls.find((c) => c.some((a) => a.includes(RULES)))?.[1]).toBe(
+    `repos/o/r/${RULES}${TRUNK}`,
+  );
+  expect(prMergeCall(calls)).toEqual(["pr", "merge", "7", "--repo", "o/r"]);
+  expect(err).toBeInstanceOf(MergeEnqueuedError);
+  expect((err as MergeEnqueuedError).code).toBe("merge_enqueued");
+});
+
+test("merge: unstacked merge-queue enqueue keeps the head-commit guard (#3219)", async () => {
+  const { forge, calls } = harness([
+    [PROBE, unstackedOnMain],
+    [RULES, () => "1"],
+  ]);
+
+  const err = await forge
+    .merge(7, { method: "squash", deleteBranch: true, expectedHeadSha: HEAD_SHA })
+    .catch((e: unknown) => e);
+
+  expect(prMergeCall(calls)).toEqual([
+    "pr",
+    "merge",
+    "7",
+    "--repo",
+    "o/r",
+    "--match-head-commit",
+    HEAD_SHA,
+  ]);
+  expect(err).toBeInstanceOf(MergeEnqueuedError);
+});
+
+test("merge: unstacked on a base without a merge queue keeps today's args (#3219)", async () => {
+  const { forge, calls } = harness([
+    [PROBE, unstackedOnMain],
+    [RULES, () => "0"],
+  ]);
+
+  await forge.merge(7, { method: "squash", deleteBranch: true });
+
+  expect(prMergeCall(calls)).toEqual([
+    "pr",
+    "merge",
+    "7",
+    "--repo",
+    "o/r",
+    "--squash",
+    "--delete-branch",
+  ]);
+});
+
+test("merge: a failed merge-queue probe on an unstacked PR falls open (#3219)", async () => {
+  const { forge, calls } = harness([
+    [PROBE, unstackedOnMain],
+    [
+      RULES,
+      () => {
+        throw new Error("HTTP 503: upstream unavailable");
+      },
+    ],
+  ]);
+
+  await forge.merge(7, { method: "squash", deleteBranch: true });
+
+  expect(prMergeCall(calls)).toEqual([
+    "pr",
+    "merge",
+    "7",
+    "--repo",
+    "o/r",
+    "--squash",
+    "--delete-branch",
+  ]);
+});

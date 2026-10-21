@@ -127,6 +127,9 @@ interface StackProbe {
    *  own `base.ref`, which for any layer above the bottom is the layer below it. Merging any
    *  layer lands the stack on the trunk, so the trunk is what carries the rules that apply. */
   stackBase?: string;
+  /** The PR's OWN base (`base.ref`). Only consulted on the unstacked path, where it is the branch
+   *  the merge lands on and so carries the rules that apply (#3219). */
+  baseRef?: string;
 }
 
 /** `stackBase` is interpolated straight into a `gh api` path, so — like {@link MERGE_UUID_RE} — it
@@ -2660,15 +2663,24 @@ export class GithubForge implements GitForge {
   private async mergeAny(prNumber: number, o: MergeInput): Promise<void> {
     const probe = await this.probeStack(prNumber);
     if (probe.stacked) return this.mergeStacked(prNumber, o, probe);
-    const method =
-      o.method === "rebase" ? "--rebase" : o.method === "merge" ? "--merge" : "--squash";
-    const args = ["pr", "merge", String(prNumber), "--repo", this.slug, method];
-    if (o.deleteBranch) args.push("--delete-branch");
+    // A merge-queue base (#3219): gh rejects `--delete-branch` there, and the queue's own method
+    // governs, so neither is sent — the repo's `delete_branch_on_merge` does the cleanup. Without a
+    // method flag a non-interactive gh refuses outright, so a wrong probe fails rather than merging
+    // under a method nobody chose.
+    const queued = await this.requiresMergeQueue(probe.baseRef);
+    const args = ["pr", "merge", String(prNumber), "--repo", this.slug];
+    if (!queued) {
+      args.push(o.method === "rebase" ? "--rebase" : o.method === "merge" ? "--merge" : "--squash");
+      if (o.deleteBranch) args.push("--delete-branch");
+    }
     // Optimistic-concurrency guard (#2299): the host refuses the merge when the head moved since
     // the operator confirmed it, so a push landing between dialog and confirm can never be merged
     // unreviewed. The stacked path below carries the same guard as merge-async's `sha`.
     if (o.expectedHeadSha) args.push("--match-head-commit", o.expectedHeadSha);
     await this.run(args);
+    // Exit 0 on a queue base means enqueued (or auto-merge armed), never merged — and an
+    // already-queued PR exits 0 too, so a re-pump lands here again without counting a failure.
+    if (queued) throw new MergeEnqueuedError(prNumber);
   }
 
   /** The stack `prNumber` belongs to, or null when it belongs to none (#2068).
@@ -2792,11 +2804,12 @@ export class GithubForge implements GitForge {
         "api",
         `repos/${this.slug}/pulls/${prNumber}`,
         "--jq",
-        "{stack: .stack, sha: .head.sha}",
+        "{stack: .stack, sha: .head.sha, baseRef: .base.ref}",
       ]);
       const p = JSON.parse(out || "{}") as {
         stack?: { position?: number; size?: number; base?: { ref?: string } | null } | null;
         sha?: string | null;
+        baseRef?: string | null;
       };
       return {
         stacked: !!p.stack,
@@ -2804,6 +2817,7 @@ export class GithubForge implements GitForge {
         size: p.stack?.size,
         sha: p.sha ?? undefined,
         stackBase: p.stack?.base?.ref ?? undefined,
+        baseRef: p.baseRef ?? undefined,
       };
     } catch (err) {
       console.warn(`[github] stack probe failed for pr#${prNumber}; assuming unstacked:`, err);
@@ -2835,30 +2849,31 @@ export class GithubForge implements GitForge {
     await this.pollMergeAsync(prNumber, uuid);
   }
 
-  /** Does the stack's trunk require a merge queue? A `merge_queue` rule there makes
-   *  `merge_method` illegal on the merge request (#2062), so the answer decides the PUT's shape.
+  /** Does `base` require a merge queue? For a stack it is the trunk: a `merge_queue` rule there
+   *  makes `merge_method` illegal on the merge request (#2062), so the answer decides the PUT's
+   *  shape. For an unstacked PR it is the PR's own base (#3219).
    *
    *  FAILS OPEN, for the same reason {@link probeStack} does: an unknown answer keeps today's
    *  request shape, so a flaky rules call can never be worse than not asking at all. An unknown
    *  trunk is NOT substituted with the PR's own base — for a layer above the bottom that is the
    *  layer below, and asking about it would answer a different question than the one that
    *  matters. */
-  private async requiresMergeQueue(stackBase: string | undefined): Promise<boolean> {
-    if (!stackBase) return false;
-    if (!isPathSafeRef(stackBase)) {
-      console.warn(`[github] stack base ${JSON.stringify(stackBase)} is not a probeable ref`);
+  private async requiresMergeQueue(base: string | undefined): Promise<boolean> {
+    if (!base) return false;
+    if (!isPathSafeRef(base)) {
+      console.warn(`[github] base ${JSON.stringify(base)} is not a probeable ref`);
       return false;
     }
     try {
       const out = await this.run([
         "api",
-        `repos/${this.slug}/rules/branches/${stackBase}`,
+        `repos/${this.slug}/rules/branches/${base}`,
         "--jq",
         '[.[] | select(.type == "merge_queue")] | length',
       ]);
       return Number(out.trim()) > 0;
     } catch (err) {
-      console.warn(`[github] merge-queue probe failed for ${stackBase}; assuming none:`, err);
+      console.warn(`[github] merge-queue probe failed for ${base}; assuming none:`, err);
       return false;
     }
   }

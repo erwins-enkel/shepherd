@@ -53,6 +53,10 @@ jobs:
   shepherdkit:
     name: ShepherdKit
     runs-on: macos-latest
+    # A pipe block-buffers the test output, so a hung test used to leave the log
+    # empty until the step timed out. Unbuffered, the last "started" line names it.
+    env:
+      NSUnbufferedIO: "YES"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -127,8 +131,10 @@ jobs:
         run: ./native/scripts/sync-contract.sh --check
 
       # Gate 3: the contract still generates code that compiles and passes.
+      # --build-tests compiles the test targets here, so both test steps below run
+      # with --skip-build and their timeouts bound only the test run itself.
       - name: Build
-        run: swift build --package-path native
+        run: swift build --package-path native --build-tests
 
       # The Keychain round-trip tests in CredentialStoreTests need an
       # unlocked, default keychain to write to — macos-latest runners start
@@ -148,8 +154,9 @@ jobs:
 
       - name: Test ShepherdKit
         # Test traits use cooperative cancellation; also bound a blocked thread
-        # or an unresumed continuation that cannot respond to cancellation.
-        timeout-minutes: 20
+        # or an unresumed continuation that cannot respond to cancellation. A full
+        # run takes ~2 min now that the build is out of this step.
+        timeout-minutes: 8
         # The `SecItem*` tests are opt-in: locally they would make macOS ask
         # the operator to approve a freshly signed test runner's access to the
         # login keychain, which stalls an unattended run. CI is the one place
@@ -160,17 +167,17 @@ jobs:
           SHEPHERD_KEYCHAIN_TESTS: "1"
         run: |
           set -euo pipefail
-          swift test --package-path native --no-parallel --filter ShepherdKitTests --xunit-output "$RUNNER_TEMP/kit.xml" 2>&1 | tee "$RUNNER_TEMP/kit.log"
+          swift test --package-path native --skip-build --no-parallel --filter ShepherdKitTests --xunit-output "$RUNNER_TEMP/kit.xml" 2>&1 | tee "$RUNNER_TEMP/kit.log"
           python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/kit-swift-testing.xml" --target ShepherdKitTests --require-keychain
 
       - name: Test isolated application core
         # Swift Testing XML aggregates arguments. The blocking simulator job
         # below must also validate the recorded per-argument xcresult inventory.
-        timeout-minutes: 20
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS
-          swift test --package-path native --no-parallel --filter ShepherdAppCoreTests --xunit-output "$RUNNER_TEMP/core.xml" 2>&1 | tee "$RUNNER_TEMP/core.log"
+          swift test --package-path native --skip-build --no-parallel --filter ShepherdAppCoreTests --xunit-output "$RUNNER_TEMP/core.xml" 2>&1 | tee "$RUNNER_TEMP/core.log"
           python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/core-swift-testing.xml"
 
       - name: Conserve original native scenarios

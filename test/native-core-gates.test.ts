@@ -438,7 +438,12 @@ for mode in ("term", "kill", "exit"):
           env?: Record<string, string>;
           needs?: string;
           "continue-on-error"?: boolean;
-          steps: { name: string; run?: string; env?: Record<string, string> }[];
+          steps: {
+            name: string;
+            run?: string;
+            env?: Record<string, string>;
+            "timeout-minutes"?: number;
+          }[];
         }
       >;
     };
@@ -467,7 +472,8 @@ for mode in ("term", "kill", "exit"):
     const core = kit.steps.find((step) => step.run?.includes("--filter ShepherdAppCoreTests"))!;
     expect(core.run).toContain("unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS");
     expect(core.env).toBeUndefined();
-    // The Mac app builds in its own blocking job, off the Kit job's critical path.
+    // The Mac app builds in its own blocking job, off the Kit job's critical path. Kit compiles
+    // its tests in `Build`, so a hung test fails in minutes, not after twenty.
     const app = jobs["shepherd-mac-app"]!;
     expect(app).toBeDefined();
     expect(app["continue-on-error"]).not.toBe(true);
@@ -476,6 +482,11 @@ for mode in ("term", "kill", "exit"):
     expect(appRun).toContain("-only-testing:ShepherdTests");
     const kitRun = kit.steps.map((step) => step.run ?? "").join("\n");
     expect(kitRun).not.toMatch(/native\/scripts\/(build|test)-app\.sh|xcodegen/);
+    expect(kitRun).toContain("swift build --package-path native --build-tests");
+    for (const step of [optedIn[0]!, core]) {
+      expect(step.run).toContain("--skip-build");
+      expect(step["timeout-minutes"]).toBeLessThanOrEqual(8);
+    }
     expect(source).not.toMatch(/SHEPHERD_LIVE_|\/Users\//);
     for (const job of Object.values(jobs)) {
       expect(hasOptIn(job.env)).toBe(false);

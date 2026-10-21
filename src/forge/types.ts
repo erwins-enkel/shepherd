@@ -460,7 +460,9 @@ export interface MergeInput {
    *  the critic. So the flag is opt-in per call site: operator-initiated merges (the Backlog
    *  Merge button, the session merge endpoint) set it; autonomous ones (merge train, epic
    *  landing/retire) leave it unset and get a {@link StackedMergeRefusedError} instead.
-   *  Absent/false ⇒ refuse. No effect on hosts without a stack concept (Gitea, Local). */
+   *  Absent/false ⇒ refuse. Even when set, a stack outside a merge queue whose head does not
+   *  contain the trunk's current tip is refused with {@link StackUntestedError} (#3192).
+   *  No effect on hosts without a stack concept (Gitea, Local). */
   allowStacked?: boolean;
   /** Bind the merge to the revision the operator confirmed (#2299): the host refuses the merge if
    *  the PR's head moved since. Set by the manual merge endpoints from the confirmation dialog's
@@ -482,7 +484,27 @@ export interface MergeInput {
  *  NOT count a merge failure against it. Discriminate on {@link code}, not the message. */
 export abstract class MergeNotCompletedError extends Error {
   /** Stable discriminator, safe to surface to the client and to branch on. */
-  abstract readonly code: "stacked_refused" | "merge_enqueued" | "merge_pending";
+  abstract readonly code: "stacked_refused" | "stack_untested" | "merge_enqueued" | "merge_pending";
+}
+
+/** A stacked merge outside a merge queue whose head does not contain the trunk's current tip
+ *  (#3192): the combination merge-async would land was never tested, since GitHub restacks onto
+ *  the moved trunk at merge time and runs no CI on the result. Also thrown when that could not be
+ *  established (unknown trunk or head, failed read) — fail closed. Thrown BEFORE any mutating
+ *  request; the cure is restacking onto the trunk. */
+export class StackUntestedError extends MergeNotCompletedError {
+  readonly code = "stack_untested" as const;
+  constructor(
+    readonly prNumber: number,
+    readonly trunk?: string,
+  ) {
+    super(
+      `pull request #${prNumber} was not tested against the current tip of ${
+        trunk ? `\`${trunk}\`` : "its stack's trunk"
+      }; restack onto it before merging`,
+    );
+    this.name = "StackUntestedError";
+  }
 }
 
 /** A stacked PR reached a merge call site that did not opt in via `MergeInput.allowStacked`.

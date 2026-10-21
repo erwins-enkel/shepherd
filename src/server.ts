@@ -307,7 +307,12 @@ import type {
   RepoMergeSettings,
   WorkflowRun,
 } from "./forge/types";
-import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError, MergeNotCompletedError } from "./forge/types";
+import {
+  DEPENDABOT_REBASE_COMMAND,
+  EmptyDiffError,
+  MergeNotCompletedError,
+  StackUntestedError,
+} from "./forge/types";
 import { buildIssueUrl } from "./forge";
 import { MERGE_ASYNC_MAX_WAIT_MS } from "./forge/github";
 import { attemptsOf } from "./forge/gh-attempt";
@@ -6465,6 +6470,8 @@ function mergeGateRefusal(
 function manualMergeFailure(err: unknown): Response | null {
   // #2059: refused (stacked — but both manual paths opt in, so it cannot occur), enqueued, or
   // still pending. None of them merged, so the caller must skip its post-merge work.
+  // #3192: an untested stack is client-correctable (restack first), hence 409 not 502.
+  if (err instanceof StackUntestedError) return json({ error: err.message, code: err.code }, 409);
   if (err instanceof MergeNotCompletedError)
     return json({ error: err.message, code: err.code }, 502);
   if (err instanceof MergeConflictError)

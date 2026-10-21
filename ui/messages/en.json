@@ -6853,5 +6853,8 @@
   "unitrow_swipe_release_decommission": "release to decommission",
   "feat_assistant_session_links_title": "Open sessions from assistant replies",
   "feat_assistant_session_links_body": "Click a session designation in an assistant reply to open it directly. Repository assistants link sessions from their own repository; the global assistant links the whole herd.",
-  "native_ios_usage_warning_reset": "{agent} · {window}: {pct}% used · resets {time}"
+  "native_ios_usage_warning_reset": "{agent} · {window}: {pct}% used · resets {time}",
+  "automerge_state_stack_untested": "Stack not tested against current trunk, restack it",
+  "gitrail_merge_failed_stack_untested": "Merge blocked: the stack was not tested against its trunk's current tip. Restack onto the trunk, let CI run, then retry.",
+  "prspanel_merge_failed_stack_untested": "merge blocked: stack not tested against current trunk — restack first"
 }

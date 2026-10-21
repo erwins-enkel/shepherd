@@ -1,6 +1,10 @@
 import { test, expect, mock, spyOn } from "bun:test";
 import { AutoMergeService, type AutoMergeDeps } from "../src/automerge";
-import { MergeEnqueuedError, StackedMergeRefusedError } from "../src/forge/types";
+import {
+  MergeEnqueuedError,
+  StackedMergeRefusedError,
+  StackUntestedError,
+} from "../src/forge/types";
 
 function baseSession(over: any = {}) {
   return {
@@ -1067,6 +1071,34 @@ test("an in-flight async merge neither settles the session nor records a failure
   expect((emitStatus as any).mock.calls.map((c: any[]) => c[0]?.state)).not.toContain(
     "merge_error",
   );
+});
+
+test("a stack untested against the trunk holds as stack_untested, not a merge failure (#3192)", async () => {
+  const merge = mock(async () => {
+    throw new StackUntestedError(7, "main");
+  });
+  const archive = mock(() => 1);
+  const emitStatus = mock(() => {});
+  const d = deps({
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: {
+      archive,
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+    emitStatus,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(archive.mock.calls.length).toBe(0);
+  const states = (emitStatus as any).mock.calls.map((c: any[]) => c[0]?.state);
+  expect(states).toContain("stack_untested");
+  expect(states).not.toContain("merge_error");
+  // No backoff recorded: the next pump attempts the merge again.
+  await svc.pump("/r");
+  expect(merge.mock.calls.length).toBe(2);
 });
 
 test("Codex capacity: automatic rebase waits without consuming attempt budget", async () => {

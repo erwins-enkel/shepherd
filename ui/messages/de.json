@@ -6853,5 +6853,8 @@
   "unitrow_swipe_release_decommission": "loslassen zum Stilllegen",
   "feat_assistant_session_links_title": "Sessions aus Assistenten-Antworten öffnen",
   "feat_assistant_session_links_body": "Klicke auf einen Session-Bezeichner in einer Assistenten-Antwort, um die Session direkt zu öffnen. Repo-Assistenten verlinken Sessions ihres Repos, der globale Assistent die gesamte Herde.",
-  "native_ios_usage_warning_reset": "{agent} · {window}: {pct}% verbraucht · Reset {time}"
+  "native_ios_usage_warning_reset": "{agent} · {window}: {pct}% verbraucht · Reset {time}",
+  "automerge_state_stack_untested": "Stack nicht gegen aktuellen Trunk getestet, neu stapeln",
+  "gitrail_merge_failed_stack_untested": "Merge blockiert: Der Stack wurde nicht gegen den aktuellen Stand seines Trunks getestet. Auf den Trunk neu stapeln, CI laufen lassen, dann erneut versuchen.",
+  "prspanel_merge_failed_stack_untested": "Merge blockiert: Stack nicht gegen aktuellen Trunk getestet — erst neu stapeln"
 }

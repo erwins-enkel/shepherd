@@ -50,6 +50,8 @@
   // #3102: the merge was refused because the PR's base branch already merged — say so, since a
   // plain retry can never succeed.
   let baseMerged = $state(false);
+  // #3192: refused because the stack was not tested against its trunk's tip — restack first.
+  let stackUntested = $state(false);
   // #2059: a stacked PR goes through GitHub's async merge API, which can return "in flight"
   // (queued, or still merging when we stopped waiting) rather than a result. That is NOT a
   // failure — the merge is happening — so it gets its own neutral line instead of the red one.
@@ -116,6 +118,7 @@
         } else {
           failed = true;
           baseMerged = e instanceof ApiError && e.code === "base_already_merged";
+          stackUntested = e instanceof ApiError && e.code === "stack_untested";
         }
         mergeBusy = false;
       }
@@ -262,7 +265,9 @@
           {#if failed}<span class="merge-err"
               >{baseMerged
                 ? m.prspanel_merge_failed_base_merged()
-                : m.prspanel_merge_failed()}</span
+                : stackUntested
+                  ? m.prspanel_merge_failed_stack_untested()
+                  : m.prspanel_merge_failed()}</span
             >{/if}
           {#if mergeInFlight}
             <span class="rebase-note" role="status">{m.prspanel_merge_in_progress()}</span>

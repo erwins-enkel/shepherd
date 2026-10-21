@@ -332,6 +332,17 @@
     });
   }
 
+  /** A failed merge's message — the known local cause preferred over a raw server string. */
+  function mergeFailureText(e: unknown): string {
+    if (e instanceof ApiError && e.code === "base_already_merged")
+      return m.gitrail_merge_failed_base_merged();
+    if (e instanceof ApiError && e.code === "stack_untested")
+      return m.gitrail_merge_failed_stack_untested();
+    if (git?.checks === "failure") return m.gitrail_merge_failed_checks();
+    if (git && isConflicting(git)) return m.gitrail_merge_failed_unmergeable();
+    return m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
+  }
+
   // Opens the merge confirmation (#2299). The inline Retry re-opens it rather than replaying the
   // previous answer: a confirmation is bound to the revision and responsibility it was given for,
   // and by retry time either may have moved.
@@ -360,15 +371,7 @@
         showMergedToast(git.kind, mergedId, isIsolated, ffPath, ffBranch);
       } catch (e) {
         if (e instanceof MergeRefusedError) throw e; // the dialog re-states and stays open
-        // prefer the known local cause over a raw server string
-        err =
-          e instanceof ApiError && e.code === "base_already_merged"
-            ? m.gitrail_merge_failed_base_merged()
-            : git?.checks === "failure"
-              ? m.gitrail_merge_failed_checks()
-              : git && isConflicting(git)
-                ? m.gitrail_merge_failed_unmergeable()
-                : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
+        err = mergeFailureText(e);
         retry = () => doMerge();
       } finally {
         busy = false;

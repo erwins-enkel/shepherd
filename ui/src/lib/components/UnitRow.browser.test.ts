@@ -974,6 +974,120 @@ describe("UnitRow fine-pointer decommission ✕", () => {
   });
 });
 
+describe("UnitRow coarse-pointer full swipe to decommission", () => {
+  // Force `(pointer: coarse)` so the row renders the swipe reveal instead of the hover ✕.
+  // UnitRow's MediaQuery is module-level (created at import), but it reads `matches` on
+  // every access, so patching the prototype getter is enough for a fresh render.
+  // Synthetic pointers aren't "active" to the browser, so setPointerCapture is stubbed.
+  beforeEach(() => {
+    const desc = Object.getOwnPropertyDescriptor(MediaQueryList.prototype, "matches")!;
+    vi.spyOn(MediaQueryList.prototype, "matches", "get").mockImplementation(function (
+      this: MediaQueryList,
+    ) {
+      return this.media === "(pointer: coarse)" || (desc.get!.call(this) as boolean);
+    });
+    vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation(() => {});
+    vi.spyOn(navigator, "vibrate").mockImplementation(() => true);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function mount(id: string) {
+    const ondecommission = vi.fn();
+    const onselect = vi.fn();
+    render(UnitRow, {
+      session: session({ id }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect,
+      ondecommission,
+    });
+    const slider = document.body.querySelector<HTMLElement>(".slider")!;
+    const width = document.body.querySelector<HTMLElement>(".swipe-wrap")!.clientWidth;
+    return { ondecommission, onselect, slider, width };
+  }
+
+  /** Drag left by each of `steps` px (cumulative from the start point), then release. */
+  async function drag(slider: HTMLElement, steps: number[], end = "pointerup") {
+    const r = slider.getBoundingClientRect();
+    const x = r.right - 10;
+    const y = r.top + r.height / 2;
+    const ev = (type: string, dx: number) =>
+      slider.dispatchEvent(
+        new PointerEvent(type, { pointerId: 7, clientX: x - dx, clientY: y, bubbles: true }),
+      );
+    ev("pointerdown", 0);
+    for (const dx of steps) {
+      ev("pointermove", dx);
+      await new Promise((res) => requestAnimationFrame(res));
+    }
+    ev(end, steps.at(-1) ?? 0);
+  }
+
+  it("a full swipe decommissions on release without arming, never selecting the row", async () => {
+    const { ondecommission, onselect, slider, width } = mount("fs1");
+    expect(width).toBeGreaterThan(0);
+    await drag(slider, [20, width * 0.5, width * 0.9]);
+    await vi.waitFor(() => expect(ondecommission).toHaveBeenCalledWith("fs1"));
+    expect(ondecommission).toHaveBeenCalledTimes(1);
+    expect(onselect).not.toHaveBeenCalled();
+    expect(navigator.vibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the release label only while past the threshold", async () => {
+    const { slider, width } = mount("fs2");
+    const r = slider.getBoundingClientRect();
+    const ev = (type: string, dx: number) =>
+      slider.dispatchEvent(
+        new PointerEvent(type, {
+          pointerId: 7,
+          clientX: r.right - 10 - dx,
+          clientY: r.top + 5,
+          bubbles: true,
+        }),
+      );
+    ev("pointerdown", 0);
+    ev("pointermove", 20);
+    ev("pointermove", width * 0.9);
+    await expect
+      .element(page.getByRole("button", { name: m.viewport_decommission_aria() }))
+      .toHaveTextContent(m.unitrow_swipe_release_decommission());
+    ev("pointermove", 60);
+    await expect
+      .element(page.getByRole("button", { name: m.viewport_decommission_aria() }))
+      .toHaveTextContent(m.viewport_decommission());
+    ev("pointerup", 60);
+  });
+
+  it("a partial swipe only reveals the two-step button", async () => {
+    const { ondecommission, slider } = mount("fs3");
+    await drag(slider, [20, 80]);
+    await new Promise((res) => setTimeout(res, 250));
+    expect(ondecommission).not.toHaveBeenCalled();
+    const decom = page.getByRole("button", { name: m.viewport_decommission_aria() });
+    (decom.element() as HTMLElement).click();
+    expect(ondecommission).not.toHaveBeenCalled(); // armed
+    (decom.element() as HTMLElement).click();
+    expect(ondecommission).toHaveBeenCalledWith("fs3");
+  });
+
+  it("a pointercancel past the threshold settles the row without decommissioning", async () => {
+    const { ondecommission, slider, width } = mount("fs5");
+    await drag(slider, [20, width * 0.9], "pointercancel");
+    await new Promise((res) => setTimeout(res, 250));
+    expect(ondecommission).not.toHaveBeenCalled();
+    await expect
+      .element(page.getByRole("button", { name: m.viewport_decommission_aria() }))
+      .toHaveTextContent(m.viewport_decommission());
+  });
+
+  it("dragging past the threshold then back under does not decommission", async () => {
+    const { ondecommission, slider, width } = mount("fs4");
+    await drag(slider, [20, width * 0.9, 80]);
+    await new Promise((res) => setTimeout(res, 250));
+    expect(ondecommission).not.toHaveBeenCalled();
+  });
+});
+
 describe("UnitRow badge mutual-exclusion (reviewing vs autopilot/status)", () => {
   it("reviewing + autopilotPaused: REVIEWING… shown, Needs you and WAITING hidden", async () => {
     const s = session({ id: "mx1", status: "done", autopilotPaused: true });

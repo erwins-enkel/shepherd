@@ -10,6 +10,9 @@ import {
   resistOffset,
   PANE_FLICK_VELOCITY,
   isSwipeUp,
+  FULL_SWIPE_RATIO,
+  fullSwipeThreshold,
+  releaseOutcome,
 } from "./swipe";
 
 describe("lockAxis", () => {
@@ -25,6 +28,33 @@ describe("clampOffset", () => {
     expect(clampOffset(40)).toBe(0));
   it("passes a partial left drag through", () => expect(clampOffset(-30)).toBe(-30));
   it("clamps past the reveal width", () => expect(clampOffset(-9999)).toBe(-REVEAL_PX));
+  it("clamps to a custom max (full-swipe row width)", () => {
+    expect(clampOffset(-200, 360)).toBe(-200);
+    expect(clampOffset(-9999, 360)).toBe(-360);
+  });
+});
+
+describe("fullSwipeThreshold", () => {
+  it("is the ratio of the row width", () =>
+    expect(fullSwipeThreshold(400)).toBe(400 * FULL_SWIPE_RATIO));
+  it("never sits within 40px of the reveal on a narrow row", () =>
+    expect(fullSwipeThreshold(150)).toBe(REVEAL_PX + 40));
+});
+
+describe("releaseOutcome", () => {
+  const W = 400;
+  const full = fullSwipeThreshold(W);
+  it("closes a short drag", () => expect(releaseOutcome(-10, W)).toBe("closed"));
+  it("opens past the open ratio", () =>
+    expect(releaseOutcome(-(REVEAL_PX * OPEN_RATIO), W)).toBe("open"));
+  it("stays open just under the full-swipe threshold", () =>
+    expect(releaseOutcome(-full + 1, W)).toBe("open"));
+  it("a cancelled gesture past the threshold settles open, never full", () =>
+    expect(releaseOutcome(-W, W, true)).toBe("open"));
+  it("decommissions at/after the full-swipe threshold", () => {
+    expect(releaseOutcome(-full, W)).toBe("full");
+    expect(releaseOutcome(-W, W)).toBe("full");
+  });
 });
 
 describe("snapOffset", () => {

@@ -22,10 +22,10 @@ export function lockAxis(dx: number, dy: number, slop: number = SLOP_PX): Axis {
   return Math.abs(dx) > Math.abs(dy) ? "x" : "y";
 }
 
-/** Clamp a raw horizontal offset to the left-only reveal range [-reveal, 0]. */
-export function clampOffset(px: number, reveal: number = REVEAL_PX): number {
+/** Clamp a raw horizontal offset to the left-only range [-max, 0]. */
+export function clampOffset(px: number, max: number = REVEAL_PX): number {
   if (px > 0) return 0;
-  if (px < -reveal) return -reveal;
+  if (px < -max) return -max;
   return px;
 }
 
@@ -36,6 +36,36 @@ export function snapOffset(
   ratio: number = OPEN_RATIO,
 ): number {
   return offset <= -reveal * ratio ? -reveal : 0;
+}
+
+/** Fraction of the row width past which a release decommissions outright (full swipe). */
+export const FULL_SWIPE_RATIO = 0.6;
+/** The full-swipe threshold never sits closer than this to the reveal width. */
+const FULL_SWIPE_MIN_GAP = 40;
+
+/** Leftward travel (px, positive) past which a release decommissions the row. */
+export function fullSwipeThreshold(
+  rowWidth: number,
+  reveal: number = REVEAL_PX,
+  ratio: number = FULL_SWIPE_RATIO,
+): number {
+  return Math.max(rowWidth * ratio, reveal + FULL_SWIPE_MIN_GAP);
+}
+
+/** What a released row swipe does: decommission (full), snap open, or close. */
+export type RowReleaseOutcome = "full" | "open" | "closed";
+
+/**
+ * A cancelled gesture (pointercancel: OS/UA took the touch) only settles open or
+ * closed — it never decommissions, since the user didn't release into it.
+ */
+export function releaseOutcome(
+  offset: number,
+  rowWidth: number,
+  cancelled: boolean = false,
+): RowReleaseOutcome {
+  if (!cancelled && offset <= -fullSwipeThreshold(rowWidth)) return "full";
+  return snapOffset(offset) === -REVEAL_PX ? "open" : "closed";
 }
 
 /** Commit decision for a released horizontal pane swipe (Viewport). */
@@ -92,12 +122,14 @@ export function isSwipeUp(dx: number, dy: number, threshold: number): boolean {
 export interface SwipeCallbacks {
   /** Current slid offset (px, negative = open). */
   current: () => number;
+  /** Maximum leftward travel (px, positive) for the drag in progress. */
+  maxOffset: () => number;
   /** Live offset during a horizontal drag. */
   onOffset: (px: number) => void;
   /** Toggled while a horizontal drag is in progress (host suppresses the snap transition). */
   onDragging: (dragging: boolean) => void;
-  /** Finger lifted after a horizontal drag — host snaps open or closed. */
-  onRelease: () => void;
+  /** Finger lifted (or pointer cancelled) after a horizontal drag — host settles the row. */
+  onRelease: (cancelled: boolean) => void;
   /** Host should close an open row (tapped while open). */
   requestClose: () => void;
 }
@@ -139,12 +171,12 @@ export function swipeGesture(node: HTMLElement, callbacks: SwipeCallbacks) {
     }
     if (axis === "x") {
       e.preventDefault();
-      cb.onOffset(clampOffset(startOffset + dx));
+      cb.onOffset(clampOffset(startOffset + dx, cb.maxOffset()));
     }
   }
   function up(e: PointerEvent) {
     if (pid !== e.pointerId) return;
-    if (axis === "x") cb.onRelease();
+    if (axis === "x") cb.onRelease(e.type === "pointercancel");
     cb.onDragging(false);
     axis = null;
     pid = null;

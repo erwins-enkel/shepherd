@@ -6847,5 +6847,8 @@
   "assistant_layout_unfold": "Unfold the terminal",
   "assistant_layout_unfold_session": "Unfold the terminal of {desig} · {name}",
   "feat_assistant_layout_title": "More room for the assistant",
-  "feat_assistant_layout_body": "With the assistant open, the layout switch in the top bar splits the width: Standard, Half and half, Assistant focus (a third terminal, two thirds assistant) or Conversation, which folds the terminal into a strip."
+  "feat_assistant_layout_body": "With the assistant open, the layout switch in the top bar splits the width: Standard, Half and half, Assistant focus (a third terminal, two thirds assistant) or Conversation, which folds the terminal into a strip.",
+  "feat_full_swipe_decommission_title": "Swipe all the way to decommission",
+  "feat_full_swipe_decommission_body": "On your phone, swipe a session in the list all the way left and let go to decommission it in one move. A shorter swipe still reveals the button. Sessions with an open PR still ask what to do with it, and Undo stays available.",
+  "unitrow_swipe_release_decommission": "release to decommission"
 }

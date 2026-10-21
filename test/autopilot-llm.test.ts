@@ -682,6 +682,36 @@ test("an armed judge answers, and no classifier agent is spawned at all", async 
   expect(Object.keys(asks[0]![1] as object)).toEqual(["kind"]);
 });
 
+test("the idle input box and status line never reach the classifier (#3224)", async () => {
+  const rule = "─".repeat(40);
+  const footer = [
+    rule,
+    "❯ ",
+    rule,
+    "⏵⏵ bypass permissions on (shift+tab to cycle)",
+    "Update available!",
+  ];
+  const { judge, asks } = stubJudge(async () => judgeAnswer("question"));
+  const { deps } = makeDeps({ judge });
+
+  const v = await classifyStop([...TAIL, ...footer], "task", deps, "c1");
+
+  expect(v).toEqual({ kind: "question", summary: "ran the tests Shall I commit now?" });
+  expect(String(asks[0]![0])).not.toMatch(/bypass permissions|Update available/);
+});
+
+test("a tail that is only the idle input box surfaces without asking anyone", async () => {
+  const rule = "─".repeat(40);
+  const { judge, asks } = stubJudge(async () => judgeAnswer("gate"));
+  const { deps, calls } = makeDeps({ judge });
+
+  const v = await classifyStop([rule, "❯", rule, "⏵⏵ auto mode on"], "task", deps, "c1");
+
+  expect(v).toEqual({ kind: "unknown", summary: "" });
+  expect(asks).toHaveLength(0);
+  expect(calls.started).toBeNull();
+});
+
 test("every judge failure mode falls back to the spawn", async () => {
   const failures: [string, () => Promise<unknown>][] = [
     ["transport error", async () => Promise.reject(new Error("judge: 500 boom"))],

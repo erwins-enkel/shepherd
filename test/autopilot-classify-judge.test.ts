@@ -5,9 +5,12 @@ import {
   judgeClassifierQuestion,
   judgeVerdict,
   normalize,
+  stripInputFooter,
   summaryFromTail,
 } from "../src/autopilot-classify-core";
 import type { JudgeChoiceAnswer } from "../src/judge";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // The judge leg's PURE half (#2369): the question, the verdict adapter, and the tail excerpt that
 // replaces the model-written summary. No network, no config, no filesystem — this module is a leaf
@@ -129,4 +132,46 @@ test("non-Latin output survives — the excerpt needs no language directive to r
 
 test("the question id the verdict is read under is the one the question is asked under", () => {
   expect(JUDGE_QUESTION_ID).toBe("kind");
+});
+
+// ── the idle input box + status line (#3224) ───────────────────────────────────
+
+const fixture = (name: string): string[] =>
+  readFileSync(join(import.meta.dir, `fixtures/fullscreen/${name}.txt`), "utf8").split("\n");
+
+const RULE = "─".repeat(60);
+const ISSUE_TAIL = [
+  "PR #639 is green and ready for review.",
+  RULE,
+  "❯ ",
+  RULE,
+  "  …/.shepherd-worktrees/aetherial-vertretung-631 shepherd/vertretung-631 ⣿⣿⣿⡇ 34% ctx Opus 5.5 (1M context)",
+  "  ⏵⏵ bypass permissions on (shift+tab to cycle) · PR #639",
+  "                     Update available! Run: mise upgrade claude",
+];
+
+test("the idle input box and everything below it is cut off", () => {
+  expect(stripInputFooter(ISSUE_TAIL)).toEqual(["PR #639 is green and ready for review."]);
+  for (const name of ["fullscreen-idle", "classic-idle", "queued-messages"]) {
+    const tail = fixture(name);
+    const out = stripInputFooter(tail);
+    expect(out.length).toBeLessThan(tail.length);
+    expect(out.join("\n")).not.toMatch(/shift\+tab to cycle|Update available/);
+  }
+});
+
+test("a menu or dialog has no input box, so nothing is cut", () => {
+  for (const name of ["classic-menu", "fullscreen-menu"]) {
+    const tail = fixture(name);
+    expect(stripInputFooter(tail)).toEqual(tail);
+  }
+  expect(stripInputFooter([RULE, "❯ 1. Yes", "  2. No"])).toEqual([RULE, "❯ 1. Yes", "  2. No"]);
+  expect(stripInputFooter(["no box here", "Shall I?"])).toEqual(["no box here", "Shall I?"]);
+});
+
+test("the excerpt is the agent's last words, never the status line", () => {
+  expect(summaryFromTail(ISSUE_TAIL)).toBe("PR #639 is green and ready for review.");
+  expect(summaryFromTail([RULE, "❯", RULE, "⏵⏵ bypass permissions on (shift+tab to cycle)"])).toBe(
+    "",
+  );
 });

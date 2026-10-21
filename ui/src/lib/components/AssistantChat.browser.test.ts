@@ -146,3 +146,30 @@ describe("AssistantChat", () => {
     expect(p.onsend).not.toHaveBeenCalled();
   });
 });
+
+describe("AssistantChat session navigation", () => {
+  it.each([false, true])("links assistant replies through onnavigate (touch=%s)", async (touch) => {
+    mockMessages.mockResolvedValue(
+      reply([
+        { role: "user", text: "TASK-31", ts: 1 },
+        { role: "assistant", text: "**TASK-31**", ts: 2 },
+      ]),
+    );
+    const onnavigate = vi.fn();
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { container } = await render(
+      AssistantChat,
+      props({
+        touch,
+        mobile: touch,
+        herd: [{ id: "s31", desig: "TASK-31" }],
+        onnavigate,
+      }),
+    );
+    await page.getByRole("link", { name: "TASK-31" }).click();
+    expect(onnavigate).toHaveBeenCalledWith("s31");
+    expect(open).not.toHaveBeenCalled();
+    expect(container.querySelector(".ac-mine a")).toBeNull();
+    open.mockRestore();
+  });
+});

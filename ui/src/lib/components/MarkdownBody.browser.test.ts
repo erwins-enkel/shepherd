@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import { m } from "#lib/paraglide/messages.js";
 import MarkdownBody from "./MarkdownBody.svelte";
@@ -41,5 +41,79 @@ describe("MarkdownBody", () => {
     await expect.poll(() => container.querySelector("a")).not.toBeNull();
     container.querySelector("a")!.click();
     expect(open).toHaveBeenCalledWith("https://example.com/d", "_blank", "noopener");
+  });
+});
+
+describe("MarkdownBody session links", () => {
+  const sessionDesigs = new Map([["TASK-31", "s31"]]);
+
+  it("renders Markdown links around known tokens but leaves code and unknown tokens alone", async () => {
+    const { container } = await render(MarkdownBody, {
+      source:
+        "**TASK-31**\n\n| Session |\n| --- |\n| TASK-31 |\n\n- TASK-31\n\n`TASK-31`\n\n```\nTASK-31\n```\n\nTASK-99",
+      sessionDesigs,
+      onSessionLink: vi.fn(),
+    });
+    await expect.poll(() => container.querySelectorAll("a[data-session-id]").length).toBe(3);
+    expect(container.querySelector("strong > a")?.textContent).toBe("TASK-31");
+    expect(container.querySelector("td > a")?.textContent).toBe("TASK-31");
+    expect(container.querySelector("code a")).toBeNull();
+    expect(container.textContent).toContain("TASK-99");
+  });
+
+  it("selects on click and Enter without opening a tab or changing the location", async () => {
+    const onSessionLink = vi.fn();
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { container } = await render(MarkdownBody, {
+      source: "**TASK-31**",
+      sessionDesigs,
+      onSessionLink,
+    });
+    await expect.poll(() => container.querySelector("a")).not.toBeNull();
+    const a = container.querySelector("a")!;
+    const href = location.href;
+    a.click();
+    a.focus();
+    expect(document.activeElement).toBe(a);
+    await userEvent.keyboard("{Enter}");
+    expect(onSessionLink.mock.calls).toEqual([["s31"], ["s31"]]);
+    expect(open).not.toHaveBeenCalled();
+    expect(location.href).toBe(href);
+  });
+
+  it("updates links when the herd changes while the source stays the same", async () => {
+    const { container, rerender } = await render(MarkdownBody, {
+      source: "TASK-31",
+      sessionDesigs: new Map(),
+      onSessionLink: vi.fn(),
+    });
+    await expect.poll(() => container.querySelector("p")?.textContent).toBe("TASK-31");
+    expect(container.querySelector("a")).toBeNull();
+    await rerender({ sessionDesigs });
+    await expect.poll(() => container.querySelector("a")?.dataset.sessionId).toBe("s31");
+    await rerender({ sessionDesigs: new Map() });
+    await expect.poll(() => container.querySelector("p")?.textContent).toBe("TASK-31");
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("does not trust session markers supplied by the Markdown", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const onSessionLink = vi.fn();
+    const { container } = await render(MarkdownBody, {
+      source: '<a href="https://example.com/" data-session-id="s31">TASK-31</a>',
+      sessionDesigs,
+      onSessionLink,
+    });
+    await expect.poll(() => container.querySelector("a")).not.toBeNull();
+    expect(container.querySelector("a")?.hasAttribute("data-session-id")).toBe(false);
+    container.querySelector("a")!.click();
+    expect(onSessionLink).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener");
+  });
+
+  it("does not link without a navigation callback", async () => {
+    const { container } = await render(MarkdownBody, { source: "TASK-31", sessionDesigs });
+    await expect.poll(() => container.querySelector("p")?.textContent).toBe("TASK-31");
+    expect(container.querySelector("a")).toBeNull();
   });
 });

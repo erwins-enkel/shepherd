@@ -6850,5 +6850,7 @@
   "feat_assistant_layout_body": "Ist der Assistent offen, teilt der Layout-Schalter in der Kopfleiste die Breite auf: Standard, Halbe-halbe, Assistent-Fokus (ein Drittel Terminal, zwei Drittel Assistent) oder Gespräch, das das Terminal zu einer Leiste einklappt.",
   "feat_full_swipe_decommission_title": "Ganz durchwischen zum Stilllegen",
   "feat_full_swipe_decommission_body": "Auf dem Telefon wischst du eine Sitzung in der Liste ganz nach links und lässt los, um sie in einem Zug stillzulegen. Ein kürzerer Wisch zeigt weiterhin den Button. Bei offenem PR wirst du weiterhin gefragt, was damit passieren soll, und Rückgängig bleibt verfügbar.",
-  "unitrow_swipe_release_decommission": "loslassen zum Stilllegen"
+  "unitrow_swipe_release_decommission": "loslassen zum Stilllegen",
+  "feat_assistant_session_links_title": "Sessions aus Assistenten-Antworten öffnen",
+  "feat_assistant_session_links_body": "Klicke auf einen Session-Bezeichner in einer Assistenten-Antwort, um die Session direkt zu öffnen. Repo-Assistenten verlinken Sessions ihres Repos, der globale Assistent die gesamte Herde."
 }

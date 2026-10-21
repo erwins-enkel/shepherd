@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import type { SessionMessages, SessionStatus } from "#lib/types.js";
+  import { desigIndex } from "#lib/desigLinks.js";
+  import type { Session, SessionMessages, SessionStatus } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { getSessionMessages } from "#lib/api.js";
   import { pollWhileVisible } from "#lib/visibility.js";
@@ -14,6 +15,8 @@
   let {
     sessionId,
     status,
+    herd = [],
+    onnavigate,
     mobile = false,
     touch = false,
     prefill = null,
@@ -25,6 +28,8 @@
   }: {
     sessionId: string;
     status: SessionStatus;
+    herd?: readonly Pick<Session, "id" | "desig">[];
+    onnavigate?: (id: string) => void;
     mobile?: boolean;
     touch?: boolean;
     /** An "Ask the assistant" prefill: put into the composer (not sent) for the operator to review. */
@@ -52,6 +57,7 @@
   let thread: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
 
+  const herdDesigs = $derived(desigIndex(herd));
   const working = $derived(status === "running");
   const blocked = $derived(status === "blocked");
   const entries = $derived(chatEntries(data?.messages ?? []));
@@ -184,7 +190,7 @@
       {#each rows as e (e.key)}
         {#if e.kind === "assistant"}
           <div class="ac-msg">
-            <MarkdownBody source={e.text} />
+            <MarkdownBody source={e.text} sessionDesigs={herdDesigs} onSessionLink={onnavigate} />
             {#if e.ts}<span class="ac-meta">{clock(e.ts)}</span>{/if}
           </div>
         {:else if e.kind === "user"}

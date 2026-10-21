@@ -6850,5 +6850,7 @@
   "feat_assistant_layout_body": "With the assistant open, the layout switch in the top bar splits the width: Standard, Half and half, Assistant focus (a third terminal, two thirds assistant) or Conversation, which folds the terminal into a strip.",
   "feat_full_swipe_decommission_title": "Swipe all the way to decommission",
   "feat_full_swipe_decommission_body": "On your phone, swipe a session in the list all the way left and let go to decommission it in one move. A shorter swipe still reveals the button. Sessions with an open PR still ask what to do with it, and Undo stays available.",
-  "unitrow_swipe_release_decommission": "release to decommission"
+  "unitrow_swipe_release_decommission": "release to decommission",
+  "feat_assistant_session_links_title": "Open sessions from assistant replies",
+  "feat_assistant_session_links_body": "Click a session designation in an assistant reply to open it directly. Repository assistants link sessions from their own repository; the global assistant links the whole herd."
 }

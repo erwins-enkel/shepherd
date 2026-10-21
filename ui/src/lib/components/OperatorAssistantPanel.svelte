@@ -86,14 +86,14 @@
     terminalOwners?: Record<string, TerminalClientInfo> | null;
     workingBlocked?: Record<string, boolean>;
     backgroundBusy?: Record<string, boolean>;
-    /** Live herd sessions (store.sessions): their desigs link in the assistant's terminal. */
+    /** Live herd sessions (store.sessions): their desigs link in the assistant. */
     herd?: Session[];
     /** An "Ask the assistant" prefill, typed (not sent) once the terminal attaches. */
     typeRequest?: { text: string; tick: number } | null;
     ontyped?: (tick: number) => void;
     /** The operator's current view (#3161), handed to the assistant with each message. */
     viewReport?: AssistantViewReport | null;
-    /** A desig link in the terminal was activated: select that session. */
+    /** A desig link in the assistant was activated: select that session. */
     onnavigate?: (id: string) => void;
     /** One-shot: whether the terminal may take the keyboard when it mounts. */
     consumeAutoFocusTerm?: () => boolean;
@@ -217,6 +217,7 @@
     preview: m.viewport_preview_tab,
     browser: m.viewport_browser_tab,
   };
+  const chatHerd = $derived(repo === null ? herd : herd.filter((s) => s.repoPath === repo));
   const seen = $derived(viewFocus(viewReport, herd));
   const seesText = $derived(
     seen
@@ -379,6 +380,8 @@
           bind:this={chat}
           sessionId={session.id}
           status={session.status}
+          herd={chatHerd}
+          {onnavigate}
           {mobile}
           {touch}
           prefill={shown === "chat" ? typeRequest : null}

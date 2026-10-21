@@ -471,6 +471,8 @@
   "viewport_swipe_next_release": "Release for the next agent",
   "feat_swipe_back_to_herd_title": "Swipe right to return to the herd",
   "feat_swipe_back_to_herd_body": "On your phone, swipe right across a session to go back to the session list, like in the iOS app. Swipe left still jumps to the next agent; a panel behind the session shows where a release takes you.",
+  "feat_swipe_back_to_issues_title": "Swipe right to return to the issues",
+  "feat_swipe_back_to_issues_body": "On your phone, swipe right across an open issue in the Backlog to go back to the issue list, the same gesture as on a session. The list shows beneath as you drag; let go past the threshold to return.",
   "viewport_back_button": "‹ Herd",
   "viewport_queue_prev_aria": "Previous waiting session",
   "viewport_queue_next_aria": "Next waiting session",

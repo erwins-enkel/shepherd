@@ -73,7 +73,8 @@
   import { checksCleared } from "#lib/checks-cleared.js";
   import {
     REVEAL_PX,
-    snapOffset,
+    fullSwipeThreshold,
+    releaseOutcome,
     pressDecom,
     swipeGesture,
     type SwipeCallbacks,
@@ -340,6 +341,10 @@
   // gesture state
   let offset = $state(0); // px the row is slid left (negative); 0 = closed
   let dragging = $state(false); // finger down + tracking x → suppress snap transition
+  let rowWidth = $state(0); // bound from .swipe-wrap; full-swipe range + threshold
+  // dragged far enough that releasing decommissions outright (full swipe)
+  const fullSwipe = $derived(rowWidth > 0 && offset <= -fullSwipeThreshold(rowWidth));
+  let fullTimer: ReturnType<typeof setTimeout> | undefined;
 
   // arm/confirm state for the revealed action
   let decom = $state<DecomState>("idle");
@@ -360,11 +365,34 @@
     openRow = close;
   }
 
+  function setOffset(px: number) {
+    const wasFull = fullSwipe;
+    offset = px;
+    if (fullSwipe && !wasFull) navigator.vibrate?.(8); // haptic tick on crossing in (no-op on iOS)
+  }
+
+  function release(cancelled: boolean) {
+    const outcome = releaseOutcome(offset, rowWidth, cancelled);
+    if (outcome === "open") return openReveal();
+    if (outcome === "closed") return close();
+    // full swipe: let the row finish sliding out, then decommission. The page's
+    // open-PR dialog / undo toast are the confirmation; the row stays in the store
+    // during the undo window, so close it back like pressDecommission does.
+    if (openRow && openRow !== close) openRow();
+    offset = -rowWidth;
+    clearTimeout(fullTimer);
+    fullTimer = setTimeout(() => {
+      ondecommission?.(session.id);
+      close();
+    }, 180);
+  }
+
   const swipeCb: SwipeCallbacks = {
     current: () => offset,
-    onOffset: (px) => (offset = px),
+    maxOffset: () => rowWidth || REVEAL_PX,
+    onOffset: setOffset,
     onDragging: (b) => (dragging = b),
-    onRelease: () => (snapOffset(offset) === -REVEAL_PX ? openReveal() : close()),
+    onRelease: release,
     requestClose: close,
   };
 
@@ -384,6 +412,7 @@
 
   onDestroy(() => {
     clearTimeout(armTimer);
+    clearTimeout(fullTimer);
     clearTimeout(tipTimer);
     clearTimeout(goArmTimer);
     clearTimeout(retryArmTimer);
@@ -1208,18 +1237,26 @@
 {/snippet}
 
 {#if swipe}
-  <div class="swipe-wrap" style="--reveal:{REVEAL_PX}px">
+  <div
+    class="swipe-wrap"
+    style="--reveal:{Math.max(REVEAL_PX, -offset)}px"
+    bind:clientWidth={rowWidth}
+  >
     <div class="reveal" aria-hidden={offset === 0}>
       <button
         class="decom"
-        class:armed={decom === "armed"}
+        class:armed={decom === "armed" || fullSwipe}
         type="button"
         tabindex={offset === 0 ? -1 : 0}
         onclick={pressDecommission}
         title={m.viewport_decommission_title()}
         aria-label={m.viewport_decommission_aria()}
       >
-        {decom === "armed" ? m.viewport_confirm_decommission() : m.viewport_decommission()}
+        {fullSwipe
+          ? m.unitrow_swipe_release_decommission()
+          : decom === "armed"
+            ? m.viewport_confirm_decommission()
+            : m.viewport_decommission()}
       </button>
     </div>
     <div
@@ -1374,7 +1411,9 @@
   .reveal {
     position: absolute;
     inset: 0 0 0 auto;
-    width: var(--reveal); /* set from REVEAL_PX (swipe.ts) — single source of truth */
+    /* REVEAL_PX (swipe.ts) — single source of truth — or the exposed width on a full swipe */
+    width: var(--reveal);
+    transition: width 0.18s ease; /* tracks the slider's snap back */
     display: flex;
     align-items: stretch;
     justify-content: stretch;
@@ -1409,7 +1448,8 @@
     transition: transform 0.18s ease;
     will-change: transform;
   }
-  .slider.dragging {
+  .slider.dragging,
+  .swipe-wrap:has(.slider.dragging) .reveal {
     transition: none;
   }
 

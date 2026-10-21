@@ -1,6 +1,7 @@
 # What could Shepherd do with GitHub's stacked pull requests?
 
-**Brief:** GitHub put **stacked pull requests** into public preview on **2026-07-30**. Shepherd has
+**Brief:** GitHub put **stacked pull requests** into public preview on **2026-07-30** and made them
+**generally available on 2026-10-06**. Shepherd has
 three mechanisms that exist largely _because_ GitHub had no stacking primitive — the one-session-one-PR
 invariant, the `epic/<#>-<slug>` integration-branch model, and the merge train. This note establishes
 what GitHub actually shipped (mechanics + automation surface), what it breaks in Shepherd **today**,
@@ -22,6 +23,8 @@ stale:
 - **Re-assessed 2026-10-19 (#3189) — see §10.** Stacks are GA (2026-10-06), shape (b) shipped but is
   enabled on no repo, and the recommendation is now a hybrid: shape (b) stays default, shape (a)
   becomes an opt-in per-epic "incremental landing" mode.
+- **§2 refreshed to the GA state (2026-10-21, #3193).** Merge queue, bypass, signed restack,
+  `gh stack` 0.2.1 and the open doc contradictions (§2.7) are now in §2 itself.
 
 ---
 
@@ -37,8 +40,9 @@ stale:
   practice because `mergeMethod` defaults to `"squash"`), and GitHub documents that the legacy
   synchronous merge **cannot merge a stacked PR**. The merge train and the Backlog "Merge" button
   therefore failed against any stacked PR — while Shepherd already _rendered_ them (the `→base` chip),
-  so the UI invited the click that broke. Now routed through `merge-async`. Still true and still
-  constraining: **`--admin` bypass does not work on stacks, and auto-merge is unsupported entirely.**
+  so the UI invited the click that broke. Now routed through `merge-async`. Still constraining at
+  GA: **bypass merges only the bottom PR, never the whole stack, and stack auto-merge is not available
+  yet** (the changelog says it is rolling out; the Merging page says unsupported; §2.2, §2.7).
 - **Our epic model is a hand-rolled stack, and the landing PR is where it hurts.** `selectEpicCandidates`
   only spawns a child once every blocker is `integrationMerged || issueClosed`, so dependent children run
   strictly one at a time — stacks convert that _wait_ into a _base pointer_ for the edges that fall
@@ -66,6 +70,12 @@ weakened by the atomicity spike, but not to a green light.
 
 ## 2. What GitHub actually shipped
 
+**Updated 2026-10-21 to the GA state (#3193).** Stacked PRs went **generally available on 2026-10-06**
+on all github.com plans (GHES: "upcoming release"); the async merge API went **GA on 2026-10-01**.
+Facts below were re-checked against GitHub's docs and changelog on 2026-10-21. Where the preview
+behaved differently, the August value is kept as "_August:_ …". Where GitHub's own pages disagree,
+see §2.7.
+
 ### 2.1 Data model
 
 A stack is a **first-class server-side object**, not merely an inferred base-branch chain. It has an
@@ -84,20 +94,22 @@ with `position` **1-based, 1 = bottom**.
 
 ### 2.2 Merging
 
-| Behavior                               | Detail                                                                                                                                                                                                                                                                                                                                                                            |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Order                                  | Bottom-up only. Merging PR _n_ merges _n_ **and every unmerged PR below it**, atomically.                                                                                                                                                                                                                                                                                         |
-| Mid-stack in isolation                 | **Impossible.** "the pull requests below it will always merge with it".                                                                                                                                                                                                                                                                                                           |
-| Squash method                          | One squashed commit **per layer** — _n_ layers ⇒ _n_ commits on base.                                                                                                                                                                                                                                                                                                             |
-| Lower layer merges                     | Remaining branches **auto-rebase**; next PR re-targets the trunk.                                                                                                                                                                                                                                                                                                                 |
-| Trunk moves / lower layer gets commits | **Manual** restack required (`gh stack rebase` or the UI button).                                                                                                                                                                                                                                                                                                                 |
-| Mid-stack **close**                    | **Blocks everything above it.** No auto-repair — requires unstack/modify.                                                                                                                                                                                                                                                                                                         |
-| Merge API                              | Legacy `PUT /pulls/{n}/merge` and the `mergePullRequest` GraphQL mutation **do not work**. Must use `PUT /pulls/{n}/merge-async` + poll `GET …/merge-async/{uuid}`. Body takes `merge_action` (`default\|direct_merge\|merge_queue`) alongside `merge_method`/`sha`.                                                                                                              |
-| `merge_queue` + custom params          | **`422` at request time.** `merge_method`, `commit_title` and `commit_message` are rejected with `merge_action: merge_queue`. Worse, sending `merge_method` with **no** `merge_action` is accepted and then fails _asynchronously_ on a queue-required branch (`"Custom merge params are not supported when merging via a merge queue"`) — live-verified; ours does this (#2062). |
-| On validation failure                  | **Nothing lands** — the whole group is rejected before the base branch is touched (§5.2.1, live-verified across rule failure and merge conflict, both merge actions).                                                                                                                                                                                                             |
-| Branch cleanup                         | `merge-async` takes **no delete-branch parameter**; layer branches survive a stack merge and nothing reaps them.                                                                                                                                                                                                                                                                  |
-| Auto-merge                             | **Not supported at all** — neither per-layer nor whole-stack, neither direct nor via queue. Documented as "coming soon".                                                                                                                                                                                                                                                          |
-| Admin / rule bypass                    | **Not supported** on stacks.                                                                                                                                                                                                                                                                                                                                                      |
+| Behavior                               | Detail                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Order                                  | Bottom-up only. Merging PR _n_ merges _n_ **and every unmerged PR below it**, atomically.                                                                                                                                                                                                                                                                                                      |
+| Mid-stack in isolation                 | **Impossible.** "the pull requests below it will always merge with it".                                                                                                                                                                                                                                                                                                                        |
+| Squash method                          | One squashed commit **per layer** — _n_ layers ⇒ _n_ commits on base. The merge-commit method likewise creates one merge commit per PR, not one per group (GA changelog).                                                                                                                                                                                                                      |
+| Lower layer merges                     | Remaining branches **auto-rebase**; next PR re-targets the trunk.                                                                                                                                                                                                                                                                                                                              |
+| Trunk moves / lower layer gets commits | **Manual** restack required (`gh stack rebase` or the UI "Rebase stack" button). Since GA the UI restack keeps approvals on unchanged code and signs its commits, per the changelog and Reference page (_August:_ unsigned). The Managing page still says unsigned (§2.7). Still UI-only (§2.3).                                                                                               |
+| Mid-stack **close**                    | **Blocks everything above it.** No auto-repair — requires unstack/modify.                                                                                                                                                                                                                                                                                                                      |
+| Merge API                              | **GA 2026-10-01.** Legacy `PUT /pulls/{n}/merge` and the `mergePullRequest` GraphQL mutation **do not work**. Must use `PUT /pulls/{n}/merge-async` + poll `GET …/merge-async/{uuid}`. Body takes `merge_action` (`default\|direct_merge\|merge_queue`) alongside `merge_method`/`sha`.                                                                                                        |
+| Merge queue                            | **Supported since GA** (_August:_ "still rolling out"). A stack enters the queue as **one merge group**, in order; the group may exceed the configured max size by up to 50% to stay together, and a stack too large for that goes into the next group as a unit. **Ejecting a layer ejects every layer above it.** The CLI page disagrees on group atomicity (§2.7).                          |
+| `merge_queue` + custom params          | **`422` at request time.** `merge_method`, `commit_title` and `commit_message` are rejected with `merge_action: merge_queue`. Worse, sending `merge_method` with **no** `merge_action` is accepted and then fails _asynchronously_ on a queue-required branch (`"Custom merge params are not supported when merging via a merge queue"`) — live-verified; ours did this until #2062 was fixed. |
+| On validation failure                  | **Nothing lands** — the whole group is rejected before the base branch is touched (§5.2.1, live-verified across rule failure and merge conflict, both merge actions).                                                                                                                                                                                                                          |
+| Branch cleanup                         | `merge-async` takes **no delete-branch parameter**; layer branches survive a stack merge and nothing reaps them.                                                                                                                                                                                                                                                                               |
+| Auto-merge                             | **Treat as not available yet.** The GA changelog says stack auto-merge is "rolling out over the next few weeks"; the Merging page still says "Auto-merge is not supported for stacked pull requests" (§2.7). _August:_ not supported, "coming soon".                                                                                                                                           |
+| Admin / rule bypass                    | **Bottom PR only.** A user with bypass permission can merge the lowest unmerged PR in a stack; the whole stack cannot be merged with bypass (Reference, GA changelog). _August:_ not supported.                                                                                                                                                                                                |
+| Base branch deleted                    | GitHub re-targets the stack instead of closing its bottom PR (GA changelog), which supports stacks branched off other stacks.                                                                                                                                                                                                                                                                  |
 
 ### 2.3 Automation surface
 
@@ -107,10 +119,11 @@ with `position` **1-based, 1 = bottom**.
 | Append to top                          | ✅ `POST /stacks/{n}/add`                                                             |
 | Unstack                                | ✅ `POST /stacks/{n}/unstack` (merged/queued PRs stay linked)                         |
 | Read stack                             | ✅ REST `.stack` on PRs, `GET /stacks?pull_request=<n>`, GraphQL `stack`/`stackEntry` |
-| **Reorder / insert / drop one**        | ❌ No API. CLI `gh stack modify` is **TUI-only**. Workaround: unstack + recreate.     |
-| **GraphQL mutations**                  | ❌ None exist                                                                         |
-| **Server-side "Rebase stack" via API** | ❌ UI button only; programmatic restack = local `gh stack rebase` + `push`            |
-| Merge a stack                          | ✅ async merge API only                                                               |
+| Compose existing PRs into a stack      | ✅ `gh stack link <PRs…>` (0.2.x) — additive, no prompts                              |
+| **Reorder / insert / drop one**        | ❌ No API (unchanged at GA). `gh stack modify` is **TUI-only**. Unstack + recreate.   |
+| **GraphQL mutations**                  | ❌ None — GraphQL is read-only for stacks: "there are no stack mutations"             |
+| **Server-side "Rebase stack" via API** | ❌ UI button only (unchanged at GA); programmatic = `gh stack rebase` + `push`        |
+| Merge a stack                          | ✅ async merge API only (GA 2026-10-01)                                               |
 | Webhook for joining a stack            | ✅ new `pull_request.stacked` action                                                  |
 
 Two traps worth writing down:
@@ -126,7 +139,8 @@ Two traps worth writing down:
 A `pull_request` workflow targeting `main` runs for **every** layer, because triggers evaluate against
 the stack base. CI cost scales with stack depth. GitHub's own mitigation is to gate expensive jobs on
 `stack.position == stack.size` (top layer carries the accumulated change) and on the lowest unmerged
-layer.
+layer. Since GA the merge queue is the stronger lever: the whole stack is one `merge_group`, so
+expensive jobs can run once on the merged result (§10.3).
 
 ### 2.5 The agent angle — `gh-stack` ships a SKILL.md
 
@@ -148,12 +162,27 @@ any `gh stack modify` would hang an unattended agent exactly the way upsell dial
 "Non-interactive use" section exists to prevent this and mandates `--json` / `--auto` / `--yes`
 unconditionally.
 
+**As of `gh stack` 0.2.1 (2026-10-09)** the hazard is narrower but not gone:
+
+- `link` creates or updates a stack from existing branches or PR numbers, bottom → top, with no
+  prompts. It is additive and never removes PRs.
+- `merge -y`, or `merge` with no TTY, merges the whole stack (or up to a named PR) headless and
+  all-or-nothing.
+- `sync` with no TTY pulls clean remote-ahead changes and aborts on divergence without pushing; it
+  exits 0 when it aborts, so check the result.
+- Still interactive under a PTY: `modify` (always a TUI), `switch`, bare `view`, bare `submit`, bare
+  `checkout`, and the `init`/`add`/`sync`/`merge` prompts. Under a PTY the flags above stay mandatory.
+
 ### 2.6 Stated limits
 
 Strictly linear (no branching within a stack) · same-repo only, **no cross-fork** · GitHub Desktop
-unsupported · server-side rebase commits are **unsigned** (breaks required-signed-commits) · completed
-stacks cannot be extended · merge-queue support still rolling out · max depth not documented (REST
-create accepts up to 100 PRs) · every docs page carries "public preview and subject to change".
+unsupported · fully linear history required before merging · completed stacks cannot be extended ·
+max depth not documented (REST create accepts up to 100 PRs) · GHES not yet (upcoming release).
+
+_August, now lifted:_ the preview banner ("public preview and subject to change") is gone at GA.
+Merge-queue support was "still rolling out" and has now shipped (§2.2). Server-side rebase commits
+were unsigned; since GA they are signed per the changelog and Reference page, though the Managing page
+disagrees (§2.7).
 
 **Undocumented, found empirically (spike §5):** a ruleset that requires a status check on **all**
 branches blocks the restack force-push outright —
@@ -161,7 +190,19 @@ branches blocks the restack force-push outright —
 (`do_not_enforce_on_create`), but _updates_ cannot, and a restack is an update. Such a repo cannot
 restack over `gh stack rebase` + push at all, leaving only the server-side UI button — whose commits
 are unsigned. This is a ruleset shape to avoid alongside stacks, and it is not mentioned anywhere in
-GitHub's docs.
+GitHub's docs. (Not re-tested since GA. If the GA signing claim holds, the UI-button fallback no longer
+breaks required-signed-commits, but the force-push block on `gh stack rebase` + push is unaffected.)
+
+### 2.7 Doc contradictions (as of 2026-10-21)
+
+GitHub's pages disagree on three points. Until one is settled live, design for the conservative
+reading.
+
+| Point                 | One source says                                                                                       | The other says                                                                                | Treat as                                                           |
+| --------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Stack auto-merge      | GA changelog: stacks can auto-merge once requirements are met — "rolling out over the next few weeks" | Merging page: "Auto-merge is not supported for stacked pull requests"                         | **Not available**                                                  |
+| Server-side restack   | GA changelog + Reference: "Rebase stack" creates **signed** commits and keeps approvals               | Managing page: "Commits created by a server-side rebase are **not** signed"                   | **Unsigned** on repos that require signatures; verify on first use |
+| Merge-group atomicity | Reference + Merging page + GA changelog: a stack enters and lands as **one merge group**              | CLI page (`gh stack merge`): queued PRs "can land in separate groups rather than all at once" | **May split**; verify on the first real queued stack               |
 
 ---
 
@@ -528,7 +569,8 @@ PR (shape (b), shipped via #2063) or whether GitHub stacks are now good enough f
 GitHub's docs and changelog as of 2026-10-19, a manual stack merge in aetherial (stack #583 =
 aetherial#578 → #580 → #582, `gh stack` 0.2.1), the dependency graphs of six aetherial epics, the CI
 run history behind them, and the live Shepherd DB. Research only — no code, no running epic touched.
-Sections 1–9 above stay as the August record; this section supersedes them where they disagree.
+§2 (and the stale §1 lines) were refreshed to the GA state by #3193. Sections 3–9 stay as the August
+record, and this section supersedes them where they disagree.
 
 ### 10.1 TL;DR
 
@@ -567,9 +609,8 @@ Sections 1–9 above stay as the August record; this section supersedes them whe
 | `gh stack`                        | v0.0.x, TUI wedge hazard                   | v0.2.1 (2026-10-09). `link` composes **existing** PRs into a stack, with no prompts. `merge -y`, or with no TTY, is headless. `sync` aborts safely without a TTY ([CLI ref](https://docs.github.com/en/pull-requests/reference/stacked-prs-cli-commands)) |
 | Shepherd shape (b)                | Planned (#2063)                            | Shipped: #2066 chains, #2068 forge surface, #2069 stacked spawn, #2070 bottom-up retire + wedge repair; #2062 merge-queue defect fixed. Opt-in `epicStacksEnabled`, **enabled nowhere**                                                                   |
 
-Remaining doc contradiction: the reference and GA changelog say a queued stack lands as one merge
-group, while the CLI page says queued PRs "can land in separate groups". Verify on the first real
-queued stack before relying on group atomicity.
+Remaining doc contradictions (auto-merge, restack signing, merge-group atomicity) are tracked in
+§2.7. Verify group atomicity on the first real queued stack before relying on it.
 
 ### 10.3 Issue point 2 — CI cost per layer
 
@@ -788,7 +829,7 @@ troubleshooting page's "intermittent failure" path).
 - Make `quality` / `db` / `e2e` **required checks** (there are none today).
 - Revisit the draft gate (#558) afterwards; it should become unnecessary.
 
-**#3193 — `docs: refresh stacked-PR facts after GA`**
+**#3193 — `docs: refresh stacked-PR facts after GA`** — **done** (§2, §2.7)
 
 - Refresh §2 of this note: GA, merge queue, signed restack, the read-only API, the doc contradictions
   in §10.2.
@@ -799,6 +840,8 @@ troubleshooting page's "intermittent failure" path).
 ## Sources
 
 - [Stacked pull requests are now in public preview — GitHub Changelog, 2026-07-30](https://github.blog/changelog/2026-07-30-stacked-pull-requests-are-now-in-public-preview/)
+- [Stacked pull requests generally available — GitHub Changelog, 2026-10-06](https://github.blog/changelog/2026-10-06-stacked-pull-requests-generally-available/) ·
+  [Async merge API generally available — GitHub Changelog, 2026-10-01](https://github.blog/changelog/2026-10-01-github-async-merge-api-generally-available/)
 - [About stacked pull requests](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs) ·
   [Quickstart](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart) ·
   [Reference](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests)
@@ -810,11 +853,13 @@ troubleshooting page's "intermittent failure" path).
 - [REST: pull request stacks](https://docs.github.com/en/rest/pulls/stacks) ·
   [REST: pulls / merge-async](https://docs.github.com/en/rest/pulls/pulls) ·
   [CLI command reference](https://docs.github.com/en/pull-requests/reference/stacked-prs-cli-commands) ·
-  [REST & GraphQL reference](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests-rest-and-graphql-apis)
+  [REST & GraphQL reference](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests-rest-and-graphql-apis) ·
+  [APIs and webhooks](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests-apis-and-webhooks)
 - [Rolling out stacked PRs to an org](https://docs.github.com/en/pull-requests/tutorials/roll-out-stacked-prs)
 - [github/gh-stack](https://github.com/github/gh-stack) ·
   [skills/gh-stack/SKILL.md](https://github.com/github/gh-stack/blob/main/skills/gh-stack/SKILL.md) ·
-  [gh-stack docs](https://github.github.com/gh-stack/)
+  [gh-stack docs](https://github.github.com/gh-stack/) ·
+  [gh-stack v0.2.1 release](https://github.com/github/gh-stack/releases/tag/v0.2.1)
 - [Community discussion #201439](https://github.com/orgs/community/discussions/201439)
 
 Companion note (empirical, this repo): `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md` —

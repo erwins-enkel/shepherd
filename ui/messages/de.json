@@ -6859,5 +6859,8 @@
   "native_ios_usage_warning_reset": "{agent} · {window}: {pct}% verbraucht · Reset {time}",
   "automerge_state_stack_untested": "Stack nicht gegen aktuellen Trunk getestet, neu stapeln",
   "gitrail_merge_failed_stack_untested": "Merge blockiert: Der Stack wurde nicht gegen den aktuellen Stand seines Trunks getestet. Auf den Trunk neu stapeln, CI laufen lassen, dann erneut versuchen.",
-  "prspanel_merge_failed_stack_untested": "Merge blockiert: Stack nicht gegen aktuellen Trunk getestet — erst neu stapeln"
+  "prspanel_merge_failed_stack_untested": "Merge blockiert: Stack nicht gegen aktuellen Trunk getestet — erst neu stapeln",
+  "assistant_chat_answer_question": "Beantworte die Frage oben, bevor du eine weitere Nachricht sendest.",
+  "feat_assistant_chat_questions_title": "Assistentenfragen im Chat beantworten",
+  "feat_assistant_chat_questions_body": "Wähle Antworten, mehrere Optionen oder eine eigene Antwort direkt im Gespräch mit dem Assistenten. Kein Wechsel ins Terminal nötig."
 }

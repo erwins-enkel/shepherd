@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {
     AssistantPermissions,
+    PendingAsk,
     OperatorAssistantUnavailableReason,
     Session,
     TerminalClientInfo,
@@ -37,6 +38,7 @@
     switcher,
     onend,
     session,
+    ask = null,
     available,
     reason,
     pending,
@@ -72,6 +74,7 @@
     onend?: () => void;
     /** The assistant's live row (store.assistant); null until one is spawned. */
     session: Session | null;
+    ask?: PendingAsk | null;
     /** store.assistantAvailable: null until the bootstrap GET lands. */
     available: boolean | null;
     reason: OperatorAssistantUnavailableReason | null;
@@ -382,6 +385,7 @@
           status={session.status}
           herd={chatHerd}
           {onnavigate}
+          {ask}
           {mobile}
           {touch}
           prefill={shown === "chat" ? typeRequest : null}

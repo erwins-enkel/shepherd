@@ -1593,6 +1593,10 @@
   const assistantDockEntries = $derived(
     assistantEntries(store.assistants, requestedRepoAssistants),
   );
+  function assistantAsk(session: Session | null) {
+    return session ? (store.blocks[session.id]?.reason.ask ?? null) : null;
+  }
+
   // The open assistant; a pick whose assistant is gone (ended elsewhere) falls back to the global.
   const assistantScope = $derived(
     assistantDockEntries.some((e) => e.repo === assistantScopePick) ? assistantScopePick : null,
@@ -3384,6 +3388,7 @@
         stacked
         {switcher}
         session={entry.session}
+        ask={assistantAsk(entry.session)}
         available={store.assistantAvailable}
         reason={store.assistantUnavailableReason}
         pending={assistantLifecycle.pendingFor(repo)}

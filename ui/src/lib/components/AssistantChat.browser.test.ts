@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { SessionMessages } from "#lib/types.js";
+import type { AnswerAskResult, SessionMessages } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
-  return { ...actual, getSessionMessages: vi.fn() };
+  return { ...actual, getSessionMessages: vi.fn(), answerAsk: vi.fn() };
 });
 
 // Load once, no interval: each test drives the data it needs.
@@ -16,8 +16,23 @@ vi.mock("#lib/visibility.js", () => ({
 }));
 
 const { default: AssistantChat } = await import("./AssistantChat.svelte");
-const { getSessionMessages } = await import("#lib/api.js");
+const { getSessionMessages, answerAsk } = await import("#lib/api.js");
 const mockMessages = vi.mocked(getSessionMessages);
+const mockAnswer = vi.mocked(answerAsk);
+const ask = {
+  toolUseId: "ask-1",
+  questions: [
+    {
+      question: "Close the completed issues?",
+      header: "Close",
+      multiSelect: false,
+      options: [
+        { label: "Yes", description: "Close both issues" },
+        { label: "No", description: "Leave open" },
+      ],
+    },
+  ],
+};
 
 const reply = (messages: SessionMessages["messages"]): SessionMessages => ({
   messages,
@@ -40,6 +55,8 @@ function props(over: Record<string, unknown> = {}) {
 const composer = () => page.getByRole("textbox", { name: m.assistant_chat_input_label() });
 
 beforeEach(() => {
+  mockAnswer.mockReset();
+  mockAnswer.mockResolvedValue("verified");
   mockMessages.mockReset();
   mockMessages.mockResolvedValue(reply([]));
 });
@@ -49,6 +66,172 @@ afterEach(() => {
 });
 
 describe("AssistantChat", () => {
+  it("answers a structured question in chat without sending prompt text", async () => {
+    const p = props({ status: "blocked", ask });
+    render(AssistantChat, p);
+    await expect.element(page.getByText(ask.questions[0].question)).toBeVisible();
+    await expect.element(page.getByText("Close both issues")).toBeVisible();
+    await page.getByRole("radio", { name: "Yes Close both issues" }).click();
+    await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(mockAnswer).toHaveBeenCalledExactlyOnceWith("a1", "ask-1", [
+        { blockId: "ask-1", questionId: "0", optionIndices: [0] },
+      ]),
+    );
+    expect(p.onsend).not.toHaveBeenCalled();
+    await expect.element(page.getByText(m.ask_result_verified())).toBeVisible();
+  });
+
+  it("keeps a draft and blocks Enter while a question or answer is pending", async () => {
+    let finish!: (result: AnswerAskResult) => void;
+    mockAnswer.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const p = props({ ask });
+    const view = await render(AssistantChat, p);
+    await composer().fill("keep this draft");
+    await userEvent.keyboard("{Enter}");
+    expect(p.onsend).not.toHaveBeenCalled();
+    await expect.element(composer()).toHaveValue("keep this draft");
+    await expect
+      .element(page.getByRole("button", { name: m.assistant_chat_send(), exact: true }))
+      .toBeDisabled();
+    await page.getByRole("radio", { name: "Yes Close both issues" }).click();
+    const submit = page.getByRole("button", { name: m.qform_submit(), exact: true });
+    await submit.click();
+    await expect.element(submit).toBeDisabled();
+    await expect.element(page.getByText(m.ask_result_sending())).toBeVisible();
+    await view.rerender({ ...p, ask: null });
+    await userEvent.keyboard("{Enter}");
+    expect(p.onsend).not.toHaveBeenCalled();
+    finish("verified");
+    await expect.element(page.getByText(m.ask_result_verified())).toBeVisible();
+    await composer().click();
+    await userEvent.keyboard("{Enter}");
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith("keep this draft");
+    expect(mockAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["verified", "unverified", "mismatch", "failed"] as const)(
+    "reports %s without automatically resending",
+    async (result) => {
+      if (result === "failed") mockAnswer.mockRejectedValueOnce(new Error("409"));
+      else mockAnswer.mockResolvedValueOnce(result);
+      const p = props({ ask });
+      render(AssistantChat, p);
+      await page.getByRole("radio", { name: "No Leave open" }).click();
+      await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
+      const message = {
+        verified: m.ask_result_verified,
+        unverified: m.ask_result_unverified,
+        mismatch: m.ask_result_mismatch,
+        failed: m.ask_result_failed,
+      }[result]();
+      await expect.element(page.getByText(message)).toBeVisible();
+      if (result !== "verified") {
+        await page.getByRole("button", { name: m.assistant_chat_open_terminal() }).click();
+        expect(p.onterminal).toHaveBeenCalledOnce();
+      }
+      expect(mockAnswer).toHaveBeenCalledTimes(1);
+      await expect
+        .element(page.getByRole("button", { name: m.qform_submit(), exact: true }))
+        .toBeDisabled();
+    },
+  );
+
+  it("still offers the terminal for a later unrelated block after a verified answer", async () => {
+    const p = props({ ask });
+    const view = await render(AssistantChat, p);
+    await page.getByRole("radio", { name: "Yes Close both issues" }).click();
+    await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
+    await expect.element(page.getByText(m.ask_result_verified())).toBeVisible();
+    await view.rerender({ ...p, ask: null, status: "blocked" });
+    await expect.element(page.getByText(m.assistant_chat_blocked())).toBeVisible();
+    await page.getByRole("button", { name: m.assistant_chat_open_terminal() }).click();
+    expect(p.onterminal).toHaveBeenCalledOnce();
+  });
+
+  it("supports multiple questions, multiple choices and a custom answer", async () => {
+    const questions = {
+      ...ask,
+      questions: [
+        ask.questions[0],
+        {
+          question: "Which tasks?",
+          header: "Tasks",
+          multiSelect: true,
+          options: [
+            { label: "First", description: "" },
+            { label: "Second", description: "" },
+          ],
+        },
+      ],
+    };
+    render(AssistantChat, props({ ask: questions }));
+    const submit = page.getByRole("button", { name: m.qform_submit(), exact: true });
+    await expect.element(submit).toBeDisabled();
+    await page.getByRole("radio", { name: "Yes Close both issues" }).click();
+    await expect.element(submit).toBeDisabled();
+    await page.getByRole("checkbox", { name: "First", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Second", exact: true }).click();
+    await page.getByRole("checkbox", { name: m.qform_other(), exact: true }).click();
+    await expect.element(submit).toBeDisabled();
+    await page.getByRole("textbox", { name: "Which tasks?: " + m.qform_other() }).fill("Third");
+    await submit.click();
+    expect(mockAnswer).toHaveBeenCalledExactlyOnceWith("a1", "ask-1", [
+      { blockId: "ask-1", questionId: "0", optionIndices: [0] },
+      { blockId: "ask-1", questionId: "1", optionIndices: [0, 1], text: "Third" },
+    ]);
+  });
+
+  it.each(["question", "session"])("ignores a late result after a new %s", async (change) => {
+    let finish!: (result: AnswerAskResult) => void;
+    mockAnswer.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const p = props({ ask });
+    const view = await render(AssistantChat, p);
+    await page.getByRole("radio", { name: "Yes Close both issues" }).click();
+    await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
+    const next =
+      change === "question"
+        ? { ...p, ask: { ...ask, toolUseId: "ask-2" } }
+        : { ...p, sessionId: "a2" };
+    await view.rerender(next);
+    await expect
+      .element(page.getByRole("radio", { name: "Yes Close both issues" }))
+      .not.toBeChecked();
+    finish("mismatch");
+    await vi.waitFor(() => expect(page.getByText(m.ask_result_mismatch()).query()).toBeNull());
+    await page.getByRole("radio", { name: "No Leave open" }).click();
+    await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
+    await expect.element(page.getByText(m.ask_result_verified())).toBeVisible();
+    expect(mockAnswer).toHaveBeenLastCalledWith(
+      change === "session" ? "a2" : "a1",
+      change === "question" ? "ask-2" : "ask-1",
+      [{ blockId: change === "question" ? "ask-2" : "ask-1", questionId: "0", optionIndices: [1] }],
+    );
+  });
+
+  it("removes an externally answered question and resets the next form", async () => {
+    const p = props({ status: "blocked", ask });
+    const view = await render(AssistantChat, p);
+    await page.getByRole("radio", { name: "Yes Close both issues" }).click();
+    await view.rerender({ ...p, ask: null, status: "running" });
+    await vi.waitFor(() => expect(page.getByText(ask.questions[0].question).query()).toBeNull());
+    expect(mockAnswer).not.toHaveBeenCalled();
+    await view.rerender({ ...p, ask: { ...ask, toolUseId: "ask-2" } });
+    await expect
+      .element(page.getByRole("radio", { name: "Yes Close both issues" }))
+      .not.toBeChecked();
+  });
+
   it("shows the operator's words as their own bubble and the assistant's reply as text", async () => {
     mockMessages.mockResolvedValue(
       reply([

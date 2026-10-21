@@ -102,6 +102,37 @@ describe("OperatorAssistantPanel", () => {
     expect(container.querySelector(".overlay, .drawer, .scrim")).toBeNull();
   });
 
+  it("shows its own question inline and preserves selection across terminal switches", async () => {
+    await page.viewport(390, 844);
+    const ask = {
+      toolUseId: "own-question",
+      questions: [
+        {
+          question: "Close completed issues?",
+          header: "Close",
+          multiSelect: false,
+          options: [
+            { label: "Yes", description: "Close both" },
+            { label: "No", description: "" },
+          ],
+        },
+      ],
+    };
+    const { container } = await mount({
+      session: { ...assistantRow, status: "blocked" },
+      ask,
+      herd: [{ ...assistantRow, id: "other", operatorAssistant: false }],
+      mobile: true,
+      touch: true,
+    });
+    await expect.element(page.getByText("Close completed issues?")).toBeVisible();
+    await page.getByRole("radio", { name: "Yes Close both" }).click();
+    await page.getByRole("button", { name: m.viewport_terminal_tab(), exact: true }).click();
+    await page.getByRole("button", { name: m.operator_assistant_view_chat(), exact: true }).click();
+    await expect.element(page.getByRole("radio", { name: "Yes Close both" })).toBeChecked();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("shows the spawning state while the first ensure is in flight", async () => {
     await mount({ pending: "ensure" });
     await expect.element(page.getByText(m.operator_assistant_spawning())).toBeInTheDocument();

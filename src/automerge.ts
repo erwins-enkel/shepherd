@@ -1,6 +1,10 @@
 import type { SessionStore } from "./store";
 import type { GitForge, GitState } from "./forge/types";
-import { MergeNotCompletedError, StackedMergeRefusedError } from "./forge/types";
+import {
+  MergeNotCompletedError,
+  StackedMergeRefusedError,
+  StackUntestedError,
+} from "./forge/types";
 import type { ReviewVerdict, Session, SessionArchiveReason } from "./types";
 import type { WorktreeMgr } from "./worktree";
 import {
@@ -31,8 +35,8 @@ import {
 export interface AutoMergeStatus {
   repoPath: string;
   enabled: boolean;
-  /** "merging" | "rebasing" | "merge_error" | "rebase_cap", or a hold code ("stacked",
-   *  "migrations", "manual_steps") while acting/paused; null when idle. */
+  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" | "stack_untested", or a hold code
+   *  ("stacked", "migrations", "manual_steps") while acting/paused; null when idle. */
   state: string | null;
   /** A desig for the operator banner, when relevant. */
   detail: string | null;
@@ -502,6 +506,52 @@ export class AutoMergeService {
     }
   }
 
+  /** Classify a failed `forge.merge` from {@link doMerge}: a named hold, an in-flight merge, or a
+   *  counted failure. The caller reports the merge as not landed either way. */
+  private onMergeError(
+    err: unknown,
+    repoPath: string,
+    s: Session,
+    prNumber: number,
+    headSha: string | null,
+  ): void {
+    const sessionId = s.id;
+    if (err instanceof StackedMergeRefusedError && s.incrementalEpicParent != null) {
+      // An incremental child the live read did not see stacked: time-box it like a refused
+      // confirmation so it is re-checked once the layer below lands.
+      console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
+      this.holdStackConfirm(s);
+      this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
+      return;
+    }
+    if (err instanceof StackedMergeRefusedError) {
+      // NOT a merge failure: the forge refused before mutating anything. Recording it would
+      // burn MERGE_ERROR_CAP against a PR that will never become train-mergeable, so instead
+      // remember the stack and let computeMerge report a named `stacked` hold from now on.
+      console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
+      this.stackedHold.set(sessionId, headSha ?? "");
+      this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
+      return;
+    }
+    if (err instanceof StackUntestedError) {
+      // #3192: the stack was not tested against the trunk's current tip. Refused before any
+      // mutation and cured by a restack, so NOT a merge failure; the next pump re-checks (the
+      // behind gate normally steers that rebase first — this is the race backstop).
+      console.warn(`[automerge] pr#${prNumber} untested against trunk; holding:`, err.message);
+      this.deps.emitStatus(this.status(repoPath, true, "stack_untested", s.desig, s.id));
+      return;
+    }
+    if (err instanceof MergeNotCompletedError) {
+      // The merge is in flight host-side (merge queue, or a poll that outlived its budget).
+      // Neither settle the session nor count a failure — the PR poller reconciles.
+      console.warn(`[automerge] merge pr#${prNumber} not completed (${err.code}):`, err.message);
+      return;
+    }
+    console.warn(`[automerge] merge pr#${prNumber} failed for ${sessionId}:`, err);
+    this.recordMergeFailure(sessionId, headSha);
+    this.deps.emitStatus(this.status(repoPath, true, "merge_error", s.desig, s.id));
+  }
+
   /** Land a ready PR. Returns true on success (session settled), false on a fail-closed error. */
   private async doMerge(
     repoPath: string,
@@ -532,32 +582,7 @@ export class AutoMergeService {
         ...(stacked ? { allowStacked: true } : {}),
       });
     } catch (err) {
-      if (err instanceof StackedMergeRefusedError && s.incrementalEpicParent != null) {
-        // An incremental child the live read did not see stacked: time-box it like a refused
-        // confirmation so it is re-checked once the layer below lands.
-        console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
-        this.holdStackConfirm(s);
-        this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
-        return false;
-      }
-      if (err instanceof StackedMergeRefusedError) {
-        // NOT a merge failure: the forge refused before mutating anything. Recording it would
-        // burn MERGE_ERROR_CAP against a PR that will never become train-mergeable, so instead
-        // remember the stack and let computeMerge report a named `stacked` hold from now on.
-        console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
-        this.stackedHold.set(sessionId, headSha ?? "");
-        this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
-        return false;
-      }
-      if (err instanceof MergeNotCompletedError) {
-        // The merge is in flight host-side (merge queue, or a poll that outlived its budget).
-        // Neither settle the session nor count a failure — the PR poller reconciles.
-        console.warn(`[automerge] merge pr#${prNumber} not completed (${err.code}):`, err.message);
-        return false;
-      }
-      console.warn(`[automerge] merge pr#${prNumber} failed for ${sessionId}:`, err);
-      this.recordMergeFailure(sessionId, headSha);
-      this.deps.emitStatus(this.status(repoPath, true, "merge_error", s.desig, s.id));
+      this.onMergeError(err, repoPath, s, prNumber, headSha);
       return false;
     }
     this.mergeFail.delete(sessionId); // success clears any backoff

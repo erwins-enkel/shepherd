@@ -3856,14 +3856,15 @@ components:
       description: >-
         A 409 from a manual merge. With code merge_confirm_required / merge_confirm_stale it is the
         responsibility gate (mergeGateRefusal): gate, headSha and baseRefName are the freshly read
-        values to show and echo back as MergeConfirmation. A merge conflict or a busy base
-        checkout answers only error.
+        values to show and echo back as MergeConfirmation. With code stack_untested (#3192) the
+        stack's head does not contain its trunk's current tip; restack first. A merge conflict or a
+        busy base checkout answers only error.
       required: [error]
       properties:
         error: { type: string }
         code:
           type: string
-          enum: [merge_confirm_required, merge_confirm_stale]
+          enum: [merge_confirm_required, merge_confirm_stale, stack_untested]
           x-shepherd-open-enum: true
         gate:
           $ref: "#/components/schemas/MergeResponsibility"
@@ -7591,7 +7592,7 @@ paths:
           description: Unknown id, or no forge for this repo.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "409":
-          description: No open PR (code pr_already_merged/pr_already_closed/pr_not_found), a merge conflict, a busy base checkout, or missing/stale takeover confirmation (code merge_confirm_required/merge_confirm_stale).
+          description: No open PR (code pr_already_merged/pr_already_closed/pr_not_found), a merge conflict, a busy base checkout, missing/stale takeover confirmation (code merge_confirm_required/merge_confirm_stale), or a stack untested against its trunk's current tip (code stack_untested).
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "502":
           description: The forge failed, or the host only enqueued the merge (see `code`).
@@ -8410,7 +8411,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: The takeover confirmation is missing or stale (code set), a merge conflict, or a busy base checkout.
+          description: The takeover confirmation is missing or stale (code set), a stack untested against its trunk's current tip (code stack_untested), a merge conflict, or a busy base checkout.
           content:
             application/json:
               schema:

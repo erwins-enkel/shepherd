@@ -13,7 +13,11 @@ import type {
   PullRequest,
 } from "../src/forge/types";
 import type { RepoRoles } from "../src/repo-roles";
-import { DEPENDABOT_REBASE_COMMAND, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+import {
+  DEPENDABOT_REBASE_COMMAND,
+  EMPTY_BACKLOG_COUNTS,
+  StackUntestedError,
+} from "../src/forge/types";
 import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 import { config } from "../src/config";
 
@@ -260,6 +264,21 @@ test("POST /api/prs/merge surfaces forge failure → 502", async () => {
   const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
   expect(res.status).toBe(502);
   expect((await res.json()).error).toContain("not mergeable");
+});
+
+test("POST /api/prs/merge of a stack untested against its trunk → 409 stack_untested (#3192)", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        merge: async () => {
+          throw new StackUntestedError(12, "main");
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("stack_untested");
 });
 
 test("POST /api/prs/dependabot-rebase posts @dependabot rebase by number", async () => {

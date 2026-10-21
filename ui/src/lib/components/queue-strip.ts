@@ -180,6 +180,8 @@ export function mergeTrainLabel(state: string | null | undefined): string {
       return m.automerge_state_rebase_cap();
     case "stacked":
       return m.automerge_state_stacked();
+    case "stack_untested":
+      return m.automerge_state_stack_untested();
     case "migrations":
       return m.automerge_state_migrations();
     default:

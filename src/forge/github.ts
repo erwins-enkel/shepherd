@@ -53,6 +53,7 @@ import {
   MergeEnqueuedError,
   MergePendingError,
   StackedMergeRefusedError,
+  StackUntestedError,
 } from "./types";
 import type {
   ChecksState,
@@ -2838,7 +2839,13 @@ export class GithubForge implements GitForge {
    *  than the alternative. */
   private async mergeStacked(prNumber: number, o: MergeInput, probe: StackProbe): Promise<void> {
     if (!o.allowStacked) throw new StackedMergeRefusedError(prNumber, probe.position, probe.size);
-    const body = await this.putMergeAsync(prNumber, o, probe);
+    // Operator-confirmed revision (#2299) wins over the freshly probed one — the probe re-reads
+    // the head, so on its own it would happily guard a revision nobody confirmed.
+    const sha = o.expectedHeadSha ?? probe.sha;
+    const queued = await this.requiresMergeQueue(probe.stackBase);
+    // A queue tests the merge group itself; outside one nothing tests what lands (#3192).
+    if (!queued) await this.assertStackTested(prNumber, probe.stackBase, sha);
+    const body = await this.putMergeAsync(prNumber, o, queued, sha);
     if (this.mergeAsyncSettled(prNumber, body)) return;
     const uuid = mergeAsyncUuid(body);
     if (!uuid) {
@@ -2847,6 +2854,26 @@ export class GithubForge implements GitForge {
       );
     }
     await this.pollMergeAsync(prNumber, uuid);
+  }
+
+  /** Refuse unless `headSha` contains the trunk's CURRENT tip (#3192). merge-async restacks onto
+   *  the trunk as it is now and runs no CI on the result, so a head that predates the tip means
+   *  the combination that would land was never tested. FAILS CLOSED, unlike the probes around it:
+   *  an unknown trunk or head, or a failed compare, is a refusal — the next attempt re-checks. */
+  private async assertStackTested(
+    prNumber: number,
+    trunk: string | undefined,
+    headSha: string | undefined,
+  ): Promise<void> {
+    let tested = false;
+    if (trunk && headSha) {
+      try {
+        tested = await this.branchContains(trunk, headSha);
+      } catch (err) {
+        console.warn(`[github] trunk ancestry read failed for pr#${prNumber}; refusing:`, err);
+      }
+    }
+    if (!tested) throw new StackUntestedError(prNumber, trunk);
   }
 
   /** Does `base` require a merge queue? For a stack it is the trunk: a `merge_queue` rule there
@@ -2890,9 +2917,9 @@ export class GithubForge implements GitForge {
   private async putMergeAsync(
     prNumber: number,
     o: MergeInput,
-    probe: StackProbe,
+    queued: boolean,
+    sha: string | undefined,
   ): Promise<MergeAsyncBody | null> {
-    const queued = await this.requiresMergeQueue(probe.stackBase);
     const args = [
       "api",
       "--method",
@@ -2901,10 +2928,7 @@ export class GithubForge implements GitForge {
       "-f",
       queued ? "merge_action=merge_queue" : `merge_method=${o.method}`,
     ];
-    // Optimistic-concurrency guard: the host rejects the merge if the head moved under us. The
-    // operator-confirmed revision (#2299) wins over the freshly probed one — the probe re-reads the
-    // head, so on its own it would happily guard a revision nobody confirmed.
-    const sha = o.expectedHeadSha ?? probe.sha;
+    // Optimistic-concurrency guard: the host rejects the merge if the head moved under us.
     if (sha) args.push("-f", `sha=${sha}`);
     try {
       return parseMergeAsyncBody(await this.run(args));

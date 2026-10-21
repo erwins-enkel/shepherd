@@ -8,6 +8,7 @@ import {
   MergeEnqueuedError,
   MergePendingError,
   StackedMergeRefusedError,
+  StackUntestedError,
 } from "../../src/forge/types";
 
 const HEAD_SHA = "f00dcafe0000";
@@ -21,6 +22,8 @@ const POLL_PATH = `repos/o/r/pulls/7/merge-async/${UUID}`;
 const TRUNK = "main";
 const PARENT = "b2-fail";
 const RULES = "rules/branches/";
+/** The trunk-ancestry read (#3192). Defaulted to "contains the trunk tip" in {@link harness}. */
+const COMPARE = "/compare/";
 
 const noSleep = async (): Promise<void> => {};
 
@@ -35,8 +38,10 @@ function ghHttpError(status: number, body: unknown): Error {
 
 /** Build a forge whose runner replies from `routes` (first matching substring wins) and records
  *  every call. An unmatched call returns "" rather than throwing, so a test only has to describe
- *  the traffic it cares about. */
+ *  the traffic it cares about. The trunk-ancestry compare defaults to `ahead` (tested against the
+ *  current trunk, #3192); a test overrides it by routing {@link COMPARE} itself. */
 function harness(routes: [match: string, reply: () => string][]) {
+  routes = [...routes, [COMPARE, () => "ahead"]];
   const calls: string[][] = [];
   const run = async (args: string[]): Promise<string> => {
     calls.push(args);
@@ -405,18 +410,23 @@ test("merge: a failed merge-queue probe falls open to today's request shape (#20
   expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
 });
 
-test("merge: no trunk on the stack object probes nothing — never the layer below (#2062)", async () => {
-  const { forge, calls, joined } = harness([
+test("merge: no trunk on the stack object probes nothing and refuses (#2062, #3192)", async () => {
+  const { forge, joined } = harness([
     [PROBE, trunklessProbe],
     [RULES, () => "1"], // would report a queue if anything asked
     [POLL_PATH, () => JSON.stringify({ status: "merged" })],
     [PUT_PATH, () => JSON.stringify({ status: "pending", details: { uuid: UUID } })],
   ]);
 
-  await forge.merge(7, { method: "squash", deleteBranch: true, allowStacked: true });
+  const err = await forge
+    .merge(7, { method: "squash", deleteBranch: true, allowStacked: true })
+    .catch((e: unknown) => e);
 
+  // Never the layer below — and with no trunk to vouch for, fail closed.
   expect(joined().some((c) => c.includes(RULES))).toBe(false);
-  expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
+  expect(joined().some((c) => c.includes(COMPARE))).toBe(false);
+  expect(err).toBeInstanceOf(StackUntestedError);
+  expect(joined().some((c) => c.includes("merge-async"))).toBe(false);
 });
 
 test("merge: a malformed trunk ref is never interpolated into the API path (#2062)", async () => {
@@ -434,12 +444,114 @@ test("merge: a malformed trunk ref is never interpolated into the API path (#206
     [PUT_PATH, () => JSON.stringify({ status: "pending", details: { uuid: UUID } })],
   ]);
 
-  await forge.merge(7, { method: "squash", deleteBranch: true, allowStacked: true });
+  const err = await forge
+    .merge(7, { method: "squash", deleteBranch: true, allowStacked: true })
+    .catch((e: unknown) => e);
 
-  // Traversal would show up as a GET on the retargeted path; the guard makes it "no trunk".
+  // Traversal would show up as a GET on the retargeted path; the guard makes it "no trunk",
+  // which the ancestry gate refuses (#3192).
   expect(joined().some((c) => c.includes(RULES))).toBe(false);
   expect(joined().some((c) => c.includes("pulls/1/merge"))).toBe(false);
-  expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
+  expect(joined().some((c) => c.includes(COMPARE))).toBe(false);
+  expect(err).toBeInstanceOf(StackUntestedError);
+  expect(putFields(calls)).toEqual([]);
+});
+
+// #3192 — outside a merge queue, merge-async restacks onto the trunk AS IT IS NOW and runs no CI
+// on the result. So the merging layer's head must already contain the trunk's current tip.
+
+const stackedMerge = (forge: GithubForge, extra: { expectedHeadSha?: string } = {}) =>
+  forge
+    .merge(7, { method: "squash", deleteBranch: true, allowStacked: true, ...extra })
+    .then(() => null)
+    .catch((e: unknown) => e);
+
+for (const status of ["ahead", "identical"]) {
+  test(`merge: head containing the trunk tip (compare \`${status}\`) merges (#3192)`, async () => {
+    const { forge, calls } = harness([
+      [PROBE, stackedProbe],
+      [COMPARE, () => status],
+      [PUT_PATH, () => JSON.stringify({ status: "merged" })],
+    ]);
+
+    expect(await stackedMerge(forge)).toBeNull();
+    // Asked about the TRUNK and this head — not `b2-fail`, the layer pr#7 bases on.
+    expect(calls.find((c) => c.some((a) => a.includes(COMPARE)))?.[1]).toBe(
+      `repos/o/r/compare/${TRUNK}...${HEAD_SHA}`,
+    );
+    expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
+  });
+}
+
+for (const status of ["behind", "diverged", ""]) {
+  test(`merge: a trunk that moved past the head (compare \`${status}\`) refuses before the PUT (#3192)`, async () => {
+    const { forge, joined } = harness([
+      [PROBE, stackedProbe],
+      [COMPARE, () => status],
+      [PUT_PATH, () => JSON.stringify({ status: "merged" })],
+    ]);
+
+    const err = await stackedMerge(forge);
+
+    expect(err).toBeInstanceOf(StackUntestedError);
+    expect((err as StackUntestedError).code).toBe("stack_untested");
+    expect((err as StackUntestedError).message).toContain(TRUNK);
+    expect(joined().some((c) => c.includes("merge-async"))).toBe(false);
+  });
+}
+
+test("merge: a failed ancestry read fails CLOSED (#3192)", async () => {
+  const { forge, joined } = harness([
+    [PROBE, stackedProbe],
+    [
+      COMPARE,
+      () => {
+        throw new Error("HTTP 503: upstream unavailable");
+      },
+    ],
+    [PUT_PATH, () => JSON.stringify({ status: "merged" })],
+  ]);
+
+  expect(await stackedMerge(forge)).toBeInstanceOf(StackUntestedError);
+  expect(joined().some((c) => c.includes("merge-async"))).toBe(false);
+});
+
+test("merge: the ancestry read checks the operator-confirmed head (#3192, #2299)", async () => {
+  const confirmed = "abcdef1234567";
+  const { forge, calls } = harness([
+    [PROBE, stackedProbe],
+    [PUT_PATH, () => JSON.stringify({ status: "merged" })],
+  ]);
+
+  expect(await stackedMerge(forge, { expectedHeadSha: confirmed })).toBeNull();
+  expect(calls.find((c) => c.some((a) => a.includes(COMPARE)))?.[1]).toBe(
+    `repos/o/r/compare/${TRUNK}...${confirmed}`,
+  );
+  expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${confirmed}`]);
+});
+
+test("merge: a merge-queue trunk skips the ancestry gate — the queue tests the group (#3192)", async () => {
+  const { forge, calls, joined } = harness([
+    [PROBE, stackedProbe],
+    [RULES, () => "1"],
+    [COMPARE, () => "behind"], // would refuse if anything asked
+    [PUT_PATH, () => JSON.stringify({ status: "enqueued", details: { uuid: UUID } })],
+  ]);
+
+  expect(await stackedMerge(forge)).toBeInstanceOf(MergeEnqueuedError);
+  expect(joined().some((c) => c.includes(COMPARE))).toBe(false);
+  expect(putFields(calls)).toEqual(["merge_action=merge_queue", `sha=${HEAD_SHA}`]);
+});
+
+test("merge: without allowStacked the refusal comes first — no ancestry read (#3192)", async () => {
+  const { forge, joined } = harness([[PROBE, stackedProbe]]);
+
+  const err = await forge
+    .merge(7, { method: "squash", deleteBranch: true })
+    .catch((e: unknown) => e);
+
+  expect(err).toBeInstanceOf(StackedMergeRefusedError);
+  expect(joined().some((c) => c.includes(COMPARE))).toBe(false);
 });
 
 // ── Unstacked PR on a merge-queue base (#3219) ─────────────────────────────────────────────────

@@ -18,6 +18,9 @@ import {
   slotHolders,
   computeNext,
   selectCandidates,
+  mappedIssueSet,
+  needsOpenPrCheck,
+  ARCHIVED_MAPPING_GRACE_MS,
   type AutoSessionView,
   type DrainDecision,
   type DrainRepoState,
@@ -446,8 +449,9 @@ export interface DrainDeps {
    *  across ticks (still one read per tick). */
   prFreshness?: (repoPath: string) => string | null;
   /** #2873: the shared open-PR snapshot; a current one may answer a settled landing PR's read.
-   *  Absent → per-head reads only. */
-  openPrSnapshot?: Pick<OpenPrSnapshotService, "peekCurrent">;
+   *  #3238: also tells whether an archived session's branch still has an open PR. Absent →
+   *  per-head reads only, and archived sessions stay mapped. */
+  openPrSnapshot?: Pick<OpenPrSnapshotService, "peekCurrent" | "get">;
 }
 
 /** A forge that implements the whole stacked-PR surface (#2068). `unstack` is part of it because
@@ -1043,9 +1047,9 @@ export class DrainService {
     epic: Epic | null;
   }> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
-    // ALL sessions (incl. archived) for dedup: an issue drained once stays mapped via
-    // its archived session, so a retired-but-not-yet-merged issue isn't re-pulled (bounded by
-    // session retention). autoSessions/cap use only the non-archived subset.
+    // ALL sessions (incl. archived) for dedup: an archived session keeps its issue mapped only
+    // briefly after archive or while its branch has an open PR (see mappedIssueSet, #3238).
+    // autoSessions/cap use only the non-archived subset.
     const allRepoSessions = this.deps.store.list().filter((s) => s.repoPath === repoPath);
     const snapshot = this.deps.prCache.snapshot();
     const autoSessions: AutoSessionView[] = allRepoSessions
@@ -1068,9 +1072,6 @@ export class DrainService {
           landingRepair: !!s.landingRepair,
         };
       });
-    const mappedIssueNumbers = new Set(
-      allRepoSessions.map((s) => s.issueNumber).filter((n): n is number => n != null),
-    );
     const limits = this.deps.usage.limits(this.now());
     const usagePct = Math.max(limits.session5h?.pct ?? 0, limits.week?.pct ?? 0);
 
@@ -1124,6 +1125,12 @@ export class DrainService {
       candidates = selectCandidates(await this.listIssues(repoPath), cfg.autoLabel);
       summaryCandidates = candidates;
     }
+    // summaryCandidates ⊇ candidates: one check covers the decision and runSummary.next.
+    const mappedIssueNumbers = await this.mappedIssues(
+      repoPath,
+      allRepoSessions,
+      summaryCandidates,
+    );
     // enabled reflects whether spawning is active: epic running → use epic's running
     // status; otherwise fall back to the label-drain toggle. An idle/paused epic or no
     // epic row at all defers to autoDrainEnabled.
@@ -1174,6 +1181,28 @@ export class DrainService {
       },
       epic: builtEpic,
     };
+  }
+
+  /** {@link mappedIssueSet}, reading the open-PR snapshot only when a candidate's dedup needs it. */
+  private async mappedIssues(
+    repoPath: string,
+    sessions: Session[],
+    candidates: Issue[],
+  ): Promise<Set<number>> {
+    const recentSince = this.now() - ARCHIVED_MAPPING_GRACE_MS;
+    const openBranches = needsOpenPrCheck(sessions, candidates, recentSince)
+      ? await this.openPrBranches(repoPath)
+      : null;
+    return mappedIssueSet(sessions, openBranches, recentSince);
+  }
+
+  /** Head branches of the repo's open PRs, or null when unknown (no forge, fork, no snapshot
+   *  support, read failed, or the snapshot was truncated) — callers then fail closed. */
+  private async openPrBranches(repoPath: string): Promise<ReadonlySet<string> | null> {
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge || forge.isFork || !this.deps.openPrSnapshot) return null;
+    const snap = await this.deps.openPrSnapshot.get(forge).catch(() => null);
+    return snap && !snap.capped ? new Set(snap.statuses.keys()) : null;
   }
 
   /** The branch half of {@link buildState} for the active epic: its pinned integration branch and

@@ -3,6 +3,8 @@ import {
   computeNext,
   selectCandidates,
   buildRunSummary,
+  mappedIssueSet,
+  needsOpenPrCheck,
   PRIORITY_LABEL,
   ACTIVE_LABEL,
 } from "../src/drain-core";
@@ -1188,5 +1190,54 @@ describe("computeNext: bootstrap_incomplete (#3105)", () => {
     expect(retire.kind).toBe("retire");
     const off = computeNext(state({ enabled: false, bootstrapMissing: ["P1"] }));
     expect(off).toEqual({ kind: "hold", reason: { code: "disabled" } });
+  });
+});
+
+describe("mappedIssueSet (#3238)", () => {
+  const SINCE = 1_000; // archived before this → "older"
+  const live = (n: number, branch = `b${n}`) => ({
+    issueNumber: n,
+    status: "running" as const,
+    branch,
+    archivedAt: null,
+  });
+  const archived = (n: number, branch: string | null = `b${n}`, archivedAt = 0) => ({
+    issueNumber: n,
+    status: "archived" as const,
+    branch,
+    archivedAt,
+  });
+
+  test("live session maps its issue regardless of open PRs", () => {
+    expect([...mappedIssueSet([live(1)], new Set(), SINCE)]).toEqual([1]);
+  });
+
+  test("older archived session with an open PR on its branch stays mapped", () => {
+    expect([...mappedIssueSet([archived(2)], new Set(["b2"]), SINCE)]).toEqual([2]);
+  });
+
+  test("older archived session whose branch has no open PR releases its issue", () => {
+    expect(mappedIssueSet([archived(3)], new Set(["other"]), SINCE).size).toBe(0);
+  });
+
+  test("unknown open PRs (null) → older archived session stays mapped (fail-closed)", () => {
+    expect([...mappedIssueSet([archived(4)], null, SINCE)]).toEqual([4]);
+  });
+
+  test("older archived session without a branch never maps", () => {
+    expect(mappedIssueSet([archived(5, null)], null, SINCE).size).toBe(0);
+  });
+
+  test("recently archived session maps outright, branch or not", () => {
+    expect([...mappedIssueSet([archived(6, null, SINCE)], new Set(), SINCE)]).toEqual([6]);
+    expect([...mappedIssueSet([archived(7, "b7", SINCE)], new Set(), SINCE)]).toEqual([7]);
+  });
+
+  test("needsOpenPrCheck only for a candidate mapped solely by older archived branched sessions", () => {
+    expect(needsOpenPrCheck([archived(6)], [issue(6)], SINCE)).toBe(true);
+    expect(needsOpenPrCheck([archived(6)], [issue(7)], SINCE)).toBe(false);
+    expect(needsOpenPrCheck([archived(6), live(6)], [issue(6)], SINCE)).toBe(false);
+    expect(needsOpenPrCheck([archived(6), archived(6, "x", SINCE)], [issue(6)], SINCE)).toBe(false);
+    expect(needsOpenPrCheck([archived(6, null)], [issue(6)], SINCE)).toBe(false);
   });
 });

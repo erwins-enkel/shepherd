@@ -143,7 +143,7 @@ export interface DrainRepoState {
   creditSpendCeiling: number;
   /** Non-archived auto sessions for this repo (sessions mid-merge carry git: null). */
   autoSessions: AutoSessionView[];
-  /** Issue numbers already mapped to a non-archived session (auto OR manual). */
+  /** Issue numbers already mapped to a session (auto OR manual) — see {@link mappedIssueSet}. */
   mappedIssueNumbers: Set<number>;
   /** Labeled, ordered backlog issues (see selectCandidates). */
   candidates: Issue[];
@@ -541,6 +541,72 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
     after,
     queued: input.queued,
   };
+}
+
+/** The session facts {@link mappedIssueSet} needs (auto OR manual, any status). */
+export interface MappedSessionView {
+  issueNumber: number | null;
+  status: SessionStatus;
+  branch: string | null;
+  archivedAt: number | null;
+}
+
+/** How long a just-archived session still maps its issue outright. Outlasts the cached issue
+ *  listing (≤30s) and open-PR snapshot (≤120s), so a merge that just closed the issue — or an
+ *  archive that just released its claim — can't re-spawn it off a stale "open" listing. */
+export const ARCHIVED_MAPPING_GRACE_MS = 5 * 60_000;
+
+/** Non-archived, or archived at/after `recentSince` (within {@link ARCHIVED_MAPPING_GRACE_MS}). */
+function mapsOutright(s: MappedSessionView, recentSince: number): boolean {
+  return s.status !== "archived" || (s.archivedAt ?? 0) >= recentSince;
+}
+
+/** Older archived sessions with a branch whose issue nothing maps outright — only they need an
+ *  open-PR check. */
+function archivedOnly(sessions: MappedSessionView[], recentSince: number): MappedSessionView[] {
+  const outright = new Set(
+    sessions.filter((s) => mapsOutright(s, recentSince)).map((s) => s.issueNumber),
+  );
+  return sessions.filter(
+    (s) => s.issueNumber != null && s.branch != null && !outright.has(s.issueNumber),
+  );
+}
+
+/** True when some candidate is mapped only by older archived sessions that have a branch, i.e.
+ *  its dedup depends on {@link mappedIssueSet}'s open-PR check. */
+export function needsOpenPrCheck(
+  sessions: MappedSessionView[],
+  candidates: Issue[],
+  recentSince: number,
+): boolean {
+  const numbers = new Set(candidates.map((c) => c.number));
+  return archivedOnly(sessions, recentSince).some((s) => numbers.has(s.issueNumber!));
+}
+
+/**
+ * Issues the drain must not (re-)spawn because a session already maps them (#3238): every
+ * non-archived or recently archived (`archivedAt >= recentSince`) session, plus an older archived
+ * one whose branch still has an OPEN PR — a retired, not-yet-merged PR (the kept
+ * {@link ACTIVE_LABEL} claim covers it too) or a manual session archived with its PR awaiting
+ * review. `openBranches` null = open PRs unknown → every older archived session with a branch
+ * stays mapped (fail-closed). An older archived session without a branch never maps, so an
+ * abandoned/merged issue relabelled for a follow-up drains again.
+ */
+export function mappedIssueSet(
+  sessions: MappedSessionView[],
+  openBranches: ReadonlySet<string> | null,
+  recentSince: number,
+): Set<number> {
+  const mapped = new Set(
+    sessions
+      .filter((s) => mapsOutright(s, recentSince))
+      .map((s) => s.issueNumber)
+      .filter((n): n is number => n != null),
+  );
+  for (const s of archivedOnly(sessions, recentSince)) {
+    if (openBranches == null || openBranches.has(s.branch!)) mapped.add(s.issueNumber!);
+  }
+  return mapped;
 }
 
 /**

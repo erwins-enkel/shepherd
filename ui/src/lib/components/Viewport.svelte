@@ -111,6 +111,7 @@
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "#lib/osc52.js";
   import type { BuildQueue, LoginRequest, PendingAsk } from "#lib/types.js";
+  import type { AskEntry } from "#lib/ask-center.js";
   import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import { ATTACHMENTS_DIR, computeHasFiles } from "#lib/session-files.js";
@@ -157,6 +158,7 @@
     backgroundBusy = {},
     authUrl = null,
     ask = null,
+    pendingAsks = [],
     consumeAutoFocusTerm = () => variant !== "assistant",
     drain = null,
     autoMergeTrain = {},
@@ -241,6 +243,9 @@
     /** The open AskUserQuestion dialog on this session's block (#3165): auto-opens the native
      *  answer dialog once per tool_use id, and a top strip reopens it. */
     ask?: PendingAsk | null;
+    /** Every session's open question, this one's included: the dialog lists the others beside
+     *  this session's `ask` so they can be answered in one go. */
+    pendingAsks?: AskEntry[];
     /** One-shot gate for the mount auto-focus: the page records whether the selection
      *  that remounted this terminal *wants* the keyboard (click / Alt-combo / Enter →
      *  yes; plain j/k chaining → no), and this consumes that intent — read it, reset
@@ -605,18 +610,28 @@
   // desktop keeps its own git-actions disclosure untouched.
   const headerFolded = $derived(compact && headerCollapsed);
 
-  // AskUserQuestion answer dialog (#3165). Auto-opens ONCE per tool_use id while this session is
-  // shown — closing it is a decision the next block re-emit must not undo — and closes as soon as
-  // the ask leaves the block (answered in the terminal, cancelled, or the session switched).
+  // AskUserQuestion answer dialog (#3165), listing this session's question first and every other
+  // session's beside it. Auto-opens ONCE per tool_use id while this session is shown — closing it
+  // is a decision the next block re-emit must not undo — and closes as soon as no question is left
+  // (answered in the terminal, cancelled) or the session switched.
   // Hosted down the file next to EpicDraftModal for the same transform reason.
   const askSeen = new SvelteSet<string>();
-  let askOpenId = $state<string | null>(null);
+  let askOpenFor = $state<string | null>(null);
+  const askEntries = $derived.by((): AskEntry[] => {
+    const others = pendingAsks.filter((e) => e.session.id !== session.id);
+    if (!ask) return others;
+    const since = pendingAsks.find((e) => e.session.id === session.id)?.since;
+    return [{ session, ask, since }, ...others];
+  });
   $effect(() => {
     const id = ask?.toolUseId ?? null;
     if (id && !askSeen.has(id)) {
       askSeen.add(id);
-      askOpenId = id;
-    } else if (id !== askOpenId) askOpenId = null;
+      askOpenFor = session.id;
+    }
+  });
+  $effect(() => {
+    if (askOpenFor && (askOpenFor !== session.id || askEntries.length === 0)) askOpenFor = null;
   });
 
   // Epic-draft review dialog. Opened from the EpicDraftPanel bar, hosted DOWN THE FILE outside the
@@ -3335,7 +3350,7 @@
       {stranded}
       {authUrl}
       {ask}
-      openAsk={() => (askOpenId = ask?.toolUseId ?? null)}
+      openAsk={() => (askOpenFor = session.id)}
       sessionId={session.id}
       {loginRequest}
       openBrowser={hasBrowser ? () => (tab = "browser") : null}
@@ -3567,8 +3582,19 @@
      carries a transform while a swipe is in flight (style:transform above), and a transformed
      ancestor becomes the containing block for position:fixed — a dialog nested inside would be
      dragged along with the pane instead of staying pinned to the viewport. -->
-{#if ask && askOpenId === ask.toolUseId}
-  <AskQuestionDialog sessionId={session.id} {ask} onclose={() => (askOpenId = null)} />
+{#if askOpenFor === session.id && askEntries.length > 0}
+  <AskQuestionDialog
+    entries={askEntries}
+    focusId={session.id}
+    onclose={() => (askOpenFor = null)}
+    onnavigate={onnavigate &&
+      ((id) => {
+        // The operator chose to look at that session: its question stays behind the strip
+        // instead of popping straight back up on arrival.
+        for (const e of askEntries) if (e.session.id === id) askSeen.add(e.ask.toolUseId);
+        onnavigate(id);
+      })}
+  />
 {/if}
 
 {#if epicDraftOpen}

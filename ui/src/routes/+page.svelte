@@ -91,6 +91,7 @@
     TaskRunSeed,
   } from "#lib/types.js";
   import { sortBlocked } from "#lib/triage.js";
+  import { pendingAskEntries } from "#lib/ask-center.js";
   import {
     byMachine,
     inRepoFilter,
@@ -871,6 +872,8 @@
   );
   // The selected session's open AskUserQuestion dialog (#3165), answered natively in the Viewport.
   const selectedAsk = $derived(selected ? (store.blocks[selected.id]?.reason.ask ?? null) : null);
+  // Every session's open question, listed beside the selected one's in that dialog.
+  const pendingAsks = $derived(pendingAskEntries(store.sessions, store.blocks));
 
   // Select a freshly-started session and follow the herd's repo filter onto its repo.
   // A new task lands in `repoPath`; if the active filter does NOT include that repo the
@@ -3710,6 +3713,7 @@
             backgroundBusy={store.backgroundBusy}
             authUrl={selectedAuthUrl}
             ask={selectedAsk}
+            {pendingAsks}
             onback={() => (mobileScreen = "list")}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}
@@ -3935,6 +3939,7 @@
               backgroundBusy={store.backgroundBusy}
               authUrl={selectedAuthUrl}
               ask={selectedAsk}
+              {pendingAsks}
               onretry={() => (showRetry = true)}
               retryHaltedCount={haltedCount}
               {retryReady}

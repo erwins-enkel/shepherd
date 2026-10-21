@@ -24,6 +24,7 @@ import {
   VERDICT_FILE,
   SURFACE,
   preClassify,
+  stripInputFooter,
   classifierPrompt,
   normalize,
   judgeClassifierQuestion,
@@ -287,7 +288,7 @@ async function classifyViaJudge(
  * Returns `{kind:"unknown",summary:""}` on any failure/timeout/garbage — bias to surface.
  */
 export async function classifyStop(
-  tail: string[],
+  paneTail: string[],
   taskPrompt: string,
   deps: ClassifierDeps,
   label: string,
@@ -323,6 +324,10 @@ export async function classifyStop(
   // gate must still prevent is the fallback silently billing the subscription. So: judge first,
   // then surface instead of spawning.
   const spawnBarred = apiKeyFailClosed(provider);
+
+  // The idle input box and status line below it are chrome, not the agent's words (#3224): strip
+  // them before either leg or the summary sees the tail. Chrome-only → empty → preClassify surfaces.
+  const tail = stripInputFooter(paneTail);
 
   // Still ahead of the judge: an empty tail has nothing to classify, and surfacing costs nothing.
   const pre = preClassify(tail);

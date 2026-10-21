@@ -208,6 +208,27 @@ export function judgeVerdict(
   return { kind, summary: summaryFromTail(tail) };
 }
 
+/** A horizontal rule framing Claude Code's input box. */
+const INPUT_RULE_RE = /^\s*─{10,}\s*$/;
+/** The prompt line inside it — but never a caret on a numbered menu option (`❯ 1. Yes`). */
+const INPUT_PROMPT_RE = /^\s*❯(?!\s*\d+[.)])/;
+
+/**
+ * Cut Claude Code's idle input box (rule, `❯` prompt, rule) and everything below it — the status
+ * line, permission-mode hint, update/usage banners (#3224). That chrome sits under the agent's last
+ * words on every idle screen, so left in it became the hold's "question" and fed the classifier
+ * text like `Update available! Run: …`. Structural rather than content-matched: the status line is
+ * user-configurable. No input box (a dialog, a Codex pane, a partial buffer) → tail unchanged.
+ */
+export function stripInputFooter(tail: string[]): string[] {
+  for (let i = tail.length - 1; i >= 0; i--) {
+    if (!INPUT_RULE_RE.test(tail[i]!)) continue;
+    const next = tail.slice(i + 1).find((l) => l.trim() !== "");
+    if (next !== undefined && INPUT_PROMPT_RE.test(next)) return tail.slice(0, i);
+  }
+  return tail;
+}
+
 /** Lines that are pure box-drawing or punctuation carry no meaning once the surrounding frame is
  *  gone, so they are dropped before the excerpt is taken. */
 const CHROME_ONLY_RE = /^[^\p{L}\p{N}]*$/u;
@@ -234,7 +255,7 @@ const SUMMARY_TAIL_LINES = 3;
  * {@link normalize} applies to a model summary.
  */
 export function summaryFromTail(tail: string[]): string {
-  const lines = tail
+  const lines = stripInputFooter(tail)
     .map((l) => l.trim())
     .filter((l) => l !== "" && !CHROME_ONLY_RE.test(l))
     .slice(-SUMMARY_TAIL_LINES);

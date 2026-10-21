@@ -3384,6 +3384,7 @@
         stacked
         {switcher}
         session={entry.session}
+        ask={entry.session ? (store.blocks[entry.session.id]?.reason.ask ?? null) : null}
         available={store.assistantAvailable}
         reason={store.assistantUnavailableReason}
         pending={assistantLifecycle.pendingFor(repo)}

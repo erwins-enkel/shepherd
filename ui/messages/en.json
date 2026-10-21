@@ -6859,5 +6859,8 @@
   "native_ios_usage_warning_reset": "{agent} · {window}: {pct}% used · resets {time}",
   "automerge_state_stack_untested": "Stack not tested against current trunk, restack it",
   "gitrail_merge_failed_stack_untested": "Merge blocked: the stack was not tested against its trunk's current tip. Restack onto the trunk, let CI run, then retry.",
-  "prspanel_merge_failed_stack_untested": "merge blocked: stack not tested against current trunk — restack first"
+  "prspanel_merge_failed_stack_untested": "merge blocked: stack not tested against current trunk — restack first",
+  "assistant_chat_answer_question": "Answer the question above before sending another message.",
+  "feat_assistant_chat_questions_title": "Answer assistant questions in chat",
+  "feat_assistant_chat_questions_body": "Choose answers, select multiple options, or write your own answer directly in the assistant conversation. No terminal switch needed."
 }

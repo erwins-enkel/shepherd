@@ -1,22 +1,32 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { desigIndex } from "#lib/desigLinks.js";
-  import type { Session, SessionMessages, SessionStatus } from "#lib/types.js";
+  import type {
+    AnswerAskResult,
+    Session,
+    PendingAsk,
+    RawAnswer,
+    SessionMessages,
+    SessionStatus,
+  } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { getSessionMessages } from "#lib/api.js";
+  import { answerAsk, getSessionMessages } from "#lib/api.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { clock } from "#lib/activity.js";
   import { chatEntries, unsettled, type PendingSend } from "#lib/assistant-chat.js";
+  import { askToQuestionForm } from "#lib/askForm.js";
+  import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
   import MarkdownBody from "./MarkdownBody.svelte";
 
   // The Operator Assistant's conversation view: the transcript's text messages as a chat, and a
-  // composer. It never talks to the agent itself — a send goes through the panel's terminal
-  // socket (onsend), so the operator's view report rides along exactly as when typing there.
+  // composer. Prompt text uses the panel's terminal socket (onsend), including the view report.
+  // Structured questions use answerAsk so the server can type and verify their selections.
   let {
     sessionId,
     status,
     herd = [],
     onnavigate,
+    ask = null,
     mobile = false,
     touch = false,
     prefill = null,
@@ -30,6 +40,7 @@
     status: SessionStatus;
     herd?: readonly Pick<Session, "id" | "desig">[];
     onnavigate?: (id: string) => void;
+    ask?: PendingAsk | null;
     mobile?: boolean;
     touch?: boolean;
     /** An "Ask the assistant" prefill: put into the composer (not sent) for the operator to review. */
@@ -60,6 +71,47 @@
   const herdDesigs = $derived(desigIndex(herd));
   const working = $derived(status === "running");
   const blocked = $derived(status === "blocked");
+  let answer = $state<{
+    sessionId: string;
+    toolUseId: string;
+    result: "sending" | AnswerAskResult | "failed";
+  } | null>(null);
+  // Clearing a question is normal while its request verifies. Keep that result, but discard it
+  // when another question or session takes over; late requests must not overwrite the new one.
+  $effect(() => {
+    const id = sessionId;
+    const toolUseId = ask?.toolUseId;
+    untrack(() => {
+      if (answer && (answer.sessionId !== id || (toolUseId && answer.toolUseId !== toolUseId)))
+        answer = null;
+    });
+  });
+  const composerLocked = $derived(!!ask || answer?.result === "sending");
+  const answerText = $derived(
+    answer
+      ? {
+          sending: m.ask_result_sending,
+          verified: m.ask_result_verified,
+          mismatch: m.ask_result_mismatch,
+          unverified: m.ask_result_unverified,
+          failed: m.ask_result_failed,
+        }[answer.result]()
+      : null,
+  );
+  const answerWarning = $derived(!!answer && !["sending", "verified"].includes(answer.result));
+
+  async function submitAnswer(answers: RawAnswer[]) {
+    if (!ask || (answer?.sessionId === sessionId && answer.toolUseId === ask.toolUseId)) return;
+    answer = { sessionId, toolUseId: ask.toolUseId, result: "sending" };
+    const request = answer;
+    try {
+      const result = await answerAsk(request.sessionId, request.toolUseId, answers);
+      if (answer === request) request.result = result;
+    } catch {
+      if (answer === request) request.result = "failed";
+    }
+  }
+
   const entries = $derived(chatEntries(data?.messages ?? []));
   const waiting = $derived(unsettled(pending, entries));
   // Stable keys so a new message doesn't re-render (and re-parse) every row above it.
@@ -126,7 +178,7 @@
 
   function submit() {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || composerLocked) return;
     if (!onsend(text)) {
       sendFailed = true;
       return;
@@ -184,7 +236,7 @@
     aria-label={m.assistant_chat_log()}
   >
     <div class="ac-stack" bind:this={stack}>
-      {#if rows.length === 0 && waiting.length === 0 && !working}
+      {#if rows.length === 0 && waiting.length === 0 && !working && !ask}
         <p class="ac-empty">{m.assistant_chat_empty()}</p>
       {/if}
       {#each rows as e (e.key)}
@@ -226,7 +278,24 @@
           <span class="ac-dot" aria-hidden="true"></span>{m.assistant_chat_working()}
         </p>
       {/if}
-      {#if blocked}
+      {#if ask}
+        {#key `${sessionId}:${ask.toolUseId}`}
+          <div class="ac-question">
+            <QuestionFormBlock block={askToQuestionForm(ask)} onanswer={submitAnswer} />
+          </div>
+        {/key}
+      {/if}
+      {#if answerText}
+        <div class="ac-notice" role={answerWarning ? "alert" : "status"}>
+          <p>{answerText}</p>
+          {#if answerWarning}
+            <button type="button" class="gbtn primary" onclick={onterminal}
+              >{m.assistant_chat_open_terminal()}</button
+            >
+          {/if}
+        </div>
+      {/if}
+      {#if blocked && !ask && !answerWarning && answer?.result !== "sending"}
         <div class="ac-notice" role="status">
           <p>{m.assistant_chat_blocked()}</p>
           <button type="button" class="gbtn primary" onclick={onterminal}
@@ -259,11 +328,13 @@
       {#if working}
         <button type="button" class="gbtn" onclick={oninterrupt}>{m.assistant_chat_stop()}</button>
       {/if}
-      <button type="submit" class="gbtn primary" disabled={!draft.trim()}
+      <button type="submit" class="gbtn primary" disabled={!draft.trim() || composerLocked}
         >{m.assistant_chat_send()}</button
       >
     </div>
-    {#if sendFailed}
+    {#if composerLocked}
+      <p class="ac-hint">{m.assistant_chat_answer_question()}</p>
+    {:else if sendFailed}
       <p class="ac-error" role="alert">{m.assistant_chat_send_failed()}</p>
     {:else if !mobile && !touch}
       <p class="ac-hint">{m.assistant_chat_keys()}</p>
@@ -367,6 +438,12 @@
     50% {
       opacity: 0.3;
     }
+  }
+  .ac-question {
+    padding: 12px;
+    border: 1px solid var(--wash-assistant-edge);
+    border-radius: var(--radius-chip);
+    overflow-wrap: anywhere;
   }
   .ac-notice {
     display: flex;

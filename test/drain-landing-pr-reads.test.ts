@@ -170,7 +170,7 @@ function makeHarness(
       return opts.rebase ? opts.rebase() : { kind: "current" };
     },
     prFreshness: opts.freshness === false ? undefined : () => key,
-    openPrSnapshot: { peekCurrent: () => snapshot },
+    openPrSnapshot: { peekCurrent: () => snapshot, get: async () => snapshot?.value ?? null },
   });
 
   const h: Harness = {

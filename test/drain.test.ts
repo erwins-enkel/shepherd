@@ -1,12 +1,13 @@
 import { test, expect, describe, spyOn } from "bun:test";
 import { DrainService, type DrainStatus } from "../src/drain";
-import { ACTIVE_LABEL } from "../src/drain-core";
+import { ACTIVE_LABEL, ARCHIVED_MAPPING_GRACE_MS } from "../src/drain-core";
 import { SessionStore } from "../src/store";
 import type {
   GitForge,
   GitState,
   Issue,
   MergeMethod,
+  OpenPrSnapshot,
   PrStatus,
   SubIssueRef,
 } from "../src/forge/types";
@@ -173,6 +174,8 @@ function makeHarness(
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
     repos?: () => string[];
     bootstrapMustHaves?: (repoPath: string) => string[];
+    openPrSnapshot?: ConstructorParameters<typeof DrainService>[0]["openPrSnapshot"];
+    now?: () => number;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -301,6 +304,8 @@ function makeHarness(
   const drain = new DrainService({
     capacity: opts.capacity,
     bootstrapMustHaves: opts.bootstrapMustHaves,
+    openPrSnapshot: opts.openPrSnapshot,
+    now: opts.now,
     store,
     service,
     resolveForge: () => forge,
@@ -633,11 +638,113 @@ test("re-spawn guard: a merged+archived auto session for #N keeps #N out of cand
     auto: true,
     issueNumber: 7,
   });
-  // simulate the retired → archived lifecycle: its issueNumber must stay mapped
+  // simulate the retired → archived lifecycle: with open PRs unknown (no snapshot) its
+  // issueNumber stays mapped (fail-closed)
   h.store.archive(s.id);
   await h.drain.pump(REPO);
   // issue #7 still open+labeled, but already drained → not re-spawned
   expect(h.creates).toHaveLength(0);
+});
+
+describe("re-drain after archive (#3238)", () => {
+  function snapshotOf(branches: string[], capped = false) {
+    const calls = { get: 0 };
+    const value: OpenPrSnapshot = {
+      prs: [],
+      statuses: new Map(
+        branches.map((b) => [
+          b,
+          { state: "open", checks: "success", deployConfigured: false } as PrStatus,
+        ]),
+      ),
+      capped,
+    };
+    return {
+      calls,
+      dep: {
+        peekCurrent: () => null,
+        get: async () => {
+          calls.get++;
+          return value;
+        },
+      },
+    };
+  }
+  // A pump well past the post-archive grace, so only the open-PR check decides.
+  const later = () => Date.now() + ARCHIVED_MAPPING_GRACE_MS + 60_000;
+  function archivedSession(h: Harness, issueNumber: number, auto = true) {
+    const s = h.store.create({
+      name: "s",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: "main",
+      branch: `shepherd/auto-${issueNumber}`,
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto,
+      issueNumber,
+    });
+    h.store.archive(s.id);
+  }
+
+  test("issue whose sessions are all archived with no open PR is drained again", async () => {
+    const snap = snapshotOf(["unrelated"]);
+    const h = makeHarness({ issues: [issue(7)], openPrSnapshot: snap.dep, now: later });
+    archivedSession(h, 7);
+    archivedSession(h, 7, false);
+    await h.drain.pump(REPO);
+    expect(h.creates.map((c) => c.issueRef?.number)).toEqual([7]);
+  });
+
+  test("archived session whose branch still has an open PR keeps the issue mapped", async () => {
+    const snap = snapshotOf(["shepherd/auto-7"]);
+    const h = makeHarness({ issues: [issue(7)], openPrSnapshot: snap.dep, now: later });
+    archivedSession(h, 7);
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("a truncated snapshot fails closed", async () => {
+    const snap = snapshotOf([], true);
+    const h = makeHarness({ issues: [issue(7)], openPrSnapshot: snap.dep, now: later });
+    archivedSession(h, 7);
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("a failed snapshot read fails closed", async () => {
+    const h = makeHarness({
+      issues: [issue(7)],
+      now: later,
+      openPrSnapshot: {
+        peekCurrent: () => null,
+        get: async () => Promise.reject(new Error("boom")),
+      },
+    });
+    archivedSession(h, 7);
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("no snapshot read when no candidate is mapped only by archived sessions", async () => {
+    const snap = snapshotOf([]);
+    const h = makeHarness({ issues: [issue(8)], openPrSnapshot: snap.dep, now: later });
+    archivedSession(h, 7);
+    await h.drain.pump(REPO);
+    expect(snap.calls.get).toBe(0);
+    expect(h.creates.map((c) => c.issueRef?.number)).toEqual([8]);
+  });
+
+  test("a just-archived session keeps its issue mapped through the grace window", async () => {
+    const snap = snapshotOf([]);
+    const h = makeHarness({ issues: [issue(7)], openPrSnapshot: snap.dep });
+    archivedSession(h, 7);
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+    expect(snap.calls.get).toBe(0);
+  });
 });
 
 test("drain-disabled repo: a manual archive does not pump / emit drain:status", async () => {

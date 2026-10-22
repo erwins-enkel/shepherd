@@ -612,6 +612,10 @@ export interface RepoConfig {
   sharedBrowserEnabled: boolean;
   /** Hosts an autonomous Browser Attach may reach (#2883). Normalized hostnames; default []. */
   browserAllowedHosts: string[];
+  /** Let this repo's Claude task sessions load the operator's claude.ai account connectors (Docs,
+   *  Gmail, Drive, Notion …). Default OFF — every spawn pins `ENABLE_CLAUDEAI_MCP_SERVERS=false`
+   *  unless the repo opts in (see spawnSettingsOverlay). */
+  claudeAiConnectorsEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
@@ -990,6 +994,7 @@ type RepoCfgRow = {
   epicStacksEnabled: number;
   sharedBrowserEnabled: number;
   browserAllowedHosts: string | null;
+  claudeAiConnectorsEnabled: number;
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
@@ -1184,6 +1189,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       epicStacksEnabled: false,
       sharedBrowserEnabled: false,
       browserAllowedHosts: [],
+      claudeAiConnectorsEnabled: false,
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
@@ -1216,6 +1222,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     epicStacksEnabled: !!r.epicStacksEnabled,
     sharedBrowserEnabled: !!r.sharedBrowserEnabled,
     browserAllowedHosts: parseHostListJson(r.browserAllowedHosts),
+    claudeAiConnectorsEnabled: !!r.claudeAiConnectorsEnabled,
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
@@ -1251,6 +1258,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.epicStacksEnabled)),
     Number(Boolean(cfg.sharedBrowserEnabled)),
     JSON.stringify(cfg.browserAllowedHosts ?? []),
+    Number(Boolean(cfg.claudeAiConnectorsEnabled)),
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
@@ -2342,7 +2350,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2355,8 +2363,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2382,6 +2390,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          epicStacksEnabled = excluded.epicStacksEnabled,
          sharedBrowserEnabled = excluded.sharedBrowserEnabled,
          browserAllowedHosts = excluded.browserAllowedHosts,
+         claudeAiConnectorsEnabled = excluded.claudeAiConnectorsEnabled,
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
@@ -6590,6 +6599,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("sharedBrowserEnabled", `sharedBrowserEnabled INTEGER NOT NULL DEFAULT 0`);
     // #2883: hosts an autonomous Browser Attach may reach; JSON string array (nullable, default []).
     add("browserAllowedHosts", `browserAllowedHosts TEXT`);
+    // default OFF — opt-in; let this repo's Claude sessions load the claude.ai account connectors
+    add("claudeAiConnectorsEnabled", `claudeAiConnectorsEnabled INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.

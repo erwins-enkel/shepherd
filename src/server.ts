@@ -2531,6 +2531,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "mergeWithoutCi",
   "epicStacksEnabled",
   "sharedBrowserEnabled",
+  "claudeAiConnectorsEnabled",
   "hidden",
 ] as const;
 
@@ -2550,6 +2551,7 @@ type RepoCfgBody = {
   mergeWithoutCi?: unknown;
   epicStacksEnabled?: unknown;
   sharedBrowserEnabled?: unknown;
+  claudeAiConnectorsEnabled?: unknown;
   hidden?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
@@ -2659,6 +2661,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       mergeWithoutCi?: boolean;
       epicStacksEnabled?: boolean;
       sharedBrowserEnabled?: boolean;
+      claudeAiConnectorsEnabled?: boolean;
       hidden?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
@@ -2714,7 +2717,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -2735,6 +2738,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     mergeWithoutCi: body.mergeWithoutCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
     sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
+    claudeAiConnectorsEnabled: body.claudeAiConnectorsEnabled as boolean | undefined,
     hidden: body.hidden as boolean | undefined,
     signoffAuthority,
     sandboxProfile,

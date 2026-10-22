@@ -205,6 +205,7 @@ function makeHarness(
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });
@@ -1203,6 +1204,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });
@@ -1232,6 +1234,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });
@@ -2400,6 +2403,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });

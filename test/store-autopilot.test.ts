@@ -149,6 +149,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });

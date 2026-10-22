@@ -4,7 +4,7 @@ import { SessionService } from "../src/service";
 import { DrainService } from "../src/drain";
 import type { SandboxBackend } from "../src/sandbox";
 import type { EgressBackend } from "../src/egress";
-import { egressTmpDir } from "../src/egress";
+import { CLAUDEAI_CONNECTOR_EGRESS_HOST, egressTmpDir } from "../src/egress";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { StandardCreateInput, Session } from "../src/types";
@@ -508,6 +508,35 @@ test("egressWatcher.start called on autonomous egress spawn", async () => {
   }
 });
 
+test("autonomous allowlist carries the claude.ai connector proxy only when the repo opts in", async () => {
+  for (const enabled of [true, false]) {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", {
+      ...defaultRepoConfig(),
+      sandboxProfile: "autonomous",
+      claudeAiConnectorsEnabled: enabled,
+    });
+    const watcher = makeWatcherStub();
+    const service = new SessionService({
+      transcriptExists: () => true,
+      store,
+      namer: async () => "s",
+      worktree: worktreeStub(),
+      herdr: herdrStub({}),
+      detectBackend: () => "bwrap",
+      detectEgressBackend: () => "slirp4netns",
+      egressWatcher: watcher,
+    });
+    const s = await service.create(baseInput({ auto: true }));
+    try {
+      const allowlist = watcher.starts[0]!.opts.allowlist;
+      expect(allowlist.some((host) => host === CLAUDEAI_CONNECTOR_EGRESS_HOST)).toBe(enabled);
+    } finally {
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  }
+});
+
 test("egressWatcher.stop called on archive (before removeEgressTmp)", async () => {
   const dropped: string[] = [];
   const store = new SessionStore(":memory:");
@@ -602,6 +631,7 @@ function defaultRepoConfig() {
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   };

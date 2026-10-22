@@ -1,8 +1,10 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import {
   ANTHROPIC_EGRESS_HOSTS,
+  CLAUDEAI_CONNECTOR_EGRESS_HOST,
   GITHUB_EGRESS_HOSTS,
   buildEgressAllowlist,
+  connectorEgressHosts,
   hostMatchesAllowlist,
   buildEgressConfig,
   egressMembraneOverrideFlags,
@@ -29,6 +31,26 @@ import { join } from "node:path";
 
 // Use the exported constant — a local copy would drift silently.
 const GITHUB_HOSTS = GITHUB_EGRESS_HOSTS;
+
+// ── connectorEgressHosts ─────────────────────────────────────────────────────
+
+describe("connectorEgressHosts", () => {
+  test("adds the connector proxy only for an opted-in Claude task spawn", () => {
+    expect(connectorEgressHosts(true, { agentProvider: "claude" })).toEqual([
+      CLAUDEAI_CONNECTOR_EGRESS_HOST,
+    ]);
+    expect(connectorEgressHosts(true, {})).toEqual(["mcp-proxy.anthropic.com"]);
+    expect(connectorEgressHosts(false, { agentProvider: "claude" })).toEqual([]);
+    expect(connectorEgressHosts(true, { agentProvider: "codex" })).toEqual([]);
+    expect(
+      connectorEgressHosts(true, { agentProvider: "claude", operatorAssistant: true }),
+    ).toEqual([]);
+  });
+
+  test("the base set does not carry the connector proxy on its own", () => {
+    expect(ANTHROPIC_EGRESS_HOSTS).not.toContain(CLAUDEAI_CONNECTOR_EGRESS_HOST);
+  });
+});
 
 // ── ANTHROPIC_EGRESS_HOSTS ───────────────────────────────────────────────────
 

@@ -42,6 +42,7 @@ pub fn repo_config_json() -> Value {
         "mergeWithoutCi",
         "epicStacksEnabled",
         "sharedBrowserEnabled",
+        "claudeAiConnectorsEnabled",
         "hidden",
     ] {
         v[flag] = json!(false);

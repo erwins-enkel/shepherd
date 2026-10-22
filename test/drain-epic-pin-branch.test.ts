@@ -92,6 +92,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });

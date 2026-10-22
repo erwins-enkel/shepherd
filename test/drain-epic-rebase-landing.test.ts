@@ -178,6 +178,7 @@ function makeHarness(opts: {
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });

@@ -321,6 +321,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
@@ -352,6 +353,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
@@ -383,6 +385,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
@@ -414,6 +417,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
@@ -445,6 +449,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
@@ -503,6 +508,17 @@ test("repo_config: sharedBrowserEnabled defaults off, round-trips through set/ge
     browserAllowedHosts: [],
   });
   expect(store.getRepoConfig("/repo/browser").sharedBrowserEnabled).toBe(false);
+});
+
+test("repo_config: claudeAiConnectorsEnabled defaults off, round-trips through set/getRepoConfig", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/conn").claudeAiConnectorsEnabled).toBe(false);
+  store.setRepoConfig("/repo/conn", {
+    ...store.getRepoConfig("/repo/conn"),
+    claudeAiConnectorsEnabled: true,
+  });
+  expect(store.getRepoConfig("/repo/conn").claudeAiConnectorsEnabled).toBe(true);
+  expect(store.getRepoConfig("/repo/other").claudeAiConnectorsEnabled).toBe(false);
 });
 
 // #2069: the epic_stack memo — what makes the composition pass idempotent across ticks/restarts.
@@ -662,6 +678,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,

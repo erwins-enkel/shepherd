@@ -2332,6 +2332,25 @@ test("PUT /api/repo-config rejects non-boolean mergeWithoutCi", async () => {
   expect(res.status).toBe(400);
 });
 
+// ── claudeAiConnectorsEnabled repo-config ───────────────────────────────────
+
+test("PUT /api/repo-config accepts claudeAiConnectorsEnabled true → 200 and persists it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).claudeAiConnectorsEnabled).toBe(false); // default off
+  const res = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).claudeAiConnectorsEnabled).toBe(true);
+  expect(deps.store.getRepoConfig(validRepo).claudeAiConnectorsEnabled).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean claudeAiConnectorsEnabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: "yes" });
+  expect(res.status).toBe(400);
+});
+
 // ── epicStacksEnabled repo-config (#2069) ────────────────────────────────────
 test("PUT /api/repo-config accepts epicStacksEnabled true → 200 and GET reflects it", async () => {
   const deps = makeDeps();

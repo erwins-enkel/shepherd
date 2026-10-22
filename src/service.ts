@@ -158,6 +158,7 @@ import {
   egressMembraneOverrideFlags,
   buildEgressAllowlist,
   buildEgressConfig,
+  connectorEgressHosts,
   writeEgressConfigFiles,
   wrapEgress,
   egressTmpDir,
@@ -555,16 +556,19 @@ export function resetUserSkillNamesCacheForTests(): void {
  * Claude Code's Remote Control for every Shepherd session (default false suppresses the
  * notification noise); `/remote-control` in the terminal still toggles it per-session.
  *
- * Pins `env.ENABLE_CLAUDEAI_MCP_SERVERS = "false"` to disable the claude.ai account-connector MCP
- * servers (Gmail / Google Calendar / Google Drive / Notion / Microsoft 365) for every spawned
- * coding agent (issue #509). Least-privilege hygiene, NOT a token win — the #499 spike measured
- * the saving at only −132 tok/turn (connectors load as deferred, name-only tools) — but an
- * autonomous coding agent has no business reaching the operator's personal Gmail/Notion.
- * Unconditional and not opt-out'able by design; the overlay `env` merges key-by-key over the
- * user's settings so the rest of their env is untouched. (Reviewer/critic/plan-gate spawns don't
- * use this overlay — they run `--safe-mode`, which disables file/plugin MCP *loading* + other
- * customizations, plus `enableAllProjectMcpServers` in their own `--settings` to clear Claude's
- * interactive project-.mcp.json approval gate; see buildTransientAgentArgv.)
+ * Pins `env.ENABLE_CLAUDEAI_MCP_SERVERS` to disable the claude.ai account-connector MCP
+ * servers (Gmail / Google Calendar / Google Drive / Notion / Microsoft 365 / Claude Docs) for every
+ * spawned coding agent (issue #509). Least-privilege hygiene, NOT a token win — the #499 spike
+ * measured the saving at only −132 tok/turn (connectors load as deferred, name-only tools) — but
+ * an autonomous coding agent has no business reaching the operator's personal Gmail/Notion unless
+ * the operator says so. `claudeAiConnectors` is that say-so: a repo's `claudeAiConnectorsEnabled`
+ * opt-in pins `"true"` instead (explicitly, so it also lifts a `"false"` in the user's own settings
+ * env). Default `"false"`, so every caller that passes nothing keeps the old overlay byte for byte;
+ * the overlay `env` merges key-by-key over the user's settings so the rest of their env is
+ * untouched. (Reviewer/critic/plan-gate spawns don't use this overlay — they run `--safe-mode`,
+ * which disables file/plugin MCP *loading* + other customizations, plus
+ * `enableAllProjectMcpServers` in their own `--settings` to clear Claude's interactive
+ * project-.mcp.json approval gate; see buildTransientAgentArgv.)
  *
  * `disablePlugins` (trimmed auto spawns only) adds `enabledPlugins: {<id>: false, ...}`,
  * which overrides the global `true` per-spawn and kills plugin SessionStart hooks, plugin
@@ -599,6 +603,8 @@ export function resetUserSkillNamesCacheForTests(): void {
  */
 export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
+    /** The repo's `claudeAiConnectorsEnabled` opt-in; absent → the connectors stay off. */
+    claudeAiConnectors?: boolean;
     hooks?: { sessionId: string; baseUrl: string; token: string | null };
     permissions?: { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
     assistantView?: { sessionId: string; baseUrl: string; token: string | null };
@@ -606,7 +612,7 @@ export function spawnSettingsOverlay(
 ): string {
   const settings: Record<string, unknown> = {
     remoteControlAtStartup: config.remoteControlAtStartup,
-    env: { ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
+    env: { ENABLE_CLAUDEAI_MCP_SERVERS: opts.claudeAiConnectors ? "true" : "false" },
   };
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
@@ -3176,6 +3182,7 @@ export class SessionService {
       egressOn,
       sessionId: ctx.sessionId,
       repoPath: ctx.repoPath,
+      connectorHosts: connectorEgressHosts(repoConfig.claudeAiConnectorsEnabled, ctx),
     });
     // api-key passthrough (trusted, or a sandboxed profile degraded to no-backend):
     // no membrane to mask the credential in place, so point the spawn at the
@@ -3259,6 +3266,8 @@ export class SessionService {
     egressOn: boolean;
     sessionId: string;
     repoPath: string;
+    /** The claude.ai connector proxy when this spawn gets the connectors (connectorEgressHosts). */
+    connectorHosts: string[];
   }): { wrapped: string[]; egressAllowlist?: string[]; egressDnsLog?: string } {
     const { innerArgv, profile, backend, egressBackend, membrane, egressOn } = args;
     if (!egressOn) {
@@ -3274,6 +3283,7 @@ export class SessionService {
       extraHosts: [
         ...config.sandboxEgressExtraHosts,
         ...this.deps.store.getRepoConfig(args.repoPath).egressExtraHosts,
+        ...args.connectorHosts,
       ],
     });
     // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
@@ -3582,6 +3592,7 @@ export class SessionService {
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
+        claudeAiConnectors: repoConfig.claudeAiConnectorsEnabled,
         hooks: { sessionId, baseUrl, token: config.token },
       }),
     );
@@ -3707,6 +3718,7 @@ export class SessionService {
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
+        claudeAiConnectors: this.deps.store.getRepoConfig(s.repoPath).claudeAiConnectorsEnabled,
         hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     ];

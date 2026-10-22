@@ -122,6 +122,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });

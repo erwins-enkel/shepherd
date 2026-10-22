@@ -6863,5 +6863,6 @@
   "assistant_chat_answer_question": "Answer the question above before sending another message.",
   "feat_assistant_chat_questions_title": "Answer assistant questions in chat",
   "feat_assistant_chat_questions_body": "Choose answers, select multiple options, or write your own answer directly in the assistant conversation. No terminal switch needed.",
-  "automergebanner_queued": "in the merge queue — GitHub merges it once the queue's CI passes"
+  "automergebanner_queued": "in the merge queue — GitHub merges it once the queue's CI passes",
+  "lazy_load_failed": "Couldn't load this panel. The connection dropped or Shepherd was updated."
 }

@@ -150,13 +150,10 @@
     type ViewTab,
   } from "#lib/operator-assistant-view.js";
   import { detectTerminalClient } from "#lib/terminal-client.js";
-  import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
-  import RemoteSessionDetail from "#lib/components/RemoteSessionDetail.svelte";
   import { summarizeClearMerged } from "#lib/clear-merged-result.js";
   import UpNextPreview from "#lib/components/UpNextPreview.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
-  import ReposSheet from "#lib/components/ReposSheet.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
@@ -173,6 +170,16 @@
   import FeedbackDialog from "#lib/components/FeedbackDialog.svelte";
   import TelemetryConsent from "#lib/components/TelemetryConsent.svelte";
   import Toasts from "#lib/components/Toasts.svelte";
+  import LazyMount from "#lib/components/page/LazyMount.svelte";
+  import type RemoteSessionDetailComponent from "#lib/components/RemoteSessionDetail.svelte";
+  import {
+    loadDoneRecapPanel,
+    loadNewTask,
+    loadRemoteSessionDetail,
+    loadReposSheet,
+    loadSettings as loadSettingsOverlay,
+  } from "#lib/components/page/overlay-loaders.js";
+  import { prefetchWhenIdle } from "#lib/lazy-component.js";
   import { registerSW, onSelectSession } from "#lib/push.js";
   import { onLaunchLink, sessionIdFromLink } from "#lib/launch-link.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -338,6 +345,9 @@
     showSettings = target.showSettings;
     history.replaceState(history.state, "", target.cleanUrl);
   });
+  // Overlays are code-split off the first-boot bundle (#3233); warm the most-opened ones once
+  // the boot settles so their first open doesn't wait on the network.
+  onMount(() => prefetchWhenIdle([loadNewTask, loadSettingsOverlay]));
   let showUsage = $state(false);
   let settingsTab = $state<SettingsSectionId>("workspace");
   // Whether the pending Settings open is a deep link (diagnostics dot, plugin
@@ -1521,7 +1531,7 @@
   // keyboard back to the terminal that plain-key navigation kept it out of.
   let viewportRef: Viewport | undefined = $state();
   // …and on the desktop detail of a session on a connected machine, which stands in its place.
-  let remoteDetailRef: RemoteSessionDetail | undefined = $state();
+  let remoteDetailRef: RemoteSessionDetailComponent | undefined = $state();
   // That detail's compact layout, as the Viewport derives its own from mobile + touch.
   const remoteDetailCompact = $derived(mobile.current || touch.current);
 
@@ -3641,23 +3651,31 @@
             >{m.done_back_to_list()}</button
           >
           {#if doneSelected}
-            <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
+            <LazyMount load={loadDoneRecapPanel}>
+              {#snippet children(DoneRecapPanel)}
+                <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
+              {/snippet}
+            </LazyMount>
           {:else}
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}
         </div>
       {:else if selectedRemote}
         <div class="col">
-          <RemoteSessionDetail
-            session={selectedRemote}
-            {nowMs}
-            terminalOwners={store.terminalOwners}
-            previewTick={store.remotePreviewTick[selectedRemote.id]}
-            compact={remoteDetailCompact}
-            onback={() => (mobileScreen = "list")}
-            ondecommission={onarchive}
-            onedit={openSteersEditor}
-          />
+          <LazyMount load={loadRemoteSessionDetail}>
+            {#snippet children(RemoteSessionDetail)}
+              <RemoteSessionDetail
+                session={selectedRemote}
+                {nowMs}
+                terminalOwners={store.terminalOwners}
+                previewTick={store.remotePreviewTick[selectedRemote.id]}
+                compact={remoteDetailCompact}
+                onback={() => (mobileScreen = "list")}
+                ondecommission={onarchive}
+                onedit={openSteersEditor}
+              />
+            {/snippet}
+          </LazyMount>
         </div>
       {:else if selected}
         <div class="col pane-host">
@@ -3841,21 +3859,29 @@
           {:else if herdFilter === "done"}
             <!-- Done lens: read-only recap for the picked archived session -->
             {#if doneSelected}
-              <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
+              <LazyMount load={loadDoneRecapPanel}>
+                {#snippet children(DoneRecapPanel)}
+                  <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
+                {/snippet}
+              </LazyMount>
             {:else}
               <div class="empty">{m.herd_done_empty()}</div>
             {/if}
           {:else if selectedRemote}
-            <RemoteSessionDetail
-              bind:this={remoteDetailRef}
-              session={selectedRemote}
-              {nowMs}
-              terminalOwners={store.terminalOwners}
-              previewTick={store.remotePreviewTick[selectedRemote.id]}
-              compact={remoteDetailCompact}
-              ondecommission={onarchive}
-              onedit={openSteersEditor}
-            />
+            <LazyMount load={loadRemoteSessionDetail}>
+              {#snippet children(RemoteSessionDetail)}
+                <RemoteSessionDetail
+                  bind:this={remoteDetailRef}
+                  session={selectedRemote}
+                  {nowMs}
+                  terminalOwners={store.terminalOwners}
+                  previewTick={store.remotePreviewTick[selectedRemote.id]}
+                  compact={remoteDetailCompact}
+                  ondecommission={onarchive}
+                  onedit={openSteersEditor}
+                />
+              {/snippet}
+            </LazyMount>
           {:else if store.sessions.length === 0}
             <BacklogView
               payload={backlog}
@@ -4228,14 +4254,18 @@
   <!-- D14 (docs/design/mobile-herd): REPOS in the bottom navigation opens this. It carries both
        things the button's label promises — the per-repo filter that used to live in the top rail,
        and the way into the backlog. -->
-  <ReposSheet
-    chips={repoChips}
-    {repoFilter}
-    onrepofilter={applyRepoFilter}
-    onclearfilter={() => replaceRepoFilter([])}
-    onbacklog={openBacklog}
-    onclose={() => (showRepos = false)}
-  />
+  <LazyMount load={loadReposSheet} onerror={() => (showRepos = false)}>
+    {#snippet children(ReposSheet)}
+      <ReposSheet
+        chips={repoChips}
+        {repoFilter}
+        onrepofilter={applyRepoFilter}
+        onclearfilter={() => replaceRepoFilter([])}
+        onbacklog={openBacklog}
+        onclose={() => (showRepos = false)}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 <Toasts aboveActionBar={mobileActionBarPresent} />

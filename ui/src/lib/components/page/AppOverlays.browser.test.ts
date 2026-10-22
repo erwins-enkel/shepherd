@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
+import * as overlayLoaders from "./overlay-loaders";
 import { HerdStore } from "#lib/store.svelte.js";
 import type {
   AgentProvider,
@@ -18,6 +19,12 @@ import { repos } from "#lib/repos.svelte.js";
 import { steersSettingsOpen } from "../../../routes/steers-settings-open";
 import { m } from "#lib/paraglide/messages.js";
 import { ApiError, restartHerdrServer, uploadFile } from "#lib/api.js";
+
+// Overlays mount lazily (#3233). Warm every chunk up front so a cold dev-server transform
+// can't outlast a test's poll window.
+beforeAll(async () => {
+  await Promise.all(Object.values(overlayLoaders).map((load) => load()));
+});
 
 // The redesigned NewTask is responsive (rail vs. mobile sheet); vitest-browser's
 // default viewport is mobile-width, so pin desktop for these desktop-DOM suites.
@@ -482,6 +489,8 @@ describe("AppOverlays — command bar wiring", () => {
     props.clearMergedLeftovers = { s1: 0 };
     props.clearMergedProbesUnavailable = false;
     render(AppOverlays, props);
+    // The dialog mounts lazily: wait for it, or the absence check passes vacuously.
+    await expect.element(page.getByRole("dialog")).toBeVisible();
     expect(page.getByText(m.clearmerged_probes_unavailable()).elements()).toHaveLength(0);
   });
 });
@@ -518,13 +527,14 @@ describe("AppOverlays — herdr-update modal gate (#1898 stranded downgrade)", (
     expect(document.querySelector(".run.downgrade")).not.toBeNull();
   });
 
-  it("allows an explicit open to refresh runtime even when no release is available", () => {
+  it("allows an explicit open to refresh runtime even when no release is available", async () => {
     const props = baseProps();
     props.showHerdrUpdate = true;
     props.store = herdrStore({});
 
     render(AppOverlays, props);
 
+    await expect.element(page.getByRole("dialog")).toBeVisible();
     expect(document.querySelector(".run.downgrade")).toBeNull();
     expect(page.getByRole("dialog").elements()).toHaveLength(1);
   });

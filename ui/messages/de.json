@@ -6863,5 +6863,6 @@
   "assistant_chat_answer_question": "Beantworte die Frage oben, bevor du eine weitere Nachricht sendest.",
   "feat_assistant_chat_questions_title": "Assistentenfragen im Chat beantworten",
   "feat_assistant_chat_questions_body": "Wähle Antworten, mehrere Optionen oder eine eigene Antwort direkt im Gespräch mit dem Assistenten. Kein Wechsel ins Terminal nötig.",
-  "automergebanner_queued": "in der Merge-Queue — GitHub merged ihn, sobald die CI der Queue grün ist"
+  "automergebanner_queued": "in der Merge-Queue — GitHub merged ihn, sobald die CI der Queue grün ist",
+  "lazy_load_failed": "Dieses Panel konnte nicht geladen werden. Die Verbindung ist abgebrochen oder Shepherd wurde aktualisiert."
 }

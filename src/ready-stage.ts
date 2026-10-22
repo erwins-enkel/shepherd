@@ -3,7 +3,7 @@
 // Intentional delta vs the UI: `merged` is also excluded from isReadyForNotify (terminal ≠ your turn).
 import type { Session, SessionStatus } from "./types";
 import type { GitState } from "./forge/types";
-import { isMerging } from "./attention-core";
+import { inMergeQueue, isMerging } from "./attention-core";
 import { checksCleared } from "./checks-gate";
 
 /** Display-side session status — port of ui/src/lib/display-status.ts.
@@ -46,7 +46,7 @@ function terminalStage(
   now: number,
 ): Stage | null {
   if (g?.state === "merged") return "merged";
-  if (isMerging(s, now)) return "merging";
+  if (isMerging(s, now) || inMergeQueue(g)) return "merging";
   if (s.readyToMerge) return "ready";
   if (isReviewing(s.id)) return "reviewerRunning";
   if (g?.state === "open" && g.checks === "pending") return "ciRunning";

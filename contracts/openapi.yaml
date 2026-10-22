@@ -2138,6 +2138,11 @@ components:
         isDraft: { type: boolean }
         isFork: { type: boolean }
         noCi: { type: boolean }
+        inMergeQueue:
+          type: boolean
+          description: >-
+            The open PR is listed in its base's merge queue, so the queue lands it and it is not
+            the operator's turn. Stamped by the PR poller; absent means false.
         handoff:
           $ref: "#/components/schemas/PrHandoff"
           description: >-

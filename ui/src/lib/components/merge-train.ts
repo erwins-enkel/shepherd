@@ -16,6 +16,13 @@ export function isMerging(s: Session, now: number = Date.now()): boolean {
   return s.mergingSince !== null && now - s.mergingSince < MERGE_MARK_BACKSTOP_MS;
 }
 
+/** True when the session's open PR sits in its base's merge queue: the queue lands it, so it
+ *  reads as merging, not as the operator's turn. DRIFT: mirrors inMergeQueue() in
+ *  src/attention-core.ts. */
+export function inMergeQueue(g: GitState | undefined): boolean {
+  return g?.state === "open" && !!g.inMergeQueue;
+}
+
 /** A ready-to-merge session's open PR, the unit a merge train works through. */
 export interface ReadyPr {
   sessionId: string;

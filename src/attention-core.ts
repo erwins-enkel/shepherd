@@ -24,6 +24,13 @@ export function isMerging(s: Pick<Session, "mergingSince">, now: number = Date.n
   return s.mergingSince !== null && now - s.mergingSince < MERGE_MARK_BACKSTOP_MS;
 }
 
+/** True when the session's open PR sits in its base's merge queue: the queue lands it, so it
+ *  reads as merging, not as the operator's turn. Mirrors inMergeQueue() in
+ *  ui/src/lib/components/merge-train.ts. */
+export function inMergeQueue(g: GitState | undefined): boolean {
+  return g?.state === "open" && !!g.inMergeQueue;
+}
+
 // ── attention tiers + signal classification ──────────────────────────────────
 export type AttentionTier = 1 | 2 | 3;
 
@@ -246,8 +253,12 @@ const ATTENTION_RULES: Array<{
   },
   // Tier 2: HIGH — needs a look soon, not yet a hard stop.
   { signal: "halted-usage", when: (s) => s.haltReason === "usage_limit" },
-  // awaiting-merge: operator's turn — the server has handed the PR off to a merger.
-  { signal: "awaiting-merge", when: (_s, c) => c.git?.handoff === "merger" },
+  // awaiting-merge: operator's turn — the server has handed the PR off to a merger. A queued
+  // PR is already on its way in: nobody's turn.
+  {
+    signal: "awaiting-merge",
+    when: (_s, c) => c.git?.handoff === "merger" && !inMergeQueue(c.git),
+  },
   { signal: "stalled", when: (_s, c) => Boolean(c.stalled) },
   { signal: "recap-attention", when: (_s, c) => c.recap?.verdict === "needs_attention" },
   { signal: "train-error", when: (_s, c) => Boolean(c.train?.error) },
@@ -261,7 +272,7 @@ const ATTENTION_RULES: Array<{
     signal: "in-flight",
     when: (s) => s.status === "running" || s.status === "idle",
   },
-  { signal: "merging", when: (s, _c, now) => isMerging(s, now) },
+  { signal: "merging", when: (s, c, now) => isMerging(s, now) || inMergeQueue(c.git) },
 ];
 
 /** Classify a single session's attention demand into a tier + its raw signal codes.

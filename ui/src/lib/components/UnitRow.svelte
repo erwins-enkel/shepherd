@@ -44,7 +44,7 @@
   import CardMenu from "./CardMenu.svelte";
   import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
-  import { isMerging } from "./merge-train";
+  import { inMergeQueue, isMerging } from "./merge-train";
   import StatusPip from "./StatusPip.svelte";
   import TimePopover from "./TimePopover.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
@@ -634,6 +634,7 @@
       changesRequested ||
       branchProtectionBlocked ||
       isMerging(session, nowMs) ||
+      inMergeQueue(git) ||
       session.readyToMerge
         ? `u-status-${session.id}`
         : null,
@@ -1075,7 +1076,7 @@
       <StatusPip
         status={dStatus}
         ready={session.readyToMerge}
-        merging={isMerging(session, nowMs)}
+        merging={isMerging(session, nowMs) || inMergeQueue(git)}
         tip
       />
     </div>

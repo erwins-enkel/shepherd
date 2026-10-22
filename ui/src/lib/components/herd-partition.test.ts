@@ -102,6 +102,19 @@ test("checks:none WITHOUT noCi idle PR → stays active (pre-CI race)", () => {
   expect(p.awaitingMerge).toHaveLength(0);
 });
 
+test("idle green PR in the merge queue → merging, not Your turn; unqueued → awaitingMerge", () => {
+  const list = [session("q", false, "idle"), session("y", false, "idle")];
+  const g = {
+    q: { ...git("open", "success"), inMergeQueue: true },
+    y: git("open", "success"),
+  };
+  const p = partitionSessions(list, g);
+  expect(p.merging.map((s) => s.id)).toEqual(["q"]);
+  expect(p.awaitingMerge.map((s) => s.id)).toEqual(["y"]);
+  // The Ready lens is "your turn": the queued PR is out of the operator's hands.
+  expect(shownSessions(list, "ready", () => false, {}, g).map((s) => s.id)).toEqual(["y"]);
+});
+
 test("merged-PR sessions land in the merged group", () => {
   const list = [session("a"), session("m1"), session("b")];
   const { active, ready, merged } = partitionSessions(list, { m1: git("merged") });

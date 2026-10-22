@@ -3119,3 +3119,176 @@ test("gitStateChanged: true when the stamped merge responsibility appears or cha
     gitStateChanged(scoop, openGit({ mergeGate: { handoff: "merger", handoffWho: "scoop" } })),
   ).toBe(false);
 });
+
+// ── merge queue: a queued PR is stamped so it leaves "Your turn" ──
+
+const GREEN: PrStatus = {
+  state: "open",
+  number: 7,
+  checks: "success",
+  headSha: "h1",
+  baseRefName: "main",
+  deployConfigured: false,
+};
+
+function queueForge(
+  status: () => PrStatus,
+  queue: () => Promise<number[] | null>,
+): GitForge & { queueReads: number } {
+  const forge = {
+    ...forgeReturning(status),
+    queueReads: 0,
+    mergeQueueEntries: async () => {
+      forge.queueReads++;
+      return queue();
+    },
+  };
+  return forge;
+}
+
+test("stamps inMergeQueue on an open PR listed in its base's merge queue", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: GitState[] = [];
+  const forge = queueForge(
+    () => GREEN,
+    async () => [7],
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, git) => emitted.push(git),
+  );
+  await poller.tick();
+  expect(emitted[0]!.inMergeQueue).toBe(true);
+});
+
+test("leaves inMergeQueue absent when the PR is unlisted or the base has no queue", async () => {
+  for (const q of [[3], null]) {
+    const store = new SessionStore(":memory:");
+    store.create(baseSession);
+    const emitted: GitState[] = [];
+    const forge = queueForge(
+      () => GREEN,
+      async () => q,
+    );
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      (_id, git) => emitted.push(git),
+    );
+    await poller.tick();
+    expect(emitted[0]!.inMergeQueue).toBeUndefined();
+  }
+});
+
+test("a failed queue read keeps the previous stamp; a fresh read clears it and emits", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: GitState[] = [];
+  let queue: () => Promise<number[] | null> = async () => [7];
+  const forge = queueForge(
+    () => GREEN,
+    () => queue(),
+  );
+  let now = 1_000_000;
+  const realNow = Date.now;
+  Date.now = () => now;
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      (_id, git) => emitted.push(git),
+    );
+    await poller.tick();
+    expect(emitted.at(-1)!.inMergeQueue).toBe(true);
+
+    queue = async () => {
+      throw new Error("boom");
+    };
+    now += 60_000;
+    await poller.tick();
+    expect(emitted.length).toBe(1); // unknown → stamp kept, nothing changed
+
+    queue = async () => [];
+    now += 60_000;
+    await poller.tick();
+    expect(emitted.length).toBe(2);
+    expect(emitted[1]!.inMergeQueue).toBeUndefined();
+  } finally {
+    Date.now = realNow;
+    warn.mockRestore();
+  }
+});
+
+test("one merge-queue read per (repo, base) serves every session within the TTL", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  store.create({ ...baseSession, branch: "shepherd/other" });
+  const forge = queueForge(
+    () => GREEN,
+    async () => [7],
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+  await poller.tick();
+  await poller.tick();
+  expect(forge.queueReads).toBe(1);
+});
+
+test("never reads the merge queue for a PR that is not open", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const forge = queueForge(
+    () => ({ ...GREEN, state: "merged" }),
+    async () => [7],
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+  await poller.tick();
+  expect(forge.queueReads).toBe(0);
+});
+
+test("fastTick keeps re-polling an idle session whose PR is merge-queued", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  store.update(s.id, { status: "idle" });
+  let polls = 0;
+  const forge = queueForge(
+    () => {
+      polls++;
+      return { ...GREEN, mergeable: true, mergeStateStatus: "clean" };
+    },
+    async () => [7],
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+  poller.set(
+    s.id,
+    openGit({ number: 7, checks: "success", mergeable: true, mergeStateStatus: "clean" }),
+  );
+  await poller.fastTick();
+  expect(polls).toBe(0); // settled + unqueued → parked
+  poller.set(
+    s.id,
+    openGit({
+      number: 7,
+      checks: "success",
+      mergeable: true,
+      mergeStateStatus: "clean",
+      inMergeQueue: true,
+    }),
+  );
+  await poller.fastTick();
+  expect(polls).toBe(1);
+});

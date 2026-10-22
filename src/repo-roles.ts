@@ -223,6 +223,18 @@ function inferredForkReviewBlock(
     : undefined;
 }
 
+/** Only the poller reads the merge queue: an on-demand read of the same open head keeps its
+ *  stamp so the session does not flick back into "Your turn" until the next poll. */
+function keepsMergeQueueStamp(state: GitState, prev: GitState | undefined): boolean {
+  return (
+    state.inMergeQueue === undefined &&
+    !!prev?.inMergeQueue &&
+    state.state === "open" &&
+    prev.number === state.number &&
+    prev.headSha === state.headSha
+  );
+}
+
 /** Annotate a GitState with `handoff`/`handoffWho` (+ `handoffInferred` when the
  *  handoff was auto-inferred from the PR's reviewers rather than configured roles).
  *  Always returns a clean state (any stale handoff is stripped first), so re-running
@@ -249,6 +261,7 @@ export function annotateHandoff(
     reviewerStates: preservedReviewerStates,
     noCi,
   };
+  if (keepsMergeQueueStamp(state, prev)) base.inMergeQueue = true;
   delete base.handoff; // drop any stale handoff so a role change clears it
   delete base.handoffWho;
   delete base.handoffInferred;

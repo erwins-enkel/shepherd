@@ -770,3 +770,13 @@ test("#3245: a misrouted session is Tier-1 misrouted-target, naming the target r
   });
   expect(classifyAttention(session(), {}, NOW).signals).not.toContain("misrouted-target");
 });
+
+test("classifyAttention: a merge-queued PR is merging, never awaiting-merge", () => {
+  const r = classifyAttention(
+    session({ status: "idle" }),
+    { git: git({ handoff: "merger", inMergeQueue: true }) },
+    NOW,
+  );
+  expect(r.signals).toContain("merging");
+  expect(r.signals).not.toContain("awaiting-merge");
+});

@@ -2561,6 +2561,9 @@ components:
           type: boolean
         noCi:
           type: boolean
+        inMergeQueue:
+          type: boolean
+          description: The open PR is listed in its base's merge queue, so the queue lands it and it is not the operator's turn. Stamped by the PR poller; absent means false.
         handoff:
           $ref: "#/components/schemas/PrHandoff"
           description: GitState.handoff (src/forge/types.ts:262). Who the PR is waiting on. ABSENT means it is waiting on the operator, which is the third state and has no member here.

@@ -28,33 +28,37 @@
     UsageLimits,
   } from "#lib/types.js";
   import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
-  import NewTask from "#lib/components/NewTask.svelte";
-  import Settings from "#lib/components/Settings.svelte";
-  import Usage from "#lib/components/Usage.svelte";
-  import CloneRepo from "#lib/components/CloneRepo.svelte";
-  import ForkRepo from "#lib/components/ForkRepo.svelte";
-  import NewProject from "#lib/components/NewProject.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
-  import BroadcastDialog from "#lib/components/BroadcastDialog.svelte";
-  import CommandBar from "#lib/components/CommandBar.svelte";
+  import type NewTaskComponent from "#lib/components/NewTask.svelte";
   import type { Command } from "#lib/command-registry.js";
   import type { HerdFilter } from "#lib/components/herd-partition.js";
-  import RetryDialog from "#lib/components/RetryDialog.svelte";
-  import AmendTaskDialog from "#lib/components/AmendTaskDialog.svelte";
   import DecomLeftovers from "#lib/components/page/DecomLeftovers.svelte";
-  import DecommissionPrDialog from "#lib/components/DecommissionPrDialog.svelte";
-  import EpicDiagnoseEntry from "#lib/components/EpicDiagnoseEntry.svelte";
-  import ClearMergedDialog from "#lib/components/ClearMergedDialog.svelte";
-  import MergeTrainConfirmDialog from "#lib/components/MergeTrainConfirmDialog.svelte";
-  import BacklogOverlay from "#lib/components/BacklogOverlay.svelte";
-  import UpdateModal from "#lib/components/UpdateModal.svelte";
-  import HerdrUpdateModal from "#lib/components/HerdrUpdateModal.svelte";
-  import CodexUpdateModal from "#lib/components/CodexUpdateModal.svelte";
-  import PluginUpdatesModal from "#lib/components/PluginUpdatesModal.svelte";
   import StarPrompt from "#lib/components/StarPrompt.svelte";
-  import WhatsNew from "#lib/components/WhatsNew.svelte";
-  import FableArrival from "#lib/components/FableArrival.svelte";
-  import Onboarding from "#lib/components/Onboarding.svelte";
+  import LazyMount from "#lib/components/page/LazyMount.svelte";
+  import {
+    loadNewTask,
+    loadSettings,
+    loadUsage,
+    loadCloneRepo,
+    loadForkRepo,
+    loadNewProject,
+    loadBroadcastDialog,
+    loadCommandBar,
+    loadRetryDialog,
+    loadAmendTaskDialog,
+    loadDecommissionPrDialog,
+    loadEpicDiagnoseEntry,
+    loadClearMergedDialog,
+    loadMergeTrainConfirmDialog,
+    loadBacklogOverlay,
+    loadUpdateModal,
+    loadHerdrUpdateModal,
+    loadCodexUpdateModal,
+    loadPluginUpdatesModal,
+    loadWhatsNew,
+    loadFableArrival,
+    loadOnboarding,
+  } from "#lib/components/page/overlay-loaders.js";
 
   type PendingTrain = {
     repoLabel: string;
@@ -241,7 +245,7 @@
     onfabletry: () => void;
     onfableclose: () => void;
     showNew: boolean;
-    onsubmit: ComponentProps<typeof NewTask>["onsubmit"];
+    onsubmit: ComponentProps<typeof NewTaskComponent>["onsubmit"];
     relaunchOriginal: boolean;
     editHeld: boolean;
     composeRepoPath: string | null;
@@ -457,72 +461,102 @@
 </script>
 
 {#if updateOpen}
-  <UpdateModal
-    update={store.update}
-    machines={store.machineUpdates}
-    updating={store.updating}
-    {deploy}
-    onconfirm={onupdateconfirm}
-    onclose={onupdateclose}
-  />
+  <LazyMount load={loadUpdateModal}>
+    {#snippet children(UpdateModal)}
+      <UpdateModal
+        update={store.update}
+        machines={store.machineUpdates}
+        updating={store.updating}
+        {deploy}
+        onconfirm={onupdateconfirm}
+        onclose={onupdateclose}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showHerdrUpdate}
   <!-- displayStatus: the warning counts agents the herdr restart interrupts — a
        working-while-blocked agent is genuinely mid-turn, so it counts as working -->
-  <HerdrUpdateModal
-    update={store.herdrUpdate ?? unknownHerdrUpdate}
-    onstatus={(status) => store.setHerdrUpdate(status)}
-    connectionEpoch={store.connectionEpoch}
-    sessions={store.sessions
-      .filter((s) => displayStatus(s, store.workingBlocked, store.backgroundBusy) === "running")
-      .map((s) => ({ id: s.id, desig: s.desig, name: s.name }))}
-    log={store.herdrUpdateLog}
-    done={store.herdrUpdateDone}
-    onconfirm={onherdrupdateconfirm}
-    onclose={onherdrupdateclose}
-    onjump={onherdrupdatejump}
-  />
+  <LazyMount load={loadHerdrUpdateModal}>
+    {#snippet children(HerdrUpdateModal)}
+      <HerdrUpdateModal
+        update={store.herdrUpdate ?? unknownHerdrUpdate}
+        onstatus={(status) => store.setHerdrUpdate(status)}
+        connectionEpoch={store.connectionEpoch}
+        sessions={store.sessions
+          .filter((s) => displayStatus(s, store.workingBlocked, store.backgroundBusy) === "running")
+          .map((s) => ({ id: s.id, desig: s.desig, name: s.name }))}
+        log={store.herdrUpdateLog}
+        done={store.herdrUpdateDone}
+        onconfirm={onherdrupdateconfirm}
+        onclose={onherdrupdateclose}
+        onjump={onherdrupdatejump}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showCodexUpdate && store.codexUpdate && (store.codexUpdate.updateAvailable || codexUpdating)}
-  <CodexUpdateModal
-    update={store.codexUpdate}
-    log={store.codexUpdateLog}
-    done={store.codexUpdateDone}
-    onconfirm={oncodexupdateconfirm}
-    onclose={oncodexupdateclose}
-  />
+  <!-- Narrowing doesn't reach into the snippet closure; pin the checked value. -->
+  {@const codexUpdate = store.codexUpdate}
+  <LazyMount load={loadCodexUpdateModal}>
+    {#snippet children(CodexUpdateModal)}
+      <CodexUpdateModal
+        update={codexUpdate}
+        log={store.codexUpdateLog}
+        done={store.codexUpdateDone}
+        onconfirm={oncodexupdateconfirm}
+        onclose={oncodexupdateclose}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showPluginUpdates}
-  <PluginUpdatesModal
-    status={store.pluginUpdates}
-    onclose={onpluginupdatesclose}
-    onapplied={onpluginupdated}
-  />
+  <LazyMount load={loadPluginUpdatesModal}>
+    {#snippet children(PluginUpdatesModal)}
+      <PluginUpdatesModal
+        status={store.pluginUpdates}
+        onclose={onpluginupdatesclose}
+        onapplied={onpluginupdated}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showOnboarding}
-  <Onboarding
-    checks={store.diagnostics?.checks ?? null}
-    failed={diagnosticsLoadFailed}
-    onretry={ononboardingretry}
-    ondismiss={ononboardingdismiss}
-    blocking={onboardingBlocking}
-    repoRoot={onboardingRepoRoot}
-    repoRootDisplay={onboardingRepoRootDisplay}
-    settingsLoaded={onboardingSettingsLoaded}
-    onpicked={ononboardingpicked}
-  />
+  <LazyMount load={loadOnboarding}>
+    {#snippet children(Onboarding)}
+      <Onboarding
+        checks={store.diagnostics?.checks ?? null}
+        failed={diagnosticsLoadFailed}
+        onretry={ononboardingretry}
+        ondismiss={ononboardingdismiss}
+        blocking={onboardingBlocking}
+        repoRoot={onboardingRepoRoot}
+        repoRootDisplay={onboardingRepoRootDisplay}
+        settingsLoaded={onboardingSettingsLoaded}
+        onpicked={ononboardingpicked}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showWhatsNew}
-  <WhatsNew entries={whatsNewEntries} ondismiss={onwhatsnewdismiss} onclose={onwhatsnewclose} />
+  <LazyMount load={loadWhatsNew}>
+    {#snippet children(WhatsNew)}
+      <WhatsNew entries={whatsNewEntries} ondismiss={onwhatsnewdismiss} onclose={onwhatsnewclose} />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showFableArrival}
-  <FableArrival ontry={onfabletry} onclose={onfableclose} />
+  <LazyMount load={loadFableArrival}>
+    {#snippet children(FableArrival)}
+      <FableArrival ontry={onfabletry} onclose={onfableclose} />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showNew}
@@ -530,123 +564,159 @@
        currently filtered to, else NewTask falls back to the most-recently-used repo. -->
   <div hidden={showHerdrUpdate} inert={showHerdrUpdate}>
     {#key newTaskGeneration}
-      <NewTask
-        suspended={showHerdrUpdate}
-        onherdrrepair={onsettingsherdrupdate}
-        {onsubmit}
-        spawnProgress={store.spawnProgress}
-        relaunch={relaunchOriginal}
-        {editHeld}
-        initialRepoPath={newTaskInitialRepo}
-        initialBaseBranch={newTaskInitialBaseBranch}
-        initialIssue={newTaskInitialIssue}
-        {relaunchIssueNumber}
-        initialImages={composeImages}
-        initialPrompt={newTaskInitialPrompt}
-        initialModel={newTaskInitialModel}
-        initialEffort={newTaskInitialEffort}
-        initialAgentProvider={composeAgentProvider ?? undefined}
-        initialPlanGate={composePlanGate}
-        initialAutopilot={composeAutopilot}
-        initialSandboxProfile={composeSandbox}
-        initialResearch={composeResearch}
-        initialEpicAuthoring={composeEpicAuthoring}
-        initialPlain={composePlain}
-        initialBootstrap={composeBootstrap}
-        {usageLimits}
-        defaultAgentProvider={newTaskDefaultAgentProvider}
-        defaultModel={settings?.defaultModel}
-        defaultCodexModel={newTaskDefaultCodexModel}
-        defaultEffort={newTaskDefaultEffort}
-        defaultClaudeEffort={newTaskDefaultClaudeEffort}
-        defaultCodexEffort={newTaskDefaultCodexEffort}
-        fableAvailable={newTaskFableAvailable}
-        {holdLikely}
-        onclose={onnewclose}
-        onclone={onnewclone}
-        onfork={onnewfork}
-        onnewproject={onnewnewproject}
-        restoreDraft={newTaskRestoreDraft}
-        ondiscarddraft={() => newTaskGeneration++}
-      />
+      <LazyMount load={loadNewTask}>
+        {#snippet children(NewTask)}
+          <NewTask
+            suspended={showHerdrUpdate}
+            onherdrrepair={onsettingsherdrupdate}
+            {onsubmit}
+            spawnProgress={store.spawnProgress}
+            relaunch={relaunchOriginal}
+            {editHeld}
+            initialRepoPath={newTaskInitialRepo}
+            initialBaseBranch={newTaskInitialBaseBranch}
+            initialIssue={newTaskInitialIssue}
+            {relaunchIssueNumber}
+            initialImages={composeImages}
+            initialPrompt={newTaskInitialPrompt}
+            initialModel={newTaskInitialModel}
+            initialEffort={newTaskInitialEffort}
+            initialAgentProvider={composeAgentProvider ?? undefined}
+            initialPlanGate={composePlanGate}
+            initialAutopilot={composeAutopilot}
+            initialSandboxProfile={composeSandbox}
+            initialResearch={composeResearch}
+            initialEpicAuthoring={composeEpicAuthoring}
+            initialPlain={composePlain}
+            initialBootstrap={composeBootstrap}
+            {usageLimits}
+            defaultAgentProvider={newTaskDefaultAgentProvider}
+            defaultModel={settings?.defaultModel}
+            defaultCodexModel={newTaskDefaultCodexModel}
+            defaultEffort={newTaskDefaultEffort}
+            defaultClaudeEffort={newTaskDefaultClaudeEffort}
+            defaultCodexEffort={newTaskDefaultCodexEffort}
+            fableAvailable={newTaskFableAvailable}
+            {holdLikely}
+            onclose={onnewclose}
+            onclone={onnewclone}
+            onfork={onnewfork}
+            onnewproject={onnewnewproject}
+            restoreDraft={newTaskRestoreDraft}
+            ondiscarddraft={() => newTaskGeneration++}
+          />
+        {/snippet}
+      </LazyMount>
     {/key}
   </div>
 {/if}
 
 {#if showSettings}
-  <Settings
-    {showPairing}
-    initialTab={settingsTab}
-    initialMobileView={settingsMobileView}
-    connected={store.connected}
-    remoteSessions={store.remoteSessions}
-    initialDiagnostics={store.diagnostics?.checks ?? null}
-    plugins={store.plugins}
-    onpluginschanged={async () => store.setPlugins(await getPlugins())}
-    {focusPluginId}
-    {focusSteerId}
-    onclose={onsettingsclose}
-    herdrUpdate={store.herdrUpdate}
-    onherdrupdate={onsettingsherdrupdate}
-    codexUpdate={store.codexUpdate}
-    oncodexupdate={onsettingscodexupdate}
-    pluginUpdates={store.pluginUpdates}
-    onpluginupdates={onsettingspluginupdates}
-    onpluginapplied={onpluginupdated}
-    onwhatsnew={onsettingswhatsnew}
-    onaskassistant={onsettingsaskassistant}
-    onopenusage={onsettingsopenusage}
-  />
+  <LazyMount load={loadSettings}>
+    {#snippet children(Settings)}
+      <Settings
+        {showPairing}
+        initialTab={settingsTab}
+        initialMobileView={settingsMobileView}
+        connected={store.connected}
+        remoteSessions={store.remoteSessions}
+        initialDiagnostics={store.diagnostics?.checks ?? null}
+        plugins={store.plugins}
+        onpluginschanged={async () => store.setPlugins(await getPlugins())}
+        {focusPluginId}
+        {focusSteerId}
+        onclose={onsettingsclose}
+        herdrUpdate={store.herdrUpdate}
+        onherdrupdate={onsettingsherdrupdate}
+        codexUpdate={store.codexUpdate}
+        oncodexupdate={onsettingscodexupdate}
+        pluginUpdates={store.pluginUpdates}
+        onpluginupdates={onsettingspluginupdates}
+        onpluginapplied={onpluginupdated}
+        onwhatsnew={onsettingswhatsnew}
+        onaskassistant={onsettingsaskassistant}
+        onopenusage={onsettingsopenusage}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showUsage}
-  <Usage onclose={onusageclose} />
+  <LazyMount load={loadUsage}>
+    {#snippet children(Usage)}
+      <Usage onclose={onusageclose} />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showClone}
   <!-- Close whichever dialog launched Clone (NewTask or Settings) is already done
        before we get here; ondone reopens NewTask preselected on the fresh repo. -->
-  <CloneRepo
-    onclose={oncloneclose}
-    ondone={onclonedone}
-    repoRootDisplay={settings?.repoRootDisplay}
-  />
+  <LazyMount load={loadCloneRepo}>
+    {#snippet children(CloneRepo)}
+      <CloneRepo
+        onclose={oncloneclose}
+        ondone={onclonedone}
+        repoRootDisplay={settings?.repoRootDisplay}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showFork}
   <!-- Same flow as CloneRepo: ondone reopens NewTask preselected on the forked repo. -->
-  <ForkRepo onclose={onforkclose} ondone={onforkdone} repoRootDisplay={settings?.repoRootDisplay} />
+  <LazyMount load={loadForkRepo}>
+    {#snippet children(ForkRepo)}
+      <ForkRepo
+        onclose={onforkclose}
+        ondone={onforkdone}
+        repoRootDisplay={settings?.repoRootDisplay}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showNewProject}
   <!-- ondone auto-selects the new repo in NewTask + prefills the kickoff seed.
        A warning (partial success: local ok, GitHub failed) surfaces as a non-blocking
        info toast — the flow still proceeds to NewTask with the repo preselected. -->
-  <NewProject
-    repoRootDisplay={settings?.repoRootDisplay}
-    onclose={onnewprojectclose}
-    ondone={onnewprojectdone}
-  />
+  <LazyMount load={loadNewProject}>
+    {#snippet children(NewProject)}
+      <NewProject
+        repoRootDisplay={settings?.repoRootDisplay}
+        onclose={onnewprojectclose}
+        ondone={onnewprojectdone}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showBroadcast}
-  <BroadcastDialog sessions={store.sessions} onclose={onbroadcastclose} />
+  <LazyMount load={loadBroadcastDialog}>
+    {#snippet children(BroadcastDialog)}
+      <BroadcastDialog sessions={store.sessions} onclose={onbroadcastclose} />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showCommandBar}
-  <CommandBar
-    sessions={store.sessions}
-    workingBlocked={store.workingBlocked}
-    backgroundBusy={store.backgroundBusy}
-    blocks={store.blocks}
-    commands={commandBarCommands}
-    onselectsession={oncommandbarsession}
-    onselectrepo={oncommandbarrepo}
-    onfilterrepo={oncommandbarfilterrepo}
-    onselectlens={oncommandbarlens}
-    onclose={oncommandbarclose}
-    initialFilter={commandBarInitialFilter}
-  />
+  <LazyMount load={loadCommandBar}>
+    {#snippet children(CommandBar)}
+      <CommandBar
+        sessions={store.sessions}
+        workingBlocked={store.workingBlocked}
+        backgroundBusy={store.backgroundBusy}
+        blocks={store.blocks}
+        commands={commandBarCommands}
+        onselectsession={oncommandbarsession}
+        onselectrepo={oncommandbarrepo}
+        onfilterrepo={oncommandbarfilterrepo}
+        onselectlens={oncommandbarlens}
+        onclose={oncommandbarclose}
+        initialFilter={commandBarInitialFilter}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 <DecomLeftovers
@@ -656,79 +726,107 @@
 />
 
 {#if decommissionPr}
-  <DecommissionPrDialog
-    name={decommissionPr.name}
-    git={decommissionPr.git}
-    onselect={ondecommissionprselect}
-    onclose={ondecommissionprclose}
-  />
+  <LazyMount load={loadDecommissionPrDialog}>
+    {#snippet children(DecommissionPrDialog)}
+      <DecommissionPrDialog
+        name={decommissionPr.name}
+        git={decommissionPr.git}
+        onselect={ondecommissionprselect}
+        onclose={ondecommissionprclose}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showRetry}
-  <RetryDialog sessions={store.sessions} onclose={onretryclose} />
+  <LazyMount load={loadRetryDialog}>
+    {#snippet children(RetryDialog)}
+      <RetryDialog sessions={store.sessions} onclose={onretryclose} />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if amendTarget}
-  <AmendTaskDialog
-    session={amendTarget}
-    liveness={store.claudeAlive[amendTarget.id]}
-    onclose={onamendclose}
-  />
+  <LazyMount load={loadAmendTaskDialog}>
+    {#snippet children(AmendTaskDialog)}
+      <AmendTaskDialog
+        session={amendTarget}
+        liveness={store.claudeAlive[amendTarget.id]}
+        onclose={onamendclose}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showEpicDiagnose}
-  <EpicDiagnoseEntry initialRepo={epicDiagnoseInitialRepo} onclose={onepicdiagnoseclose} />
+  <LazyMount load={loadEpicDiagnoseEntry}>
+    {#snippet children(EpicDiagnoseEntry)}
+      <EpicDiagnoseEntry initialRepo={epicDiagnoseInitialRepo} onclose={onepicdiagnoseclose} />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if clearMergedSessions}
-  <ClearMergedDialog
-    sessions={clearMergedSessions}
-    leftovers={clearMergedLeftovers}
-    probesUnavailable={clearMergedProbesUnavailable}
-    repoFilter={clearMergedRepoFilter}
-    onclose={onclearmergedclose}
-    onconfirm={onclearmergedconfirm}
-  />
+  <LazyMount load={loadClearMergedDialog}>
+    {#snippet children(ClearMergedDialog)}
+      <ClearMergedDialog
+        sessions={clearMergedSessions}
+        leftovers={clearMergedLeftovers}
+        probesUnavailable={clearMergedProbesUnavailable}
+        repoFilter={clearMergedRepoFilter}
+        onclose={onclearmergedclose}
+        onconfirm={onclearmergedconfirm}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if showBacklog}
-  <BacklogOverlay
-    payload={backlog}
-    {mobile}
-    {onissue}
-    {onquick}
-    {oninject}
-    {onpr}
-    {onadopt}
-    {onlaunchtrain}
-    {onaddclone}
-    {onaddfork}
-    {onaddnewproject}
-    selectPath={backlogSelectPath}
-    filterPaths={backlogFilterPaths}
-    onclose={onbacklogclose}
-    onopensession={onbacklogopensession}
-    sessionInfo={backlogSessionInfo}
-    issueSession={backlogIssueSession}
-    {ondraftepic}
-    {onbootstrapstep}
-    epics={store.epics}
-    {inTrainPrs}
-    target={epicTarget}
-    drain={store.drain}
-    taskDefaults={backlogTaskDefaults}
-  />
+  <LazyMount load={loadBacklogOverlay}>
+    {#snippet children(BacklogOverlay)}
+      <BacklogOverlay
+        payload={backlog}
+        {mobile}
+        {onissue}
+        {onquick}
+        {oninject}
+        {onpr}
+        {onadopt}
+        {onlaunchtrain}
+        {onaddclone}
+        {onaddfork}
+        {onaddnewproject}
+        selectPath={backlogSelectPath}
+        filterPaths={backlogFilterPaths}
+        onclose={onbacklogclose}
+        onopensession={onbacklogopensession}
+        sessionInfo={backlogSessionInfo}
+        issueSession={backlogIssueSession}
+        {ondraftepic}
+        {onbootstrapstep}
+        epics={store.epics}
+        {inTrainPrs}
+        target={epicTarget}
+        drain={store.drain}
+        taskDefaults={backlogTaskDefaults}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if pendingTrain}
-  <MergeTrainConfirmDialog
-    repoLabel={pendingTrain.repoLabel}
-    items={pendingTrain.items}
-    handpicked={pendingTrain.handpicked}
-    otherRepoCount={pendingTrain.otherRepoCount}
-    onclose={ontrainclose}
-    onconfirm={ontrainconfirm}
-  />
+  <LazyMount load={loadMergeTrainConfirmDialog}>
+    {#snippet children(MergeTrainConfirmDialog)}
+      <MergeTrainConfirmDialog
+        repoLabel={pendingTrain.repoLabel}
+        items={pendingTrain.items}
+        handpicked={pendingTrain.handpicked}
+        otherRepoCount={pendingTrain.otherRepoCount}
+        onclose={ontrainclose}
+        onconfirm={ontrainconfirm}
+      />
+    {/snippet}
+  </LazyMount>
 {/if}
 
 {#if store.starPrompt?.shouldPrompt}

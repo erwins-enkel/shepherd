@@ -482,6 +482,8 @@ describe("AppOverlays — command bar wiring", () => {
     props.clearMergedLeftovers = { s1: 0 };
     props.clearMergedProbesUnavailable = false;
     render(AppOverlays, props);
+    // The dialog mounts lazily: wait for it, or the absence check passes vacuously.
+    await expect.element(page.getByRole("dialog")).toBeVisible();
     expect(page.getByText(m.clearmerged_probes_unavailable()).elements()).toHaveLength(0);
   });
 });
@@ -518,13 +520,14 @@ describe("AppOverlays — herdr-update modal gate (#1898 stranded downgrade)", (
     expect(document.querySelector(".run.downgrade")).not.toBeNull();
   });
 
-  it("allows an explicit open to refresh runtime even when no release is available", () => {
+  it("allows an explicit open to refresh runtime even when no release is available", async () => {
     const props = baseProps();
     props.showHerdrUpdate = true;
     props.store = herdrStore({});
 
     render(AppOverlays, props);
 
+    await expect.element(page.getByRole("dialog")).toBeVisible();
     expect(document.querySelector(".run.downgrade")).toBeNull();
     expect(page.getByRole("dialog").elements()).toHaveLength(1);
   });

@@ -60,7 +60,8 @@ struct IOSTerminalPane<Surface: View>: View {
             .simultaneousGesture(TapGesture().onEnded { model.closeWriting() }, including: model.writing ? .all : .none)
             .overlay(alignment: .bottom) {
                 // An open dialog's last line is its footer, not the prompt: ⌨ in the key row writes.
-                if allowsInput && !locked && !model.showsWriting && !model.dialogOpen {
+                // Scrolled back it is history, where Latest output sits.
+                if allowsInput && !locked && model.promptSummonsWriting {
                     // Only the prompt line summons writing; output remains a terminal surface.
                     Button { model.openWriting(focus: true) } label: { Color.clear.frame(height: 44).contentShape(Rectangle()) }
                         .buttonStyle(.plain)

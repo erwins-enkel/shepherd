@@ -288,6 +288,9 @@ final class IOSTerminalPresentation {
     /// state; closing it (keyboard down, sent) returns to the keys.
     var answersWithKeys: Bool { dialogOpen && !showsWriting && !pickingAttachment }
 
+    /// The surface's bottom line is the prompt only at the tail; scrolled back it is history.
+    var promptSummonsWriting: Bool { followsTail && !showsWriting && !dialogOpen }
+
     private func reconcile() {
         let shouldAttach = visible && active && rendererReady
         guard shouldAttach != isAttached else { return }

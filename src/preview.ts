@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { open, readdir } from "node:fs/promises";
+import { open, readdir, readFile } from "node:fs/promises";
 import type { Server, ServerWebSocket } from "bun";
 import type { PreviewReach, PreviewUnavailable, SessionPreviewState } from "./types";
 
@@ -217,11 +217,54 @@ const CURATED_SET = new Set<number>(CURATED_PORTS);
  */
 const EXCLUDED_PORTS = new Set<number>([9222, 9229, 9230]);
 
+/** Inclusive TCP port range. */
+export interface PortRange {
+  lo: number;
+  hi: number;
+}
+
+/** Linux's default `ip_local_port_range`, used when the kernel value is unreadable. */
+const LINUX_DEFAULT_EPHEMERAL: PortRange = { lo: 32768, hi: 60999 };
+
+/** macOS default (`net.inet.ip.portrange.first/last`, the IANA dynamic range). */
+const DARWIN_EPHEMERAL: PortRange = { lo: 49152, hi: 65535 };
+
+/**
+ * Parse `/proc/sys/net/ipv4/ip_local_port_range` ("<lo>\t<hi>\n"). Null on anything that
+ * is not exactly two in-range integers with lo ≤ hi.
+ */
+export function parsePortRange(text: string): PortRange | null {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length !== 2 || !parts.every((p) => /^\d+$/.test(p))) return null;
+  const [lo, hi] = parts.map((p) => Number.parseInt(p, 10)) as [number, number];
+  if (lo < 1 || hi > 65535 || lo > hi) return null;
+  return { lo, hi };
+}
+
+let ephemeralRangeCache: Promise<PortRange> | null = null;
+
+/**
+ * The OS ephemeral port range — where `listen(0)` lands, i.e. test suites' short-lived
+ * fake servers. Read once per process (async: the server is a single loop).
+ */
+function defaultEphemeralRange(): Promise<PortRange> {
+  ephemeralRangeCache ??=
+    process.platform === "darwin"
+      ? Promise.resolve(DARWIN_EPHEMERAL)
+      : readFile("/proc/sys/net/ipv4/ip_local_port_range", "utf8").then(
+          (text) => parsePortRange(text) ?? LINUX_DEFAULT_EPHEMERAL,
+          () => LINUX_DEFAULT_EPHEMERAL,
+        );
+  return ephemeralRangeCache;
+}
+
 /**
  * HTTP liveness probe: returns true when a plain HTTP GET/HEAD to 127.0.0.1:<port>
  * yields any well-formed HTTP response within ~500 ms.
  *
  * This ensures non-HTTP sockets (debugger 9229, DB ports, etc.) are never surfaced.
+ * Never aimed at an undeclared ephemeral-range port (see `resolveDevPort`): a test
+ * suite's fake server can choke on the bodyless HEAD (#3237).
  * Injectable for tests (pass a custom probe to avoid real network calls).
  */
 async function defaultHttpProbe(port: number): Promise<boolean> {
@@ -331,22 +374,32 @@ async function firstPreviewHint(
  * not in `ports`, or not an HTTP server. `EXCLUDED_PORTS` are dropped up front, so not
  * even an explicit hint can point the preview at a debugger.
  *
+ * The heuristic fallback also skips every port in the OS ephemeral range: those are
+ * `listen(0)` servers — typically a test suite's fakes, which a HEAD probe can break
+ * (#3237). Only an explicit hint can select one.
+ *
  * @param candidates Listening ports for this worktree (from /proc scan).
  * @param hintDirs   Directories to look for `.shepherd-preview` in, most authoritative
  *                   FIRST — the worktree root, then any directory contributed by a
  *                   scratchpad-rooted listener.
  * @param readFile   Injectable file reader (forwarded to readPreviewHint).
  * @param httpProbe  Injectable HTTP liveness probe (default: real network call).
+ * @param ephemeralRange Injectable OS ephemeral-range lookup (default: kernel value).
  */
 export async function resolveDevPort(
   candidates: number[],
   hintDirs: readonly string[],
   readFile?: (path: string, enc: "utf8") => Promise<string>,
   httpProbe: (port: number) => Promise<boolean> = defaultHttpProbe,
+  ephemeralRange: () => Promise<PortRange> = defaultEphemeralRange,
 ): Promise<number | null> {
-  const ports = candidates.filter((p) => !EXCLUDED_PORTS.has(p));
+  const listening = candidates.filter((p) => !EXCLUDED_PORTS.has(p));
   const hint = await firstPreviewHint(hintDirs, readFile);
-  if (hint !== null && ports.includes(hint)) {
+  const { lo, hi } = await ephemeralRange();
+  // Fallback set for the heuristic: no undeclared ephemeral-range ports. Curated ports are
+  // never probed, so they stay even under a custom range that covers them.
+  const ports = listening.filter((p) => CURATED_SET.has(p) || p < lo || p > hi);
+  if (hint !== null && listening.includes(hint)) {
     // Curated ports are trusted HTTP servers — no probe needed.
     // Non-curated declared ports must still pass the HTTP probe to be surfaced.
     if (CURATED_SET.has(hint) || (await httpProbe(hint))) return hint;

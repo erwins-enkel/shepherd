@@ -436,6 +436,7 @@ import {
   effortBelowHigh,
 } from "./default-effort";
 import { startSerially } from "./up-next";
+import { parseTargetRepo, resolveTargetRepo, sessionIssue } from "./target-repo";
 import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
@@ -2282,6 +2283,35 @@ function holdUpNextIssue(
   return { id, repoPath: input.repoPath, number };
 }
 
+/** #3245: route a create whose linked issue names another `Target repo:` to that registered repo,
+ *  on its default branch. The issue — and its claim — stays in `value.repoPath`'s tracker. A
+ *  Response refuses the create: the marker names no registered repo. */
+async function routeIssueCreate<T extends StandardCreateInput>(
+  value: T,
+  deps: Pick<AppDeps, "resolveForge">,
+): Promise<T | Response> {
+  const slug = value.issueRepoPath ? null : parseTargetRepo(value.issueRef?.body);
+  if (!slug) return value;
+  const resolveForge = (p: string) => deps.resolveForge?.(p) ?? null;
+  const target = resolveTargetRepo(slug, value.repoPath, {
+    listRepoPaths: () => listRepos(config.repoRoot).map((r) => r.path),
+    resolveForge,
+  });
+  if (target.kind === "self") return value;
+  if (target.kind === "unregistered") {
+    return json(
+      {
+        error: `issue #${value.issueRef?.number} targets ${slug}, which is not a registered repo — clone it into the repo root to start it there`,
+        code: "target_repo_unregistered",
+      },
+      422,
+    );
+  }
+  const repoPath = safeRepoDir(target.repoPath, config.repoRoot) ?? target.repoPath;
+  const baseBranch = (await resolveForge(repoPath)?.defaultBranch()) ?? value.baseBranch;
+  return { ...value, repoPath, baseBranch, issueRepoPath: value.repoPath };
+}
+
 async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response> {
   const b = firstRunBlock();
   if (b) return b;
@@ -2309,7 +2339,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       const base = await forge.defaultBranch();
       const rc = deps.store.getRepoConfig(it.dir);
       const provider = choice?.agentProvider ?? config.defaultAgentProvider;
-      const input: StandardCreateInput = {
+      const draft: StandardCreateInput = {
         repoPath: it.dir,
         baseBranch: base,
         prompt: issueSpawnPrompt(it.issueRef.number, it.issueRef.title),
@@ -2340,6 +2370,11 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
         auto: false,
         issueRef: it.issueRef,
       };
+      const input = await routeIssueCreate(draft, deps);
+      if (input instanceof Response) {
+        errors.push({ number: it.issueRef.number, error: "target repo not registered" });
+        return;
+      }
       if (await usageHoldApplies(input, deps)) {
         held.push(holdUpNextIssue(deps, input));
         claims.push(claimLinkedIssue(forge, it.issueRef.number));
@@ -4134,6 +4169,11 @@ async function createValidatedSession(
     }
   }
 
+  // #3245: a linked issue naming another `Target repo:` starts there (claim stays here).
+  const routed = await routeIssueCreate(value, deps);
+  if (routed instanceof Response) return routed;
+  value = routed;
+
   // ── usage-aware hold gate ──────────────────────────────────────────────────
   const held = await tryHoldNewTask(body, value, deps);
   if (held) return held;
@@ -4161,7 +4201,8 @@ async function createValidatedSession(
   // addIssueLabel shells out synchronously via execFileSync, so merely not awaiting
   // would still block this tick — setTimeout(0) lets json(s, 201) flush first.
   if (value.issueRef) {
-    const { repoPath, issueRef } = value;
+    const repoPath = value.issueRepoPath ?? value.repoPath; // #3245: the issue's tracker
+    const { issueRef } = value;
     setTimeout(
       () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
       0,
@@ -5471,8 +5512,10 @@ async function reResolveRelaunchIssue(
   original: Session,
   deps: Ctx["deps"],
 ): Promise<IssueRef | undefined | false> {
-  if (original.issueNumber == null) return undefined;
-  const forge = deps.resolveForge?.(original.repoPath) ?? null;
+  // #3245: a routed session's issue lives in its home repo's tracker.
+  const linked = sessionIssue(original);
+  if (!linked) return undefined;
+  const forge = deps.resolveForge?.(linked.repoPath) ?? null;
   // Capability gap: getIssue is OPTIONAL on GitForge. A forge that doesn't implement it
   // can never re-resolve, so hard-aborting would permanently break issue-linked relaunch
   // on that host. Fall back to relaunching WITHOUT the issue (drops the link — logged, not
@@ -5480,13 +5523,13 @@ async function reResolveRelaunchIssue(
   // supported forges (github/gitea) implement it, so today this is purely defensive.
   if (forge && typeof forge.getIssue !== "function") {
     console.warn(
-      `[relaunch] forge for ${original.repoPath} has no getIssue; relaunching #${original.issueNumber} without issue context`,
+      `[relaunch] forge for ${linked.repoPath} has no getIssue; relaunching #${linked.number} without issue context`,
     );
     return undefined;
   }
   let iss: import("./forge/types").Issue | null | undefined;
   try {
-    iss = await forge?.getIssue?.(original.issueNumber);
+    iss = await forge?.getIssue?.(linked.number);
   } catch {
     iss = null;
   }
@@ -5548,7 +5591,7 @@ async function finalizeRelaunch(
   const id = original.id;
   deps.events.emit("session:new", fresh);
   if (issueRef) {
-    const { repoPath } = original;
+    const repoPath = sessionIssue(original)?.repoPath ?? original.repoPath;
     const number = issueRef.number;
     setTimeout(() => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, number), 0);
   }

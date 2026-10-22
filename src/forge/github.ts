@@ -45,6 +45,7 @@ import { issuesFreshness } from "./repo-freshness";
 import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
+import { bodyWithIssueLink } from "./issue-link";
 import {
   CRITIC_REVIEW_MARKER,
   EmptyDiffError,
@@ -3055,7 +3056,7 @@ export class GithubForge implements GitForge {
     await this.run(args).finally(() => this.invalidatePrs());
   }
 
-  async ensureIssueLink(prNumber: number, issueNumber: number): Promise<void> {
+  async ensureIssueLink(prNumber: number, issueNumber: number, issueSlug?: string): Promise<void> {
     const body = (
       await this.run([
         "pr",
@@ -3069,12 +3070,8 @@ export class GithubForge implements GitForge {
         ".body // empty",
       ])
     ).trim();
-    const pattern = new RegExp(
-      `\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#${issueNumber}\\b`,
-      "i",
-    );
-    if (pattern.test(body)) return;
-    const newBody = body ? `${body}\n\nCloses #${issueNumber}` : `Closes #${issueNumber}`;
+    const newBody = bodyWithIssueLink(body, issueNumber, issueSlug, this.slug);
+    if (newBody === null) return;
     await this.run([
       "pr",
       "edit",

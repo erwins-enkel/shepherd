@@ -22,6 +22,7 @@ import {
   needsOpenPrCheck,
   ARCHIVED_MAPPING_GRACE_MS,
   type AutoSessionView,
+  type MappedSessionView,
   type DrainDecision,
   type DrainRepoState,
   type RunSummary,
@@ -253,6 +254,7 @@ import {
 } from "./sandbox";
 import { detectEgressBackend, type EgressBackend } from "./egress";
 import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
+import { parseTargetRepo, resolveTargetRepo, sessionIssue, targetsOtherRepo } from "./target-repo";
 
 /** #1071: After this many consecutive driver-absent / driver-broken results without a successful
  *  rebase, escalate to the operator (pauseReason='driver'). Keeps a persistently-misconfigured
@@ -319,6 +321,33 @@ function offEpicMerges(
     out.set(x.issueNumber!, x.baseBranch);
   }
   return [...out].map(([childNumber, spawnBase]) => ({ childNumber, spawnBase }));
+}
+
+/** #3245: live auto sessions working an issue of `repoPath` — its own sessions AND those routed to
+ *  the ticket's target repo — paired with that issue number. */
+function liveIssueSessionsFor(
+  all: Session[],
+  repoPath: string,
+): { s: Session; issueNumber: number }[] {
+  return all.flatMap((s) => {
+    const issue = sessionIssue(s);
+    if (!issue || issue.repoPath !== repoPath || !s.auto || s.status === "archived") return [];
+    return [{ s, issueNumber: issue.number }];
+  });
+}
+
+/** #3245: sessions running in another repo for an issue of `repoPath`, as dedup views keyed by
+ *  that issue. Branch-less: their branch lives in the target repo, so this repo's open-PR check
+ *  can't speak for them — once past the archive grace they map only through the kept claim. */
+function routedHomeViews(all: Session[], repoPath: string): MappedSessionView[] {
+  return all
+    .filter((s) => s.homeIssueRepoPath === repoPath && s.homeIssueNumber != null)
+    .map((s) => ({
+      issueNumber: s.homeIssueNumber!,
+      status: s.status,
+      branch: null,
+      archivedAt: s.archivedAt,
+    }));
 }
 
 /** One queued backlog issue behind {@link DrainStatus.queued} — the rows the
@@ -409,6 +438,9 @@ export interface DrainDeps {
   emitEpicCompletedCleared?: (key: { repoPath: string; parentIssueNumber: number }) => void;
   /** → events.emit("session:new", s). Optional — absent in tests that don't need it. */
   emitSessionNew?: (s: Session) => void;
+  /** #3245: a ticket names a `Target repo:` no registered repo matches, so the drain refuses to
+   *  start it. Called once per (repo, issue) per process. Absent in tests that don't assert it. */
+  onTargetRepoUnregistered?: (e: { repoPath: string; issue: number; slug: string }) => void;
   /** Anonymous product telemetry. `event()` no-ops unless consent is granted (src/telemetry.ts),
    *  so no call-site gating is needed. Absent in tests that don't assert emission. */
   telemetry?: Pick<TelemetryService, "event">;
@@ -573,6 +605,8 @@ export class DrainService {
    *  `epic_base_unavailable` hold from that, applying the cooldown freshness test ITSELF: the lazy
    *  expiry delete lives inside doSpawn (below), which the hold PREVENTS from running — so a
    *  membership-only check would latch the hold forever instead of letting it lapse and retry. */
+  /** #3245: (repoPath#issue) keys already reported as naming an unregistered target repo. */
+  private unregisteredTargetSignaled = new Set<string>();
   private spawnFailures = new Map<string, { at: number; epicBase?: string }>();
   private approvedNext = new Set<string>();
   /** What the clients last saw per repo: a leading or winding-down epic (`live`), an epic child
@@ -726,16 +760,12 @@ export class DrainService {
     }
     const prSnap = this.deps.prCache.snapshot();
     const all = this.deps.store.list();
-    const sessions = all
-      .filter(
-        (x) =>
-          x.repoPath === repoPath && x.auto && x.issueNumber != null && x.status !== "archived",
-      )
-      .map((x) => ({
-        id: x.id,
-        issueNumber: x.issueNumber,
-        prNumber: prSnap[x.id]?.number ?? null,
-      }));
+    // #3245: a child routed to its target repo runs there but still maps to this repo's issue.
+    const sessions = liveIssueSessionsFor(all, repoPath).map(({ s: x, issueNumber }) => ({
+      id: x.id,
+      issueNumber,
+      prNumber: prSnap[x.id]?.number ?? null,
+    }));
     const integrated = this.deps.store.listEpicIntegrated(repoPath, run.parentIssueNumber);
     const parentTitle = struct.parent?.title ?? `#${run.parentIssueNumber}`;
     const integratedDetails = this.deps.store.listEpicIntegratedDetails(
@@ -1050,7 +1080,8 @@ export class DrainService {
     // ALL sessions (incl. archived) for dedup: an archived session keeps its issue mapped only
     // briefly after archive or while its branch has an open PR (see mappedIssueSet, #3238).
     // autoSessions/cap use only the non-archived subset.
-    const allRepoSessions = this.deps.store.list().filter((s) => s.repoPath === repoPath);
+    const allSessions = this.deps.store.list();
+    const allRepoSessions = allSessions.filter((s) => s.repoPath === repoPath);
     const snapshot = this.deps.prCache.snapshot();
     const autoSessions: AutoSessionView[] = allRepoSessions
       .filter((s) => s.status !== "archived" && s.auto)
@@ -1070,6 +1101,7 @@ export class DrainService {
           fullAuto: isFullAuto(s, cfg),
           epicParent: sessionEpicParent(s),
           landingRepair: !!s.landingRepair,
+          misrouted: !!s.misroutedTarget,
         };
       });
     const limits = this.deps.usage.limits(this.now());
@@ -1128,7 +1160,7 @@ export class DrainService {
     // summaryCandidates ⊇ candidates: one check covers the decision and runSummary.next.
     const mappedIssueNumbers = await this.mappedIssues(
       repoPath,
-      allRepoSessions,
+      [...allRepoSessions, ...routedHomeViews(allSessions, repoPath)],
       summaryCandidates,
     );
     // enabled reflects whether spawning is active: epic running → use epic's running
@@ -1186,7 +1218,7 @@ export class DrainService {
   /** {@link mappedIssueSet}, reading the open-PR snapshot only when a candidate's dedup needs it. */
   private async mappedIssues(
     repoPath: string,
-    sessions: Session[],
+    sessions: MappedSessionView[],
     candidates: Issue[],
   ): Promise<Set<number>> {
     const recentSince = this.now() - ARCHIVED_MAPPING_GRACE_MS;
@@ -1847,9 +1879,17 @@ export class DrainService {
       decomposition,
       facts: this.stackPredecessorFacts(repoPath),
     });
+    // #3245: a child routed to another repo can't stack on a branch here — it waits for merges.
+    const ownSlug = this.deps.resolveForge(repoPath)?.slug ?? null;
+    const predecessorOf = new Map(decomposition.predecessorOf);
+    for (const c of epic.children) {
+      if (!targetsOtherRepo(c.body, ownSlug)) continue;
+      predecessorOf.delete(c.number);
+      plan.baseByChild.delete(c.number);
+    }
     if (plan.baseByChild.size === 0) return { baseByChild: null };
     return {
-      ctx: { predecessorOf: decomposition.predecessorOf, stackReady: plan.stackReady },
+      ctx: { predecessorOf, stackReady: plan.stackReady },
       baseByChild: plan.baseByChild,
     };
   }
@@ -4588,17 +4628,7 @@ export class DrainService {
       await this.retireEpicChild(forge, repoPath, parent, s, decision);
       return;
     }
-    // Best-effort issue link: a failure must NOT block teardown.
-    if (s?.issueNumber != null) {
-      try {
-        await forge.ensureIssueLink?.(decision.prNumber, s.issueNumber);
-      } catch (err) {
-        console.warn(
-          `[drain] ensureIssueLink pr#${decision.prNumber} issue#${s.issueNumber} failed for ${decision.sessionId}:`,
-          err,
-        );
-      }
-    }
+    if (s) await this.linkRetiredIssue(forge, s, decision.prNumber);
     // Isolate teardown: a worktree-remove / archive throw must not abort the
     // whole pump (which would skip remaining spawns/retires this tick). On
     // failure we warn and defer — the session stays live and mergeable, so the
@@ -4709,6 +4739,74 @@ export class DrainService {
     return { base, prompt, epicParent };
   }
 
+  /** Best-effort issue link on a retired PR: a failure must NOT block teardown. #3245: a routed
+   *  session links its home issue cross-repo (`Closes owner/name#n`), so a human merge in the
+   *  target repo closes it; a misrouted session links nothing — its merge must not close it. */
+  private async linkRetiredIssue(forge: GitForge, s: Session, prNumber: number): Promise<void> {
+    const issue = sessionIssue(s);
+    if (!issue || s.misroutedTarget) return;
+    const foreign = issue.repoPath !== s.repoPath;
+    const issueSlug = foreign ? this.deps.resolveForge(issue.repoPath)?.slug : undefined;
+    if (foreign && !issueSlug) return; // can't name the home repo — never link this repo's own #n
+    try {
+      await forge.ensureIssueLink?.(prNumber, issue.number, issueSlug ?? undefined);
+    } catch (err) {
+      console.warn(
+        `[drain] ensureIssueLink pr#${prNumber} issue#${issue.number} failed for ${s.id}:`,
+        err,
+      );
+    }
+  }
+
+  /** #3245: the repo a ticket's session runs in — `repoPath`, or the registered repo its
+   *  `Target repo:` marker names. Null when the marker names no registered repo: the ticket is
+   *  refused (no claim, no spawn) and the operator told once per process. */
+  private spawnRepoFor(repoPath: string, issue: number, body: string): string | null {
+    const slug = parseTargetRepo(body);
+    if (!slug) return repoPath;
+    const target = resolveTargetRepo(slug, repoPath, {
+      listRepoPaths: this.deps.repos,
+      resolveForge: this.deps.resolveForge,
+    });
+    if (target.kind === "self") return repoPath;
+    if (target.kind === "routed") return target.repoPath;
+    console.warn(`[drain] issue #${issue} held — target repo ${slug} is not registered`);
+    const key = `${repoPath}#${issue}`;
+    if (!this.unregisteredTargetSignaled.has(key)) {
+      this.unregisteredTargetSignaled.add(key);
+      this.deps.onTargetRepoUnregistered?.({ repoPath, issue, slug });
+    }
+    return null;
+  }
+
+  /** Base, prompt and epic stamps for a spawn. #3245: a ROUTED child (spawnRepo ≠ repoPath) bases
+   *  on the target repo's default branch and carries no epic stamp — it can't join this repo's
+   *  integration branch or stacks, and lands like an ordinary session there. */
+  private async spawnPlan(
+    repoPath: string,
+    spawnRepo: string,
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+  ): Promise<{
+    base: string;
+    prompt: string;
+    epicParent: number | null;
+    incrementalEpicParent: number | null;
+  }> {
+    if (spawnRepo === repoPath) {
+      const plan = await this.resolveSpawnBase(repoPath, forge, decision);
+      return { ...plan, incrementalEpicParent: decision.incrementalEpicParent ?? null };
+    }
+    const target = this.deps.resolveForge(spawnRepo);
+    if (!target) throw new Error(`no forge for target repo ${spawnRepo}`);
+    return {
+      base: await target.defaultBranch(),
+      prompt: issueSpawnPrompt(decision.issue.number, decision.issue.title),
+      epicParent: null,
+      incrementalEpicParent: null,
+    };
+  }
+
   /** #2069: a STACKED child bases on its chain predecessor's live PR head. `ensureBranch` is
    *  deliberately NOT called: the branch already exists (an open PR implies it was pushed), and
    *  "ensuring" it would create it at the default branch's tip if it had since been deleted —
@@ -4768,7 +4866,11 @@ export class DrainService {
     // or spawning, so a repo whose profile refuses auto (standard, or autonomous with no
     // backend) doesn't churn the claim label every tick. create() re-checks and throws as
     // defense-in-depth (its try releases the claim), but skipping here avoids that churn.
-    const rc = this.deps.store.getRepoConfig(repoPath);
+    // #3245: a ticket naming another `Target repo:` runs there (null = unregistered → refused).
+    const spawnRepo = this.spawnRepoFor(repoPath, number, body);
+    if (spawnRepo === null) return;
+    // The session runs in spawnRepo, so ITS sandbox profile and model defaults apply.
+    const rc = this.deps.store.getRepoConfig(spawnRepo);
     if (!(await this.spawnCapacity(repoPath, decision, rc.defaultModel))) return;
     const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
     // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
@@ -4827,16 +4929,16 @@ export class DrainService {
     // sub-issue) session never appears until a full page reload.
     let session: Session | undefined;
     try {
-      const { base, prompt, epicParent } = await this.resolveSpawnBase(repoPath, forge, decision);
+      const plan = await this.spawnPlan(repoPath, spawnRepo, forge, decision);
       const epicSettings = decision.epicProviderSettings;
       // Auto-spawns honor an explicit operator default-model — the repo override
       // wins over the global default; when both are unset ("inherit"/"auto") they
       // fall back to no --model flag (Claude's own default). The Fable promo is a
       // client-only UI concern and is NEVER applied to autonomous spawns.
       session = await this.deps.service.create({
-        repoPath,
-        baseBranch: base,
-        prompt,
+        repoPath: spawnRepo,
+        baseBranch: plan.base,
+        prompt: plan.prompt,
         ...(epicSettings ? { agentProvider: epicSettings.agentProvider } : {}),
         model: this.resolvedSpawnModel(decision, rc.defaultModel),
         effort: epicSettings
@@ -4850,9 +4952,11 @@ export class DrainService {
         images: [],
         auto: true,
         issueRef: { number, url, title, body },
-        epicParent, // persisted epic-child identity; null for a label-drain or degraded spawn
+        // persisted epic-child identity; null for a label-drain, degraded or routed spawn
+        epicParent: plan.epicParent,
         // #3191: an incremental epic's child — an ordinary session that lands on its own.
-        incrementalEpicParent: decision.incrementalEpicParent ?? null,
+        incrementalEpicParent: plan.incrementalEpicParent,
+        issueRepoPath: repoPath, // #3245: the issue's tracker; differs from repoPath only when routed
       });
       this.spawnFailures.delete(failKey); // #790: clear any prior failure cooldown on success
       // The new auto session appears in the next buildState → counts toward the
@@ -4961,7 +5065,9 @@ export class DrainService {
     if (candidates.length === 0) return;
     const rows = this.deps.store
       .list()
-      .filter((x) => x.repoPath === repoPath && x.issueNumber != null && x.branch);
+      .filter(
+        (x) => x.repoPath === repoPath && x.issueNumber != null && x.branch && !x.misroutedTarget,
+      );
     for (const child of candidates) {
       await this.probeChildIntegration(
         forge,
@@ -5060,14 +5166,19 @@ export class DrainService {
     // issueNumber but never had the label applied; the remove is then a harmless
     // idempotent no-op (best-effort, swallowed below) — not worth a per-session
     // "was-stamped" flag to suppress.
-    if (!retainClaim && s.issueNumber != null) {
+    // #3245: a routed session's claim sits on its home issue, in the home repo's tracker.
+    const issue = sessionIssue(s);
+    if (!retainClaim && issue) {
       try {
-        await this.deps.resolveForge(s.repoPath)?.removeIssueLabel?.(s.issueNumber, ACTIVE_LABEL);
+        await this.deps
+          .resolveForge(issue.repoPath)
+          ?.removeIssueLabel?.(issue.number, ACTIVE_LABEL);
       } catch (err) {
-        console.warn(`[drain] release label #${s.issueNumber} for ${id} failed:`, err);
+        console.warn(`[drain] release label #${issue.number} for ${id} failed:`, err);
       }
     }
     await this.pumpIfEnabled(s.repoPath);
+    if (issue && issue.repoPath !== s.repoPath) await this.pumpIfEnabled(issue.repoPath);
   }
 
   /** A session's status changed. Pump its repo, skipping drain-disabled repos. */

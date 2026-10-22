@@ -36,6 +36,7 @@ const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {
   "train-error": () => m.hold_train_error(),
   stalled: () => m.hold_stalled(),
   "recap-attention": () => m.hold_recap_attention(),
+  "misrouted-target": ({ params: p = {} }) => m.hold_misrouted_target({ target: p.target ?? "" }),
   merging: () => m.hold_merging(),
   "merge-rebasing": ({ params: p = {} }) =>
     m.hold_merge_rebasing({ rebaseCount: p.rebaseCount ?? 0 }),
@@ -85,6 +86,7 @@ const HOLD_AWAITS_OPERATOR: Record<HoldCode, boolean> = {
   "plan-question": true,
   "manual-steps": true,
   "login-request": true,
+  "misrouted-target": true,
   "blocked-stall": false,
   "quota-rework": false,
   "quota-review": false,

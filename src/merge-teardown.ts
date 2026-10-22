@@ -1,5 +1,6 @@
 import { epicParentFromBranch, isEpicChild } from "./epic-branch";
 import type { GitForge } from "./forge/types";
+import { sessionIssue } from "./target-repo";
 import type { Session, SessionArchiveReason } from "./types";
 import type { SessionStore } from "./store";
 
@@ -57,7 +58,8 @@ export async function recordEpicIntegrationIfChild(
   deps: { store: EpicIntegrationStore; forge?: GitForge | null },
 ): Promise<void> {
   try {
-    if (s.issueNumber == null) return;
+    const issueNumber = integrableIssue(s);
+    if (issueNumber == null) return;
     const ownEpic = s.epicParent ?? epicParentFromBranch(s.baseBranch);
     if (ownEpic == null) {
       // Only a PR re-targeted onto an epic branch can still belong to an epic; with none active
@@ -75,13 +77,19 @@ export async function recordEpicIntegrationIfChild(
     deps.store.recordEpicIntegrated(
       s.repoPath,
       parent,
-      s.issueNumber,
+      issueNumber,
       pr.number != null ? { number: pr.number, url: pr.url ?? "" } : undefined,
       pinned,
     );
   } catch (err) {
     console.warn(`[epic] record-integration failed for ${s.id} (issue #${s.issueNumber}):`, err);
   }
+}
+
+/** The issue a merged session may integrate — none for a session outside its ticket's target
+ *  repo (#3245), which never integrates the ticket. */
+function integrableIssue(s: Session): number | null {
+  return s.misroutedTarget ? null : s.issueNumber;
 }
 
 /** #3197: stamp an incremental epic child's recorded stack layer as landed once its PR merges —
@@ -161,6 +169,16 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
   // than the epic branch (a landed sibling's branch, say), so its work never reached the epic.
   // Closing it would count it done and let the epic land without that work; keeping it open (claim
   // retained, no re-spawn) leaves the epic incomplete, where the off-epic-merge warning names it.
+  // #3245: the ticket's code belongs in another repo, so this merge did not do it. Leave the issue
+  // open, release the claim (onArchived drops the label) so the drain re-spawns it routed to its
+  // target repo, and say so on the issue.
+  if (s.misroutedTarget && s.issueNumber != null) {
+    await noteMisroutedMerge(s, s.issueNumber, deps);
+    await deps.archive(s.id, "merged");
+    deps.dropPrCache(s.id);
+    deps.emitArchived(s.id);
+    return;
+  }
   if (s.auto && s.issueNumber != null && (deps.isIntegratedEpicChild(s) || isEpicChild(s))) {
     deps.retainClaim(s.id);
     await deps.archive(s.id, "merged");
@@ -168,16 +186,18 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
     deps.emitArchived(s.id);
     return;
   }
-  if (s.auto && s.issueNumber != null) {
-    const forge = deps.resolveForge(s.repoPath);
+  // #3245: a routed session closes its HOME issue, in the home repo's tracker.
+  const issue = sessionIssue(s);
+  if (s.auto && issue) {
+    const forge = deps.resolveForge(issue.repoPath);
     // Gate on the method existing: a forge without closeIssue leaves the issue
     // OPEN, so we must not treat it as closed (see the claim-retain note below).
     if (forge?.closeIssue) {
       try {
-        await forge.closeIssue(s.issueNumber);
+        await forge.closeIssue(issue.number);
         closed = true;
       } catch (err) {
-        console.warn(`[merge] closeIssue #${s.issueNumber} failed for ${s.id}:`, err);
+        console.warn(`[merge] closeIssue #${issue.number} failed for ${s.id}:`, err);
       }
     }
     // The issue closed → its claim is moot, so let onArchived drop the now-stale
@@ -189,4 +209,23 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
   await deps.archive(s.id, "merged");
   deps.dropPrCache(s.id);
   deps.emitArchived(s.id);
+}
+
+/** #3245: tell a misrouted session's issue why its merge did not close it. Best-effort. */
+async function noteMisroutedMerge(
+  s: Session,
+  issueNumber: number,
+  deps: Pick<MergeTeardownDeps, "resolveForge">,
+): Promise<void> {
+  try {
+    await deps
+      .resolveForge(s.repoPath)
+      ?.commentIssue?.(
+        issueNumber,
+        `A pull request for this issue merged in this repository, but the issue targets ` +
+          `${s.misroutedTarget}. It stays open so Shepherd can start it there.`,
+      );
+  } catch (err) {
+    console.warn(`[merge] misrouted note on #${issueNumber} failed for ${s.id}:`, err);
+  }
 }

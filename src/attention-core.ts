@@ -32,6 +32,7 @@ export type SignalCode =
   | "halted-usage"
   | "blocked-decision"
   | "login-request"
+  | "misrouted-target"
   | "plan-rework"
   | "plan-question"
   | "critic-rework"
@@ -53,6 +54,7 @@ const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   "halted-error": 1,
   "blocked-decision": 1,
   "login-request": 1,
+  "misrouted-target": 1,
   "plan-rework": 1,
   "plan-question": 1,
   "critic-rework": 1,
@@ -154,6 +156,8 @@ const ATTENTION_RULES: Array<{
 }> = [
   // Tier 1: CRITICAL — forward progress blocked on the operator.
   { signal: "halted-error", when: (s) => s.haltReason === "error" },
+  // #3245: the ticket's code belongs in another repo — this session can't finish it here.
+  { signal: "misrouted-target", when: (s) => Boolean(s.misroutedTarget) },
   {
     signal: "blocked-decision",
     when: (s, c) =>
@@ -345,6 +349,10 @@ const SIGNAL_TO_HOLD: Record<
   stalled: () => ({ code: "stalled" }),
   "recap-attention": () => ({ code: "recap-attention" }),
   "halted-error": () => ({ code: "halted-error" }),
+  "misrouted-target": (session) => ({
+    code: "misrouted-target",
+    params: { target: session.misroutedTarget ?? "" },
+  }),
   "halted-usage": (_session, caches) =>
     caches.resetAt !== undefined
       ? { code: "halted-usage", params: { resetAt: caches.resetAt } }

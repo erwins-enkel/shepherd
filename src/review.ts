@@ -78,6 +78,7 @@ import {
   type ClampSpec,
   type FitResult,
 } from "./prompt-fit";
+import { sessionIssue } from "./target-repo";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
@@ -1264,12 +1265,10 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   /** Best-effort fetch of the originating issue's body for UNTRUSTED reviewer context.
    *  Never throws/blocks the review: missing issue / no forge / fetch error ⇒ null. */
   private async fetchIssueBody(session: Session): Promise<string | null> {
-    if (session.issueNumber == null) return null;
+    const issue = sessionIssue(session); // #3245: a routed session's issue is in its home repo
+    if (!issue) return null;
     try {
-      return (
-        (await this.deps.resolveForge(session.repoPath)?.getIssue?.(session.issueNumber))?.body ??
-        null
-      );
+      return (await this.deps.resolveForge(issue.repoPath)?.getIssue?.(issue.number))?.body ?? null;
     } catch (err) {
       // Log only the message, not the raw error: getIssue shells `gh`, whose error object
       // can carry request/response detail we don't want in logs.

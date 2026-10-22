@@ -59,6 +59,8 @@ function harness(
     create?: (input: StandardCreateInput) => Promise<Session>;
     defaultBranch?: () => Promise<string>;
     limits?: () => { session5h?: { pct: number }; week?: { pct: number } };
+    /** #3245: forge slug per repo dir (target-repo routing). */
+    slugOf?: (repoPath: string) => string | null;
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -70,6 +72,7 @@ function harness(
     agentProvider: StandardCreateInput["agentProvider"];
     model: StandardCreateInput["model"];
     effort: StandardCreateInput["effort"];
+    issueRepoPath?: string;
   }> = [];
   const labelCalls: number[] = [];
   const recomputeCalls: Array<Array<{ repoPath: string; issueNumber: number }>> = [];
@@ -89,14 +92,16 @@ function harness(
             agentProvider: input.agentProvider,
             model: input.model,
             effort: input.effort,
+            issueRepoPath: input.issueRepoPath,
           });
           return { id: `s${n}` } as Session;
         }),
     } as unknown as AppDeps["service"],
     events: new EventHub(),
     usageLimits: { limits: opts.limits ?? (() => ({})) } as unknown as AppDeps["usageLimits"],
-    resolveForge: () =>
+    resolveForge: (repoPath: string) =>
       ({
+        slug: opts.slugOf?.(repoPath) ?? null,
         defaultBranch: opts.defaultBranch ?? (async () => "main"),
         addIssueLabel: async (num: number) => {
           labelCalls.push(num);
@@ -429,4 +434,47 @@ test("GET /api/up-next?peek strips hidden-repo sections via hiddenRepoPathsRaw",
   const repoPaths = body.sections.map((s) => s.repoPath);
   expect(repoPaths).not.toContain(hiddenPath);
   expect(repoPaths).toContain(visiblePath);
+});
+
+test("#3245: an issue naming another registered Target repo starts there; claim stays home", async () => {
+  const bDir = mkdtempSync(join(config.repoRoot, "shepherd-upnext-target-"));
+  try {
+    const { app, createCalls, labelCalls } = harness({
+      slugOf: (p) => (p.includes("shepherd-upnext-target-") ? "org/B" : "org/A"),
+    });
+    const res = await app.fetch(
+      startReq([
+        {
+          repoPath: repoDir,
+          issueRef: { number: 7, url: "u", title: "t", body: "Target repo: org/B" },
+        },
+      ]),
+    );
+    expect(res.status).toBe(201);
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]!.repoPath).toContain("shepherd-upnext-target-");
+    expect(createCalls[0]!.issueRepoPath).toBe(repoDir);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(labelCalls).toContain(7);
+  } finally {
+    rmSync(bDir, { recursive: true, force: true });
+  }
+});
+
+test("#3245: an unregistered Target repo is refused per item, nothing spawned", async () => {
+  const { app, createCalls, labelCalls } = harness({ slugOf: () => "org/A" });
+  const res = await app.fetch(
+    startReq([
+      {
+        repoPath: repoDir,
+        issueRef: { number: 7, url: "u", title: "t", body: "Target repo: org/Nope" },
+      },
+    ]),
+  );
+  expect(res.status).toBe(502);
+  const body = (await res.json()) as { errors: { number: number; error: string }[] };
+  expect(body.errors).toEqual([{ number: 7, error: "target repo not registered" }]);
+  expect(createCalls).toHaveLength(0);
+  await new Promise((r) => setTimeout(r, 5));
+  expect(labelCalls).toHaveLength(0);
 });

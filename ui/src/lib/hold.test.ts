@@ -18,6 +18,7 @@ const EXPECTED: Record<HoldCode, boolean> = {
   "plan-question": true,
   "manual-steps": true,
   "login-request": true,
+  "misrouted-target": true,
   // Failure / advisory / autonomous / auto-resuming / handed-off / green-complete → no wash.
   "blocked-stall": false,
   "quota-rework": false,
@@ -44,7 +45,7 @@ describe("holdAwaitsOperator", () => {
     });
   }
 
-  it("washes exactly the ten agent-awaits-operator holds", () => {
+  it("washes exactly the eleven agent-awaits-operator holds", () => {
     const wash = Object.entries(EXPECTED)
       .filter(([, v]) => v)
       .map(([k]) => k)
@@ -59,6 +60,7 @@ describe("holdAwaitsOperator", () => {
         "halted-error",
         "login-request",
         "manual-steps",
+        "misrouted-target",
         "plan-question",
         "plan-rework",
       ].sort(),

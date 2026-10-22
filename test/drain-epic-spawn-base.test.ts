@@ -111,6 +111,15 @@ function fakeForge(
   };
 }
 
+/** Mirrors SessionService: a routed create (#3245) links its home issue, never `issueNumber`. */
+function routedIssueFields(input: StandardCreateInput) {
+  const n = input.issueRef?.number ?? null;
+  const routed = !!input.issueRepoPath && input.issueRepoPath !== input.repoPath;
+  return routed
+    ? { issueNumber: null, homeIssueRepoPath: input.issueRepoPath!, homeIssueNumber: n }
+    : { issueNumber: n };
+}
+
 interface Harness {
   store: SessionStore;
   drain: DrainService;
@@ -140,6 +149,9 @@ function makeHarness(
     stacks?: boolean;
     /** #3101: the integration-branch rebase seam (pre-spawn refresh). */
     rebaseLandingBranch?: DrainDeps["rebaseLandingBranch"];
+    /** #3245: extra registered repos and their forges (REPO keeps the default forge). */
+    otherRepos?: Record<string, GitForge>;
+    onTargetRepoUnregistered?: DrainDeps["onTargetRepoUnregistered"];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -204,7 +216,7 @@ function makeHarness(
         herdrSession: "default",
         herdrAgentId: "t",
         auto: input.auto ?? false,
-        issueNumber: input.issueRef?.number ?? null,
+        ...routedIssueFields(input),
       });
     },
     archive: async (id: string): Promise<number> => {
@@ -224,10 +236,11 @@ function makeHarness(
     store,
     service,
     ...(opts.now ? { now: opts.now } : {}),
-    resolveForge: () => forge,
+    resolveForge: (repo) => opts.otherRepos?.[repo] ?? forge,
     prCache: { snapshot: () => prCache },
     usage,
-    repos: () => [REPO],
+    repos: () => [REPO, ...Object.keys(opts.otherRepos ?? {})],
+    onTargetRepoUnregistered: opts.onTargetRepoUnregistered,
     emitStatus: (s) => statuses.push(s),
     emitArchived: () => {},
     dropPrCache: () => {},
@@ -933,6 +946,173 @@ describe("#3197 incremental epic: stacked child spawn base", () => {
 
   test("flag OFF: the successor waits for its blocker to merge (#3191 behaviour)", async () => {
     const h = mk({ epicStacksEnabled: false, stacks: true });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(0);
+  });
+});
+
+// ── #3245: a child whose ticket targets another repo runs there ──────────────────────────────────
+
+describe("#3245 routed child: Target repo marker", () => {
+  const PARENT = 327;
+  const CHILD = 320;
+  const B = "/b";
+  const parentIssue: Issue = {
+    number: PARENT,
+    title: "EFI cluster",
+    body: "epic body",
+    url: `https://x/${PARENT}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+  function epicOpts(childBody: string) {
+    const subIssues: SubIssueRef[] = [
+      { number: CHILD, title: "EFI", url: "u320", body: childBody, closed: false, labels: [] },
+    ];
+    return {
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n: number) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n: number) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async () => [],
+    };
+  }
+  function bForge(rec: ForgeRec): GitForge {
+    return { ...fakeForge([], rec), slug: "org/B", defaultBranch: async () => "trunk" };
+  }
+  function startEpic(h: Harness): void {
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+  }
+
+  test("spawns in B on B's default branch, unstamped, claim stays on A; no re-spawn", async () => {
+    const bRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [], removed: [] };
+    const h = makeHarness({
+      ...epicOpts("Spec.\n**Target repo:** `org/b`"),
+      otherRepos: { [B]: bForge(bRec) },
+    });
+    startEpic(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    const created = h.creates[0]!;
+    expect(created.repoPath).toBe(B);
+    expect(created.baseBranch).toBe("trunk");
+    expect(created.issueRepoPath).toBe(REPO);
+    expect(created.epicParent).toBeNull();
+    expect(created.incrementalEpicParent).toBeNull();
+    expect(created.prompt).not.toContain("--base");
+    expect(h.forgeRec.ensured).toHaveLength(0); // no integration branch for a routed child
+    expect(h.forgeRec.added).toEqual([{ number: CHILD, label: ACTIVE_LABEL }]);
+    expect(bRec.added).toHaveLength(0);
+    const row = h.store.list()[0]!;
+    expect(row.issueNumber).toBeNull();
+    expect(row.homeIssueNumber).toBe(CHILD);
+
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1); // the routed session still maps its A issue
+    expect(h.epics.at(-1)?.children[0]?.sessionId).toBe(row.id);
+  });
+
+  test("an unregistered target repo is refused: no spawn, no claim, reported once", async () => {
+    const reported: { repoPath: string; issue: number; slug: string }[] = [];
+    const h = makeHarness({
+      ...epicOpts("Target repo: org/Nope"),
+      onTargetRepoUnregistered: (e) => reported.push(e),
+    });
+    startEpic(h);
+
+    await h.drain.pump(REPO);
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(0);
+    expect(h.forgeRec.added).toHaveLength(0);
+    expect(reported).toEqual([{ repoPath: REPO, issue: CHILD, slug: "org/Nope" }]);
+  });
+
+  test("a marker naming the epic's own repo spawns normally", async () => {
+    const h = makeHarness(epicOpts("Target repo: O/R"));
+    startEpic(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.repoPath).toBe(REPO);
+    expect(h.creates[0]!.epicParent).toBe(PARENT);
+  });
+});
+
+describe("#3245 routed child never stacks", () => {
+  const PARENT = 327;
+  const LOWER = 410;
+  const UPPER = 411;
+  const EPIC_BRANCH = "epic/327-efi-cluster";
+  const parentIssue: Issue = {
+    number: PARENT,
+    title: "EFI cluster",
+    body: "epic body",
+    url: `https://x/${PARENT}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+
+  test("a routed successor waits for its predecessor to merge instead of stacking on it", async () => {
+    const subIssues: SubIssueRef[] = [
+      { number: LOWER, title: "lower", url: "u", body: "b", closed: false, labels: [] },
+      {
+        number: UPPER,
+        title: "upper",
+        url: "u",
+        body: "Target repo: org/B",
+        closed: false,
+        labels: [],
+      },
+    ];
+    const bRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [], removed: [] };
+    const h = makeHarness({
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n: number) => (n === PARENT ? parentIssue : null),
+      listSubIssuesImpl: async (n: number) => (n === PARENT ? subIssues : []),
+      listBlockedByImpl: async (n: number) => (n === UPPER ? [LOWER] : []),
+      epicStacksEnabled: true,
+      stacks: true,
+      otherRepos: { "/b": { ...fakeForge([], bRec), slug: "org/B" } },
+    });
+    const s = h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: EPIC_BRANCH,
+      branch: "shepherd/lower",
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: LOWER,
+      epicParent: PARENT,
+    });
+    h.prCache[s.id] = {
+      kind: "github",
+      state: "open",
+      number: 900,
+      checks: "none",
+      deployConfigured: false,
+    };
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
 
     await h.drain.pump(REPO);
 

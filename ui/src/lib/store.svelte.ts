@@ -743,6 +743,15 @@ export class HerdStore {
           alert: true,
         });
         return true;
+      case "repo:target-repo-unregistered":
+        toasts.info(
+          m.toast_target_repo_unregistered({ issue: ev.data.issue, slug: ev.data.slug }),
+          {
+            key: "target-repo-unregistered-" + ev.data.repoPath + "-" + ev.data.issue,
+            alert: true,
+          },
+        );
+        return true;
       case "app:sessions-stranded":
         // Persistent, actionable: a daemon restart stranded N sessions (agents gone). One keyed,
         // sticky, alert toast with a "revive all" CTA (per the persistent-failure-toast house rule).

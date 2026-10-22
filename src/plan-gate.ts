@@ -57,6 +57,7 @@ import { resumeThenSteer } from "./resume-then-steer";
 // two review loops can never drift on them — the same reason `scopeAndOutputTail` is shared there.
 import { roundBlock, effectiveRound } from "./critic-core";
 import { ReviewerRuns } from "./reviewer-runs";
+import { sessionIssue } from "./target-repo";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`, or
  *  `"started-at-cap"` — see below); the request was a no-op (`"skipped"` — not planning, a review
@@ -1934,11 +1935,11 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
   /** Best-effort fetch of the originating issue's body for UNTRUSTED reviewer context.
    *  Never throws/blocks the review: missing issue / no forge / fetch error ⇒ null. */
   private async fetchIssueBody(session: Session): Promise<string | null> {
-    if (session.issueNumber == null) return null;
+    const issue = sessionIssue(session); // #3245: a routed session's issue is in its home repo
+    if (!issue) return null;
     try {
       return (
-        (await this.deps.resolveForge?.(session.repoPath)?.getIssue?.(session.issueNumber))?.body ??
-        null
+        (await this.deps.resolveForge?.(issue.repoPath)?.getIssue?.(issue.number))?.body ?? null
       );
     } catch (err) {
       // Log only the message, not the raw error: getIssue shells `gh`, whose error object

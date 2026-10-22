@@ -702,7 +702,8 @@ export type HoldCode =
   | "merge-rebasing"
   | "ready-merge"
   | "manual-steps"
-  | "login-request";
+  | "login-request"
+  | "misrouted-target";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -716,6 +717,7 @@ export interface HoldParams {
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
   steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
   host?: string; // login-request: host of the page the agent wants logged in
+  target?: string; // misrouted-target: the `owner/name` the ticket targets (#3245)
 }
 
 /** An agent's open Login Request (#2882): it waits until the operator marks it done or
@@ -3197,6 +3199,10 @@ export type WsEvent =
       data: { repoPath: string; url: string | null; outcome: DocAgentOutcome };
     }
   | { event: "repo:untrusted-author"; data: { repoPath: string; issue: number } }
+  | {
+      event: "repo:target-repo-unregistered";
+      data: { repoPath: string; issue: number; slug: string };
+    }
   | {
       event: "operator-assistant:update";
       /** `session` is always the global assistant (older clients read only it); `sessions` every

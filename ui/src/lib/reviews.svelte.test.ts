@@ -45,6 +45,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   mergeWithoutCi: false,
   epicStacksEnabled: false,
   sharedBrowserEnabled: false,
+  claudeAiConnectorsEnabled: false,
   browserAllowedHosts: [],
   hidden: false,
   previewStartScript: null,
@@ -456,6 +457,29 @@ test("repoConfig.toggleSharedBrowser reverts on error", async () => {
   repoConfig.sharedBrowser = { "/repo": true };
   await repoConfig.toggleSharedBrowser("/repo");
   expect(repoConfig.sharedBrowserOn("/repo")).toBe(true); // reverted to prev
+});
+
+test("repoConfig.claudeAiConnectorsOn defaults to false for unknown repo", () => {
+  expect(repoConfig.claudeAiConnectorsOn("/unknown")).toBe(false);
+});
+
+test("repoConfig.toggleClaudeAiConnectors flips the flag and hands back the restart counts", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue({
+    ...rc({ claudeAiConnectorsEnabled: true }),
+    connectorRestart: { now: 2, later: 1 },
+  });
+  repoConfig.claudeAiConnectors = { "/repo": false };
+  const restart = await repoConfig.toggleClaudeAiConnectors("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { claudeAiConnectorsEnabled: true });
+  expect(repoConfig.claudeAiConnectorsOn("/repo")).toBe(true);
+  expect(restart).toEqual({ now: 2, later: 1 });
+});
+
+test("repoConfig.toggleClaudeAiConnectors reverts on error and reports no restart", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.claudeAiConnectors = { "/repo": true };
+  expect(await repoConfig.toggleClaudeAiConnectors("/repo")).toBeNull();
+  expect(repoConfig.claudeAiConnectorsOn("/repo")).toBe(true); // reverted to prev
 });
 
 test("repoConfig.isAutoAddressEnabled defaults to false for unknown repo", () => {

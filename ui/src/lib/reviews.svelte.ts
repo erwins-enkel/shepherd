@@ -402,6 +402,7 @@ class RepoConfigStore {
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
+  claudeAiConnectors = $state<Record<string, boolean>>({}); // claude.ai account connectors for this repo's Claude sessions (default off)
   hidden = $state<Record<string, boolean>>({}); // hidden from the Backlog repos panel (optimistic overlay over payload; default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
@@ -446,6 +447,10 @@ class RepoConfigStore {
     this.browserAllowedHosts = {
       ...this.browserAllowedHosts,
       [repoPath]: c.browserAllowedHosts ?? [],
+    };
+    this.claudeAiConnectors = {
+      ...this.claudeAiConnectors,
+      [repoPath]: c.claudeAiConnectorsEnabled,
     };
     this.hidden = { ...this.hidden, [repoPath]: c.hidden };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
@@ -539,6 +544,7 @@ class RepoConfigStore {
         | "epicStacksEnabled"
         | "sharedBrowserEnabled"
         | "browserAllowedHosts"
+        | "claudeAiConnectorsEnabled"
         | "hidden"
         | "planGateEnabled"
         | "draftMode"
@@ -554,11 +560,14 @@ class RepoConfigStore {
       >
     >,
     revert: () => void,
-  ) {
+  ): Promise<RepoConfigResponse | null> {
     try {
-      this.ingest(repoPath, await putRepoConfig(repoPath, patch));
+      const res = await putRepoConfig(repoPath, patch);
+      this.ingest(repoPath, res);
+      return res;
     } catch {
       revert();
+      return null;
     }
   }
 
@@ -801,6 +810,20 @@ class RepoConfigStore {
     });
   }
 
+  /** Flip the repo's claude.ai-connector switch. Resolves to the server's restart counts when the
+   *  flip landed (the caller's toast), or null when it was reverted. */
+  async toggleClaudeAiConnectors(
+    repoPath: string,
+  ): Promise<RepoConfigResponse["connectorRestart"] | null> {
+    const prev = this.claudeAiConnectors[repoPath];
+    const next = !this.claudeAiConnectorsOn(repoPath);
+    this.claudeAiConnectors = { ...this.claudeAiConnectors, [repoPath]: next }; // optimistic
+    const res = await this.apply(repoPath, { claudeAiConnectorsEnabled: next }, () => {
+      this.claudeAiConnectors = { ...this.claudeAiConnectors, [repoPath]: prev };
+    });
+    return res ? res.connectorRestart : null;
+  }
+
   async setBrowserAllowedHosts(repoPath: string, hosts: string[]) {
     const prev = this.browserAllowedHosts[repoPath];
     this.browserAllowedHosts = { ...this.browserAllowedHosts, [repoPath]: hosts }; // optimistic
@@ -892,6 +915,9 @@ class RepoConfigStore {
 
   sharedBrowserOn(repoPath: string): boolean {
     return this.sharedBrowser[repoPath] ?? false;
+  }
+  claudeAiConnectorsOn(repoPath: string): boolean {
+    return this.claudeAiConnectors[repoPath] ?? false;
   }
   browserAllowedHostsFor(repoPath: string): string[] {
     return this.browserAllowedHosts[repoPath] ?? [];

@@ -179,6 +179,61 @@ describe("AutomationSettings — Open shared browser", () => {
   });
 });
 
+describe("AutomationSettings — claude.ai connectors", () => {
+  const REPO = "/tmp/repo";
+  const connectorSwitch = () =>
+    page.getByRole("switch", { name: m.automation_claudeai_connectors_name() });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    repoConfig.claudeAiConnectors = {};
+    for (const t of toasts.items) toasts.close(t.id);
+  });
+
+  // Fake only the repo-config PUT: echo the patch back with the given restart counts.
+  const realFetch = globalThis.fetch;
+  function stubPut(connectorRestart?: { now: number; later: number }) {
+    const puts: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith("/api/repo-config") && init?.method === "PUT") {
+          const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
+          puts.push(patch);
+          return Response.json({ ...patch, connectorRestart });
+        }
+        return realFetch(input, init);
+      }),
+    );
+    return puts;
+  }
+
+  it("flips the switch and toasts how many sessions restart now and later", async () => {
+    const puts = stubPut({ now: 2, later: 1 });
+    repoConfig.claudeAiConnectors = { [REPO]: false };
+    await mount();
+    await expect.element(connectorSwitch()).toHaveAttribute("aria-checked", "false");
+    (connectorSwitch().element() as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ claudeAiConnectorsEnabled: true }]));
+    await expect.element(connectorSwitch()).toHaveAttribute("aria-checked", "true");
+    await vi.waitFor(() =>
+      expect(toasts.items.map((t) => t.text)).toEqual([
+        m.automation_claudeai_connectors_restart_toast({ now: 2, later: 1 }),
+      ]),
+    );
+  });
+
+  it("stays quiet when no live session restarts", async () => {
+    const puts = stubPut({ now: 0, later: 0 });
+    repoConfig.claudeAiConnectors = { [REPO]: false };
+    await mount();
+    (connectorSwitch().element() as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toHaveLength(1));
+    await tick();
+    expect(toasts.items).toEqual([]);
+  });
+});
+
 describe("AutomationSettings — browser allowed hosts", () => {
   const REPO = "/tmp/repo";
   const hostInput = () => page.getByRole("textbox", { name: m.automation_browser_hosts_label() });

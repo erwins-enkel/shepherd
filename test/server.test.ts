@@ -2347,11 +2347,17 @@ test("PUT /api/repo-config accepts claudeAiConnectorsEnabled true → 200 and pe
 test("PUT /api/repo-config kicks the connector restart sweep only when the switch flips", async () => {
   const deps = makeDeps();
   let sweeps = 0;
-  deps.connectorRestart = { sweep: async () => void sweeps++ };
+  deps.connectorRestart = {
+    sweep: async () => void sweeps++,
+    pending: () => ({ now: 2, later: 1 }),
+  };
   const app = makeApp(deps);
-  await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true });
+  const flipped = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true });
   expect(sweeps).toBe(1);
-  await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true }); // unchanged
+  // the UI's toast reads what is about to restart off the PUT that flipped the switch
+  expect((await flipped.json()).connectorRestart).toEqual({ now: 2, later: 1 });
+  const same = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true }); // unchanged
+  expect((await same.json()).connectorRestart).toBeUndefined();
   await putRepoConfig(app, validRepo, { criticEnabled: false }); // another field
   expect(sweeps).toBe(1);
   await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: false });

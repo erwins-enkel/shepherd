@@ -171,3 +171,18 @@ test("an overlapping sweep is dropped", async () => {
   await first;
   expect(resumed).toEqual(["s1"]);
 });
+
+test("pending counts the repo's out-of-step live Claude sessions by whether they are settled", async () => {
+  const { svc } = harness({
+    sessions: [
+      session({ id: "idle" }),
+      session({ id: "done", status: "done" }),
+      session({ id: "busy", status: "running", settledAt: null }),
+      session({ id: "asking", status: "blocked", settledAt: null }),
+      session({ id: "in-step", claudeAiConnectors: true }),
+      session({ id: "codex", agentProvider: "codex" }),
+      session({ id: "elsewhere", repoPath: "/other" }),
+    ],
+  });
+  expect(svc.pending("/repo")).toEqual({ now: 2, later: 2 });
+});

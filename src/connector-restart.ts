@@ -64,15 +64,39 @@ export class ConnectorRestartService {
     }
   }
 
-  private async consider(s: Session): Promise<void> {
-    if (s.agentProvider === "codex" || isOperatorAssistant(s) || s.terminal) return;
+  /**
+   * How many live Claude sessions of `repoPath` are out of step with its connector setting: `now`
+   * are settled (idle/done) and restart on this or the next tick, `later` are mid-turn or blocked
+   * and restart once they settle. Read right after a flip, before any restart, for the UI toast.
+   */
+  pending(repoPath: string): { now: number; later: number } {
+    const out = { now: 0, later: 0 };
+    for (const s of this.deps.store.list({ activeOnly: true })) {
+      if (s.repoPath !== repoPath || this.target(s) === null) continue;
+      if (s.status === "idle" || s.status === "done") out.now++;
+      else out.later++;
+    }
+    return out;
+  }
+
+  /** The connector setting a live, out-of-step Claude session should be restarted with; null when
+   *  it is not this sweep's business (Codex, assistant, terminal, in step, or no live agent — an
+   *  exited agent picks the current value up on its next resume). */
+  private target(s: Session): boolean | null {
+    if (s.agentProvider === "codex" || isOperatorAssistant(s) || s.terminal) return null;
     const target = this.deps.store.getRepoConfig(s.repoPath).claudeAiConnectorsEnabled;
-    if ((s.claudeAiConnectors ?? false) === target) {
+    if ((s.claudeAiConnectors ?? false) === target) return null;
+    if (this.deps.livenessOf(s.id) !== "alive") return null;
+    return target;
+  }
+
+  private async consider(s: Session): Promise<void> {
+    const target = this.target(s);
+    if (target === null) {
+      // Nothing to restart (any respawn re-stamps the session): a later flip starts a fresh budget.
       this.attempts.delete(s.id);
       return;
     }
-    // An exited agent picks the current value up on its next resume; nothing to restart.
-    if (this.deps.livenessOf(s.id) !== "alive") return;
     if (s.status !== "idle" && s.status !== "done") return;
     if (s.settledAt == null || this.now() - s.settledAt < this.settleMs) return;
 

@@ -7654,6 +7654,18 @@ components:
           description: Let this repo's Claude task sessions load the operator's claude.ai account connectors (Claude Docs, Gmail, Drive, Notion …). Off by default. Flipping it restarts the repo's live Claude sessions once each is idle, and under the autonomous sandbox profile it allowlists the connector proxy host.
         hidden:
           type: boolean
+        connectorRestart:
+          type: object
+          description: "Present only on a PUT that flipped claudeAiConnectorsEnabled: how many live Claude sessions of the repo restart with the new setting now (settled) and after their current turn."
+          additionalProperties: false
+          required:
+            - now
+            - later
+          properties:
+            now:
+              type: integer
+            later:
+              type: integer
         signoffAuthority:
           type: string
         maxAuto:

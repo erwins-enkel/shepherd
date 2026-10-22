@@ -12820,7 +12820,14 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalBatteryPauseTests.swift\",\"LocalBatteryPauseTests\",\"quittingTheServerParentKeepsWorkPausedUntilPowerReturns() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"stopFinishesBeforeClosingAndDoesNotAskAgain() async\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"unsuccessfulStopKeepsWindowOpen() async\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"backendChoiceIsOnlyOfferedWhenStoppingIsAvailable()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"backendChoiceIsOnlyOfferedWhenStoppingIsAvailable()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AttachmentPreviewTests.swift\",\"CoreSeamTests.AttachmentPreviewTests\",\"imageBytesScaleDownToTheRequestedSize() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AttachmentPreviewTests.swift\",\"CoreSeamTests.AttachmentPreviewTests\",\"fileURLsDecodeTheSameWay() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AttachmentPreviewTests.swift\",\"CoreSeamTests.AttachmentPreviewTests\",\"textAndUnreadableBytesHaveNoPreview() async\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeAttachmentDropTests.swift\",\"MacSeamTests.ComposeAttachmentDropTests\",\"droppedFilesBecomeAttachmentsNotPaths() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeAttachmentDropTests.swift\",\"MacSeamTests.ComposeAttachmentDropTests\",\"typedTextStillReachesThePrompt() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeAttachmentDropTests.swift\",\"MacSeamTests.ComposeAttachmentDropTests\",\"pastedImageBecomesAnAttachment() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeAttachmentDropTests.swift\",\"MacSeamTests.ComposeAttachmentDropTests\",\"onlyThePasteboardsOwnPathsCountAsDrops() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

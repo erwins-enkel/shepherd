@@ -1455,6 +1455,7 @@
 "newtask_model_default" = "Standard";
 "newtask_model_label" = "Model";
 "newtask_plan_gate_hint" = "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen";
+"newtask_preview_image_aria" = "Vorschau des angehängten Bildes %1$@";
 "newtask_prompt_label" = "Prompt";
 "newtask_prompt_placeholder" = "Beschreibe Feature, Fix oder Aufgabe…";
 "newtask_provider_capacity_free" = "%1$@%% frei";

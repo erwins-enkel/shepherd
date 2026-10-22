@@ -129,8 +129,9 @@ one-finger swipe becomes mouse-wheel input for the agent instead, with fling
 momentum, as on the web and Mac. VoiceOver page scrolls take the same path, and
 Latest output sends Ctrl+End. This needs a live attachment that permits input;
 otherwise, and for agents without mouse tracking, the emulator's own history
-scrolls. Tapping the bottom prompt area opens writing; tapping output while
-writing dismisses the keyboard and preserves the draft.
+scrolls. Tapping the bottom prompt area opens writing at the tail; scrolled into
+history that area is output and only Latest output answers there. Tapping output
+while writing dismisses the keyboard and preserves the draft.
 
 At rest, a floating capsule contains Attach, an image-only system paste control,
 scrolling saved steers, Keyboard and a 44-point hold-to-talk microphone. Keyboard

@@ -1631,6 +1631,7 @@ export const KEYS_COMPOSE: readonly string[] = [
   "newtask_capacity_all",
   "newtask_capacity_all_aria",
   "newtask_attach_image",
+  "newtask_preview_image_aria",
   "newtask_remove_image_aria",
   "newtask_uploading",
   "newtask_upload_failed",

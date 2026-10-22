@@ -24990,6 +24990,24 @@
         }
       }
     },
+    "newtask_preview_image_aria": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau des angehängten Bildes %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview attached image %1$@"
+          }
+        }
+      }
+    },
     "newtask_prompt_label": {
       "extractionState": "manual",
       "localizations": {

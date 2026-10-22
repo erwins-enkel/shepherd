@@ -6,6 +6,7 @@ struct AttachmentsRow: View {
     @Bindable var model: AttachmentModel
     @Binding var choosingFiles: Bool
     let composer: ComposeModel
+    @State private var thumbnails: [UUID: CGImage] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -41,28 +42,11 @@ struct AttachmentsRow: View {
                 ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: 6) {
                         ForEach(model.rows) { row in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Image(systemName: row.path == nil ? "doc" : "checkmark.circle")
-                                    Text(verbatim: row.file.name).lineLimit(1).frame(maxWidth: 180)
-                                    if row.state == .failed {
-                                        Button(L.t("common_retry")) { model.retry(row.id) }
-                                    }
-                                    Button { model.remove(row.id) } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel(L.t("newtask_remove_image_aria"))
-                                }
-                                .padding(6)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                                if let error = row.error {
-                                    Text(verbatim: error).font(.caption).foregroundStyle(.red)
-                                }
-                            }
+                            AttachmentChip(row: row, thumbnail: thumbnails[row.id], model: model)
                         }
                     }
                 }
+                .task(id: model.rows.map(\.id)) { await loadThumbnails() }
             }
             if let error = model.importError {
                 Text(verbatim: error).font(.caption).foregroundStyle(.red)
@@ -76,6 +60,76 @@ struct AttachmentsRow: View {
             }
         }
         .modifier(ComposeAttachmentInput(model: model))
+    }
+
+    /// Image rows get a preview once; rows that left take theirs along.
+    private func loadThumbnails() async {
+        let rows = model.rows
+        thumbnails = thumbnails.filter { id, _ in rows.contains { $0.id == id } }
+        for row in rows where row.file.isImage && thumbnails[row.id] == nil {
+            guard let image = await row.file.thumbnail(maxPixelSize: 560), !Task.isCancelled else { continue }
+            thumbnails[row.id] = image
+        }
+    }
+}
+
+/// One attachment: an image shows a thumbnail that previews on hover, click or focus, like the web chip.
+struct AttachmentChip: View {
+    let row: AttachmentModel.Row
+    let thumbnail: CGImage?
+    let model: AttachmentModel
+    @State private var previewing = false
+    @State private var hover: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                if let thumbnail {
+                    Button { previewing.toggle() } label: {
+                        Image(thumbnail, scale: 1, label: Text(verbatim: row.file.name))
+                            .resizable().scaledToFill()
+                            .frame(width: 22, height: 22)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L.t("newtask_preview_image_aria", row.file.name))
+                    .onHover { inside in
+                        hover?.cancel()
+                        if inside {
+                            // The same pause as the web chip, so sweeping across the row never flashes previews.
+                            hover = Task {
+                                try? await Task.sleep(for: .milliseconds(500))
+                                if !Task.isCancelled { previewing = true }
+                            }
+                        } else {
+                            previewing = false
+                        }
+                    }
+                    .popover(isPresented: $previewing, arrowEdge: .top) {
+                        Image(thumbnail, scale: 1, label: Text(verbatim: row.file.name))
+                            .resizable().scaledToFit()
+                            .frame(maxWidth: 280, maxHeight: 200)
+                            .padding(4)
+                    }
+                } else {
+                    Image(systemName: row.path == nil ? "doc" : "checkmark.circle")
+                }
+                Text(verbatim: row.file.name).lineLimit(1).frame(maxWidth: 180)
+                if row.state == .failed {
+                    Button(L.t("common_retry")) { model.retry(row.id) }
+                }
+                Button { model.remove(row.id) } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L.t("newtask_remove_image_aria"))
+            }
+            .padding(6)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            if let error = row.error {
+                Text(verbatim: error).font(.caption).foregroundStyle(.red)
+            }
+        }
     }
 }
 

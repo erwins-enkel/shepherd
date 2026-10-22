@@ -1455,6 +1455,7 @@
 "newtask_model_default" = "default";
 "newtask_model_label" = "Model";
 "newtask_plan_gate_hint" = "Grill + adversarial review before the agent runs";
+"newtask_preview_image_aria" = "Preview attached image %1$@";
 "newtask_prompt_label" = "Prompt";
 "newtask_prompt_placeholder" = "Describe the feature, fix, or task…";
 "newtask_provider_capacity_free" = "%1$@%% free";

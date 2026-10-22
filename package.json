@@ -51,8 +51,8 @@
     "*.{ts,svelte}": "eslint --cache --cache-strategy content --cache-location .cache/eslint --fix"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.3",
-    "@commitlint/config-conventional": "^21.2.3",
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/node": "^26.6.5",

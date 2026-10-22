@@ -80,6 +80,8 @@ const EN: CopyMap = {
     `Merge train hit an error${p.pr !== undefined ? ` on PR #${p.pr}` : ""} — needs you.`,
   stalled: () => "Quiet — no recent activity; may be stuck.",
   "recap-attention": () => "Recap flagged this for your attention.",
+  "misrouted-target": (p) =>
+    `This ticket targets ${p.target ?? "another repo"} — its code doesn't belong here. Start it there.`,
   merging: (p) => `In the merge train${p.pr !== undefined ? ` (PR #${p.pr})` : ""}.`,
   "merge-rebasing": (p) => `Rebasing in the merge train (attempt ${p.rebaseCount ?? "?"}).`,
   "ready-merge": (p) =>
@@ -128,6 +130,8 @@ const DE: CopyMap = {
     `Merge-Train hat einen Fehler${p.pr !== undefined ? ` bei PR #${p.pr}` : ""} — braucht dich.`,
   stalled: () => "Ruhig — keine Aktivität; möglicherweise hängengeblieben.",
   "recap-attention": () => "Recap hat dies für deine Aufmerksamkeit markiert.",
+  "misrouted-target": (p) =>
+    `Dieses Ticket zielt auf ${p.target ?? "ein anderes Repo"} — sein Code gehört nicht hierher. Starte es dort.`,
   merging: (p) => `Im Merge-Train${p.pr !== undefined ? ` (PR #${p.pr})` : ""}.`,
   "merge-rebasing": (p) => `Rebase im Merge-Train (Versuch ${p.rebaseCount ?? "?"}).`,
   "ready-merge": (p) =>

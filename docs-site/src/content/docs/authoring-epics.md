@@ -73,6 +73,27 @@ Give each child a crisp title and a body stating the goal and a checkable accept
 child's body is forwarded verbatim as the spawn brief, so write it for the agent that will pick it
 up.
 
+### Children whose code lives in another repo
+
+An epic can live in one repo while some children's code belongs in another. Put a line naming
+the target repo in that child's body:
+
+```text
+Target repo: your-org/other-repo
+```
+
+Shepherd then starts the child's session in that repo: the worktree, the PR, the critic and the
+merge train all run there. The issue, its claim and the epic stay in this repo. The PR closes the
+issue with a cross-repo `Closes your-org/this-repo#142`, and Shepherd closes it when the PR
+merges.
+
+- **The target repo must be registered.** It needs a checkout under Shepherd's repo root whose
+  remote matches. Otherwise Shepherd won't start the child and tells you why.
+- **It never stacks.** Such a child bases on the target repo's default branch and skips this
+  epic's integration branch. Children blocked by it wait until its PR merges.
+- **A session in the wrong repo can't finish it.** If a session for the child runs in this repo
+  anyway, its merge leaves the issue open, and the session is flagged for you.
+
 ## Step 3 — Create the children first and capture their numbers
 
 Create the child issues **before** marking the parent, and record each issue number — the marker

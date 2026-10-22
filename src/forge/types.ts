@@ -781,8 +781,9 @@ export interface GitForge {
   /** Ensure the PR body links the issue so the forge auto-closes it on merge.
    *  Idempotent: appends a `Closes #<issueNumber>` line only when no closing
    *  keyword for that issue is already present. Best-effort; optional (hosts
-   *  without a PR-body edit API omit it). */
-  ensureIssueLink?(prNumber: number, issueNumber: number): Promise<void>;
+   *  without a PR-body edit API omit it). #3245: `issueSlug` names the repo whose tracker holds
+   *  the issue when that is not this one — the link is then the cross-repo `Closes owner/name#n`. */
+  ensureIssueLink?(prNumber: number, issueNumber: number, issueSlug?: string): Promise<void>;
   /** Stamp a label on an issue, creating it on the host if absent (best-effort; the
    *  drain claims a backlog issue with `ACTIVE_LABEL` when it spawns, so a second
    *  shepherd instance skips it). Optional: hosts without a label API omit it and

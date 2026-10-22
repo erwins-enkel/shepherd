@@ -296,3 +296,52 @@ test("never throws: a throwing store is swallowed (best-effort)", async () => {
   });
   await recordEpicIntegrationIfChild(child(), { number: 44, baseRefName: PINNED }, { store });
 });
+
+// ── #3245: routed and misrouted sessions ─────────────────────────────────────
+
+test("routed session: closes the HOME issue via the home repo's forge, never the target's", async () => {
+  const closes: string[] = [];
+  const d = deps({
+    resolveForge: (repo: string) =>
+      ({ closeIssue: mock(async (n: number) => void closes.push(`${repo}#${n}`)) }) as any,
+  });
+  await settleMergedSession(
+    {
+      id: "s1",
+      auto: true,
+      issueNumber: null,
+      repoPath: "/b",
+      homeIssueRepoPath: "/a",
+      homeIssueNumber: 9,
+    } as any,
+    d,
+  );
+  expect(closes).toEqual(["/a#9"]);
+  expect((d.retainClaim as any).mock.calls.length).toBe(0);
+  expect((d.archive as any).mock.calls).toEqual([["s1", "merged"]]);
+});
+
+test("misrouted session: no close, claim released, issue told why", async () => {
+  const close = mock(async () => {});
+  const comment = mock(async () => {});
+  const d = deps({ resolveForge: () => ({ closeIssue: close, commentIssue: comment }) as any });
+  await settleMergedSession(
+    { id: "s1", auto: true, issueNumber: 9, repoPath: "/a", misroutedTarget: "org/B" } as any,
+    d,
+  );
+  expect(close.mock.calls.length).toBe(0);
+  expect((d.retainClaim as any).mock.calls.length).toBe(0); // onArchived releases → re-spawn routed
+  expect((comment.mock.calls[0] as any)?.[0]).toBe(9);
+  expect(String((comment.mock.calls[0] as any)?.[1])).toContain("org/B");
+  expect((d.archive as any).mock.calls).toEqual([["s1", "merged"]]);
+});
+
+test("record: no-op for a misrouted session (#3245)", async () => {
+  const store = recStore();
+  await recordEpicIntegrationIfChild(
+    child({ misroutedTarget: "org/B" }),
+    { number: 44, baseRefName: PINNED },
+    { store },
+  );
+  expect((store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
+});

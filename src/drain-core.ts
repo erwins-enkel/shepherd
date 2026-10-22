@@ -107,6 +107,9 @@ export interface AutoSessionView {
    *  holds no agent slot — the cap and the run picture's slots leave it out — but retires and
    *  trips trouble holds like any other auto session. LANDING_REPAIR_CAP bounds them. */
   landingRepair: boolean;
+  /** #3245: the session runs outside its ticket's target repo (`Session.misroutedTarget`). Never
+   *  retired: the hand-off would keep the claim on a ticket whose code belongs elsewhere. */
+  misrouted?: boolean;
 }
 
 /** The auto sessions that hold an agent slot — all but landing repairs (#2973). */
@@ -290,6 +293,7 @@ function retireDecision(state: DrainRepoState): DrainDecision | null {
     (s) =>
       !s.fullAuto &&
       !state.stackHeldSessions?.has(s.id) && // #2070: a stacked layer waiting for the one below it
+      !s.misrouted && // #3245: never hand off a session outside its ticket's target repo
       readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
   );
   return toRetire

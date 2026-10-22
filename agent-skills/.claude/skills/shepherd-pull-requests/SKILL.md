@@ -27,6 +27,9 @@ If the work is genuinely too large for one cohesive PR, pick ONE of:
 
 Never split the work across two PRs from this one session.
 
+If your issue lives in another repo (its body says `Target repo:` and your prompt says the issue
+lives in `owner/name#N`), open the one PR in **this** repo and put `Closes owner/name#N` in its body.
+
 ## Rebase before every push
 
 The base branch moves while you work. Before **every** push — the first one, `gh pr create`, and

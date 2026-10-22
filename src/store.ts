@@ -766,7 +766,8 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId,
-  plain, operatorAssistant, baseCommit, assistantRepo, incrementalEpicParent`;
+  plain, operatorAssistant, baseCommit, assistantRepo, incrementalEpicParent,
+  homeIssueRepoPath, homeIssueNumber, misroutedTarget`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -828,6 +829,9 @@ type SessionRow = {
   issueNumber: number | null;
   epicParent: number | null;
   incrementalEpicParent: number | null;
+  homeIssueRepoPath: string | null;
+  homeIssueNumber: number | null;
+  misroutedTarget: string | null;
   sandboxApplied: string | null;
   sandboxDegraded: number;
   egressApplied: number;
@@ -3674,6 +3678,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       issueNumber: input.issueNumber ?? null,
       epicParent: numOrNull(input.epicParent),
       incrementalEpicParent: numOrNull(input.incrementalEpicParent),
+      homeIssueRepoPath: strOrNull(input.homeIssueRepoPath),
+      homeIssueNumber: numOrNull(input.homeIssueNumber),
+      misroutedTarget: strOrNull(input.misroutedTarget),
       sandboxApplied: input.sandboxApplied ?? null,
       sandboxDegraded: input.sandboxDegraded ?? false,
       egressApplied: input.egressApplied ?? false,
@@ -3720,7 +3727,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -3789,6 +3796,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           strOrNull(s.baseCommit), // the worktree's HEAD at create (#2761); null without one
           strOrNull(s.assistantRepo), // an Operator Assistant's repo scope; null = global / not one
           numOrNull(s.incrementalEpicParent), // incremental-landing epic parent (#3191); null otherwise
+          strOrNull(s.homeIssueRepoPath), // #3245: routed session's issue tracker repo; null otherwise
+          numOrNull(s.homeIssueNumber),
+          strOrNull(s.misroutedTarget), // #3245: issue targets another repo but session runs here
         ],
       );
       this.setBootstrap(s.id, input);
@@ -6340,6 +6350,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("epicParent", `epicParent INTEGER`);
     // Incremental-landing epic parent (#3191): NOT an epic-child identity (see Session). Nullable.
     add("incrementalEpicParent", `incrementalEpicParent INTEGER`);
+    // #3245: a session routed to the repo its ticket targets keeps issueNumber NULL and links its
+    // issue here; misroutedTarget flags a session running outside its ticket's target repo.
+    add("homeIssueRepoPath", `homeIssueRepoPath TEXT`);
+    add("homeIssueNumber", `homeIssueNumber INTEGER`);
+    add("misroutedTarget", `misroutedTarget TEXT`);
     // sandbox badge/banner: applied profile (nullable for legacy rows) + degrade flag.
     add("sandboxApplied", `sandboxApplied TEXT`);
     add("sandboxDegraded", `sandboxDegraded INTEGER NOT NULL DEFAULT 0`);
@@ -7285,6 +7300,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       issueNumber: r.issueNumber ?? null,
       epicParent: r.epicParent,
       incrementalEpicParent: r.incrementalEpicParent,
+      homeIssueRepoPath: r.homeIssueRepoPath,
+      homeIssueNumber: r.homeIssueNumber,
+      misroutedTarget: r.misroutedTarget,
       sandboxApplied: isSandboxProfile(r.sandboxApplied) ? r.sandboxApplied : null,
       sandboxDegraded: !!r.sandboxDegraded,
       egressApplied: !!r.egressApplied,

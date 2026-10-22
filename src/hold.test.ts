@@ -282,3 +282,11 @@ describe("login-request copy (#2882)", () => {
     );
   });
 });
+
+describe("misrouted-target copy (#3245)", () => {
+  it("names the target repo in EN + DE", () => {
+    const hold = { code: "misrouted-target" as const, params: { target: "org/B" } };
+    expect(renderHold(hold, "en")).toContain("org/B");
+    expect(renderHold(hold, "de")).toContain("org/B");
+  });
+});

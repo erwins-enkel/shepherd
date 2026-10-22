@@ -758,3 +758,15 @@ test("a live PTY block outranks the login request as the primary hold", () => {
   );
   expect(hold?.code).toBe("blocked-yes-no");
 });
+
+test("#3245: a misrouted session is Tier-1 misrouted-target, naming the target repo", () => {
+  const s = session({ issueNumber: 7, misroutedTarget: "org/B" });
+  const r = classifyAttention(s, {}, NOW);
+  expect(r.tier).toBe(1);
+  expect(r.signals[0]).toBe("misrouted-target");
+  expect(explainHold(s, {}, NOW)).toEqual({
+    code: "misrouted-target",
+    params: { target: "org/B" },
+  });
+  expect(classifyAttention(session(), {}, NOW).signals).not.toContain("misrouted-target");
+});

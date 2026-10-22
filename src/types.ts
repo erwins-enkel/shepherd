@@ -189,6 +189,15 @@ export interface Session {
    *  default branch like an ordinary session, and {@link isEpicChild} ignores this field. OPTIONAL
    *  like {@link Session.epicParent}; the store always hydrates a real number|null. */
   incrementalEpicParent?: number | null;
+  /** #3245: a session ROUTED to the repo its ticket targets (`Target repo:` marker) keeps
+   *  `issueNumber` null and links its issue here — the tracker repo and the issue number in it.
+   *  Read through `sessionIssue` (src/target-repo.ts). OPTIONAL; the store hydrates null. */
+  homeIssueRepoPath?: string | null;
+  homeIssueNumber?: number | null;
+  /** #3245: the `owner/name` this session's ticket targets when the session nevertheless runs in
+   *  the ticket's own repo (a bypass of routing). Its merge never closes, links or integrates the
+   *  issue. Null/absent otherwise. */
+  misroutedTarget?: string | null;
   /** Sandbox profile actually applied at spawn; null for legacy rows spawned before the feature. */
   sandboxApplied: SandboxProfile | null;
   /** True when a sandboxed profile was requested but no backend was available → ran unconfined. */
@@ -388,6 +397,9 @@ export interface StandardCreateInput {
   /** Incremental-landing epic parent for a child the drain spawned on the default branch (#3191);
    *  absent/null otherwise. Persisted verbatim as `Session.incrementalEpicParent`. */
   incrementalEpicParent?: number | null;
+  /** #3245: the repo whose tracker holds `issueRef` when it differs from `repoPath` (a routed
+   *  ticket). The session then stores `homeIssueRepoPath`/`homeIssueNumber`, not `issueNumber`. */
+  issueRepoPath?: string;
   /** Research task kind; absent → false. */
   research?: boolean;
   /** Epic-authoring task kind; absent → false. Attended guided shaping → EPIC draft, no code PR. */
@@ -1519,7 +1531,8 @@ export type SignalKind =
   | "onboarding_stale"
   | "injection_detected"
   | "untrusted_author"
-  | "evidence_repo_mismatch";
+  | "evidence_repo_mismatch"
+  | "target_repo_unregistered";
 
 export interface Signal {
   id: string;
@@ -1915,7 +1928,8 @@ export type HoldCode =
   | "merge-rebasing"
   | "ready-merge"
   | "manual-steps"
-  | "login-request";
+  | "login-request"
+  | "misrouted-target";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -1929,6 +1943,7 @@ export interface HoldParams {
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
   steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
   host?: string; // login-request: host of the page the agent wants logged in
+  target?: string; // misrouted-target: the `owner/name` the ticket targets (#3245)
 }
 
 export interface HoldReason {

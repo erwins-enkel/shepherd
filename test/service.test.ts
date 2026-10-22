@@ -2381,6 +2381,101 @@ test("createSession: persists auto=true and issueNumber from issueRef.number", a
   expect(store.get(s.id)?.issueNumber).toBe(42);
 });
 
+test("createSession: a routed ticket (#3245) links its home issue, reads it from the home tracker", async () => {
+  const store = new SessionStore(":memory:");
+  const asked: string[] = [];
+  let argv: string[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, a: string[]) => {
+        argv = a;
+        return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
+      },
+      list: () => [],
+    } as any,
+    pluginIds: async () => [],
+    resolveForge: (repo: string) =>
+      ({
+        slug: repo === "/a" ? "org/A" : "org/B",
+        getIssue: async () => {
+          asked.push(repo);
+          return {
+            number: 42,
+            title: "t",
+            body: "",
+            url: "u",
+            labels: [],
+            authorAssociation: "MEMBER",
+          };
+        },
+        listIssueComments: async () => {
+          asked.push(`comments:${repo}`);
+          return [];
+        },
+      }) as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/b",
+    issueRepoPath: "/a",
+    baseBranch: "main",
+    prompt: "drain task",
+    model: null,
+    images: [],
+    auto: true,
+    issueRef: { number: 42, url: "u", title: "Fix it", body: "Target repo: org/B" },
+  });
+
+  const row = store.get(s.id)!;
+  expect(row.repoPath).toBe("/b");
+  expect(row.issueNumber).toBeNull();
+  expect(row.homeIssueRepoPath).toBe("/a");
+  expect(row.homeIssueNumber).toBe(42);
+  expect(asked.every((r) => r.endsWith("/a"))).toBe(true); // never B's tracker
+  expect(asked).toContain("/a");
+  expect(argv.join(" ")).toContain("Closes org/A#42");
+});
+
+test("createSession: an unrouted create whose issue targets another repo is stamped misrouted (#3245)", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
+      list: () => [],
+    } as any,
+    resolveForge: () => ({ slug: "org/A" }) as any,
+  });
+  const make = (body: string) =>
+    service.create({
+      repoPath: "/a",
+      baseBranch: "main",
+      prompt: "task",
+      model: null,
+      images: [],
+      issueRef: { number: 7, url: "u", title: "t", body },
+    });
+
+  expect(store.get((await make("Target repo: org/B")).id)?.misroutedTarget).toBe("org/B");
+  expect(store.get((await make("Target repo: org/A")).id)?.misroutedTarget).toBeNull();
+  expect(store.get((await make("no marker")).id)?.misroutedTarget).toBeNull();
+});
+
 test("createSession: defaults auto=false and issueNumber=null when not provided", async () => {
   const store = new SessionStore(":memory:");
   const service = new SessionService({
@@ -7279,6 +7374,24 @@ test("relaunch passes a supplied issueRef through to create", async () => {
   expect(promptArg).toContain("⟦UNTRUSTED:issue #42 body:");
   expect(promptArg).toContain("Bug");
   expect(promptArg).toContain("details here");
+});
+
+test("#3245: relaunching a routed session keeps it routed, even onto a new base branch", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store, {
+    issueNumber: null,
+    homeIssueRepoPath: "/home-repo",
+    homeIssueNumber: 42,
+  } as any);
+  const issue = { number: 42, url: "u", title: "Bug", body: "Target repo: org/B" };
+
+  const fresh = await service.relaunch(orig.id, issue, { baseBranch: "dev" } as any);
+
+  expect(fresh.repoPath).toBe(orig.repoPath);
+  expect(fresh.issueNumber).toBeNull();
+  expect(fresh.homeIssueRepoPath).toBe("/home-repo");
+  expect(fresh.homeIssueNumber).toBe(42);
 });
 
 test("relaunch carries uploads over (staged copies created, originals untouched)", async () => {

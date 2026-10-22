@@ -50,7 +50,7 @@ const NO_USAGE: UsageLimitsType = {
 
 interface ForgeRec {
   merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];
-  links: { prNumber: number; issueNumber: number }[];
+  links: { prNumber: number; issueNumber: number; issueSlug?: string }[];
   listIssuesCalls: number;
   closedIssues: number[];
   added: { number: number; label: string }[];
@@ -103,8 +103,8 @@ function fakeForge(
           rec.closedIssues.push(issueNumber);
           if (opts.closeIssue) await opts.closeIssue(issueNumber);
         },
-    ensureIssueLink: async (prNumber: number, issueNumber: number) => {
-      rec.links.push({ prNumber, issueNumber });
+    ensureIssueLink: async (prNumber: number, issueNumber: number, issueSlug?: string) => {
+      rec.links.push(issueSlug ? { prNumber, issueNumber, issueSlug } : { prNumber, issueNumber });
       if (opts.ensureIssueLink) await opts.ensureIssueLink(prNumber, issueNumber);
     },
     addIssueLabel: async (number: number, label: string) => {
@@ -496,6 +496,44 @@ test("spawn prompt: an ordinary title rides bare; a slash-leading title is templ
   // command ("Unknown command: /foo bar") and the session dies before it starts.
   expect(h.creates[1]!.prompt).toBe("Work on issue #2: /foo bar");
   expect(h.creates[1]!.prompt.startsWith("/")).toBe(false);
+});
+
+describe("#3245 routed / misrouted retire", () => {
+  function seed(h: Harness, over: Partial<Parameters<SessionStore["create"]>[0]>): Session {
+    const s = h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: "main",
+      branch: "shepherd/auto-7",
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: null,
+      ...over,
+    });
+    h.prCache[s.id] = openGreen(7);
+    h.setReview(s.id, "commented", "sha-7");
+    return s;
+  }
+
+  test("a routed session links its home issue cross-repo", async () => {
+    const h = makeHarness({ maxAuto: 1, issues: [] });
+    const s = seed(h, { homeIssueRepoPath: "/a", homeIssueNumber: 7 });
+    await h.drain.pump(REPO);
+    expect(h.forgeRec.links).toEqual([{ prNumber: 7, issueNumber: 7, issueSlug: "o/r" }]);
+    expect(h.store.get(s.id)?.status).toBe("archived");
+  });
+
+  test("a misrouted session is never retired and links nothing", async () => {
+    const h = makeHarness({ maxAuto: 1, issues: [] });
+    const s = seed(h, { issueNumber: 7, misroutedTarget: "org/B" });
+    await h.drain.pump(REPO);
+    expect(h.forgeRec.links).toHaveLength(0);
+    expect(h.store.get(s.id)?.status).not.toBe("archived");
+  });
 });
 
 test("retire gate: ready session → retired once; forge.merge never called; ensureIssueLink + archive + emitArchived fire", async () => {

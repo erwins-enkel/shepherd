@@ -2825,6 +2825,15 @@ const drain = new DrainService({
   // yet, so seed hasScratchpadFiles=false (#1164). The live truth thereafter rides the
   // session:status (idle/done) push and the /api/sessions list enrichment.
   emitSessionNew: (s) => events.emit("session:new", { ...s, hasScratchpadFiles: false }),
+  onTargetRepoUnregistered: ({ repoPath, issue, slug }) => {
+    store.addSignal({
+      repoPath,
+      sessionId: null,
+      kind: "target_repo_unregistered",
+      payload: JSON.stringify({ issue, slug }),
+    });
+    events.emit("repo:target-repo-unregistered", { repoPath, issue, slug });
+  },
   telemetry,
   // #1071: wire rebase cap + real rebaseLandingBranch (mirrors autopilot/automerge wiring).
   rebaseCap: config.autoMergeRebaseCap,

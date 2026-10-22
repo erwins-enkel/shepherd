@@ -173,7 +173,6 @@
   import LazyMount from "#lib/components/page/LazyMount.svelte";
   import type RemoteSessionDetailComponent from "#lib/components/RemoteSessionDetail.svelte";
   import {
-    loadCommandBar,
     loadDoneRecapPanel,
     loadNewTask,
     loadRemoteSessionDetail,
@@ -348,7 +347,7 @@
   });
   // Overlays are code-split off the first-boot bundle (#3233); warm the most-opened ones once
   // the boot settles so their first open doesn't wait on the network.
-  onMount(() => prefetchWhenIdle([loadNewTask, loadCommandBar, loadSettingsOverlay]));
+  onMount(() => prefetchWhenIdle([loadNewTask, loadSettingsOverlay]));
   let showUsage = $state(false);
   let settingsTab = $state<SettingsSectionId>("workspace");
   // Whether the pending Settings open is a deep link (diagnostics dot, plugin
@@ -4255,7 +4254,7 @@
   <!-- D14 (docs/design/mobile-herd): REPOS in the bottom navigation opens this. It carries both
        things the button's label promises — the per-repo filter that used to live in the top rail,
        and the way into the backlog. -->
-  <LazyMount load={loadReposSheet}>
+  <LazyMount load={loadReposSheet} onerror={() => (showRepos = false)}>
     {#snippet children(ReposSheet)}
       <ReposSheet
         chips={repoChips}

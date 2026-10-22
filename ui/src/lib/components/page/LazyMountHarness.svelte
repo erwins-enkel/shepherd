@@ -3,7 +3,7 @@
   import LazyMount from "./LazyMount.svelte";
   import type LazyMountProbe from "./LazyMountProbe.svelte";
 
-  let { load }: { load: Loader<typeof LazyMountProbe> } = $props();
+  let { load, onerror }: { load: Loader<typeof LazyMountProbe>; onerror?: () => void } = $props();
 </script>
 
-<LazyMount {load}>{#snippet children(Probe)}<Probe label="loaded" />{/snippet}</LazyMount>
+<LazyMount {load} {onerror}>{#snippet children(Probe)}<Probe label="loaded" />{/snippet}</LazyMount>

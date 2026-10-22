@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
+import * as overlayLoaders from "./overlay-loaders";
 import { HerdStore } from "#lib/store.svelte.js";
 import type {
   AgentProvider,
@@ -18,6 +19,12 @@ import { repos } from "#lib/repos.svelte.js";
 import { steersSettingsOpen } from "../../../routes/steers-settings-open";
 import { m } from "#lib/paraglide/messages.js";
 import { ApiError, restartHerdrServer, uploadFile } from "#lib/api.js";
+
+// Overlays mount lazily (#3233). Warm every chunk up front so a cold dev-server transform
+// can't outlast a test's poll window.
+beforeAll(async () => {
+  await Promise.all(Object.values(overlayLoaders).map((load) => load()));
+});
 
 // The redesigned NewTask is responsive (rail vs. mobile sheet); vitest-browser's
 // default viewport is mobile-width, so pin desktop for these desktop-DOM suites.

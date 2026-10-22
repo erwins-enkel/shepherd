@@ -11,7 +11,6 @@ export const loadCloneRepo = lazy(() => import("#lib/components/CloneRepo.svelte
 export const loadForkRepo = lazy(() => import("#lib/components/ForkRepo.svelte"));
 export const loadNewProject = lazy(() => import("#lib/components/NewProject.svelte"));
 export const loadBroadcastDialog = lazy(() => import("#lib/components/BroadcastDialog.svelte"));
-export const loadCommandBar = lazy(() => import("#lib/components/CommandBar.svelte"));
 export const loadRetryDialog = lazy(() => import("#lib/components/RetryDialog.svelte"));
 export const loadAmendTaskDialog = lazy(() => import("#lib/components/AmendTaskDialog.svelte"));
 export const loadDecommissionPrDialog = lazy(

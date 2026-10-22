@@ -1,0 +1,55 @@
+name: Install Playwright Chromium (no --with-deps)
+description: >
+  Install Playwright's Chromium for the ui browser tests WITHOUT `--with-deps`. That flag also
+  apt-installs ~30 MB of fonts + xvfb, and on some runners the Ubuntu mirror crawls at ~50 KB/s,
+  stalling the job for 10 minutes (#3248). Headless Chromium needs neither, and the runner image
+  already carries its shared libs (it ships Google Chrome), so apt only runs — bounded by per-call
+  timeouts and 3 attempts — when one of those libs is actually missing.
+
+runs:
+  using: composite
+  steps:
+    # `shell: bash` is MANDATORY for composite run steps — unlike a workflow `run:`
+    # they have no default shell and fail to load without it.
+    - shell: bash
+      working-directory: ui
+      run: bunx playwright install chromium
+
+    - shell: bash
+      run: |
+        # Playwright's nativeDeps `chromium` list for ubuntu24.04-x64 (playwright-core 1.64,
+        # lib/coreBundle.js), minus its `tools` group (fonts, xvfb). Re-check on a Playwright
+        # major bump or a runner-image change.
+        libs="libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2
+          libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0
+          libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2"
+        missing=""
+        for p in $libs; do
+          dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "install ok installed" || missing="$missing $p"
+        done
+        if [ -z "$missing" ]; then
+          echo "all chromium libs present"
+          exit 0
+        fi
+        echo "missing chromium libs:$missing"
+
+        # `apt-get update` refreshes EVERY source configured on the runner image — including
+        # Google's Chrome repo, which we never use. apt exits non-zero when ANY index fails, so a
+        # broken third-party index takes the whole job down: on 2026-09-09 that repo served a
+        # `Packages.gz` that did not match the hash its own `Release` advertised, and every run
+        # failed on `Hash Sum mismatch` for hours. So drop it first. `-f` + the glob keep this a
+        # no-op on an image that stops shipping Chrome, or switches to the deb822 `.sources` form.
+        sudo rm -f /etc/apt/sources.list.d/google-chrome*
+
+        # Per-call timeouts + 3 attempts: a slow mirror costs ~3 min, not the whole step budget.
+        for n in 1 2 3; do
+          # shellcheck disable=SC2086 # word-split the package list on purpose
+          if timeout 20 sudo apt-get update &&
+            timeout 40 sudo apt-get install -y --no-install-recommends $missing; then
+            exit 0
+          fi
+          echo "apt attempt $n failed" >&2
+          [ "$n" -lt 3 ] && sleep 5
+        done
+        echo "could not install chromium libs after 3 attempts:$missing" >&2
+        exit 1

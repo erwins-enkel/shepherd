@@ -99,6 +99,7 @@ public final class CompletedEpicsModel: AppExtension {
             epics.removeAll { CompletedEpicsBand.key($0) == key }
             epics.insert(epic, at: 0)
             revision &+= 1
+            pruneLanding()
             // The frame drops the live signals; an open landing needs the GET to show them again.
             if epic.landingState.rawValue == "open" { invalidate() }
         case "epic:completed-cleared":
@@ -111,6 +112,7 @@ public final class CompletedEpicsModel: AppExtension {
                 $0.repoPath == cleared.repoPath && $0.parentIssueNumber == cleared.parentIssueNumber
             }
             revision &+= 1
+            pruneLanding()
         default: break
         }
     }
@@ -141,12 +143,20 @@ public final class CompletedEpicsModel: AppExtension {
                 epics = rows
                 loaded = true
                 loadFailed = false
+                pruneLanding()
             } catch {
                 guard valid(activation), !Task.isCancelled else { return }
                 loaded = true
                 loadFailed = true
             }
         } while pending && !stopped
+    }
+
+    /// A land stays in flight only while its row is still listed with an open landing PR.
+    private func pruneLanding() {
+        landing = landing.filter { key in
+            epics.contains { CompletedEpicsBand.key($0) == key && $0.landingState.rawValue == "open" }
+        }
     }
 
     public func status(_ epic: CompletedEpic) -> CompletedEpicStatus {
@@ -172,14 +182,16 @@ public final class CompletedEpicsModel: AppExtension {
             do {
                 try await send(epic.repoPath, epic.parentIssueNumber)
                 guard let self, self.valid(activation) else { return }
-                // Re-read before dropping the in-flight state, so the card hands straight over to
-                // landed even if the epic:completed frame lags.
-                await self.refresh()
+                // The in-flight state ends once a frame or a re-read shows the row landed (see
+                // pruneLanding), so the card never flashes back to "Land epic" on stale data.
+                self.invalidate()
             } catch {
                 guard let self, self.valid(activation) else { return }
+                self.landing.remove(key)
                 self.actionError = failure
+                // The likeliest refusal (not ready, merge failed) means the row is stale.
+                self.invalidate()
             }
-            self?.landing.remove(key)
         }
     }
 

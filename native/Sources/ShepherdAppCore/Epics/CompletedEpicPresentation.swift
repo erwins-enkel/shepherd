@@ -241,6 +241,8 @@ public struct CompletedEpicCard: Identifiable, Sendable {
         expandLabel = L.t("integrated_epics_expand_aria", String(parent))
         collapseLabel = L.t("integrated_epics_collapse_aria", String(parent))
 
+        let landingLabel = number.map { L.t("integrated_epics_path_landing", String($0)) }
+            ?? L.t("integrated_epics_path_landing_nonum")
         steps = [
             Step(id: 0, label: L.t("integrated_epics_path_tasks"), value: "\(total)/\(total)",
                  detail: L.t("integrated_epics_path_counts", String(included), String(total - included)),
@@ -249,9 +251,7 @@ public struct CompletedEpicCard: Identifiable, Sendable {
                  value: L.t("integrated_epics_path_pr_count", String(included)),
                  detail: epic.integrationBranch ?? L.t("integrated_epics_path_branch_unknown"),
                  marker: included > 0 ? .done : .open, url: nil),
-            Step(id: 2, label: number.map { L.t("integrated_epics_path_landing", String($0)) }
-                    ?? L.t("integrated_epics_path_landing_nonum"),
-                 value: copy.label, detail: nil, marker: Self.landingMarker(status),
+            Step(id: 2, label: landingLabel, value: copy.label, detail: nil, marker: Self.landingMarker(status),
                  url: epic.landingPrUrl.flatMap { URL(string: $0) }),
             Step(id: 3, label: L.t("integrated_epics_path_landed"), value: "", detail: nil,
                  marker: status.situation == .landed ? .done : .open, url: nil),

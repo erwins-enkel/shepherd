@@ -6,13 +6,13 @@ import ShepherdKit
 /// Completed epics the way GET /api/epics/completed answers them. `fields` overrides or adds
 /// top-level keys; a `nil` value removes one.
 enum CompletedEpicFixtures {
-    static let children: [[String: Any]] = [
+    static var children: [[String: Any]] { [
         ["number": 5, "title": "angebote: Datenmodell und Migrationen",
          "url": "https://github.com/acme/widgets/issues/5", "prNumber": 20,
          "prUrl": "https://github.com/acme/widgets/pull/20", "mergedAt": 1_800_000_000_000, "integrated": true],
         ["number": 4, "title": "#4", "url": "https://github.com/acme/widgets/issues/4",
          "prNumber": NSNull(), "prUrl": NSNull(), "mergedAt": NSNull(), "integrated": false],
-    ]
+    ] }
 
     static func epic(parent: Int = 15, _ fields: [String: Any?] = [:]) throws -> CompletedEpic {
         var json: [String: Any] = [
@@ -198,8 +198,10 @@ struct CompletedEpicCardTests {
         ]
         for fields in situations {
             let card = CompletedEpicCard(try F.epic(fields), now: now)
-            let texts = [card.turnLabel, card.summary, card.heading, card.body, card.identity, card.finished]
-                + card.steps.flatMap { [$0.label, $0.value] } + card.buttons.map(\.label) + card.notes
+            var texts: [String] = [card.turnLabel, card.summary, card.heading, card.body, card.identity, card.finished]
+            for step in card.steps { texts += [step.label, step.value] }
+            texts += card.buttons.map { $0.label }
+            texts += card.notes
             for text in texts {
                 #expect(!text.contains("integrated_epics_"), "\(fields): \(text)")
                 #expect(!text.contains("[["), "\(fields): \(text)")
@@ -250,7 +252,16 @@ actor CompletedEpicsProbe {
         dismissed.append(parent)
         if failDismiss { throw ShepherdError.badRequest("refused") }
     }
-    func land(_ parent: Int) { landed.append(parent) }
+    /// Lands like the server: the row's landing state turns merged before the answer.
+    func land(_ parent: Int) {
+        landed.append(parent)
+        rows = rows.map { row in
+            guard row.parentIssueNumber == parent else { return row }
+            var merged = row
+            merged.landingState = EpicLandingState(known: .merged)
+            return merged
+        }
+    }
     func set(rows: [CompletedEpic]) { self.rows = rows }
     func set(failDismiss: Bool) { self.failDismiss = failDismiss }
 }
@@ -265,7 +276,7 @@ struct CompletedEpicsModelTests {
         return await condition()
     }
 
-    private func model(_ probe: CompletedEpicsProbe) -> CompletedEpicsModel {
+    private func makeModel(_ probe: CompletedEpicsProbe) -> CompletedEpicsModel {
         CompletedEpicsModel(api: .init(
             list: { await probe.list() },
             land: { _, parent in await probe.land(parent) },
@@ -279,7 +290,7 @@ struct CompletedEpicsModelTests {
     @Test func refreshLoadsAndFramesKeepTheBandLive() async throws {
         let probe = CompletedEpicsProbe()
         await probe.set(rows: [try F.epic(parent: 15)])
-        let model = model(probe)
+        let model = makeModel(probe)
         defer { model.teardown() }
         await model.refresh()
         #expect(model.loaded)
@@ -305,7 +316,7 @@ struct CompletedEpicsModelTests {
         let epic = try F.epic(parent: 15)
         await probe.set(rows: [epic])
         await probe.set(failDismiss: true)
-        let model = model(probe)
+        let model = makeModel(probe)
         defer { model.teardown() }
         await model.refresh()
 
@@ -322,7 +333,7 @@ struct CompletedEpicsModelTests {
         let red = try F.epic(parent: 15, ["landingChecks": "failure"])
         let ready = try F.epic(parent: 16, ["landingReady": true])
         await probe.set(rows: [red, ready])
-        let model = model(probe)
+        let model = makeModel(probe)
         defer { model.teardown() }
         await model.refresh()
 

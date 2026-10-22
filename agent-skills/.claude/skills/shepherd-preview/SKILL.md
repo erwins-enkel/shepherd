@@ -29,6 +29,10 @@ port. In an autonomous session the file is required for the Shared Browser to re
 Shepherd cannot see your sandbox's ports without it. So this is optional: skip it if you have no dev server, or if the default detection already
 targets the right port.
 
+A server on an OS-ephemeral port (one picked with `listen(0)` / `--port 0`; on Linux usually
+32768–60999) is never auto-detected, because that is where test suites' throwaway servers live.
+To preview such a server, declare its port in `.shepherd-preview`.
+
 Debugger endpoints are never chosen as the preview, so a Node inspector or a CDP port on 9222 /
 9229 / 9230 cannot be picked up by mistake.
 

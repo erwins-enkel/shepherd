@@ -6,6 +6,7 @@ import {
   resolveDevPort,
   detectDevCommand,
   makeRelayHandlers,
+  parsePortRange,
   previewReach,
   type FsAccessors,
   type PreviewReachInput,
@@ -304,6 +305,70 @@ test("resolveDevPort: hint dirs are tried in order, first VALID one wins", async
 
 test("resolveDevPort: no hint dirs at all still falls back to the heuristic", async () => {
   expect(await resolveDevPort([5173], [], undefined, neverProbe)).toBe(5173);
+});
+
+// ── #3237: ephemeral-range ports are never heuristically probed ───────────────
+
+const linuxRange = async () => ({ lo: 32768, hi: 60999 });
+
+const recordingProbe = (live: (port: number) => boolean) => {
+  const probed: number[] = [];
+  const probe = async (port: number): Promise<boolean> => {
+    probed.push(port);
+    return live(port);
+  };
+  return { probed, probe };
+};
+
+test("resolveDevPort: an undeclared ephemeral-range port is never probed", async () => {
+  const { probed, probe } = recordingProbe(() => true);
+  expect(await resolveDevPort([40000], ["/any"], rejectReadFile, probe, linuxRange)).toBeNull();
+  expect(probed).toEqual([]);
+});
+
+test("resolveDevPort: ephemeral ports are skipped, a lower non-curated port still wins", async () => {
+  const { probed, probe } = recordingProbe(() => true);
+  const result = await resolveDevPort([4100, 40000], ["/any"], rejectReadFile, probe, linuxRange);
+  expect(result).toBe(4100);
+  expect(probed).toEqual([4100]);
+});
+
+test("resolveDevPort: a declared ephemeral-range port is still honored", async () => {
+  const { probe } = recordingProbe(() => true);
+  const result = await resolveDevPort([40000], ["/any"], makeReadFile("40000"), probe, linuxRange);
+  expect(result).toBe(40000);
+});
+
+test("resolveDevPort: a failed declared ephemeral hint does not unlock other ephemeral ports", async () => {
+  const { probed, probe } = recordingProbe(() => false);
+  const result = await resolveDevPort(
+    [40000, 41000],
+    ["/any"],
+    makeReadFile("40000"),
+    probe,
+    linuxRange,
+  );
+  expect(result).toBeNull();
+  expect(probed).toEqual([40000]);
+});
+
+test("resolveDevPort: a range covering a curated port still returns it unprobed", async () => {
+  const wide = async () => ({ lo: 1024, hi: 65535 });
+  expect(await resolveDevPort([5173], ["/any"], rejectReadFile, neverProbe, wide)).toBe(5173);
+});
+
+test("parsePortRange: parses the kernel's ip_local_port_range format", () => {
+  expect(parsePortRange("32768\t60999\n")).toEqual({ lo: 32768, hi: 60999 });
+  expect(parsePortRange("1024 65535")).toEqual({ lo: 1024, hi: 65535 });
+});
+
+test("parsePortRange: rejects garbage, reversed and out-of-range input", () => {
+  expect(parsePortRange("")).toBeNull();
+  expect(parsePortRange("abc def")).toBeNull();
+  expect(parsePortRange("60999 32768")).toBeNull();
+  expect(parsePortRange("0 60999")).toBeNull();
+  expect(parsePortRange("32768 70000")).toBeNull();
+  expect(parsePortRange("32768 60999 1")).toBeNull();
 });
 
 // ── sanitizeCloseCode ─────────────────────────────────────────────────────────

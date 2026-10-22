@@ -633,6 +633,9 @@ export interface AppDeps {
   restart?: Pick<RestartService, "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
+  /** Restarts live Claude sessions after a repo's claude.ai-connector switch flips; absent → the
+   *  15s tick never runs either (tests), so a flip applies at each session's next resume. */
+  connectorRestart?: Pick<import("./connector-restart").ConnectorRestartService, "sweep">;
   /** Shared Browser lifecycle (ADR 0001); absent in tests that don't exercise Browser Attach. */
   sharedBrowser?: Pick<
     import("./shared-browser").SharedBrowserManager,
@@ -2778,12 +2781,19 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
       return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
     }
   }
-  const browserWasOn = deps.store.getRepoConfig(dir).sharedBrowserEnabled;
+  const before = deps.store.getRepoConfig(dir);
   const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
   if (!r.ok) return json({ error: r.error }, 400);
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
-  if (browserWasOn && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
+  if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
+  // A flipped claude.ai-connector switch restarts the repo's settled live sessions now rather than
+  // on the next 15s tick; sessions mid-turn are picked up by that tick once they settle.
+  if (before.claudeAiConnectorsEnabled !== r.config.claudeAiConnectorsEnabled) {
+    void deps.connectorRestart
+      ?.sweep()
+      .catch((err) => console.warn("[connector-restart] sweep failed:", err));
+  }
   return json(r.config);
 }
 

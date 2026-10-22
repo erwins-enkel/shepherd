@@ -682,6 +682,7 @@ type NewSession = Omit<
   | "createdAt"
   | "updatedAt"
   | "settledAt"
+  | "claudeAiConnectors"
   | "archivedAt"
   | "archiveReason"
   | "model"
@@ -782,7 +783,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+  claudeAiConnectors, (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
 /** A bootstrap spawn: P1+P2 carries its resolved stack, P3 (#3110) only its phase. */
 function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">): boolean {
@@ -868,6 +869,7 @@ type SessionRow = {
   experimentRole: string | null;
   spawnTerminalId: string | null;
   spawnAccountDir: string | null;
+  claudeAiConnectors: number | null;
   launchMetadataJson: string | null;
   codexLaunchId: string | null;
 };
@@ -5474,6 +5476,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** Record the claude.ai-connector setting a Claude spawn/resume baked into its overlay. The ONLY
+   *  writer is SessionService's persistSpawnIdentity; ConnectorRestartService reads it back. */
+  setClaudeAiConnectors(id: string, on: boolean): void {
+    this.db.run(`UPDATE sessions SET claudeAiConnectors=?, updatedAt=? WHERE id=?`, [
+      Number(on),
+      Date.now(),
+      id,
+    ]);
+  }
+
   /** Persist a provider-native session id (the Codex rollout UUID) discovered post-spawn. Dedicated
    *  setter (the generic update() whitelist would work too, but this mirrors {@link setSpawnIdentity}'s
    *  targeted-UPDATE style for a post-spawn-discovered marker). Callers only ever pass a non-empty id. */
@@ -6428,6 +6440,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // account's CLAUDE_CONFIG_DIR. Both nullable; written only via setSpawnIdentity.
     add("spawnTerminalId", `spawnTerminalId TEXT`);
     add("spawnAccountDir", `spawnAccountDir TEXT`);
+    // The claude.ai-connector setting the live agent was spawned with (written only via
+    // setClaudeAiConnectors). Nullable, no default: null reads as "spawned with connectors off".
+    add("claudeAiConnectors", `claudeAiConnectors INTEGER`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
     // The commit the worktree was actually created from (#2761). Nullable, no default: legacy rows
@@ -7361,6 +7376,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           : null,
       spawnTerminalId: r.spawnTerminalId ?? null,
       spawnAccountDir: r.spawnAccountDir ?? null,
+      claudeAiConnectors: nullableBool(r.claudeAiConnectors),
     } as Session;
   }
 

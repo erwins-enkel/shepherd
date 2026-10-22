@@ -521,6 +521,26 @@ test("repo_config: claudeAiConnectorsEnabled defaults off, round-trips through s
   expect(store.getRepoConfig("/repo/other").claudeAiConnectorsEnabled).toBe(false);
 });
 
+test("sessions: claudeAiConnectors stamp is null until set, then round-trips", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_x",
+  });
+  expect(store.get(s.id)!.claudeAiConnectors).toBeNull();
+  store.setClaudeAiConnectors(s.id, true);
+  expect(store.get(s.id)!.claudeAiConnectors).toBe(true);
+  store.setClaudeAiConnectors(s.id, false);
+  expect(store.get(s.id)!.claudeAiConnectors).toBe(false);
+});
+
 // #2069: the epic_stack memo — what makes the composition pass idempotent across ticks/restarts.
 test("epic_stack: layers round-trip bottom→top, upsert by child, scoped per epic", () => {
   const store = new SessionStore(":memory:");

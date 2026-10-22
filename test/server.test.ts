@@ -2344,6 +2344,20 @@ test("PUT /api/repo-config accepts claudeAiConnectorsEnabled true → 200 and pe
   expect(deps.store.getRepoConfig(validRepo).claudeAiConnectorsEnabled).toBe(true);
 });
 
+test("PUT /api/repo-config kicks the connector restart sweep only when the switch flips", async () => {
+  const deps = makeDeps();
+  let sweeps = 0;
+  deps.connectorRestart = { sweep: async () => void sweeps++ };
+  const app = makeApp(deps);
+  await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true });
+  expect(sweeps).toBe(1);
+  await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true }); // unchanged
+  await putRepoConfig(app, validRepo, { criticEnabled: false }); // another field
+  expect(sweeps).toBe(1);
+  await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: false });
+  expect(sweeps).toBe(2);
+});
+
 test("PUT /api/repo-config rejects non-boolean claudeAiConnectorsEnabled", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);

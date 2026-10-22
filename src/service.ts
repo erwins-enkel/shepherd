@@ -2581,6 +2581,14 @@ export class SessionService {
    */
   private readonly spawningMcp = new Map<string, AgentCapabilities>();
 
+  /**
+   * The claude.ai-connector setting each in-flight Claude spawn/resume baked into its `--settings`
+   * overlay, keyed by session id. Set by the argv builder, consumed by persistSpawnIdentity once the
+   * spawn succeeded — so the persisted stamp is exactly what the live agent got, even if the repo
+   * setting flips while the spawn is in flight (the restart sweep then sees the mismatch).
+   */
+  private readonly spawnConnectorStamp = new Map<string, boolean>();
+
   /** The in-flight spawn's MCP capabilities, or null once its row exists (or it never started). */
   spawningAgentCapabilities(sessionId: string): AgentCapabilities | null {
     return this.spawningMcp.get(sessionId) ?? null;
@@ -3579,6 +3587,7 @@ export class SessionService {
     profile: SandboxProfile,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
+    this.spawnConnectorStamp.set(sessionId, repoConfig.claudeAiConnectorsEnabled);
     // `--add-dir` (#2002) rides FIRST, where the next token is always a flag: it is variadic and
     // would swallow a following positional (the prompt) as another directory.
     const argv = [
@@ -3707,6 +3716,8 @@ export class SessionService {
 
   private buildClaudeResumeArgv(s: Session, trim: TrimDecision): string[] {
     const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
+    const connectors = this.deps.store.getRepoConfig(s.repoPath).claudeAiConnectorsEnabled;
+    this.spawnConnectorStamp.set(s.id, connectors);
     const argv = [
       "claude",
       // #2002: a resumed session keeps the skills its prompt no longer carries as text. First, for
@@ -3718,7 +3729,7 @@ export class SessionService {
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
-        claudeAiConnectors: this.deps.store.getRepoConfig(s.repoPath).claudeAiConnectorsEnabled,
+        claudeAiConnectors: connectors,
         hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     ];
@@ -3909,6 +3920,11 @@ export class SessionService {
     session: Session,
     outcome: Extract<SpawnOutcome, { ok: true }>,
   ): void {
+    const connectors = this.spawnConnectorStamp.get(session.id);
+    if (connectors !== undefined) {
+      this.spawnConnectorStamp.delete(session.id);
+      this.deps.store.setClaudeAiConnectors(session.id, connectors);
+    }
     const folded = outcome.spawnAccountDir;
     if (folded !== null) {
       this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, folded);
@@ -4518,6 +4534,7 @@ export class SessionService {
       throw e;
     } finally {
       this.spawningMcp.delete(sessionId);
+      this.spawnConnectorStamp.delete(sessionId);
     }
   }
 
@@ -5648,6 +5665,7 @@ export class SessionService {
       this.buildResumeArgv(session, provider, trim, session.providerSessionId),
     );
     if (!outcome.ok) {
+      this.spawnConnectorStamp.delete(session.id);
       // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,
       // server returns 409 — so an auto-refused resume resolves null rather than throwing.
       console.warn(`[sandbox] resume refused for ${session.id}: ${outcome.holdReason}`);

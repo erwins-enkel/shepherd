@@ -7293,8 +7293,16 @@ test("a repo's claude.ai connector opt-in reaches the create overlay; switching 
   const captured: { argv?: string[] } = {};
   const { deps } = trimDeps(store, captured, [], []);
   const svc = new SessionService(deps as any);
-  await svc.create({ repoPath: "/repo", baseBranch: "main", prompt: "p", model: null, images: [] });
+  const on = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
   expect(settingsOverlay(captured.argv!).env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "true" });
+  // the restart sweep compares this stamp with the repo setting
+  expect(store.get(on.id)!.claudeAiConnectors).toBe(true);
 
   store.setRepoConfig("/repo", {
     ...store.getRepoConfig("/repo"),
@@ -7329,9 +7337,11 @@ test("resume re-reads the repo's claude.ai connector opt-in", async () => {
     } as any,
   });
   const s = resumable(store);
+  expect(store.get(s.id)!.claudeAiConnectors).toBeNull(); // legacy / never stamped
   store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), claudeAiConnectorsEnabled: true });
   await svc.resume(s.id);
   expect(settingsOverlay(calls.argv!).env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "true" });
+  expect(store.get(s.id)!.claudeAiConnectors).toBe(true);
 });
 
 // ── relaunch ───────────────────────────────────────────────────────────────

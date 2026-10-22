@@ -6864,5 +6864,15 @@
   "feat_assistant_chat_questions_title": "Assistentenfragen im Chat beantworten",
   "feat_assistant_chat_questions_body": "Wähle Antworten, mehrere Optionen oder eine eigene Antwort direkt im Gespräch mit dem Assistenten. Kein Wechsel ins Terminal nötig.",
   "automergebanner_queued": "in der Merge-Queue — GitHub merged ihn, sobald die CI der Queue grün ist",
-  "lazy_load_failed": "Dieses Panel konnte nicht geladen werden. Die Verbindung ist abgebrochen oder Shepherd wurde aktualisiert."
+  "lazy_load_failed": "Dieses Panel konnte nicht geladen werden. Die Verbindung ist abgebrochen oder Shepherd wurde aktualisiert.",
+  "ask_center_hint": "Deine Antwort wird ins Terminal von {task} getippt. Die Frage bleibt dort ebenfalls offen — wer zuerst antwortet, gewinnt.",
+  "ask_center_title": "Offene Fragen",
+  "ask_center_submit_next": "Antworten & weiter",
+  "ask_center_skip": "Überspringen",
+  "ask_center_open_session": "Session öffnen",
+  "ask_center_waiting": "wartet seit {age}",
+  "ask_center_prompt_label": "Prompt",
+  "ask_center_position": "Frage {index} von {count}",
+  "feat_ask_center_title": "Fragen zeigen, wer fragt",
+  "feat_ask_center_body": "Wenn Claude eine Frage stellt, nennt der Antwortdialog jetzt Repo, Task und Session, dazu Agent, Modell, Branch und den ursprünglichen Prompt. Offene Fragen anderer Sessions stehen daneben, nach Repo gruppiert, und lassen sich nacheinander beantworten."
 }

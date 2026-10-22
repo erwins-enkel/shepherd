@@ -2,7 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { AnswerAskResult } from "#lib/types.js";
+import type { AnswerAskResult, PendingAsk, Session } from "#lib/types.js";
+import type { AskEntry } from "#lib/ask-center.js";
 import { toasts } from "#lib/toasts.svelte.js";
 
 const answerAsk = vi.fn<
@@ -17,11 +18,11 @@ vi.mock("#lib/api.js", async (importOriginal) => {
 });
 const { default: AskQuestionDialog } = await import("./AskQuestionDialog.svelte");
 
-const ask = {
-  toolUseId: "toolu_9",
+const ask = (toolUseId: string, question = "Pet?"): PendingAsk => ({
+  toolUseId,
   questions: [
     {
-      question: "Pet?",
+      question,
       header: "Pet",
       multiSelect: false,
       options: [
@@ -30,12 +31,40 @@ const ask = {
       ],
     },
   ],
-};
+});
+const session = (id: string, extra: Partial<Session> = {}): Session =>
+  ({
+    id,
+    desig: "TASK-2240",
+    name: "repo-coding-cli",
+    prompt: "pick the coding CLI per repo",
+    repoPath: "/home/me/shepherd",
+    branch: "shepherd/repo-coding-cli",
+    model: null,
+    ...extra,
+  }) as Session;
 
 afterEach(() => {
   answerAsk.mockClear();
   toasts.items = [];
 });
+
+async function mount(entries: AskEntry[], onnavigate?: (id: string) => void) {
+  const onclose = vi.fn();
+  const { container } = await render(AskQuestionDialog, {
+    entries,
+    focusId: entries[0]!.session.id,
+    onclose,
+    onnavigate,
+  });
+  return { container, onclose };
+}
+
+const pickSecondAndSubmit = async (container: HTMLElement) => {
+  const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+  await page.elementLocator(radios[1]!).click();
+  await page.elementLocator(container.querySelector<HTMLButtonElement>("button.primary")!).click();
+};
 
 let seq = 0;
 // A fresh tool_use id per render: the dialog's toast is keyed by it, and the store's key map
@@ -43,15 +72,8 @@ let seq = 0;
 async function answer(result: AnswerAskResult | Error, toolUseId = `toolu_${++seq}`) {
   if (result instanceof Error) answerAsk.mockRejectedValueOnce(result);
   else answerAsk.mockResolvedValueOnce(result);
-  const onclose = vi.fn();
-  const { container } = await render(AskQuestionDialog, {
-    sessionId: "s1",
-    ask: { ...ask, toolUseId },
-    onclose,
-  });
-  const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
-  await page.elementLocator(radios[1]!).click();
-  await page.elementLocator(container.querySelector<HTMLButtonElement>("button.primary")!).click();
+  const { container, onclose } = await mount([{ session: session("s1"), ask: ask(toolUseId) }]);
+  await pickSecondAndSubmit(container);
   return onclose;
 }
 
@@ -73,5 +95,63 @@ describe("AskQuestionDialog", () => {
     toasts.items = [];
     await answer(new Error("409"));
     await vi.waitFor(() => expect(toasts.items.at(-1)?.alert).toBe(true));
+  });
+
+  it("names the repo, task, session and prompt the question comes from", async () => {
+    await mount([{ session: session("s1"), ask: ask(`toolu_${++seq}`) }]);
+    const dialog = page.getByRole("dialog");
+    await expect.element(dialog.getByText("shepherd", { exact: true })).toBeVisible();
+    await expect.element(dialog.getByText("TASK-2240", { exact: true })).toBeVisible();
+    await expect.element(dialog.getByText("repo-coding-cli", { exact: true })).toBeVisible();
+    await expect.element(dialog.getByText("pick the coding CLI per repo")).toBeVisible();
+    await expect.element(dialog.getByText(/shepherd\/repo-coding-cli/)).toBeVisible();
+    await expect.element(dialog.getByText(/(terminal of|Terminal von) TASK-2240/)).toBeVisible();
+    // A single question needs no list.
+    expect(document.querySelector("nav")).toBeNull();
+  });
+
+  it("lists other sessions' questions by repo and moves on to the next after an answer", async () => {
+    const first = `toolu_${++seq}`;
+    const second = `toolu_${++seq}`;
+    const { container, onclose } = await mount([
+      { session: session("s1"), ask: ask(first, "Pet?") },
+      {
+        session: session("s2", {
+          desig: "TASK-7",
+          name: "ics-export",
+          repoPath: "/home/me/calendar",
+        }),
+        ask: ask(second, "Export RRULE?"),
+        since: Date.now() - 5 * 60_000,
+      },
+    ]);
+    const nav = page.getByRole("navigation");
+    await expect.element(nav.getByText("calendar", { exact: true })).toBeVisible();
+    await expect.element(nav.getByText(/Pet · Export RRULE\?/)).toBeVisible();
+
+    await pickSecondAndSubmit(container);
+    expect(answerAsk).toHaveBeenCalledWith("s1", first, expect.any(Array));
+    expect(onclose).not.toHaveBeenCalled();
+    await expect.element(page.getByText("Export RRULE?", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("navigation")).not.toBeInTheDocument();
+  });
+
+  it("opens another session's question in its session", async () => {
+    const onnavigate = vi.fn();
+    const { onclose } = await mount(
+      [
+        { session: session("s1"), ask: ask(`toolu_${++seq}`) },
+        { session: session("s2", { desig: "TASK-7" }), ask: ask(`toolu_${++seq}`) },
+      ],
+      onnavigate,
+    );
+    // The focused session is already on screen: no jump offered for it.
+    await expect
+      .element(page.getByRole("button", { name: /Open session|Session öffnen/ }))
+      .not.toBeInTheDocument();
+    await page.getByRole("button", { name: /TASK-7/ }).click();
+    await page.getByRole("button", { name: /Open session|Session öffnen/ }).click();
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(onnavigate).toHaveBeenCalledWith("s2");
   });
 });

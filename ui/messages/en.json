@@ -6864,5 +6864,15 @@
   "feat_assistant_chat_questions_title": "Answer assistant questions in chat",
   "feat_assistant_chat_questions_body": "Choose answers, select multiple options, or write your own answer directly in the assistant conversation. No terminal switch needed.",
   "automergebanner_queued": "in the merge queue — GitHub merges it once the queue's CI passes",
-  "lazy_load_failed": "Couldn't load this panel. The connection dropped or Shepherd was updated."
+  "lazy_load_failed": "Couldn't load this panel. The connection dropped or Shepherd was updated.",
+  "ask_center_hint": "Your answer is typed into the terminal of {task}. The question stays open there too — whoever answers first wins.",
+  "ask_center_title": "Open questions",
+  "ask_center_submit_next": "Answer & next",
+  "ask_center_skip": "Skip",
+  "ask_center_open_session": "Open session",
+  "ask_center_waiting": "waiting {age}",
+  "ask_center_prompt_label": "Prompt",
+  "ask_center_position": "Question {index} of {count}",
+  "feat_ask_center_title": "Questions show who is asking",
+  "feat_ask_center_body": "When Claude asks a question, the answer dialog now names the repo, task and session it comes from, along with the agent, model, branch and original prompt. Open questions from other sessions are listed beside it, grouped by repo, so you can answer them one after another."
 }

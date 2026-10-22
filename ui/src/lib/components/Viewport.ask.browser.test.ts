@@ -132,4 +132,23 @@ describe("AskUserQuestion dialog in the Viewport (#3165)", () => {
     await setAsk(ask("toolu_2"));
     await expect.element(dialogEl()).toBeVisible();
   });
+
+  it("lists other sessions' questions beside this one and closes on a session switch", async () => {
+    const target = document.createElement("div");
+    target.style.cssText = "height: 800px; display: flex; flex-direction: column";
+    document.body.append(target);
+    const s = session({ id: "asking", status: "blocked" });
+    const other = session({ id: "other", desig: "TASK-02", name: "task two", repoPath: "/repo/b" });
+    const pendingAsks = [{ session: other, ask: ask("toolu_other"), since: Date.now() }];
+    const { rerender } = await render(Viewport, {
+      target,
+      props: { session: s, ask: ask("toolu_3"), pendingAsks },
+    });
+    const center = page.getByRole("dialog", { name: /Open questions|Offene Fragen/ });
+    await expect.element(center).toBeVisible();
+    await expect.element(center.getByRole("button", { name: /TASK-02/ })).toBeVisible();
+
+    await rerender({ session: other, ask: null, pendingAsks });
+    await expect.element(center).not.toBeInTheDocument();
+  });
 });

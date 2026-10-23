@@ -135,7 +135,7 @@ struct HerdRowSignals: View {
                 SessionBadgeStack(badges: model.badges.filter { $0.id != "pr" }) { id in
                     app.selectedSessionID = session.id
                     if id == "manual-steps" {
-                        if model.git?.state.known == .merged { app.extension(SidebarModel.self)?.lens = .owed }
+                        if model.git?.state.known == .merged, session.host == nil { app.extension(SidebarModel.self)?.lens = .owed }
                         else { contextMenu.sheet = .manualSteps(session.id) }
                     } else { showsReview = true }
                 }

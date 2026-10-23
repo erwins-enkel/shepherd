@@ -52,7 +52,7 @@ final class SessionContextController {
     }
 
     func perform(_ action: SessionContextAction, sessionID id: String, app: AppModel) {
-        guard let store = app.store, let session = store.session(id: id) else { return }
+        guard let store = app.store, store.canOperateSession(id: id), let session = store.visibleSession(id: id) else { return }
         app.selectedSessionID = id
         note = nil
         command.clear()
@@ -63,7 +63,7 @@ final class SessionContextController {
         switch action {
         case .stop: stop(session, store: store, app: app)
         case .resume: resume(session, store: store, app: app)
-        case .cleanTerminal: cleanTerminal(repoPath: session.repoPath, store: store, app: app)
+        case .cleanTerminal: cleanTerminal(session: session, store: store, app: app)
         default: break
         }
     }
@@ -93,8 +93,11 @@ final class SessionContextController {
     /// One bare shell per repo in its main checkout: focus the live one when there is one, else
     /// create it. A 409 means another client won the race — its row arrives over the socket, so
     /// a re-lookup usually resolves it (the web does the same).
-    private func cleanTerminal(repoPath: String, store: SessionStore, app: AppModel) {
-        func live() -> Session? { store.sessions.first { $0.terminal == true && $0.repoPath == repoPath } }
+    private func cleanTerminal(session: Session, store: SessionStore, app: AppModel) {
+        func live() -> Session? {
+            store.visibleSessions.first { $0.terminal == true && $0.repoPath == session.repoPath
+                && $0.host?.instanceId == session.host?.instanceId }
+        }
         if let existing = live() {
             app.selectedSessionID = existing.id
             return
@@ -104,8 +107,8 @@ final class SessionContextController {
             let ok = await command.run(
                 {
                     do {
-                        let created = try await store.client.createTerminalSession(repoPath: repoPath)
-                        store.apply(.sessionNew(created))
+                        let created = try await store.client.createSessionTerminal(sessionID: session.id)
+                        store.acceptSession(created)
                     } catch {
                         thrown = error
                         throw error
@@ -115,7 +118,8 @@ final class SessionContextController {
                     String(describing: thrown).contains("terminal_unsupported")
                         ? L.t("toast_terminal_unsupported") : L.t("toast_terminal_failed")
                 },
-                isCurrent: { app.store === store })
+                isCurrent: { ActionBarView.relaunchIsCurrent(session: session, store: store, app: app) })
+            guard ActionBarView.relaunchIsCurrent(session: session, store: store, app: app) else { return }
             if ok { app.selectedSessionID = live()?.id } else if let existing = live() {
                 command.clear()
                 app.selectedSessionID = existing.id
@@ -139,6 +143,7 @@ final class SessionContextController {
                 failureCopy: { ActionErrorCopy.relaunchFailure(thrown, fallback: $0) },
                 isCurrent: { ActionBarView.relaunchIsCurrent(session: session, store: store, app: app) })
             guard ok, let outcome else { return }
+            store.acceptSession(outcome.session)
             let result = ActionBarView.relaunchOutcomeNote(outcome)
             if outcome.archived {
                 app.extension(ActionsModel.self)?.recordOutcomeNote(result.text, forSessionID: outcome.session.id)
@@ -165,6 +170,7 @@ struct SessionContextMenuItems: View {
                 } label: {
                     Label(action.label, systemImage: action.systemImage)
                 }
+                .disabled(app.store?.canOperateSession(id: session.id) != true)
                 .accessibilityIdentifier("context-\(action.id)")
             }
         }
@@ -192,14 +198,14 @@ struct SessionContextHost: ViewModifier {
         }
         .sheet(item: $controller.sheet) { sheet in sheetContent(sheet) }
         // A sheet for a session that left the store (archived elsewhere) has nothing to act on.
-        .onChange(of: app.store?.sessions.map(\.id)) { _, ids in
+        .onChange(of: app.store?.visibleSessions.map(\.id)) { _, ids in
             if let sheet = controller.sheet, !(ids ?? []).contains(sheet.sessionID) { controller.sheet = nil }
         }
     }
 
     @ViewBuilder
     private func sheetContent(_ sheet: SessionContextController.Sheet) -> some View {
-        if let store = app.store, let session = store.session(id: sheet.sessionID) {
+        if let store = app.store, let session = store.visibleSession(id: sheet.sessionID) {
             switch sheet {
             case .rename:
                 RenameSheet(session: session, store: store, app: app) { renamed in
@@ -212,7 +218,7 @@ struct SessionContextHost: ViewModifier {
                     controller.sheet = nil
                 }
             case .relaunch:
-                RelaunchOptionsView(session: session, repos: store.repos) { overrides in
+                RelaunchOptionsView(session: session, repos: store.repos, store: store) { overrides in
                     controller.sheet = nil
                     controller.relaunch(session, overrides: overrides, store: store, app: app)
                 }
@@ -227,6 +233,7 @@ struct SessionContextHost: ViewModifier {
                             .padding()
                         ScrollView {
                             MergeSessionView(app: app, session: session, store: store, model: model)
+                                .disabled(!store.canOperateSession(id: session.id))
                         }
                     }
                     .frame(width: 560, height: 600)

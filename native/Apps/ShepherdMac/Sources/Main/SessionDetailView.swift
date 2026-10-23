@@ -16,12 +16,16 @@ struct SessionDetailView: View {
         // `model.store` is non-nil for every render inside `MainWindow`, which is
         // mounted only while a store exists; the nil branch is the same "nothing
         // selected" state as before.
-        if let session, let store = model.store, RemoteSessionCopy.isMirrored(session) {
-            // A session on a connected machine: none of the tabs' per-session reads exist for it.
-            RemoteSessionDetailView(session: session, store: store)
-        } else if let session, let store = model.store {
+        if let session, let store = model.store {
             VStack(alignment: .leading, spacing: 16) {
                 header(session)
+                if let line = RemoteSessionCopy.disconnectedLine(session, now: Int(Date.now.timeIntervalSince1970 * 1_000)) {
+                    Text(verbatim: line).font(.caption).foregroundStyle(ShepherdPalette.amber)
+                        .accessibilityIdentifier("remote-detail-disconnected")
+                } else if let host = session.host,
+                          store.remoteSnapshotFailures.values.contains(where: { $0.contains(host.instanceId) }) {
+                    Text(L.t("native_mac_remote_stale", host.name)).font(.caption).foregroundStyle(ShepherdPalette.amber)
+                }
                 tabs(session, store)
                     .onChange(of: planRequest(for: session.id), initial: true) { _, request in
                         if request != nil { selectedTab = "plan" }
@@ -71,6 +75,7 @@ struct SessionDetailView: View {
                 TabView(selection: $selectedTab) {
                     ForEach(registered, id: \.id) { tab in
                         tab.makeView(session: session, store: store, app: model)
+                            .disabled(tab.id != "terminal" && tab.id != "prompt" && !store.canOperateSession(id: session.id))
                             .tag(tab.id)
                             .tabItem { Label(tab.title, systemImage: tab.systemImage) }
                     }
@@ -89,6 +94,7 @@ struct SessionDetailView: View {
             if let placement = session.launchMetadata?.placement {
                 PlacementReason(placement: placement).font(.caption)
             }
+            MachineBadge(session: session, now: Int(Date.now.timeIntervalSince1970 * 1_000))
             Spacer()
             if let plan = model.extension(PlanModel.self) {
                 PlanGateBadgeView(session: session, model: plan)

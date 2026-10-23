@@ -104,7 +104,23 @@ public final class PlanModel: AppExtension {
         do {
             async let loadedGates = reads.gates()
             async let inflight = reads.inflight()
-            let loaded = try await (loadedGates, inflight)
+            var loaded = try await (loadedGates, inflight)
+            if let store {
+                let client = store.client
+                loaded.0 = await store.mergingRemoteSnapshots(key: "plan-gates", local: loaded.0,
+                    previous: gates) { try await client.planGates(host: $0) }
+                let previous = Dictionary(uniqueKeysWithValues: reviewing.map { id in
+                    (id, PlanGateInflightEntry(id: id, provider: (reviewerEnv[id]?.provider).flatMap { AgentProvider(rawValue: $0.rawValue) },
+                        model: reviewerEnv[id]?.model, effort: reviewerEnv[id]?.effort))
+                })
+                let merged = await store.mergingRemoteSnapshots(key: "plan-inflight",
+                    local: Dictionary(loaded.1.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new }),
+                    previous: previous) {
+                    Dictionary(try await client.planGatesInflight(host: $0).map { ($0.id, $0) },
+                        uniquingKeysWith: { _, new in new })
+                }
+                loaded.1 = Array(merged.values)
+            }
             guard isActive, !Task.isCancelled, mine == generation,
                   activationSnapshot == app?.activationGeneration else { return }
             // Injected reads have the same validation boundary as the live client.
@@ -153,7 +169,7 @@ public final class PlanModel: AppExtension {
     }
 
     private func subscribe(_ store: SessionStore) {
-        let frames = store.events()
+        let frames = store.events(includeMirrored: true)
         let token = lifecycle
         let activationSnapshot = app?.activationGeneration
         watcher = Task { [weak self] in
@@ -169,10 +185,13 @@ public final class PlanModel: AppExtension {
     func receive(_ event: ServerEvent) {
         guard isActive else { return }
         do {
-            switch event {
+            switch event.sessionPresentationEvent {
             case .unknown(let name, let payload):
                 guard let payload else { return }
                 switch name {
+                case "remote:sessions":
+                    pruneToLiveSessions()
+                    requestRefresh()
                 case "session:plangate":
                     let frame = try JSONDecoder().decode(SessionPlanGateEvent.self, from: payload)
                     try frame.gate?.validateVisualBlocks()
@@ -218,8 +237,8 @@ public final class PlanModel: AppExtension {
     }
 
     private func pruneToLiveSessions() {
-        guard let store, !store.sessions.isEmpty else { return } // Not bootstrapped yet.
-        let live = Set(store.sessions.map(\.id))
+        guard let store, store.hasLoadedSessions || !store.visibleSessions.isEmpty else { return } // Not bootstrapped yet.
+        let live = Set(store.visibleSessions.map(\.id))
         gates = gates.filter { live.contains($0.key) }
         reviewing.formIntersection(live)
         reviewerEnv = reviewerEnv.filter { live.contains($0.key) }

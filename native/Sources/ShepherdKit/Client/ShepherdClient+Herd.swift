@@ -33,9 +33,9 @@ extension Components.Schemas.PrReviewTrigger: OpenEnum {}
 extension ShepherdClient {
   /// `GET /api/git`. Session id to PR state, for every session the poller has state for.
   /// An absent session has no cached PR state, which means no git-decided stage.
-  public func gitStates() async throws -> [String: GitState] {
+  public func gitStates(host: String? = nil) async throws -> [String: GitState] {
     do {
-      switch try await generated.gitStates(.init()) {
+      switch try await generated.gitStates(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let status, _):
@@ -45,9 +45,9 @@ extension ShepherdClient {
   }
 
   /// `GET /api/activity`. Session id to transcript heartbeat.
-  public func activityStates() async throws -> [String: SessionActivitySignal] {
+  public func activityStates(host: String? = nil) async throws -> [String: SessionActivitySignal] {
     do {
-      switch try await generated.activityStates(.init()) {
+      switch try await generated.activityStates(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let status, _):
@@ -57,9 +57,9 @@ extension ShepherdClient {
   }
 
   /// `GET /api/claude-alive`. Whether a coding-CLI process still lives in each session's worktree.
-  public func claudeAliveStates() async throws -> [String: Bool] {
+  public func claudeAliveStates(host: String? = nil) async throws -> [String: Bool] {
     do {
-      switch try await generated.claudeAliveStates(.init()) {
+      switch try await generated.claudeAliveStates(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let status, _):
@@ -69,9 +69,9 @@ extension ShepherdClient {
   }
 
   /// `GET /api/reviews`. Session id to the latest critic verdict.
-  public func reviews() async throws -> [String: ReviewVerdict] {
+  public func reviews(host: String? = nil) async throws -> [String: ReviewVerdict] {
     do {
-      switch try await generated.listReviews(.init()) {
+      switch try await generated.listReviews(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let status, _):
@@ -81,9 +81,9 @@ extension ShepherdClient {
   }
 
   /// `GET /api/reviews/inflight`. Current critic runs, including each reviewer's CLI environment.
-  public func reviewsInflight() async throws -> [ReviewerInflightEntry] {
+  public func reviewsInflight(host: String? = nil) async throws -> [ReviewerInflightEntry] {
     do {
-      switch try await generated.listReviewsInflight(.init()) {
+      switch try await generated.listReviewsInflight(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let status, _):

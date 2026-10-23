@@ -69,6 +69,39 @@ async function forward(
 describe("allowlist", () => {
   const parts = (leaf: string) => ["api", "sessions", ID, ...leaf.split("/").filter(Boolean)];
 
+  test("remote parity routes support the complete native session controls", () => {
+    for (const [method, leaf] of [
+      ["GET", "git"],
+      ["POST", "resume"],
+      ["POST", "relaunch"],
+      ["POST", "variant"],
+      ["POST", "replace"],
+      ["POST", "review-plan"],
+      ["POST", "git/merge"],
+      ["GET", "queue"],
+      ["PUT", "queue"],
+      ["POST", "terminal"],
+      ["GET", ""],
+      ["POST", "recommend-prompt"],
+      ["POST", "recap/regenerate"],
+      ["GET", "git/reviewers"],
+      ["POST", "git/pr"],
+      ["POST", "git/ready"],
+      ["POST", "git/draft"],
+      ["POST", "git/close"],
+      ["POST", "git/request-review"],
+      ["POST", "review-pr"],
+      ["POST", "review-hold"],
+      ["POST", "review-cancel"],
+      ["POST", "quota/resume"],
+      ["POST", "quota/dismiss"],
+      ["POST", "queue/approve"],
+      ["POST", "git/redeploy"],
+      ["POST", "ack-manual-steps"],
+    ])
+      expect(forwardedLeaf(method!, parts(leaf!))).toBe(leaf!);
+  });
+
   test.each([
     ["POST", "reply"],
     ["POST", "interrupt"],
@@ -100,19 +133,10 @@ describe("allowlist", () => {
   });
 
   test.each([
-    ["GET", ""], // the bare session read is not in v1
-    ["POST", "resume"],
-    ["POST", "relaunch"],
-    ["POST", "replace"],
-    ["POST", "variant"],
     ["POST", "restore"],
-    ["POST", "git/merge"],
-    ["GET", "git"],
-    ["POST", "review-pr"],
     ["GET", "preview/start"],
     ["POST", "preview"],
     ["POST", "preview/relay"],
-    ["PUT", "queue"],
     ["POST", "hooks"],
     ["GET", "steer-log"],
     ["POST", "reply/extra"], // exact leaves only
@@ -238,7 +262,7 @@ describe("forwardSessionRequest", () => {
 
   test("a route outside the allowlist is refused with an explanation and never sent", async () => {
     const m = machine();
-    const res = await forward("POST", `/api/sessions/${ID}/relaunch`, m);
+    const res = await forward("POST", `/api/sessions/${ID}/restore`, m);
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ code: "remote_unsupported", machine: "MacBook" });
     expect(m.sent).toEqual([]);
@@ -391,5 +415,57 @@ describe("clear-merged across machines", () => {
         cleared: [],
       },
     ]);
+  });
+});
+
+describe("owner annotations on session answers", () => {
+  test.each([
+    "",
+    "resume",
+    "variant",
+    "replace",
+    "terminal",
+    "autopilot",
+    "automerge",
+    "rename",
+    "relaunch",
+  ])("%s preserves the response shape and replaces claimed ownership", async (leaf) => {
+    const nested = leaf === "rename" || leaf === "relaunch";
+    const session = { id: ID, name: "result", host: { instanceId: "forged" } };
+    const body = nested ? { session, archived: true } : session;
+    const method = leaf === "" ? "GET" : ["autopilot", "automerge"].includes(leaf) ? "PUT" : "POST";
+    const result = await forward(
+      method,
+      `/api/sessions/${ID}/${leaf}`,
+      machine(Response.json(body)),
+    );
+    expect(result.status).toBe(200);
+    const answer = await result.json();
+    expect(nested ? answer.session : answer).toMatchObject({
+      id: ID,
+      host,
+      connection: { state: "connected" },
+    });
+    if (nested) expect(answer.archived).toBe(true);
+  });
+  test("HTML and malformed session results are refused; archive keeps its own shape", async () => {
+    const bad = await forward(
+      "GET",
+      `/api/sessions/${ID}`,
+      machine(new Response(JSON.stringify({ id: ID }))),
+    );
+    expect(bad.status).toBe(502);
+    const missing = await forward(
+      "POST",
+      `/api/sessions/${ID}/variant`,
+      machine(Response.json({ ok: true })),
+    );
+    expect(missing.status).toBe(502);
+    const archive = await forward(
+      "DELETE",
+      `/api/sessions/${ID}`,
+      machine(Response.json({ ok: true })),
+    );
+    expect(await archive.json()).toEqual({ ok: true });
   });
 });

@@ -16,7 +16,7 @@ struct TerminalSteerFooter: View {
     @State private var search = ""
     @FocusState private var searchFocused: Bool
 
-    private var session: Session? { store.session(id: sessionID) }
+    private var session: Session? { store.visibleSession(id: sessionID) }
     private var current: Bool {
         app.store === store && app.activationGeneration == activation
             && app.selectedSessionID == sessionID
@@ -26,7 +26,7 @@ struct TerminalSteerFooter: View {
         current && app.allowsTerminalInput && app.liveRequestAudit == nil
             && session.map { $0.status.known != .archived } == true
     }
-    private var canSend: Bool { allowsWrites && delivery.sendingID == nil }
+    private var canSend: Bool { allowsWrites && store.canOperateSession(id: sessionID) && delivery.sendingID == nil }
     private var steers: [ComposeSteer] { session.map { library.barSteers(for: $0) } ?? [] }
     private var matches: [ComposeSteer] { SteerShortcuts.matches(steers, search: search) }
 
@@ -241,6 +241,7 @@ struct TerminalSteerFooter: View {
                 TerminalSteerHoldButton { openEditor(.close) }
                     .disabled(command.busy).accessibilityIdentifier("terminal-steers-decommission")
             }
+            .disabled(!store.canOperateSession(id: sessionID))
             if let message = command.message { Text(verbatim: message).font(.caption).foregroundStyle(.red) }
         }
     }
@@ -253,7 +254,7 @@ struct TerminalSteerFooter: View {
 
     private func send(_ steer: ComposeSteer) {
         Task {
-            await delivery.send(steer, allowed: { allowsWrites },
+            await delivery.send(steer, allowed: { allowsWrites && store.canOperateSession(id: sessionID) },
                 reply: { try await store.client.replySession(id: sessionID, text: $0) })
         }
     }
@@ -261,8 +262,8 @@ struct TerminalSteerFooter: View {
     private func load() async {
         guard current else { return }
         await library.load(steers: { try await store.client.steers() }, repos: {
-            Dictionary(try await store.client.repos().repos.map { ($0.path, $0.name) },
-                uniquingKeysWith: { first, _ in first })
+            SteerScope.repoNames(repos: try await store.client.repos().repos,
+                sessions: session.map { [$0] } ?? [])
         })
     }
 }

@@ -66,9 +66,9 @@ public final class MergeModel: AppExtension {
         // Subscribe before scheduling the bootstrap. Buffered old frames are generation-guarded.
         eventTask = Task { [weak self, weak store] in
             guard let store else { return }
-            for await event in store.events() {
+            for await event in store.events(includeMirrored: true) {
                 guard let self, self.valid(mine, activation), !Task.isCancelled else { return }
-                switch event {
+                switch event.sessionPresentationEvent {
                 case .automergeStatus, .sessionNew, .sessionArchived, .sessionStatus:
                     self.invalidate()
                 case .unknown(let name, _):
@@ -87,7 +87,7 @@ public final class MergeModel: AppExtension {
             var wasLive = false
             while let self, self.valid(mine, activation), !Task.isCancelled {
                 let state = withObservationTracking {
-                    (store.connection, Set(store.sessions.map(\.id)))
+                    (store.connection, Set(store.visibleSessions.map(\.id)))
                 } onChange: { signal.yield(()) }
                 self.prune(liveIDs: state.1)
                 let live = state.0 == .live
@@ -98,7 +98,7 @@ public final class MergeModel: AppExtension {
         }
         invalidate()
     }
-    static let refreshEvents: Set<String> = ["session:automerge", "session:autopilot",
+    static let refreshEvents: Set<String> = ["remote:sessions", "session:automerge", "session:autopilot",
         "session:merging", "mergetrain:landed", "post-merge-steps:changed",
         "session:manual-steps", "queue:update", "drain:status"]
     private func valid(_ mine: Int, _ activation: Int?) -> Bool {
@@ -129,12 +129,17 @@ public final class MergeModel: AppExtension {
                 // client's autopilot/ack change and merge-train progress reach the controls.
                 try await reads.sessionRows()
                 guard valid(mine, activation), !Task.isCancelled else { return }
-                let value = try await reads.snapshot()
+                var value = try await reads.snapshot()
+                if let store {
+                    let client = store.client
+                    value.queues = await store.mergingRemoteSnapshots(key: "queues", local: value.queues,
+                        previous: snapshot.queues) { try await client.listBuildQueues(host: $0) }
+                }
                 guard valid(mine, activation), !Task.isCancelled else { return }
                 // A frame during the GET makes the snapshot suspect. Re-read, don't overwrite it.
                 if started != revision { pending = true; continue }
                 snapshot = value
-                if let store { prune(liveIDs: Set(store.sessions.map(\.id))) }
+                if let store { prune(liveIDs: Set(store.visibleSessions.map(\.id))) }
                 refreshError = nil; settled = true
             } catch {
                 guard valid(mine, activation), !Task.isCancelled else { return }
@@ -145,6 +150,9 @@ public final class MergeModel: AppExtension {
     public func queueState(id: String) -> MergeQueueState {
         guard !stopped, settled else { return .unloaded }
         guard refreshError == nil else { return .failed }
+        if let host = store?.visibleSession(id: id)?.host,
+           store?.remoteSnapshotFailures["queues"]?.contains(host.instanceId) == true,
+           snapshot.queues[id] == nil { return .failed }
         // Only a successful bulk snapshot can prove that a queue is empty.
         return .loaded(snapshot.queues[id] ?? .init(sessionId: id, steps: [], approved: false))
     }

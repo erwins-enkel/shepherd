@@ -61,9 +61,9 @@ extension Components.Schemas.PlanQuotaStatus: OpenEnum {}
 
 extension ShepherdClient {
   /// `GET /api/plan-gates` — the bootstrap snapshot, keyed by session id.
-  public func planGates() async throws -> [String: PlanGate] {
+  public func planGates(host: String? = nil) async throws -> [String: PlanGate] {
     do {
-      switch try await generated.listPlanGates(.init()) {
+      switch try await generated.listPlanGates(.init(query: .init(host: host))) {
       case .ok(let ok):
         let gates = try ok.body.json.additionalProperties
         for gate in gates.values { try gate.validateVisualBlocks() }
@@ -76,9 +76,9 @@ extension ShepherdClient {
   }
 
   /// `GET /api/plan-gates/inflight` — active reviews with their reviewer environment.
-  public func planGatesInflight() async throws -> [PlanGateInflightEntry] {
+  public func planGatesInflight(host: String? = nil) async throws -> [PlanGateInflightEntry] {
     do {
-      switch try await generated.listPlanGatesInflight(.init()) {
+      switch try await generated.listPlanGatesInflight(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let status, _):

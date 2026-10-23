@@ -107,7 +107,7 @@ public final class SidebarModel: AppExtension {
         self.app = app
         self.reads = .live(store.client)
         self.now = { Int(Date().timeIntervalSince1970 * 1_000) }
-        // One authenticated socket, owned by `SessionStore` — `store.events()` is the fan-out seam
+        // One authenticated socket, owned by `SessionStore` — `store.events(includeMirrored: true)` is the fan-out seam
         // S0-prep delivered for exactly this: several independent taps on the one connection, each
         // seeing every frame. The sidebar needs two frames the store's own `applyNow` does not model
         // (`held:changed`, `session:working-blocked`) only as signals to re-read; it never calls
@@ -196,17 +196,14 @@ public final class SidebarModel: AppExtension {
         HerdPartition.groups(sessions, now: now(), gitStage: gitStage, inReview: inReview)
     }
 
-    /// Sessions mirrored from connected machines, one read-only group per machine after the local
-    /// groups (#2768). Only in the All lens — the others are about what to act on here, and these
-    /// cannot be acted on from this server — and never narrowed by the repo filter, whose chips
-    /// name this server's checkouts (the web's machine groups before #3055).
+    /// Connected-machine sessions retain their own groups in the All lens.
     public var machineGroups: [HerdMachineGroup] {
         guard lens == .all else { return [] }
         // Tasks for machines that are not settled (#2776) only while the herd is not narrowed to
         // repos, as on the web.
         let dispatches = activeRepos.isEmpty
             ? (app?.extension(RemoteDispatchesModel.self)?.dispatches ?? offlineRemoteDispatches) : []
-        return HerdMachineGroup.groups(store?.remoteSessions ?? offlineRemoteSessions, dispatches: dispatches)
+        return HerdMachineGroup.groups(store?.visibleSessions.filter { $0.host != nil } ?? offlineRemoteSessions, dispatches: dispatches)
     }
 
     public var tallies: HerdTallies {
@@ -255,6 +252,8 @@ public final class SidebarModel: AppExtension {
         }
     }
 
+    @ObservationIgnored private var blockRevisions: [String: Int] = [:]
+
     /// Re-read all four snapshots. A failure keeps the previous snapshot: a blank sidebar is a worse
     /// answer than a slightly stale one, and `SessionStore` already owns the offline banner.
     public func refresh() async {
@@ -266,6 +265,7 @@ public final class SidebarModel: AppExtension {
         let activationSnapshot = app?.activationGeneration
         generation &+= 1
         let mine = generation
+        let blockSnapshot = blockRevisions
         do {
             async let flags = reads.workingBlocked()
             async let held = reads.holds()
@@ -278,7 +278,14 @@ public final class SidebarModel: AppExtension {
             #if DEBUG
                 usageReadCount += 1
             #endif
-            let loaded = try await (flags, held, blocked)
+            var loaded = try await (flags, held, blocked)
+            if let store {
+                let client = store.client
+                loaded.0 = await store.mergingRemoteSnapshots(key: "working-blocked", local: loaded.0,
+                    previous: workingBlocked) { try await client.workingBlocked(host: $0) }
+                loaded.2 = await store.mergingRemoteSnapshots(key: "blocks", local: loaded.2,
+                    previous: blocks) { try await client.blocks(host: $0) }
+            }
             #if DEBUG
                 if staleOnce {
                     staleOnce = false
@@ -295,6 +302,9 @@ public final class SidebarModel: AppExtension {
             }
             workingBlocked = loaded.0
             holds = loaded.1
+            for (id, revision) in blockRevisions where blockSnapshot[id] != revision {
+                loaded.2[id] = blocks[id]
+            }
             blocks = loaded.2
             usage = loadedUsage
             // No server timestamp exists. Reject a REST cache write if a newer usage receipt
@@ -347,16 +357,16 @@ public final class SidebarModel: AppExtension {
     ///
     /// The stream is created here and captured by the task rather than reached for through `store`,
     /// so the task holds no reference to the store and cancelling it drops the tap — which,
-    /// per `SessionStore.events()`, is the only thing that unregisters one. `store.events()` also
+    /// per `SessionStore.events()`, is the only thing that unregisters one. `store.events(includeMirrored: true)` also
     /// finishes on `stop()`, so this `for await` ends with the store even if `teardown()` never ran.
     private func subscribe(_ store: SessionStore) {
-        let frames = store.events()
+        let frames = store.events(includeMirrored: true)
         watcher = Task { @MainActor [weak self] in
             for await event in frames {
                 guard let self else { return }
-                switch event {
+                switch event.sessionPresentationEvent {
                 case .unknown(let name, _)
-                where name == "held:changed" || name == "session:working-blocked" || name == "session:hold":
+                where name == "remote:sessions" || name == "held:changed" || name == "session:working-blocked" || name == "session:hold":
                     self.requestRefresh()
                 // Mirrored, not re-read: `block(for:)` falls back to this model's own `blocks` map
                 // when the store has no entry, and a block CLEAR is exactly "the store has no
@@ -365,10 +375,12 @@ public final class SidebarModel: AppExtension {
                 // because a clear has to land immediately — a network round trip later is a badge
                 // the operator watches linger after the block is gone.
                 case .sessionBlock(let payload):
+                    self.blockRevisions[payload.id, default: 0] += 1
                     self.blocks[payload.id] = payload.block
                 // The store clears a block on archive too (`apply`, `.sessionArchived`), so the
                 // fallback map has to follow it there as well.
                 case .sessionArchived(let payload):
+                    self.blockRevisions[payload.id, default: 0] += 1
                     self.blocks[payload.id] = nil
                 default:
                     continue

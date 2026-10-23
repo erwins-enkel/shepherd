@@ -27,6 +27,8 @@ struct AmendSheet: View {
         ActionBarView.isCurrent(session: session, store: store, app: app)
     }
 
+    private var canOperate: Bool { session.host == nil || store.canOperateSession(id: session.id) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(verbatim: L.t("amend_title", session.name)).font(.headline)
@@ -72,7 +74,7 @@ struct AmendSheet: View {
                 Button(command.busy ? L.t("amend_sending") : L.t("amend_submit"), action: submit)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!AmendSubmission.validate(text) || command.busy)
+                    .disabled(!AmendSubmission.validate(text) || command.busy || !canOperate)
                     .accessibilityIdentifier("amend-submit")
             }
         }
@@ -86,6 +88,7 @@ struct AmendSheet: View {
     }
 
     private func submit() {
+        guard canOperate else { return }
         guard AmendSubmission.validate(text) else { return }
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let alsoSteer = steer

@@ -7031,5 +7031,7 @@
   "placement_load_start": "Beim Start",
   "placement_load_recheck": "Die Last wird beim Start erneut geprüft. Automatisch kann dann einen anderen geeigneten Rechner wählen.",
   "feat_machine_load_title": "Beim Aufgabenstart ausgelasteten Rechnern ausweichen",
-  "feat_machine_load_body": "Automatisch behält deine Rechnerpräferenz bei. Bei hoher Last kann ein geeigneter Rechner mit Reserven die neue Aufgabe übernehmen. Die Auswahl erklärt den Grund; manuelle Ziele bleiben verbindlich."
+  "feat_machine_load_body": "Automatisch behält deine Rechnerpräferenz bei. Bei hoher Last kann ein geeigneter Rechner mit Reserven die neue Aufgabe übernehmen. Die Auswahl erklärt den Grund; manuelle Ziele bleiben verbindlich.",
+  "native_mac_remote_actions_body": "Session-Aktionen laufen auf {machine}. Steering-Vorlagen werden auf dem verbundenen Server gespeichert. Bei getrennter Verbindung sind die Aktionen bis zur Wiederverbindung deaktiviert.",
+  "native_mac_remote_stale": "Einige Daten von {machine} konnten nicht aktualisiert werden. Angezeigt wird der letzte bekannte Stand."
 }

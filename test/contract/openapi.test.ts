@@ -1878,6 +1878,50 @@ describe("unauthenticated sweep", () => {
   });
 });
 
+describe("session-owned terminal", () => {
+  test("derives the owner repo and declares create/conflict/failure/missing answers", async () => {
+    const source = s.deps.store.create({
+      name: "terminal-source",
+      prompt: "fixture",
+      repoPath: s.validRepo,
+      baseBranch: "main",
+      branch: "main",
+      worktreePath: s.validRepo,
+      isolated: false,
+      herdrSession: "default",
+      herdrAgentId: "term_fixture",
+      claudeSessionId: "claude-fixture",
+    });
+    const original = s.deps.service.create;
+    const call = (id = source.id) =>
+      fetch(`${s.baseUrl}/api/sessions/${id}/terminal`, {
+        method: "POST",
+        headers: bearer(token),
+      });
+    try {
+      s.deps.service.create = async (input) => {
+        expect(input).toEqual({ repoPath: s.validRepo, terminal: true });
+        return { ...source, terminal: true };
+      };
+      for (const status of [201, 409, 502, 404]) {
+        if (status === 409)
+          s.deps.service.create = async () => {
+            throw new Error("agent_name_taken");
+          };
+        if (status === 502)
+          s.deps.service.create = async () => {
+            throw new Error("fixture spawn failed");
+          };
+        const response = await call(status === 404 ? "missing" : source.id);
+        expect(response.status).toBe(status);
+        await validateResponse("POST", "/api/sessions/{id}/terminal", response);
+      }
+    } finally {
+      s.deps.service.create = original;
+    }
+  });
+});
+
 // The coverage gate stays the LAST describe in this file for the whole plan; every later
 // contract area adds its describe above it.
 describe("coverage gate", () => {

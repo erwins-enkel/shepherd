@@ -145,9 +145,9 @@ extension ShepherdClient {
   }
 
   /// `GET /api/recaps` — the bootstrap snapshot. Every later change rides `session:recap`.
-  public func recaps() async throws -> [String: Recap] {
+  public func recaps(host: String? = nil) async throws -> [String: Recap] {
     do {
-      switch try await generated.listRecaps(.init()) {
+      switch try await generated.listRecaps(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):

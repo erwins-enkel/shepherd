@@ -163,9 +163,9 @@ extension ShepherdClient {
             }
         } catch { throw ShepherdError.from(error, route: "listDrainQueue") }
     }
-    public func listBuildQueues() async throws -> [String: BuildQueue] {
+    public func listBuildQueues(host: String? = nil) async throws -> [String: BuildQueue] {
         do {
-            switch try await generated.listBuildQueues(.init()) {
+            switch try await generated.listBuildQueues(.init(query: .init(host: host))) {
             case .ok(let ok): return try ok.body.json.additionalProperties
             case .unauthorized: throw ShepherdError.unauthenticated
             case .undocumented(let status, _):

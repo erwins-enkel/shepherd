@@ -10,6 +10,7 @@ import { makeAgentIngressApp, makeApp, serve, type AppDeps } from "../src/server
 import { config } from "../src/config";
 import { AccessTokenService } from "../src/access-tokens";
 import { RemoteInstanceService } from "../src/remote-instances/service";
+import { MACHINE_READS } from "../src/remote-instances/forward";
 import { RemoteSessionMirror } from "../src/remote-instances/sessions";
 import { sessionScratchpadDir } from "../src/tmp-sweep";
 import type { GitState } from "../src/forge/types";
@@ -270,6 +271,53 @@ function untouched(a: Node) {
 }
 
 describe("actions on a mirrored session reach its machine", () => {
+  test("remote parity reads the owning machine snapshots and annotates session answers", async () => {
+    const { a, b, remote } = await pair();
+    b.merged.add(remote.id);
+    const host = a.deps.remoteSessions.route(remote.id)!.host.instanceId;
+    const snapshot = await call(a, "GET", `/api/git?host=${host}`);
+    expect(snapshot.status).toBe(200);
+    expect(await snapshot.json()).toHaveProperty(`${remote.id}.state`, "merged");
+    expect(await (await call(a, "GET", "/api/git")).json()).toEqual({});
+    expect(outbound).toContain(`${b.base}/api/git?host=local`);
+    const session = await call(a, "GET", `/api/sessions/${remote.id}`);
+    expect(session.status).toBe(200);
+    expect(await session.json()).toMatchObject({
+      id: remote.id,
+      host: { instanceId: host },
+      connection: { state: "connected" },
+    });
+    for (const path of MACHINE_READS) {
+      const response = await call(a, "GET", `${path}?host=${host}`);
+      expect(response.status, path).toBe(200);
+      expect(outbound).toContain(`${b.base}${path}?host=local`);
+    }
+    const restricted = a.deps.accessTokens.mint("restricted", null, "full", [repo]);
+    expect(
+      (await call(a, "GET", `/api/git?host=${host}`, { token: restricted.token })).status,
+    ).toBe(404);
+    expect((await call(a, "GET", "/api/git?host=missing")).status).toBe(404);
+    untouched(a);
+  });
+
+  test("remote parity creates a clean terminal on the session owner", async () => {
+    const { a, b, remote } = await pair();
+    const created = { ...remote, id: crypto.randomUUID(), terminal: true };
+    const here = spyOn(a.deps.service, "create").mockRejectedValue(new Error("wrong machine"));
+    const there = spyOn(b.deps.service, "create").mockResolvedValue(created);
+    const response = await call(a, "POST", `/api/sessions/${remote.id}/terminal`, {
+      json: { repoPath: "/not/the/owners/repo" },
+    });
+    expect(response.status).toBe(201);
+    expect(there).toHaveBeenCalledWith({ repoPath: remote.repoPath, terminal: true });
+    expect(here).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({
+      id: created.id,
+      terminal: true,
+      host: a.deps.remoteSessions.route(remote.id)!.host,
+    });
+  });
+
   test("reply, interrupt and archive act on the session there; nothing runs here", async () => {
     const { a, b, remote } = await pair();
 
@@ -338,13 +386,8 @@ describe("actions on a mirrored session reach its machine", () => {
 
 describe("what is not forwarded", () => {
   test.each([
-    ["POST", "relaunch"],
-    ["POST", "resume"],
-    ["POST", "git/merge"],
-    ["PUT", "queue"],
     ["POST", "hooks"],
     ["GET", "steer-log"],
-    ["GET", ""],
   ])(
     "%s %s on a mirrored session is refused with an explanation and runs nowhere",
     async (method, leaf) => {

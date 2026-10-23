@@ -121,7 +121,44 @@ public final class HerdSignals: AppExtension {
             readStates[map]?.eventIDs.removeAll()
         }
         criticIDsWrittenByEvents.removeAll()
-        let reads = reads
+        let base = reads
+        var mergedReads = base
+        if let store {
+            let client = store.client
+            let oldGit = git, oldActivity = activity, oldAlive = claudeAlive, oldVerdicts = verdicts
+            let oldReviewing = Dictionary(uniqueKeysWithValues: reviewing.map { id in
+                (id, ReviewerInflightEntry(id: id, provider: reviewerEnv[id]?.provider,
+                    model: reviewerEnv[id]?.model, effort: reviewerEnv[id]?.effort))
+            })
+            mergedReads.git = {
+                await store.mergingRemoteSnapshots(key: "git", local: try await base.git(), previous: oldGit) {
+                    try await client.gitStates(host: $0)
+                }
+            }
+            mergedReads.activity = {
+                await store.mergingRemoteSnapshots(key: "activity", local: try await base.activity(), previous: oldActivity) {
+                    try await client.activityStates(host: $0)
+                }
+            }
+            mergedReads.claudeAlive = {
+                await store.mergingRemoteSnapshots(key: "alive", local: try await base.claudeAlive(), previous: oldAlive) {
+                    try await client.claudeAliveStates(host: $0)
+                }
+            }
+            mergedReads.verdicts = {
+                await store.mergingRemoteSnapshots(key: "reviews", local: try await base.verdicts(), previous: oldVerdicts) {
+                    try await client.reviews(host: $0)
+                }
+            }
+            mergedReads.reviewing = {
+                let local = Dictionary(try await base.reviewing().map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+                let result = await store.mergingRemoteSnapshots(key: "reviews-inflight", local: local, previous: oldReviewing) {
+                    Dictionary(try await client.reviewsInflight(host: $0).map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+                }
+                return Array(result.values)
+            }
+        }
+        let reads = mergedReads
         async let git: Void = readSnapshot(.git, sequence: sequences[.git]!, read: reads.git) { loaded, ids in
             self.git = Self.overlay(loaded, with: self.git, ids: ids)
         }
@@ -211,9 +248,9 @@ public final class HerdSignals: AppExtension {
     /// is unknown; afterwards (or after observing sessions), empty is authoritative too.
     private func liveSessionIDs() -> Set<String>? {
         guard let store else { return nil }
-        if store.settings != nil || !store.sessions.isEmpty { hasLoadedSessionList = true }
+        if store.settings != nil || !store.visibleSessions.isEmpty { hasLoadedSessionList = true }
         guard hasLoadedSessionList else { return nil }
-        return Set(store.sessions.filter { $0.status.known != .archived }.map(\.id))
+        return Set(store.visibleSessions.filter { $0.status.known != .archived }.map(\.id))
     }
 
     /// The session list can reconcile after our snapshots, including when every herd read
@@ -264,7 +301,7 @@ public final class HerdSignals: AppExtension {
     }
 
     private func subscribe(_ store: SessionStore) {
-        let frames = store.events()
+        let frames = store.events(includeMirrored: true)
         let activationSnapshot = app?.activationGeneration
         watcher = Task { @MainActor [weak self] in
             for await event in frames {
@@ -272,9 +309,10 @@ public final class HerdSignals: AppExtension {
                 // even though teardown also cancels this task and unregisters the tap.
                 guard let self, self.isCurrent, !Task.isCancelled,
                     activationSnapshot == self.app?.activationGeneration else { return }
-                switch event {
+                switch event.sessionPresentationEvent {
                 case .sessionArchived(let payload): self.archive(payload.id)
                 case .unknown(let name, let payload):
+                    if name == "remote:sessions" { self.requestRefresh() }
                     if let payload { self.apply(name: name, payload: payload) }
                 default: break
                 }

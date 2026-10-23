@@ -8505,6 +8505,12 @@ paths:
   /api/settings:
     get:
       operationId: getSettings
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       responses:
         "200":
           description: Operator settings incl. first-run state.
@@ -8716,6 +8722,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/terminal:
+    post:
+      operationId: createSessionTerminal
+      description: Open a clean terminal in this session's repository, on its owning machine. Reuses the existing terminal singleton; a conflict identifies the existing terminal.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Created terminal session, annotated with its machine when forwarded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Session or machine not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Terminal already exists or is unsupported on this machine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Terminal creation failed or the owning machine is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/interrupt:
     parameters:
       - name: id
@@ -8743,6 +8786,12 @@ paths:
   /api/repos:
     get:
       operationId: listRepos
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       responses:
         "200":
           description: Repos under the workspace root.
@@ -9736,6 +9785,12 @@ paths:
   /api/working-blocked:
     get:
       operationId: getWorkingBlocked
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: Which blocked-looking sessions are in fact still working.
       responses:
         "200":
@@ -9774,6 +9829,12 @@ paths:
   /api/blocks:
     get:
       operationId: getBlocks
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       responses:
         "200":
           description: Session id -> block reason.
@@ -10083,6 +10144,12 @@ paths:
   /api/recaps:
     get:
       operationId: listRecaps
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: Bootstrap snapshot of every recap the server has cached.
       responses:
         "200":
@@ -10096,6 +10163,12 @@ paths:
   /api/git:
     get:
       operationId: gitStates
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: Every session's cached PR state in one read. The herd classifier's bootstrap; session:git keeps it current afterwards.
       responses:
         "200":
@@ -10109,6 +10182,12 @@ paths:
   /api/activity:
     get:
       operationId: activityStates
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: Every session's transcript heartbeat in one read. Bootstraps the row heartbeat strip; session:activity keeps it current.
       responses:
         "200":
@@ -10122,6 +10201,12 @@ paths:
   /api/claude-alive:
     get:
       operationId: claudeAliveStates
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: Every session's coding-CLI liveness in one read. session:claude-alive re-emits on flips only, so a client that reconnects mid-flip needs this.
       responses:
         "200":
@@ -10135,6 +10220,12 @@ paths:
   /api/reviews:
     get:
       operationId: listReviews
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: Every session's latest critic verdict. Bootstraps the critic badge and the needsRework stage.
       responses:
         "200":
@@ -10148,6 +10239,12 @@ paths:
   /api/reviews/inflight:
     get:
       operationId: listReviewsInflight
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: The critic runs in flight right now, with the CLI/model/effort each is using. Reconstructs the reviewerRunning stage after a reload.
       responses:
         "200":
@@ -10465,6 +10562,12 @@ paths:
   /api/plan-gates:
     get:
       operationId: listPlanGates
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: Every session's plan-gate verdict in one read. Bootstraps the badge, the plan tab and the unanswered-question signal.
       responses:
         "200":
@@ -10478,6 +10581,12 @@ paths:
   /api/plan-gates/inflight:
     get:
       operationId: listPlanGatesInflight
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       description: The plan reviews running right now, each with its reviewer environment.
       responses:
         "200":
@@ -11009,6 +11118,12 @@ paths:
   /api/queues:
     get:
       operationId: listBuildQueues
+      parameters:
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       responses:
         "200":
           description: Success.

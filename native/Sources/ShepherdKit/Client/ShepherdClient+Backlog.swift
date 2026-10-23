@@ -22,9 +22,9 @@ extension Components.Schemas.HoldCode: OpenEnum {}
 /// matching `/events` frames carry a signal, not a patch.
 extension ShepherdClient {
   /// `GET /api/working-blocked` — session id to "is in fact still producing output".
-  public func workingBlocked() async throws -> [String: Bool] {
+  public func workingBlocked(host: String? = nil) async throws -> [String: Bool] {
     do {
-      switch try await generated.getWorkingBlocked(.init()) {
+      switch try await generated.getWorkingBlocked(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):
@@ -47,9 +47,9 @@ extension ShepherdClient {
 
   /// `GET /api/blocks` — the map `SessionStore` keeps live from `session:block`, read once at
   /// bootstrap so the first paint is not empty.
-  public func blocks() async throws -> [String: BlockReason] {
+  public func blocks(host: String? = nil) async throws -> [String: BlockReason] {
     do {
-      switch try await generated.getBlocks(.init()) {
+      switch try await generated.getBlocks(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):

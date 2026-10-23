@@ -31,7 +31,7 @@ struct MachineBadge: View {
             .accessibilityIdentifier("machine-badge-\(session.id)")
             .popover(isPresented: $explaining) {
                 RemoteExplanationView(
-                    explanation: RemoteSessionCopy.explanation(host: host, connection: connection, now: now))
+                    explanation: RemoteSessionCopy.explanation(host: host, connection: connection, now: now, actionsHere: true))
             }
         }
     }

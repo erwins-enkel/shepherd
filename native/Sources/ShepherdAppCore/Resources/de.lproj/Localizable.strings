@@ -1205,6 +1205,8 @@
 "native_local_update_what_body" = "Lädt main herunter, installiert Abhängigkeiten und baut die Weboberfläche neu. Ein laufender lokaler Server startet mit dem neuen Code neu; ein gestoppter Server bleibt gestoppt. Laufende Agent-Sessions bleiben in herdr erhalten. Lokale Änderungen müssen vorher committet oder anderweitig gesichert werden; bei Fehlern das Protokoll prüfen.";
 "native_local_update_what_title" = "Was passiert beim Update?";
 "native_login_sheet_title" = "Bei %1$@ anmelden";
+"native_mac_remote_actions_body" = "Session-Aktionen laufen auf %1$@. Steering-Vorlagen werden auf dem verbundenen Server gespeichert. Bei getrennter Verbindung sind die Aktionen bis zur Wiederverbindung deaktiviert.";
+"native_mac_remote_stale" = "Einige Daten von %1$@ konnten nicht aktualisiert werden. Angezeigt wird der letzte bekannte Stand.";
 "native_mac_steers_create" = "Steer anlegen";
 "native_mac_steers_empty" = "Noch keine Steers in der Steer-Leiste.";
 "native_mac_steers_hint" = "Tippen geht direkt ins Terminal · ⌘1–9 Steer senden · ⌘J alle Steers · ⌘K Befehle";

@@ -153,7 +153,7 @@ struct SidebarView: View {
                 }
                 // Sessions of connected machines, after this server's own (#2768).
                 ForEach(machines) { machine in
-                    HerdMachineGroupView(group: machine, now: now)
+                    HerdMachineGroupView(group: machine, now: now, contextMenu: contextMenu)
                 }
             }
             .scrollContentBackground(.hidden)

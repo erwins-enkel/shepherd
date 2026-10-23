@@ -149,6 +149,9 @@ public final class SessionStore {
   /// way a single shared `AsyncStream` would.
   @ObservationIgnored
   var eventTaps: [UUID: AsyncStream<ServerEvent>.Continuation] = [:]
+  var mirroredEventTaps: Set<UUID> = []
+  public private(set) var remoteSnapshotFailures: [String: Set<String>] = [:]
+  private var snapshotRevisions: [String: Int] = [:]
   /// The task following `EventStream.lifecycle()`. Separate from `consumer`
   /// because the two streams move independently: frames keep arriving on a
   /// healthy socket while nothing happens on the lifecycle stream, and a
@@ -208,7 +211,68 @@ public final class SessionStore {
 
   /// A session mirrored from a connected machine, or `nil` — including for this server's own.
   public func remoteSession(id: String) -> Session? {
-    remoteSessions.first { $0.id == id }
+    let matches = remoteSessions.filter { $0.id == id }
+    return matches.count == 1 ? matches.first : nil
+  }
+
+  /// Only unambiguous references can share the session UI and its ID-keyed caches.
+  public var visibleSessions: [Session] {
+    let local = Set(sessions.map(\.id))
+    let counts = Dictionary(grouping: remoteSessions, by: \.id)
+    return sessions + remoteSessions.filter { !local.contains($0.id) && counts[$0.id]?.count == 1 }
+  }
+
+  public func visibleSession(id: String) -> Session? {
+    session(id: id) ?? remoteSession(id: id)
+  }
+
+  public func canOperateSession(id: String) -> Bool {
+    guard let session = visibleSession(id: id) else { return false }
+    return session.host == nil || session.connection?.state.known == .connected
+  }
+
+  /// Apply an HTTP result without losing its owner when it races the machine's new-session frame.
+  public func acceptSession(_ session: Session) {
+    if session.host != nil { upsertRemote(session) }
+    else if let index = sessions.firstIndex(where: { $0.id == session.id }) { sessions[index] = session }
+    else { addSession(session) }
+  }
+
+  /// Merge one snapshot per machine. Failed reads retain that source's last value; a successful
+  /// empty read clears it. Callers still fence their own event/snapshot and activation races.
+  public func mergingRemoteSnapshots<Value: Sendable>(
+    key: String, local: [String: Value], previous: [String: Value],
+    read: @escaping @Sendable (String) async throws -> [String: Value]
+  ) async -> [String: Value] {
+    snapshotRevisions[key, default: 0] += 1
+    let revision = snapshotRevisions[key]
+    let remote = visibleSessions.filter { $0.host != nil }
+    let groups = Dictionary(grouping: remote, by: { $0.host!.instanceId })
+    let answers = await withTaskGroup(of: (String, [String: Value]?).self) { group in
+      for (host, sessions) in groups {
+        group.addTask {
+          guard sessions.first?.connection?.state.known == .connected else { return (host, nil) }
+          return (host, try? await read(host))
+        }
+      }
+      var result: [String: [String: Value]] = [:]
+      for await (host, value) in group { if let value { result[host] = value } }
+      return result
+    }
+    var result = local
+    var failed: Set<String> = []
+    for (host, sessions) in groups {
+      let snapshot = answers[host] ?? previous
+      if answers[host] == nil { failed.insert(host) }
+      for session in sessions where visibleSession(id: session.id)?.host?.instanceId == host {
+        result[session.id] = snapshot[session.id]
+      }
+    }
+    if !stopped, !Task.isCancelled, snapshotRevisions[key] == revision {
+      let liveHosts = Set(visibleSessions.compactMap { $0.host?.instanceId })
+      remoteSnapshotFailures[key] = failed.intersection(liveHosts)
+    }
+    return result
   }
 
   // MARK: - Lifecycle
@@ -644,9 +708,10 @@ public final class SessionStore {
 
   private func applyNow(_ event: ServerEvent) {
     switch event {
-    case .mirrored(_, let frame):
-      // Applied to the mirrored list only and, unlike every other frame, handed to no tap.
+    case .mirrored(let host, let frame):
+      guard acceptsMirrored(frame, host: host) else { return }
       applyMirrored(frame)
+      broadcast(event, mirroredOnly: true)
       return
     case .terminalOwners(let snapshot):
       terminalOwners = snapshot.owners.additionalProperties
@@ -682,8 +747,8 @@ public final class SessionStore {
     case .unknown(let name, let payload):
       // Core owns Session mutations; stream taps observe the patched session below.
       if name == "remote:sessions" {
-        // About mirrored sessions only, so no tap sees it either.
         replaceRemoteSessions(payload)
+        broadcast(event, mirroredOnly: true)
         return
       }
       if name == "session:plangate", let payload,
@@ -716,6 +781,7 @@ public final class SessionStore {
   /// Append on `session:new`, ignoring a duplicate id — a push can race the
   /// bootstrap, and the create call also inserts optimistically.
   private func addSession(_ session: Session) {
+    if session.host != nil { upsertRemote(session); return }
     guard !sessions.contains(where: { $0.id == session.id }) else { return }
     sessions.append(session)
   }
@@ -729,9 +795,27 @@ public final class SessionStore {
 
   // MARK: - Mirrored sessions
 
-  /// What a frame about a mirrored session changes: only what a read-only view shows, the web
-  /// store's `applyMirroredFrame`. Every other mirrored frame is consumed here and dropped — the
-  /// next `remote:sessions` snapshot carries its effect.
+  private func acceptsMirrored(_ frame: ServerEvent, host: SessionHost) -> Bool {
+    let id: String?
+    switch frame {
+    case .sessionNew(let session): id = session.id
+    case .sessionStatus(let value): id = value.id
+    case .sessionRenamed(let value): id = value.id
+    case .sessionArchived(let value): id = value.id
+    case .sessionReady(let value): id = value.id
+    case .sessionBlock(let value): id = value.id
+    case .unknown(_, let payload):
+      let data = payload.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+      id = data?["id"] as? String ?? data?["sessionId"] as? String
+    default: return false
+    }
+    guard let id, session(id: id) == nil else { return false }
+    let matches = remoteSessions.filter { $0.id == id }
+    if case .sessionNew = frame { return matches.isEmpty || matches.allSatisfy { $0.host?.instanceId == host.instanceId } }
+    return matches.count == 1 && matches.first?.host?.instanceId == host.instanceId
+  }
+
+  /// Update session fields; feature models consume the validated frame through opt-in taps.
   private func applyMirrored(_ frame: ServerEvent) {
     switch frame {
     case .sessionNew(let session):
@@ -748,6 +832,34 @@ public final class SessionStore {
       }
     case .sessionArchived(let payload):
       remoteSessions.removeAll { $0.id == payload.id }
+      blocks[payload.id] = nil
+    case .sessionReady(let payload):
+      patchRemote(id: payload.id) { $0.readyToMerge = payload.ready }
+    case .sessionBlock(let payload):
+      blocks[payload.id] = payload.block
+    case .unknown(let name, let payload):
+      guard let payload,
+            let data = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+            let id = data["id"] as? String else { return }
+      patchRemote(id: id) { session in
+        if name == "session:plangate", let phase = data["planPhase"] as? String {
+          session.planPhase = .init(value1: .init(rawValue: phase), value2: phase)
+        } else if name == "session:halt" {
+          session.haltReason = (data["haltReason"] as? String).map { .init(value1: .init(rawValue: $0), value2: $0) }
+          session.haltedAt = data["haltedAt"] as? Int
+        } else if name == "session:autopilot" {
+          session.autopilotEnabled = data["enabled"] as? Bool
+          if let value = data["paused"] as? Bool { session.autopilotPaused = value }
+          if let value = data["complete"] as? Bool { session.autopilotComplete = value }
+          session.autopilotQuestion = data["question"] as? String
+        } else if name == "session:manual-steps",
+                  let encoded = try? JSONSerialization.data(withJSONObject: data["manualSteps"] ?? []),
+                  let steps = try? JSONDecoder().decode(Session.ManualStepsPayload.self, from: encoded) {
+          session.manualSteps = steps
+        } else if name == "session:automerge" {
+          session.autoMergeEnabled = data["enabled"] as? Bool
+        }
+      }
     default:
       break
     }
@@ -761,12 +873,17 @@ public final class SessionStore {
       ShepherdLog.store.debug("ignoring a remote:sessions frame that does not decode")
       return
     }
+    let previousIDs = Set(remoteSessions.filter { $0.host?.instanceId == event.instanceId }.map(\.id))
     remoteSessions = remoteSessions.filter { $0.host?.instanceId != event.instanceId }
-      + event.sessions.filter { $0.host != nil }
+      + event.sessions.filter { $0.host?.instanceId == event.instanceId }
+    for id in previousIDs.subtracting(visibleSessions.map(\.id)) { blocks[id] = nil }
+    if event.sessions.isEmpty {
+      for key in remoteSnapshotFailures.keys { remoteSnapshotFailures[key]?.remove(event.instanceId) }
+    }
   }
 
   private func upsertRemote(_ session: Session) {
-    if let index = remoteSessions.firstIndex(where: { $0.id == session.id }) {
+    if let index = remoteSessions.firstIndex(where: { $0.id == session.id && $0.host?.instanceId == session.host?.instanceId }) {
       remoteSessions[index] = session
     } else {
       remoteSessions.append(session)
@@ -802,6 +919,7 @@ public final class SessionStore {
     do {
       try await client.archiveSession(id: id, reap: reap)
       sessions.removeAll { $0.id == id }
+      remoteSessions.removeAll { $0.id == id }
       blocks[id] = nil
       lastError = nil
     } catch {

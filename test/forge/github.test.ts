@@ -3358,9 +3358,45 @@ test("listOpenPrStatuses delegates to listOpenPrSnapshot: same output via wrappe
   expect(statuses).toEqual(EXPECTED_STATUSES);
 });
 
-test("listOpenPrSnapshot: flags PRs whose head is awaiting workflow approval", async () => {
+/** SNAPSHOT_NODES with PR #1 opened from a fork — the only case where workflow
+ *  runs can await maintainer approval, so the only case the run-list leg runs. */
+const CROSS_REPO_NODES = [
+  { ...SNAPSHOT_NODES[0]!, headRepositoryOwner: { login: "forker" } },
+  SNAPSHOT_NODES[1]!,
+];
+
+test("listOpenPrSnapshot: same-repo-only PRs skip the action_required run list", async () => {
   const { run, calls } = fakeRunner({
     "pr list": JSON.stringify(SNAPSHOT_NODES),
+    "run list": JSON.stringify([{ headSha: "aaa111" }]),
+  });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(calls.some((c) => c[0] === "run" && c[1] === "list")).toBe(false);
+  expect(snap.prs.every((p) => !p.awaitingWorkflowApproval)).toBe(true);
+});
+
+test("listOpenPrSnapshot: head-owner match against the repo owner is case-insensitive", async () => {
+  const nodes = SNAPSHOT_NODES.map((n) => ({ ...n, headRepositoryOwner: { login: "O" } }));
+  const { run, calls } = fakeRunner({ "pr list": JSON.stringify(nodes) });
+  await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(calls.some((c) => c[0] === "run" && c[1] === "list")).toBe(false);
+});
+
+test("listOpenPrSnapshot: a PR with no head owner (deleted fork) still runs the run list", async () => {
+  const ownerless: Record<string, unknown> = { ...SNAPSHOT_NODES[0]! };
+  delete ownerless.headRepositoryOwner;
+  const { run, calls } = fakeRunner({
+    "pr list": JSON.stringify([ownerless, SNAPSHOT_NODES[1]]),
+    "run list": JSON.stringify([{ headSha: "aaa111" }]),
+  });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(calls.some((c) => c[0] === "run" && c[1] === "list")).toBe(true);
+  expect(snap.prs[0]!.awaitingWorkflowApproval).toBe(true);
+});
+
+test("listOpenPrSnapshot: flags PRs whose head is awaiting workflow approval", async () => {
+  const { run, calls } = fakeRunner({
+    "pr list": JSON.stringify(CROSS_REPO_NODES),
     // Awaiting-approval run whose headSha matches PR #1's headRefOid (aaa111).
     "run list": JSON.stringify([{ headSha: "aaa111" }]),
   });
@@ -3380,7 +3416,7 @@ test("listOpenPrSnapshot: run-list failure degrades to no-flag without emptying 
   // statuses (a rejection here would empty the PRs tab AND break the poller batch).
   const run = async (args: string[]): Promise<string> => {
     if (args[0] === "run" && args[1] === "list") throw new Error("boom");
-    if (args[0] === "pr" && args[1] === "list") return JSON.stringify(SNAPSHOT_NODES);
+    if (args[0] === "pr" && args[1] === "list") return JSON.stringify(CROSS_REPO_NODES);
     return "";
   };
   const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
@@ -3391,7 +3427,7 @@ test("listOpenPrSnapshot: run-list failure degrades to no-flag without emptying 
 
 test("listOpenPrSnapshot: unparseable run-list output degrades to no-flag", async () => {
   const { run } = fakeRunner({
-    "pr list": JSON.stringify(SNAPSHOT_NODES),
+    "pr list": JSON.stringify(CROSS_REPO_NODES),
     "run list": "not json",
   });
   const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();

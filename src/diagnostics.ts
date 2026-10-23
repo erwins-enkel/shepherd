@@ -186,6 +186,9 @@ export interface DiagnosticsDeps {
    *  is a fail-safe reject so an unwired service resolves to `optional`/uninspectable rather than a
    *  false `ok`. Wired in `index.ts` via `defaultReadHerdrFleet`; injected in tests. */
   readHerdrFleet?: () => Promise<HerdrFleetFacts>;
+  /** Read-only count of orphaned worktree Compose projects; null/unwired means uninspectable.
+   *  Wired to the shared cleanup instance in index.ts; never starts Docker in unit tests. */
+  readComposeOrphans?: () => Promise<number | null>;
   /** Read temp-filesystem inode facts for the `tmp_inodes` check (#1862). Default statfs's
    *  `tmpdir()` and pairs the result with the live bands; injected in tests so band boundaries are
    *  asserted without touching a real filesystem. Reject ⇒ the probe falls back to
@@ -239,15 +242,17 @@ function unwired<T>(name: string): () => Promise<T> {
   return () => Promise.reject(new Error(`${name} unwired`));
 }
 
-/** Resolve the two no-functional-default reads in one place (same shape as `resolveTmpSweepDeps` /
+/** Resolve the no-functional-default reads in one place (same shape as `resolveTmpSweepDeps` /
  *  `resolvePreviewProbeDeps`), keeping their fallbacks out of the constructor's complexity. */
 function resolveUnwiredReads(deps: DiagnosticsDeps): {
   readHerdrFleet: () => Promise<HerdrFleetFacts>;
   readMembraneLaunch: () => Promise<MembraneLaunchFacts>;
+  readComposeOrphans: () => Promise<number | null>;
 } {
   return {
     readHerdrFleet: deps.readHerdrFleet ?? unwired("readHerdrFleet"),
     readMembraneLaunch: deps.readMembraneLaunch ?? unwired("readMembraneLaunch"),
+    readComposeOrphans: deps.readComposeOrphans ?? unwired("readComposeOrphans"),
   };
 }
 
@@ -1165,6 +1170,7 @@ export class DiagnosticsService {
   private isApiKeyAuth: () => boolean;
   private readHostResources: () => Promise<HostCapacityFacts>;
   private readHerdrFleet: () => Promise<HerdrFleetFacts>;
+  private readComposeOrphans: () => Promise<number | null>;
   private readTmpInodes: () => Promise<TmpInodeFacts>;
   private readMembraneLaunch: () => Promise<MembraneLaunchFacts>;
   private runTmpSweep: () => Promise<void>;
@@ -1235,6 +1241,7 @@ export class DiagnosticsService {
     // resolves the probe to its `optional`/uninspectable `onTimeout` — never a false ok/warning.
     const reads = resolveUnwiredReads(deps);
     this.readHerdrFleet = reads.readHerdrFleet;
+    this.readComposeOrphans = reads.readComposeOrphans;
     this.readMembraneLaunch = reads.readMembraneLaunch;
     this.applyHostLimits = deps.applyHostLimits ?? defaultApplyHostLimits;
     const tmpSweep = resolveTmpSweepDeps(deps);
@@ -1622,6 +1629,22 @@ export class DiagnosticsService {
   private herdrHealthProbe = async (): Promise<DiagnosticCheck> =>
     classifyHerdrFleet(await this.readHerdrFleet());
 
+  private composeOrphansProbe = async (): Promise<DiagnosticCheck> => {
+    const count = await this.readComposeOrphans();
+    return count === null
+      ? {
+          id: "docker_compose",
+          state: "optional",
+          hintKey: "diagnostics_hint_docker_compose_unavailable",
+        }
+      : {
+          id: "docker_compose",
+          state: count > 0 ? "warning" : "ok",
+          hintKey: "diagnostics_hint_docker_compose_count",
+          hintParams: { count: String(count) },
+        };
+  };
+
   /** The probes, each paired with its timed-out non-OK fallback. The
    *  git_mergetree check is only added when at least one lightweight repo is
    *  configured — a conditional push so forge-only setups are unaffected. */
@@ -1680,6 +1703,14 @@ export class DiagnosticsService {
           id: "herdr_health",
           state: "optional",
           hintKey: "diagnostics_hint_herdr_health_uninspectable",
+        },
+      },
+      {
+        run: this.composeOrphansProbe,
+        onTimeout: {
+          id: "docker_compose",
+          state: "optional",
+          hintKey: "diagnostics_hint_docker_compose_unavailable",
         },
       },
       {

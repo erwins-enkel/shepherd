@@ -119,6 +119,34 @@ test("remove() sweeps the worktree for orphaned processes before tearing it down
   expect(existsSync(r.worktreePath)).toBe(false);
 });
 
+test("compose cleanup: remove starts a nonblocking hook after worktree deletion, including missing paths", () => {
+  const calls: string[] = [];
+  const wt = new WorktreeMgr(undefined, async (path) => {
+    expect(existsSync(path)).toBe(false);
+    calls.push(path);
+    await new Promise(() => {});
+  });
+  const r = wt.create(repo, "main", "compose-hook");
+  wt.remove(r.worktreePath);
+  expect(calls).toEqual([r.worktreePath]);
+  wt.remove(r.worktreePath);
+  expect(calls).toEqual([r.worktreePath, r.worktreePath]);
+});
+
+test.each(["throw", "reject"])("compose cleanup: remove swallows hook %s", async (failure) => {
+  let called = false;
+  const wt = new WorktreeMgr(undefined, () => {
+    called = true;
+    if (failure === "throw") throw new Error("Docker unavailable");
+    return Promise.reject(new Error("Docker unavailable"));
+  });
+  const r = wt.create(repo, "main", `compose-${failure}`);
+  expect(() => wt.remove(r.worktreePath)).not.toThrow();
+  await Promise.resolve();
+  expect(called).toBe(true);
+  expect(existsSync(r.worktreePath)).toBe(false);
+});
+
 test("currentBranch reports the worktree's checked-out branch and follows a rename", () => {
   const wt = new WorktreeMgr();
   const r = wt.create(repo, "main", "view-refresh");

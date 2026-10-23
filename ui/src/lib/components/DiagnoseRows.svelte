@@ -142,7 +142,7 @@
             >{stateWord(check.state)}</span
           >
         </div>
-        {#if check.state !== "ok"}
+        {#if check.state !== "ok" || check.id === "docker_compose"}
           <p class="hint"><GlossaryText text={hint(check)} /></p>
         {/if}
         {#if ["diagnostics_hint_herdr_unsupported", "diagnostics_hint_herdr_restart", "diagnostics_hint_herdr_unknown"].includes(check.hintKey) && onherdrupdate}

@@ -6938,5 +6938,10 @@
   "gitrail_merge_into_epic_tip_run": "Run",
   "gitrail_merge_into_epic_tip_run_body": "The epic run stays stopped: no next child starts.",
   "feat_epic_run_stopped_title": "See why an epic child's ready PR is waiting",
-  "feat_epic_run_stopped_body": "When an epic child's PR is ready but the epic run is stopped or paused, its row now says \"Waiting on epic run\" and offers Start or Resume right there. The git rail marks the stopped epic, and its Merge button reads \"Merge into epic\"."
+  "feat_epic_run_stopped_body": "When an epic child's PR is ready but the epic run is stopped or paused, its row now says \"Waiting on epic run\" and offers Start or Resume right there. The git rail marks the stopped epic, and its Merge button reads \"Merge into epic\".",
+  "diagnostics_label_docker_compose": "Worktree Compose stacks",
+  "diagnostics_hint_docker_compose_count": "Orphaned Compose projects: {count}. Cleanup runs at startup and hourly. Volumes are kept.",
+  "diagnostics_hint_docker_compose_unavailable": "Docker Compose cannot be checked locally. Cleanup is skipped.",
+  "feat_compose_cleanup_title": "Compose stacks stop when you archive",
+  "feat_compose_cleanup_body": "Archiving cleans up the session's Docker Compose stacks in the background. Startup and hourly cleanup catch stacks left by deleted worktrees. Volumes stay intact. Settings → Diagnose shows the orphan count."
 }

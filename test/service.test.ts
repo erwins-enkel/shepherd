@@ -47,7 +47,9 @@ import type { SandboxProfile } from "../src/sandbox";
 import { agentMcpConfigArg, agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
 import { agentSkillsArgs } from "../src/agent-skills";
-import { WorktreeMissingBaseError, WorktreeRestoreError } from "../src/worktree";
+import { WorktreeMgr, WorktreeMissingBaseError, WorktreeRestoreError } from "../src/worktree";
+import { ComposeCleanup } from "../src/compose-cleanup";
+import { composeDocker } from "./helpers/compose-docker";
 import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
 import { stubBaseRef } from "./helpers/base-ref";
@@ -3002,6 +3004,65 @@ function archivableSession(store: SessionStore) {
     herdrAgentId: "term_z",
   });
 }
+
+test("compose cleanup: archive completes while its stacks shut down and leaves foreign stacks intact", async () => {
+  const base = mkdtempSync(join(tmpdir(), "archive-compose-"));
+  const path = join(base, ".shepherd-worktrees", "repo-task");
+  const neighbor = join(base, ".shepherd-worktrees", "repo-neighbor");
+  mkdirSync(path, { recursive: true });
+  mkdirSync(neighbor);
+  const docker = composeDocker();
+  docker.add("task", path);
+  docker.add("nested", join(path, "infra"));
+  docker.add("neighbor", neighbor);
+  docker.add("calendar-testserver", join(base, "services"));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const cleanup = new ComposeCleanup({
+    env: {},
+    run: async (args, timeout) => {
+      if (args.includes("down")) await gate;
+      return docker.run(args, timeout);
+    },
+  });
+  let pending = Promise.resolve(0);
+  const worktree = new WorktreeMgr(undefined, (p) => (pending = cleanup.cleanupWorktree(p)));
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: base,
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: path,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const service = new SessionService({
+    store,
+    worktree,
+    namer: () => "x",
+    herdr: { stop: async () => {} } as any,
+  });
+  try {
+    await service.archive(s.id);
+    expect(store.get(s.id)?.status).toBe("archived");
+    expect(existsSync(path)).toBe(false);
+    release();
+    expect(await pending).toBe(2);
+    expect([...docker.containers.values()].map((l) => l["com.docker.compose.project"])).toEqual([
+      "neighbor",
+      "calendar-testserver",
+    ]);
+  } finally {
+    release();
+    await pending;
+    rmSync(base, { recursive: true, force: true });
+  }
+});
 
 test("archive awaits beforeArchive BEFORE removing the worktree (recap reads it first)", async () => {
   const store = new SessionStore(":memory:");

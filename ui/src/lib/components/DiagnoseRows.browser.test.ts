@@ -5,12 +5,60 @@ import "../../app.css";
 import DiagnoseRows from "./DiagnoseRows.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import type { DiagnosticCheck } from "#lib/types.js";
+import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
 
 const check = (over: Partial<DiagnosticCheck> = {}): DiagnosticCheck => ({
   id: "git",
   state: "error",
   hintKey: "diagnostics_hint_gh_missing",
   ...over,
+});
+
+describe("compose cleanup diagnostics", () => {
+  for (const language of ["en", "de"] as const) {
+    it.each([0, 3])(`shows the orphan count, including zero, in ${language}`, (count) => {
+      const locale = getLocale();
+      setLocale(language, { reload: false });
+      try {
+        render(DiagnoseRows, {
+          props: {
+            onfix: vi.fn(),
+            checks: [
+              check({
+                id: "docker_compose",
+                state: count ? "warning" : "ok",
+                hintKey: "diagnostics_hint_docker_compose_count",
+                hintParams: { count: String(count) },
+              }),
+            ],
+          },
+        });
+        expect(document.querySelector(".hint")?.textContent).toContain(
+          language === "de"
+            ? `Verwaiste Compose-Projekte: ${count}.`
+            : `Orphaned Compose projects: ${count}.`,
+        );
+        expect(document.querySelector("button.fix")).toBeNull();
+      } finally {
+        setLocale(locale, { reload: false });
+      }
+    });
+  }
+
+  it("shows guidance when Docker cannot be checked", () => {
+    render(DiagnoseRows, {
+      props: {
+        checks: [
+          check({
+            id: "docker_compose",
+            state: "optional",
+            hintKey: "diagnostics_hint_docker_compose_unavailable",
+          }),
+        ],
+      },
+    });
+    expect(document.querySelector(".hint")?.textContent?.trim().length).toBeGreaterThan(0);
+  });
 });
 
 describe("DiagnoseRows fix button gating", () => {

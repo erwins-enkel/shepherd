@@ -88,7 +88,10 @@ export function worktreePathFor(repoPath: string, name: string): string {
 
 export class WorktreeMgr {
   /** Injectable so tests can assert the teardown orphan sweep fires without real /proc. */
-  constructor(private reaper: ProcessReaper = new ProcessReaper()) {}
+  constructor(
+    private reaper: ProcessReaper = new ProcessReaper(),
+    private cleanupCompose?: (worktreePath: string) => Promise<unknown>,
+  ) {}
 
   private isGit(repoPath: string): boolean {
     try {
@@ -706,6 +709,13 @@ export class WorktreeMgr {
       if (opts?.branch && opts.baseBranch) {
         this.pruneMergedBranch(mainRepo, opts.branch, opts.baseBranch);
       }
+    }
+    // Compose can reconstruct the project from labels after its files are gone. Keep this
+    // asynchronous: an unavailable daemon must never hold up archival or the Bun event loop.
+    try {
+      void this.cleanupCompose?.(worktreePath).catch(() => {});
+    } catch {
+      /* best-effort, including a synchronously throwing injected hook */
     }
     // best-effort reclamation of the nested claude scratch dir for this worktree;
     // never blocks or fails archival (fire-and-forget, removeWorktreeScratch never throws).

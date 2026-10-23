@@ -45,6 +45,7 @@ import {
   type SessionPreviewServeEvent,
 } from "./types";
 import { WorktreeMgr } from "./worktree";
+import { ComposeCleanup } from "./compose-cleanup";
 import { matchAgentLive, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
 import { startTerminalTransportSelfCheck } from "./terminal-transport-metrics";
@@ -691,7 +692,8 @@ async function sessionPaneAlive(id: string): Promise<boolean> {
 deferredStarts.push(() => {
   startTerminalTransportSelfCheck(herdrSocketActive);
 });
-const worktree = new WorktreeMgr();
+const composeCleanup = new ComposeCleanup();
+const worktree = new WorktreeMgr(undefined, (path) => composeCleanup.cleanupWorktree(path));
 const events = new EventHub();
 const onSessionGit = (listener: (input: { id: string; git: GitState }) => void): void => {
   events.subscribe((event, data) => {
@@ -2226,6 +2228,9 @@ const settleTerminalPrs = async () => {
 };
 
 deferredStarts.push(() => {
+  // Label-driven: also finds deleted worktrees whose sessions were already pruned from the DB.
+  // Independent of the review reconciliation below and its process-liveness gates.
+  if (!maintenance.active) void composeCleanup.sweepOrphans();
   void planGate
     .adoptOrphans()
     .then(() => planGate.gcStaleReviewWorktrees())
@@ -2258,6 +2263,7 @@ deferredStarts.push(() => {
       void sweepStaleReviewWorktrees().catch((err) =>
         console.warn("[worktrees] hourly sweep failed:", err),
       );
+      if (!maintenance.active) void composeCleanup.sweepOrphans();
       // Also hourly, not boot-only: a Shepherd instance stays up for weeks, so a row that finalized
       // moments before its rollout appeared would otherwise stay unknown until the next restart.
       // Cheap to repeat — no tree walk at all when no row is missing totals. (#1816)
@@ -3691,6 +3697,7 @@ setTimeout(
 // delayed boot kick + a 6h background re-check keep the UI's health pip live with
 // no client polling — the request path otherwise reads the TTL snapshot.
 const diagnostics = new DiagnosticsService({
+  readComposeOrphans: () => composeCleanup.countOrphans(),
   // Live snapshot-cell health for `preview_probes` — the SHARED reaper, so the
   // Diagnose row reflects the same cell the sweeps read (a fresh ProcessReaper
   // would carry an always-cold cell). Pure read, no spawn.

@@ -1617,6 +1617,9 @@ export interface GitState extends PrStatus {
   /** Web URL of the backlog issue this session was spawned for, or absent when the
    *  session has no linked issue or the repo has no web forge (local mode). */
   issueUrl?: string;
+  /** The open PR is listed in its base's merge queue (stamped server-side by the PR poller):
+   *  the queue lands it, so it reads as merging. Absent ⇒ false. */
+  inMergeQueue?: boolean;
   /** Who a manual merge of this PR would be taken over from. Absent ⇒ nobody. */
   mergeGate?: MergeResponsibility;
 }

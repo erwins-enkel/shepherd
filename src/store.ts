@@ -246,6 +246,7 @@ const FLAT_OPTIONAL_GIT_FIELDS = {
   mergeStateStatus: (value: unknown) => PERSISTED_MERGE_STATES.has(value),
   baseRefName: (value: unknown) => typeof value === "string",
   noCi: (value: unknown) => typeof value === "boolean",
+  inMergeQueue: (value: unknown) => typeof value === "boolean",
   handoff: (value: unknown) => value === "reviewer" || value === "merger",
   handoffWho: (value: unknown) => typeof value === "string",
   handoffInferred: (value: unknown) => typeof value === "boolean",

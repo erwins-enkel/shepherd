@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Session, GitState } from "#lib/types.js";
   import { elapsed } from "#lib/format.js";
-  import { isMerging } from "../merge-train";
+  import { inMergeQueue, isMerging } from "../merge-train";
   import { m } from "#lib/paraglide/messages.js";
   import CliBadge from "../CliBadge.svelte";
   import ResearchBadge from "../ResearchBadge.svelte";
@@ -313,7 +313,13 @@
         >{m.session_sandbox_unconfined_label()}</span
       >
     {/if}
-    {#if changesRequested}
+    {#if inMergeQueue(git)}
+      <span
+        class="badge merging"
+        id="u-status-{session.id}"
+        use:statusTip={{ text: m.status_in_merge_queue_tip() }}>{m.status_in_merge_queue()}</span
+      >
+    {:else if changesRequested}
       <span
         class="badge attention"
         id="u-status-{session.id}"

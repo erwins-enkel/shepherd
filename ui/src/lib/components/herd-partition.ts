@@ -4,7 +4,7 @@
 import type { Session, GitState } from "#lib/types.js";
 import { displayStatus } from "#lib/display-status.js";
 import { checksCleared } from "#lib/checks-cleared.js";
-import { isMerging } from "./merge-train";
+import { inMergeQueue, isMerging } from "./merge-train";
 
 /** Split sessions into stage groups, preserving input order within each:
  *  - active: still in play, no later stage reached
@@ -29,7 +29,8 @@ import { isMerging } from "./merge-train";
  *    operator input — so it stays in `active` rather than flicker into "waiting for
  *    merge" / get buried when it actually needs attention. When `git.handoff` names
  *    a foreign reviewer/merger, the session lands in the waiting-on-* group instead.
- *  - merging: PR-sessions a launched merge train is working through (marked + within TTL)
+ *  - merging: PR-sessions a launched merge train is working through (marked + within TTL), or
+ *    whose open PR sits in its base's merge queue (`git.inMergeQueue`)
  *  - ready: operator-parked "ready to merge"
  *  - merged: PR already landed
  *
@@ -72,8 +73,8 @@ export type HerdFilter = "all" | "ready" | "done" | "owed" | "next";
 /** Lifecycle stages the "ready" lens hides: the session is NOT awaiting the operator.
  *  A PR with CI still in flight (`ciRunning`) is awaiting CI, a green PR handed off to a
  *  foreign reviewer/merger (`waitingOnReviewer`/`waitingOnMerger`) is waiting on someone
- *  else, and a PR a launched merge train is carrying (`merging`) is in Shepherd's hands —
- *  none is "your turn", so the Ready lens drops them (the All lens still shows them).
+ *  else, and a PR a launched merge train or the merge queue is carrying (`merging`) is out
+ *  of your hands — none is "your turn", so the Ready lens drops them (the All lens still shows them).
  *  `ciFailed` is NOT hidden — a failed CI run is back in your court. Draft-awaiting-signoff
  *  stays too: it awaits the operator's own sign-off. */
 const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
@@ -166,7 +167,7 @@ function terminalStage(
   now: number,
 ): Stage | null {
   if (g?.state === "merged") return "merged";
-  if (isMerging(s, now)) return "merging";
+  if (isMerging(s, now) || inMergeQueue(g)) return "merging";
   const idleOpenCleared = isIdleOpenCleared(s, g, isReviewing, isReworkRunning);
   if (idleOpenCleared && g.reviewBlock) return "needsRework";
   if (idleOpenCleared && !g.reviewBlock && g.mergeStateStatus === "blocked")

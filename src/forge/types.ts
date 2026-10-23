@@ -331,6 +331,10 @@ export interface GitState extends PrStatus {
   handoffInferred?: boolean;
   /** Active changes requested by the configured reviewer, or a maintainer on an unconfigured fork. */
   reviewBlock?: PrReviewBlock;
+  /** The open PR is listed in its base's merge queue: the queue lands it, nothing is the
+   *  operator's turn. Stamped by the PR poller; carried across on-demand reads of the same head
+   *  by `annotateHandoff`. Absent ⇒ false. */
+  inMergeQueue?: boolean;
   /** Web URL of the backlog issue this session was spawned for (session.issueNumber),
    *  or absent when the session has no linked issue or the repo has no web forge
    *  (LocalForge). Lets GitRail surface an "open issue" link. */

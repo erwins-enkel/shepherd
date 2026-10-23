@@ -16,6 +16,11 @@ type PrPollerStore = Pick<
   | "typicalCiJobDurations"
 >;
 
+/** A base's merge queue: its PR numbers, null = no queue, "unknown" = the read failed. */
+type QueueRead = number[] | null | "unknown";
+/** How long one (repo, base) merge-queue read is reused across polls. */
+const MERGE_QUEUE_TTL_MS = 30_000;
+
 interface ReadProvenance {
   contentKey: string | null;
   revision: number | undefined;
@@ -192,6 +197,7 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     !sameSet(prev.requestedReviewers, git.requestedReviewers) ||
     prev.headSha !== git.headSha ||
     prev.baseRefName !== git.baseRefName ||
+    prev.inMergeQueue !== git.inMergeQueue ||
     reviewStateChanged(prev, git)
   );
 }
@@ -236,6 +242,9 @@ export class PrPoller implements PrCache {
   private transientSince = new Map<string, TransientWindow>();
   /** Content key under which this session was last checked, seeded from the warm snapshot. */
   private readonly freshnessBySession = new Map<string, string>();
+  /** Per (repo, base) merge-queue read, cached for {@link MERGE_QUEUE_TTL_MS}. The promise is
+   *  cached so the sessions of one sweep share a single forge read. */
+  private readonly queueCache = new Map<string, { read: Promise<QueueRead>; at: number }>();
 
   /** True when an open PR can still move without a human action — i.e. it is worth
    *  fast-polling. A PR that is fully settled (CI green, mergeable, clean) is parked. */
@@ -243,19 +252,22 @@ export class PrPoller implements PrCache {
     return (
       git.state === "open" &&
       (git.checks === "pending" ||
+        // Queued: it lands (or is ejected) without a human, so fast-poll it to see that.
+        !!git.inMergeQueue ||
         (git.runningChecks?.length ?? 0) > 0 ||
         git.mergeable == null ||
         git.mergeStateStatus === "unknown")
     );
   }
 
-  /** Finished/idle sessions need running CI to stay on the fast cadence. */
+  /** Finished/idle sessions need running CI (or a queued PR) to stay on the fast cadence. */
   private isTransientSession(s: Session, git: GitState): boolean {
     return (
       this.isTransientOpen(git) &&
       ((s.status !== "done" && s.status !== "idle") ||
         git.checks === "pending" ||
-        (git.runningChecks?.length ?? 0) > 0)
+        (git.runningChecks?.length ?? 0) > 0 ||
+        !!git.inMergeQueue)
     );
   }
 
@@ -653,12 +665,51 @@ export class PrPoller implements PrCache {
     const typed = withTypicalDurations(raw, this.store.typicalCiJobDurations(s.repoPath));
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const git = annotateHandoff(typed, s.repoPath, me, prev);
+    const git = await this.stampMergeQueue(
+      s.repoPath,
+      forge,
+      annotateHandoff(typed, s.repoPath, me, prev),
+      prev,
+    );
+    if (provenance.revision !== this.readProvenance(forge).revision) return; // moved during the queue read
     this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git) && this.set(s.id, git)) {
       this.onChange(s.id, git);
     }
     this.rememberSessionRead(s, forge, fpKey, provenance, currentBatch?.at);
+  }
+
+  /** `base`'s merge queue, cached per (repo, base). A failed read is "unknown". */
+  private cachedQueue(repoPath: string, forge: GitForge, base: string): Promise<QueueRead> {
+    const key = `${repoPath}\0${base}`;
+    const hit = this.queueCache.get(key);
+    if (hit && this.now() - hit.at < MERGE_QUEUE_TTL_MS) return hit.read;
+    const read = forge.mergeQueueEntries!(base).catch((err: unknown): QueueRead => {
+      console.warn(`[pr-poller] merge-queue read for ${base} failed; keeping last value:`, err);
+      return "unknown";
+    });
+    this.queueCache.set(key, { read, at: this.now() });
+    return read;
+  }
+
+  /** Stamp `inMergeQueue` on an open PR from its base's merge queue, so a queued session leaves
+   *  "Your turn". An unreadable queue keeps the previous stamp rather than flicker. */
+  private async stampMergeQueue(
+    repoPath: string,
+    forge: GitForge,
+    git: GitState,
+    prev: GitState | undefined,
+  ): Promise<GitState> {
+    const rest: GitState = { ...git };
+    delete rest.inMergeQueue;
+    if (git.state !== "open" || !git.number || !git.baseRefName || !forge.mergeQueueEntries)
+      return rest;
+    const queue = await this.cachedQueue(repoPath, forge, git.baseRefName);
+    const queued =
+      queue === "unknown"
+        ? !!prev?.inMergeQueue && prev.number === git.number && prev.headSha === git.headSha
+        : Array.isArray(queue) && queue.includes(git.number);
+    return queued ? { ...rest, inMergeQueue: true } : rest;
   }
 
   private readProvenance(forge: GitForge): ReadProvenance {

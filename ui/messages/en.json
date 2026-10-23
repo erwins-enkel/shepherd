@@ -6876,5 +6876,7 @@
   "ask_center_prompt_label": "Prompt",
   "ask_center_position": "Question {index} of {count}",
   "feat_ask_center_title": "Questions show who is asking",
-  "feat_ask_center_body": "When Claude asks a question, the answer dialog now names the repo, task and session it comes from, along with the agent, model, branch and original prompt. Open questions from other sessions are listed beside it, grouped by repo, so you can answer them one after another."
+  "feat_ask_center_body": "When Claude asks a question, the answer dialog now names the repo, task and session it comes from, along with the agent, model, branch and original prompt. Open questions from other sessions are listed beside it, grouped by repo, so you can answer them one after another.",
+  "status_in_merge_queue": "IN MERGE QUEUE",
+  "status_in_merge_queue_tip": "GitHub's merge queue holds this PR and lands it once the queue's checks pass. Nothing to do."
 }

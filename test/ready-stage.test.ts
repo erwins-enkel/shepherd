@@ -70,6 +70,15 @@ const noBlocked: Record<string, boolean> = {};
 const noBg: Record<string, boolean> = {};
 
 describe("isReadyForNotify", () => {
+  test("idle green PR in the merge queue → NOT ready (merging); unqueued → READY", () => {
+    const s = makeSession({ status: "idle" });
+    const git = makeGit({ checks: "success" });
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(true);
+    expect(
+      isReadyForNotify(s, { ...git, inMergeQueue: true }, noReview, noBlocked, noBg, NOW),
+    ).toBe(false);
+  });
+
   test("plain idle session, no git → READY", () => {
     const s = makeSession({ status: "idle" });
     expect(isReadyForNotify(s, undefined, noReview, noBlocked, noBg, NOW)).toBe(true);

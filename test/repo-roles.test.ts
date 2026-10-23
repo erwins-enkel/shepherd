@@ -783,3 +783,22 @@ test("POST /api/repo-roles/auto-merge: 502 with a generic error when the host re
   const body = await res.json();
   expect(body).toEqual({ error: "auto_merge_enable_failed" });
 });
+
+test("annotateHandoff carries a merge-queue stamp across an on-demand read of the same head", () => {
+  const fresh: GitState = {
+    kind: "github",
+    state: "open",
+    number: 7,
+    checks: "success",
+    headSha: "h1",
+    deployConfigured: false,
+  };
+  const prev: GitState = { ...fresh, inMergeQueue: true };
+  expect(annotateHandoff(fresh, "/nonexistent", null, prev).inMergeQueue).toBe(true);
+  expect(
+    annotateHandoff({ ...fresh, headSha: "h2" }, "/nonexistent", null, prev).inMergeQueue,
+  ).toBeUndefined();
+  expect(
+    annotateHandoff({ ...fresh, state: "merged" }, "/nonexistent", null, prev).inMergeQueue,
+  ).toBeUndefined();
+});

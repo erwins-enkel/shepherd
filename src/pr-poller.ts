@@ -481,7 +481,8 @@ export class PrPoller implements PrCache {
    *  count-gate trip, or a transient fetch failure). All `gh` calls under `withGh`.
    *  count < 2: batching costs 2 gh calls (countOpenPrs + refresh) vs
    *  S = count per-session calls; break-even is S ≥ 2, so a single-session repo
-   *  is a strict regression — skip both probe and list call. */
+   *  is a strict regression — skip both probe and list call. A current shared
+   *  snapshot supplies the count instead of the probe (#2659). */
   private async batchForRepo(
     forge: GitForge,
     count: number,
@@ -491,7 +492,8 @@ export class PrPoller implements PrCache {
     if (!forge.listOpenPrSnapshot && !forge.listOpenPrStatuses) return null;
     const provenance = this.readProvenance(forge);
     try {
-      const p = await this.withGh(() => forge.countOpenPrs!());
+      const p =
+        this.currentSnapshotCount(forge) ?? (await this.withGh(() => forge.countOpenPrs!()));
       if (p >= 200 || p > this.batchOpenRatio * count) {
         return null; // cap-hit (truncated batch) or count-gate → per-session
       }
@@ -506,6 +508,13 @@ export class PrPoller implements PrCache {
     } catch {
       return null; // transient failure → per-session this sweep
     }
+  }
+
+  /** Open-PR count from a current shared snapshot (capped reads as the 200 cap), else null. */
+  private currentSnapshotCount(forge: GitForge): number | null {
+    if (!forge.listOpenPrSnapshot) return null;
+    const cur = this.snapshotSvc?.peekCurrent(forge)?.value;
+    return cur ? (cur.capped ? 200 : cur.prs.length) : null;
   }
 
   private async snapshotBatch(

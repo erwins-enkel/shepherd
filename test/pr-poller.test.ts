@@ -2919,11 +2919,15 @@ test("cap-hit: countOpenPrs≥200 forces per-session regardless of ratio", async
 // ── Task C: snapshot-backed batch ─────────────────────────────────────────────
 
 /** Minimal fake OpenPrSnapshotService for snapshot-path tests. */
-function fakeSnapshotSvc(statuses: Map<string, PrStatus>): {
+function fakeSnapshotSvc(
+  statuses: Map<string, PrStatus>,
+  current: { prs: unknown[]; capped: boolean } | null = null,
+): {
   svc: {
     refresh: (forge: GitForge) => Promise<any>;
     get: (forge: GitForge) => Promise<any>;
     peek: (forge: GitForge) => any;
+    peekCurrent: (forge: GitForge) => any;
   };
   calls: { refresh: number; get: number };
 } {
@@ -2938,6 +2942,7 @@ function fakeSnapshotSvc(statuses: Map<string, PrStatus>): {
       return null;
     },
     peek: () => null,
+    peekCurrent: () => (current ? { at: 0, value: { ...current, statuses } } : null),
   };
   return { svc, calls };
 }
@@ -3042,6 +3047,68 @@ test("snapshot: count-gate trip prevents snapshot.refresh from being called", as
   await poller.tick();
   expect(calls.refresh).toBe(0); // count-gate → snapshot never touched
   expect(stats.prStatus).toBe(2); // per-session fallback for both sessions
+});
+
+function snapshotPoller(store: SessionStore, forge: GitForge, svc: unknown): PrPoller {
+  return new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    async () => null,
+    15_000,
+    () => true,
+    () => true,
+    () => false,
+    300_000,
+    300_000,
+    2,
+    600_000,
+    svc as any,
+  );
+}
+
+test("snapshot: current snapshot supplies the count — no countOpenPrs call (#2659)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" });
+  const statuses = new Map<string, PrStatus>([
+    ["shepherd/a", OPEN],
+    ["shepherd/b", OPEN],
+  ]);
+  const { svc, calls } = fakeSnapshotSvc(statuses, { prs: [{}, {}], capped: false });
+  const { forge, stats } = forgeWithSnapshot({ "shepherd/a": OPEN, "shepherd/b": OPEN });
+
+  await snapshotPoller(store, forge, svc).tick();
+  expect(stats.count).toBe(0); // count read from the current snapshot
+  expect(calls.refresh).toBe(1); // batch still built
+  expect(stats.prStatus).toBe(0);
+});
+
+test("snapshot: capped current snapshot forces per-session without countOpenPrs (#2659)", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" });
+  const { svc, calls } = fakeSnapshotSvc(new Map(), { prs: [], capped: true });
+  const { forge, stats } = forgeWithSnapshot({ "shepherd/a": OPEN, "shepherd/b": OPEN });
+
+  await snapshotPoller(store, forge, svc).tick();
+  expect(stats.count).toBe(0);
+  expect(calls.refresh).toBe(0); // cap-hit → no batch
+  expect(stats.prStatus).toBe(2);
+});
+
+test("snapshot: no current snapshot → countOpenPrs probe runs", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  store.create({ ...baseSession, branch: "shepherd/b" });
+  const { svc, calls } = fakeSnapshotSvc(new Map());
+  const { forge, stats } = forgeWithSnapshot({ "shepherd/a": OPEN, "shepherd/b": OPEN });
+
+  await snapshotPoller(store, forge, svc).tick();
+  expect(stats.count).toBe(1);
+  expect(calls.refresh).toBe(1);
 });
 
 test("snapshot: fork mode never calls snapshot.refresh", async () => {

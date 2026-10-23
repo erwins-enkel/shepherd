@@ -305,8 +305,8 @@ export class PrPoller implements PrCache {
      *  entirely and the full sweep throttles to `idleIntervalMs`. */
     private warm: () => boolean = () => true,
     /** True while the shared GraphQL backoff is engaged. Full sweeps still run
-     *  through the per-session path so GitHub REST fallback can keep terminal PR
-     *  state moving; GraphQL batch work and fast sweeps are paused. */
+     *  through the per-session path so GitHub REST fallback keeps live PR state
+     *  moving; terminal sessions, GraphQL batch work and fast sweeps are paused. */
     private rateLimited: () => boolean = () => false,
     /** Coarse full-sweep cadence while cold (no warmth) — the fast sweep is paused
      *  outright, so this is the only PR refresh path when nobody's watching. */
@@ -428,7 +428,9 @@ export class PrPoller implements PrCache {
       const sessions = [...this.store.list({ activeOnly: true })];
       const recheckNone = this.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
       if (recheckNone) this.lastNoneRecheckAt = this.now();
-      const due = sessions.filter((s) => this.shouldPoll(s, recheckNone));
+      const due = sessions.filter(
+        (s) => this.shouldPoll(s, recheckNone) && !(graphqlLimited && this.terminalUnderBackoff(s)),
+      );
       const batches = graphqlLimited
         ? new Map<string, PrBatch | null>()
         : await this.buildBatches(due, !this.repoFreshness);
@@ -446,6 +448,15 @@ export class PrPoller implements PrCache {
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /** A session whose PR state can't move without an event Shepherd sees anyway — a merged or
+   *  closed PR, or `done` with no PR. Left alone while GraphQL is limited: each poll would be a
+   *  REST fallback read (#2834). */
+  private terminalUnderBackoff(s: Session): boolean {
+    const prev = this.cache.get(s.id);
+    if (prev?.state === "merged" || prev?.state === "closed") return true;
+    return s.status === "done" && (!prev || prev.state === "none");
   }
 
   private shouldPoll(s: Session, recheckNone: boolean): boolean {

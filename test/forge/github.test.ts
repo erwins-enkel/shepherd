@@ -1,6 +1,6 @@
 import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { GithubForge, reviewerStatesFromReviews } from "../../src/forge/github";
-import { graphRateLimit, restRateLimit } from "../../src/forge/rate-limit";
+import { graphRateLimit, restFallbackReserve, restRateLimit } from "../../src/forge/rate-limit";
 import { attemptsOf } from "../../src/forge/gh-attempt";
 import { setIssuesFreshness } from "../../src/forge/repo-freshness";
 import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "../../src/forge/types";
@@ -1369,11 +1369,347 @@ test("GithubForge.prStatus: REST fallback re-reads pending checks after 60s and 
     expect(count("/status")).toBe(2); // pending expires after 60s
     expect(count("/reviews")).toBe(1);
     head = "def";
+    setSystemTime(new Date("2026-10-01T12:02:02Z")); // past the shared open-pulls TTL (#2834)
     await forge.prStatus("feature");
     expect(count("/reviews")).toBe(2); // new head → fresh review read
   } finally {
     setSystemTime();
     unblockGraphql();
+  }
+});
+
+/** REST fake for the #2834 fallback: an ETag'd open-pulls list answering `gh api -i` with
+ *  `X-Ratelimit-*` headers (304 on a matching `If-None-Match`), per-branch lookups returning a
+ *  merged PR, per-head check states and empty reviews. */
+function etagRestFake(o: {
+  open: () => Array<{ ref: string; sha: string; number: number; updated?: string }>;
+  check: (sha: string) => string;
+  remaining: () => number;
+  version?: () => number;
+  lookup?: (ref: string) => unknown[];
+}) {
+  const calls: string[][] = [];
+  const resetSec = () => Math.floor(Date.now() / 1000) + 3600;
+  const http = (body: unknown, etag?: string) =>
+    [
+      "HTTP/2.0 200 OK",
+      ...(etag ? [`Etag: ${etag}`] : []),
+      `X-Ratelimit-Remaining: ${o.remaining()}`,
+      `X-Ratelimit-Reset: ${resetSec()}`,
+      "X-Ratelimit-Resource: core",
+      "",
+      JSON.stringify(body),
+    ].join("\r\n");
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    const head = args.find((a) => a.startsWith("head="));
+    if (args.includes("repos/o/r/pulls") && head) {
+      const ref = head.split(":")[1]!;
+      if (o.lookup) return http(o.lookup(ref));
+      return http([
+        {
+          number: 900,
+          state: "closed",
+          merged_at: "2026-01-01T00:00:00Z",
+          head: { ref, sha: "m" },
+        },
+      ]);
+    }
+    if (args.includes("repos/o/r/pulls")) {
+      const etag = `"v${o.version?.() ?? 1}"`;
+      const sent = args[args.indexOf("-H") + 1];
+      if (args.includes("-H") && sent === `If-None-Match: ${etag}`)
+        throw Object.assign(new Error("gh: HTTP 304"), { stderr: "gh: HTTP 304" });
+      const rows = o.open().map((p) => ({
+        number: p.number,
+        state: "open",
+        updated_at: p.updated ?? "2026-10-01T00:00:00Z",
+        head: { ref: p.ref, sha: p.sha, repo: { owner: { login: "o" } } },
+      }));
+      return http(rows, etag);
+    }
+    const sha = args.find((a) => a.startsWith("repos/o/r/commits/"))?.split("/")[4];
+    if (sha && args.some((a) => a.endsWith("/status")))
+      return JSON.stringify({ state: o.check(sha) });
+    if (sha) return JSON.stringify({ check_runs: [] });
+    return "[]";
+  };
+  const count = (path: string) => calls.filter((c) => c.some((a) => a.includes(path))).length;
+  return { run, calls, count };
+}
+
+test("GithubForge.prStatus: REST fallback stays small under a 10-min GraphQL backoff (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  const t0 = Date.parse("2026-10-01T12:00:00Z");
+  setSystemTime(new Date(t0));
+  try {
+    const open = Array.from({ length: 20 }, (_, i) => ({
+      ref: `b${i}`,
+      sha: `s${i}`,
+      number: i + 1,
+    }));
+    const { run, calls } = etagRestFake({
+      open: () => open,
+      check: (sha) => (["s0", "s1", "s2", "s3", "s4"].includes(sha) ? "pending" : "success"),
+      remaining: () => 4000,
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    const branches = [...open.map((p) => p.ref), ...Array.from({ length: 10 }, (_, i) => `m${i}`)];
+    for (let t = 0; t <= 600_000; t += 30_000) {
+      setSystemTime(new Date(t0 + t));
+      for (const b of branches) await forge.prStatus(b);
+    }
+    expect(calls.length).toBeLessThanOrEqual(300);
+    expect((await forge.prStatus("m0")).state).toBe("merged");
+    expect((await forge.prStatus("b0")).state).toBe("open");
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.prStatus: merged branches are looked up once, then left alone (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    const { run, calls } = etagRestFake({
+      open: () => [],
+      check: () => "success",
+      remaining: () => 4000,
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.prStatus("gone");
+    const after = calls.filter((c) => c.some((a) => a.startsWith("head="))).length;
+    setSystemTime(new Date("2026-10-01T12:20:00Z")); // within REST_TERMINAL_BRANCH_TTL_MS
+    expect((await forge.prStatus("gone")).state).toBe("merged");
+    expect(calls.filter((c) => c.some((a) => a.startsWith("head="))).length).toBe(after);
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.prStatus: a cached terminal branch is dropped once a new PR shows on the open list (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let open: Array<{ ref: string; sha: string; number: number }> = [];
+    let ver = 1;
+    let latest = {
+      number: 60,
+      state: "closed",
+      merged_at: null,
+      head: { ref: "feature", sha: "a" },
+    };
+    const { run } = etagRestFake({
+      open: () => open,
+      check: () => "success",
+      remaining: () => 4000,
+      version: () => ver,
+      lookup: () => [latest],
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.prStatus("feature")).number).toBe(60);
+    open = [{ ref: "feature", sha: "b", number: 61 }];
+    ver = 2;
+    setSystemTime(new Date("2026-10-01T12:01:01Z"));
+    expect((await forge.prStatus("feature")).number).toBe(61);
+    open = []; // #61 merged
+    ver = 3;
+    latest = {
+      number: 61,
+      state: "closed",
+      merged_at: "2026-10-01T12:01:30Z",
+      head: { ref: "feature", sha: "b" },
+    } as never;
+    setSystemTime(new Date("2026-10-01T12:02:02Z"));
+    const st = await forge.prStatus("feature");
+    expect(st).toMatchObject({ number: 61, state: "merged" });
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.prStatus: a branch with no PR is re-looked up, so an agent's new PR shows at once (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let found: unknown[] = [];
+    const { run } = etagRestFake({
+      open: () => [],
+      check: () => "success",
+      remaining: () => 4000,
+      lookup: () => found,
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.prStatus("feature")).state).toBe("none");
+    // `gh pr create` by the agent; the open-pulls list is still inside its 60s cache.
+    found = [{ number: 62, state: "open", head: { ref: "feature", sha: "c" } }];
+    setSystemTime(new Date("2026-10-01T12:00:10Z"));
+    expect(await forge.prStatus("feature")).toMatchObject({ state: "open", number: 62 });
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.prStatus: a reopened PR shows despite a cached closed branch (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let open: Array<{ ref: string; sha: string; number: number }> = [];
+    let ver = 1;
+    const { run } = etagRestFake({
+      open: () => open,
+      check: () => "success",
+      remaining: () => 4000,
+      version: () => ver,
+      lookup: () => [
+        { number: 60, state: "closed", merged_at: null, head: { ref: "feature", sha: "a" } },
+      ],
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.prStatus("feature")).state).toBe("closed");
+    // The agent runs `gh pr reopen 60`; the open-pulls list is still inside its 60s cache.
+    open = [{ ref: "feature", sha: "a", number: 60 }];
+    ver = 2;
+    setSystemTime(new Date("2026-10-01T12:00:10Z"));
+    expect(await forge.prStatus("feature")).toMatchObject({ state: "open", number: 60 });
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.prStatus: open-pulls list revalidates with If-None-Match and reuses a 304 (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    const { run, calls } = etagRestFake({
+      open: () => [{ ref: "feature", sha: "abc", number: 7 }],
+      check: () => "success",
+      remaining: () => 4000,
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.prStatus("feature");
+    // A fresh reading (another repo's read, say) keeps the reserve from forcing a full read.
+    setSystemTime(new Date("2026-10-01T12:01:01Z"));
+    restFallbackReserve.note({ remaining: 4000, resetAt: Date.now() + 3_600_000 });
+    expect((await forge.prStatus("feature")).number).toBe(7);
+    const lists = calls.filter((c) => c.includes("repos/o/r/pulls"));
+    expect(lists).toHaveLength(2);
+    expect(lists[1]).toContain('If-None-Match: "v1"');
+    expect(lists[0]).not.toContain("-H");
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge: a stale reserve reading forces a full list read; below the reserve fallbacks stop (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let remaining = 4000;
+    const { run, calls } = etagRestFake({
+      open: () => [{ ref: "feature", sha: "abc", number: 7 }],
+      check: () => "success",
+      remaining: () => remaining,
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.prStatus("feature");
+    remaining = 1400; // agents' own gh calls drained REST while the list stayed unchanged
+    setSystemTime(new Date("2026-10-01T12:01:01Z"));
+    await forge.prStatus("feature");
+    const lists = calls.filter((c) => c.includes("repos/o/r/pulls"));
+    expect(lists[1]).not.toContain("-H"); // reading > 60s old → unconditional, headers read
+    expect(restFallbackReserve.depleted()).toBe(true);
+    const before = calls.length;
+    setSystemTime(new Date("2026-10-01T12:03:00Z"));
+    await expect(forge.prStatus("feature")).rejects.toThrow(/rate limit/);
+    await expect(forge.listOpenPrSnapshot()).rejects.toThrow(/rate limit/);
+    await expect(forge.listBacklogCounts()).rejects.toThrow(/rate limit/);
+    expect(await forge.prReviewMeta(7)).toBeNull();
+    expect(await forge.getIssue(7)).toBeNull();
+    expect(calls.length).toBe(before);
+    setSystemTime(new Date("2026-10-01T13:01:02Z")); // REST window reset
+    expect((await forge.prStatus("feature")).state).toBe("open");
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.prStatus: reviews are not re-read while head and updated_at hold (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let updated = "2026-10-01T11:00:00Z";
+    const { run, count } = etagRestFake({
+      open: () => [{ ref: "feature", sha: "abc", number: 7, updated }],
+      check: () => "success",
+      remaining: () => 4000,
+      version: () => (updated.endsWith("11:00:00Z") ? 1 : 2),
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.prStatus("feature");
+    setSystemTime(new Date("2026-10-01T12:07:00Z"));
+    await forge.prStatus("feature");
+    expect(count("/reviews")).toBe(1);
+    updated = "2026-10-01T12:06:00Z"; // a review landed
+    setSystemTime(new Date("2026-10-01T12:09:00Z"));
+    await forge.prStatus("feature");
+    expect(count("/reviews")).toBe(2);
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.getEpicStructure: a REST read is held for the rest of the GraphQL backoff (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      if (args.includes("repos/o/r/issues/1"))
+        return JSON.stringify({ number: 1, title: "epic", state: "open", body: "", html_url: "u" });
+      return "[]";
+    };
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.getEpicStructure(1);
+    const first = calls.length;
+    expect(first).toBeGreaterThan(0);
+    setSystemTime(new Date("2026-10-01T12:10:00Z")); // past EPIC_STRUCTURE_TTL_MS
+    await forge.getEpicStructure(1);
+    expect(calls.length).toBe(first);
+    unblockGraphql();
+    blockGraphql(); // a later backoff window: the earlier window's read is not held
+    await forge.getEpicStructure(1);
+    expect(calls.length).toBeGreaterThan(first);
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
   }
 });
 

@@ -32,6 +32,7 @@ import {
   isRestReadCall,
   isSecondaryLimitError,
   parseRetryAfter,
+  restFallbackReserve,
   restRateLimit,
   restWriteRateLimit,
 } from "./rate-limit";
@@ -199,7 +200,22 @@ const REST_CHECK_CACHE_TTL_MS = 60_000;
 const REST_TERMINAL_CHECK_CACHE_TTL_MS = 10 * 60_000;
 /** REST reviews per PR head: the fallback's per-poll review read was uncached (#2660). */
 const REST_REVIEW_CACHE_TTL_MS = 5 * 60_000;
+/** A review read keyed on the PR's `updated_at` stays valid until that moves (#2834); unused
+ *  entries are pruned after this long. */
+const REST_REVIEW_KEYED_IDLE_MS = 60 * 60_000;
 const REST_CHECK_LOOKUP_BUDGET = 40;
+/** How long the shared REST open-pulls list answers from its cache (#2834): every fallback
+ *  `prStatus` of a repo reads it instead of a per-branch lookup. */
+const REST_OPEN_PULLS_TTL_MS = 60_000;
+/** How fresh the open-pulls list must be before a cached merged/closed branch is served: an
+ *  own `gh pr reopen` or a new PR from the branch must show (#2834). A revalidation of an
+ *  unchanged list is a free 304; reads this close together share one. */
+const REST_OPEN_PULLS_REVALIDATE_MS = 5_000;
+/** How long a branch's REST merged/closed lookup is reused (#2834). Leaving it takes a new or
+ *  reopened PR, which an open-list hit (dropping the entry) usually shows first — but one opened
+ *  and merged between two list reads doesn't, so it is still bounded. "No PR" is never cached:
+ *  an agent's own `gh pr create` must show on the next (targeted) poll. */
+const REST_TERMINAL_BRANCH_TTL_MS = 30 * 60_000;
 /** How long {@link GithubForge.listWorkflowRuns} answers from its cache: the Actions tab polls
  *  every 12s and each fetch fans out to a `gh run view` per workflow (#2660). */
 const WORKFLOW_RUNS_CACHE_TTL_MS = 30_000;
@@ -425,6 +441,43 @@ export type GhRunner = (args: string[]) => Promise<string>;
 /** A `gh api` rejection for a missing resource (HTTP 404). */
 function isGhNotFound(e: unknown): boolean {
   return /HTTP 404|Not Found/.test(String((e as { stderr?: unknown })?.stderr ?? e));
+}
+
+/** A conditional `gh api` read GitHub answered `304 Not Modified` (gh exits 1 on it). */
+function isGhNotModified(e: unknown): boolean {
+  return /HTTP 304/.test(String((e as { stderr?: unknown })?.stderr ?? ""));
+}
+
+/** Split `gh api -i` stdout into lower-cased headers and body. Stdout without a status line
+ *  (a body only) passes through whole. */
+function splitHttpResponse(stdout: string): { headers: Map<string, string>; body: string } {
+  const headers = new Map<string, string>();
+  if (!stdout.startsWith("HTTP/")) return { headers, body: stdout };
+  const m = /\r?\n\r?\n/.exec(stdout);
+  const head = m ? stdout.slice(0, m.index) : stdout;
+  for (const line of head.split(/\r?\n/).slice(1)) {
+    const i = line.indexOf(":");
+    if (i > 0) headers.set(line.slice(0, i).trim().toLowerCase(), line.slice(i + 1).trim());
+  }
+  return { headers, body: m ? stdout.slice(m.index + m[0].length) : "" };
+}
+
+/** Feed a REST response's `X-Ratelimit-*` headers to the fallback reserve (#2834). */
+function noteReserveHeaders(headers: Map<string, string>): void {
+  const raw = headers.get("x-ratelimit-remaining");
+  const reset = Number(headers.get("x-ratelimit-reset"));
+  const resource = headers.get("x-ratelimit-resource") ?? "core";
+  if (raw === undefined || !Number.isFinite(Number(raw)) || !reset || resource !== "core") return;
+  restFallbackReserve.note({ remaining: Number(raw), resetAt: reset * 1000 });
+}
+
+/** Thrown by a GraphQL-backoff REST fallback while the REST reserve is reached (#2834). Carries
+ *  "rate limit" in `stderr`, so `isRateLimitError` callers treat it as a limit like a real 403. */
+function assertRestReserve(): void {
+  if (!restFallbackReserve.depleted()) return;
+  const until = new Date(restFallbackReserve.snapshot()?.resetAt ?? 0).toISOString();
+  const stderr = `REST API rate limit reserve reached; GraphQL fallback skipped until ${until}`;
+  throw Object.assign(new Error(stderr), { stderr });
 }
 
 const execFileAsync = promisify(execFile);
@@ -715,6 +768,7 @@ interface RestPull {
   state?: "open" | "closed";
   draft?: boolean;
   created_at?: string;
+  updated_at?: string;
   merged_at?: string | null;
   mergeable?: boolean | null;
   mergeable_state?: string | null;
@@ -942,9 +996,17 @@ export class GithubForge implements GitForge {
   private workflowRunsGen = 0;
   /** Jobs of a completed run, by runId, valid for that `attempt` only (a rerun keeps the id). */
   private readonly completedRunJobs = new Map<number, { attempt: number; jobs: WorkflowJob[] }>();
+  /** Shared REST open-pulls list (#2834) + in-flight share; `restOpenPullsGen` bumps on own
+   *  PR writes. Per-page ETags make a refetch of an unchanged list a free 304. */
+  private restOpenPulls: { at: number; prs: RestPull[]; capped: boolean } | null = null;
+  private restOpenPullsInflight: Promise<{ prs: RestPull[]; capped: boolean }> | null = null;
+  private restOpenPullsGen = 0;
+  private readonly restPullPages = new Map<number, { etag: string; rows: RestPull[] }>();
+  /** Per-branch REST lookups of branches absent from the open list: merged/closed only. */
+  private readonly restBranchCache = new Map<string, { at: number; status: PrStatus }>();
   private readonly restReviewCache = new Map<
     string,
-    { at: number; value: Pick<PrStatus, "latestReview" | "reviewerStates"> }
+    { at: number; keyed: boolean; value: Pick<PrStatus, "latestReview" | "reviewerStates"> }
   >();
   /** Own-write generations guard in-flight reads; content keys validate cached data. */
   private issuesCache: GithubCacheEntry<Issue[]> | null = null;
@@ -963,6 +1025,9 @@ export class GithubForge implements GitForge {
       structure: EpicStructure;
       contentKey: string | null;
       complete: boolean;
+      /** The GraphQL backoff window a REST read was made in: a complete one is held for the
+       *  rest of that window (#2834). Undefined for a GraphQL read. */
+      restWindow?: number;
       retryAt?: number;
       failures?: number;
     }
@@ -1102,26 +1167,74 @@ export class GithubForge implements GitForge {
     return issues;
   }
 
-  private async listOpenPullsRest(): Promise<{ prs: RestPull[]; capped: boolean }> {
+  /** The repo's open PRs over REST, shared by every GraphQL-backoff fallback (#2834): cached
+   *  {@link REST_OPEN_PULLS_TTL_MS} (or `maxAgeMs`), single-flight. */
+  private async listOpenPullsRest(
+    maxAgeMs = REST_OPEN_PULLS_TTL_MS,
+  ): Promise<{ prs: RestPull[]; capped: boolean }> {
+    const cached = this.restOpenPulls;
+    if (cached && Date.now() - cached.at < maxAgeMs) return cached;
+    if (this.restOpenPullsInflight) return this.restOpenPullsInflight;
+    const gen = this.restOpenPullsGen;
+    const p = this.fetchOpenPullsRest()
+      .then((r) => {
+        if (gen === this.restOpenPullsGen) this.restOpenPulls = { at: Date.now(), ...r };
+        return r;
+      })
+      .finally(() => {
+        if (this.restOpenPullsInflight === p) this.restOpenPullsInflight = null;
+      });
+    this.restOpenPullsInflight = p;
+    return p;
+  }
+
+  private async fetchOpenPullsRest(): Promise<{ prs: RestPull[]; capped: boolean }> {
     const prs: RestPull[] = [];
     let capped = false;
-    for (let page = 1; prs.length < REST_LIST_CAP; page++) {
-      const out = await this.run(
-        this.restGetArgs(`repos/${this.slug}/pulls`, [
-          "state=open",
-          `per_page=${REST_PAGE_SIZE}`,
-          `page=${page}`,
-        ]),
-      );
-      const rows = JSON.parse(out || "[]") as RestPull[];
+    let page = 1;
+    for (; prs.length < REST_LIST_CAP; page++) {
+      const rows = await this.readOpenPullsPage(page);
       prs.push(...rows.slice(0, REST_LIST_CAP - prs.length));
       if (rows.length < REST_PAGE_SIZE) break;
       if (prs.length >= REST_LIST_CAP) capped = true;
     }
+    for (const n of this.restPullPages.keys()) if (n > page) this.restPullPages.delete(n);
     return { prs, capped };
   }
 
+  /** One page of the open-pulls list, conditional on its stored ETag — except page 1 while the
+   *  reserve reading is stale: a 304 carries no `X-Ratelimit-*` headers, so the reserve would
+   *  otherwise go blind behind an unchanged list. */
+  private async readOpenPullsPage(page: number): Promise<RestPull[]> {
+    const prior = this.restPullPages.get(page);
+    const args = [
+      ...this.restGetArgs(`repos/${this.slug}/pulls`, [
+        "state=open",
+        `per_page=${REST_PAGE_SIZE}`,
+        `page=${page}`,
+      ]),
+      "-i",
+    ];
+    if (prior && !(page === 1 && restFallbackReserve.stale()))
+      args.push("-H", `If-None-Match: ${prior.etag}`);
+    let out: string;
+    try {
+      out = await this.run(args);
+    } catch (err) {
+      if (prior && isGhNotModified(err)) return prior.rows;
+      throw err;
+    }
+    const { headers, body } = splitHttpResponse(out);
+    noteReserveHeaders(headers);
+    const rows = JSON.parse(body || "[]") as RestPull[];
+    const etag = headers.get("etag");
+    if (etag) this.restPullPages.set(page, { etag, rows });
+    else this.restPullPages.delete(page);
+    return rows;
+  }
+
   private async listBacklogCountsRest(): Promise<RepoCounts> {
+    assertRestReserve();
     const [repoOut, openPrs] = await Promise.all([
       this.run(this.restGetArgs(`repos/${this.slug}`)),
       this.listOpenPullsRest(),
@@ -1319,6 +1432,10 @@ export class GithubForge implements GitForge {
 
   private invalidatePrs(): void {
     this.linksInflight = null;
+    this.restOpenPulls = null;
+    this.restOpenPullsInflight = null;
+    this.restOpenPullsGen++;
+    this.restBranchCache.clear();
     this.readCache?.invalidate(this.slug, ["prs", "counts", "links", "session"]);
   }
 
@@ -1432,6 +1549,7 @@ export class GithubForge implements GitForge {
   }
 
   private async getIssueRest(issueNumber: number): Promise<Issue | null> {
+    if (restFallbackReserve.depleted()) return null;
     return this.fetchIssueRest(issueNumber).catch(() => null);
   }
 
@@ -2046,19 +2164,27 @@ export class GithubForge implements GitForge {
     };
   }
 
+  /** Reviews for `prNumber`, cached per head. With the PR's `updatedAt` (a review bumps it) the
+   *  entry holds until head or `updatedAt` moves (#2834); without, for {@link REST_REVIEW_CACHE_TTL_MS}. */
   private async restReviewStatus(
     prNumber: number,
     headSha?: string,
+    updatedAt?: string,
   ): Promise<Pick<PrStatus, "latestReview" | "reviewerStates">> {
-    const key = headSha ? `${prNumber}@${headSha}` : null;
+    const key = headSha ? `${prNumber}@${headSha}${updatedAt ? `@${updatedAt}` : ""}` : null;
+    const ttl = (e: { keyed: boolean }) =>
+      e.keyed ? REST_REVIEW_KEYED_IDLE_MS : REST_REVIEW_CACHE_TTL_MS;
     const cached = key ? this.restReviewCache.get(key) : undefined;
-    if (cached && Date.now() - cached.at < REST_REVIEW_CACHE_TTL_MS) return cached.value;
+    if (cached && Date.now() - cached.at < ttl(cached)) {
+      if (cached.keyed) cached.at = Date.now();
+      return cached.value;
+    }
     const gen = this.restReviewsGen;
     const value = await this.fetchRestReviewStatus(prNumber);
     if (key && gen === this.restReviewsGen) {
       for (const [k, e] of this.restReviewCache)
-        if (Date.now() - e.at >= REST_REVIEW_CACHE_TTL_MS) this.restReviewCache.delete(k);
-      this.restReviewCache.set(key, { at: Date.now(), value });
+        if (Date.now() - e.at >= ttl(e)) this.restReviewCache.delete(k);
+      this.restReviewCache.set(key, { at: Date.now(), keyed: !!updatedAt, value });
     }
     return value;
   }
@@ -2135,6 +2261,7 @@ export class GithubForge implements GitForge {
   }
 
   private async listOpenPrSnapshotRest(deployConfigured: boolean): Promise<OpenPrSnapshot> {
+    assertRestReserve();
     const { prs, capped } = await this.listOpenPullsRest();
     if (capped && !this.openPrCapLogged) {
       this.openPrCapLogged = true;
@@ -2160,8 +2287,12 @@ export class GithubForge implements GitForge {
       }
     }
 
+    const updatedAt = new Map(prs.map((pr) => [pr.number, pr.updated_at]));
     await mapBounded([...statuses.values()], 6, async (status) => {
-      Object.assign(status, await this.restReviewStatus(status.number!, status.headSha));
+      Object.assign(
+        status,
+        await this.restReviewStatus(status.number!, status.headSha, updatedAt.get(status.number!)),
+      );
     });
     return { prs: pullRequests, statuses, capped, source: "rest" };
   }
@@ -2169,9 +2300,37 @@ export class GithubForge implements GitForge {
   /** REST fallback for the herd's per-session PR status when GitHub's GraphQL
    *  bucket is exhausted. It intentionally returns the same PrStatus shape but
    *  only does extra REST check/status reads for open PRs. Reviews use the same
-   *  human-review mapping as GraphQL so fallback cannot erase handoff decisions. */
+   *  human-review mapping as GraphQL so fallback cannot erase handoff decisions.
+   *  An open PR is answered from the repo's shared open-pulls list; a branch absent from it
+   *  from {@link restBranchCache}, else one per-branch lookup (#2834). */
   private async prStatusRest(headBranch: string, deployConfigured: boolean): Promise<PrStatus> {
+    assertRestReserve();
     const owner = this.forkOwner ?? this.slug.split("/")[0];
+    const find = (prs: RestPull[]) =>
+      prs.find((p) => p.head?.ref === headBranch && p.head?.repo?.owner?.login === owner);
+    let hit = find((await this.listOpenPullsRest()).prs);
+    const cached = this.restBranchCache.get(headBranch);
+    const terminal = cached && Date.now() - cached.at < REST_TERMINAL_BRANCH_TTL_MS;
+    // Serve a cached merged/closed only against a just-revalidated list, so a reopen shows.
+    if (!hit && terminal)
+      hit = find((await this.listOpenPullsRest(REST_OPEN_PULLS_REVALIDATE_MS)).prs);
+    if (hit) {
+      this.restBranchCache.delete(headBranch); // a new or reopened PR supersedes the terminal one
+      return this.restPullStatus(hit, deployConfigured);
+    }
+    if (terminal) return { ...cached.status, deployConfigured };
+    const status = await this.lookupBranchPrRest(headBranch, owner!, deployConfigured);
+    if (status.state === "merged" || status.state === "closed")
+      this.restBranchCache.set(headBranch, { at: Date.now(), status });
+    return status;
+  }
+
+  /** The newest PR from `owner:headBranch` in any state, over REST. */
+  private async lookupBranchPrRest(
+    headBranch: string,
+    owner: string,
+    deployConfigured: boolean,
+  ): Promise<PrStatus> {
     const out = await this.run([
       "api",
       "--method",
@@ -2187,18 +2346,25 @@ export class GithubForge implements GitForge {
       "direction=desc",
       "-f",
       `per_page=${this.forkOwner ? "30" : "1"}`,
+      "-i",
     ]);
-    const prs = JSON.parse(out || "[]") as RestPull[];
+    const { headers, body } = splitHttpResponse(out);
+    noteReserveHeaders(headers);
+    const prs = JSON.parse(body || "[]") as RestPull[];
     const pr = this.forkOwner
       ? prs.find((p) => p.head?.repo?.owner?.login === this.forkOwner)
       : prs[0];
     if (!pr) return { state: "none", checks: "none", deployConfigured };
+    return this.restPullStatus(pr, deployConfigured);
+  }
+
+  private async restPullStatus(pr: RestPull, deployConfigured: boolean): Promise<PrStatus> {
     const state: PrStatus["state"] =
       pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed";
     const checks = state === "open" ? await this.restChecksForHeadCached(pr.head?.sha) : "none";
     return {
       ...this.mapRestPull(pr, deployConfigured, checks),
-      ...(await this.restReviewStatus(pr.number, pr.head?.sha)),
+      ...(await this.restReviewStatus(pr.number, pr.head?.sha, pr.updated_at)),
     };
   }
 
@@ -2244,6 +2410,7 @@ export class GithubForge implements GitForge {
     const pr = this.forkOwner
       ? prs.find((p) => p.headRepositoryOwner?.login === this.forkOwner)
       : prs[0];
+    this.restBranchCache.delete(headBranch); // GraphQL answered: the REST lookup is superseded
     if (!pr) return { state: "none", checks: "none", deployConfigured };
     return this.mapGhPr(pr, deployConfigured);
   }
@@ -3443,6 +3610,7 @@ export class GithubForge implements GitForge {
 
   private async prReviewMetaRest(prNumber: number): Promise<PrReviewMeta | null> {
     try {
+      assertRestReserve();
       const out = await this.run(this.restGetArgs(`repos/${this.slug}/pulls/${prNumber}`));
       const parsed = JSON.parse(out || "null") as RestPull | null;
       if (!parsed) return null;
@@ -3490,15 +3658,24 @@ export class GithubForge implements GitForge {
         complete: true,
       });
     const hit = this.epicStructures.get(parentNumber);
+    // A complete REST read of this backoff window is held for the rest of it — one REST pass per
+    // window — unless the issue content moved, then re-read at the normal TTL (#2834).
+    const restHeld =
+      !!hit?.complete &&
+      graphRateLimit.blocked() &&
+      hit.restWindow === graphRateLimit.window() &&
+      (fpKey === null || hit.contentKey === fpKey || now - hit.at < EPIC_STRUCTURE_TTL_MS);
     const fresh =
-      hit !== undefined &&
-      (hit.retryAt !== undefined
-        ? now < hit.retryAt
-        : fpKey !== null
-          ? hit.contentKey === fpKey
-          : now - hit.at < EPIC_STRUCTURE_TTL_MS);
+      restHeld ||
+      (hit !== undefined &&
+        (hit.retryAt !== undefined
+          ? now < hit.retryAt
+          : fpKey !== null
+            ? hit.contentKey === fpKey
+            : now - hit.at < EPIC_STRUCTURE_TTL_MS));
     if (fresh) {
       if (
+        !restHeld &&
         persisted &&
         this.readCache?.expired(persisted) &&
         this.readCache.canRefresh() &&
@@ -3516,12 +3693,18 @@ export class GithubForge implements GitForge {
     const gen = this.epicStructuresGen;
     const revision = this.readCache?.revision(this.slug);
     const p = this.fetchEpicStructure(parentNumber)
-      .then(({ structure, complete }) => {
+      .then(({ structure, complete, restWindow }) => {
         if (gen !== this.epicStructuresGen || revision !== this.readCache?.revision(this.slug))
           return structure;
         const at = this.now();
         if (complete) {
-          this.epicStructures.set(parentNumber, { at, structure, contentKey: fpKey, complete });
+          this.epicStructures.set(parentNumber, {
+            at,
+            structure,
+            contentKey: fpKey,
+            complete,
+            restWindow,
+          });
           this.readCache?.put("epic", this.slug, fpKey, structure, String(parentNumber));
           return structure;
         }
@@ -3544,7 +3727,7 @@ export class GithubForge implements GitForge {
   /** `complete` is false when a REST fallback call failed and was read as empty. */
   private async fetchEpicStructure(
     parentNumber: number,
-  ): Promise<{ structure: EpicStructure; complete: boolean }> {
+  ): Promise<{ structure: EpicStructure; complete: boolean; restWindow?: number }> {
     if (!graphRateLimit.blocked()) {
       const [owner = "", repo = ""] = this.slug.split("/");
       try {
@@ -3568,20 +3751,27 @@ export class GithubForge implements GitForge {
       }
     }
     let complete = true;
-    const settle = <T>(read: Promise<T>, empty: T): Promise<T> =>
-      read.catch(() => {
-        complete = false;
-        return empty;
-      });
+    const restWindow = graphRateLimit.window();
+    // Below the REST reserve every part fails, so the last complete structure is kept (#2834).
+    const settle = <T>(read: () => Promise<T>, empty: T): Promise<T> =>
+      Promise.resolve()
+        .then(() => {
+          assertRestReserve();
+          return read();
+        })
+        .catch(() => {
+          complete = false;
+          return empty;
+        });
     const structure = await readEpicStructureByParts(
       {
-        getIssue: (n) => settle(this.fetchIssueRest(n), null),
-        listSubIssues: (n) => settle(this.fetchSubIssues(n), []),
-        listBlockedBy: (n) => settle(this.fetchBlockedBy(n), []),
+        getIssue: (n) => settle(() => this.fetchIssueRest(n), null),
+        listSubIssues: (n) => settle(() => this.fetchSubIssues(n), []),
+        listBlockedBy: (n) => settle(() => this.fetchBlockedBy(n), []),
       },
       parentNumber,
     );
-    return { structure, complete };
+    return { structure, complete, restWindow };
   }
 
   async listSubIssues(parentNumber: number): Promise<SubIssueRef[]> {

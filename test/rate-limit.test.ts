@@ -15,6 +15,8 @@ import {
   isRateLimitError,
   isSecondaryLimitError,
   parseRetryAfter,
+  RESERVE_READING_MAX_AGE_MS,
+  RestFallbackReserve,
 } from "../src/forge/rate-limit";
 
 // ── BucketRateLimit: initial state ─────────────────────────────────────────────
@@ -689,5 +691,34 @@ describe("parseRetryAfter()", () => {
 
   it("returns undefined for empty string", () => {
     expect(parseRetryAfter("")).toBeUndefined();
+  });
+});
+
+describe("RestFallbackReserve (#2834)", () => {
+  it("is neither depleted nor fresh without a reading", () => {
+    const r = new RestFallbackReserve({ now: () => 0 });
+    expect(r.depleted()).toBe(false);
+    expect(r.stale()).toBe(true);
+  });
+
+  it("depletes below the reserve until resetAt, and goes stale after the max age", () => {
+    let now = 1_000;
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const r = new RestFallbackReserve({ now: () => now, reserve: 1500 });
+      r.note({ remaining: 1600, resetAt: 100_000 });
+      expect(r.depleted()).toBe(false);
+      expect(r.stale()).toBe(false);
+      r.note({ remaining: 1499, resetAt: 100_000 });
+      expect(r.depleted()).toBe(true);
+      r.note({ remaining: 1400, resetAt: 100_000 });
+      expect(warn).toHaveBeenCalledTimes(1); // one line per depleted edge
+      now += RESERVE_READING_MAX_AGE_MS;
+      expect(r.stale()).toBe(true);
+      now = 100_000;
+      expect(r.depleted()).toBe(false); // window reset
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

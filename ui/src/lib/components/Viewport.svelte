@@ -720,7 +720,7 @@
   const statusGlyph = $derived(
     !tintColor || !theme.colorblind ? null : dStatus === "blocked" ? "!" : "✓",
   );
-  // Desktop counterpart (.status-mark): one glyph per status, shape-coded so no
+  // Desktop counterpart (.status-chip): one glyph per status, shape-coded so no
   // state pair rests on hue alone — done (✓) and idle/archived (●) both resolve
   // to slate. Word stays in title/aria.
   const STATUS_MARK: Record<SessionStatus, string> = {
@@ -731,6 +731,14 @@
     archived: "●",
   };
   const statusMark = $derived(STATUS_MARK[dStatus]);
+  // The status chip carries its word (a second, non-hue carrier per the Four-Light
+  // rule) only while the header has room; narrower it falls back to the bare glyph.
+  // Measured off the header itself (bind:clientWidth → ResizeObserver), not a CSS
+  // container query: container-type's layout containment would rebase RedrawMenu's
+  // position:fixed popover onto the header.
+  const STATUS_WORD_MIN_PX = 900;
+  let headWidth = $state(0);
+  const statusWordShown = $derived(!compact && headWidth >= STATUS_WORD_MIN_PX);
 
   // ...but a busy agent shouldn't read as idle either: running gets a faint,
   // gently-pulsing amber edge (CSS .working) — ambient enough to distinguish
@@ -2878,6 +2886,7 @@
       class:renaming
       class:working={working && !tintColor}
       style:background={tintWash ?? undefined}
+      bind:clientWidth={headWidth}
     >
       {#if onback}
         <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
@@ -3050,7 +3059,6 @@
            takes the title's slot in place when active -->
         {@render renameNoteEl()}
       {/if}
-      <div class="spacer"></div>
       <ViewportTabBar
         bind:tab
         {session}
@@ -3066,7 +3074,8 @@
         {foldRegionId}
       />
       {#if !compact}
-        <span class="sep">·</span>
+        <!-- nav | state: hairline opens the state-chip cluster -->
+        <span class="vp-rule" aria-hidden="true"></span>
         <!-- git-rail disclosure — grouped with the work-state chips (status ·
            PLANNING) it shares meaning with, anchored in the right cluster so a
            short task name no longer strands it mid-bar. Reveals the full rail
@@ -3121,15 +3130,20 @@
            keep the word for assistive tech -->
         <span class="vp-status-sr">{statusLabel(dStatus)}</span>
       {:else}
-        <!-- desktop status: a single shape-coded glyph — done (✓) and idle/archived
-           (●) share the slate hue, so shape carries the distinction; the status
-           word lives in title + aria. -->
+        <!-- desktop status chip: shape-coded glyph in the status hue — done (✓) and
+           idle/archived (●) share slate, so shape carries the distinction — plus the
+           word while the header has room (glyph-only when narrow). Word also in
+           title + aria. -->
         <span
-          class="status-mark"
-          style="color:{STATUS_COLOR[dStatus]}"
+          class="status-chip"
           role="img"
           title={statusLabel(dStatus)}
-          aria-label={statusLabel(dStatus)}>{statusMark}</span
+          aria-label={statusLabel(dStatus)}
+          ><span class="sc-glyph" style="color:{STATUS_COLOR[dStatus]}" aria-hidden="true"
+            >{statusMark}</span
+          >{#if statusWordShown}<span class="sc-word" aria-hidden="true"
+              >{statusLabel(dStatus)}</span
+            >{/if}</span
         >
       {/if}
       <!-- plan-gate state in the focused view: the pre-execution lifecycle (PLANNING /
@@ -3161,6 +3175,8 @@
           />{/if}
       {/if}
       <ViewportHeaderActions
+        {session}
+        {hasPreview}
         {compact}
         {renaming}
         {tab}
@@ -3910,12 +3926,11 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
-    /* flex-basis 0 (not auto) so the name's content width doesn't drive the
-       wrap calc on mobile — otherwise a long name reserves the whole row and
-       pushes the decommission button onto the next line. It absorbs the slack
-       and ellipsizes instead. */
+    /* desktop: content-sized (basis auto) so the full name shows until the row is
+       genuinely full, then it is the first thing to ellipsize; the right cluster is
+       pushed over by the tab strip's auto margin (no spacer to split the slack). */
     min-width: 0;
-    flex: 1 1 0;
+    flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3933,13 +3948,43 @@
     color: var(--color-faint);
   }
 
-  .spacer {
-    flex: 1;
+  /* desktop cluster divider: 1px hairline between nav | state (the state | actions
+     | danger rules live in ViewportHeaderActions) */
+  .vp-rule {
+    flex-shrink: 0;
+    align-self: center;
+    width: 1px;
+    height: 16px;
+    background: var(--color-line);
   }
 
-  .status-mark {
-    font-size: var(--fs-meta);
+  /* desktop status chip — 6px chip rung shared with the desig / git-toggle /
+     PLANNING chips in the same row (DESIGN.md chip-row cohesion). The word sits on
+     --color-muted: slate (--status-done) is only 3.0:1 on the header for small
+     text; the hue stays on the glyph. */
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     flex-shrink: 0;
+    padding: 1px 6px;
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    font-size: var(--fs-meta);
+    line-height: 1.3;
+  }
+  .sc-word {
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  /* PLANNING etc. join the row's 6px chip rung here only; session cards keep 2px */
+  .vp-head :global(.pg-badge) {
+    border-radius: 6px;
+  }
+  .vp-head :global(.pg-pulse-ready::after) {
+    border-radius: 9px;
   }
 
   /* desktop disclosure for the git rail — a ghost chip that toggles the second
@@ -4472,10 +4517,12 @@
     row-gap: 6px;
     padding: 8px 10px;
   }
-  /* let the task name claim the free space instead of splitting it with the
-     spacer; its flex-grow still pushes the status badge + decom to the right */
-  .vp-head.mobile .spacer {
-    display: none;
+  /* compact: flex-basis 0 (not auto) so the name's content width doesn't drive the
+     wrap calc — otherwise a long name reserves the whole row and pushes the
+     decommission button onto the next line. It absorbs the slack and ellipsizes
+     instead, and its flex-grow pushes the status badge + decom to the right. */
+  .vp-head.mobile .vp-name {
+    flex: 1 1 0;
   }
   /* phone: the identity cluster (back · ✓ · repo · title) MUST stay on one line.
      The repo·title block becomes the row's grower (flex-basis:0 → its hypothetical
@@ -4502,12 +4549,6 @@
   .vp-head.phone .ctx-repo {
     flex: 0 1 auto;
     min-width: 0;
-  }
-  /* the ctx block is now the sole grower pinning the actions right; the standalone
-     spacer would otherwise split the free space and starve the title's width */
-  .vp-head.phone .spacer {
-    display: block;
-    flex: 0;
   }
   /* finger-sized header controls on touch layouts (≥44px) */
   .vp-head.mobile .back {

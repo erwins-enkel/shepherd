@@ -2524,3 +2524,236 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
     expect(document.querySelector(".term-mount")!.classList.contains("auto-owned")).toBe(false);
   });
 });
+
+// Sample actual CSS colors, compositing translucent ancestor backgrounds in the browser.
+function contrast(element: HTMLElement, foreground = getComputedStyle(element).color): number {
+  const ctx = document.createElement("canvas").getContext("2d")!;
+  ctx.canvas.width = ctx.canvas.height = 1;
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bg");
+  ctx.fillRect(0, 0, 1, 1);
+  const ancestors: HTMLElement[] = [];
+  for (let node: HTMLElement | null = element; node; node = node.parentElement)
+    ancestors.unshift(node);
+  for (const node of ancestors) {
+    ctx.fillStyle = getComputedStyle(node).backgroundColor;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  function luminance() {
+    const rgb = [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map((v) => {
+      const n = v / 255;
+      return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+    });
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  }
+  const bg = luminance();
+  ctx.fillStyle = foreground;
+  ctx.fillRect(0, 0, 1, 1);
+  const fg = luminance();
+  return (Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05);
+}
+
+describe("Viewport desktop header — clusters, name width, danger split (#2263)", () => {
+  afterEach(async () => {
+    vi.useRealTimers();
+    planGates.map = {};
+    await page.viewport(1280, 900);
+  });
+
+  const desktopHead = (container: HTMLElement) => {
+    const head = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
+    expect(head, "desktop header").not.toBeNull();
+    return head!;
+  };
+  // the header row's flex items in order, flattening display:contents wrappers
+  // (.vp-actions) so cluster order reads as the operator sees it
+  const rowItems = (head: HTMLElement): HTMLElement[] =>
+    Array.from(head.children as HTMLCollectionOf<HTMLElement>).flatMap((el) =>
+      getComputedStyle(el).display === "contents"
+        ? Array.from(el.children as HTMLCollectionOf<HTMLElement>)
+        : [el],
+    );
+
+  it("shows a long task name in full when the row has room (no spacer splitting the slack)", async () => {
+    await page.viewport(2560, 900);
+    const name = "a fairly long task name that used to be cut off at half the free space";
+    const { container } = await render(Viewport, {
+      session: session({ id: "hd-name", name, branch: null }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const head = desktopHead(container);
+    expect(head.querySelector(".spacer")).toBeNull();
+    const title = head.querySelector<HTMLElement>(".vp-name")!;
+    await vi.waitFor(() => expect(title.clientWidth).toBeGreaterThan(300));
+    expect(title.scrollWidth).toBeLessThanOrEqual(title.clientWidth);
+  });
+
+  it("orders nav | state | actions | danger with hairlines and ▶ in the actions cluster", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "hd-order" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const head = desktopHead(container);
+    const items = rowItems(head);
+    const idx = (pred: (el: HTMLElement) => boolean) => items.findIndex(pred);
+    const tabs = idx((el) => el.classList.contains("tab-group"));
+    const git = idx((el) => el.classList.contains("git-toggle"));
+    const start = idx((el) => el.classList.contains("preview-start-wrap"));
+    const redraw = idx((el) => el.classList.contains("vp-redraw"));
+    const danger = idx((el) => el.classList.contains("vp-rule") && el.classList.contains("danger"));
+    const decom = idx((el) => el.classList.contains("decom"));
+    const rules = items
+      .map((el, i) => (el.classList.contains("vp-rule") ? i : -1))
+      .filter((i) => i >= 0);
+    expect(rules).toHaveLength(3);
+    expect(tabs).toBeLessThan(rules[0]);
+    expect(rules[0]).toBeLessThan(git);
+    expect(git).toBeLessThan(rules[1]);
+    expect(rules[1]).toBeLessThan(start);
+    expect(start).toBeLessThan(redraw);
+    expect(redraw).toBeLessThan(danger);
+    expect(danger).toBe(decom - 1);
+    // the tab strip now holds tabs only
+    expect(head.querySelector(".tab-group .preview-start-btn")).toBeNull();
+    for (const btn of head.querySelectorAll(".tab-group button"))
+      expect(btn.getAttribute("role")).toBe("tab");
+  });
+
+  it("drops the actions hairline when only the danger ✕ remains (no double rule)", async () => {
+    const { container } = await render(Viewport, {
+      // running → not resumable, so no resume button either
+      session: session({ id: "hd-only-danger", status: "running" }),
+      previewPort: 8123,
+      openPreviewTick: 0,
+    });
+    const head = desktopHead(container);
+    await page.getByRole("tab", { name: m.viewport_activity_tab() }).click();
+    await vi.waitFor(() => expect(head.querySelector(".vp-redraw")).toBeNull());
+    expect(head.querySelector(".vp-resume")).toBeNull();
+    const items = rowItems(head);
+    const rules = items.filter((el) => el.classList.contains("vp-rule"));
+    expect(rules).toHaveLength(2);
+    for (let i = 1; i < items.length; i++)
+      expect(
+        items[i].classList.contains("vp-rule") && items[i - 1].classList.contains("vp-rule"),
+      ).toBe(false);
+  });
+
+  it("keeps ▶ pinned in the tab row on the compact layout", async () => {
+    await page.viewport(390, 844);
+    const { container } = await render(Viewport, {
+      session: session({ id: "hd-compact" }),
+      mobile: true,
+      onback: vi.fn(),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    expect(container.querySelector(".tab-group .preview-start-btn")).not.toBeNull();
+    expect(container.querySelector(".vp-rule")).toBeNull();
+  });
+
+  it("status chip carries the word when wide, glyph-only when narrow; word clears AA", async () => {
+    document.documentElement.dataset.theme = "light";
+    try {
+      await page.viewport(1600, 900);
+      const { container } = await render(Viewport, {
+        session: session({ id: "hd-status", status: "done" }),
+        previewPort: null,
+        openPreviewTick: 0,
+      });
+      const chip = () => desktopHead(container).querySelector<HTMLElement>(".status-chip")!;
+      await vi.waitFor(() => expect(chip().querySelector(".sc-word")).not.toBeNull());
+      expect(chip().getAttribute("aria-label")).toBe(m.status_done());
+      expect(chip().querySelector(".sc-word")!.textContent).toBe(m.status_done());
+      expect(contrast(chip().querySelector<HTMLElement>(".sc-word")!)).toBeGreaterThanOrEqual(4.5);
+      expect(getComputedStyle(chip()).borderTopLeftRadius).toBe("6px");
+
+      await page.viewport(800, 900);
+      await vi.waitFor(() => expect(chip().querySelector(".sc-word")).toBeNull());
+      expect(chip().querySelector(".sc-glyph")!.textContent).toBe("✓");
+      expect(chip().getAttribute("aria-label")).toBe(m.status_done());
+    } finally {
+      document.documentElement.removeAttribute("data-theme");
+    }
+  });
+
+  it("puts the header PLANNING chip on the 6px chip rung", async () => {
+    const id = "hd-plan";
+    planGates.map = { [id]: planGate({ sessionId: id }) };
+    const { container } = await render(Viewport, {
+      session: session({ id, planPhase: "planning" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector(".vp-head .pg-badge")).not.toBeNull());
+    expect(
+      getComputedStyle(container.querySelector<HTMLElement>(".vp-head .pg-badge")!)
+        .borderTopLeftRadius,
+    ).toBe("6px");
+  });
+
+  it("start-dev-server ▶ rests at full strength (no 0.85 opacity → AA)", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "hd-start-contrast" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const btn = container.querySelector<HTMLElement>(".preview-start-btn")!;
+    expect(getComputedStyle(btn).opacity).toBe("1");
+    expect(contrast(btn)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("two-step arm still works for ▶ from the actions cluster", async () => {
+    startPreviewFn.mockReset().mockResolvedValue({ ok: true, command: "npm run dev" });
+    render(Viewport, {
+      session: session({ id: "hd-arm", status: "running" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await page.getByRole("button", { name: m.viewport_preview_start() }).click();
+    expect(startPreviewFn).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.viewport_preview_start_confirm_working() }).click();
+    await vi.waitFor(() => expect(startPreviewFn).toHaveBeenCalledTimes(1));
+  });
+
+  it("a preview that binds then stops within 60s brings ▶ back enabled", async () => {
+    startPreviewFn.mockReset().mockResolvedValue({ ok: true, command: "npm run dev" });
+    const props = { session: session({ id: "hd-bind-unbind" }), openPreviewTick: 0 };
+    const { container, rerender } = await render(Viewport, { ...props, previewPort: null });
+    const startBtn = () => container.querySelector<HTMLButtonElement>(".preview-start-btn");
+    startBtn()!.click();
+    await vi.waitFor(() => expect(startBtn()!.disabled).toBe(true));
+
+    await rerender({ ...props, previewPort: 8124 });
+    await vi.waitFor(() => expect(startBtn()).toBeNull());
+    await rerender({ ...props, previewPort: null });
+    await vi.waitFor(() => expect(startBtn()).not.toBeNull());
+    expect(startBtn()!.disabled, "bind cleared the guard").toBe(false);
+  });
+
+  it("a pending start survives the compact↔desktop remount and still expires after 60s", async () => {
+    startPreviewFn.mockReset().mockResolvedValue({ ok: true, command: "npm run dev" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const props = {
+      session: session({ id: "hd-remount" }),
+      previewPort: null,
+      openPreviewTick: 0,
+      onback: vi.fn(),
+    };
+    const { container, rerender } = await render(Viewport, { ...props, mobile: true });
+    const startBtn = () => container.querySelector<HTMLButtonElement>(".preview-start-btn")!;
+    expect(startBtn().closest(".tab-group")).not.toBeNull();
+    startBtn().click();
+    await vi.waitFor(() => expect(startBtn().disabled).toBe(true));
+
+    await rerender({ ...props, mobile: false });
+    await tick();
+    expect(startBtn().closest(".tab-group"), "desktop slot").toBeNull();
+    expect(startBtn().disabled, "guard survives the remount").toBe(true);
+
+    vi.advanceTimersByTime(60_000);
+    await tick();
+    expect(startBtn().disabled, "guard expires").toBe(false);
+  });
+});

@@ -224,13 +224,16 @@ public final class ShepherdClient: Sendable {
     } catch { throw ShepherdError.from(error, route: "createSession") }
   }
 
-  /// `DELETE /api/sessions/{id}`. The contract documents 200 and 401 only —
-  /// archiving an unknown id is a no-op server-side.
+  /// `DELETE /api/sessions/{id}`. Archiving an unknown id is a no-op
+  /// server-side. A failed teardown answers 500 with the server's reason, which
+  /// the operator sees verbatim instead of a contract-mismatch guess.
   public func archiveSession(id: String, reap: [String]? = nil) async throws {
     do {
       switch try await generated.archiveSession(.init(path: .init(id: id), body: reap.map { .json(.init(reap: $0)) })) {
       case .ok: return
       case .unauthorized: throw ShepherdError.unauthenticated
+      case .internalServerError(let bad):
+        throw ShepherdError.upstreamFailure(try bad.body.json.error)
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "archiveSession")
       }

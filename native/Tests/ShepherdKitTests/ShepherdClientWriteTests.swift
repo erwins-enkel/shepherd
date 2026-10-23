@@ -149,6 +149,20 @@ struct ShepherdClientWriteTests {
     #expect(server.requests().map(\.method) == ["DELETE", "POST"])
   }
 
+  @Test("a failed archive surfaces the server's reason, not a contract mismatch")
+  func archiveServerFailure() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "DELETE", "/api/sessions/a", status: 500,
+      json: try Fixtures.errorJSON("herdr unreachable"))
+    let client = try makeClient(server)
+
+    await #expect(throws: ShepherdError.upstreamFailure("herdr unreachable")) {
+      try await client.archiveSession(id: "a")
+    }
+  }
+
   @Test("interrupting an unknown session is notFound")
   func interruptNotFound() async throws {
     let server = FakeShepherdServer()

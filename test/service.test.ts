@@ -3134,6 +3134,28 @@ test("archive: a HANGING beforeArchive is bounded by the timeout (teardown proce
   expect(store.get(s.id)?.status).toBe("archived");
 });
 
+test("archive: an undeletable worktree leftover never strands the session active", async () => {
+  // A container that wrote root-owned files into the worktree makes rmSync throw EACCES. By then
+  // the agent is already stopped, so failing the archive left a session nobody could close.
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}),
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {
+        throw Object.assign(new Error("EACCES: permission denied, rm '/wt'"), { code: "EACCES" });
+      },
+    } as any,
+    herdr: { start: async () => ({}), listAsync: async () => [], stop: async () => {} } as any,
+  });
+  const s = archivableSession(store);
+  await service.archive(s.id); // must resolve, not reject
+  expect(store.get(s.id)?.status).toBe("archived");
+});
+
 function resumable(store: SessionStore, over: Partial<Parameters<SessionStore["create"]>[0]> = {}) {
   const s = store.create({
     name: "x",
@@ -5625,15 +5647,15 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
       ensureBaseRef: async () => {},
       branchExists: () => false,
       create: () => ({}) as any,
-      // session b's worktree teardown blows up mid-loop
-      remove: (p: string) => {
-        if (p === "/wt/b") throw new Error("worktree locked");
-      },
+      remove: () => {},
     } as any,
     herdr: {
       start: async () => ({}) as any,
       listAsync: async () => [],
-      stop: async () => {},
+      // session b's teardown blows up mid-loop
+      stop: async (t: string) => {
+        if (t === "term_b") throw new Error("herdr unreachable");
+      },
     } as any,
     reaper: {
       detect,

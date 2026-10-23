@@ -48,15 +48,16 @@ struct ShepherdClientQueuesTests {
         #expect(requests.first?.query == "peek=1")
     }
 
-    @Test func conditionalUpNextSendsValidatorAndPreservesBodyless304() async throws {
+    @Test(arguments: ["W/\"cached\"", "\"strong%2Ftag\"", "\"first\", W/\"second\"", "*"])
+    func conditionalUpNextSendsValidatorAndPreservesBodyless304(validator: String) async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }
         server.on("GET", "/api/up-next") { request in
-            #expect(request.headers.first { $0.key.lowercased() == "if-none-match" }?.value == "W/\"cached\"")
+            #expect(request.headers.first { $0.key.lowercased() == "if-none-match" }?.value == validator)
             #expect(request.query == "peek=1")
             return FakeResponse(statusCode: 304, headers: ["ETag": "W/\"cached\""], body: Data())
         }
-        let result = try await client(server).readUpNext(ifNoneMatch: "W/\"cached\"")
+        let result = try await client(server).readUpNext(ifNoneMatch: validator)
         guard case .notModified = result else { Issue.record("304 must not decode a snapshot"); return }
     }
 

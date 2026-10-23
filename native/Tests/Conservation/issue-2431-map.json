@@ -12867,7 +12867,7 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"recoveryAndHeldRefreshCannotDiscardTheOnlyUpNextResult() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"teardownFencesConditionalReadAndFinishesDemandLifetime() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextRetainsNullAndOptionalValidator(hasETag: Bool) async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextSendsValidatorAndPreservesBodyless304() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextSendsValidatorAndPreservesBodyless304(validator: String) async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

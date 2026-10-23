@@ -3176,7 +3176,6 @@
       {/if}
       <ViewportHeaderActions
         {session}
-        {previewPort}
         {hasPreview}
         {compact}
         {renaming}

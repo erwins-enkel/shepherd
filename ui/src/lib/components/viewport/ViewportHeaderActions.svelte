@@ -6,7 +6,6 @@
 
   let {
     session,
-    previewPort,
     hasPreview,
     compact,
     renaming,
@@ -35,7 +34,6 @@
     onfontstep,
   }: {
     session: Session;
-    previewPort: number | null;
     hasPreview: boolean;
     compact: boolean;
     renaming: boolean;
@@ -110,7 +108,7 @@
   {/if}
   {#if !compact && hasSafeActions}<span class="vp-rule" aria-hidden="true"></span>{/if}
   {#if showPreviewStart}
-    <ViewportPreviewStart {session} {previewPort} variant="icon" />
+    <ViewportPreviewStart {session} variant="icon" />
   {/if}
   <!-- squished-history repair variants under field test (see redrawNudge etc.
        above) — a quiet icon-only wrench toggle opening an anchored popover with the four

@@ -2,7 +2,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type { Session } from "#lib/types.js";
-  import ViewportPreviewStart from "./ViewportPreviewStart.svelte";
+  import ViewportPreviewStart, { clearPreviewPending } from "./ViewportPreviewStart.svelte";
 
   type Tab = "term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser";
 
@@ -34,6 +34,13 @@
     tabId: (t: Tab) => string;
     foldRegionId: string;
   } = $props();
+
+  // Clear the ▶ start-pending guard once the preview binds. Lives here, not in
+  // ViewportPreviewStart: that control unmounts as soon as a port binds (it only
+  // renders while there is no preview), and this tab bar stays mounted throughout.
+  $effect(() => {
+    if (previewPort != null) clearPreviewPending(session.id);
+  });
 </script>
 
 <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
@@ -132,7 +139,7 @@
     <!-- no preview yet: operator-triggered start. Compact keeps it pinned at the
          tab row's right edge; on desktop it lives in the actions cluster
          (ViewportHeaderActions) — it is an action, not navigation. -->
-    <ViewportPreviewStart {session} {previewPort} variant="tab" />
+    <ViewportPreviewStart {session} variant="tab" />
   {/if}
 </div>
 

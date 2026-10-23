@@ -3,8 +3,9 @@
 
   // Per-session "start in flight" guard: keyed by session id and module-scoped so it
   // survives navigating away and back AND the remount when the header flips between
-  // the compact tab-row slot and the desktop actions slot. Cleared on port-bound,
-  // error, throw, or 60s timeout. Single SvelteMap doubles as the timer store AND the
+  // the compact tab-row slot and the desktop actions slot. Cleared on port-bound
+  // (by ViewportTabBar — this component unmounts once a port binds), error, throw,
+  // or 60s timeout. Single SvelteMap doubles as the timer store AND the
   // reactive presence check (plain Set/Map would not re-evaluate deriveds). No
   // per-instance unmount teardown: a cleared timer would strand its entry and keep ▶
   // disabled forever — each timer always runs to expiry and deletes its own entry.
@@ -16,7 +17,7 @@
     previewStartPending.set(id, t);
   }
 
-  function clearPreviewPending(id: string) {
+  export function clearPreviewPending(id: string) {
     const t = previewStartPending.get(id);
     if (t !== undefined) clearTimeout(t);
     previewStartPending.delete(id);
@@ -32,11 +33,9 @@
 
   let {
     session,
-    previewPort,
     variant,
   }: {
     session: Session;
-    previewPort: number | null;
     /** "tab": compact tab-row slot (tab-btn look); "icon": desktop actions cluster. */
     variant: "tab" | "icon";
   } = $props();
@@ -64,15 +63,6 @@
     clearTimeout(previewArmTimer);
   });
   $effect(() => () => clearTimeout(previewArmTimer));
-
-  // Clear the pending flag for a session (port bound via WS event).
-  $effect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
-    previewPort; // re-run whenever previewPort changes for this session
-    if (previewPort != null && previewStartPending.has(unitId)) {
-      clearPreviewPending(unitId);
-    }
-  });
 
   const isPreviewStartPending = $derived(previewStartPending.has(unitId));
 

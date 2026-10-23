@@ -2717,6 +2717,21 @@ describe("Viewport desktop header — clusters, name width, danger split (#2263)
     await vi.waitFor(() => expect(startPreviewFn).toHaveBeenCalledTimes(1));
   });
 
+  it("a preview that binds then stops within 60s brings ▶ back enabled", async () => {
+    startPreviewFn.mockReset().mockResolvedValue({ ok: true, command: "npm run dev" });
+    const props = { session: session({ id: "hd-bind-unbind" }), openPreviewTick: 0 };
+    const { container, rerender } = await render(Viewport, { ...props, previewPort: null });
+    const startBtn = () => container.querySelector<HTMLButtonElement>(".preview-start-btn");
+    startBtn()!.click();
+    await vi.waitFor(() => expect(startBtn()!.disabled).toBe(true));
+
+    await rerender({ ...props, previewPort: 8124 });
+    await vi.waitFor(() => expect(startBtn()).toBeNull());
+    await rerender({ ...props, previewPort: null });
+    await vi.waitFor(() => expect(startBtn()).not.toBeNull());
+    expect(startBtn()!.disabled, "bind cleared the guard").toBe(false);
+  });
+
   it("a pending start survives the compact↔desktop remount and still expires after 60s", async () => {
     startPreviewFn.mockReset().mockResolvedValue({ ok: true, command: "npm run dev" });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

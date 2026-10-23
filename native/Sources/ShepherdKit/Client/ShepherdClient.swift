@@ -90,7 +90,9 @@ public final class ShepherdClient: Sendable {
       transport: URLSessionTransport(configuration: .init(session: longRunningURLSession)),
       middlewares: middlewares
     )
-    var ordinaryMiddlewares: [any ClientMiddleware] = [auth, RetryingMiddleware(maxAttempts: requestAttempts)]
+    var ordinaryMiddlewares: [any ClientMiddleware] = [
+      auth, UpNextConditionalHeaderMiddleware(), RetryingMiddleware(maxAttempts: requestAttempts)
+    ]
     if let readOnlyAudit { ordinaryMiddlewares.insert(ReadOnlyRequestMiddleware(audit: readOnlyAudit), at: 0) }
     generated = Client(
       serverURL: validated.baseURL,

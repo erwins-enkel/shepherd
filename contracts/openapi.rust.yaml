@@ -5177,7 +5177,7 @@ components:
         failedRepoCount:
           type: integer
           description: Repos whose listing failed. Non-zero with an empty sections is the panel's "could not load" state.
-      description: The Up Next queue, delivered through upnext:snapshot and the cached snapshot read.
+      description: The Up Next queue, fetched after upnext:changed invalidates the cached snapshot read.
     UpNextCachedSnapshot:
       type: object
       nullable: true
@@ -5401,7 +5401,20 @@ components:
           type: integer
         total:
           type: integer
+    UpNextChangedEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - computedAt
+      properties:
+        version:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        computedAt:
+          type: integer
     UpNextSnapshotEvent:
+      deprecated: true
       type: object
       additionalProperties: true
       required:
@@ -11346,24 +11359,40 @@ paths:
       parameters:
         - in: query
           name: peek
-          required: true
+          required: false
           schema:
             type: string
             enum:
               - "1"
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Cached snapshot, or JSON null when nothing is cached.
+          headers:
+            ETag:
+              description: Representation validator; absent on older servers.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UpNextCachedSnapshot"
+        "304":
+          description: Cached representation unchanged; no response body.
+          headers:
+            ETag:
+              description: Representation validator; absent on older servers.
+              schema:
+                type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Missing or invalid credential.
   /api/up-next/refresh:
     post:
       operationId: refreshUpNext
-      description: Fire-and-forget refresh; the snapshot arrives through upnext:snapshot.
+      description: Fire-and-forget refresh; upnext:changed signals when to re-read the cached snapshot.
       responses:
         "202":
           description: Accepted; computation runs in the background.
@@ -13773,8 +13802,12 @@ x-shepherd-events:
   drain:status:
     schema:
       $ref: "#/components/schemas/DrainStatus"
+  upnext:changed:
+    description: Up Next changed. Visible consumers revalidate GET /api/up-next?peek=1 with their cached ETag. Version is an opaque publication hash; computedAt is epoch milliseconds.
+    schema:
+      $ref: "#/components/schemas/UpNextChangedEvent"
   upnext:snapshot:
-    description: A freshly computed Up Next queue. Also available through the cache-only peek read — see UpNextSnapshot.
+    description: Legacy event for older servers; current servers emit upnext:changed and serve snapshots over HTTP.
     schema:
       $ref: "#/components/schemas/UpNextSnapshotEvent"
   halt:done:

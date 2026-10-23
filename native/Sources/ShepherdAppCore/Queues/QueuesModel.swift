@@ -3,14 +3,14 @@ import Observation
 import ShepherdKit
 
 /// Queue snapshots and the fire-and-forget Up Next computation. The latter delivers its
-/// result through upnext:snapshot; a successful POST is not a snapshot or an empty list.
+/// result through upnext:changed and a conditional HTTP read; a successful POST is not a snapshot or an empty list.
 struct QueuesReads: Sendable {
     var held: @Sendable () async throws -> [HeldQueueEntry]
     var done: @Sendable () async throws -> [Session]
     var recaps: @Sendable () async throws -> [String: Recap]
     var stranded: @Sendable () async throws -> [String]
     var refreshUpNext: @Sendable () async throws -> Void
-    var peekUpNext: @Sendable () async throws -> UpNextSnapshot? = { nil }
+    var readUpNext: @Sendable (String?) async throws -> UpNextReadResult = { _ in .modified(snapshot: nil, etag: nil) }
     // Optional for previews/tests without a session snapshot source.
     var haltSnapshots: @Sendable () async throws -> [Session]? = { nil }
 
@@ -21,7 +21,7 @@ struct QueuesReads: Sendable {
             recaps: { try await client.recaps() },
             stranded: { try await client.strandedSessions() },
             refreshUpNext: { try await client.refreshUpNext() },
-            peekUpNext: { try await client.peekUpNext() },
+            readUpNext: { try await client.readUpNext(ifNoneMatch: $0) },
             haltSnapshots: { try await client.sessions() })
     }
 }
@@ -88,11 +88,19 @@ public final class QueuesModel: AppExtension {
     @ObservationIgnored private(set) var isWatchingConnection = false
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
-    @ObservationIgnored private var upNextRefreshPending = false
+    @ObservationIgnored private var upNextTask: Task<Void, Never>?
+    @ObservationIgnored private var upNextConsumers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    @ObservationIgnored private var upNextDirty = true
+    @ObservationIgnored private var upNextComputePending = false
+    @ObservationIgnored private var upNextExplicitReads = 0
+    @ObservationIgnored private var upNextETag: String?
+    @ObservationIgnored private var hasUpNextCache = false
+
+    var hasUpNextDemand: Bool { !upNextConsumers.isEmpty }
 
     var isSubscribed: Bool { watcher != nil }
     /// Whether the bootstrap/event/reconnect reconciliation loop is active.
-    public var isRefreshing: Bool { refreshTask != nil }
+    public var isRefreshing: Bool { refreshTask != nil || upNextTask != nil }
 
     public init(store: SessionStore, app: AppModel) {
         reads = .live(store.client)
@@ -109,7 +117,7 @@ public final class QueuesModel: AppExtension {
         }
         // Bootstrap shares the coalescing loop with events, including late registration
         // against an already-live store. There is no second bootstrap task to race it.
-        requestRefresh(recomputeUpNext: true)
+        requestRefresh()
     }
 
     /// Test/preview seam: no app, socket or automatic bootstrap.
@@ -124,9 +132,13 @@ public final class QueuesModel: AppExtension {
 
     /// Failures preserve the affected snapshot without discarding successful independent
     /// reads. Reconnect retries all snapshots; Up Next failure has its own visible state.
-    /// `readOnly` (the iOS recovery path) never recomputes Up Next and reads the server's cached
-    /// snapshot instead, whatever the installing app allows.
+    /// `readOnly` (the iOS recovery path) never recomputes Up Next and revalidates its cache
+    /// only while a presentation consumes it, whatever the installing app allows.
     public func refresh(recomputeUpNext: Bool = true, readOnly: Bool = false) async {
+        await refreshSnapshots(recomputeUpNext: recomputeUpNext, readOnly: readOnly, includeUpNext: !readOnly || hasUpNextDemand)
+    }
+
+    private func refreshSnapshots(recomputeUpNext: Bool, readOnly: Bool = false, includeUpNext: Bool) async {
         let mine = generation
         guard isCurrent(mine) else { return }
         let activation = app?.activationGeneration
@@ -135,20 +147,16 @@ public final class QueuesModel: AppExtension {
         let heldVersion = heldRevision
         let strandedVersion = strandedRevision
         let haltVersion = retrySelectionGeneration
-        let upNextVersion = upNextRevision
         let sources = reads
-        let mayRecompute = !readOnly && (app?.allowsQueueRecomputation ?? true)
         async let heldResult = Self.load(sources.held)
         async let doneResult = Self.load(sources.done)
         async let recapsResult = Self.load(sources.recaps)
         async let strandedResult = Self.load(sources.stranded)
         async let haltResult = Self.load(sources.haltSnapshots)
-        async let upNextResult = Self.load {
-            if !mayRecompute { return try await sources.peekUpNext() }
-            if recomputeUpNext { try await sources.refreshUpNext() }
-            return nil as UpNextSnapshot?
-        }
-        let results = await (heldResult, doneResult, recapsResult, strandedResult, upNextResult, haltResult)
+        async let upNextResult: Void = reconcileUpNext(recompute: recomputeUpNext,
+                                                       readOnly: readOnly, include: includeUpNext)
+        let results = await (heldResult, doneResult, recapsResult, strandedResult, haltResult)
+        await upNextResult
         guard isCurrent(mine), activation == app?.activationGeneration,
               sequence == readSequence, !Task.isCancelled else { return }
 
@@ -165,7 +173,7 @@ public final class QueuesModel: AppExtension {
         }
         pruneStranded()
         // Reconnect repairs missed halt frames; a frame received during this read wins.
-        if case .success(let sessions?) = results.5, haltVersion == retrySelectionGeneration {
+        if case .success(let sessions?) = results.4, haltVersion == retrySelectionGeneration {
             haltFlags = Dictionary(uniqueKeysWithValues: sessions.map { session in
                 (session.id, .init(id: session.id,
                     haltReason: session.haltReason.map {
@@ -174,12 +182,86 @@ public final class QueuesModel: AppExtension {
                     haltedAt: session.haltedAt))
             })
         }
-        if recomputeUpNext || !mayRecompute, upNextVersion == upNextRevision {
-            switch results.4 {
-            case .success(let cached):
-                if !mayRecompute { upNext = cached }
+    }
+
+    /// Up Next reads never depend on the other queues' read sequence: an unrelated held
+    /// event must not discard the only result of a recommendation invalidation.
+    private func reconcileUpNext(recompute: Bool, readOnly: Bool, include: Bool) async {
+        let mine = generation
+        guard include, isCurrent(mine), !Task.isCancelled else { return }
+        if readOnly || !(app?.allowsQueueRecomputation ?? true) {
+            upNextExplicitReads += 1
+            defer { upNextExplicitReads -= 1 }
+            invalidateUpNext()
+            await upNextTask?.value
+        } else if recompute {
+            let revision = upNextRevision
+            do {
+                try await reads.refreshUpNext()
+                guard isCurrent(mine), revision == upNextRevision, !Task.isCancelled else { return }
                 upNextLoadFailed = false
-            case .failure: upNextLoadFailed = true
+            } catch {
+                guard isCurrent(mine), revision == upNextRevision, !Task.isCancelled else { return }
+                upNextLoadFailed = true
+            }
+        }
+    }
+
+    /// A presentation task owns demand until it disappears or the activation is torn down.
+    /// Multiple windows and merged-server views can share this model safely.
+    public func observeUpNext() async {
+        guard isCurrent(generation), !Task.isCancelled else { return }
+        let id = UUID()
+        let (lifetime, signal) = AsyncStream<Void>.makeStream()
+        let first = upNextConsumers.isEmpty
+        upNextConsumers[id] = signal
+        defer {
+            upNextConsumers.removeValue(forKey: id)
+            if upNextConsumers.isEmpty { upNextComputePending = false }
+        }
+        invalidateUpNext(recompute: first)
+        for await _ in lifetime {}
+    }
+
+    private func installUpNext(_ result: UpNextReadResult) {
+        if case .modified(let snapshot, let etag) = result {
+            upNext = snapshot
+            upNextETag = etag
+            hasUpNextCache = true
+        }
+        upNextLoadFailed = false
+    }
+
+    private func invalidateUpNext(recompute: Bool = false) {
+        guard isCurrent(generation) else { return }
+        upNextRevision &+= 1
+        upNextDirty = true
+        upNextComputePending = upNextComputePending || (recompute && (app?.allowsQueueRecomputation ?? true))
+        guard hasUpNextDemand || upNextExplicitReads > 0, upNextTask == nil else { return }
+        let mine = generation
+        upNextTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if self.generation == mine { self.upNextTask = nil } }
+            while self.hasUpNextDemand || self.upNextExplicitReads > 0,
+                  self.upNextDirty, self.isCurrent(mine), !Task.isCancelled {
+                let revision = self.upNextRevision
+                let compute = self.upNextComputePending
+                self.upNextComputePending = false
+                self.upNextDirty = false
+                do {
+                    let result = try await self.reads.readUpNext(self.hasUpNextCache ? self.upNextETag : nil)
+                    guard self.isCurrent(mine), !Task.isCancelled else { return }
+                    if revision == self.upNextRevision { self.installUpNext(result) }
+                    if compute, self.hasUpNextDemand, self.app?.allowsQueueRecomputation ?? true {
+                        try await self.reads.refreshUpNext()
+                    }
+                } catch {
+                    guard self.isCurrent(mine), !Task.isCancelled else { return }
+                    if revision != self.upNextRevision { continue }
+                    self.upNextDirty = true
+                    self.upNextLoadFailed = true
+                    return
+                }
             }
         }
     }
@@ -234,7 +316,12 @@ public final class QueuesModel: AppExtension {
         refreshTask?.cancel()
         refreshTask = nil
         refreshPending = false
-        upNextRefreshPending = false
+        upNextTask?.cancel()
+        upNextTask = nil
+        for signal in upNextConsumers.values { signal.finish() }
+        upNextConsumers.removeAll()
+        upNextETag = nil
+        hasUpNextCache = false
     }
 
     /// The HTTP result and its socket echo share one slot, including remote operators' halts.
@@ -309,12 +396,16 @@ public final class QueuesModel: AppExtension {
             heldRevision &+= 1
             heldCount = frame.count
             requestRefresh()
+        case "upnext:changed":
+            guard (try? decoder.decode(Components.Schemas.UpNextChangedEvent.self,
+                                       from: payload)) != nil else { return }
+            invalidateUpNext()
         case "upnext:snapshot":
             guard let frame = try? decoder.decode(Components.Schemas.UpNextSnapshotEvent.self,
                                                   from: payload) else { return }
             upNextRevision &+= 1
-            upNext = frame.snapshot
-            upNextLoadFailed = false
+            installUpNext(.modified(snapshot: frame.snapshot, etag: nil))
+            upNextDirty = false
         case "session:halt":
             guard let frame = try? decoder.decode(Components.Schemas.SessionHaltEvent.self,
                                                   from: payload) else { return }
@@ -365,7 +456,10 @@ public final class QueuesModel: AppExtension {
                           self.connectionWatcherToken == token, let state = read() else { return }
                     self.pruneStranded()
                     let isLive = state == .live
-                    if isLive, wasLive != true { self.requestRefresh(recomputeUpNext: true) }
+                    if isLive, wasLive != true {
+                        self.requestRefresh()
+                        self.invalidateUpNext()
+                    }
                     wasLive = isLive
                 }
                 withObservationTracking { _ = read() } onChange: { signal.yield() }
@@ -376,13 +470,12 @@ public final class QueuesModel: AppExtension {
         }
     }
 
-    /// Event bursts collapse into one follow-up read. A reconnect also remembers that
-    /// Up Next needs recomputing; ordinary held/stranded frames never start that computation.
-    private func requestRefresh(recomputeUpNext: Bool = false) {
+    /// Queue events coalesce without fetching or recomputing Up Next. That cache has its
+    /// own demand-driven invalidation loop.
+    private func requestRefresh() {
         let mine = generation
         guard isCurrent(mine) else { return }
         refreshPending = true
-        upNextRefreshPending = upNextRefreshPending || recomputeUpNext
         guard refreshTask == nil else { return }
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -390,10 +483,8 @@ public final class QueuesModel: AppExtension {
                 if self.generation == mine { self.refreshTask = nil }
             }
             while self.refreshPending, self.isCurrent(mine), !Task.isCancelled {
-                let compute = self.upNextRefreshPending
                 self.refreshPending = false
-                self.upNextRefreshPending = false
-                await self.refresh(recomputeUpNext: compute)
+                await self.refreshSnapshots(recomputeUpNext: false, includeUpNext: false)
             }
         }
     }

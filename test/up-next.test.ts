@@ -800,3 +800,21 @@ describe("UpNextService readiness rerank (#2535)", () => {
     await flush();
   });
 });
+
+test("publication versions include content even when computedAt is unchanged", async () => {
+  const changes: Array<{ version: string; computedAt: number }> = [];
+  let title = "first";
+  const service = svc({
+    resolveForge: () => fakeForge({ issues: [issue(1, { title })] }),
+    onChange: (_snap, change) => {
+      changes.push(change);
+    },
+  });
+  await service.refresh();
+  await service.refresh();
+  title = "second";
+  await service.refresh();
+  expect(changes[0]!.version).toBe(changes[1]!.version);
+  expect(changes[2]!.version).not.toBe(changes[0]!.version);
+  expect(changes.map((c) => c.computedAt)).toEqual([1000, 1000, 1000]);
+});

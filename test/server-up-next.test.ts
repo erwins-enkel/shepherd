@@ -485,3 +485,74 @@ test("#3245: an unregistered Target repo is refused per item, nothing spawned", 
   await new Promise((r) => setTimeout(r, 5));
   expect(labelCalls).toHaveLength(0);
 });
+
+test("Up Next conditional reads preserve null, filtering and recompute semantics", async () => {
+  for (const snapshot of [undefined, SNAP]) {
+    const { app, staleRefreshCalls } = harness({ snapshot });
+    const first = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^W\/"[a-f0-9]{64}"$/);
+    expect(first.headers.get("cache-control")).toBe("private, no-cache");
+    for (const validator of [etag!, etag!.slice(2), `"other", ${etag}`, "*"]) {
+      const res = await app.fetch(
+        new Request("http://x/api/up-next", {
+          headers: { "If-None-Match": validator },
+        }),
+      );
+      expect(res.status).toBe(304);
+      expect(await res.text()).toBe("");
+      expect(res.headers.get("etag")).toBe(etag);
+    }
+    expect(staleRefreshCalls).toHaveLength(4);
+    const different = await app.fetch(
+      new Request("http://x/api/up-next?peek=1", {
+        headers: { "If-None-Match": '"other"' },
+      }),
+    );
+    expect(different.status).toBe(200);
+    expect(await different.json()).toEqual(snapshot ?? null);
+  }
+});
+
+test("Up Next ETag changes when the read-time hidden filter changes", async () => {
+  const hidden = new Set<string>();
+  const snapshot = {
+    ...SNAP,
+    sections: [
+      {
+        kind: "repo" as const,
+        repoPath: "/r",
+        repoSlug: null,
+        repoLabel: "r",
+        items: [],
+        totalCount: 0,
+      },
+    ],
+  };
+  const { app } = harness({ snapshot, hiddenRepoPathsRaw: () => hidden });
+  const first = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+  hidden.add("/r");
+  const second = await app.fetch(
+    new Request("http://x/api/up-next?peek=1", {
+      headers: { "If-None-Match": first.headers.get("etag")! },
+    }),
+  );
+  expect(second.status).toBe(200);
+  expect(second.headers.get("etag")).not.toBe(first.headers.get("etag"));
+  expect(await second.json()).toMatchObject({ sections: [] });
+});
+
+test("Up Next conditional read changes validator when content changes at the same timestamp", async () => {
+  const snapshot = { ...SNAP };
+  const { app } = harness({ snapshot });
+  const first = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+  snapshot.failedRepoCount = 1;
+  const next = await app.fetch(
+    new Request("http://x/api/up-next?peek=1", {
+      headers: { "If-None-Match": first.headers.get("etag")! },
+    }),
+  );
+  expect(next.status).toBe(200);
+  expect(next.headers.get("etag")).not.toBe(first.headers.get("etag"));
+  expect(await next.json()).toEqual(snapshot);
+});

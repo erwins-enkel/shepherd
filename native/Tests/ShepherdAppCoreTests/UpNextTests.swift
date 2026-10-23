@@ -47,6 +47,15 @@ struct UpNextTests {
         var deadline = ContinuousClock.now + .seconds(10)
         while model.isRefreshing, ContinuousClock.now < deadline { await Task.yield() }
         #expect(!model.isRefreshing && !model.upNextLoadFailed)
+        #expect(await probe.calls == 0) // Closed bootstrap must not compute recommendations.
+        let presentation = Task { await model.observeUpNext() }
+        defer { presentation.cancel() }
+        deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            if await probe.calls == 1, !model.isRefreshing { break }
+            await Task.yield()
+        }
+        #expect(model.hasUpNextDemand && !model.isRefreshing && !model.upNextLoadFailed)
         #expect(await probe.calls == 1)
         #expect(UpNextPresentation.phase(model.upNext, failed: false, groups: []) == .computing)
         let snap = snapshot([section([item(1)]), section([item(2, repo: "/b")], repo: "/b")])

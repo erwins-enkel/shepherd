@@ -162,7 +162,7 @@ import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
 import { BacklogPoller, reposUsedSince } from "./backlog-poller";
-import { UpNextService, buildUpNextRepos } from "./up-next";
+import { UpNextService, buildUpNextRepos, upNextChangePublisher } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
 import { GreenfieldService } from "./greenfield";
 import { reconcileBootstrapPhases } from "./bootstrap-phases";
@@ -3949,8 +3949,7 @@ deferredStarts.push(() => {
 
 // Up Next (#1169): cross-repo ranked queue of un-started work. In-memory snapshot kept warm
 // by a 15-min background loop while a dashboard is connected (#2658); reuses the drain's epic
-// pipeline for ready-child gating and pushes each fresh snapshot to clients over the WS
-// (upnext:snapshot).
+// pipeline for ready-child gating and invalidates client caches over the WS (upnext:changed).
 const upNext = new UpNextService({
   shouldBackgroundRefresh: () => presence.hasClients() && fingerprint.backgroundReady(),
   // Forge-backed, non-hidden repos only. buildUpNextRepos owns forge-kind filtering,
@@ -3965,7 +3964,7 @@ const upNext = new UpNextService({
   lastUsedByRepo: () => store.lastUsedByRepo(),
   buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
   getEpicRun: (repoPath) => store.getEpicRun(repoPath),
-  onChange: (snapshot) => events.emit("upnext:snapshot", { snapshot }),
+  onChange: upNextChangePublisher(events),
   // Readiness rerank (#2535): effective only while BOTH the setting and the judge itself are on
   // (which needs a key) — read per compute, so either toggle, or a key saved in Settings, lands on
   // the next refresh.

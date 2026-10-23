@@ -1064,6 +1064,9 @@ export class HerdStore {
       case "repo-bootstrap:update":
         repoBootstrap.refresh(ev.data.repoPath);
         break;
+      case "upnext:changed":
+        upNext.changed();
+        break;
       case "upnext:snapshot":
         upNext.apply(ev.data);
         break;
@@ -1202,6 +1205,7 @@ export class HerdStore {
         openedAt = Date.now();
         this.connected = true;
         this.connectionEpoch += 1;
+        upNext.reconnected();
         reportPresence();
       };
       ws.onmessage = (e) => {

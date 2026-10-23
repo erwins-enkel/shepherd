@@ -14,7 +14,13 @@ import type {
   WindowedBucketSum,
 } from "./types";
 import { isOperationalArchetype } from "./usage-archetype";
-import { jsonlPathFor, sessionCost, dominantModel, SessionUsageRollup } from "./usage";
+import {
+  jsonlPathFor,
+  sessionCost,
+  dominantModel,
+  spawnCacheCounts,
+  SessionUsageRollup,
+} from "./usage";
 import { weightedUnits } from "./pricing";
 
 const CLAUDE_MODEL_ALIASES = new Set<string>(MODELS);
@@ -159,16 +165,7 @@ function attributeSatellites(
     if (!task) continue;
 
     const model = sp.model ?? task.model ?? "unknown";
-    const wu = weightedUnits(
-      {
-        input: sp.inputTokens ?? 0,
-        output: sp.outputTokens ?? 0,
-        cacheRead: sp.cacheReadTokens ?? 0,
-        cacheWrite5m: sp.cacheWriteTokens ?? 0,
-        cacheWrite1h: 0,
-      },
-      model,
-    );
+    const wu = weightedUnits(spawnCacheCounts(sp), model);
     const cru = weightedUnits(
       {
         input: 0,
@@ -206,18 +203,7 @@ function satelliteUnitsByKind(
     if ((sp.completedAt ?? sp.spawnedAt) < cutoff) continue;
 
     const model = sp.model ?? "unknown";
-    // Map ReviewerSpawnRow fields explicitly into weightedUnits' shape — a spread would not
-    // match (row uses inputTokens/.../cacheWriteTokens; the fn wants input/.../cacheWrite5m).
-    const wu = weightedUnits(
-      {
-        input: sp.inputTokens ?? 0,
-        output: sp.outputTokens ?? 0,
-        cacheRead: sp.cacheReadTokens ?? 0,
-        cacheWrite5m: sp.cacheWriteTokens ?? 0,
-        cacheWrite1h: 0,
-      },
-      model,
-    );
+    const wu = weightedUnits(spawnCacheCounts(sp), model);
 
     const bucket = byKind.get(sp.kind) ?? { units: 0, count: 0 };
     bucket.units += wu;

@@ -601,6 +601,7 @@ test("satellite: targeted task accumulates spawn cost; out-of-scope spawn ignore
       output: spawnOutputTokens,
       cacheRead: spawnCacheRead,
       cacheWrite: 0,
+      cacheWrite1h: 0,
       total: spawnInputTokens + spawnOutputTokens + spawnCacheRead,
       messageCount: 1,
       lastActivity: NOW - 500,
@@ -627,6 +628,7 @@ test("satellite: targeted task accumulates spawn cost; out-of-scope spawn ignore
       output: 999,
       cacheRead: 0,
       cacheWrite: 0,
+      cacheWrite1h: 0,
       total: 1998,
       messageCount: 1,
       lastActivity: NOW - 1500,
@@ -884,6 +886,7 @@ test("top-level invariants: cacheReadUnits + generationUnits === totalUnits, tot
       output: 0,
       cacheRead: spawnCacheRead,
       cacheWrite: 0,
+      cacheWrite1h: 0,
       total: spawnInput + spawnCacheRead,
       messageCount: 1,
       lastActivity: NOW - 500,
@@ -972,6 +975,7 @@ test("apiKey gate: dollars non-null and equals total units when true, null when 
       output: spawnOutput,
       cacheRead: 0,
       cacheWrite: 0,
+      cacheWrite1h: 0,
       total: spawnInput + spawnOutput,
       messageCount: 1,
       lastActivity: NOW - 500,
@@ -1306,6 +1310,7 @@ test("bucketed zero-window: dropped when no spawn; retained as zero-authoring wh
       output: 80,
       cacheRead: 0,
       cacheWrite: 0,
+      cacheWrite1h: 0,
       total: 280,
       messageCount: 1,
       lastActivity: NOW - 1500,
@@ -1555,4 +1560,63 @@ test("Codex roles never claim tokens from a thread outside the native time windo
   } finally {
     db.close();
   }
+});
+
+test("satellite: a spawn's 1h cache writes price at the 1h rate, the rest at 5m (#2929)", async () => {
+  const store = new SessionStore(":memory:");
+  const model = "claude-opus-4-8";
+  store.upsertSessionUsage(
+    makeSnap({
+      sessionId: "task-a",
+      desig: "TASK-01",
+      repoPath: "/repos/foo",
+      input: 1000,
+      output: 500,
+      weightedUnits: 1,
+      cacheReadUnits: 0,
+      snapshotAt: NOW,
+    }),
+  );
+  store.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-a",
+    kind: "review",
+    worktreePath: "/wt",
+    model,
+    spawnedAt: NOW - 1000,
+  });
+  store.completeReviewerSpawn(
+    "rev-1",
+    {
+      input: 100,
+      output: 50,
+      cacheRead: 0,
+      cacheWrite: 1000,
+      cacheWrite1h: 800,
+      total: 1150,
+      messageCount: 1,
+      lastActivity: NOW - 500,
+      byModel: { [model]: 1150 },
+      fullRecaches: 0,
+      sidechainCount: 0,
+    },
+    NOW - 500,
+  );
+
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
+
+  const expected = weightedUnits(
+    { input: 100, output: 50, cacheRead: 0, cacheWrite5m: 200, cacheWrite1h: 800 },
+    model,
+  );
+  const task = bd.repos.flatMap((r) => r.tasks).find((t) => t.sessionId === "task-a");
+  expect(task!.satelliteUnits).toBeCloseTo(expected, 10);
+  expect(bd.satelliteByKind.find((k) => k.kind === "review")!.units).toBeCloseTo(expected, 10);
+  // the old all-5m pricing under-weighted this spawn
+  expect(expected).toBeGreaterThan(
+    weightedUnits(
+      { input: 100, output: 50, cacheRead: 0, cacheWrite5m: 1000, cacheWrite1h: 0 },
+      model,
+    ),
+  );
 });

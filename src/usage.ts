@@ -113,6 +113,9 @@ export interface SessionUsage {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /** The 1-hour-TTL share of `cacheWrite` (the rest is 5m). Kept so a persisted spawn can price
+   *  each part at its own rate (#2929). */
+  cacheWrite1h: number;
   total: number;
   messageCount: number;
   lastActivity: number | null;
@@ -131,6 +134,7 @@ function emptyUsage(): SessionUsage {
     output: 0,
     cacheRead: 0,
     cacheWrite: 0,
+    cacheWrite1h: 0,
     total: 0,
     messageCount: 0,
     lastActivity: null,
@@ -248,6 +252,7 @@ export function accumulate(lines: Iterable<string>): SessionUsage {
     out.output += r.output;
     out.cacheRead += r.cacheRead;
     out.cacheWrite += r.cacheWrite5m + r.cacheWrite1h;
+    out.cacheWrite1h += r.cacheWrite1h;
     out.messageCount += 1;
     if (r.ts) out.lastActivity = Math.max(out.lastActivity ?? 0, r.ts);
     const tokens = r.input + r.output + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h;
@@ -279,6 +284,7 @@ function accumulateCostRecord(
   usage.output += r.output;
   usage.cacheRead += r.cacheRead;
   usage.cacheWrite += r.cacheWrite5m + r.cacheWrite1h;
+  usage.cacheWrite1h += r.cacheWrite1h;
   usage.messageCount += 1;
   if (r.ts) usage.lastActivity = Math.max(usage.lastActivity ?? 0, r.ts);
   const tokens = r.input + r.output + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h;
@@ -324,6 +330,32 @@ export function sessionCost(lines: Iterable<string>, sinceMs?: number): SessionC
     weightedUnits: cost.totalWeightedUnits,
     weightedByModel: cost.weightedByModel,
     cacheReadUnits: cost.cacheReadUnits,
+  };
+}
+
+/** A persisted spawn row's token columns, mapped to the shape `weightedUnits` prices. The 1h share
+ *  of the combined `cacheWriteTokens` is priced at the 1h rate and the rest at 5m; a legacy row
+ *  with no recorded split (NULL) prices entirely at 5m, as before #2929. */
+export function spawnCacheCounts(row: {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  cacheWrite1hTokens?: number | null;
+}): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite5m: number;
+  cacheWrite1h: number;
+} {
+  const cacheWrite1h = row.cacheWrite1hTokens ?? 0;
+  return {
+    input: row.inputTokens ?? 0,
+    output: row.outputTokens ?? 0,
+    cacheRead: row.cacheReadTokens ?? 0,
+    cacheWrite5m: (row.cacheWriteTokens ?? 0) - cacheWrite1h,
+    cacheWrite1h,
   };
 }
 

@@ -513,6 +513,7 @@ const ZEROED_USAGE: SessionUsage = {
   output: 0,
   cacheRead: 0,
   cacheWrite: 0,
+  cacheWrite1h: 0,
   total: 0,
   messageCount: 0,
   lastActivity: null,

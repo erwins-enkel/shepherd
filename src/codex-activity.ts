@@ -386,6 +386,7 @@ export function parseCodexUsage(text: string, modelHint?: string | null): Sessio
     output,
     cacheRead,
     cacheWrite,
+    cacheWrite1h: 0,
     total,
     messageCount: count,
     lastActivity: lastTs,

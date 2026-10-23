@@ -78,6 +78,7 @@ const CLASSIFIER_USAGE: SessionUsage = {
   output: 20,
   cacheRead: 30,
   cacheWrite: 40,
+  cacheWrite1h: 0,
   total: 100,
   messageCount: 1,
   lastActivity: 123,

@@ -524,6 +524,7 @@ function mkHarness(opts?: {
             output: 7,
             cacheRead: 0,
             cacheWrite: 0,
+            cacheWrite1h: 0,
             total: 12,
             messageCount: 1,
             lastActivity: null,

@@ -1,7 +1,7 @@
 import type { SessionStore } from "./store";
 import type { UsageRange, UsageTimeline, UsageTimelineHour } from "./types";
 import { isOperationalArchetype } from "./usage-archetype";
-import { floorHour, type SessionUsageRollup } from "./usage";
+import { floorHour, spawnCacheCounts, type SessionUsageRollup } from "./usage";
 import { weightedUnits } from "./pricing";
 
 /** Compute the ms-epoch cutoff for the given range (0 ⇒ all-time). Mirrors usage-breakdown. */
@@ -50,16 +50,7 @@ function foldSpawns(hourMap: Map<number, number>, store: SessionStore, cutoff: n
     if (sp.totalTokens == null) continue; // not finalized
     const t = sp.completedAt ?? sp.spawnedAt;
     if (t === 0 || t < cutoff) continue; // timeless or out of window
-    const wu = weightedUnits(
-      {
-        input: sp.inputTokens ?? 0,
-        output: sp.outputTokens ?? 0,
-        cacheRead: sp.cacheReadTokens ?? 0,
-        cacheWrite5m: sp.cacheWriteTokens ?? 0,
-        cacheWrite1h: 0,
-      },
-      sp.model ?? "unknown",
-    );
+    const wu = weightedUnits(spawnCacheCounts(sp), sp.model ?? "unknown");
     addHour(hourMap, floorHour(t), wu);
   }
 }

@@ -346,7 +346,14 @@ import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
 import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
-import { ACTIVE_LABEL } from "./drain-core";
+import { ACTIVE_LABEL, PRIORITY_LABEL } from "./drain-core";
+import {
+  applyIssueDrainLabels,
+  issueDrainState,
+  LOW_PRIORITY_LABEL,
+  parseIssueDrainOperation,
+  type IssueDrainOperation,
+} from "./issue-drain";
 import type { Epic, EpicLanding, EpicRun, EpicSource } from "./epic-core";
 import {
   computeEpicOthersFlags,
@@ -392,7 +399,7 @@ import {
 import { repoHasNoCiCached } from "./checks-gate";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
-import { peekIssue } from "./issue-peek";
+import { invalidateIssuePeek, peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
 import { dirname, join, normalize, basename } from "node:path";
@@ -6309,6 +6316,12 @@ function operatorDiagDeps(deps: AppDeps): OperatorDiagDeps {
   const drain = deps.drain;
   return {
     repos: () => listRepos(config.repoRoot).map((r) => r.path),
+    issue: async (repoPath, number) => {
+      const dir = safeRepoDir(repoPath, config.repoRoot);
+      const forge = dir ? deps.resolveForge?.(dir) : null;
+      if (!forge?.getIssue) throw new Error("issue reads unavailable for repo");
+      return forge.getIssue(number);
+    },
     holds: deps.holds,
     drain,
     diagnoseEpic:
@@ -9184,6 +9197,116 @@ async function handleIssueCreate({ req, parts, deps, token }: Ctx): Promise<Resp
   }
 }
 
+/** A session on any known checkout of this forge repo still owns the claim. */
+function issueHasSession(deps: AppDeps, dir: string, forge: GitForge, number: number): boolean {
+  return deps.store.list({ activeOnly: true }).some((s) => {
+    if (s.issueNumber !== number) return false;
+    if (s.repoPath === dir) return true;
+    const other = deps.resolveForge?.(s.repoPath);
+    return (
+      !!other &&
+      other.kind === forge.kind &&
+      !!forge.slug &&
+      other.slug === forge.slug &&
+      other.webUrl === forge.webUrl
+    );
+  });
+}
+
+/** Resolve and validate the mutation target before any forge read/write. */
+async function issueDrainTarget({
+  req,
+  parts,
+  url,
+  deps,
+  token,
+}: Ctx): Promise<
+  { dir: string; number: number; operation: IssueDrainOperation; forge: GitForge } | Response
+> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const repoErr = repositoryInputError(token, { repoPath: dir });
+  if (repoErr) return repoErr;
+  const number = Number(parts[2]);
+  if (!/^[1-9][0-9]*$/.test(parts[2] ?? "") || !Number.isSafeInteger(number))
+    return json({ error: "invalid issue number" }, 400);
+  const operation = parseIssueDrainOperation(await req.json().catch(() => null));
+  if (!operation) return json({ error: "invalid drain operation or unexpected fields" }, 400);
+  const forge = deps.resolveForge?.(dir);
+  if (
+    !forge?.getIssue ||
+    !forge.removeIssueLabel ||
+    (operation.operation !== "release" && !forge.addIssueLabel)
+  )
+    return json({ error: "issue label operations unavailable" }, 503);
+  return { dir, number, operation, forge };
+}
+
+/** Refuse release unless both local ownership and the fresh PR query establish an orphan. */
+async function issueDrainReleaseError(
+  deps: AppDeps,
+  dir: string,
+  forge: GitForge,
+  number: number,
+): Promise<Response | null> {
+  if (issueHasSession(deps, dir, forge, number))
+    return json({ error: "issue still has a session" }, 409);
+  if (!forge.hasOpenPrForIssue)
+    return json({ error: "strict open PR verification unavailable" }, 503);
+  if (await forge.hasOpenPrForIssue(number))
+    return json({ error: "issue has an open linked PR" }, 409);
+  if (issueHasSession(deps, dir, forge, number))
+    return json({ error: "issue still has a session" }, 409);
+  return null;
+}
+
+// POST /api/issues/:number/drain — the narrow, operator-only issue automation mutation.
+async function handleIssueDrain(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
+  if (
+    req.method !== "POST" ||
+    parts[0] !== "api" ||
+    parts[1] !== "issues" ||
+    parts[3] !== "drain" ||
+    parts[4]
+  )
+    return null;
+  const target = await issueDrainTarget(ctx);
+  if (target instanceof Response) return target;
+  const { dir, number, operation, forge } = target;
+  try {
+    const issue = await forge.getIssue!(number);
+    if (!issue) return json({ error: "issue not found or unreadable" }, 404);
+    if (issue.state === "closed") return json({ error: "issue is closed" }, 409);
+    if (issue.state !== "open") return json({ error: "issue state could not be verified" }, 502);
+    const autoLabel = deps.store.getRepoConfig(dir).autoLabel;
+    if (
+      operation.operation !== "release" &&
+      [ACTIVE_LABEL, PRIORITY_LABEL, LOW_PRIORITY_LABEL].includes(autoLabel)
+    )
+      return json({ error: "autoLabel conflicts with reserved claim or priority labels" }, 409);
+    const releaseError =
+      operation.operation === "release" && issue.labels.includes(ACTIVE_LABEL)
+        ? await issueDrainReleaseError(deps, dir, forge, number)
+        : null;
+    if (releaseError) return releaseError;
+    let updated: Awaited<ReturnType<typeof applyIssueDrainLabels>>;
+    // A partial write is an error, but invalidation also runs for that partial change.
+    try {
+      updated = await applyIssueDrainLabels(forge, issue, autoLabel, operation);
+    } finally {
+      invalidateIssuePeek(dir, number);
+      void deps.refreshBacklog?.(dir).catch(() => {});
+    }
+    if (deps.drain) kickDrain(deps.drain, "issue labels");
+    return json({ ...operation, ...issueDrainState(updated, autoLabel) });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "issue drain operation failed" }, 502);
+  }
+}
+
 /**
  * Collapse worktrees / multiple clones of the same repo: dedupe by forge identity
  * (kind + owner/repo slug) so each repo appears once, not once per directory.
@@ -11633,6 +11756,7 @@ const ROUTE_HANDLERS = [
   handleIssues,
   handleIssuePeek,
   handleIssueCreate,
+  handleIssueDrain,
   handlePrsList,
   handleActionsList,
   handleActionsRerun,

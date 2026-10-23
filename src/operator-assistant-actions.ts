@@ -25,6 +25,7 @@
  * Agent-facing English, no i18n — same precedent as the other tool descriptions.
  */
 import { basename } from "node:path";
+import { parseIssueDrainOperation } from "./issue-drain";
 import type { AgentControlDeps, ApplyResult, McpTool } from "./agent-control";
 import {
   actionGroupOf,
@@ -225,6 +226,27 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
       ],
       target: basename(repo),
       echo: { set: patch },
+    };
+  },
+  drain_enqueue: (args, resolve) => {
+    const repo = resolve.repo(args.repo);
+    if (isFail(repo)) return repo;
+    const { issueNumber, ...raw } = args;
+    delete raw.repo;
+    if (!Number.isSafeInteger(issueNumber) || (issueNumber as number) < 1)
+      return fail(400, "issueNumber must be a positive safe integer");
+    const payload = parseIssueDrainOperation(raw);
+    if (!payload) return fail(400, "invalid drain operation or unexpected fields");
+    return {
+      requests: [
+        {
+          method: "POST",
+          path: `/api/issues/${issueNumber}/drain?repo=${encodeURIComponent(repo)}`,
+          body: payload,
+        },
+      ],
+      target: `${basename(repo)}#${issueNumber}`,
+      echo: { issueNumber, ...payload },
     };
   },
   session_automation_set: (args, resolve) => {
@@ -541,6 +563,28 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
         usageCeilingPct: { type: "number", minimum: 0, maximum: 100 },
       },
       required: ["repo"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "drain_enqueue",
+    description:
+      "[automation] Enqueue or dequeue an issue using the repo's autoLabel, set high/normal/low priority (low is only a marker label; drain order does not deprioritize it), or release an orphaned claim. Enqueueing may start work immediately when Auto-Drain is on. Release refuses issues with a session, an open linked PR or an unverifiable PR state. Verify via repo_automation({repo, issueNumber})." +
+      NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: REPO,
+        issueNumber: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+        operation: { type: "string", enum: ["queue", "priority", "release"] },
+        enabled: { type: "boolean", description: "Required for queue only." },
+        priority: {
+          type: "string",
+          enum: ["high", "normal", "low"],
+          description: "Required for priority only.",
+        },
+      },
+      required: ["repo", "issueNumber", "operation"],
       additionalProperties: false,
     },
   },

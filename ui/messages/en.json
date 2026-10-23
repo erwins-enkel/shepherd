@@ -6384,7 +6384,7 @@
   "settings_assistant_approve_title": "Approvals & merge",
   "settings_assistant_approve_hint": "Start an approved plan, approve a build queue, mark a PR ready, merge a PR. Never takes over a merge someone else is responsible for.",
   "settings_assistant_automation_title": "Automation",
-  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd.",
+  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, issue queue and priority, and releasing orphaned claims.",
   "settings_assistant_save_failed": "Couldn't save what the assistant may do.",
   "operator_assistant_mode_asks": "Asks first",
   "operator_assistant_mode_acts": "Acts itself",
@@ -6948,5 +6948,7 @@
   "assistant_chat_no": "No",
   "assistant_chat_send_answers": "Send answers",
   "feat_assistant_yes_no_title": "Answer yes/no questions with a click",
-  "feat_assistant_yes_no_body": "The assistant asks for decisions in a structured dialog. Explicit yes/no questions in chat also offer quick replies; answer numbered questions together."
+  "feat_assistant_yes_no_body": "The assistant asks for decisions in a structured dialog. Explicit yes/no questions in chat also offer quick replies; answer numbered questions together.",
+  "feat_assistant_drain_issues_title": "Manage drain issues in the Assistant",
+  "feat_assistant_drain_issues_body": "Ask the Assistant to enqueue or dequeue issues, set priority, or release orphaned claims. These actions follow your Automation permissions in Settings → Assistant."
 }

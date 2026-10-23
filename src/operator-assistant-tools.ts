@@ -23,7 +23,8 @@ import type { DiagnosticsService } from "./diagnostics";
 import type { DrainStatus } from "./drain";
 import type { RunSummaryHolder } from "./drain-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
-import type { GitState } from "./forge/types";
+import type { GitState, Issue } from "./forge/types";
+import { issueDrainState } from "./issue-drain";
 import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "./host-parse";
 import { probeHerdrRuntime, type HerdrRuntimeStatus } from "./herdr-runtime";
 import { isOperatorAssistant } from "./operator-assistant-core";
@@ -43,6 +44,8 @@ type LogSource = (typeof LOG_SOURCES)[number];
 export interface OperatorDiagDeps {
   /** Every known repo path — the drain's own `repos()`. */
   repos(): string[];
+  /** Fresh issue read for verifying drain label changes; never returns cached prose to the agent. */
+  issue?: (repoPath: string, issueNumber: number) => Promise<Issue | null>;
   /** Live hold reasons keyed by session id (`HoldReasonService.snapshot`). */
   holds?: { snapshot(): Record<string, HoldReason> };
   /** The drain's bootstrap read: a status per drain-enabled or epic-active repo, no side effects. */
@@ -441,6 +444,30 @@ function epicParentArg(value: unknown): number | null | undefined {
   return Number.isInteger(value) && (value as number) > 0 ? (value as number) : null;
 }
 
+/** Optional fresh issue diagnosis, separate from repo-wide drain/epic snapshots. */
+async function issueDrainBlock(
+  deps: DiagDeps,
+  diag: OperatorDiagDeps,
+  args: Record<string, unknown>,
+  repos: string[],
+): Promise<ApplyResult<unknown>> {
+  const issueNumber = args.issueNumber;
+  if (issueNumber === undefined) return ok(undefined);
+  if (!Number.isSafeInteger(issueNumber) || (issueNumber as number) < 1)
+    return fail(400, "issueNumber must be a positive safe integer");
+  if (typeof args.repo !== "string" || !args.repo || repos.length !== 1)
+    return fail(400, "issueNumber needs one explicit repo");
+  if (!diag.issue) return fail(503, "issue reads unavailable");
+  try {
+    const found = await diag.issue(repos[0]!, issueNumber as number);
+    if (!found) return fail(404, "issue not found or unreadable");
+    if (!found.state) return fail(502, "issue state could not be verified");
+    return ok(issueDrainState(found, deps.store.getRepoConfig(repos[0]!).autoLabel));
+  } catch (err) {
+    return fail(502, `issue read failed: ${errorText(err)}`);
+  }
+}
+
 /** `scope`: a repo-scoped assistant reads its own repo by default and is refused any other. */
 export async function applyRepoAutomation(
   deps: DiagDeps,
@@ -456,14 +483,18 @@ export async function applyRepoAutomation(
   if (epicParent === null) return fail(400, "epicParent must be a positive issue number");
   if (epicParent !== undefined && repos.length !== 1)
     return fail(400, "epicParent needs one repo — pass repo as well");
+  const issueRead = await issueDrainBlock(deps, diag, args, repos);
+  if (!issueRead.ok) return issueRead;
+  const issue = issueRead.data;
   const drain = await drainStatuses(diag);
-  const blocks = repos.slice(0, MAX_REPOS).map((p) =>
-    repoBlock(
+  const blocks = repos.slice(0, MAX_REPOS).map((p) => ({
+    ...repoBlock(
       deps,
       p,
       drain.statuses.find((d) => d.repoPath === p),
     ),
-  );
+    ...(issue === undefined ? {} : { issue }),
+  }));
   if (epicParent === undefined)
     return ok({
       repos: blocks,
@@ -724,13 +755,19 @@ const REPO_AUTOMATION: McpTool = {
     "criticEnabled, usageCeilingPct, repoMode, sandboxProfile, the drain status (null when the " +
     "drain reports nothing for the repo), the epic run, how it last ended, and the epic queue. " +
     "With epicParent (one repo): that epic's structural diagnosis — why its next child doesn't " +
-    "start." +
+    "start. With issueNumber and an explicit repo: fresh issue state, queue membership, priority and claim labels." +
     DIAG_READ_NOTE,
   inputSchema: {
     type: "object",
     properties: {
       repo: { type: "string", description: "A repo's full path or its unique basename." },
       epicParent: { type: "integer", minimum: 1, description: "The epic's parent issue number." },
+      issueNumber: {
+        type: "integer",
+        minimum: 1,
+        maximum: Number.MAX_SAFE_INTEGER,
+        description: "Issue whose drain labels to verify; requires repo.",
+      },
     },
     additionalProperties: false,
   },

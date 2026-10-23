@@ -676,3 +676,79 @@ test("without operatorDiag the host-reading tools answer unavailable", async () 
   ])
     expect(error(r).error).toContain("unavailable");
 });
+
+test("repo_automation issueNumber reads fresh state without exposing issue text", async () => {
+  const { deps, store } = setup({
+    issue: async () => ({
+      number: 42,
+      title: INJECTION,
+      body: "private",
+      url: "",
+      createdAt: 0,
+      assignees: [],
+      state: "open",
+      labels: ["custom:auto", "shepherd:low-priority", "shepherd:active"],
+    }),
+  });
+  store.setRepoConfig("/r/alpha", { ...store.getRepoConfig("/r/alpha"), autoLabel: "custom:auto" });
+  const res = await applyRepoAutomation(deps, { repo: "alpha", issueNumber: 42 });
+  expect(res).toMatchObject({
+    ok: true,
+    data: {
+      repos: [
+        {
+          issue: {
+            issueNumber: 42,
+            state: "open",
+            queued: true,
+            claimed: true,
+            priority: "low",
+            priorityLabels: ["shepherd:low-priority"],
+          },
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(res)).not.toContain("private");
+  expect(JSON.stringify(res)).not.toContain(INJECTION);
+});
+
+test("repo_automation issueNumber requires an explicit repo and valid number, and reports unavailable reads", async () => {
+  const { deps } = setup();
+  for (const args of [
+    { issueNumber: 42 },
+    { repo: "alpha", issueNumber: 0 },
+    { repo: "alpha", issueNumber: 1.2 },
+  ])
+    expect(await applyRepoAutomation(deps, args)).toMatchObject({ ok: false, status: 400 });
+  expect(await applyRepoAutomation(deps, { repo: "alpha", issueNumber: 42 })).toMatchObject({
+    ok: false,
+    status: 503,
+  });
+  deps.operatorDiag.issue = async () => {
+    throw new Error("failed");
+  };
+  expect(await applyRepoAutomation(deps, { repo: "alpha", issueNumber: 42 })).toMatchObject({
+    ok: false,
+    status: 502,
+  });
+  deps.operatorDiag.issue = async () => null;
+  expect(await applyRepoAutomation(deps, { repo: "alpha", issueNumber: 42 })).toMatchObject({
+    ok: false,
+    status: 404,
+  });
+});
+
+test("repo-scoped issue diagnosis refuses foreign repos before any issue read", async () => {
+  let reads = 0;
+  const { deps } = setup({
+    issue: async () => {
+      reads++;
+      return null;
+    },
+  });
+  expect(
+    await applyRepoAutomation(deps, { repo: "beta", issueNumber: 42 }, "/r/alpha"),
+  ).toMatchObject({ ok: false, status: 403 });
+  expect(reads).toBe(0);
+});

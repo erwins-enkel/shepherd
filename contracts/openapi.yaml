@@ -4542,6 +4542,41 @@ components:
           enum: [rate_limit, auth, not_found, gh_missing, network, http, unknown]
         status: { type: integer }
         detail: { type: string }
+    IssueDrainOperation:
+      description: One issue automation operation; unrelated fields are rejected.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [operation, enabled]
+          properties:
+            operation: { type: string, enum: [queue] }
+            enabled: { type: boolean }
+        - type: object
+          additionalProperties: false
+          required: [operation, priority]
+          properties:
+            operation: { type: string, enum: [priority] }
+            priority: { type: string, enum: [high, normal, low] }
+        - type: object
+          additionalProperties: false
+          required: [operation]
+          properties:
+            operation: { type: string, enum: [release] }
+    IssueDrainResult:
+      type: object
+      additionalProperties: false
+      required: [operation, issueNumber, state, queued, claimed, priority, priorityLabels]
+      properties:
+        operation: { type: string, enum: [queue, priority, release] }
+        enabled: { type: boolean }
+        issueNumber: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        state: { type: string, enum: [open] }
+        queued: { type: boolean }
+        claimed: { type: boolean }
+        priority: { type: string, enum: [high, normal, low] }
+        priorityLabels:
+          type: array
+          items: { type: string, enum: ["shepherd:priority", "shepherd:low-priority"] }
     IssueListing:
       type: object
       additionalProperties: true
@@ -9551,6 +9586,69 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/issues/{number}/drain:
+    post:
+      operationId: updateIssueDrain
+      description: >-
+        Enqueue/dequeue using the repo's autoLabel, set priority markers, or release an
+        orphaned active claim. Requires an open issue. Release refuses non-archived sessions,
+        open linked PRs and unverifiable PR state. Enqueueing may immediately start Auto-Drain.
+      parameters:
+        - name: number
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IssueDrainOperation" }
+      responses:
+        "200":
+          description: Operation completed, including idempotent no-ops; current normalized labels.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueDrainResult" }
+        "400":
+          description: Invalid repo, issue number, operation or operation-specific fields.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Repository access denied by the token scope.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Issue not found or unreadable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Closed issue, reserved autoLabel collision, or a claim still owned by a session or linked open PR.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "415":
+          description: JSON content type required.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: Forge read/write or strict verification failed; partial label writes may have occurred.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Required issue, label or strict PR-verification capability unavailable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/commands:
     get:
       operationId: listCommands

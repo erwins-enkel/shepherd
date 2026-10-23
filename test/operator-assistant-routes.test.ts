@@ -810,3 +810,111 @@ test("the view hook is the assistant's alone and still answers after /clear", as
   expect(viaIngress.status).toBe(200);
   expect((await viaIngress.json()).hookSpecificOutput.additionalContext).toBe(UNKNOWN_VIEW);
 });
+
+test("assistant drain operations round-trip through MCP and repo_automation with shell off", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "oa-issue-drain-")));
+  const repo = join(root, "alpha");
+  mkdirSync(repo);
+  const saved = { repoRoot: config.repoRoot, permissions: config.assistantPermissions };
+  restore = () => {
+    config.repoRoot = saved.repoRoot;
+    config.assistantPermissions = saved.permissions;
+    rmSync(root, { recursive: true, force: true });
+  };
+  config.repoRoot = root;
+  config.assistantPermissions = { ...saved.permissions, shell: "off", automation: "allow" };
+  const { deps, store } = setup();
+  const labels = new Set<string>(["shepherd:active"]);
+  let writes = 0;
+  deps.resolveForge = () =>
+    ({
+      kind: "github",
+      slug: "owner/repo",
+      getIssue: async () => ({
+        number: 42,
+        title: "untrusted title",
+        body: "private body",
+        url: "",
+        labels: [...labels],
+        state: "open",
+        createdAt: 0,
+        assignees: [],
+      }),
+      addIssueLabel: async (_n: number, label: string) => {
+        writes++;
+        labels.add(label);
+      },
+      removeIssueLabel: async (_n: number, label: string) => {
+        writes++;
+        labels.delete(label);
+      },
+      hasOpenPrForIssue: async () => false,
+    }) as never;
+  const assistant = assistantRow(store);
+  const app = makeApp(deps);
+  for (const [payload, expected] of [
+    [
+      { operation: "queue", enabled: true },
+      { queued: true, claimed: true, priority: "normal" },
+    ],
+    [
+      { operation: "priority", priority: "low" },
+      { queued: true, claimed: true, priority: "low" },
+    ],
+    [{ operation: "release" }, { queued: true, claimed: false, priority: "low" }],
+    [
+      { operation: "queue", enabled: false },
+      { queued: false, claimed: false, priority: "low" },
+    ],
+  ] as const) {
+    expect(
+      (
+        await callTool(app, assistant.id, "drain_enqueue", {
+          repo: "alpha",
+          issueNumber: 42,
+          ...payload,
+        })
+      ).isError,
+    ).toBe(false);
+    const read = await callTool(app, assistant.id, "repo_automation", {
+      repo: "alpha",
+      issueNumber: 42,
+    });
+    expect(read.isError).toBe(false);
+    expect(read.data.repos[0].issue).toMatchObject(expected);
+    expect(JSON.stringify(read)).not.toContain("private body");
+  }
+  config.assistantPermissions = { ...config.assistantPermissions, automation: "off" };
+  const before = writes;
+  for (const payload of [
+    { operation: "queue", enabled: true },
+    { operation: "priority", priority: "high" },
+    { operation: "release" },
+  ]) {
+    const result = await callTool(app, assistant.id, "drain_enqueue", {
+      repo: "alpha",
+      issueNumber: 42,
+      ...payload,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.data.error).toContain("turned off");
+  }
+  expect(writes).toBe(before);
+  const worker = workerRow(store);
+  const denied = await app.fetch(
+    new Request(`http://localhost/api/sessions/${worker.id}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "drain_enqueue",
+          arguments: { repo: "alpha", issueNumber: 42, operation: "release" },
+        },
+      }),
+    }),
+  );
+  expect((await denied.json()).error.code).toBe(-32602);
+});

@@ -6384,7 +6384,7 @@
   "settings_assistant_approve_title": "Freigaben & Merge",
   "settings_assistant_approve_hint": "Freigegebenen Plan starten, Build-Queue freigeben, PR auf ready setzen, PR mergen. Übernimmt nie einen Merge, für den jemand anderes zuständig ist.",
   "settings_assistant_automation_title": "Automatik bearbeiten",
-  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten.",
+  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten, Issues einreihen oder herausnehmen, priorisieren und verwaiste Claims freigeben.",
   "settings_assistant_save_failed": "Die Rechte des Assistenten konnten nicht gespeichert werden.",
   "operator_assistant_mode_asks": "Fragt nach",
   "operator_assistant_mode_acts": "Handelt selbst",
@@ -6948,5 +6948,7 @@
   "assistant_chat_no": "Nein",
   "assistant_chat_send_answers": "Antworten senden",
   "feat_assistant_yes_no_title": "Ja/Nein-Fragen per Klick beantworten",
-  "feat_assistant_yes_no_body": "Der Assistent stellt Entscheidungsfragen im strukturierten Dialog. Auch ausdrückliche Ja/Nein-Fragen im Chat bieten Schnellantworten; nummerierte Fragen lassen sich gemeinsam beantworten."
+  "feat_assistant_yes_no_body": "Der Assistent stellt Entscheidungsfragen im strukturierten Dialog. Auch ausdrückliche Ja/Nein-Fragen im Chat bieten Schnellantworten; nummerierte Fragen lassen sich gemeinsam beantworten.",
+  "feat_assistant_drain_issues_title": "Drain-Issues im Assistenten verwalten",
+  "feat_assistant_drain_issues_body": "Lass den Assistenten Issues einreihen oder herausnehmen, priorisieren oder verwaiste Claims freigeben. Dafür gelten deine Automatik-Berechtigungen unter Einstellungen → Assistent."
 }

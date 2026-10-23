@@ -126,3 +126,15 @@ test("mode: acts when anything runs unasked, readonly when no group is on, else 
 test("the overlay's read-tool names are exactly the read catalog, so no read tool prompts", () => {
   expect(OPERATOR_DIAG_TOOLS.map((t) => t.name)).toEqual([...OPERATOR_DIAG_TOOL_NAMES]);
 });
+
+test("drain_enqueue follows automation off, ask and allow", () => {
+  expect(actionGroupOf("drain_enqueue")).toBe("automation");
+  for (const [level, bucket] of [
+    ["off", "deny"],
+    ["ask", "ask"],
+    ["allow", "allow"],
+  ] as const) {
+    const rules = assistantPermissionRules({ ...ALL_OFF, automation: level });
+    expect(rules[bucket]).toContain("mcp__shepherd__drain_enqueue");
+  }
+});

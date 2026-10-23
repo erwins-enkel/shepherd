@@ -4162,3 +4162,40 @@ test("GithubForge.createRepoLabel: gh label create", async () => {
   await new GithubForge("o/r", {}, run).createRepoLabel!("shepherd:auto");
   expect(calls[0]!.slice(0, 5)).toEqual(["label", "create", "shepherd:auto", "--repo", "o/r"]);
 });
+
+test("hasOpenPrForIssue strictly checks the issue's own open PR connection without listing unrelated PRs", async () => {
+  for (const totalCount of [0, 1, 250]) {
+    const { run, calls } = fakeRunner({
+      "api graphql": JSON.stringify({
+        data: { repository: { issue: { closedByPullRequestsReferences: { totalCount } } } },
+      }),
+    });
+    expect(await new GithubForge("o/r", {}, run).hasOpenPrForIssue(42)).toBe(totalCount > 0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.join(" ")).toContain("num=42");
+    expect(calls[0]!.join(" ")).toContain("includeClosedPrs:false");
+  }
+});
+
+test("hasOpenPrForIssue never turns absent, malformed, partial-error or failed responses into no PR", async () => {
+  for (const response of [
+    "",
+    "{}",
+    '{"data":{"repository":{"issue":null}}}',
+    JSON.stringify({
+      data: { repository: { issue: { closedByPullRequestsReferences: { totalCount: 0 } } } },
+      errors: [{ message: "partial failure" }],
+    }),
+    JSON.stringify({
+      data: { repository: { issue: { closedByPullRequestsReferences: { totalCount: -1 } } } },
+    }),
+  ]) {
+    const { run } = fakeRunner({ "api graphql": response });
+    await expect(new GithubForge("o/r", {}, run).hasOpenPrForIssue(42)).rejects.toThrow();
+  }
+  await expect(
+    new GithubForge("o/r", {}, async () => {
+      throw new Error("offline");
+    }).hasOpenPrForIssue(42),
+  ).rejects.toThrow("offline");
+});

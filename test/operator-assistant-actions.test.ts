@@ -503,3 +503,96 @@ test("without operator action deps every action is unavailable", async () => {
   const res = await applyOperatorAction({ store }, "herd_halt", {});
   expect(res).toEqual({ ok: false, status: 503, error: "operator actions unavailable" });
 });
+
+test("drain_enqueue exposes the three operations in automation", () => {
+  const tool = OPERATOR_ACTION_TOOLS.find((t) => t.name === "drain_enqueue");
+  expect(tool).toBeDefined();
+  expect(ASSISTANT_ACTION_GROUPS.automation as readonly string[]).toContain("drain_enqueue");
+});
+
+test("drain_enqueue maps each operation to the guarded issue route", async () => {
+  for (const payload of [
+    { operation: "queue", enabled: true },
+    { operation: "queue", enabled: false },
+    { operation: "priority", priority: "high" },
+    { operation: "priority", priority: "normal" },
+    { operation: "priority", priority: "low" },
+    { operation: "release" },
+  ]) {
+    const { run, requests } = setup();
+    const result = await run("drain_enqueue" as AssistantActionTool, {
+      repo: "alpha",
+      issueNumber: 42,
+      ...payload,
+    });
+    expect(result.ok).toBe(true);
+    expect(requests).toEqual([
+      {
+        method: "POST",
+        path: "/api/issues/42/drain?repo=%2Fr%2Falpha",
+        body: payload,
+      },
+    ]);
+  }
+});
+
+test("drain_enqueue rejects invalid or operation-foreign arguments without dispatch", async () => {
+  for (const payload of [
+    { operation: "queue" },
+    { operation: "queue", enabled: "true" },
+    { operation: "queue", enabled: true, priority: "high" },
+    { operation: "priority", priority: "urgent" },
+    { operation: "release", enabled: false },
+    { operation: "release", force: true },
+    { operation: "close" },
+    { operation: "release", issueNumber: 0 },
+    { operation: "release", issueNumber: 1.5 },
+    { operation: "release", issueNumber: Number.MAX_SAFE_INTEGER + 1 },
+  ]) {
+    const { run, requests } = setup();
+    const res = await run("drain_enqueue" as AssistantActionTool, {
+      repo: "alpha",
+      issueNumber: 42,
+      ...payload,
+    });
+    expect(res.ok).toBe(false);
+    expect(requests).toEqual([]);
+  }
+});
+
+test("automation off refuses every drain operation before dispatch", async () => {
+  for (const payload of [
+    { operation: "queue", enabled: true },
+    { operation: "priority", priority: "high" },
+    { operation: "release" },
+  ]) {
+    const { run, requests } = setup({ permissions: { automation: "off" } });
+    expect(
+      await run("drain_enqueue" as AssistantActionTool, {
+        repo: "alpha",
+        issueNumber: 42,
+        ...payload,
+      }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(requests).toEqual([]);
+  }
+});
+
+test("repo-scoped drain actions cannot mutate another repo", async () => {
+  for (const payload of [
+    { operation: "queue", enabled: true },
+    { operation: "priority", priority: "high" },
+    { operation: "release" },
+  ]) {
+    const { runScoped, requests } = setup();
+    expect(
+      await runScoped("/r/alpha", "drain_enqueue", { repo: "beta", issueNumber: 42, ...payload }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(requests).toEqual([]);
+    expect(
+      (await runScoped("/r/alpha", "drain_enqueue", { repo: "alpha", issueNumber: 42, ...payload }))
+        .ok,
+    ).toBe(true);
+    expect(requests).toHaveLength(1);
+  }
+});

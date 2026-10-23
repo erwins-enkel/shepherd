@@ -258,3 +258,9 @@ test("brief requires structured decision questions in both languages (#3179)", (
     expect(text).toContain("Ja/Nein");
   }
 });
+
+test("brief teaches drain issue actions and verification without a shell bypass", () => {
+  expect(brief()).toContain("drain_enqueue");
+  expect(brief()).toContain("repo_automation({repo, issueNumber})");
+  expect(brief()).toContain("Never use Bash or gh to bypass");
+});

@@ -10,9 +10,16 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   return { ...actual, getSessionMessages: vi.fn(), answerAsk: vi.fn() };
 });
 
-// Load once, no interval: each test drives the data it needs.
+let refresh: (() => void) | undefined;
+
+// Drive transcript reloads without interval timing.
 vi.mock("#lib/visibility.js", () => ({
-  pollWhileVisible: () => () => {},
+  pollWhileVisible: (load: () => void) => {
+    refresh = load;
+    return () => {
+      refresh = undefined;
+    };
+  },
 }));
 
 const { default: AssistantChat } = await import("./AssistantChat.svelte");
@@ -354,5 +361,158 @@ describe("AssistantChat session navigation", () => {
     expect(open).not.toHaveBeenCalled();
     expect(container.querySelector(".ac-mine a")).toBeNull();
     open.mockRestore();
+  });
+});
+
+const history = (): SessionMessages["messages"] =>
+  Array.from({ length: 30 }, (_, i) => ({
+    role: i % 2 ? "assistant" : "user",
+    text: `Message ${i}\n\n${"A paragraph of conversation. ".repeat(12)}`,
+    ts: i + 1,
+  }));
+
+async function mountHistory(over: Record<string, unknown> = {}, delayed = false) {
+  let resolveLoad: ((value: SessionMessages) => void) | undefined;
+  if (delayed)
+    mockMessages.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+  else mockMessages.mockResolvedValue(reply(history()));
+  const target = document.createElement("div");
+  target.style.cssText = "height: 480px; width: 420px; display: flex; flex-direction: column";
+  document.body.append(target);
+  const view = await render(AssistantChat, { target, props: props(over) });
+  const thread = target.querySelector<HTMLDivElement>(".ac-thread")!;
+  resolveLoad?.(reply(history()));
+  await expect.poll(() => thread.scrollHeight).toBeGreaterThan(thread.clientHeight);
+  return { ...view, thread, target };
+}
+
+async function atBottom(thread: HTMLElement) {
+  await expect
+    .poll(() => Math.abs(thread.scrollHeight - thread.clientHeight - thread.scrollTop))
+    .toBeLessThanOrEqual(2);
+}
+
+async function reload(messages: SessionMessages["messages"]) {
+  mockMessages.mockResolvedValue(reply(messages));
+  refresh!();
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+  await expect.poll(() => document.querySelectorAll(".ac-msg").length).toBe(messages.length);
+}
+
+describe("AssistantChat scroll following", () => {
+  it("follows a delayed initial transcript and reopening", async () => {
+    const first = await mountHistory({}, true);
+    await atBottom(first.thread);
+    await page.getByRole("log").wheel({ delta: { y: -500 } });
+    await expect
+      .poll(() => first.thread.scrollTop)
+      .toBeLessThan(first.thread.scrollHeight - first.thread.clientHeight - 100);
+    await first.unmount();
+    first.target.remove();
+    const reopened = await mountHistory({}, true);
+    await atBottom(reopened.thread);
+  });
+
+  it("resumes following after scrolling back to the bottom", async () => {
+    const { thread } = await mountHistory();
+    await atBottom(thread);
+    await page.getByRole("log").wheel({ delta: { y: -500 } });
+    await expect
+      .poll(() => thread.scrollHeight - thread.clientHeight - thread.scrollTop)
+      .toBeGreaterThan(100);
+    await page.getByRole("log").wheel({ delta: { y: 20000 } });
+    await atBottom(thread);
+    await reload([
+      ...history(),
+      { role: "assistant", text: "New response\n\n" + "Detail.\n\n".repeat(50), ts: 40 },
+    ]);
+    await atBottom(thread);
+  });
+
+  it("starts a replacement session at its end after reading older messages", async () => {
+    const { thread, rerender } = await mountHistory();
+    await atBottom(thread);
+    await page.getByRole("log").wheel({ delta: { y: -500 } });
+    await expect
+      .poll(() => thread.scrollHeight - thread.clientHeight - thread.scrollTop)
+      .toBeGreaterThan(100);
+    await rerender({ sessionId: "a2" });
+    await atBottom(thread);
+  });
+
+  it("keeps manual scroll-up through reloads and resumes on successful send", async () => {
+    const { thread } = await mountHistory();
+    await atBottom(thread);
+    await page.getByRole("log").wheel({ delta: { y: -500 } });
+    await expect
+      .poll(() => thread.scrollHeight - thread.clientHeight - thread.scrollTop)
+      .toBeGreaterThan(100);
+    const top = thread.scrollTop;
+    await reload([...history(), { role: "assistant", text: "A later reply", ts: 40 }]);
+    await expect.poll(() => thread.scrollTop).toBeCloseTo(top, 0);
+    await composer().fill("resume");
+    await userEvent.keyboard("{Enter}");
+    await atBottom(thread);
+  });
+
+  it("keeps manual scroll-up after a failed send", async () => {
+    const { thread } = await mountHistory({ onsend: () => false });
+    await atBottom(thread);
+    await page.getByRole("log").wheel({ delta: { y: -500 } });
+    await expect
+      .poll(() => thread.scrollHeight - thread.clientHeight - thread.scrollTop)
+      .toBeGreaterThan(100);
+    await composer().fill("unsent");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("alert")).toBeVisible();
+    await reload([...history(), { role: "assistant", text: "Later reply", ts: 40 }]);
+    expect(thread.scrollHeight - thread.clientHeight - thread.scrollTop).toBeGreaterThan(100);
+  });
+
+  it("opens a long transcript at its end and follows sends, replies and reloads", async () => {
+    const { thread } = await mountHistory();
+    await atBottom(thread);
+    await composer().fill("new question");
+    await userEvent.keyboard("{Enter}");
+    await atBottom(thread);
+    const messages = [
+      ...history(),
+      { role: "user" as const, text: "new question", ts: Date.now() },
+      {
+        role: "assistant" as const,
+        text: "Reply\n\n" + "More detail.\n\n".repeat(40),
+        ts: Date.now() + 1,
+      },
+    ];
+    await reload(messages);
+    await atBottom(thread);
+    await reload(messages);
+    await atBottom(thread);
+    messages[messages.length - 1] = {
+      ...messages[messages.length - 1],
+      text: "Updated Markdown\n\n" + "More paragraphs.\n\n".repeat(70),
+    };
+    await reload(messages);
+    await atBottom(thread);
+    const window = [
+      ...history(),
+      ...history().map((e) => ({ ...e, ts: e.ts + 50 })),
+      ...messages.slice(-2),
+    ].slice(-50);
+    await reload(window);
+    await atBottom(thread);
+  });
+
+  it("follows viewport shrinkage while reading the end", async () => {
+    const { thread, target } = await mountHistory();
+    await atBottom(thread);
+    target.style.height = "280px";
+    await atBottom(thread);
   });
 });

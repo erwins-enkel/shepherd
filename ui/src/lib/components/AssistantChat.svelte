@@ -126,12 +126,14 @@
   });
 
   // Poll faster while the agent works; a status change re-runs this and loads at once.
+  let stick = true;
   let loadedFor = "";
   $effect(() => {
     const id = sessionId;
     const ms = working ? POLL_WORKING_MS : POLL_RESTING_MS;
     if (id !== loadedFor) {
       loadedFor = id;
+      stick = true;
       data = null;
       pending = [];
     }
@@ -154,9 +156,14 @@
   // Watches the content's size rather than the rows: a reply's Markdown renders after the row
   // mounts (lazy marked/DOMPurify), and only then is the end where it will stay.
   let stack: HTMLDivElement | undefined = $state();
-  let stick = true;
+  let scrollHeight = 0;
+  let clientHeight = 0;
   function onscroll() {
-    if (thread) stick = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48;
+    if (!thread) return;
+    // Layout/scroll anchoring can emit a scroll before ResizeObserver follows the new end.
+    // Only a scroll within the last measured geometry changes the operator's follow intent.
+    if (thread.scrollHeight !== scrollHeight || thread.clientHeight !== clientHeight) return;
+    stick = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48;
   }
   $effect(() => {
     const el = thread;
@@ -164,8 +171,11 @@
     if (!el || !content) return;
     const ro = new ResizeObserver(() => {
       if (stick) el.scrollTop = el.scrollHeight;
+      scrollHeight = el.scrollHeight;
+      clientHeight = el.clientHeight;
     });
     ro.observe(content);
+    ro.observe(el);
     return () => ro.disconnect();
   });
 

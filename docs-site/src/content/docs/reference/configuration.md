@@ -22,6 +22,26 @@ undocumented ([#2361](https://github.com/erwins-enkel/shepherd/issues/2361)). Th
 handful of genuinely contributor-only variables are marked `@docsExempt` in the
 schema and deliberately absent from this page.
 
+## Drain priority labels
+
+Each repository can configure additional urgent labels through the existing repo-config API:
+`PUT /api/repo-config?repo=<URL-encoded absolute repo path>` with
+`{ "priorityLabels": ["ci-gate-rot"] }`, for example for calendar. Read the setting with
+`GET /api/repo-config?repo=<URL-encoded absolute repo path>`. Use your normal authenticated
+API client and include the existing Origin/CSRF requirements when using browser credentials.
+
+The default is `[]`. These labels share the same priority as `shepherd:priority`, which always
+remains active. Within the priority group, issues sort by number ascending, then ordinary issues
+follow in number order. Matching is exact and case-sensitive. An issue still needs the repository's
+`autoLabel`, and an issue carrying `shepherd:active` stays excluded. This does not preempt running
+sessions, add slots, or change epic dependency ordering.
+
+PUT trims and deduplicates label names and rejects empty names and non-string entries. An empty
+array clears the setting; omitting the field preserves it. The drain status's `runSummary.next`
+remains the ordered issue-number list. Its additive `nextPriority` field explains priority, for
+example `[{ "number": 181, "labels": ["ci-gate-rot"] }]`; it includes only prioritized issues in
+`next` and is empty in epic mode. The Operator Assistant's drain summary includes these reasons too.
+
 ## Core
 
 | Variable | Default | Purpose |

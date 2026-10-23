@@ -193,6 +193,7 @@ function makeHarness(
     signoffAuthority: "human",
     maxAuto: opts.maxAuto ?? 2,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: opts.usageCeilingPct ?? 80,
     sandboxProfile: "trusted",
     defaultModel: opts.repoDefaultModel ?? "inherit",
@@ -1193,6 +1194,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     signoffAuthority: "human",
     maxAuto: 2,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -1224,6 +1226,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     signoffAuthority: "human",
     maxAuto: 2,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",
@@ -1892,6 +1895,28 @@ describe("drain epic mode", () => {
     });
   }
 
+  test("configured priorityLabels drive queue and explain next even with full slots", async () => {
+    const h = makeHarness({
+      maxAuto: 1,
+      issues: [issue(134), issue(177), issue(181, { labels: ["shepherd:auto", "ci-gate-rot"] })],
+    });
+    h.store.setRepoConfig(REPO, {
+      ...h.store.getRepoConfig(REPO),
+      priorityLabels: ["ci-gate-rot"],
+    });
+    seedAuto(h, 99);
+    expect((await h.drain.queue(REPO)).map((i) => i.number)).toEqual([181, 134, 177]);
+    const [status] = await h.drain.snapshot();
+    expect(status!.runSummary!.next).toEqual([181, 134, 177]);
+    expect(status!.runSummary!.nextPriority).toEqual([{ number: 181, labels: ["ci-gate-rot"] }]);
+    expect(status!.runSummary!.slots).toMatchObject({ used: 1, max: 1 });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+    expect(h.statuses.at(-1)!.runSummary!.nextPriority).toEqual([
+      { number: 181, labels: ["ci-gate-rot"] },
+    ]);
+  });
+
   test("runSummary: B supersedes A while A's child still runs → A winds down and holds the slot", async () => {
     const A = 111;
     const KID = 112;
@@ -2394,6 +2419,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     signoffAuthority: "human",
     maxAuto: 2,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",

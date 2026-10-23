@@ -3335,3 +3335,35 @@ test("the assistant's view follows its terminal owner and never reaches the term
     write.mockRestore();
   }
 });
+
+test("repo-config priorityLabels normalizes, preserves omitted fields, and clears", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    priorityLabels: [" ci-gate-rot ", "ci-gate-rot", "Urgent"],
+  });
+  expect(res.status).toBe(200);
+  expect((await res.json()).priorityLabels).toEqual(["ci-gate-rot", "Urgent"]);
+  expect((await putRepoConfig(app, validRepo, { maxAuto: 3 })).status).toBe(200);
+  const get = await app.fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(validRepo)}`),
+  );
+  expect((await get.json()).priorityLabels).toEqual(["ci-gate-rot", "Urgent"]);
+  expect(deps.store.getRepoConfig(validRepo).maxAuto).toBe(3);
+  const cleared = await putRepoConfig(app, validRepo, { priorityLabels: [] });
+  expect(cleared.status).toBe(200);
+  expect((await cleared.json()).priorityLabels).toEqual([]);
+  expect(deps.store.getRepoConfig(validRepo).priorityLabels).toEqual([]);
+});
+
+for (const invalid of [null, "ci-gate-rot", 42, {}, [""], ["  "], [1], ["ci-gate-rot", false]]) {
+  test(`repo-config priorityLabels rejects ${JSON.stringify(invalid)} without mutation`, async () => {
+    const deps = makeDeps();
+    const cfg = deps.store.getRepoConfig(validRepo);
+    deps.store.setRepoConfig(validRepo, { ...cfg, priorityLabels: ["existing"] });
+    const app = makeApp(deps);
+    const res = await putRepoConfig(app, validRepo, { priorityLabels: invalid, maxAuto: 7 });
+    expect(res.status).toBe(400);
+    expect(deps.store.getRepoConfig(validRepo)).toEqual({ ...cfg, priorityLabels: ["existing"] });
+  });
+}

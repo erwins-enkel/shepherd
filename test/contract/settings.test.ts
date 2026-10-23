@@ -69,10 +69,11 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
     "PUT",
     "/api/repo-config",
     200,
-    { hidden: true },
+    { hidden: true, priorityLabels: [" ci-gate-rot ", "ci-gate-rot"] },
     "/api/repo-config" + query,
-  )) as { hidden: boolean; automationConfirmed: boolean };
+  )) as { hidden: boolean; automationConfirmed: boolean; priorityLabels: string[] };
   expect(cfg.hidden).toBe(true);
+  expect(cfg.priorityLabels).toEqual(["ci-gate-rot"]);
   expect(typeof cfg.automationConfirmed).toBe("boolean");
   await request("PUT", "/api/repo-config", 400, { maxAuto: "many" }, "/api/repo-config" + query);
   await request(

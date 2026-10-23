@@ -137,6 +137,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     signoffAuthority: "human",
     maxAuto: 1,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",

@@ -2999,6 +2999,7 @@ export async function putRepoConfig(
       | "defaultModel"
       | "maxAuto"
       | "autoLabel"
+      | "priorityLabels"
       | "usageCeilingPct"
       | "repoMode"
       | "criticSmellLensEnabled"

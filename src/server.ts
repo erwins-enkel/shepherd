@@ -2471,6 +2471,13 @@ function parseAutoLabel(v: unknown): string | { error: string } {
   return v.trim();
 }
 
+function parsePriorityLabels(v: unknown): string[] | { error: string } {
+  if (!Array.isArray(v) || v.some((label) => typeof label !== "string" || !label.trim())) {
+    return { error: "priorityLabels must be an array of non-empty strings" };
+  }
+  return [...new Set(v.map((label: string) => label.trim()))];
+}
+
 // usageCeilingPct: finite number; clamp to [0, 100], floor
 function parseUsageCeiling(v: unknown): number | { error: string } {
   if (typeof v !== "number" || !Number.isFinite(v)) {
@@ -2577,6 +2584,7 @@ type RepoCfgBody = {
   browserAllowedHosts?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
+  priorityLabels?: unknown;
   usageCeilingPct?: unknown;
   repoMode?: unknown;
   previewStartScript?: unknown;
@@ -2596,6 +2604,7 @@ function hasBadBoolField(body: RepoCfgBody): boolean {
 type RepoCfgScalars = {
   maxAuto?: number;
   autoLabel?: string;
+  priorityLabels?: string[];
   usageCeilingPct?: number;
   signoffAuthority?: "human" | "critic" | "either";
   sandboxProfile?: SandboxProfile;
@@ -2633,6 +2642,7 @@ function parseNullableString(v: unknown): string | null | { error: string } {
 const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => unknown][] = [
   ["maxAuto", parseMaxAuto],
   ["autoLabel", parseAutoLabel],
+  ["priorityLabels", parsePriorityLabels],
   ["usageCeilingPct", parseUsageCeiling],
   ["signoffAuthority", parseSignoffAuthority],
   ["sandboxProfile", parseSandboxProfile],
@@ -2688,6 +2698,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       browserAllowedHosts?: string[];
       maxAuto?: number;
       autoLabel?: string;
+      priorityLabels?: string[];
       usageCeilingPct?: number;
       repoMode?: "forge" | "lightweight";
       previewStartScript?: string | null;
@@ -2714,6 +2725,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
   const {
     maxAuto,
     autoLabel,
+    priorityLabels,
     usageCeilingPct,
     signoffAuthority,
     sandboxProfile,
@@ -2734,7 +2746,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -2766,6 +2778,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     browserAllowedHosts,
     maxAuto,
     autoLabel,
+    priorityLabels,
     usageCeilingPct,
     repoMode,
     previewStartScript,

@@ -80,6 +80,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     signoffAuthority: "human",
     maxAuto: 5,
     autoLabel: "shepherd:auto",
+    priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
     defaultModel: "inherit",

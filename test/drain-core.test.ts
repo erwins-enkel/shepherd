@@ -796,6 +796,25 @@ describe("computeNext — draftMode sign-off gate", () => {
 });
 
 describe("selectCandidates", () => {
+  test("configured priorityLabels sort like the built-in label without changing eligibility", () => {
+    const backlog = [issue(134), issue(177), issue(181, [AUTO_LABEL, "ci-gate-rot"])];
+    expect(selectCandidates(backlog, AUTO_LABEL).map((i) => i.number)).toEqual([134, 177, 181]);
+    expect(selectCandidates(backlog, AUTO_LABEL, ["ci-gate-rot"]).map((i) => i.number)).toEqual([
+      181, 134, 177,
+    ]);
+    const mixed = [
+      ...backlog,
+      issue(190, [AUTO_LABEL, PRIORITY_LABEL, "ci-gate-rot"]),
+      issue(170, [AUTO_LABEL, PRIORITY_LABEL]),
+      issue(1, ["ci-gate-rot"]),
+      issue(2, [AUTO_LABEL, "ci-gate-rot", ACTIVE_LABEL]),
+      issue(3, [AUTO_LABEL, "CI-GATE-ROT"]),
+    ];
+    expect(selectCandidates(mixed, AUTO_LABEL, ["ci-gate-rot"]).map((i) => i.number)).toEqual([
+      170, 181, 190, 3, 134, 177,
+    ]);
+  });
+
   test("filters to the auto label", () => {
     const out = selectCandidates([issue(1, ["other"]), issue(2, [AUTO_LABEL])], AUTO_LABEL);
     expect(out.map((i) => i.number)).toEqual([2]);
@@ -1039,6 +1058,32 @@ describe("buildRunSummary", () => {
     epicChildren: [],
     queued: [] as number[],
   };
+
+  test("nextPriority explains matching labels only for unmapped next issues in label mode", () => {
+    const input = {
+      ...base,
+      candidates: [
+        issue(170, [AUTO_LABEL, PRIORITY_LABEL]),
+        issue(181, [AUTO_LABEL, "ci-gate-rot", PRIORITY_LABEL, "urgent"]),
+        issue(190, [AUTO_LABEL, "urgent"]),
+        issue(134),
+      ],
+      mappedIssueNumbers: new Set([190]),
+      priorityLabels: ["ci-gate-rot", PRIORITY_LABEL, "ci-gate-rot", "urgent", "other"],
+    };
+    const r = buildRunSummary(input);
+    expect(r.next).toEqual([170, 181, 134]);
+    expect(r.nextPriority).toEqual([
+      { number: 170, labels: [PRIORITY_LABEL] },
+      { number: 181, labels: [PRIORITY_LABEL, "ci-gate-rot", "urgent"] },
+    ]);
+    expect(buildRunSummary({ ...input, leadingEpic: 100 }).nextPriority).toEqual([]);
+    expect(buildRunSummary(base).nextPriority).toEqual([]);
+    expect(
+      buildRunSummary({ ...base, candidates: [issue(5, [AUTO_LABEL, PRIORITY_LABEL])] })
+        .nextPriority,
+    ).toEqual([{ number: 5, labels: [PRIORITY_LABEL] }]);
+  });
 
   test("a landing repair is outside slots and winding down, listed in landingRepairs (#2973)", () => {
     const r = buildRunSummary({

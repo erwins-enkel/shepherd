@@ -3731,6 +3731,21 @@ components:
           type: array
           items:
             type: integer
+        nextPriority:
+          description: "Matching priority labels for unmapped next issues, in next order. Always sent by current servers; optional for older servers. Empty in epic mode. Labels are deduplicated with shepherd:priority first, then configured order."
+          type: array
+          items:
+            type: object
+            required:
+              - number
+              - labels
+            properties:
+              number:
+                type: integer
+              labels:
+                type: array
+                items:
+                  type: string
         after:
           description: "Open epic children directly blocked by next[0]."
           type: array
@@ -5627,6 +5642,12 @@ components:
           type: integer
         autoLabel:
           type: string
+        priorityLabels:
+          description: "Additional labels treated like shepherd:priority (default []). The auto label is still required. Exact, case-sensitive matching; all priorities tie-break by issue number. PUT trims and deduplicates names; [] clears, omission preserves."
+          type: array
+          items:
+            type: string
+            minLength: 1
         usageCeilingPct:
           type: number
         sandboxProfile:
@@ -5715,6 +5736,12 @@ components:
           type: integer
         autoLabel:
           type: string
+        priorityLabels:
+          description: "Additional labels treated like shepherd:priority (default []). The auto label is still required. Exact, case-sensitive matching; all priorities tie-break by issue number. PUT trims and deduplicates names; [] clears, omission preserves."
+          type: array
+          items:
+            type: string
+            minLength: 1
         usageCeilingPct:
           type: number
         sandboxProfile:

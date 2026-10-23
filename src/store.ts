@@ -580,6 +580,8 @@ export interface RepoConfig {
   maxAuto: number;
   /** Issue label that opts an issue in for auto-spawning (default "shepherd:auto"). */
   autoLabel: string;
+  /** Additional labels treated like shepherd:priority; the auto label is still required. */
+  priorityLabels: string[];
   /** Pause auto-spawns when usage % is at or above this threshold (default 80). */
   usageCeilingPct: number;
   /** OS-level sandbox membrane for spawned task agents (default "trusted" = unconfined). */
@@ -987,6 +989,7 @@ type RepoCfgRow = {
   signoffAuthority: string;
   maxAuto: number;
   autoLabel: string;
+  priorityLabels: string;
   usageCeilingPct: number;
   sandboxProfile: string;
   defaultModel: string;
@@ -1146,8 +1149,8 @@ function hydratePostMergeSteps(r: PostMergeStepsRow): PostMergeSteps {
   };
 }
 
-/** Tolerantly parse a persisted host-list JSON column (egressExtraHosts, browserAllowedHosts) back to string[] (never throws). */
-function parseHostListJson(raw: string | null | undefined): string[] {
+/** Tolerantly parse a persisted string-array JSON column (never throws). */
+function parseStringListJson(raw: string | null | undefined): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -1183,6 +1186,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       signoffAuthority: "human",
       maxAuto: 1,
       autoLabel: "shepherd:auto",
+      priorityLabels: [],
       usageCeilingPct: 80,
       sandboxProfile: "trusted",
       defaultModel: "inherit",
@@ -1217,18 +1221,19 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     signoffAuthority: r.signoffAuthority as RepoConfig["signoffAuthority"],
     maxAuto: r.maxAuto,
     autoLabel: r.autoLabel,
+    priorityLabels: parseStringListJson(r.priorityLabels),
     usageCeilingPct: r.usageCeilingPct,
     sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
-    egressExtraHosts: parseHostListJson(r.egressExtraHosts),
+    egressExtraHosts: parseStringListJson(r.egressExtraHosts),
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
     mergeWithoutCi: !!r.mergeWithoutCi,
     epicStacksEnabled: !!r.epicStacksEnabled,
     sharedBrowserEnabled: !!r.sharedBrowserEnabled,
-    browserAllowedHosts: parseHostListJson(r.browserAllowedHosts),
+    browserAllowedHosts: parseStringListJson(r.browserAllowedHosts),
     claudeAiConnectorsEnabled: !!r.claudeAiConnectorsEnabled,
     hidden: !!r.hidden,
     pinned: !!r.pinned,
@@ -1254,6 +1259,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.signoffAuthority,
     cfg.maxAuto,
     cfg.autoLabel,
+    JSON.stringify(cfg.priorityLabels ?? []),
     cfg.usageCeilingPct,
     cfg.sandboxProfile,
     cfg.defaultModel,
@@ -1519,6 +1525,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       autoMergeEnabled INTEGER NOT NULL DEFAULT 0,
       maxAuto INTEGER NOT NULL DEFAULT 1,
       autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto',
+      priorityLabels TEXT NOT NULL DEFAULT '[]',
       usageCeilingPct INTEGER NOT NULL DEFAULT 80,
       repoMode TEXT NOT NULL DEFAULT 'forge',
       updatedAt INTEGER NOT NULL)`);
@@ -2358,7 +2365,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
+                maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
@@ -2371,9 +2378,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
+          maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
           manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2387,6 +2394,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          signoffAuthority = excluded.signoffAuthority,
          maxAuto = excluded.maxAuto,
          autoLabel = excluded.autoLabel,
+         priorityLabels = excluded.priorityLabels,
          usageCeilingPct = excluded.usageCeilingPct,
          sandboxProfile = excluded.sandboxProfile,
          defaultModel = excluded.defaultModel,
@@ -6608,6 +6616,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("buildQueueEnabled", `buildQueueEnabled INTEGER NOT NULL DEFAULT 0`);
     add("maxAuto", `maxAuto INTEGER NOT NULL DEFAULT 1`);
     add("autoLabel", `autoLabel TEXT NOT NULL DEFAULT 'shepherd:auto'`);
+    add("priorityLabels", `priorityLabels TEXT NOT NULL DEFAULT '[]'`);
     add("usageCeilingPct", `usageCeilingPct INTEGER NOT NULL DEFAULT 80`);
     add("draftMode", `draftMode INTEGER NOT NULL DEFAULT 0`);
     add("signoffAuthority", `signoffAuthority TEXT NOT NULL DEFAULT 'human'`);

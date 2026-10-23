@@ -43,6 +43,7 @@ import {
   type GraphqlSpendLedger,
 } from "./github-spend";
 import { issuesFreshness } from "./repo-freshness";
+import { headBatcherFor, headKey } from "./github-head-batch";
 import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
@@ -688,7 +689,7 @@ export function reviewerStatesFromReviews(
   return states;
 }
 
-interface GhPr {
+export interface GhPr {
   author?: { login?: string };
   number: number;
   url: string;
@@ -2246,6 +2247,31 @@ export class GithubForge implements GitForge {
       : prs[0];
     if (!pr) return { state: "none", checks: "none", deployConfigured };
     return this.mapGhPr(pr, deployConfigured);
+  }
+
+  /** {@link prStatus} for many heads through the shared {@link headBatcherFor} (#2743): lookups
+   *  from every forge in the same macrotask share one aliased query per 20 heads. Empty in fork
+   *  mode (the batch can't pick our fork's PR out of same-named heads) and under the GraphQL
+   *  backoff (prStatus's REST fallback covers it). */
+  async prStatusMany(headBranches: string[]): Promise<Map<string, PrStatus>> {
+    const out = new Map<string, PrStatus>();
+    if (this.forkOwner || graphRateLimit.blocked()) return out;
+    const deployConfigured = Boolean(this.cfg.deployWorkflow);
+    const found = await headBatcherFor(this.run).lookup(
+      headBranches.map((head) => ({ slug: this.slug, head })),
+    );
+    for (const head of headBranches) {
+      const key = headKey(this.slug, head);
+      if (!found.has(key)) continue;
+      const pr = found.get(key);
+      out.set(
+        head,
+        pr
+          ? this.mapGhPr(pr, deployConfigured)
+          : { state: "none", checks: "none", deployConfigured },
+      );
+    }
+    return out;
   }
 
   /** One per-repo open-PR fetch (`gh pr list --state open`) mapped into every shape its

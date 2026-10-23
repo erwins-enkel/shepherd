@@ -768,25 +768,7 @@ export class PrPoller implements PrCache {
         ? batch
         : null;
     const prefetched = fresh && fresh.revision === provenance.revision ? fresh.status : undefined;
-    const marked = s.mergingSince != null;
-    const markedNumber = s.mergingPrNumber ?? null;
-    const guard = (raw: GitState): GitState =>
-      trustsTerminal(prev, raw, marked, markedNumber, s.createdAt)
-        ? raw
-        : this.rejectStaleTerminal(s, raw);
-
-    const raw = currentBatch
-      ? await this.statusFromBatch(
-          s,
-          forge,
-          currentBatch.statuses,
-          prev,
-          marked,
-          recheckNone,
-          guard,
-          prefetched,
-        )
-      : await this.statusPerSession(s, forge, guard, prefetched);
+    const raw = await this.rawStatus(s, forge, prev, currentBatch, recheckNone, prefetched);
     if (raw === null) return; // transient gh failure → keep last cached value
     if (provenance.revision !== this.readProvenance(forge).revision) return;
 
@@ -810,6 +792,36 @@ export class PrPoller implements PrCache {
       this.onChange(s.id, git);
     }
     if (linked) this.rememberSessionRead(s, forge, fpKey, provenance, currentBatch?.at);
+  }
+
+  /** Raw status for {@link refresh}: from the current batch when one applies, else per session,
+   *  with stale terminal reads guarded. null = transient `gh` failure. */
+  private async rawStatus(
+    s: Session,
+    forge: GitForge,
+    prev: GitState | undefined,
+    currentBatch: PrBatch | null,
+    recheckNone: boolean,
+    prefetched: PrStatus | undefined,
+  ): Promise<GitState | null> {
+    const marked = s.mergingSince != null;
+    const markedNumber = s.mergingPrNumber ?? null;
+    const guard = (raw: GitState): GitState =>
+      trustsTerminal(prev, raw, marked, markedNumber, s.createdAt)
+        ? raw
+        : this.rejectStaleTerminal(s, raw);
+    return currentBatch
+      ? this.statusFromBatch(
+          s,
+          forge,
+          currentBatch.statuses,
+          prev,
+          marked,
+          recheckNone,
+          guard,
+          prefetched,
+        )
+      : this.statusPerSession(s, forge, guard, prefetched);
   }
 
   /** `pre`, unless a poll of `id` started at or after it — a turn-end pollSession queued on

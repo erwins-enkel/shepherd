@@ -147,7 +147,6 @@ interface Harness {
 
 function makeHarness(
   opts: {
-    now?: () => number;
     claimListing?: () => Promise<Issue[]>;
     claimReferences?: import("../src/forge/types").IssuePullRequestReference[] | null;
     capacity?: import("../src/codex-capacity").CapacityCheck;
@@ -321,7 +320,6 @@ function makeHarness(
     capacity: opts.capacity,
     bootstrapMustHaves: opts.bootstrapMustHaves,
     openPrSnapshot: opts.openPrSnapshot,
-    now: opts.now,
     store,
     service,
     resolveForge: () => forge,

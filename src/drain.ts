@@ -1084,6 +1084,9 @@ export class DrainService {
     return `drain:released:${JSON.stringify([repoPath, number])}`;
   }
 
+  /** An archived attempt whose claim the operator explicitly released (resolveClaim). Excluded
+   *  from {@link mappedIssues}: the release already verified no open PR, so it must not wait out
+   *  the archived grace or stay mapped fail-closed when open PRs are unknown (fork/capped). */
   private releasedArchive(s: Session): boolean {
     if (s.status !== "archived" || s.issueNumber == null) return false;
     const ids: string[] = JSON.parse(
@@ -1358,7 +1361,10 @@ export class DrainService {
     // summaryCandidates ⊇ candidates: one check covers the decision and runSummary.next.
     const mappedIssueNumbers = await this.mappedIssues(
       repoPath,
-      [...allRepoSessions, ...routedHomeViews(allSessions, repoPath)],
+      [
+        ...allRepoSessions.filter((s) => !this.releasedArchive(s)),
+        ...routedHomeViews(allSessions, repoPath),
+      ],
       summaryCandidates,
     );
     // enabled reflects whether spawning (and retiring) is active — see drainEnabled.

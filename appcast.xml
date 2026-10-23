@@ -3,12 +3,12 @@
     <channel>
         <title>Shepherd</title>
         <item>
-            <title>2.1.0-nightly.2305</title>
-            <pubDate>Fri, 23 Oct 2026 09:44:35 +0000</pubDate>
-            <sparkle:version>2305</sparkle:version>
-            <sparkle:shortVersionString>2.1.0-nightly.2305</sparkle:shortVersionString>
+            <title>2.2.0</title>
+            <pubDate>Fri, 23 Oct 2026 20:26:45 +0000</pubDate>
+            <sparkle:version>2349</sparkle:version>
+            <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-nightly-2305/Shepherd-2305.zip" length="51338298" type="application/octet-stream" sparkle:edSignature="DkHg37vcLWSkHaP+N9eSNqS02GsSW3giBTSD8hO4hCS5r3VnCfqYK3OJpMcz+PLpHyK8hBGVJhzeMn40ea+FBQ=="/>
+            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-v2.2.0/Shepherd-2349.zip" length="51751992" type="application/octet-stream" sparkle:edSignature="o4irbTokwZsaVxfCE0+giioHBoPJVWi2p30EwZBKi80AxS2midxJckt9EZe/eJB+P+gKyX0Xgz8so6T5cpAcDQ=="/>
         </item>
     </channel>
 </rss>

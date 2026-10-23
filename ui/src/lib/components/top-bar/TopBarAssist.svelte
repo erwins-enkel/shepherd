@@ -6,6 +6,8 @@
   import { operatorAssistantExplanation } from "#lib/tooltips/explanations.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { urgentPip } from "#lib/assistant-dock.js";
+  import { isMacPlatform } from "#lib/platform.js";
+  import { assistantChordHint } from "../herd-keynav";
   import AssistantGlyph from "../AssistantGlyph.svelte";
 
   // The top bar's Assist toggle (#1446): opens and closes the Operator Assistant panel. A pip
@@ -46,6 +48,10 @@
         : m.operator_assistant_title(),
   );
   const aria = $derived(count ? m.topbar_assist_count({ label, count }) : label);
+  // ⌘J / Ctrl+J toggles the panel (+page's onShortcut) — desktop only, like the chord itself.
+  const mac = isMacPlatform();
+  const shortcut = $derived(mobile ? null : assistantChordHint(mac));
+  const ariaShortcut = $derived(mobile ? undefined : mac ? "Meta+J" : "Control+J");
 </script>
 
 <button
@@ -57,9 +63,10 @@
   class:on={open}
   aria-pressed={open}
   aria-label={aria}
+  aria-keyshortcuts={ariaShortcut}
   {onclick}
   use:statusTip={{
-    text: operatorAssistantExplanation(),
+    text: operatorAssistantExplanation(null, false, shortcut),
     stopClickPropagation: false,
     pinOnClick: false,
   }}

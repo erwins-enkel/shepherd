@@ -486,7 +486,13 @@ export function sandboxOverrideExplanation(): TooltipExplanation {
 export function operatorAssistantExplanation(
   permissions: AssistantPermissions | null = null,
   settingsLink = false,
+  /** The toggle chord's label (⌘J / Ctrl+J), where a keyboard can press it. */
+  shortcut: string | null = null,
 ): TooltipExplanation {
+  const footer = [
+    ...(shortcut ? [m.operator_assistant_tip_shortcut({ chord: shortcut })] : []),
+    ...(settingsLink ? [m.operator_assistant_tip_open_settings()] : []),
+  ];
   return {
     title: m.operator_assistant_title(),
     summary: m.operator_assistant_tip_summary(),
@@ -510,7 +516,7 @@ export function operatorAssistantExplanation(
       },
       { label: m.operator_assistant_tip_herdr(), text: m.operator_assistant_tip_herdr_body() },
     ],
-    footer: settingsLink ? [m.operator_assistant_tip_open_settings()] : undefined,
+    footer: footer.length ? footer : undefined,
   };
 }
 

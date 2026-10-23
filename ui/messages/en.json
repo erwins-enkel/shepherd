@@ -6975,5 +6975,8 @@
   "issuespanel_hint_start": "A start task",
   "issuespanel_hint_esc": "Esc to overview",
   "issuelist_age_tip": "Last changed {age}",
-  "backlog_ff_branch": "Fast-forward {branch}"
+  "backlog_ff_branch": "Fast-forward {branch}",
+  "operator_assistant_tip_shortcut": "{chord} opens or closes it from anywhere.",
+  "feat_assistant_shortcut_title": "Toggle the Operator Assistant with ⌘J / Ctrl+J",
+  "feat_assistant_shortcut_body": "Press ⌘J on a Mac or Ctrl+J elsewhere to open or close the Operator Assistant, even while a terminal has focus. In terminals, use Shift+Enter for a new line."
 }

@@ -211,13 +211,18 @@ function isCommandBarChord(e: KeyLike): boolean {
   return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
 }
 
+/** Cmd/Ctrl+J stays the HUD's Operator Assistant toggle. */
+function isAssistantChord(e: KeyLike): boolean {
+  return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "j";
+}
+
 /**
  * A DOM key event → the `key` message. Printable keys (and Enter) carry `text` on keydown so the
  * page receives the character; everything else is a raw key. Null for chords the view leaves to
- * the HUD (paste, command bar).
+ * the HUD (paste, command bar, assistant).
  */
 export function keyMessage(e: KeyLike, action: "down" | "up"): BrowserViewMessage | null {
-  if (isPasteChord(e) || isCommandBarChord(e)) return null;
+  if (isPasteChord(e) || isCommandBarChord(e) || isAssistantChord(e)) return null;
   const msg: BrowserViewMessage = {
     type: "key",
     action,

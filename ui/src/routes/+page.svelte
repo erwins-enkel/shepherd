@@ -124,6 +124,7 @@
     railOrder,
     railLocationsOf,
     isCommandBarChord,
+    isAssistantChord,
     cycleId,
     nthId,
     altComboKey,
@@ -1663,7 +1664,9 @@
       mobileScreen = "assistant";
     }
   }
-  async function closeAssistant() {
+  /** `refocus` says where the keyboard goes once the panel unmounts: the top-bar toggle (the
+   *  panel's own close button went with it), the session terminal, or nowhere (focus stays put). */
+  async function closeAssistant(refocus: "toggle" | "terminal" | "none" = "toggle") {
     rememberAssistantOpen(false);
     assistantTypeRequest = null;
     assistantFocusIntent = false;
@@ -1671,13 +1674,26 @@
       mobileScreen = assistantReturnScreen;
       return;
     }
-    // The panel's close button unmounted with it: keep keyboard users at the toggle.
+    if (refocus === "none") return;
     await tick();
-    document.getElementById("topbar-assist")?.focus();
+    if (refocus === "toggle") {
+      document.getElementById("topbar-assist")?.focus();
+      return;
+    }
+    viewportRef?.focusTerminal();
+    remoteDetailRef?.focusTerminal();
   }
   function toggleAssistant() {
     if (assistantOpen) void closeAssistant();
     else openAssistant();
+  }
+  // ⌘J / Ctrl+J: like the toggle, but closing never pulls the keyboard to the top bar — a chord
+  // pressed in the session terminal leaves it there, and one pressed inside the closing panel
+  // hands the keyboard to the session terminal.
+  function toggleAssistantFromChord() {
+    if (!assistantOpen) return openAssistant();
+    const inPanel = document.activeElement?.closest("[data-assistant-dock]") != null;
+    void closeAssistant(inPanel ? "terminal" : "none");
   }
   // ⌘K "Open Operator Assistant": opens it, or hands an already-open terminal the keyboard once
   // the command bar has closed and given focus back.
@@ -2066,6 +2082,12 @@
     if (isCommandBarChord(e)) {
       e.preventDefault();
       showCommandBar = true;
+      return;
+    }
+    // Cmd/Ctrl+J → toggle the Operator Assistant; same any-focus rule as ⌘K above.
+    if (isAssistantChord(e)) {
+      e.preventDefault();
+      toggleAssistantFromChord();
       return;
     }
     if (handleAltCombo(e)) return;
@@ -3391,7 +3413,7 @@
     backgroundBusy={store.backgroundBusy}
     onopen={openAssistantScope}
     onstart={openRepoAssistant}
-    onclose={closeAssistant}
+    onclose={() => closeAssistant()}
   >
     {#snippet panel(entry, switcher)}
       {@const repo = entry.repo}
@@ -3425,7 +3447,7 @@
         onresume={() => assistantLifecycle.ensure(repo)}
         onreset={() => resetAssistant(repo)}
         onend={assistantEndFor(repo)}
-        onclose={closeAssistant}
+        onclose={() => closeAssistant()}
         ondiagnose={openDiagnose}
         permissions={store.assistantPermissions}
         onpermissions={openAssistantSettings}

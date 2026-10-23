@@ -4735,7 +4735,6 @@
   "feat_review_hold_cancel_body": "Want to type while a review runs? Hold it — its directive waits until you resume. Or cancel it and restart when you're done.",
   "issuedetail_no_description": "No description.",
   "issuespanel_singles_heading": "Single issues",
-  "issuespanel_shortcuts": "↑↓ select · → expand · A start task",
   "issuedetail_back": "Back",
   "issuedetail_epic_tag": "Epic",
   "issuedetail_epic_of": "Epic #{parent}",
@@ -6964,5 +6963,15 @@
   "tooltip_repo_run_manual": "Tasks you start",
   "tooltip_repo_run_manual_body": "Tasks you start by hand don't take an agent slot — they run beside the cap.",
   "tooltip_repo_run_dot": "The dot",
-  "tooltip_repo_run_dot_body": "Ring: nothing runs. Filled: an epic leads. Amber: every agent slot is taken. Half: an epic is winding down."
+  "tooltip_repo_run_dot_body": "Ring: nothing runs. Filled: an epic leads. Amber: every agent slot is taken. Half: an epic is winding down.",
+  "issues_filter_chip_active": "in progress hidden",
+  "issues_filter_chip_blocked": "blocked hidden",
+  "issues_filter_chip_others": "others' issues hidden",
+  "issues_filter_chip_author": "author: {name}",
+  "issues_filter_chip_remove": "Remove filter: {name}",
+  "issues_shown_of_total": "{shown} of {total}",
+  "issuespanel_hint_select": "↑↓ select",
+  "issuespanel_hint_expand": "→ expand",
+  "issuespanel_hint_start": "A start task",
+  "issuespanel_hint_esc": "Esc to overview"
 }

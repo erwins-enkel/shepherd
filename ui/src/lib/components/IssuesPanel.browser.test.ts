@@ -12,6 +12,7 @@ import { issuesOverview } from "#lib/issues-overview.svelte.js";
 import { ACTIVE_LABEL } from "./issues-panel";
 import { formatReset } from "#lib/format.js";
 import { reactiveRecord } from "./reactive-fixture.svelte";
+import { dialog } from "#lib/a11yDialog.js";
 
 // Mock the API so no network calls fire; each test seeds the results.
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -75,8 +76,8 @@ async function selectRow(key: string) {
 const userKey = (key: string) => userEvent.keyboard(key.length === 1 ? key : `{${key}}`);
 const epicCount = (n: number) => option(`e:${n}`)?.querySelector(".count")?.textContent?.trim();
 
-describe("IssuesPanel repo slug link", () => {
-  it("renders an <a> linking to webUrl when provided", async () => {
+describe("IssuesPanel header (#2639)", () => {
+  it("shows no ISSUES · repo line — the dialog header already names the repo", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",
       webUrl: "https://github.com/owner/repo",
@@ -86,30 +87,11 @@ describe("IssuesPanel repo slug link", () => {
     mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
-    const link = document.querySelector(".issues-header .repo-link") as HTMLAnchorElement | null;
-    expect(link).not.toBeNull();
-    expect(link!.href).toBe("https://github.com/owner/repo");
-    expect(link!.getAttribute("target")).toBe("_blank");
-    expect(link!.textContent?.trim()).toBe("owner/repo");
-  });
-
-  it("renders slug as plain text when webUrl is null", async () => {
-    mockListIssues.mockResolvedValue({
-      slug: "owner/repo",
-      webUrl: null,
-      issues: [],
-      viewer: null,
-    });
-    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
-    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
-
-    await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
     await expect
-      .poll(() => document.querySelector(".issues-header")?.textContent)
-      .toContain("owner/repo");
-    const link = document.querySelector(".issues-header .repo-link");
-    expect(link).toBeNull();
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.common_no_open_issues());
+    expect(document.querySelector(".issues-header")).toBeNull();
+    expect(document.querySelector(".repo-link")).toBeNull();
   });
 });
 
@@ -827,7 +809,92 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(option("s:2")?.getAttribute("aria-selected")).toBe("true");
     await userKey("a");
     expect(onnewtask).toHaveBeenCalledWith(expect.objectContaining({ number: 2 }), {});
-    expect(document.querySelector(".shortcuts")?.textContent).toBe(m.issuespanel_shortcuts());
+    expect(document.querySelector(".shortcuts")?.textContent?.trim()).toBe(
+      [
+        m.issuespanel_hint_select(),
+        m.issuespanel_hint_expand(),
+        m.issuespanel_hint_start(),
+        m.issuespanel_hint_esc(),
+      ].join(" · "),
+    );
+  });
+
+  describe("visible filters, shortcuts and Esc (#2639)", () => {
+    let prev = { active: false, blocked: true };
+    beforeEach(() => {
+      prev = { active: issuesFilter.hideActive, blocked: issuesFilter.hideBlocked };
+    });
+    afterEach(() => {
+      issuesFilter.setActive(prev.active);
+      issuesFilter.setBlocked(prev.blocked);
+    });
+    const chip = (id: string) => document.querySelector<HTMLElement>(`.fchip[data-chip="${id}"]`);
+    const shown = () => document.querySelector(".shown-count")?.textContent?.trim() ?? null;
+    const hints = () => document.querySelector(".shortcuts")?.textContent?.trim() ?? "";
+
+    it("names a hiding toggle as a chip with N of M; × clears it", async () => {
+      issuesFilter.setActive(true);
+      issuesFilter.setBlocked(false);
+      seed([plain(1, { labels: [ACTIVE_LABEL] }), plain(2), plain(3)]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+      await expect.poll(() => chip("active")?.textContent).toContain(m.issues_filter_chip_active());
+      expect(chip("blocked")).toBeNull();
+      expect(shown()).toBe(m.issues_shown_of_total({ shown: 2, total: 3 }));
+      expect(option("s:1")).toBeNull();
+
+      const x = chip("active")!.querySelector<HTMLButtonElement>("button")!;
+      expect(x.getAttribute("aria-label")).toBe(
+        m.issues_filter_chip_remove({ name: m.issues_filter_chip_active() }),
+      );
+      x.click();
+      await expect.poll(() => chip("active")).toBeNull();
+      expect(issuesFilter.hideActive).toBe(false);
+      await expect.poll(() => option("s:1")).not.toBeNull();
+      expect(shown()).toBeNull();
+    });
+
+    it("hints → only with epics and Esc only with a selection", async () => {
+      seed([plain(2), plain(3)]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => option("s:2")).not.toBeNull();
+      expect(hints()).toBe([m.issuespanel_hint_select(), m.issuespanel_hint_start()].join(" · "));
+      await selectRow("s:2");
+      expect(hints()).toBe(
+        [m.issuespanel_hint_select(), m.issuespanel_hint_start(), m.issuespanel_hint_esc()].join(
+          " · ",
+        ),
+      );
+    });
+
+    it("Esc with a selection returns to the overview without closing the dialog", async () => {
+      const onclose = vi.fn();
+      const onWindowKey = vi.fn();
+      window.addEventListener("keydown", onWindowKey);
+      try {
+        seed([plain(2), plain(3)]);
+        const { container } = await render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+        // The Repos dialog's card carries this action (BacklogOverlay: use:dialog={{ onclose }}).
+        const trap = dialog(container as HTMLElement, { onclose });
+        try {
+          await selectRow("s:2");
+          document.querySelector<HTMLElement>(".issue-options")!.focus();
+          await userKey("Escape");
+          await expect.poll(() => document.querySelector(".detail-col .overview")).not.toBeNull();
+          expect(option("s:2")!.getAttribute("aria-selected")).toBe("false");
+          expect(onclose).not.toHaveBeenCalled();
+          expect(onWindowKey).not.toHaveBeenCalled();
+
+          // Nothing selected: Esc falls through and closes the dialog as before.
+          await userKey("Escape");
+          expect(onclose).toHaveBeenCalledTimes(1);
+        } finally {
+          trap.destroy();
+        }
+      } finally {
+        window.removeEventListener("keydown", onWindowKey);
+      }
+    });
   });
 
   it("the task box starts a task with the changed run settings and keeps quick steers", async () => {

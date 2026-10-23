@@ -4735,7 +4735,6 @@
   "feat_review_hold_cancel_body": "Du willst tippen, während eine Überprüfung läuft? Halte sie an — ihre Anweisung wartet, bis du fortsetzt. Oder brich sie ab und starte sie neu, wenn du fertig bist.",
   "issuedetail_no_description": "Keine Beschreibung.",
   "issuespanel_singles_heading": "Einzelne Issues",
-  "issuespanel_shortcuts": "↑↓ wählen · → aufklappen · A Aufgabe starten",
   "issuedetail_back": "Zurück",
   "issuedetail_epic_tag": "Epic",
   "issuedetail_epic_of": "Epic #{parent}",
@@ -6964,5 +6963,15 @@
   "tooltip_repo_run_manual": "Manuelle Aufgaben",
   "tooltip_repo_run_manual_body": "Manuell gestartete Aufgaben belegen keinen Agenten-Platz — sie laufen neben dem Limit.",
   "tooltip_repo_run_dot": "Der Punkt",
-  "tooltip_repo_run_dot_body": "Ring: Nichts läuft. Gefüllt: Ein Epic führt. Amber: Alle Agenten-Plätze sind belegt. Halb: Ein Epic läuft aus."
+  "tooltip_repo_run_dot_body": "Ring: Nichts läuft. Gefüllt: Ein Epic führt. Amber: Alle Agenten-Plätze sind belegt. Halb: Ein Epic läuft aus.",
+  "issues_filter_chip_active": "in Arbeit ausgeblendet",
+  "issues_filter_chip_blocked": "blockierte ausgeblendet",
+  "issues_filter_chip_others": "Issues anderer ausgeblendet",
+  "issues_filter_chip_author": "Autor: {name}",
+  "issues_filter_chip_remove": "Filter entfernen: {name}",
+  "issues_shown_of_total": "{shown} von {total}",
+  "issuespanel_hint_select": "↑↓ wählen",
+  "issuespanel_hint_expand": "→ aufklappen",
+  "issuespanel_hint_start": "A Aufgabe starten",
+  "issuespanel_hint_esc": "Esc zum Überblick"
 }

@@ -45,6 +45,13 @@ const WINDOW_SKEW_MS = 5_000;
  *  for it — the way out after locking onto another counter's reading at boot. */
 const ADOPT_AFTER = 3;
 
+/** How far past an empty bucket's `resetAt` the backoff holds, so the first call after it
+ *  lands in the refilled window (#2841). */
+const RESET_MARGIN_MS = 5_000;
+
+/** A `resetAt` further ahead than this can't be the hourly window's (#2840) and is not trusted. */
+const MAX_RESET_AHEAD_MS = 60 * 60_000;
+
 /** True iff two epoch-ms `resetAt`s name the same rate-limit window. */
 export function sameWindow(a: number, b: number): boolean {
   return Math.abs(a - b) <= WINDOW_SKEW_MS;
@@ -150,18 +157,31 @@ export class BucketRateLimit {
    * Record a detected rate-limit error from `gh`.
    *
    * Sets `pausedUntil = max(existing, now() + cooldown)`. A longer existing
-   * cooldown is never shortened. Without a `Retry-After`, the cooldown starts at
-   * `defaultCooldownMs` and doubles (up to `maxCooldownMs`) each time a window
-   * lapses straight into another limit error. Errors from calls that were already
+   * cooldown is never shortened. A `Retry-After` wins. Else a `reading` of the empty
+   * bucket (`remaining: 0`, `resetAt` within the next hour) holds the backoff until just
+   * past `resetAt` (#2841); any other reading is not trusted (#2840). Otherwise the
+   * cooldown starts at `defaultCooldownMs` and doubles (up to `maxCooldownMs`) each
+   * time a window lapses straight into another limit error. Errors from calls that were already
    * in flight when the window opened do not escalate it.
    *
    * @param retryAfterSec Optional `Retry-After` header value in seconds.
    * @param cause         What tripped it (the call and its stderr line), appended to the
    *   "engaged" log so every engagement is explained (#2805).
+   * @param reading       The bucket's `rateLimit` reading taken after the error
+   *   (epoch-ms `resetAt`).
    */
-  noteLimitError(retryAfterSec?: number, cause?: string): void {
+  noteLimitError(
+    retryAfterSec?: number,
+    cause?: string,
+    reading?: { remaining: number; resetAt: number },
+  ): void {
     if (retryAfterSec !== undefined) {
       this._engage(this._now() + retryAfterSec * 1_000, cause);
+      return;
+    }
+    if (reading && this._trustedReset(reading)) {
+      const resets = `bucket empty, resets ${new Date(reading.resetAt).toISOString()}`;
+      this._engage(reading.resetAt + RESET_MARGIN_MS, cause ? `${cause}; ${resets}` : resets);
       return;
     }
     if (!this.blocked()) this._strikes++;
@@ -192,6 +212,17 @@ export class BucketRateLimit {
   }
 
   // ── private helpers ─────────────────────────────────────────────────────────
+
+  /** Whether a post-error reading names the empty bucket's reset: nothing left, and a
+   *  `resetAt` within the next hour. */
+  private _trustedReset(reading: { remaining: number; resetAt: number }): boolean {
+    const now = this._now();
+    return (
+      reading.remaining === 0 &&
+      reading.resetAt > now &&
+      reading.resetAt <= now + MAX_RESET_AHEAD_MS
+    );
+  }
 
   /** Whether a reading resetting at `resetAt` belongs to the window this tracker follows. Logs
    *  the first ignored reading of each other counter, and the switch when one is adopted. */
@@ -266,9 +297,13 @@ export class BucketRateLimit {
 /**
  * Module-level singleton used by `github.ts` and `index.ts`. All GitHub
  * GraphQL paths that can observe rate-limit signals funnel through this
- * instance so the backoff state is shared across pollers.
+ * instance so the backoff state is shared across pollers. A primary limit error
+ * holds it until the bucket's `resetAt` when a reading names one (#2841); without
+ * one it escalates from 60s to 15 min like the REST trackers.
  */
-export const graphRateLimit: BucketRateLimit = new BucketRateLimit();
+export const graphRateLimit: BucketRateLimit = new BucketRateLimit({
+  maxCooldownMs: 15 * 60_000,
+});
 
 /**
  * The REST (`core`) bucket's READ tracker (#2656, #2805) — only REST reads
@@ -417,6 +452,15 @@ export function isRateLimitError(err: unknown): boolean {
       String(err),
   ).toLowerCase();
   return text.includes("rate limit") || text.includes("rate_limited");
+}
+
+/**
+ * Returns true when `gh` stderr names a SECONDARY rate limit (or GitHub's older
+ * "abuse detection" wording) — those carry no bucket `resetAt` and keep their own
+ * rule: `Retry-After`, else escalate (#2841).
+ */
+export function isSecondaryLimitError(stderr: string): boolean {
+  return /secondary rate limit|abuse detection/i.test(stderr);
 }
 
 /**

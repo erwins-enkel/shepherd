@@ -30,6 +30,7 @@ import {
   isRateLimitError,
   isRestBucketCall,
   isRestReadCall,
+  isSecondaryLimitError,
   parseRetryAfter,
   restRateLimit,
   restWriteRateLimit,
@@ -442,7 +443,11 @@ const execGh: GhRunner = async (args) => {
  *    {@link restWriteRateLimit} themselves;
  *  - every GraphQL-bucket call is charged to the spend ledger, and each in-query `rateLimit`
  *    reading goes to the GraphQL tracker and, if it is of the tracker's window, the ledger
- *    (#2840) — the one place readings enter either.
+ *    (#2840) — the one place readings enter either;
+ *  - a primary GraphQL limit error reads the bucket's `{rateLimit}` once (it answers while
+ *    empty), so the backoff holds until its `resetAt` instead of re-probing every minute
+ *    (#2841). Calls failing together share the one read; the failing call's error is thrown
+ *    once the read is noted.
  * Each engagement logs the call and the first stderr line that tripped it.
  * Errors are always re-thrown, so callers' fallbacks and error handling are unchanged.
  * Everything is injectable for tests; production uses {@link sharedGhRunner}.
@@ -463,6 +468,12 @@ export function makeGhRunner(
   const restWrite = opts.restWrite ?? restWriteRateLimit;
   const spend = opts.spend ?? graphqlSpend;
   const gate = new Semaphore(opts.maxConcurrent ?? GH_MAX_CONCURRENCY);
+  // Outside the gate: every slot may be held by a call awaiting this very read.
+  let budgetRead: Promise<BudgetReading | undefined> | null = null;
+  const readBudget = () =>
+    (budgetRead ??= readGraphqlBudget(exec).finally(() => {
+      budgetRead = null;
+    }));
   return (args) =>
     timedAsync(`gh ${args[0]}`, () =>
       gate.run(async () => {
@@ -478,11 +489,26 @@ export function makeGhRunner(
           if (graphql) chargeGraphql(args, out, graph, spend);
           return out;
         } catch (err) {
-          noteFailure(args, err, { graph, restBucket, spend });
+          await noteFailure(args, err, { graph, restBucket, spend, readBudget });
           throw err;
         }
       }),
     );
+}
+
+type BudgetReading = { remaining: number; resetAt: number };
+
+/** The GraphQL bucket's budget query: free, and answered even while the bucket is empty. */
+const BUDGET_QUERY = ["api", "graphql", "-f", "query={rateLimit{remaining resetAt}}"];
+
+/** Read the GraphQL bucket's `remaining`/`resetAt`; undefined when the read fails. */
+async function readGraphqlBudget(exec: GhRunner): Promise<BudgetReading | undefined> {
+  try {
+    const rl = parseInQueryRateLimit(await exec(BUDGET_QUERY));
+    return rl ? { remaining: rl.remaining, resetAt: rl.resetAt } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -490,21 +516,43 @@ export function makeGhRunner(
  * its REST read/write tracker). Any other GraphQL failure GitHub answered — an error, or
  * partial data next to one — was still charged, so it is charged to the ledger too (#2840).
  */
-function noteFailure(
+async function noteFailure(
   args: string[],
   err: unknown,
-  t: { graph: BucketRateLimit; restBucket: BucketRateLimit | null; spend: GraphqlSpendLedger },
-): void {
+  t: {
+    graph: BucketRateLimit;
+    restBucket: BucketRateLimit | null;
+    spend: GraphqlSpendLedger;
+    readBudget: () => Promise<BudgetReading | undefined>;
+  },
+): Promise<void> {
   const graphql = isGraphqlBucketCall(args);
   if (isRateLimitError(err)) {
     const stderr = String((err as Record<string, unknown>)?.stderr ?? "");
-    const bucket = graphql ? t.graph : t.restBucket;
-    bucket?.noteLimitError(parseRetryAfter(stderr), limitCause(args, stderr));
+    const cause = limitCause(args, stderr);
+    if (graphql) await noteGraphqlLimit(stderr, cause, t.graph, t.readBudget);
+    else t.restBucket?.noteLimitError(parseRetryAfter(stderr), cause);
     return;
   }
   if (!graphql || (err as NodeJS.ErrnoException | null)?.code === "ENOENT") return;
   const stdout = (err as { stdout?: unknown } | null)?.stdout;
   chargeGraphql(args, typeof stdout === "string" ? stdout : null, t.graph, t.spend);
+}
+
+/**
+ * Engage the GraphQL backoff for a limit error (#2841). A primary limit with no `Retry-After`,
+ * hit while the backoff is off, reads the bucket so the tracker can wait for its `resetAt`.
+ * Secondary limits and errors inside an engaged window never read it.
+ */
+async function noteGraphqlLimit(
+  stderr: string,
+  cause: string,
+  graph: BucketRateLimit,
+  readBudget: () => Promise<BudgetReading | undefined>,
+): Promise<void> {
+  const retryAfter = parseRetryAfter(stderr);
+  const read = retryAfter === undefined && !isSecondaryLimitError(stderr) && !graph.blocked();
+  graph.noteLimitError(retryAfter, cause, read ? await readBudget() : undefined);
 }
 
 /**

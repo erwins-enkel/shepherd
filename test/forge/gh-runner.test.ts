@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { makeGhRunner } from "../../src/forge/github";
-import { BucketRateLimit, isRateLimitError } from "../../src/forge/rate-limit";
+import { BucketRateLimit, isGraphqlBucketCall, isRateLimitError } from "../../src/forge/rate-limit";
 import { classifyGhError } from "../../src/forge/gh-attempt";
 import { GraphqlSpendLedger } from "../../src/forge/github-spend";
 
@@ -265,7 +265,13 @@ describe("makeGhRunner — GraphQL spend (#2840)", () => {
   /** Runs the calls in order — each answering with its own output — then reads the split. */
   async function split(calls: Array<[string[], () => string]>) {
     const queue = calls.map(([, out]) => out);
-    const h = harness({ exec: async () => queue.shift()!() });
+    // A limit error's budget read (#2841) isn't one of the scripted calls; it fails here.
+    const h = harness({
+      exec: async (args) => {
+        if (args.includes("query={rateLimit{remaining resetAt}}")) throw new Error("unscripted");
+        return queue.shift()!();
+      },
+    });
     for (const [args] of calls) {
       await h.run(args).catch(() => undefined);
       h.advance(10_000);
@@ -349,5 +355,113 @@ describe("makeGhRunner — GraphQL spend (#2840)", () => {
     expect(h.graph.snapshot()).toMatchObject({ remaining: 4890, resetAt: Date.parse(RESET) });
     // The ignored query still cost Shepherd its point.
     expect(s).toMatchObject({ ownPoints: 2, otherPoints: 8 });
+  });
+});
+
+describe("makeGhRunner — GraphQL waits for the empty bucket's reset (#2841)", () => {
+  let warnSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  const MIN = 60_000;
+  const PRIMARY = "GraphQL: API rate limit already exceeded for user ID 1.";
+  const RESET_AT = 40 * MIN;
+  const reading = (remaining: number, resetAt: number) =>
+    `{"data":{"rateLimit":{"remaining":${remaining},"resetAt":"${new Date(resetAt).toISOString()}"}}}`;
+  const isBudgetRead = (args: string[]) => args.some((a) => a.includes("{rateLimit{"));
+
+  /** Every GraphQL call is refused with `stderr`; the budget read answers `budget()`. */
+  function drained(stderr: string, budget: () => Promise<string>) {
+    return harness({
+      exec: async (args) => {
+        if (isBudgetRead(args)) return budget();
+        if (isGraphqlBucketCall(args)) throw ghError(stderr);
+        return "{}";
+      },
+    });
+  }
+
+  it("reads the budget once and holds the backoff until just past resetAt", async () => {
+    const h = drained(PRIMARY, async () => reading(0, RESET_AT));
+    await expect(h.run(["issue", "list", "--repo", "o/r"])).rejects.toThrow("rate limit");
+    expect(h.execs.filter(isBudgetRead)).toHaveLength(1);
+    expect(h.graph.snapshot().pausedUntil).toBe(RESET_AT + 5_000);
+
+    h.advance(RESET_AT + 4_000);
+    expect(h.graph.blocked()).toBe(true);
+    h.advance(2_000);
+    expect(h.graph.blocked()).toBe(false);
+  });
+
+  it("a wave of refused calls shares one budget read and logs one engagement", async () => {
+    let answer!: () => void;
+    const answered = new Promise<void>((r) => (answer = r));
+    const h = drained(PRIMARY, async () => {
+      await answered;
+      return reading(0, RESET_AT);
+    });
+    const wave = [
+      h.run(["issue", "list", "--repo", "o/r"]),
+      h.run(["pr", "list", "--repo", "o/r"]),
+      h.run(["api", "graphql", "-f", "query=query{viewer{login}}"]),
+    ].map((p) => p.catch((e: unknown) => e));
+    await Bun.sleep(0);
+    answer();
+    const errs = await Promise.all(wave);
+    expect(errs.every((e) => isRateLimitError(e))).toBe(true);
+    expect(h.execs.filter(isBudgetRead)).toHaveLength(1);
+
+    // A call already in flight when the window opened fails inside it: no second read.
+    await h.run(["issue", "view", "7", "--repo", "o/r"]).catch(() => {});
+    expect(h.execs.filter(isBudgetRead)).toHaveLength(1);
+
+    const engaged = warnSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .filter((l: string) => l.includes("engaged"));
+    expect(engaged).toHaveLength(1);
+    expect(engaged[0]).toContain(new Date(RESET_AT + 5_000).toISOString());
+    expect(engaged[0]).toContain(`resets ${new Date(RESET_AT).toISOString()}`);
+  });
+
+  it("a reading with points left falls back to the cooldown", async () => {
+    const h = drained(PRIMARY, async () => reading(3, RESET_AT));
+    await h.run(["issue", "list", "--repo", "o/r"]).catch(() => {});
+    expect(h.graph.snapshot().pausedUntil).toBe(MIN);
+  });
+
+  it("a resetAt more than an hour ahead falls back to the cooldown", async () => {
+    const h = drained(PRIMARY, async () => reading(0, 61 * MIN));
+    await h.run(["issue", "list", "--repo", "o/r"]).catch(() => {});
+    expect(h.graph.snapshot().pausedUntil).toBe(MIN);
+  });
+
+  it("a failed budget read falls back to the cooldown and the call's own error is thrown", async () => {
+    const h = drained(PRIMARY, async () => {
+      throw ghError(PRIMARY);
+    });
+    await expect(h.run(["issue", "list", "--repo", "o/r"])).rejects.toThrow(PRIMARY);
+    expect(h.graph.snapshot().pausedUntil).toBe(MIN);
+  });
+
+  it("a secondary limit keeps its own rule: Retry-After, no budget read", async () => {
+    const h = drained("You have exceeded a secondary rate limit. Retry-After: 120", async () =>
+      reading(0, RESET_AT),
+    );
+    await h.run(["issue", "list", "--repo", "o/r"]).catch(() => {});
+    expect(h.execs.filter(isBudgetRead)).toHaveLength(0);
+    expect(h.graph.snapshot().pausedUntil).toBe(120_000);
+  });
+
+  it("a secondary limit without Retry-After escalates, no budget read", async () => {
+    const h = drained("You have exceeded a secondary rate limit.", async () =>
+      reading(0, RESET_AT),
+    );
+    await h.run(["issue", "list", "--repo", "o/r"]).catch(() => {});
+    expect(h.execs.filter(isBudgetRead)).toHaveLength(0);
+    expect(h.graph.snapshot().pausedUntil).toBe(MIN);
   });
 });

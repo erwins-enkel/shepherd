@@ -17,7 +17,8 @@ def signal_group(pgid, signum):
     try:
         os.killpg(pgid, signum)
         return True
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
+        # EPERM: only foreign-uid members remain (not ours, unkillable).
         return False
 
 directory = pathlib.Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "shepherd-uitest"

@@ -146,6 +146,25 @@ struct EventStreamTests {
     }
   }
 
+  @Test("a frame larger than URLSession's 1 MiB default still arrives")
+  func yieldsFramesAboveDefaultLimit() async throws {
+    try await withStream { server, stream in
+      let events = stream.events()
+      await stream.start()
+
+      try await awaitConnected(server)
+      // A busy server's `upnext:snapshot` frame is several MB.
+      let padding = String(repeating: "a", count: 5 * 1024 * 1024)
+      server.send(#"{"event":"epic:progress","data":{"padding":"\#(padding)"}}"#)
+
+      guard case .unknown(let name, _) = try #require(try await firstEvent(from: events)) else {
+        Issue.record("expected an .unknown event")
+        return
+      }
+      #expect(name == "epic:progress")
+    }
+  }
+
   @Test("a malformed frame is dropped and the stream keeps going")
   func dropsMalformedFrames() async throws {
     try await withStream { server, stream in

@@ -18,6 +18,8 @@
  * │    too, not just the test lanes — CI's `static` job still runs them.          │
  * │  • local Bun below package.json engines.bun aborts the push (#2916); CI only  │
  * │    asserts its own `latest` meets the floor.                                  │
+ * │  • root-tests runs `bun test --parallel=W` (#2571); CI's `test-root` stays    │
+ * │    serial `--shard`s until oven-sh/bun#39987 (worker deadlock) is fixed.      │
  * └──────────────────────────────────────────────────────────────────────────────┘
  *
  * The hook (`.husky/pre-push`) scrubs git's local-env-vars and execs this script,
@@ -611,16 +613,18 @@ export function buildLanes(
 
     lanes.push({
       name: "root-tests",
-      // ~130–140s on Bun 1.4.2, also under a parallel full suite (#2916). Earlier TIMEOUTs
-      // here were Bun 1.3.x's child-process hang, now blocked by the engines.bun floor.
+      // ~45s parallel vs ~150s serial on Bun 1.4.4 (#2571). Earlier TIMEOUTs here were Bun
+      // 1.3.x's child-process hang, now blocked by the engines.bun floor.
       timeoutMs: t(300_000),
       steps: [
         {
           label: "bun test ./test",
           cmd: "bun",
-          // Serial on purpose: Bun 1.4's --parallel intermittently hangs or loses subprocess exits
-          // (oven-sh/bun#39987, #43697); see the `test-root` job in ci.yml.
-          args: ["test", "./test"],
+          // --parallel=W, never bare (keeps laneCap × maxWorkers ≤ cores), never --randomize.
+          // Needs Bun ≥1.4.3 for the lost-subprocess-exit fix (oven-sh/bun#43697). The worker
+          // deadlock (oven-sh/bun#39987) is still open upstream, so CI stays sharded+serial;
+          // a hang here is bounded by the lane timeout. Gate: 12/12 CI + 10/10 local green (#2571).
+          args: ["test", `--parallel=${W}`, "./test"],
           cwd: repoRoot,
           // Point server.test.ts's throwaway repo at a unique temp dir (never the real root).
           env: { ...process.env, SHEPHERD_REPO_ROOT: makeRepoRoot() },

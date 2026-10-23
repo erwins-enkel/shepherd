@@ -80,7 +80,7 @@ so a hung child can never wedge the push. The checks (per lane) are:
 - **prettier:** `prettier --check` over the push **delta** (see note)
 - **eslint:** root + extension eslint over the push **delta** (see note)
 - **tsc:** `bun run typecheck` (root `tsc --noEmit`)
-- **root-tests:** `bun test ./test`
+- **root-tests:** `bun test --parallel=<workers> ./test` (see note)
 - **ui:** `bun run check` → `check:i18n` → `playwright install chromium` → `bun run test` → `scripts/check-ui-build.sh` (the ui build, plus a fail on Rollup's `INEFFECTIVE_DYNAMIC_IMPORT`; CI's **Build (ui)** step runs the same script)
 - **ext:** `bun run check` → `check:i18n` → `bun run test` → `bun run build`
 - then **`bunx fallow@2.100.0 audit --base origin/main --fail-on-issues`** (delta
@@ -99,6 +99,11 @@ so a hung child can never wedge the push. The checks (per lane) are:
 >   top-level `*.md` change, **tsc**, **root-tests**, **ui** and **ext** drop out and the push
 >   takes seconds. CI skips its test lanes for the same diff but still type-checks it in
 >   `static`. Any other or unknown path runs every lane.
+> - **Parallel root tests.** The hook runs the root suite with `bun test --parallel=<workers>`
+>   (~45s vs ~150s serial, [#2571](https://github.com/erwins-enkel/shepherd/issues/2571)).
+>   CI's `test-root` stays serial `--shard`s until the upstream worker deadlock
+>   ([oven-sh/bun#39987](https://github.com/oven-sh/bun/issues/39987)) is fixed; a local hang
+>   is bounded by the lane timeout.
 > - **Same checks, different scoping.** Because the hook no longer shares `ci.yml`'s shell
 >   body, the two gate definitions can drift — when you change a CI step, mirror it in
 >   `scripts/pre-push.ts` (there's a sync banner in both files). The `fallow@2.100.0` pin is

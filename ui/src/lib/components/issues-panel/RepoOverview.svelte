@@ -319,7 +319,6 @@
           <span class="next-title">{m.repooverview_next_single_title()} <kbd>A</kbd></span>
           <span class="note">{m.repooverview_next_single_body()}</span>
         </span>
-        <span class="arrow" aria-hidden="true">›</span>
       </li>
       {#if ondraftepic}
         <li class="orow next-row">
@@ -330,7 +329,6 @@
               >{m.repooverview_draft_epic()}</button
             >
           </span>
-          <span class="arrow" aria-hidden="true">›</span>
         </li>
       {/if}
     </ul>
@@ -402,7 +400,8 @@
   button.orow {
     cursor: pointer;
   }
-  .orow:hover {
+  /* Only actionable rows answer hover — the next-step rows are information, not targets. */
+  button.orow:hover {
     background: var(--color-panel);
   }
   .orow:focus-visible {
@@ -424,7 +423,7 @@
     color: var(--color-faint);
     font-size: var(--fs-base);
   }
-  .orow:hover .arrow,
+  button.orow:hover .arrow,
   .label-row:hover .arrow {
     color: var(--color-ink);
   }

@@ -694,12 +694,29 @@
     A: startSelectedTask,
   };
 
+  function isTypingTarget(el: EventTarget | null): boolean {
+    if (!(el instanceof HTMLElement)) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  }
+
+  /** A nested surface inside the panel that handles its own Esc (menu, popover, modal). */
+  function ownsEscape(el: EventTarget | null, panel: HTMLElement): boolean {
+    if (!(el instanceof Element)) return false;
+    const owner = el.closest('[role="menu"], [role="dialog"], [aria-modal="true"], [popover]');
+    return owner !== null && panel.contains(owner);
+  }
+
   // Escape is bound natively, not via the delegated `onkeydown`: Svelte delegates that to
   // the app root, so the dialog's own native Escape listener on its card would close the
-  // dialog before the delegated handler ever ran.
+  // dialog before the delegated handler ever ran. Bound on the panel (both columns), so it
+  // also works with focus in the detail — but never mid-typing (a field owns its Esc) and
+  // never inside a nested menu/popover/modal, which closes itself first.
   const escapeKey: Attachment<HTMLElement> = (node) => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.ctrlKey && !e.metaKey && !e.altKey) escapeToOverview(e);
+      if (e.key !== "Escape" || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      if (isTypingTarget(e.target) || ownsEscape(e.target, node)) return;
+      escapeToOverview(e);
     };
     node.addEventListener("keydown", onKey);
     return () => node.removeEventListener("keydown", onKey);
@@ -783,7 +800,7 @@
   });
 </script>
 
-<div class="issues-panel" class:mobile>
+<div class="issues-panel" class:mobile {@attach escapeKey}>
   <div class="list-col">
     <div class="issues-list">
       {#if loading}
@@ -871,7 +888,6 @@
           aria-label={m.issuespanel_title()}
           aria-activedescendant={selectedKey ? `issue-opt-${selectedKey}` : undefined}
           onkeydown={onListKey}
-          {@attach escapeKey}
         >
           <IssueListRows
             {rows}

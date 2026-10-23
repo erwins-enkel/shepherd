@@ -898,6 +898,28 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
           expect(onclose).not.toHaveBeenCalled();
           expect(onWindowKey).not.toHaveBeenCalled();
 
+          // Focus in the detail column (e.g. after picking an epic from the overview): Esc
+          // still returns to the overview instead of closing the dialog.
+          await selectRow("s:2");
+          const detail = document.querySelector<HTMLElement>(".detail-col")!;
+          detail.tabIndex = -1;
+          detail.focus();
+          await userKey("Escape");
+          await expect.poll(() => document.querySelector(".detail-col .overview")).not.toBeNull();
+          expect(onclose).not.toHaveBeenCalled();
+
+          // Typing in the search: the field owns Esc — the panel leaves the selection alone
+          // (what the dialog then does with the key is unchanged from before).
+          await selectRow("s:2");
+          document.querySelector<HTMLInputElement>("input.issue-filter")!.focus();
+          await userKey("Escape");
+          expect(option("s:2")!.getAttribute("aria-selected")).toBe("true");
+          onclose.mockClear();
+          option("s:2")!.closest<HTMLElement>(".issue-options")!.focus();
+          await userKey("Escape");
+          await expect.poll(() => option("s:2")!.getAttribute("aria-selected")).toBe("false");
+          expect(onclose).not.toHaveBeenCalled();
+
           // Nothing selected: Esc falls through and closes the dialog as before.
           await userKey("Escape");
           expect(onclose).toHaveBeenCalledTimes(1);

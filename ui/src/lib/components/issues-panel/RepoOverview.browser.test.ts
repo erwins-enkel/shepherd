@@ -203,7 +203,7 @@ describe("RepoOverview (#2622)", () => {
     expect(cards[0].getBoundingClientRect().left).toBe(cards[1].getBoundingClientRect().left);
   });
 
-  it("next-step rows are borderless with an arrow (#2639)", async () => {
+  it("next-step rows are borderless, with no arrow or hover (not click targets) (#2639)", async () => {
     render(RepoOverview, {
       epics: [],
       ...quiet,
@@ -215,7 +215,8 @@ describe("RepoOverview (#2622)", () => {
     expect(rows).toHaveLength(2);
     for (const r of rows) {
       expect(getComputedStyle(r).borderTopWidth).toBe("0px");
-      expect(r.querySelector(".arrow[aria-hidden=true]")).not.toBeNull();
+      expect(r.querySelector(".arrow")).toBeNull();
+      expect(r.tagName).toBe("LI");
     }
   });
 

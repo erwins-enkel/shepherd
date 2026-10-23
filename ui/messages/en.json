@@ -6394,7 +6394,7 @@
   "operator_assistant_tip_may_body": "Set in Settings → Assistant. It acts only when you ask; file edits are always refused.",
   "operator_assistant_tip_open_settings": "Click to change it in Settings → Assistant.",
   "feat_assistant_permissions_title": "Decide what the Operator Assistant may do",
-  "feat_assistant_permissions_body": "Settings → Assistant sets its shell and four action groups — steering, session control, approvals & merge, automation — to Off, Ask first or Allowed. By default read-only commands run without asking and every action asks. It acts only when you ask, and the chip in its panel shows the current mode.",
+  "feat_assistant_permissions_body": "Settings → Assistant sets its shell and five action groups — steering, starting sessions, session control, approvals & merge, automation — to Off, Ask first or Allowed. By default read-only commands run without asking, starting a session is allowed and every other action asks. It acts only when you ask, and the chip in its panel shows the current mode.",
   "feat_assistant_view_title": "The assistant sees what you see",
   "feat_assistant_view_body": "Each message to the [[operator-assistant|Operator Assistant]] now carries what your window shows: the repo filter and the session in view, with its open tab and epic. Ask “why is this one stuck?” or “what’s misconfigured in the current repo?” without naming it. On a phone it’s the session you opened the assistant from.",
   "settings_house_stack_title": "House Stack",
@@ -6880,5 +6880,9 @@
   "status_in_merge_queue": "IN MERGE QUEUE",
   "status_in_merge_queue_tip": "GitHub's merge queue holds this PR and lands it once the queue's checks pass. Nothing to do.",
   "native_epics_waiting_on_you_one": "1 waiting on you",
-  "native_epics_load_failed": "Could not load the epics to land."
+  "native_epics_load_failed": "Could not load the epics to land.",
+  "settings_assistant_start_title": "Start sessions",
+  "settings_assistant_start_hint": "Start a new session in a repo, like New Task: its own worktree, your default model and the repo's plan gate.",
+  "feat_assistant_start_sessions_title": "The assistant starts sessions",
+  "feat_assistant_start_sessions_body": "Ask the Operator Assistant — or a repo assistant for its repo — to get something done, and it starts a new session for it, just like New Task, then names its designation. Settings → Assistant → Start sessions turns this off or makes it ask first; by default it is allowed."
 }

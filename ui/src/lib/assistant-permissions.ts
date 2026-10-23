@@ -11,6 +11,8 @@ export function assistantGroupTitle(group: AssistantActionGroup): string {
   switch (group) {
     case "steer":
       return m.settings_assistant_steer_title();
+    case "start":
+      return m.settings_assistant_start_title();
     case "sessions":
       return m.settings_assistant_sessions_title();
     case "approve":
@@ -24,6 +26,8 @@ export function assistantGroupHint(group: AssistantActionGroup): string {
   switch (group) {
     case "steer":
       return m.settings_assistant_steer_hint();
+    case "start":
+      return m.settings_assistant_start_hint();
     case "sessions":
       return m.settings_assistant_sessions_hint();
     case "approve":

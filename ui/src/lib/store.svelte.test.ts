@@ -1731,6 +1731,7 @@ describe("Operator Assistant row (#1446)", () => {
     const perms = {
       shell: "read",
       steer: "ask",
+      start: "allow",
       sessions: "ask",
       approve: "off",
       automation: "ask",

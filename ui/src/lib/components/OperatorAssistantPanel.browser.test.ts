@@ -54,6 +54,7 @@ const assistantRow = {
 const READ_ONLY = {
   shell: "read",
   steer: "off",
+  start: "off",
   sessions: "off",
   approve: "off",
   automation: "off",

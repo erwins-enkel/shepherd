@@ -264,6 +264,7 @@ export function sectionSearchRows(ctx: {
       [m.settings_tab_assistant(), m.settings_assistant_intro()],
       [m.settings_assistant_shell_title(), m.settings_assistant_shell_hint()],
       [m.settings_assistant_steer_title(), m.settings_assistant_steer_hint()],
+      [m.settings_assistant_start_title(), m.settings_assistant_start_hint()],
       [m.settings_assistant_sessions_title(), m.settings_assistant_sessions_hint()],
       [m.settings_assistant_approve_title(), m.settings_assistant_approve_hint()],
       [m.settings_assistant_automation_title(), m.settings_assistant_automation_hint()],

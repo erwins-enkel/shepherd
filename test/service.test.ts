@@ -5354,11 +5354,18 @@ test("composeSystemPrompt rides <github-rate-limit-notice> after research-first 
     expect(text).toContain("`self_status`");
     expect(text).toContain("github.blockedUntil");
     expect(text).toContain("Never use `gh api rate_limit`");
+    // #2852: the CI-wait notice rides directly after it, on the same spawns.
+    expect(names.indexOf("ci-wait-notice")).toBe(names.indexOf("github-rate-limit-notice") + 1);
+    const ci = blocks.find((b) => b.name === "ci-wait-notice")!.text;
+    expect(ci).toContain("`gh pr checks --watch`");
+    expect(ci).toContain("`self_status`");
+    expect(ci).toContain("Shepherd steers you when the checks finish");
   }
   // No self_status there: Codex has no MCP wiring, a plain session no read tools.
   for (const opts of [{ agentProvider: "codex" as const }, { plain: true }]) {
     const names = composeSystemPromptBlocks(false, opts).map((b) => b.name);
     expect(names).not.toContain("github-rate-limit-notice");
+    expect(names).not.toContain("ci-wait-notice");
   }
 });
 

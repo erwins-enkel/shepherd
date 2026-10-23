@@ -94,10 +94,11 @@ export function openPrSteer(draftMode: boolean, baseBranch: string): string {
 
 export const CI_FIX_STEER = [
   "You're in autopilot and CI is failing on your open pull request. The critic won't review a",
-  "red PR, so this is on you: inspect the failing checks (`gh pr checks`, `gh run view --log-failed`),",
-  "fix the root cause, then fetch origin, rebase onto your PR's base branch (never merge it in) and",
-  "push with --force-with-lease. Don't stop to ask — only surface if it's a genuine blocker you",
-  "can't resolve, and then say exactly what you need.",
+  "red PR, so this is on you: find the failing checks (`gh pr checks <n>` once, never `--watch`),",
+  "read their logs (`gh run view <run-id> --log-failed`), fix the root cause, then fetch origin,",
+  "rebase onto your PR's base branch (never merge it in) and push with --force-with-lease. Don't",
+  "watch the new run — Shepherd tells you when CI finishes. Don't stop to ask — only surface if",
+  "it's a genuine blocker you can't resolve, and then say exactly what you need.",
 ].join("\n");
 
 /** Agent-facing steer when an idle, review-passed PR can't merge because it's behind its base

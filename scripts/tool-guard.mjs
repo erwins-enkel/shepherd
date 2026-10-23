@@ -20,6 +20,8 @@
 // check cannot resolve, which it flags with a bypass-immune "runs rm" ask (anthropics/claude-code#99630).
 // A fourth redirects a misleading source: `gh api rate_limit` misreports on this account, so the
 // refusal points the agent at `self_status`, which carries Shepherd's real GitHub budget (#2860).
+// A fifth stops agents polling CI Shepherd already tracks (#2852): `gh pr checks --watch` and
+// `gh run watch` are denied, and one-shot CI reads get a hint pointing at `self_status`.
 
 import { realpathSync, statfsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
@@ -127,6 +129,24 @@ export const RATE_LIMIT_REASON =
   "the `self_status` tool instead: `github.blockedUntil` is the real reset (null = Shepherd sees " +
   "no limit). Make no `gh` call before it; keep working locally — `git commit`/`git push` don't " +
   "use the API budget — and create or update the PR after the reset.";
+
+/**
+ * Reason attached to a denied CI watcher (#2852). Shepherd already polls every session's PR and
+ * steers the agent when its checks finish, so a watcher only spends GitHub budget (~360 GraphQL
+ * points/h for `gh pr checks --watch`, ~3,600 REST requests/h for `gh run watch`) on state
+ * Shepherd already holds.
+ */
+export const CI_WATCH_REASON =
+  "Blocked by Shepherd: don't watch CI. Shepherd already tracks your PR's checks and steers you " +
+  "when they finish — end your turn and wait for that message. For the current state call the " +
+  "`self_status` tool (`pr.checks`, `pr.runningChecks`). To read an already failed run, use " +
+  "`gh run view <run-id> --log-failed`.";
+
+/** Injected (not denied) on a one-shot CI read (#2852): allowed, but a loop of them is the same
+ *  polling the watch denial stops. */
+export const CI_POLL_CONTEXT =
+  "Shepherd: don't repeat this to wait for CI. `self_status` has your PR's check state, and " +
+  "Shepherd steers you when the checks finish — end your turn and wait instead of polling.";
 
 /** Shells whose `-c` script Claude Code's inline-shell check parses. */
 const INLINE_SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
@@ -355,6 +375,7 @@ export function decideToolGuard(event, deps = {}) {
   }
   if (opensPullRequest(command)) return { additionalContext: PR_CREATE_CONTEXT };
   if (pushesBranch(command)) return { additionalContext: PUSH_CONTEXT };
+  if (readsCi(command)) return { additionalContext: CI_POLL_CONTEXT };
   if (isBackgrounded(input, command)) return { additionalContext: BACKGROUND_CONTEXT };
   return null;
 }
@@ -389,18 +410,60 @@ const GH_API_VALUE_FLAGS = new Set([
   "--preview",
 ]);
 
-/** True when a segment's words run `gh api rate_limit` (the endpoint is the first positional
- *  after `api`, flag values skipped). */
-function readsRateLimit(w) {
-  if (w[0] !== "gh" || w[1] !== "api") return false;
+/** The endpoint of a `gh api` invocation (first positional after `api`, flag values skipped), or
+ *  null when the words are not one. */
+function ghApiEndpoint(w) {
+  if (w[0] !== "gh" || w[1] !== "api") return null;
   for (let i = 2; i < w.length; i++) {
     if (GH_API_VALUE_FLAGS.has(w[i])) i++;
-    else if (!w[i].startsWith("-")) {
-      const endpoint = unquote(w[i]);
-      return endpoint === "rate_limit" || endpoint === "/rate_limit";
-    }
+    else if (!w[i].startsWith("-")) return unquote(w[i]);
   }
-  return false;
+  return null;
+}
+
+/** True when a segment's words run `gh api rate_limit`. */
+function readsRateLimit(w) {
+  const endpoint = ghApiEndpoint(w);
+  return endpoint === "rate_limit" || endpoint === "/rate_limit";
+}
+
+/** Shell keywords that can precede a command in a polling loop (`until gh pr checks 1; do …`). */
+const LOOP_KEYWORDS = new Set(["while", "until", "do", "then", "if", "!"]);
+
+/** A segment's `gh` words with leading loop keywords dropped, or null when it isn't `gh`. */
+function ghWords(segment) {
+  const w = words(segment);
+  let i = 0;
+  while (i < w.length && LOOP_KEYWORDS.has(w[i])) i++;
+  return w[i] === "gh" ? w.slice(i) : null;
+}
+
+/** The `gh` subcommand pair (`["pr", "checks"]`) — the first two non-flag words. */
+function ghSubcommand(w) {
+  return w
+    .slice(1)
+    .filter((a) => !a.startsWith("-"))
+    .slice(0, 2)
+    .join(" ");
+}
+
+/** True when the words run a CI watcher: `gh pr checks --watch` or `gh run watch` (#2852). */
+function watchesCi(w) {
+  const sub = ghSubcommand(w);
+  return sub === "run watch" || (sub === "pr checks" && w.some((a) => /^--watch(=|$)/.test(a)));
+}
+
+/** True when any segment does a one-shot CI read: `gh pr checks`, `gh run view` without its logs,
+ *  or a check-runs / check-suites API call (#2852). */
+function readsCi(command) {
+  return segments(command).some((segment) => {
+    const w = ghWords(segment);
+    if (!w) return false;
+    const sub = ghSubcommand(w);
+    if (sub === "pr checks") return true;
+    if (sub === "run view") return !w.some((a) => /^--log(-failed)?(=|$)/.test(a));
+    return /\/check-(runs|suites)\b/.test(ghApiEndpoint(w) ?? "");
+  });
 }
 
 /** True when any segment of `command` opens a pull request. */
@@ -428,7 +491,7 @@ function isBackgrounded(input, command) {
 }
 
 /** The denial rules — the two hazards this guard exists to stop, plus the misreporting
- *  `gh api rate_limit` (#2860). `null` = nothing recognized. */
+ *  `gh api rate_limit` (#2860) and CI watchers (#2852). `null` = nothing recognized. */
 function denyFor(command, eventCwd, isTmpfs) {
   let cwd = typeof eventCwd === "string" ? eventCwd : undefined;
 
@@ -451,6 +514,10 @@ function denyFor(command, eventCwd, isTmpfs) {
 
     if (readsRateLimit(w)) {
       return { permissionDecision: "deny", permissionDecisionReason: RATE_LIMIT_REASON };
+    }
+    const gh = ghWords(segment);
+    if (gh && watchesCi(gh)) {
+      return { permissionDecision: "deny", permissionDecisionReason: CI_WATCH_REASON };
     }
 
     if (cmd === "git") {

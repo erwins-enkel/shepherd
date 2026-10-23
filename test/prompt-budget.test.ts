@@ -130,11 +130,13 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // followed Claude Code's `gh api rate_limit` reminder, which misreports on this account).
   // Every shape then gained 209 chars / 211 bytes when the research-first notice stopped letting
   // framework majors pass as "well-established" (#3108).
+  // Every shape then gained 324 chars / 326 bytes for the CI-wait notice (#2852: agents polled CI
+  // Shepherd already tracks).
   const baseline: [string, number, string][] = [
-    ["attended Claude", 3566, "3610"],
-    ["+ autopilot", 4652, "4700"],
-    ["plan-gate interactive", 8869, "8957"],
-    ["research", 4375, "4423"],
+    ["attended Claude", 3890, "3936"],
+    ["+ autopilot", 4976, "5026"],
+    ["plan-gate interactive", 9193, "9283"],
+    ["research", 4699, "4749"],
   ];
   const payloads = [
     composeSystemPrompt(false),
@@ -180,8 +182,8 @@ test("#1999 kitchen sink: build queue + preview + draft + trim", () => {
   // before #2002 moved the situational blocks behind the guard + skills (3,813); +657 for the
   // steer-provenance notice; +552 for the GitHub rate-limit notice (#2860); +209 for the
   // research-first notice's framework-major clause (#3108); -64 for the retired house-rules block
-  // (#3139).
-  expect(measured.totalChars).toBe(5167);
+  // (#3139); +324 for the CI-wait notice (#2852).
+  expect(measured.totalChars).toBe(5491);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(false, {
       buildQueue,
@@ -202,6 +204,7 @@ test("#1999 the unconditional floor is every spawn's standing notices", () => {
     "steer-provenance-notice",
     "research-first-notice",
     "github-rate-limit-notice",
+    "ci-wait-notice",
     "research-directive",
   ]);
 });

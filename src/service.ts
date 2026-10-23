@@ -1038,6 +1038,19 @@ const GITHUB_RATE_LIMIT_NOTICE =
   "— create or update the PR after the reset.";
 
 /**
+ * Rides next to the rate-limit notice, on the same spawns (those with `self_status`) — issue #2852.
+ * Agents looped `gh pr checks` (`--watch`) / `gh run watch` on PRs Shepherd already polls, spending
+ * GitHub budget twice for the same state. Shepherd now steers the agent when its checks finish
+ * (src/ci-steer.ts) and the tool guard denies the watchers; this tells the agent up front.
+ * Agent-facing prompt text, so fixed English.
+ */
+const CI_WAIT_NOTICE =
+  "Never poll CI: no `gh pr checks --watch`, `gh run watch`, or repeated `gh pr checks` / " +
+  "check-runs calls. `self_status` has your PR's CI state, and Shepherd steers you when the " +
+  "checks finish — end your turn and wait. Use `gh run view <id> --log-failed` only to read an " +
+  "already failed run.";
+
+/**
  * Injected into the system prompt only for isolated sessions (worktree-backed). Non-isolated
  * sessions share the main repo directory and have no dedicated worktree, so the file would be
  * ambiguous and the hint would be misleading — it is intentionally omitted there.
@@ -1373,8 +1386,10 @@ export function epicAuthoringDirective(args: {
 function landingRepairDirective(agentProvider: AgentProvider): string {
   const investigate =
     agentProvider === "codex"
-      ? "- Investigate directly — `gh pr checks <n>`, `gh run view`, logs, `git log`/`git diff`.\n"
-      : "- Investigate — `gh pr checks <n>`, `gh run view`, logs, `git log`/`git diff` — dispatching " +
+      ? "- Investigate directly — `gh pr checks <n>` once (never `--watch`), " +
+        "`gh run view <run-id> --log-failed`, `git log`/`git diff`.\n"
+      : "- Investigate — `gh pr checks <n>` once (never `--watch`), " +
+        "`gh run view <run-id> --log-failed`, `git log`/`git diff` — dispatching " +
         "sub-agents to investigate in parallel if it helps.\n";
   return (
     "You are repairing an epic LANDING pull request — you are working in a scratch branch " +
@@ -2128,7 +2143,8 @@ export interface ComposeSystemPromptOptions {
  * always ride. The `<steer-provenance-notice>` block rides every Claude-family spawn, directly after
  * the untrusted-content boundary (Codex never carries it). The `<github-rate-limit-notice>` block
  * (issue #2860) follows research-first on every Claude-family spawn except a plain one — exactly the
- * spawns that have `self_status`. The whole set is re-passed on the Claude resume argv (see
+ * spawns that have `self_status` — and the `<ci-wait-notice>` block (issue #2852) directly after it,
+ * on the same spawns. The whole set is re-passed on the Claude resume argv (see
  * buildClaudeResumeArgv).
  * The `<single-pr-invariant>` block (issue #839) rides every spawn EXCEPT a research
  * one (`opts.research`) — research already caps at one report-PR / issue, so it's redundant there.
@@ -2181,6 +2197,7 @@ export function composeSystemPromptBlocks(
   // #2860: only where `self_status` exists — Codex has no MCP wiring, a plain session no read tools.
   if (claudeFamily && !opts.plain) {
     blocks.push(taggedBlock("github-rate-limit-notice", GITHUB_RATE_LIMIT_NOTICE));
+    blocks.push(taggedBlock("ci-wait-notice", CI_WAIT_NOTICE));
   }
   blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research

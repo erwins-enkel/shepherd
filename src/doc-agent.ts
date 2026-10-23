@@ -1185,7 +1185,7 @@ export class DocAgentService {
     let prs;
     let cached: boolean;
     try {
-      const snapshot = await this.deps.openPrSnapshot.get(forge);
+      const snapshot = await this.deps.openPrSnapshot.get(forge, { background: true });
       if (!snapshot && forge.listOpenPrSnapshot) throw new Error("open-PR snapshot unavailable");
       cached = snapshot != null;
       prs = snapshot?.prs ?? (await forge.listPullRequests());

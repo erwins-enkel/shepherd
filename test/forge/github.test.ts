@@ -1223,6 +1223,160 @@ test("GithubForge.prStatus: GraphQL rate limit falls back to REST PR status", as
   expect(restList.slice(1, 3)).toEqual(["--method", "GET"]);
 });
 
+/** REST-only fake for the per-session fallback: one open PR on `head`, checks reading `check`. */
+function restPrRunner(o: { head: () => string; check: () => string }) {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    const sha = o.head();
+    if (args.includes("repos/o/r/pulls"))
+      return JSON.stringify([
+        {
+          number: 7,
+          state: "open",
+          head: { ref: "feature", sha, repo: { owner: { login: "o" } } },
+        },
+      ]);
+    if (args.includes(`repos/o/r/commits/${sha}/status`))
+      return JSON.stringify({ state: o.check() });
+    if (args.includes(`repos/o/r/commits/${sha}/check-runs`))
+      return JSON.stringify({ check_runs: [] });
+    return "[]";
+  };
+  const count = (path: string) => calls.filter((c) => c.some((a) => a.includes(path))).length;
+  return { run, calls, count };
+}
+
+test("GithubForge.prStatus: REST fallback caches a settled head's checks and reviews (#2660)", async () => {
+  blockGraphql();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    const { run, calls, count } = restPrRunner({ head: () => "abc", check: () => "success" });
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.prStatus("feature")).checks).toBe("success");
+    const first = calls.length;
+    expect(first).toBe(4); // pulls, status, check-runs, reviews
+    setSystemTime(new Date("2026-10-01T12:04:00Z"));
+    expect((await forge.prStatus("feature")).checks).toBe("success");
+    expect(calls.length - first).toBe(1); // pulls only
+    setSystemTime(new Date("2026-10-01T12:11:00Z"));
+    await forge.prStatus("feature");
+    expect(count("/status")).toBe(2); // terminal checks expire after 10 min
+    expect(count("/reviews")).toBe(2); // reviews after 5 min
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.prStatus: own rerun/cancel and review drop the REST check/review caches", async () => {
+  blockGraphql();
+  try {
+    const { run, count } = restPrRunner({ head: () => "abc", check: () => "failure" });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.prStatus("feature");
+    await forge.rerunWorkflowRun(9, { failedOnly: true });
+    await forge.prStatus("feature");
+    expect(count("/status")).toBe(2); // rerun → checks re-read, not a cached failure
+    await forge.cancelWorkflowRun(9);
+    await forge.prStatus("feature");
+    expect(count("/status")).toBe(3);
+    expect(count("/reviews")).toBe(1);
+    await forge.postReview(7, { event: "COMMENT", body: "x" });
+    await forge.prStatus("feature");
+    expect(count("/reviews")).toBe(2);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.prStatus: a REST check read in flight across an own rerun is not cached", async () => {
+  blockGraphql();
+  try {
+    let release!: () => void;
+    let gate: Promise<void> | null = new Promise((r) => (release = r));
+    let reached!: () => void;
+    const statusReached = new Promise<void>((r) => (reached = r));
+    const inner = restPrRunner({ head: () => "abc", check: () => "failure" });
+    const run = async (args: string[]): Promise<string> => {
+      const out = await inner.run(args);
+      if (args.some((a) => a.endsWith("/status"))) reached();
+      if (
+        gate &&
+        (args.some((a) => a.endsWith("/status")) || args.some((a) => a.endsWith("/reviews")))
+      )
+        await gate;
+      return out;
+    };
+    const forge = new GithubForge("o/r", {}, run);
+    const first = forge.prStatus("feature");
+    await statusReached; // the check read is in flight
+    await forge.rerunWorkflowRun(9, { failedOnly: true });
+    gate = null;
+    release();
+    await first;
+    await forge.prStatus("feature");
+    expect(inner.count("/status")).toBe(2); // stale pre-rerun failure was not cached
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.prStatus: a REST review read in flight across an own review is not cached", async () => {
+  blockGraphql();
+  try {
+    let release!: () => void;
+    let gate: Promise<void> | null = new Promise((r) => (release = r));
+    let reached!: () => void;
+    const reviewsReached = new Promise<void>((r) => (reached = r));
+    const inner = restPrRunner({ head: () => "abc", check: () => "success" });
+    const run = async (args: string[]): Promise<string> => {
+      const out = await inner.run(args);
+      if (args.some((a) => a.endsWith("/reviews"))) {
+        reached();
+        if (gate) await gate;
+      }
+      return out;
+    };
+    const forge = new GithubForge("o/r", {}, run);
+    const first = forge.prStatus("feature");
+    await reviewsReached;
+    await forge.postReview(7, { event: "COMMENT", body: "x" });
+    gate = null;
+    release();
+    await first;
+    await forge.prStatus("feature");
+    expect(inner.count("/reviews")).toBe(2);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.prStatus: REST fallback re-reads pending checks after 60s and reviews on a new head", async () => {
+  blockGraphql();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let head = "abc";
+    const { run, count } = restPrRunner({ head: () => head, check: () => "pending" });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.prStatus("feature");
+    setSystemTime(new Date("2026-10-01T12:00:30Z"));
+    await forge.prStatus("feature");
+    expect(count("/status")).toBe(1);
+    expect(count("/reviews")).toBe(1);
+    setSystemTime(new Date("2026-10-01T12:01:01Z"));
+    await forge.prStatus("feature");
+    expect(count("/status")).toBe(2); // pending expires after 60s
+    expect(count("/reviews")).toBe(1);
+    head = "def";
+    await forge.prStatus("feature");
+    expect(count("/reviews")).toBe(2); // new head → fresh review read
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+  }
+});
+
 test("GithubForge.merge: invokes gh pr merge with squash + delete-branch", async () => {
   const { run, calls } = fakeRunner({});
   const forge = new GithubForge("o/r", {}, run);
@@ -1593,6 +1747,61 @@ test("GithubForge.listWorkflowRuns: caps at 10 workflows", async () => {
   const runs = await new GithubForge("o/r", {}, run).listWorkflowRuns();
   expect(runs.length).toBe(10);
   expect(viewCalls).toBe(10);
+});
+
+/** Actions fake: one completed CI run whose `attempt` the test controls; counts list/view calls. */
+function actionsRunner() {
+  const state = { attempt: 1, list: 0, view: 0 };
+  const run = async (args: string[]): Promise<string> => {
+    if (args[0] === "repo" && args[1] === "view")
+      return JSON.stringify({ defaultBranchRef: { name: "main" } });
+    if (args[0] === "run" && args[1] === "list") {
+      state.list++;
+      return JSON.stringify([
+        { databaseId: 9, attempt: state.attempt, workflowName: "CI", status: "completed" },
+      ]);
+    }
+    if (args[0] === "run" && args[1] === "view") {
+      state.view++;
+      return JSON.stringify({ jobs: [{ name: "t", status: "completed", conclusion: "success" }] });
+    }
+    return "";
+  };
+  return { run, state };
+}
+
+test("GithubForge.listWorkflowRuns: 30s single-flight cache; completed jobs cached per attempt (#2660)", async () => {
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    const { run, state } = actionsRunner();
+    const forge = new GithubForge("o/r", {}, run);
+    await Promise.all([forge.listWorkflowRuns(), forge.listWorkflowRuns()]);
+    setSystemTime(new Date("2026-10-01T12:00:29Z"));
+    await forge.listWorkflowRuns();
+    expect(state).toMatchObject({ list: 1, view: 1 });
+    setSystemTime(new Date("2026-10-01T12:00:31Z"));
+    const runs = await forge.listWorkflowRuns();
+    expect(state).toMatchObject({ list: 2, view: 1 }); // completed run, same attempt → no view
+    expect(runs[0]!.jobs).toEqual([{ name: "t", state: "success", url: undefined }]);
+    state.attempt = 2; // rerun elsewhere keeps the id, bumps the attempt
+    setSystemTime(new Date("2026-10-01T12:01:02Z"));
+    await forge.listWorkflowRuns();
+    expect(state).toMatchObject({ list: 3, view: 2 });
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("GithubForge.listWorkflowRuns: rerun and cancel invalidate the cache", async () => {
+  const { run, state } = actionsRunner();
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.listWorkflowRuns();
+  await forge.rerunWorkflowRun(9, { failedOnly: false });
+  await forge.listWorkflowRuns();
+  expect(state).toMatchObject({ list: 2, view: 2 });
+  await forge.cancelWorkflowRun(9);
+  await forge.listWorkflowRuns();
+  expect(state).toMatchObject({ list: 3, view: 3 });
 });
 
 test("GithubForge.rerunWorkflowRun: full re-run invokes gh run rerun with the id + repo", async () => {

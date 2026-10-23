@@ -35,13 +35,16 @@ export class OpenPrSnapshotService {
   /**
    * Read-through: serves an unchanged PR fingerprint, else applies SNAPSHOT_TTL_MS without
    * coverage or fetches (single-flight). Returns null when the forge can't supply a
-   * snapshot (null slug or no listOpenPrSnapshot method).
+   * snapshot (null slug or no listOpenPrSnapshot method). A `background` read is served the
+   * last snapshot, of any age or source, while GraphQL is limited: its REST refetch costs
+   * a multiple of the GraphQL read (#2660). Operator-facing reads omit it.
    */
-  async get(forge: GitForge): Promise<OpenPrSnapshot | null> {
+  async get(forge: GitForge, opts?: { background?: boolean }): Promise<OpenPrSnapshot | null> {
     if (!this.isCapable(forge)) return null;
     const slug = forge.slug!;
     this.syncReadCache(slug);
     const entry = this.entry(forge);
+    if (opts?.background && entry && graphRateLimit.blocked()) return entry.value;
     const fpKey = forge.kind === "github" ? this.readCache?.contentKey("prs", slug) : null;
     if (
       entry &&

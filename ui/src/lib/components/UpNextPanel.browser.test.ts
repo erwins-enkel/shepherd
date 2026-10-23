@@ -59,7 +59,6 @@ const item = (
     number,
     url: `https://example.test/${number}`,
     title: opts.title ?? `issue ${number}`,
-    body: "",
   },
 });
 

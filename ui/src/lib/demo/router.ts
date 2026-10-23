@@ -181,6 +181,10 @@ const lensGetRoutes: Record<string, GetHandler> = {
       ),
     ),
   "/api/up-next": () => json(demoState.upNext()),
+  "/api/up-next/body": (url) => {
+    const issue = demoState.issue(repoParam(url), Number(url.searchParams.get("number")));
+    return issue ? json({ body: issue.body }) : json({ error: "issue not found" }, 404);
+  },
   "/api/steers": () => json(demoState.steers()),
   "/api/project-icons": () => json(demoState.projectIcons()),
 };

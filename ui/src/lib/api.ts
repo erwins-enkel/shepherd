@@ -2750,6 +2750,14 @@ export async function getUpNext(opts?: {
   return { modified: true, snapshot: await response.json(), etag: response.headers.get("etag") };
 }
 
+/** Load the full issue text only when it is needed. */
+export async function getUpNextBody(repoPath: string, number: number): Promise<{ body: string }> {
+  return getJson(
+    `/api/up-next/body?repo=${encodeURIComponent(repoPath)}&number=${number}`,
+    "up next body",
+  );
+}
+
 /** Force an Up Next recompute (the manual refresh button). */
 export async function refreshUpNext(): Promise<{ ok: boolean }> {
   return postJson("/api/up-next/refresh", {}, "refresh up next");

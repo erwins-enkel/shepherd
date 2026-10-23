@@ -891,7 +891,7 @@ function buildPlanGates(): Record<string, PlanGate> {
 
 function buildUpNext(): UpNextSnapshot {
   type Kind = UpNextItem["kind"];
-  const sfItem = (number: number, title: string, body: string, kind: Kind): UpNextItem => ({
+  const sfItem = (number: number, title: string, kind: Kind): UpNextItem => ({
     repoPath: STOREFRONT,
     repoSlug: "acme/storefront",
     repoLabel: "acme/storefront",
@@ -902,9 +902,9 @@ function buildUpNext(): UpNextSnapshot {
     priority: false,
     createdAt: NOW - 26 * HOUR,
     labels: [],
-    issueRef: { number, url: `${gh(STOREFRONT)}/issues/${number}`, title, body },
+    issueRef: { number, url: `${gh(STOREFRONT)}/issues/${number}`, title },
   });
-  const apiItem = (number: number, title: string, body: string, kind: Kind): UpNextItem => ({
+  const apiItem = (number: number, title: string, kind: Kind): UpNextItem => ({
     repoPath: API,
     repoSlug: "acme/api",
     repoLabel: "acme/api",
@@ -915,7 +915,7 @@ function buildUpNext(): UpNextSnapshot {
     priority: false,
     createdAt: NOW - 30 * HOUR,
     labels: [],
-    issueRef: { number, url: `${gh(API)}/issues/${number}`, title, body },
+    issueRef: { number, url: `${gh(API)}/issues/${number}`, title },
   });
   return {
     generatedAt: NOW - 15 * MIN,
@@ -930,18 +930,8 @@ function buildUpNext(): UpNextSnapshot {
         repoLabel: "acme/storefront",
         totalCount: 2,
         items: [
-          sfItem(
-            121,
-            "Wishlist button on product cards",
-            "Let shoppers save items to a wishlist from the grid.",
-            "feature",
-          ),
-          sfItem(
-            122,
-            "Empty-cart illustration",
-            "Show a friendly empty state when the cart has no items.",
-            "feature",
-          ),
+          sfItem(121, "Wishlist button on product cards", "feature"),
+          sfItem(122, "Empty-cart illustration", "feature"),
         ],
       },
       {
@@ -950,14 +940,7 @@ function buildUpNext(): UpNextSnapshot {
         repoSlug: "acme/api",
         repoLabel: "acme/api",
         totalCount: 1,
-        items: [
-          apiItem(
-            222,
-            "Add request-id correlation header",
-            "Thread a request id through logs for tracing.",
-            "feature",
-          ),
-        ],
+        items: [apiItem(222, "Add request-id correlation header", "feature")],
       },
     ],
   };

@@ -1,6 +1,6 @@
 import type { AgentProvider, Issue, Steer, UpNextItem } from "./types";
 import type { HerdStore } from "./store.svelte";
-import { startUpNext, type UpNextStartChoice } from "./api";
+import { getUpNextBody, startUpNext, type UpNextStartChoice } from "./api";
 import { toasts } from "./toasts.svelte";
 import { clock } from "./now.svelte";
 import { m } from "./paraglide/messages";
@@ -29,9 +29,10 @@ export type UpNextLaunchContext = {
 };
 
 /** An Up Next row as the backlog's Issue shape, for the issue-steer quick-launch. */
-function upNextIssue(it: UpNextItem): Issue {
+function upNextIssue(it: UpNextItem, body: string): Issue {
   return {
     ...it.issueRef,
+    body,
     labels: it.labels,
     labelColors: it.labelColors,
     createdAt: it.createdAt,
@@ -107,13 +108,19 @@ export class UpNextStarter {
     if (!onquick || this.starting) return;
     this.starting = true;
     try {
-      const res = await onquick(item.repoPath, upNextIssue(item), steer);
+      const { body } = await getUpNextBody(item.repoPath, item.issueRef.number);
+      const res = await onquick(item.repoPath, upNextIssue(item, body), steer);
       if (res === "created") {
         toasts.info(m.upnext_started({ count: 1 }), { key: "upnext-started" });
       } else if (res === "held") {
         toasts.info(m.upnext_held({ count: 1 }), { key: "upnext-held" });
       }
       if (res) upNextUi.selected.delete(upNextKey(item));
+    } catch {
+      toasts.info(m.upnext_start_failed({ count: 1 }), {
+        key: "upnext-start-failed",
+        alert: true,
+      });
     } finally {
       this.starting = false;
     }

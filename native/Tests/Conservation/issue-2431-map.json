@@ -2944,7 +2944,9 @@
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"startUpNextPreservesOutcomeAndAllArrays(status: Int) async throws\"]"
       ],
       "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: #3262 asserts that metadata-only Start requests omit body while preserving outcome, mixed-result arrays and model choice assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"contractMismatch() async throws\"]",
@@ -11981,7 +11983,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextTests.swift\",\"CoreSeamTests.UpNextTests\",\"atMostThreeStartsImmediatelyButFourRequiresMatchingConfirmation() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: #3262 expects an omitted Start body because the server now hydrates full issue context; batch-size and matching-confirmation assertions are unchanged."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/UpNextTests.swift\",\"UpNextTests\",\"busyGateRejectsDuplicatesAndStaleCompletionsHaveNoNotices() async\"]",
@@ -12875,7 +12879,8 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapDetail() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapDetailErrors(status: Int) async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"doneDetailFetchesItsSelectedRecapWhenMounted() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"staleResponseIsRetryableAndCancellationDoesNotInstallBlocks() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"staleResponseIsRetryableAndCancellationDoesNotInstallBlocks() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"metadataOnlyUpNextSnapshotDecodesOverHTTPAndEvents() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

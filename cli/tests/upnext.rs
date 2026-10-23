@@ -34,7 +34,7 @@ fn item(repo: &str, slug: &str, n: i64) -> Value {
         "number": n, "title": format!("Issue {n}"), "url": format!("https://x/{slug}/{n}"),
         "kind": "bug", "priority": false, "createdAt": 0, "labels": [],
         "issueRef": {"number": n, "url": format!("https://x/{slug}/{n}"),
-                     "title": format!("Issue {n}"), "body": "details"}
+                     "title": format!("Issue {n}")}
     })
 }
 

@@ -13,7 +13,7 @@ struct UpNextTests {
               url: "https://example.test/\(number)", kind: .init(known: kind == "epic" ? .epic : .feature),
               priority: priority, createdAt: age, labels: labels,
               issueRef: .init(number: number, url: "https://example.test/\(number)",
-                              title: title, body: "Full issue body"))
+                              title: title))
     }
 
     private func section(_ items: [UpNextItem], priority: Bool = false,
@@ -190,7 +190,7 @@ struct UpNextTests {
         #expect(await state.requestStart(changed, commands: commands, gate: gate, isCurrent: { true }) == false)
         #expect(calls.count == 1)
         #expect(await state.requestStart(changed, commands: commands, gate: gate, isCurrent: { true }))
-        #expect(calls.count == 2 && calls.last?.first?.issueRef.body == "Full issue body")
+        #expect(calls.count == 2 && calls.last?.first?.issueRef.body == nil)
         #expect(state.confirmation == nil)
     }
 

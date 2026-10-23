@@ -14,7 +14,8 @@ use super::{VersionCheck, print_done};
 use crate::Ctx;
 use crate::api::Client;
 use crate::api::types::{
-    PeekUpNextPeek, UpNextItem, UpNextSnapshot, UpNextStartItem, UpNextStartResult,
+    PeekUpNextPeek, UpNextItem, UpNextSnapshot, UpNextStartIssueRef, UpNextStartItem,
+    UpNextStartResult,
 };
 use crate::cli::{UpNextCmd, UpNextStartArgs};
 use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
@@ -212,7 +213,12 @@ async fn start(ctx: &mut Ctx<'_>, args: UpNextStartArgs) -> Result<()> {
         let item = pick(&all, key)?;
         picked.push(UpNextStartItem {
             repo_path: item.repo_path.clone(),
-            issue_ref: item.issue_ref.clone().into(),
+            issue_ref: UpNextStartIssueRef {
+                number: item.issue_ref.number,
+                url: item.issue_ref.url.clone(),
+                title: item.issue_ref.title.clone(),
+                body: None,
+            },
         });
     }
     let result = ctx

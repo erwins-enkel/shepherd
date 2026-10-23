@@ -2046,11 +2046,36 @@ function handleUpNextGet(req: Request, url: URL, deps: AppDeps): Response {
   return json(snap, 200, headers);
 }
 
+/** Full issue text for an intentional read or a metadata-only start. */
+async function loadUpNextBody(
+  forge: GitForge | null,
+  number: number,
+): Promise<{ body: string } | { error: string; status: number }> {
+  if (!forge?.getIssue) return { error: "issue reads unavailable for repo", status: 503 };
+  try {
+    const issue = await forge.getIssue(number);
+    return issue ? { body: issue.body } : { error: "issue not found or unreadable", status: 404 };
+  } catch {
+    return { error: "issue read failed", status: 502 };
+  }
+}
+
+async function handleUpNextBody(url: URL, deps: AppDeps): Promise<Response> {
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const number = url.searchParams.get("number") ?? "";
+  if (!/^[1-9][0-9]{0,8}$/.test(number)) return json({ error: "invalid issue number" }, 400);
+  const result = await loadUpNextBody(deps.resolveForge?.(dir) ?? null, Number(number));
+  return "error" in result ? json({ error: result.error }, result.status) : json(result);
+}
+
 async function handleUpNext(ctx: Ctx): Promise<Response | null> {
   const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "up-next")) return null;
 
   if (req.method === "GET" && !parts[2]) return handleUpNextGet(req, url, deps);
+
+  if (req.method === "GET" && parts[2] === "body" && !parts[3]) return handleUpNextBody(url, deps);
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);
@@ -2068,7 +2093,7 @@ async function handleUpNext(ctx: Ctx): Promise<Response | null> {
 
 interface UpNextStartItem {
   dir: string;
-  issueRef: { number: number; url: string; title: string; body: string };
+  issueRef: { number: number; url: string; title: string; body?: string };
 }
 
 interface UpNextStartChoice {
@@ -2096,7 +2121,8 @@ function parseUpNextStartItem(raw: unknown): UpNextStartItem | null {
     !ir ||
     typeof ir.number !== "number" ||
     typeof ir.url !== "string" ||
-    typeof ir.title !== "string"
+    typeof ir.title !== "string" ||
+    (ir.body !== undefined && typeof ir.body !== "string")
   )
     return null;
   return {
@@ -2105,7 +2131,7 @@ function parseUpNextStartItem(raw: unknown): UpNextStartItem | null {
       number: ir.number,
       url: ir.url,
       title: ir.title,
-      body: typeof ir.body === "string" ? ir.body : "",
+      body: typeof ir.body === "string" ? ir.body : undefined,
     },
   };
 }
@@ -2361,6 +2387,15 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       return;
     }
     try {
+      const loaded =
+        it.issueRef.body === undefined
+          ? await loadUpNextBody(forge, it.issueRef.number)
+          : { body: it.issueRef.body };
+      if ("error" in loaded) {
+        errors.push({ number: it.issueRef.number, error: loaded.error });
+        return;
+      }
+      const issueRef = { ...it.issueRef, body: loaded.body };
       // Base + prompt = the drain auto-prompt for a plain issue (issue title on the default
       // branch, via the same issueSpawnPrompt guard). Manual epic-child starts also base on
       // default here; integration-branch orchestration stays the auto epic-runner's job
@@ -2397,7 +2432,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
               ),
         images: [],
         auto: false,
-        issueRef: it.issueRef,
+        issueRef,
       };
       const input = await routeIssueCreate(draft, deps);
       if (input instanceof Response) {

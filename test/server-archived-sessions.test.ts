@@ -81,3 +81,28 @@ test("GET /api/sessions, the done lens and the archived list leave out the Opera
   expect(await ids("/api/sessions/done")).toEqual([done.id]);
   expect(await ids("/api/sessions/archived")).toEqual([done.id]);
 });
+
+for (const archived of [false, true]) {
+  test(`session HTTP reads omit raw Json fields (${archived ? "archived" : "active"})`, async () => {
+    const { app, store, mk } = harness();
+    const session = mk("payload");
+    const manualSteps = [{ id: "ms1", text: "Restart worker", postMerge: true }];
+    store.setSessionManualSteps(session.id, manualSteps);
+    if (archived) store.archive(session.id);
+    const paths = [
+      `/api/sessions/${session.id}`,
+      `/api/sessions/${session.desig}`,
+      ...(archived ? ["/api/sessions/done", "/api/sessions/archived"] : ["/api/sessions"]),
+    ];
+    for (const path of paths) {
+      const res = await app.fetch(new Request(`http://x${path}`));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const sessions: Session[] = Array.isArray(body) ? body : [body];
+      expect(sessions.map((row) => row.id)).toEqual([session.id]);
+      expect(sessions[0]!.manualSteps).toEqual(manualSteps);
+      expect(sessions[0]!.launchMetadata).toBeNull();
+      expect(Object.keys(sessions[0]!).filter((key) => key.endsWith("Json"))).toEqual([]);
+    }
+  });
+}

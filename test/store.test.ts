@@ -11,6 +11,7 @@ import type {
   Recap,
   ReviewVerdict,
   SessionLaunchMetadata,
+  Session,
 } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
@@ -142,8 +143,10 @@ test("fillProviderSessionId writes only an empty id for the same launch, leaving
   expect(s.get(a.id)?.providerSessionId).toBe("native");
 });
 
-test("session launchMetadata persists and legacy rows hydrate as null", () => {
-  const s = mk();
+test("session reads omit raw Json fields while preserving persisted metadata and manual steps", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-session-json-"));
+  const dbPath = join(dir, "test.db");
+  const s = new SessionStore(dbPath);
   const launchMetadata = {
     sourceKind: "user",
     prompt: "inspect the upload",
@@ -191,11 +194,44 @@ test("session launchMetadata persists and legacy rows hydrate as null", () => {
     },
   } satisfies SessionLaunchMetadata;
 
-  const modern = s.create({ ...base, launchMetadata });
-  expect(s.get(modern.id)?.launchMetadata).toEqual(launchMetadata);
+  const manualSteps = [{ id: "ms1", text: "Restart worker", postMerge: true }];
+  const check = (
+    session: Session | null,
+    metadata: SessionLaunchMetadata | null,
+    steps = manualSteps,
+  ) => {
+    expect(session).not.toBeNull();
+    expect(session!.launchMetadata).toEqual(metadata);
+    expect(session!.manualSteps).toEqual(steps);
+    expect(Object.keys(session!).filter((key) => key.endsWith("Json"))).toEqual([]);
+  };
+  try {
+    const modern = s.create({ ...base, launchMetadata });
+    const legacy = s.create({ ...base, herdrAgentId: "term_legacy" });
+    check(modern, launchMetadata, []);
+    check(legacy, null, []);
+    s.setSessionManualSteps(modern.id, manualSteps);
+    check(s.get(modern.id), launchMetadata);
+    check(s.getByDesig(modern.desig), launchMetadata);
+    for (const session of s.list())
+      check(
+        session,
+        session.id === modern.id ? launchMetadata : null,
+        session.id === modern.id ? manualSteps : [],
+      );
 
-  const legacy = s.create({ ...base, herdrAgentId: "term_legacy" });
-  expect(s.get(legacy.id)?.launchMetadata).toBeNull();
+    // A separate store connection must recover the values from SQLite, not from returned objects.
+    const reopened = new SessionStore(dbPath);
+    check(reopened.get(modern.id), launchMetadata);
+    check(reopened.get(legacy.id), null, []);
+    reopened.archive(modern.id);
+    for (const sessions of [reopened.listRecentlyArchived(0), reopened.listArchivedSessions()]) {
+      expect(sessions.map((session) => session.id)).toEqual([modern.id]);
+      check(sessions[0]!, launchMetadata);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("session migration: an old sessions row without providerSessionId gains the '' default", () => {

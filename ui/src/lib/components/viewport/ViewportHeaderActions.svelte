@@ -1,8 +1,13 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import RedrawMenu from "#lib/components/RedrawMenu.svelte";
+  import type { Session } from "#lib/types.js";
+  import ViewportPreviewStart from "./ViewportPreviewStart.svelte";
 
   let {
+    session,
+    previewPort,
+    hasPreview,
     compact,
     renaming,
     tab,
@@ -29,6 +34,9 @@
     fontAtMax,
     onfontstep,
   }: {
+    session: Session;
+    previewPort: number | null;
+    hasPreview: boolean;
     compact: boolean;
     renaming: boolean;
     tab: string;
@@ -61,6 +69,13 @@
   // redraw button ref is used only here — local. Its unmount drops the anchor,
   // closing an open menu (see the {#if redrawOpen && redrawBtnEl} guard below).
   let redrawBtnEl = $state<HTMLButtonElement>();
+
+  // desktop ▶ start-dev-server: an action, so it opens this cluster (compact keeps
+  // it pinned in the tab row instead — see ViewportTabBar)
+  const showPreviewStart = $derived(!compact && !hasPreview && !session.archivedAt);
+  // desktop hairline between the state chips and this cluster — only when a
+  // harmless action precedes the danger ✕, so two rules never sit back to back
+  const hasSafeActions = $derived(showPreviewStart || tab === "term" || resumable);
 </script>
 
 <!-- trailing controls: on compact/phone they group + wrap together as a
@@ -92,6 +107,10 @@
            control that never co-renders with this one. -->
       <span aria-hidden="true">{headerCollapsed ? "▴" : "▾"}</span>
     </button>
+  {/if}
+  {#if !compact && hasSafeActions}<span class="vp-rule" aria-hidden="true"></span>{/if}
+  {#if showPreviewStart}
+    <ViewportPreviewStart {session} {previewPort} variant="icon" />
   {/if}
   <!-- squished-history repair variants under field test (see redrawNudge etc.
        above) — a quiet icon-only wrench toggle opening an anchored popover with the four
@@ -169,6 +188,9 @@
       {#if !compact}<span>{stranded ? m.stranded_revive() : m.cardmenu_resume_short()}</span>{/if}
     </button>
   {/if}
+  <!-- the destructive ✕ (stop agent + remove worktree) gets its own hairline so it
+       never reads as one more harmless icon beside the wrench -->
+  {#if !compact}<span class="vp-rule danger" aria-hidden="true"></span>{/if}
   {#if prReady}
     <!-- earned prominence: once a PR exists the work is delivered, so the
          decommission nudge surfaces inline (green, arms red on click) — one
@@ -235,6 +257,15 @@
      real flex cluster so the trailing controls wrap together. */
   .vp-actions {
     display: contents;
+  }
+
+  /* desktop cluster divider: a 1px hairline separating state | actions | danger */
+  .vp-rule {
+    flex-shrink: 0;
+    align-self: center;
+    width: 1px;
+    height: 16px;
+    background: var(--color-line);
   }
 
   /* mobile fold toggle: now an .icon-btn.compact — ghost/sizing/hover from recipe.

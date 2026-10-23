@@ -1,5 +1,5 @@
-//! `up-next list|start` against an in-test server: the snapshot arrives over `/events` only after
-//! the CLI's `POST /api/up-next/refresh`, as on a real server.
+//! `up-next list|start` against an in-test server: a refresh signals upnext:changed,
+//! and the snapshot is fetched over HTTP. Legacy snapshot frames remain receive-compatible.
 
 mod common;
 
@@ -17,9 +17,15 @@ use tokio_tungstenite::tungstenite::Message;
 #[derive(Default)]
 struct State {
     refreshed: Notify,
+    refreshes: Mutex<usize>,
     /// Status the refresh answers (202 unless overridden).
     refresh_status: Mutex<Option<u16>>,
     started: Mutex<Vec<Value>>,
+    reads: Mutex<Vec<String>>,
+    read_status: Mutex<Option<u16>>,
+    legacy_events: Mutex<bool>,
+    null_first: Mutex<bool>,
+    peeked: Notify,
 }
 
 fn item(repo: &str, slug: &str, n: i64) -> Value {
@@ -74,12 +80,25 @@ async fn http(mut stream: TcpStream, state: Arc<State>) {
     let (head, body) = read_request(&mut stream).await;
     let line = head.lines().next().unwrap_or("").to_string();
     let (status, reply) = if line.starts_with("POST /api/up-next/refresh ") {
+        *state.refreshes.lock().unwrap() += 1;
         let status = state.refresh_status.lock().unwrap().unwrap_or(202);
         if status == 202 {
             state.refreshed.notify_one();
             (202, json!({"ok": true}))
         } else {
             (status, json!({"error": "up-next unavailable"}))
+        }
+    } else if line.starts_with("GET /api/up-next?peek=1 ") {
+        state.reads.lock().unwrap().push(line);
+        let status = state.read_status.lock().unwrap().unwrap_or(200);
+        let null = std::mem::take(&mut *state.null_first.lock().unwrap());
+        state.peeked.notify_one();
+        if status != 200 {
+            (status, json!({"error": "up-next cache unavailable"}))
+        } else if null {
+            (200, Value::Null)
+        } else {
+            (200, snapshot())
         }
     } else if line.starts_with("POST /api/up-next/start ") {
         state
@@ -113,8 +132,18 @@ async fn events(stream: TcpStream, state: Arc<State>) {
     let noise = json!({"event": "session:status", "data": {"id": "x"}});
     ws.send(Message::text(noise.to_string())).await.unwrap();
     state.refreshed.notified().await;
-    let frame = json!({"event": "upnext:snapshot", "data": {"snapshot": snapshot()}});
+    let legacy = *state.legacy_events.lock().unwrap();
+    let null_first = *state.null_first.lock().unwrap();
+    let frame = if legacy {
+        json!({"event": "upnext:snapshot", "data": {"snapshot": snapshot()}})
+    } else {
+        json!({"event": "upnext:changed", "data": {"version": "a".repeat(64), "computedAt": 0}})
+    };
     ws.send(Message::text(frame.to_string())).await.unwrap();
+    if null_first && !legacy {
+        state.peeked.notified().await;
+        ws.send(Message::text(frame.to_string())).await.unwrap();
+    }
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 }
 
@@ -139,8 +168,8 @@ async fn serve() -> (String, Arc<State>) {
 }
 
 #[tokio::test]
-async fn list_refreshes_then_prints_the_pushed_snapshot() {
-    let (url, _) = serve().await;
+async fn list_refreshes_then_reads_the_changed_snapshot_over_http() {
+    let (url, state) = serve().await;
     let h = Harness::new();
     assert_eq!(
         h.run(&["--url", &url, "up-next", "list"]).await,
@@ -159,6 +188,7 @@ async fn list_refreshes_then_prints_the_pushed_snapshot() {
     // The priority section repeats o/alpha#5; it is listed once.
     assert_eq!(out.matches("o/alpha#5").count(), 1, "{out}");
     assert!(out.contains("o/beta#7"));
+    assert_eq!(state.reads.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -179,6 +209,7 @@ async fn start_sends_the_snapshot_items_issue_refs() {
     ];
     assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
     assert_eq!(h.json()["created"][0]["desig"], "TASK-09");
+    assert_eq!(state.reads.lock().unwrap().len(), 1);
     let started = state.started.lock().unwrap().clone();
     assert_eq!(
         started,
@@ -232,4 +263,52 @@ async fn unavailable_up_next_is_a_server_error() {
     let h = Harness::new();
     assert_eq!(h.run(&["--url", &url, "up-next", "list"]).await, 8);
     assert!(h.err.text().contains("up-next unavailable"));
+}
+
+#[tokio::test]
+async fn legacy_servers_can_still_deliver_snapshot_frames() {
+    let (url, state) = serve().await;
+    *state.legacy_events.lock().unwrap() = true;
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&["--url", &url, "up-next", "list"]).await,
+        0,
+        "{}",
+        h.err.text()
+    );
+    assert_eq!(h.json(), snapshot());
+    assert!(state.reads.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn null_cache_waits_for_the_next_change_without_recomputing() {
+    let (url, state) = serve().await;
+    *state.null_first.lock().unwrap() = true;
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&["--url", &url, "up-next", "list"]).await,
+        0,
+        "{}",
+        h.err.text()
+    );
+    assert_eq!(h.json(), snapshot());
+    assert_eq!(state.reads.lock().unwrap().len(), 2);
+    assert_eq!(*state.refreshes.lock().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn cache_read_failures_preserve_cli_exit_codes() {
+    for (status, exit) in [(401, 3), (503, 8)] {
+        let (url, state) = serve().await;
+        *state.read_status.lock().unwrap() = Some(status);
+        let h = Harness::new();
+        assert_eq!(
+            h.run(&["--url", &url, "up-next", "list"]).await,
+            exit,
+            "{}",
+            h.err.text()
+        );
+        assert_eq!(state.reads.lock().unwrap().len(), 1);
+        assert!(state.started.lock().unwrap().is_empty());
+    }
 }

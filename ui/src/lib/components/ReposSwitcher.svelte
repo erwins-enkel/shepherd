@@ -538,9 +538,12 @@
     text-overflow: ellipsis;
   }
   .rs-tile-counts {
+    overflow: hidden;
     color: var(--color-muted);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   /* One column, so a repo name gets the full row width before it ellipsizes. */

@@ -886,7 +886,9 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
         seed([plain(2), plain(3)]);
         const { container } = await render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
         // The Repos dialog's card carries this action (BacklogOverlay: use:dialog={{ onclose }}).
-        const trap = dialog(container as HTMLElement, { onclose });
+        // It sits BELOW Svelte's delegation root (the mount target), so its native listener
+        // runs before any delegated `onkeydown` — mount it on a descendant to keep that order.
+        const trap = dialog(container.firstElementChild as HTMLElement, { onclose });
         try {
           await selectRow("s:2");
           document.querySelector<HTMLElement>(".issue-options")!.focus();

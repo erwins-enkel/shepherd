@@ -76,10 +76,18 @@
     letter-spacing: 0.06em;
   }
 
+  /* Touch: grow the × hit area to 44px without growing the chip itself. */
   @media (max-width: 768px), (pointer: coarse) {
     .fchip-x {
-      min-height: 44px;
-      min-width: 44px;
+      position: relative;
+    }
+    .fchip-x::after {
+      content: "";
+      position: absolute;
+      inset: 50% auto auto 50%;
+      width: 44px;
+      height: 44px;
+      transform: translate(-50%, -50%);
     }
   }
 </style>

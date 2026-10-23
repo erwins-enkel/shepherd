@@ -182,6 +182,18 @@ describe("ProjectRow pin + hide actions", () => {
     expect(Math.abs(counts.right - actions.right)).toBeLessThanOrEqual(1);
   });
 
+  it("on hover a real click lands on the pin + hide buttons, not the faded counts", async () => {
+    const row = renderRow(project({ openIssues: 4 }));
+    await page.elementLocator(row).hover();
+    await expect.poll(() => opacity(row, ".row-actions")).toBe("1");
+    for (const sel of [".row-pin", ".row-hide"]) {
+      const btn = row.querySelector<HTMLElement>(sel)!;
+      const r = btn.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      expect(btn.contains(hit)).toBe(true);
+    }
+  });
+
   it("keyboard focus on the row reveals the actions (focus-within)", async () => {
     const row = renderRow(project());
     row.style.cssText += "position:fixed;left:-1000px;top:120px;width:240px";

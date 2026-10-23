@@ -295,6 +295,7 @@
     align-items: center;
     gap: 2px;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.12s;
   }
   .row-counts {
@@ -305,11 +306,14 @@
   /* in the Hidden group the unhide control is the primary affordance — always lit */
   .project-row.dim .row-actions {
     opacity: 1;
+    pointer-events: auto;
   }
   .project-row:hover .row-counts,
   .project-row:focus-within .row-counts,
   .project-row.dim .row-counts {
     opacity: 0;
+    /* the stacked, faded counts must not swallow clicks meant for the actions */
+    pointer-events: none;
   }
 
   .row-pin,

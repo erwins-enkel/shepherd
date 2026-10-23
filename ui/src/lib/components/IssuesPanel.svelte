@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Attachment } from "svelte/attachments";
   import { listIssues, getEpics, getEpic } from "#lib/api.js";
   import { steers } from "#lib/steers.svelte.js";
   import { repos } from "#lib/repos.svelte.js";
@@ -691,7 +692,17 @@
     ArrowRight: expandSelectedEpic,
     a: startSelectedTask,
     A: startSelectedTask,
-    Escape: escapeToOverview,
+  };
+
+  // Escape is bound natively, not via the delegated `onkeydown`: Svelte delegates that to
+  // the app root, so the dialog's own native Escape listener on its card would close the
+  // dialog before the delegated handler ever ran.
+  const escapeKey: Attachment<HTMLElement> = (node) => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.ctrlKey && !e.metaKey && !e.altKey) escapeToOverview(e);
+    };
+    node.addEventListener("keydown", onKey);
+    return () => node.removeEventListener("keydown", onKey);
   };
 
   function onListKey(e: KeyboardEvent) {
@@ -860,6 +871,7 @@
           aria-label={m.issuespanel_title()}
           aria-activedescendant={selectedKey ? `issue-opt-${selectedKey}` : undefined}
           onkeydown={onListKey}
+          {@attach escapeKey}
         >
           <IssueListRows
             {rows}

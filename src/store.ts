@@ -7343,8 +7343,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   private hydrate(r: SessionRow): Session {
+    const { manualStepsJson, launchMetadataJson, ...session } = r;
     return {
-      ...r,
+      ...session,
       isolated: !!r.isolated,
       readyToMerge: !!r.readyToMerge,
       claudeSessionId: r.claudeSessionId ?? "",
@@ -7393,10 +7394,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mergingPrNumber: r.mergingPrNumber ?? null,
       haltReason: r.haltReason ?? null,
       haltedAt: r.haltedAt ?? null,
-      manualSteps: parseManualStepsJson(r.manualStepsJson),
+      manualSteps: parseManualStepsJson(manualStepsJson),
       manualStepsAckedAt: r.manualStepsAckedAt ?? null,
       archiveReason: parseArchiveReason(r.archiveReason),
-      launchMetadata: parseLaunchMetadataJson(r.launchMetadataJson),
+      launchMetadata: parseLaunchMetadataJson(launchMetadataJson),
       experimentId: r.experimentId ?? null,
       experimentRole:
         r.experimentRole === "variant" || r.experimentRole === "comparison"

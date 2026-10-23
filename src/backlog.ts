@@ -2,11 +2,21 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { detectForge } from "./forge";
 import { makeForgeMemo } from "./forge/resolve";
-import { COUNTS_BATCH_SIZE, listBacklogCountsBatch, type GhRunner } from "./forge/github";
+import {
+  COUNTS_BATCH_SIZE,
+  listBacklogCountsBatch,
+  mapRollupState,
+  type GhRunner,
+} from "./forge/github";
 import { EMPTY_BACKLOG_COUNTS } from "./forge/types";
 import type { ForgeMap, GitForge, RepoCounts } from "./forge/types";
 import { Semaphore } from "./semaphore";
-import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
+import {
+  countsPrsPart,
+  prsKey,
+  type GithubCacheEntry,
+  type GithubReadCache,
+} from "./github-read-cache";
 
 // RepoCounts now lives with the GitForge seam (each adapter returns it); re-export
 // so existing importers (backlog-poller, server) keep their "./backlog" path. (CiStatus
@@ -112,9 +122,12 @@ export class CountsService {
     const entry = this.entry(repoPath);
     const slug = this.githubSlug(repoPath);
     const fpKey = slug ? this.readCache?.contentKey("counts", slug) : null;
+    if (entry && fpKey != null && entry.contentKey === fpKey && !this.readCache?.expired(entry))
+      return entry.value;
+    const derived = this.derive(repoPath);
+    if (derived) return derived;
     if (entry && fpKey != null && entry.contentKey === fpKey) {
-      if (this.readCache?.expired(entry) && this.readCache.canRefresh())
-        void this.load(repoPath, true, trigger);
+      if (this.readCache?.canRefresh()) void this.load(repoPath, true, trigger);
       return entry.value;
     }
     if (entry && fpKey == null && this.now() - entry.at < TTL_MS) return entry.value;
@@ -171,6 +184,54 @@ export class CountsService {
    */
   async refresh(repoPath: string, trigger = "refresh"): Promise<RepoCounts> {
     return this.load(repoPath, true, trigger);
+  }
+
+  /** Bring counts in line with the fingerprint: derived when cached data suffices, else
+   *  fetched like {@link refresh}. For the fingerprint's change follow-up (#2879). */
+  async sync(repoPath: string, trigger: string): Promise<RepoCounts> {
+    return this.derive(repoPath) ?? this.load(repoPath, true, trigger);
+  }
+
+  /**
+   * Counts for a fingerprint-covered GitHub repo from cached data alone, stored as if fetched
+   * (#2879). The fingerprint carries issue/PR totals and CI; `prKinds` comes from an open-PR
+   * snapshot taken under the same PR state, else from the previous entry when the PRs did not
+   * move. Needs a previous entry, so a repo whose counts an own write just invalidated is
+   * fetched. Null when the data does not suffice.
+   */
+  private derive(repoPath: string): RepoCounts | null {
+    const slug = this.githubSlug(repoPath);
+    const rc = this.readCache;
+    if (!slug || !rc) return null;
+    const fpKey = rc.contentKey("counts", slug);
+    const fp = rc.get("fingerprint", slug)?.value;
+    const prev = this.entry(repoPath);
+    if (fpKey == null || !fp || !prev || prev.negative) return null;
+    const prKinds =
+      this.snapshotKinds(slug, fp.openPrs) ??
+      (prev.contentKey != null && countsPrsPart(prev.contentKey) === prsKey(fp)
+        ? prev.value.prKinds
+        : null);
+    if (!prKinds) return null;
+    const value: RepoCounts = {
+      openIssues: fp.openIssues,
+      openPRs: fp.openPrs,
+      ciStatus: mapRollupState(fp.ciState),
+      prKinds,
+    };
+    this.cache.set(slug, { at: this.now(), value, contentKey: fpKey });
+    rc.put("counts", slug, fpKey, value);
+    return value;
+  }
+
+  /** `prKinds` from the cached open-PR snapshot when it matches the fingerprint's PR state. */
+  private snapshotKinds(slug: string, openPrs: number): RepoCounts["prKinds"] {
+    const key = this.readCache?.contentKey("prs", slug);
+    const snap = this.readCache?.get("prs", slug);
+    if (key == null || !snap || snap.contentKey !== key) return null;
+    const release = snap.value.prs.filter((p) => p.kind === "release").length;
+    const dependabot = snap.value.prs.filter((p) => p.kind === "dependabot").length;
+    return { release, dependabot, regular: Math.max(0, openPrs - release - dependabot) };
   }
 
   private load(

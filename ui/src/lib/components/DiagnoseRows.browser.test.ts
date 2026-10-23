@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -6,6 +6,7 @@ import DiagnoseRows from "./DiagnoseRows.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import type { DiagnosticCheck } from "#lib/types.js";
 import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
+import { THEMES, expectQuietLegible, tokenColor } from "#lib/test-support/contrast.js";
 
 const check = (over: Partial<DiagnosticCheck> = {}): DiagnosticCheck => ({
   id: "git",
@@ -551,4 +552,26 @@ describe("Ask the assistant (#1446)", () => {
     render(DiagnoseRows, { props: { checks: [check({ state: "error" })] } });
     expect(page.getByRole("button", { name: m.operator_assistant_ask() }).query()).toBeNull();
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — the ok/optional word reads muted,
+// while the glyph keeps the slate hue.
+describe("DiagnoseRows clear-state contrast", () => {
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+  for (const theme of THEMES) {
+    it(`keeps ok/optional words legible, glyph slate: ${theme}`, () => {
+      document.documentElement.dataset.theme = theme;
+      render(DiagnoseRows, {
+        props: { checks: [check({ state: "ok" }), check({ id: "gh", state: "optional" })] },
+      });
+      const rows = document.querySelectorAll<HTMLElement>(".row-head");
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expectQuietLegible(row.querySelector<HTMLElement>(".state-word")!);
+        expect(getComputedStyle(row.querySelector(".glyph")!).color).toBe(
+          tokenColor("--status-done"),
+        );
+      }
+    });
+  }
 });

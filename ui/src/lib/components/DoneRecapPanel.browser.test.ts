@@ -6,6 +6,7 @@ import DoneRecapPanel from "./DoneRecapPanel.svelte";
 import { recaps } from "#lib/recaps.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { Session, Recap, SessionUsage } from "#lib/types.js";
+import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
 
 // Deferred-resolution mock for the status bar's usage fetch: each call parks its resolver
 // under the session id so tests control response ORDER (the stale-response test resolves
@@ -530,4 +531,18 @@ describe("DoneRecapPanel status bar", () => {
     await expect.element(page.getByText("500 tok")).toBeInTheDocument();
     expect((container as HTMLElement).textContent).not.toContain("1M tok");
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — a parked verdict word reads muted.
+describe("DoneRecapPanel parked verdict contrast", () => {
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+  for (const theme of THEMES) {
+    it(`keeps the parked verdict legible and un-green: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      recaps.map = { s9: recap({ sessionId: "s9", verdict: "parked" }) };
+      render(DoneRecapPanel, { session: session({ id: "s9" }) });
+      await expect.element(page.getByText(m.recap_verdict_parked())).toBeInTheDocument();
+      expectQuietLegible(document.querySelector<HTMLElement>(".dr-verdict")!);
+    });
+  }
 });

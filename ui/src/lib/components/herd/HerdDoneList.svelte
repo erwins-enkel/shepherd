@@ -45,10 +45,10 @@
 
   // Done lens row chrome: a finished session's recap verdict drives a small chip.
   // Semantic colors mirror SessionRecap/DoneRecapPanel (green = genuinely READY only;
-  // parked = slate; needs-attention = amber).
+  // parked = muted, not slate — 3.0:1 fails AA here; needs-attention = amber).
   const VERDICT_COLOR: Record<RecapVerdict, string> = {
     ready: "var(--color-green)",
-    parked: "var(--status-done)",
+    parked: "var(--color-muted)",
     needs_attention: "var(--color-amber)",
   };
 

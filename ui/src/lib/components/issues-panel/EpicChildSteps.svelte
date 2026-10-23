@@ -162,7 +162,7 @@
     font-size: var(--fs-micro);
   }
   .chip.tone-done {
-    color: var(--status-done);
+    color: var(--color-muted);
   }
   .chip.tone-running,
   .chip.tone-review {

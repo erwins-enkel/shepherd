@@ -4,6 +4,7 @@ import "../../../app.css";
 import { m } from "#lib/paraglide/messages.js";
 import { reviews, planGates, repoConfig } from "#lib/reviews.svelte.js";
 import type { PlanGate, ReviewVerdict } from "#lib/types.js";
+import { expectQuietLegible, tokenColor } from "#lib/test-support/contrast.js";
 import { cancelReview, holdReview, reviewPlan } from "#lib/api.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -249,6 +250,12 @@ describe("ReviewInFlightBanner — critic that cannot paste (watch tier)", () =>
     reviews.setReviewing(ID, false);
     await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("nothing");
     expect(banner()?.textContent).toContain(m.reviewbanner_nothing());
+    // #3283: the slate tone keeps its hue on border/wash; text reads muted (slate is 3.0:1)
+    expectQuietLegible(banner() as HTMLElement);
+    // …while the ✓/✕ icon keeps the slate status hue
+    expect(getComputedStyle(banner()!.querySelector(".rb-icon")!).color).toBe(
+      tokenColor("--status-done"),
+    );
   });
 });
 

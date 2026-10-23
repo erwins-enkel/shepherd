@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import type { DeployState, DirtyStatus, UpdateStatus } from "#lib/types.js";
+import { expectQuietLegible } from "#lib/test-support/contrast.js";
 
 vi.mock("#lib/api.js", async (orig) => ({
   ...((await orig()) as object),
@@ -457,6 +458,8 @@ describe("UpdateModal", () => {
     await vi.waitFor(() => expect(rowOf("MacBook").textContent).toContain("Updated"), {
       timeout: 5000,
     });
+    // #3283: the "Updated" word reads muted, not slate (3.0:1 fails AA at this size)
+    expectQuietLegible(rowOf("MacBook").querySelector<HTMLElement>(".done")!);
     expect(mockApply).not.toHaveBeenCalled();
   });
 

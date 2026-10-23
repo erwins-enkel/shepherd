@@ -244,7 +244,7 @@
   }
 
   .done {
-    color: var(--status-done);
+    color: var(--color-muted);
     font-size: var(--fs-meta);
   }
 

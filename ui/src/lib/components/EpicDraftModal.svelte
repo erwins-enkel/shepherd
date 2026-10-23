@@ -372,7 +372,7 @@
     color: var(--color-faint);
   }
   .chip-done {
-    color: var(--status-done);
+    color: var(--color-muted);
   }
   .dot {
     flex: none;
@@ -410,7 +410,7 @@
     font-size: var(--fs-base);
   }
   .note-done {
-    color: var(--status-done);
+    color: var(--color-muted);
   }
   .link {
     color: var(--color-accent);

@@ -18,6 +18,7 @@
 
   // glyph: ✓ slate (installed) / ⚠ amber (warning) / – muted (optional).
   // Design rule: never --color-green for healthy; ✓ uses --status-done (slate).
+  // Slate stays on the glyph; the "installed" word is muted (slate text is 3.0:1).
   const glyph: Record<PwaRowState, string> = {
     installed: "✓",
     ios: "⚠",
@@ -48,7 +49,11 @@
     <div class="row-head">
       <span class="glyph" style="color:{color[state]}" aria-hidden="true">{glyph[state]}</span>
       <span class="micro label">{m.diagnostics_label_pwa_install()}</span>
-      <span class="state-word micro" style="color:{color[state]}">{stateWord(state)}</span>
+      <span
+        class="state-word micro"
+        style="color:{state === 'installed' ? 'var(--color-muted)' : color[state]}"
+        >{stateWord(state)}</span
+      >
     </div>
     {#if state !== "installed"}
       <p class="hint">{hint(state)}</p>

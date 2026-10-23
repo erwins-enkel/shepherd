@@ -4,6 +4,7 @@ import "../../app.css";
 import type { EpicDraft } from "#lib/types.js";
 import { epicDrafts } from "#lib/epic-draft.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
+import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
 import EpicDraftPanel from "./EpicDraftPanel.svelte";
 
 function longDraft(sessionId: string): EpicDraft {
@@ -168,4 +169,23 @@ describe("EpicDraftPanel bar — behavior", () => {
 
     unmount();
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — the approved chip reads muted.
+describe("EpicDraftPanel approved contrast", () => {
+  for (const theme of THEMES) {
+    it(`keeps the approved chip legible and un-green: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      const sessionId = `epic-draft-bar-approved-${theme}`;
+      epicDrafts.upsert({ ...longDraft(sessionId), status: "approved" });
+      const { unmount } = await render(EpicDraftPanel, {
+        sessionId,
+        epicAuthoring: true,
+        onreview: () => {},
+      });
+      expectQuietLegible(document.querySelector<HTMLElement>(".edp-chip-done")!);
+      unmount();
+      document.documentElement.removeAttribute("data-theme");
+    });
+  }
 });

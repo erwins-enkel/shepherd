@@ -112,10 +112,11 @@
   }
 
   // Mirrors SessionRecap's verdict mapping (semantic, not decorative): green only for a
-  // genuinely-ready verdict; a parked/done session reads slate; needs-attention amber.
+  // genuinely-ready verdict; a parked/done session reads muted (slate is only 3.0:1
+  // for this small label); needs-attention amber.
   const VERDICT_COLOR: Record<RecapVerdict, string> = {
     ready: "var(--color-green)",
-    parked: "var(--status-done)",
+    parked: "var(--color-muted)",
     needs_attention: "var(--color-amber)",
   };
 

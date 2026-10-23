@@ -141,7 +141,7 @@
     color: var(--color-faint);
   }
   .edp-chip-done {
-    color: var(--status-done);
+    color: var(--color-muted);
   }
   .edp-dot {
     flex: none;

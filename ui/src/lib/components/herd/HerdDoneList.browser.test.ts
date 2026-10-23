@@ -5,6 +5,9 @@ import "../../../app.css";
 import HerdDoneList from "./HerdDoneList.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import type { Session } from "#lib/types.js";
+import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
+import { recaps } from "#lib/recaps.svelte.js";
+import type { Recap } from "#lib/types.js";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -62,4 +65,23 @@ describe("HerdDoneList bring-back context menu", () => {
     expect(e.defaultPrevented).toBe(false);
     expect(document.querySelector(".card-menu")).toBeNull();
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — a parked verdict word reads muted.
+describe("HerdDoneList parked verdict contrast", () => {
+  afterEach(() => {
+    recaps.map = {};
+    document.documentElement.removeAttribute("data-theme");
+  });
+  for (const theme of THEMES) {
+    it(`keeps the parked verdict legible and un-green: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      recaps.map = {
+        a: { state: "ready", verdict: "parked", sessionId: "a" } as unknown as Recap,
+      };
+      render(HerdDoneList, { props: props() });
+      await expect.element(page.getByText(m.recap_verdict_parked())).toBeInTheDocument();
+      expectQuietLegible(document.querySelector<HTMLElement>(".done-verdict")!);
+    });
+  }
 });

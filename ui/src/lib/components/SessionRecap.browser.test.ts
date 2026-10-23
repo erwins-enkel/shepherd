@@ -6,6 +6,7 @@ import SessionRecap from "./SessionRecap.svelte";
 import { recaps } from "#lib/recaps.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { Session, Recap } from "#lib/types.js";
+import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -178,4 +179,18 @@ describe("SessionRecap under full auto-merge (TASK-1368)", () => {
     render(SessionRecap, { session: session({ id: "sr11" }), autoMergeOwned: true });
     await expect.element(page.getByText(m.recap_verdict_ready())).toBeInTheDocument();
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — a parked verdict word reads muted.
+describe("SessionRecap parked verdict contrast", () => {
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+  for (const theme of THEMES) {
+    it(`keeps the parked chip legible and un-green: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      recaps.map = { sr4: recap({ sessionId: "sr4", verdict: "parked" }) };
+      render(SessionRecap, { session: session({ id: "sr4" }) });
+      await expect.element(page.getByText(m.recap_verdict_parked())).toBeInTheDocument();
+      expectQuietLegible(document.querySelector<HTMLElement>(".recap-verdict-chip")!);
+    });
+  }
 });

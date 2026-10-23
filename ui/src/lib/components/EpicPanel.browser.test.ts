@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import EpicPanel from "./EpicPanel.svelte";
 import type { Epic, EpicChild } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
 
 function child(over: Partial<EpicChild>): EpicChild {
   return {
@@ -257,4 +258,24 @@ describe("EpicPanel headActions (#2617)", () => {
     expect(page.getByRole("button", { name: m.epic_import() }).query()).toBeNull();
     expect(page.getByRole("button", { name: m.epic_diag_open() }).query()).toBeNull();
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — the merged chip's word reads muted;
+// the slate tint stays on its background.
+describe("EpicPanel merged chip contrast", () => {
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+  for (const theme of THEMES) {
+    it(`keeps the merged chip legible and un-green: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      render(EpicPanel, {
+        repoPath: "/repo",
+        parent: 327,
+        epic: { ...epic(), children: [child({ number: 1, state: "merged" })] },
+      });
+      await expect
+        .element(page.getByText(m.epic_state_merged(), { exact: true }))
+        .toBeInTheDocument();
+      expectQuietLegible(document.querySelector<HTMLElement>(".chip-done")!);
+    });
+  }
 });

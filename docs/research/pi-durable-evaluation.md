@@ -2,9 +2,10 @@
 
 **Verdict: NO.** pi-durable is a durable _in-process agent harness_: it calls model APIs itself
 (through `pi-ai`) and runs its own tool loop. Shepherd's architecture is the opposite: it drives
-the **real `claude` / `codex` CLIs** in herdr panes and never links a model library. To adopt
-pi-durable, Shepherd would have to replace Claude Code as the agent runtime. That breaks the
-subscription/ToS footing, the skills/hooks/MCP surface, and the HUD terminal. A few of its
+the **real `claude` / `codex` CLIs** in herdr panes. The only model library it links is the
+narrow `Judge` seam (`@typesafe-ai/sdk`, §2.1), a bounded decision primitive, not an agent loop. To
+adopt pi-durable, Shepherd would have to replace Claude Code as the agent runtime. That breaks the
+skills/hooks/MCP surface and the HUD terminal, and the Judge precedent doesn't cover it. A few of its
 recovery _patterns_ are worth copying (§4); the library is not.
 
 > Evaluation, **2026-10-23**, against `@earendil-works/pi-durable` **1.4.0** (released
@@ -32,24 +33,48 @@ recovery _patterns_ are worth copying (§4); the library is not.
 
 ## 2. Why it doesn't fit
 
-| Shepherd constraint                                                                                                                                                         | pi-durable                                                                                                                                                                                                                                                            |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agents are the real `claude` / `codex` CLIs (`AGENT_PROVIDERS = ["claude","codex"]`, `src/types.ts:20`). Shepherd only builds the argv and steers the PTY (`src/herdr.ts`). | It _is_ the agent loop. Using it means dropping Claude Code: no skills, plugins, hooks ingestion, MCP config, plan mode, `AskUserQuestion`, or CC's own compaction and permissions.                                                                                   |
-| All LLM work runs on the subscription through a spawned interactive CLI, never `claude -p` or the raw API (`src/autopilot-llm.ts:287`).                                     | API keys are billed per token. Its Anthropic Pro/Max OAuth path is a third-party client using subscription credentials, which is exactly the footing Shepherd avoids by driving the official CLI. Treat it as **not allowed** unless Anthropic's terms say otherwise. |
-| The operator watches and types into a live terminal (the HUD).                                                                                                              | It has no terminal. Shepherd would need a new UI built on its watch/event APIs.                                                                                                                                                                                       |
-| Server runs on one Bun event loop that must never block (memory: single-loop).                                                                                              | The portable SQLite/JSONL cores run on Bun. But it is a second stateful runtime with its own storage next to `~/.shepherd/shepherd.db`, and it allows only one process per storage.                                                                                   |
-| Durability today comes from the CLI's own session persistence plus Shepherd's reconcilers (`src/reconcile.ts`, reviewer `reapOrphans`, plan-gate `adoptOrphans`).           | It only makes durable the turns _it_ runs. It can't checkpoint inside a Claude Code process, so it does nothing for the crashes Shepherd actually sees: orphaned reviewers, name-squats, and wedged dialogs.                                                          |
+| Shepherd constraint                                                                                                                                                                                                                                                        | pi-durable                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Agents are the real `claude` / `codex` CLIs (`AGENT_PROVIDERS = ["claude","codex"]`, `src/types.ts:20`). Shepherd only builds the argv and steers the PTY (`src/herdr.ts`).                                                                                                | It _is_ the agent loop. Using it means dropping Claude Code: no skills, plugins, hooks ingestion, MCP config, plan mode, `AskUserQuestion`, or CC's own compaction and permissions.                                                                                                                    |
+| _Agent_ work is billed through the official CLI: the subscription by default, or an Anthropic API key in `authMode: "api-key"` (`src/config.ts:1036`, `src/spawn-auth.ts:43`), which still runs the CLI. Metered in-process calls exist only behind the Judge seam (§2.1). | Running agents in-process bills per token with no CLI fallback. Its Anthropic Pro/Max OAuth path is a third-party client using subscription credentials, which is exactly the footing Shepherd avoids by driving the official CLI. Treat it as **not allowed** unless Anthropic's terms say otherwise. |
+| The operator watches and types into a live terminal (the HUD).                                                                                                                                                                                                             | It has no terminal. Shepherd would need a new UI built on its watch/event APIs.                                                                                                                                                                                                                        |
+| Server runs on one Bun event loop that must never block (memory: single-loop).                                                                                                                                                                                             | The portable SQLite/JSONL cores run on Bun. But it is a second stateful runtime with its own storage next to `~/.shepherd/shepherd.db`, and it allows only one process per storage.                                                                                                                    |
+| Durability today comes from the CLI's own session persistence plus Shepherd's reconcilers (`src/reconcile.ts`, reviewer `reapOrphans`, plan-gate `adoptOrphans`).                                                                                                          | It only makes durable the turns _it_ runs. It can't checkpoint inside a Claude Code process, so it does nothing for the crashes Shepherd actually sees: orphaned reviewers, name-squats, and wedged dialogs.                                                                                           |
 
-The small helpers (namer, judge, critic) don't make a good entry point either. They are already
-fixed to the transient-subscription-spawn pattern, and moving them to pi-durable would bring
-back API billing.
+### 2.1 The Judge precedent
+
+Shepherd already accepts **one** API-billed, in-process model call. `src/judge.ts` defines a
+vendor-neutral `Judge` seam with two primitives, `choice` and `noul`. `src/judge-typesafe.ts`
+implements it over `@typesafe-ai/sdk` (`package.json:77`), billed on TypeSafe's own key.
+`classifyStop` asks the judge first and falls back to the `claude` spawn
+(`src/autopilot-llm.ts:247`, `:323-326`, `:341`). `src/judge-spend.ts` caps daily spend as a runaway
+guard. So "never the raw API" is false, but look at what made that case acceptable:
+
+- **Narrow and typed.** A pick-one-of-N or yes/no answer, with raw probabilities crossing the seam.
+  It is not a free-form agent with tools.
+- **Strictly optional.** Every judge failure (unarmed, over the ceiling, deadline) returns null and
+  falls back to the spawn, so arming it can never cost a capability.
+- **Bounded cost.** A total wall-clock deadline per call, plus a persisted daily ceiling.
+- **Different billing from Anthropic.** A separate vendor key, so the Anthropic subscription
+  footing is untouched.
+
+pi-durable fails all four: it is a full agent loop, it would _replace_ the CLI rather than sit
+in front of it, its spend is open-ended per run, and its Anthropic path is either per-token API
+billing or third-party subscription OAuth. The helpers (namer, critic) don't make a good entry
+point either. The critic needs a full agent with repo access, which is what the CLI provides.
+The namer and classifier, if they ever leave the spawn, have a home already: another `Judge`
+implementation, not a harness.
 
 ## 3. When the answer would change
 
-- Shepherd gains a **third, API-keyed, in-process provider** (for example a cheap non-Anthropic
-  model for classification), and the operator accepts per-token billing for it. pi-ai (not
-  necessarily pi-durable) would then be a candidate. That should wait until pi-durable drops the
-  "Experimental" label, given that 1.4.0 already shipped a schema migration with no rollback.
+- **A narrow in-process call needs more than `choice`/`noul`** (for example a free-text session
+  name), under the Judge's rules: optional, CLI fallback, bounded spend. `pi-ai` could then back
+  a second implementation or a sibling seam, as a multi-provider transport. That is still `pi-ai`,
+  not pi-durable.
+- **Shepherd wants to run whole agents in-process**, for example a cheap non-Anthropic background
+  agent with no terminal, and the operator accepts open-ended per-token billing for it. pi-durable
+  would then be a real candidate, but only after it drops the "Experimental" label, given that 1.4.0
+  already shipped a schema migration with no rollback.
 - Anthropic explicitly allows subscription OAuth in third-party harnesses. That alone still
   wouldn't justify replacing Claude Code; it would only remove the billing blocker.
 

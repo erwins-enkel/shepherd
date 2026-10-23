@@ -13,12 +13,12 @@ function fixture(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
   return {
     rest: { limit: 5000, used: 173, remaining: 4827, resetAt: BASE + H },
     graphql: { limit: 5000, used: 5002, remaining: 0, resetAt: BASE + H },
-    search: { limit: 30, used: 0, remaining: 30, resetAt: BASE + H },
     fetchedAt: BASE,
     backoff: { remaining: 0, resetAt: BASE + H, pausedUntil: BASE + H, blocked: true },
     restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     restWriteBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     graphqlSplit: null,
+    callers: [],
     ...over,
   };
 }
@@ -267,6 +267,40 @@ describe("GithubLens", () => {
         .element(page.getByText(m.github_lens_split_other({ rate: (1000).toLocaleString() })))
         .toBeInTheDocument();
       await expect.element(page.getByRole("note")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("callers (#2743)", () => {
+    it("lists the window's top callers with calls and points", async () => {
+      render(GithubLens, {
+        data: fixture({
+          callers: [
+            { caller: "pr-poller:full", calls: 41, graphqlPoints: 52, restCalls: 0 },
+            { caller: "unattributed", calls: 3, graphqlPoints: 1, restCalls: 2 },
+          ],
+        }),
+      });
+      await expect.element(page.getByText(m.github_lens_callers_title())).toBeInTheDocument();
+      await expect.element(page.getByText("pr-poller:full")).toBeInTheDocument();
+      await expect.element(page.getByText("52", { exact: true })).toBeInTheDocument();
+      await expect.element(page.getByText("unattributed")).toBeInTheDocument();
+    });
+
+    it("shows no callers table before any call", async () => {
+      render(GithubLens, { data: fixture() });
+      await expect.element(page.getByText(m.github_lens_callers_title())).not.toBeInTheDocument();
+    });
+
+    it("caps the table at the top 8", async () => {
+      const callers = Array.from({ length: 10 }, (_, i) => ({
+        caller: `caller-${i}`,
+        calls: 1,
+        graphqlPoints: 10 - i,
+        restCalls: 0,
+      }));
+      render(GithubLens, { data: fixture({ callers }) });
+      await expect.element(page.getByText("caller-7")).toBeInTheDocument();
+      await expect.element(page.getByText("caller-8")).not.toBeInTheDocument();
     });
   });
 });

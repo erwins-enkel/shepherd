@@ -590,7 +590,7 @@ function chargeGraphql(
   const cost = rl?.cost ?? 1;
   spend.noteOwnSpend(cost);
   if (rl && graph.note({ remaining: rl.remaining, resetAt: rl.resetAt }) && rl.used !== null) {
-    spend.noteReading({ used: rl.used, resetAt: rl.resetAt });
+    spend.noteReading({ used: rl.used, resetAt: rl.resetAt, remaining: rl.remaining });
   }
   return cost;
 }

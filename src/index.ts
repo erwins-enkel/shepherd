@@ -3996,8 +3996,8 @@ const appDeps: AppDeps = {
   codexReset,
   codexCapacity: codexReady,
   codexAccountId: () => codexReset.currentAccountId(),
-  // Live GitHub REST + GraphQL buckets for the usage view. `gh api rate_limit`
-  // is quota-exempt, so it works even when the GraphQL bucket is at zero.
+  // Live GitHub REST + GraphQL buckets for the usage view, from response headers and in-query
+  // readings — never `gh api rate_limit`, which misreports (#2743).
   githubRateLimit: () => fetchGithubRateLimit(ghRunnerAsync),
   // #2860: the agents' truthful budget — `self_status` reads these, never `gh api rate_limit`.
   githubBackoff: () => ({

@@ -616,11 +616,11 @@ describe("api.ts consumers get real content through the demo router", () => {
     expect(delivery.tasks.length).toBeGreaterThan(0);
   });
 
-  it("getGithubRateLimit returns all three buckets", async () => {
+  it("getGithubRateLimit returns both buckets and the callers", async () => {
     const limits = await api.getGithubRateLimit();
     expect(limits.rest).not.toBeNull();
     expect(limits.graphql).not.toBeNull();
-    expect(limits.search).not.toBeNull();
+    expect(limits.callers.length).toBeGreaterThan(0);
   });
 
   it("getGithubOwners returns owners — and does NOT reach its own error fallback", async () => {

@@ -13,13 +13,13 @@
     bucket: GhRateBucket;
     label: string;
     desc: string;
-    /** Shepherd has backed this bucket off (never for Search) — drives the "Paused" pill. */
+    /** Shepherd has backed this bucket off — drives the "Paused" pill. */
     paused: boolean;
     /** The GraphQL row carries the spend split (#2840). */
     graphql?: true;
   };
 
-  // Build only the buckets we actually received, in fixed order (REST, GraphQL, Search).
+  // Build only the buckets we actually received, in fixed order (REST, GraphQL).
   function buildRows(d: GithubRateLimit): Row[] {
     const out: Row[] = [];
     if (d.rest)
@@ -37,13 +37,6 @@
         desc: m.github_lens_graphql_desc(),
         paused: d.backoff.blocked,
         graphql: true,
-      });
-    if (d.search)
-      out.push({
-        bucket: d.search,
-        label: m.github_lens_search_label(),
-        desc: m.github_lens_search_desc(),
-        paused: false,
       });
     return out;
   }
@@ -83,6 +76,10 @@
   // Above this foreign rate, the hint names the likely sources.
   const FOREIGN_HINT_PER_HOUR = 1_000;
   const foreignHigh = $derived((split?.otherPerHour ?? 0) > FOREIGN_HINT_PER_HOUR);
+
+  // Who made this window's GitHub calls (#2743): the top callers by GraphQL points.
+  const TOP_CALLERS = 8;
+  const callers = $derived((data.callers ?? []).slice(0, TOP_CALLERS));
 
   // Status pill for a row: "Exhausted" only when the bucket is truly empty;
   // "Paused" when Shepherd backed off the bucket while it still reads as having
@@ -213,6 +210,31 @@
       </div>
     {/each}
   {/if}
+
+  {#if callers.length > 0}
+    <div class="callers-block">
+      <span class="window-label">{m.github_lens_callers_title()}</span>
+      <span class="desc">{m.github_lens_callers_desc()}</span>
+      <table class="callers">
+        <thead>
+          <tr>
+            <th scope="col">{m.github_lens_callers_caller()}</th>
+            <th scope="col" class="num">{m.github_lens_callers_calls()}</th>
+            <th scope="col" class="num">{m.github_lens_callers_points()}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each callers as c (c.caller)}
+            <tr>
+              <td class="caller">{c.caller}</td>
+              <td class="num">{c.calls.toLocaleString()}</td>
+              <td class="num">{c.graphqlPoints.toLocaleString()}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -320,6 +342,43 @@
   .reset-time {
     font-size: var(--fs-meta);
     color: var(--color-faint);
+  }
+
+  .callers-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .callers {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .callers th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-muted);
+    border-bottom: 1px solid var(--color-line);
+    padding: 2px 0;
+  }
+
+  .callers td {
+    padding: 2px 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .callers .num {
+    text-align: right;
+    padding-left: 1rem;
+    white-space: nowrap;
+  }
+
+  .callers .caller {
+    overflow-wrap: anywhere;
   }
 
   .split-block {

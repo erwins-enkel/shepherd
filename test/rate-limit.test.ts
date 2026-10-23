@@ -506,6 +506,8 @@ describe("isRestReadCall()", () => {
     );
     expect(isRestReadCall(["api", "repos/o/r/git/ref/heads/main"])).toBe(true);
     expect(isRestReadCall(["api", "-X", "GET", "repos/o/r/pulls"])).toBe(true);
+    // The usage view's header probe (#2743).
+    expect(isRestReadCall(["api", "-i", "--method", "HEAD", "user"])).toBe(true);
   });
 
   it("is false for writes — explicit method, or gh api's POST default once fields are passed", () => {

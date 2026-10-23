@@ -163,7 +163,7 @@ export class GraphqlSpendLedger {
   private readonly now: () => number;
   /** Points Shepherd charged since boot — monotonic, so an interval is a difference. */
   private ownTotal = 0;
-  private last: { used: number; ownTotal: number } | null = null;
+  private last: { used: number; ownTotal: number; remaining?: number } | null = null;
   private window: WindowTally | null = null;
   /** Per-caller tally since the current window began (or boot, before the first reading). */
   private byCaller = new Map<string, GhCallerTally>();
@@ -177,7 +177,7 @@ export class GraphqlSpendLedger {
   }
 
   /** An in-query reading of the current window (epoch-ms `resetAt`). */
-  noteReading(reading: { used: number; resetAt: number }): void {
+  noteReading(reading: { used: number; resetAt: number; remaining?: number }): void {
     const at = this.now();
     const w = this.window;
     if (!w || !this.last || !sameWindow(w.resetAt, reading.resetAt)) {
@@ -191,7 +191,17 @@ export class GraphqlSpendLedger {
       w.other += reading.used - this.last.used - own;
       w.until = at;
     }
-    this.last = { used: reading.used, ownTotal: this.ownTotal };
+    this.last = { used: reading.used, ownTotal: this.ownTotal, remaining: reading.remaining };
+  }
+
+  /** The newest in-order reading of the live window that carried `remaining` — the GraphQL
+   *  bucket as GitHub last reported it (#2743). Null before one, or once the window has passed. */
+  latestReading(): { used: number; remaining: number; resetAt: number } | null {
+    const w = this.live();
+    const r = this.last;
+    return w && r?.remaining != null
+      ? { used: r.used, remaining: r.remaining, resetAt: w.resetAt }
+      : null;
   }
 
   /** Tally one `gh` call against `caller` (#2743). `graphqlPoints` is what the call was charged

@@ -15,12 +15,12 @@ function gh(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
   return {
     rest: bucket(4000, NOW + 50 * MIN),
     graphql: bucket(4000, NOW + 50 * MIN),
-    search: null,
     fetchedAt: NOW,
     backoff: backoff(),
     restBackoff: backoff(),
     restWriteBackoff: backoff(),
     graphqlSplit: null,
+    callers: [],
     ...over,
   };
 }

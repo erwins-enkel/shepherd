@@ -217,7 +217,8 @@ struct UpNextTests {
             state.toggle(row)
             let choice = UpNextStartChoice(agentProvider: .codex, model: "test", effort: "high")
             let commands = UpNextCommands(start: { items, sentChoice in
-                #expect(items == [.init(repoPath: row.repoPath, issueRef: row.issueRef)])
+                #expect(items == [.init(repoPath: row.repoPath, issueRef: .init(
+                    number: row.issueRef.number, url: row.issueRef.url, title: row.issueRef.title))])
                 #expect(sentChoice == choice)
                 return .init(outcome: outcome, body: .init(created: [PreviewData.session(id: "new")],
                     held: [.init(id: "held", repoPath: "/a", number: 2)],

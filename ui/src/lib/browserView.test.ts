@@ -105,6 +105,12 @@ describe("browserView", () => {
     expect(keyMessage(key("k"), "down")).toMatchObject({ text: "k" });
   });
 
+  it("keyMessage leaves the assistant chord to the HUD", () => {
+    expect(keyMessage(key("j", { ctrlKey: true }), "down")).toBeNull();
+    expect(keyMessage(key("j", { metaKey: true }), "up")).toBeNull();
+    expect(keyMessage(key("j"), "down")).toMatchObject({ text: "j" });
+  });
+
   it("navigableUrl accepts http(s), adds https to bare hosts, refuses other schemes", () => {
     expect(navigableUrl("http://localhost:5173/login")).toBe("http://localhost:5173/login");
     expect(navigableUrl(" example.com ")).toBe("https://example.com/");

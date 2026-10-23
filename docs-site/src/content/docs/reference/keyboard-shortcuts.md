@@ -10,6 +10,7 @@ Shepherd is built to drive from the keyboard. These shortcuts are **desktop-only
 | Keys | Action |
 | --- | --- |
 | `⌘K` / `Ctrl+K` | Open the command bar — a quick-switcher over your sessions, repositories, and herd lenses. Fires even while an input or the terminal is focused. Type to filter, `↑` / `↓` to move, `Enter` to activate the highlighted row, `Esc` to close. |
+| `⌘J` / `Ctrl+J` | Open or close the Operator Assistant. Fires even while an input or the terminal is focused, so `Ctrl+J` no longer types a newline in the terminal — use `Shift+Enter` there. |
 
 The command bar also carries verbs beyond navigation — including **Next needs you**, which jumps to the next session waiting on your reply (offered whenever another session is waiting), and **Decommission**, which decommissions the session you have selected (offered whenever that session is on screen). Type part of a verb's name to surface it.
 

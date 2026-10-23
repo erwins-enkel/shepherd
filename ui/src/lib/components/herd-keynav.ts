@@ -1,4 +1,5 @@
 import type { Session, GitState, Epic } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 import {
   partitionSessions,
   shownSessions,
@@ -252,10 +253,23 @@ export function settingsChordHint(mac: boolean): string {
   return mac ? "⌘," : "Ctrl+,";
 }
 
+/** The Operator Assistant chord: Cmd/Ctrl+J with no other modifier held. Toggles the panel
+ *  from +page's onShortcut; Viewport's PTY handler swallows it (Ctrl+J would otherwise send LF —
+ *  Shift+Enter still does). */
+export function isAssistantChord(e: KeyboardEvent): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "j";
+}
+
+/** Display hint for the assistant chord — ⌘J on Mac platforms, Ctrl+J (localized modifier,
+ *  e.g. Strg+J) elsewhere. */
+export function assistantChordHint(mac: boolean): string {
+  return mac ? "⌘J" : `${m.keymap_mod_ctrl()}+J`;
+}
+
 /** Union of every chord Viewport's PTY key handler must swallow (the window-level
  *  openers act on the same keydown as it bubbles). One predicate so the handler
  *  stays a single branch — its complexity budget is tight — and the suppression
  *  list can't drift from the chords defined above. */
 export function isPtySuppressedChord(e: KeyboardEvent): boolean {
-  return isCommandBarChord(e) || isSettingsChord(e);
+  return isCommandBarChord(e) || isSettingsChord(e) || isAssistantChord(e);
 }

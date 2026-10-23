@@ -6975,5 +6975,8 @@
   "issuespanel_hint_start": "A Aufgabe starten",
   "issuespanel_hint_esc": "Esc zum Überblick",
   "issuelist_age_tip": "Zuletzt geändert {age}",
-  "backlog_ff_branch": "{branch} vorspulen"
+  "backlog_ff_branch": "{branch} vorspulen",
+  "operator_assistant_tip_shortcut": "{chord} öffnet oder schließt ihn von überall.",
+  "feat_assistant_shortcut_title": "Operator-Assistent mit ⌘J / Strg+J ein- und ausblenden",
+  "feat_assistant_shortcut_body": "Drück ⌘J auf dem Mac oder Strg+J auf anderen Systemen, um den Operator-Assistenten zu öffnen oder zu schließen – auch wenn ein Terminal den Fokus hat. Einen Zeilenumbruch im Terminal machst du mit Umschalt+Enter."
 }

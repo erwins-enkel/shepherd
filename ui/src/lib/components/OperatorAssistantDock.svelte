@@ -198,7 +198,7 @@
 {#if mobile}
   {@render panel(openEntry, tabs)}
 {:else}
-  <section class="oad" aria-label={m.assistant_dock_label()}>
+  <section class="oad" data-assistant-dock aria-label={m.assistant_dock_label()}>
     <div class="oad-strip">
       <span class="oad-label"
         >{entries.length > 1

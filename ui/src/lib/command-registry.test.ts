@@ -66,6 +66,16 @@ describe("buildCommands — availability", () => {
   });
 });
 
+describe("buildCommands — Operator Assistant shortcut", () => {
+  it("labels the toggle chord per platform; other verbs carry none", () => {
+    const cmds = buildCommands(ctx());
+    const assistant = cmds.find((c) => c.id === "operator-assistant")!;
+    expect(assistant.shortcut?.(true)).toBe("⌘J");
+    expect(assistant.shortcut?.(false)).toBe("Ctrl+J");
+    expect(cmds.find((c) => c.id === "settings")!.shortcut).toBeUndefined();
+  });
+});
+
 describe("buildCommands — Decommission", () => {
   const decom = (c: CommandCtx) => buildCommands(c).find((x) => x.id === "decommission")!;
 

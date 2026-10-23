@@ -10,6 +10,8 @@ import {
   isSettingsChord,
   settingsChordHint,
   isPtySuppressedChord,
+  isAssistantChord,
+  assistantChordHint,
 } from "./herd-keynav";
 import { GROUP_KEY_BY_STAGE, type HerdFilter } from "./herd-partition";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "#lib/types.js";
@@ -613,9 +615,28 @@ test("settingsChordHint formats per platform", () => {
   expect(settingsChordHint(false)).toBe("Ctrl+,");
 });
 
-test("isPtySuppressedChord unions the command-bar and settings chords", () => {
+test("isAssistantChord matches Ctrl+J and Cmd+J, case-insensitively", () => {
+  expect(isAssistantChord(chordEvent("j", { ctrlKey: true }))).toBe(true);
+  expect(isAssistantChord(chordEvent("j", { metaKey: true }))).toBe(true);
+  expect(isAssistantChord(chordEvent("J", { metaKey: true }))).toBe(true);
+});
+
+test("isAssistantChord rejects extra modifiers, a bare j and other chords", () => {
+  expect(isAssistantChord(chordEvent("j", { ctrlKey: true, altKey: true }))).toBe(false);
+  expect(isAssistantChord(chordEvent("j", { metaKey: true, shiftKey: true }))).toBe(false);
+  expect(isAssistantChord(chordEvent("j"))).toBe(false);
+  expect(isAssistantChord(chordEvent("k", { ctrlKey: true }))).toBe(false);
+});
+
+test("assistantChordHint formats per platform", () => {
+  expect(assistantChordHint(true)).toBe("⌘J");
+  expect(assistantChordHint(false)).toBe("Ctrl+J");
+});
+
+test("isPtySuppressedChord unions the command-bar, settings and assistant chords", () => {
   expect(isPtySuppressedChord(chordEvent("k", { ctrlKey: true }))).toBe(true);
   expect(isPtySuppressedChord(chordEvent(",", { metaKey: true }))).toBe(true);
+  expect(isPtySuppressedChord(chordEvent("j", { ctrlKey: true }))).toBe(true);
   expect(isPtySuppressedChord(chordEvent("k", {}))).toBe(false);
   expect(isPtySuppressedChord(chordEvent(",", { ctrlKey: true, shiftKey: true }))).toBe(false);
 });

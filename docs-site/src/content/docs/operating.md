@@ -468,7 +468,8 @@ until you ask.
 ### Open it
 
 - **Assist** in the top bar opens it as a panel beside the selected session; ⌘K / Ctrl+K
-  → _Open Operator Assistant_ does the same. The session terminal keeps working next to
+  → _Open Operator Assistant_ does the same, and on desktop ⌘J / Ctrl+J opens or closes it
+  from anywhere, even a focused terminal. The session terminal keeps working next to
   it. On a phone the assistant is its own screen, opened from the Assist icon in the top
   bar (or the gear sheet); **Back** returns to where you were.
 - **Ask the assistant** in a herd row's right-click / long-press menu opens it with

@@ -14,6 +14,7 @@
   import { jumpDigitIndex } from "#lib/components/herd-keynav.js";
   import { sortBlocked, type BlockState } from "#lib/triage.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { isMacPlatform } from "#lib/platform.js";
   import { untrack } from "svelte";
 
   let {
@@ -47,6 +48,7 @@
   // Docs open externally (docs.shepherd.run) in a new tab. DOCS_URL carries a trailing
   // slash and manifest paths a leading one — strip one so the join never doubles up.
   const docUrl = (path: string) => DOCS_URL.replace(/\/$/, "") + path;
+  const isMac = isMacPlatform();
 
   // Row unions the navigation and action targets. `rank` is comparable across every kind
   // for a typed query; `oid` (assigned only after groups are relevance-ordered) is the row's
@@ -92,6 +94,8 @@
         // own, so both ride along on the row.
         confirmLabel: (() => string) | null;
         confirmAria: (() => string) | null;
+        /** The verb's global chord label (⌘J / Ctrl+J), or null when it has none. */
+        shortcut: string | null;
         hl: number[];
         rank: number;
       }
@@ -281,6 +285,7 @@
             run: c.run,
             confirmLabel: c.confirmLabel ?? null,
             confirmAria: c.confirmAria ?? null,
+            shortcut: c.shortcut?.(isMac) ?? null,
             hl: result?.positions ?? [],
             rank,
           })),
@@ -648,6 +653,10 @@
                 <b class="cb-primary">{row.confirmLabel()}</b>
               {:else}
                 <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
+              {/if}
+              {#if row.shortcut}
+                <!-- Decorative: the chord itself is announced on the top-bar Assist toggle. -->
+                <span class="cb-hint" aria-hidden="true">{row.shortcut}</span>
               {/if}
             {:else}
               <span class="cb-ic" aria-hidden="true">📄</span>

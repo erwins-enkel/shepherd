@@ -10,6 +10,7 @@
 // of currently-runnable commands and CommandBar just renders/filters what it's handed.
 
 import { m } from "#lib/paraglide/messages.js";
+import { assistantChordHint } from "#lib/components/herd-keynav.js";
 
 export type Command = {
   /** Stable identifier — used as the listbox row key and in tests. */
@@ -25,6 +26,9 @@ export type Command = {
    *  short visible `confirmLabel` drops — a screen-reader user would otherwise lose the
    *  designation the replaced row label carried. Only meaningful alongside `confirmLabel`. */
   confirmAria?: () => string;
+  /** Present ⇒ the verb has a global keyboard chord; returns its platform label (⌘J / Ctrl+J),
+   *  shown as the row's trailing hint. */
+  shortcut?: (mac: boolean) => string;
   /** Perform the verb (mutates page state, e.g. opens an overlay). */
   run: () => void;
 };
@@ -125,6 +129,7 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         id: "operator-assistant",
         label: () => m.commandbar_cmd_operator_assistant(),
         keywords: () => m.commandbar_cmd_operator_assistant_kw(),
+        shortcut: assistantChordHint,
         run: ctx.onOperatorAssistant,
       },
     },

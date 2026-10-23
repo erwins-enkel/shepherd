@@ -4,7 +4,7 @@
   import { anchorPopover } from "#lib/floating-anchor.js";
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
-  import { glossaryById } from "#lib/glossary.js";
+  import { glossaryById, glossaryMessage } from "#lib/glossary.js";
   import { infoTips, INFO_TIPS_FORCE } from "#lib/info-tips.svelte.js";
   import { HOVER_OPEN_DELAY_MS } from "#lib/tooltips/statusTip.svelte.js";
 
@@ -27,9 +27,7 @@
 
   // Definition body text, resolved from the term's message key. Computed here (not in
   // the shared snippet) so the snippet never has to narrow the possibly-undefined term.
-  const bodyText = $derived(
-    term ? (m as unknown as Record<string, () => string>)[term.bodyKey]() : "",
-  );
+  const bodyText = $derived(term ? (glossaryMessage(term.bodyKey)?.() ?? "") : "");
 
   const explanation = $derived(term?.explanation?.());
 
@@ -235,7 +233,7 @@
     {#if term?.kind === "external" && wikiHref}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external Wikipedia URL -->
       <a class="gt-wiki" href={wikiHref} target="_blank" rel="noopener noreferrer"
-        >{(m as unknown as Record<string, () => string>)["gloss_wikipedia_link"]()}</a
+        >{m.gloss_wikipedia_link()}</a
       >
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
     {/if}

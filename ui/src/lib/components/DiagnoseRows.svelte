@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DiagnosticCheck } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { keyedMessages } from "#lib/keyed-messages.js";
   import { DOC_LINKS } from "#lib/diagnostics-docs.js";
   import GlossaryText from "./GlossaryText.svelte";
   import { dialog } from "#lib/a11yDialog.js";
@@ -53,24 +54,24 @@
     }
   }
 
-  // Dynamic message key lookup — m is typed as specific functions; cast for dynamic access. The
-  // optional params bag lets code-fix messages (e.g. host_capacity #1839) interpolate their concrete
-  // values; param-less messages simply ignore the extra arg.
-  const msg = m as unknown as Record<string, (p?: Record<string, string>) => string>;
+  // Dynamic lookup of the server-sent `diagnostics_*` keys; only that key family is bundled
+  // here (#3242). The optional params bag lets code-fix messages (e.g. host_capacity #1839)
+  // interpolate their concrete values; param-less messages simply ignore the extra arg.
+  const msg = keyedMessages(m, ["diagnostics_"]);
 
   function label(id: string): string {
-    return msg[`diagnostics_label_${id}`]?.() ?? id;
+    return msg(`diagnostics_label_${id}`)?.() ?? id;
   }
 
   // The optional params bag lets a row's own hint interpolate concrete host facts (claude_install
   // #2052: the two versions, or a size + build count); param-less messages ignore the extra arg.
   function hint(check: DiagnosticCheck): string {
-    return msg[check.hintKey]?.(check.hintParams) ?? "";
+    return msg(check.hintKey)?.(check.hintParams) ?? "";
   }
 
   // Confirm-modal prose for a `fixActionKey` code fix, interpolating its `fixActionParams` (if any).
   function fixActionText(check: DiagnosticCheck): string {
-    return check.fixActionKey ? (msg[check.fixActionKey]?.(check.fixActionParams) ?? "") : "";
+    return check.fixActionKey ? (msg(check.fixActionKey)?.(check.fixActionParams) ?? "") : "";
   }
 
   // Per-code-fix confirm chrome (title + run label). The generic *_code strings are folder-trust
@@ -103,7 +104,7 @@
   }
 
   function stateWord(state: DiagnosticCheck["state"]): string {
-    return msg[`diagnostics_state_${state}`]?.() ?? state;
+    return msg(`diagnostics_state_${state}`)?.() ?? state;
   }
 
   // State → color token. Design rule: never --color-green for healthy.

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeNewEntries } from "./feature-gate";
 import { featureAnnouncements } from "./feature-announcements";
+import { featureMessage } from "./feature-messages";
 import type { FeatureAnnouncement } from "./feature-announcements";
 import enMessages from "../../messages/en.json";
 
@@ -135,6 +136,17 @@ describe("catalog key parity — all titleKey/bodyKey exist in en.json", () => {
 
     it(`entry '${entry.id}' bodyKey '${entry.bodyKey}' exists in en.json`, () => {
       expect(enKeys.has(entry.bodyKey)).toBe(true);
+    });
+  }
+});
+
+// The drawer + coachmark resolve keys through the prefix-scoped featureMessage (#3242); a key
+// outside those families exists in en.json but renders blank.
+describe("catalog keys resolve through featureMessage", () => {
+  for (const entry of featureAnnouncements) {
+    const keys = [entry.titleKey, entry.bodyKey, entry.ctaLabelKey].filter(Boolean) as string[];
+    it(`entry '${entry.id}' keys resolve (use the feat_ prefix)`, () => {
+      expect(keys.filter((k) => !featureMessage(k))).toEqual([]);
     });
   }
 });

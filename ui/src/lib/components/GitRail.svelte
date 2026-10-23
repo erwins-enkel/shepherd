@@ -32,7 +32,8 @@
   import { coachTarget, coachTargets } from "#lib/actions/coachTarget.svelte.js";
   import { featureDiscovery } from "#lib/featureDiscovery.svelte.js";
   import { featureAnnouncements } from "#lib/feature-announcements.js";
-  import Coachmark from "#lib/components/Coachmark.svelte";
+  import LazyMount from "#lib/components/page/LazyMount.svelte";
+  import { loadCoachmark } from "#lib/components/page/overlay-loaders.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { pullMainAndToast } from "#lib/pull-offer.js";
   import { railEpicChild, railEpicStopped } from "./git-rail/epic-rail";
@@ -815,18 +816,23 @@
 
     <MergeConfirmHost flow={mergeFlow} />
     {#if armedEntry}
-      <Coachmark
-        targetId={armedEntry.targetId ?? null}
-        titleKey={armedEntry.titleKey}
-        bodyKey={armedEntry.bodyKey}
-        onseen={() => {
-          if (armedId) featureDiscovery.markSeen(armedId);
-          armedId = null;
-        }}
-        onclose={() => {
-          armedId = null;
-        }}
-      />
+      <!-- Lazy: the feature-catalog copy rides with Coachmark, off the boot bundle (#3242). -->
+      <LazyMount load={loadCoachmark} onerror={() => (armedId = null)}>
+        {#snippet children(Coachmark)}
+          <Coachmark
+            targetId={armedEntry.targetId ?? null}
+            titleKey={armedEntry.titleKey}
+            bodyKey={armedEntry.bodyKey}
+            onseen={() => {
+              if (armedId) featureDiscovery.markSeen(armedId);
+              armedId = null;
+            }}
+            onclose={() => {
+              armedId = null;
+            }}
+          />
+        {/snippet}
+      </LazyMount>
     {/if}
 
     {#if showReview && verdict}

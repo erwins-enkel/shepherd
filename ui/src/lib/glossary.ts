@@ -6,6 +6,8 @@ import {
   integrationBranchExplanation,
 } from "#lib/tooltips/explanations.js";
 import type { TooltipExplanation } from "#lib/tooltips/content.js";
+import { m } from "#lib/paraglide/messages.js";
+import { keyedMessages } from "#lib/keyed-messages.js";
 
 // Glossary registry driving inline term tooltips throughout the UI.
 //
@@ -322,5 +324,8 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_waiting_task_def",
   },
 ];
+
+// Resolves termKey/bodyKey; only `gloss_*` messages are bundled with it (#3242).
+export const glossaryMessage = keyedMessages(m, ["gloss_"]);
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

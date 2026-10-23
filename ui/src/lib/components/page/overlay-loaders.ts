@@ -29,6 +29,7 @@ export const loadPluginUpdatesModal = lazy(
   () => import("#lib/components/PluginUpdatesModal.svelte"),
 );
 export const loadWhatsNew = lazy(() => import("#lib/components/WhatsNew.svelte"));
+export const loadCoachmark = lazy(() => import("#lib/components/Coachmark.svelte"));
 export const loadFableArrival = lazy(() => import("#lib/components/FableArrival.svelte"));
 export const loadOnboarding = lazy(() => import("#lib/components/Onboarding.svelte"));
 export const loadDoneRecapPanel = lazy(() => import("#lib/components/DoneRecapPanel.svelte"));

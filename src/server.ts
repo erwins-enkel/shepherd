@@ -808,6 +808,8 @@ export interface AppDeps {
   upNext?: {
     snapshot(): UpNextSnapshot | null;
     refresh(): Promise<UpNextSnapshot>;
+    /** Lens-open recompute, skipped while the snapshot is younger than `maxAgeMs` (#2658). */
+    refreshIfStale(maxAgeMs: number): void;
     /** Recompute (guaranteed-fresh, verify-and-retry) until the just-started items drop from
      *  the lens — i.e. their `shepherd:active` claim labels have landed. Backgrounded by the
      *  caller so it never blocks the start response. */
@@ -1994,16 +1996,20 @@ async function handleManualSteps({ req, parts, deps }: Ctx): Promise<Response | 
   return null;
 }
 
-// GET  /api/up-next          — cached Up Next snapshot; kicks a single-flight recompute so an
-//                              open lens updates in place (paint cached, then refresh).
+// GET  /api/up-next          — cached Up Next snapshot; kicks a single-flight recompute (unless
+//                              the snapshot is <60s old) so an open lens updates in place.
 // POST /api/up-next/refresh  — force a recompute (the manual refresh button); 202.
 // POST /api/up-next/start    — start one or many items; spawns are SERIALIZED server-side
 //                              because WorktreeMgr.create() (sync `git worktree add`) is not
 //                              parallel-safe per repo.
+/** Lens opens within this window of the last compute reuse it instead of recomputing (#2658). */
+const UP_NEXT_OPEN_MIN_AGE_MS = 60_000;
+
 /** GET /api/up-next — paint the cached snapshot. The default (lens-open) path also kicks a
- *  single-flight recompute that lands in place via WS; `?peek` (app-load) paints cached only so
- *  a session that never opens the lens costs zero cross-repo `gh` fan-out (the 15-min loop +
- *  lens-open keep it fresh). */
+ *  single-flight recompute that lands in place via WS, unless the snapshot is younger than
+ *  {@link UP_NEXT_OPEN_MIN_AGE_MS}; `?peek` (app-load) paints cached only so a session that never
+ *  opens the lens costs zero cross-repo `gh` fan-out (the presence-gated 15-min loop + lens-open
+ *  keep it fresh). */
 function handleUpNextGet(url: URL, deps: AppDeps): Response {
   const cached = deps.upNext?.snapshot() ?? null;
   // Apply a read-time hidden filter so a repo hidden after the last background compute is
@@ -2013,7 +2019,7 @@ function handleUpNextGet(url: URL, deps: AppDeps): Response {
       ? excludeHiddenSections(cached, deps.upNext.hiddenRepoPathsRaw())
       : cached;
   if (!url.searchParams.has("peek") && deps.upNext)
-    void deps.upNext.refresh().catch((err) => console.warn("[up-next] open:", err));
+    deps.upNext.refreshIfStale(UP_NEXT_OPEN_MIN_AGE_MS);
   return json(snap);
 }
 

@@ -406,6 +406,20 @@ export class UpNextService {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
+  /** Lens-open refresh (#2658): kick a recompute unless the snapshot is younger than `maxAgeMs`,
+   *  so repeated opens don't each fan out across every repo. */
+  refreshIfStale(maxAgeMs: number): void {
+    if (this.isFresh(maxAgeMs)) return;
+    void this.refresh().catch((err) => console.warn("[up-next] open:", err));
+  }
+  /** First-dashboard catch-up and boot read (#2658): the loop skips ticks with no client, so
+   *  refresh a snapshot older than one interval — still behind the background gate. */
+  catchUp(): void {
+    if (!this.isFresh(this.intervalMs)) this.refreshInBackground();
+  }
+  private isFresh(maxAgeMs: number): boolean {
+    return this.snap !== null && this.now() - this.snap.generatedAt < maxAgeMs;
+  }
   private refreshInBackground(): void {
     if (this.deps.shouldBackgroundRefresh && !this.deps.shouldBackgroundRefresh()) return;
     void this.refresh().catch((err) => console.warn("[up-next] background refresh:", err));

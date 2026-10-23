@@ -77,6 +77,7 @@ function harness(
   const labelCalls: number[] = [];
   const recomputeCalls: Array<Array<{ repoPath: string; issueNumber: number }>> = [];
   let refreshCalls = 0;
+  const staleRefreshCalls: number[] = [];
   let n = 0;
   const deps: AppDeps = {
     store,
@@ -113,6 +114,9 @@ function harness(
         refreshCalls++;
         return SNAP;
       },
+      refreshIfStale: (maxAgeMs) => {
+        staleRefreshCalls.push(maxAgeMs);
+      },
       recomputeUntilCleared: async (started) => {
         recomputeCalls.push(started.map((s) => ({ ...s })));
       },
@@ -125,6 +129,7 @@ function harness(
     createCalls,
     labelCalls,
     refreshCalls: () => refreshCalls,
+    staleRefreshCalls,
     recomputeCalls,
   };
 }
@@ -136,19 +141,21 @@ const startReq = (items: unknown, extra: Record<string, unknown> = {}) =>
     body: JSON.stringify({ items, ...extra }),
   });
 
-test("GET /api/up-next returns the cached snapshot and kicks a recompute", async () => {
-  const { app, refreshCalls } = harness({ snapshot: SNAP });
+test("GET /api/up-next returns the cached snapshot and kicks a 60s-gated recompute", async () => {
+  const { app, refreshCalls, staleRefreshCalls } = harness({ snapshot: SNAP });
   const res = await app.fetch(new Request("http://x/api/up-next"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(SNAP);
-  expect(refreshCalls()).toBe(1); // lens-open path kicks a recompute
+  expect(staleRefreshCalls).toEqual([60_000]); // lens-open reuses a <60s-old snapshot (#2658)
+  expect(refreshCalls()).toBe(0);
 });
 
 test("GET /api/up-next?peek paints cached only (no recompute)", async () => {
-  const { app, refreshCalls } = harness({ snapshot: SNAP });
+  const { app, refreshCalls, staleRefreshCalls } = harness({ snapshot: SNAP });
   const res = await app.fetch(new Request("http://x/api/up-next?peek=1"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(SNAP);
+  expect(staleRefreshCalls).toEqual([]);
   expect(refreshCalls()).toBe(0); // app-load path costs zero cross-repo gh fan-out
 });
 

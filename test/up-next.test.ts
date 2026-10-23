@@ -46,6 +46,61 @@ function svc(deps: Partial<UpNextDeps> = {}): UpNextService {
   });
 }
 
+describe("UpNextService staleness gates (#2658)", () => {
+  function counting(over: Partial<UpNextDeps> = {}) {
+    let t = 1_000;
+    let reads = 0;
+    const s = svc({
+      now: () => t,
+      resolveForge: () => {
+        reads++;
+        return fakeForge({ issues: [issue(1)] });
+      },
+      ...over,
+    });
+    return { s, reads: () => reads, advance: (ms: number) => (t += ms) };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  test("refreshIfStale computes with no snapshot, skips a fresh one, recomputes a stale one", async () => {
+    const { s, reads, advance } = counting();
+    s.refreshIfStale(60_000);
+    await settle();
+    expect(reads()).toBe(1);
+    advance(59_999);
+    s.refreshIfStale(60_000);
+    await settle();
+    expect(reads()).toBe(1);
+    advance(1);
+    s.refreshIfStale(60_000);
+    await settle();
+    expect(reads()).toBe(2);
+  });
+
+  test("catchUp refreshes only a snapshot older than the interval, and only when background is allowed", async () => {
+    let allowed = false;
+    const { s, reads, advance } = counting({
+      intervalMs: 900_000,
+      shouldBackgroundRefresh: () => allowed,
+    });
+    s.catchUp();
+    await settle();
+    expect(reads()).toBe(0); // no snapshot, but background refresh disallowed (no clients)
+    allowed = true;
+    s.catchUp();
+    await settle();
+    expect(reads()).toBe(1);
+    advance(899_999);
+    s.catchUp();
+    await settle();
+    expect(reads()).toBe(1);
+    advance(1);
+    s.catchUp();
+    await settle();
+    expect(reads()).toBe(2);
+  });
+});
+
 describe("UpNextService.refresh", () => {
   test("warm restart: only boot and background recomputes wait for the fingerprint and budget", async () => {
     let ready = false;

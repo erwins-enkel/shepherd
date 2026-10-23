@@ -331,6 +331,60 @@ export const restWriteRateLimit: BucketRateLimit = new BucketRateLimit({
   maxCooldownMs: 15 * 60_000,
 });
 
+/** How old a {@link RestFallbackReserve} reading may get before a fallback read refreshes it. */
+export const RESERVE_READING_MAX_AGE_MS = 60_000;
+
+/**
+ * REST budget the GraphQL-backoff fallbacks may not dip into (#2834). Readings come from the
+ * `X-Ratelimit-*` headers of the fallbacks' own `gh api -i` reads — never `gh api rate_limit`,
+ * which misreports `core` (#2662). Below the reserve every fallback read stops until the REST
+ * window resets, so a GraphQL outage can't take REST down with it. No reading ⇒ not depleted.
+ */
+export class RestFallbackReserve {
+  private readonly _now: () => number;
+  private readonly _reserve: number;
+  private _reading: { remaining: number; resetAt: number; at: number } | null = null;
+  private _loggedDepleted = false;
+
+  constructor(opts?: { now?: () => number; reserve?: number }) {
+    this._now = opts?.now ?? (() => Date.now());
+    this._reserve = opts?.reserve ?? 1500;
+  }
+
+  note(reading: { remaining: number; resetAt: number /* epoch ms */ }): void {
+    this._reading = { ...reading, at: this._now() };
+    const depleted = this.depleted();
+    if (depleted && !this._loggedDepleted)
+      console.warn(
+        `[rate-limit] REST fallback reserve reached (${reading.remaining} < ${this._reserve}); GraphQL fallbacks paused until ${new Date(reading.resetAt).toISOString()}`,
+      );
+    this._loggedDepleted = depleted;
+  }
+
+  /** True while the last reading is below the reserve and its window hasn't reset. */
+  depleted(): boolean {
+    const r = this._reading;
+    return r != null && r.remaining < this._reserve && this._now() < r.resetAt;
+  }
+
+  /** True when there is no reading, or it is older than {@link RESERVE_READING_MAX_AGE_MS}. */
+  stale(): boolean {
+    return this._reading == null || this._now() - this._reading.at >= RESERVE_READING_MAX_AGE_MS;
+  }
+
+  snapshot(): { remaining: number; resetAt: number; at: number } | null {
+    return this._reading ? { ...this._reading } : null;
+  }
+
+  /** Test hook: forget the reading. */
+  reset(): void {
+    this._reading = null;
+    this._loggedDepleted = false;
+  }
+}
+
+export const restFallbackReserve: RestFallbackReserve = new RestFallbackReserve();
+
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
 /**

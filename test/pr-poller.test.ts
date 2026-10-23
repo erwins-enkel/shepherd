@@ -1652,6 +1652,48 @@ test("tick under rateLimited() skips GraphQL batches but still polls sessions", 
   expect(batchCalls).toBe(0);
 });
 
+test("tick under rateLimited() leaves terminal and done-without-PR sessions alone (#2834)", async () => {
+  const store = new SessionStore(":memory:");
+  const merged = store.create({ ...baseSession, name: "m", branch: "shepherd/m" });
+  const done = store.create({ ...baseSession, name: "d", branch: "shepherd/d" });
+  const live = store.create({ ...baseSession, name: "l", branch: "shepherd/l" });
+  store.update(done.id, { status: "done" });
+  let limited = false;
+  const polled: string[] = [];
+  const forge: GitForge = {
+    ...forgeReturning(() => OPEN),
+    prStatus: async (branch: string) => {
+      polled.push(branch);
+      if (limited) return OPEN;
+      return branch === "shepherd/m"
+        ? { state: "merged", number: 3, checks: "none", deployConfigured: false }
+        : branch === "shepherd/l"
+          ? OPEN
+          : { state: "none", checks: "none", deployConfigured: false };
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    1000,
+    async () => null,
+    15_000,
+    () => true,
+    () => true,
+    () => limited,
+  );
+  await poller.tick();
+  expect(poller.snapshot()[merged.id]?.state).toBe("merged");
+  polled.length = 0;
+  limited = true;
+  await poller.tick();
+  expect(polled).toEqual(["shepherd/l"]); // merged + done/no-PR cause no fallback reads
+  expect(poller.snapshot()[merged.id]?.state).toBe("merged");
+  expect(poller.snapshot()[live.id]?.state).toBe("open");
+});
+
 test("prunes cache entries for sessions no longer active", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

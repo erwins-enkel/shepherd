@@ -1,4 +1,5 @@
 import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
+import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { PairingCodeService } from "./pairing-codes";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
@@ -1074,12 +1075,6 @@ async function sessionUsageDto(s: Session, store: SessionStore): Promise<Session
     byModel: u.byModel,
   };
 }
-
-const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
 
 /** 409 while the first-run gate is pending — nothing may spawn or scaffold until a repo root
  *  is picked. Returns null (proceed) once resolved. */
@@ -12004,6 +11999,8 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
       const started = timed ? performance.now() : 0;
       return (
         withGhCaller(routeCaller(req.method, pathname), () => app.fetch(req))
+          .catch((e) => json({ error: e instanceof Error ? e.message : "internal error" }, 500))
+          .then((res) => compressJsonResponse(req, res))
           .then((res) => (timed ? withServerTiming(res, performance.now() - started) : res))
           // Sliding re-stamp at this single HTTP seam (never on the skipAuth ingress app — agents
           // carry no cookie — and never on WS upgrades, which return before reaching makeApp).
@@ -12380,6 +12377,7 @@ export function serve(deps: AppDeps, port: number) {
           owners: tokenMap(token, deps, { ...remote, ...terminalOwners().owners }),
         },
       }),
+      true,
     );
   };
 
@@ -12431,7 +12429,7 @@ export function serve(deps: AppDeps, port: number) {
       else if (!filterRepositoryEvent(event, data, (id) => tokenSessionAllowed(token, deps, id)))
         return;
     }
-    ws.send(JSON.stringify({ event, data }));
+    ws.send(JSON.stringify({ event, data }), true);
   }
   // ── WebSocket upgrades: /events, /pty/<id>, /browser-view/<id> ──────────────
   // Each returns the upgrade outcome (undefined = upgraded, a Response = refused); upgradeSocket
@@ -12596,7 +12594,7 @@ export function serve(deps: AppDeps, port: number) {
     // client's lands with its first `\x00view:` frame, which it sends on open — after this claim.
     if (isOperatorAssistant(cur)) deps.assistantView?.set(cur.id, null);
     const sock = {
-      send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
+      send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d, true) : 0),
       close: () => ws.close(),
     };
     const kind = pickTerminalBridgeKind({
@@ -12672,7 +12670,7 @@ export function serve(deps: AppDeps, port: number) {
     const { id, cols, rows, resume, client } = ws.data;
     const sink = {
       send: (data: string | Uint8Array) => {
-        if (socketAuthorized(ws)) ws.send(data);
+        if (socketAuthorized(ws)) ws.send(data, true);
       },
       close: (code?: number, reason?: string) => ws.close(code, reason),
     };
@@ -12820,6 +12818,7 @@ export function serve(deps: AppDeps, port: number) {
     // Each handler is registered with the loop watchdog, like HTTP requests and timer ticks, so a
     // stall report names socket work instead of "in flight: none" (#3170).
     websocket: {
+      perMessageDeflate: true,
       open: (ws) => withOp(`WS open ${ws.data.kind}`, () => onSocketOpen(ws)),
       message: (ws, msg) => withOp(`WS message ${ws.data.kind}`, () => onSocketMessage(ws, msg)),
       close: (ws) => withOp(`WS close ${ws.data.kind}`, () => onSocketClose(ws)),

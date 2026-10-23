@@ -1520,7 +1520,8 @@ export class GithubForge implements GitForge {
    *  REST call), to keep this to one extra REST-bucket request per snapshot.
    *
    *  Fail-quiet: any error or unparseable output degrades to an empty set (no flag),
-   *  so the caller's snapshot never fails on this leg. */
+   *  so the caller's snapshot never fails on this leg. Skipped when no open PR is
+   *  cross-repo (`hasCrossRepoPr`). */
   private async awaitingApprovalShas(): Promise<Set<string>> {
     let out: string;
     try {
@@ -1548,6 +1549,14 @@ export class GithubForge implements GitForge {
     const shas = new Set<string>();
     for (const r of raw) if (r.headSha) shas.add(r.headSha);
     return shas;
+  }
+
+  /** True when any PR's head lives outside this repo's owner — the only PRs whose
+   *  workflows can await maintainer approval. A missing head owner (e.g. a deleted
+   *  fork) counts as cross-repo so the approval check still runs. */
+  private hasCrossRepoPr(prs: GhPr[]): boolean {
+    const owner = this.slug.split("/")[0]!.toLowerCase();
+    return prs.some((p) => p.headRepositoryOwner?.login?.toLowerCase() !== owner);
   }
 
   async listPullRequests(): Promise<PullRequest[]> {
@@ -2259,10 +2268,11 @@ export class GithubForge implements GitForge {
 
     // The awaiting-approval leg carries its own fail-quiet fallback (empty set), so a
     // run-list failure degrades to "no flag" instead of rejecting the whole snapshot
-    // (which would empty the PRs tab AND break the poller's statuses batch).
+    // (which would empty the PRs tab AND break the poller's statuses batch). Only
+    // cross-repo PRs can await approval, so skip the REST call without one (#2861).
     const [def, awaitingShas] = await Promise.all([
       this.defaultBranch().catch(() => null),
-      this.awaitingApprovalShas(),
+      this.hasCrossRepoPr(prs) ? this.awaitingApprovalShas() : new Set<string>(),
     ]);
 
     if (prs.length >= 200 && !this.openPrCapLogged) {

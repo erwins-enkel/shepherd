@@ -1,4 +1,5 @@
 import { PairingCodeService } from "./pairing-codes";
+import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
 import { localHealthIdentity } from "./local-health";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
@@ -11714,8 +11715,7 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
       const timed = !opts.skipAuth && pathname.startsWith("/api/") && !isPublicRequest(req);
       const started = timed ? performance.now() : 0;
       return (
-        app
-          .fetch(req)
+        withGhCaller(routeCaller(req.method, pathname), () => app.fetch(req))
           .then((res) => (timed ? withServerTiming(res, performance.now() - started) : res))
           // Sliding re-stamp at this single HTTP seam (never on the skipAuth ingress app — agents
           // carry no cookie — and never on WS upgrades, which return before reaching makeApp).

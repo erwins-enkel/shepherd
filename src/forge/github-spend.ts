@@ -119,6 +119,21 @@ export interface GraphqlSpendSplit {
   otherPerHour: number | null;
 }
 
+/** One caller's GitHub calls in the current window (#2743). */
+export interface GhCallerTally {
+  caller: string;
+  /** Every `gh` call, either API. */
+  calls: number;
+  /** GraphQL points charged (in-query cost, or the porcelain table). */
+  graphqlPoints: number;
+  /** REST calls (each one request on the core bucket). */
+  restCalls: number;
+}
+
+/** Distinct callers kept per window; later ones fold into {@link OVERFLOW_CALLER}. */
+const MAX_CALLERS = 100;
+const OVERFLOW_CALLER = "other";
+
 /** Readings must span this long before the split shows per-hour rates. */
 const SPLIT_MIN_COVERAGE_MS = 5 * 60_000;
 
@@ -150,6 +165,8 @@ export class GraphqlSpendLedger {
   private ownTotal = 0;
   private last: { used: number; ownTotal: number } | null = null;
   private window: WindowTally | null = null;
+  /** Per-caller tally since the current window began (or boot, before the first reading). */
+  private byCaller = new Map<string, GhCallerTally>();
 
   constructor(opts?: { now?: () => number }) {
     this.now = opts?.now ?? (() => Date.now());
@@ -164,6 +181,7 @@ export class GraphqlSpendLedger {
     const at = this.now();
     const w = this.window;
     if (!w || !this.last || !sameWindow(w.resetAt, reading.resetAt)) {
+      if (w && !sameWindow(w.resetAt, reading.resetAt)) this.byCaller.clear();
       this.window = { resetAt: reading.resetAt, since: at, until: at, own: 0, other: 0 };
     } else if (reading.used < this.last.used) {
       return; // out of order — an earlier-evaluated call that finished late
@@ -174,6 +192,25 @@ export class GraphqlSpendLedger {
       w.until = at;
     }
     this.last = { used: reading.used, ownTotal: this.ownTotal };
+  }
+
+  /** Tally one `gh` call against `caller` (#2743). `graphqlPoints` is what the call was charged
+   *  ({@link noteOwnSpend}); a non-GraphQL call counts as one REST call. */
+  noteCall(caller: string, call: { graphqlPoints: number; rest: boolean }): void {
+    const name =
+      this.byCaller.has(caller) || this.byCaller.size < MAX_CALLERS ? caller : OVERFLOW_CALLER;
+    const t = this.byCaller.get(name) ?? { caller: name, calls: 0, graphqlPoints: 0, restCalls: 0 };
+    t.calls++;
+    t.graphqlPoints += call.graphqlPoints;
+    if (call.rest) t.restCalls++;
+    this.byCaller.set(name, t);
+  }
+
+  /** The current window's callers, most GraphQL points first, then most calls. */
+  callers(): GhCallerTally[] {
+    return [...this.byCaller.values()]
+      .map((t) => ({ ...t }))
+      .sort((a, b) => b.graphqlPoints - a.graphqlPoints || b.calls - a.calls);
   }
 
   /** The current window's split, or null before a reading or once the window has passed. */

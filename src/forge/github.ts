@@ -44,6 +44,7 @@ import {
 } from "./github-spend";
 import { issuesFreshness } from "./repo-freshness";
 import { headBatcherFor, headKey } from "./github-head-batch";
+import { currentGhCaller } from "./gh-caller";
 import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
@@ -491,14 +492,18 @@ export function makeGhRunner(
         if (restRead && rest.blocked()) throw restBackoffError(args, rest);
         const restBucket = restRead ? rest : isRestBucketCall(args) ? restWrite : null;
         const graphql = isGraphqlBucketCall(args);
+        const caller = currentGhCaller();
+        let points = 0;
         try {
           const out = await exec(args);
           restBucket?.noteSuccess();
-          if (graphql) chargeGraphql(args, out, graph, spend);
+          if (graphql) points = chargeGraphql(args, out, graph, spend);
           return out;
         } catch (err) {
-          await noteFailure(args, err, { graph, restBucket, spend, readBudget });
+          points = await noteFailure(args, err, { graph, restBucket, spend, readBudget });
           throw err;
+        } finally {
+          spend.noteCall(caller, { graphqlPoints: points, rest: !graphql });
         }
       }),
     );
@@ -523,6 +528,7 @@ async function readGraphqlBudget(exec: GhRunner): Promise<BudgetReading | undefi
  * Record a failed call. A rate-limit error engages the bucket the call drew on (GraphQL, or
  * its REST read/write tracker). Any other GraphQL failure GitHub answered — an error, or
  * partial data next to one — was still charged, so it is charged to the ledger too (#2840).
+ * Returns the GraphQL points charged.
  */
 async function noteFailure(
   args: string[],
@@ -533,18 +539,18 @@ async function noteFailure(
     spend: GraphqlSpendLedger;
     readBudget: () => Promise<BudgetReading | undefined>;
   },
-): Promise<void> {
+): Promise<number> {
   const graphql = isGraphqlBucketCall(args);
   if (isRateLimitError(err)) {
     const stderr = String((err as Record<string, unknown>)?.stderr ?? "");
     const cause = limitCause(args, stderr);
     if (graphql) await noteGraphqlLimit(stderr, cause, t.graph, t.readBudget);
     else t.restBucket?.noteLimitError(parseRetryAfter(stderr), cause);
-    return;
+    return 0;
   }
-  if (!graphql || (err as NodeJS.ErrnoException | null)?.code === "ENOENT") return;
+  if (!graphql || (err as NodeJS.ErrnoException | null)?.code === "ENOENT") return 0;
   const stdout = (err as { stdout?: unknown } | null)?.stdout;
-  chargeGraphql(args, typeof stdout === "string" ? stdout : null, t.graph, t.spend);
+  return chargeGraphql(args, typeof stdout === "string" ? stdout : null, t.graph, t.spend);
 }
 
 /**
@@ -567,24 +573,26 @@ async function noteGraphqlLimit(
  * Charge a finished GraphQL-bucket call (#2840): own `gh api graphql` queries at their in-query
  * `rateLimit.cost`, porcelain calls at the measured table. Then hand the query's reading to the
  * tracker, and to the ledger only if the tracker took it as its window's. Charging first puts a
- * query's own cost inside the interval its reading closes.
+ * query's own cost inside the interval its reading closes. Returns the points charged.
  */
 function chargeGraphql(
   args: string[],
   stdout: string | null,
   graph: BucketRateLimit,
   spend: GraphqlSpendLedger,
-): void {
+): number {
   if (args[0] !== "api") {
-    spend.noteOwnSpend(porcelainCost(args, stdout));
-    return;
+    const cost = porcelainCost(args, stdout);
+    spend.noteOwnSpend(cost);
+    return cost;
   }
   const rl = stdout ? parseInQueryRateLimit(stdout) : null;
-  spend.noteOwnSpend(rl?.cost ?? 1);
-  if (!rl) return;
-  if (graph.note({ remaining: rl.remaining, resetAt: rl.resetAt }) && rl.used !== null) {
+  const cost = rl?.cost ?? 1;
+  spend.noteOwnSpend(cost);
+  if (rl && graph.note({ remaining: rl.remaining, resetAt: rl.resetAt }) && rl.used !== null) {
     spend.noteReading({ used: rl.used, resetAt: rl.resetAt });
   }
+  return cost;
 }
 
 /** What tripped a backoff, for its "engaged" log: the call (never its flag values) and the

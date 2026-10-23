@@ -4,6 +4,7 @@ import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
+import { withGhCaller } from "./forge/gh-caller";
 
 type PrPollerStore = Pick<
   SessionStore,
@@ -15,6 +16,9 @@ type PrPollerStore = Pick<
   | "recordCiJobDurations"
   | "typicalCiJobDurations"
 >;
+
+/** Caller label (#2743) of the targeted polls — turn end, autopilot's re-check. */
+const SESSION_CALLER = "pr-poller:session";
 
 /** A base's merge queue: its PR numbers, null = no queue, "unknown" = the read failed. */
 type QueueRead = number[] | null | "unknown";
@@ -964,7 +968,7 @@ export class PrPoller implements PrCache {
     }
     const s = this.store.get(id);
     if (!s || s.status === "archived") return;
-    await this.withGh(() => this.refresh(s));
+    await withGhCaller(SESSION_CALLER, () => this.withGh(() => this.refresh(s)));
   }
 
   private async refreshOne(id: string): Promise<void> {
@@ -973,7 +977,7 @@ export class PrPoller implements PrCache {
     if (!s || s.status === "archived") return; // gone → the next tick prunes it
     this.inFlight.add(id);
     try {
-      await this.withGh(() => this.refresh(s));
+      await withGhCaller(SESSION_CALLER, () => this.withGh(() => this.refresh(s)));
     } finally {
       this.inFlight.delete(id);
     }
@@ -1015,8 +1019,14 @@ export class PrPoller implements PrCache {
   }
 
   start(): void {
-    this.timer = setInterval(() => void this.tick(), this.intervalMs);
-    this.fastTimer = setInterval(() => void this.fastTick(), this.fastIntervalMs);
+    this.timer = setInterval(
+      () => void withGhCaller("pr-poller:full", () => this.tick()),
+      this.intervalMs,
+    );
+    this.fastTimer = setInterval(
+      () => void withGhCaller("pr-poller:fast", () => this.fastTick()),
+      this.fastIntervalMs,
+    );
   }
   stop(): void {
     if (this.timer) clearInterval(this.timer);

@@ -9,6 +9,7 @@ import { makeGhRunner } from "../../src/forge/github";
 import { BucketRateLimit, isGraphqlBucketCall, isRateLimitError } from "../../src/forge/rate-limit";
 import { classifyGhError } from "../../src/forge/gh-attempt";
 import { GraphqlSpendLedger } from "../../src/forge/github-spend";
+import { routeCaller, UNATTRIBUTED, withGhCaller } from "../../src/forge/gh-caller";
 
 const REST_403 = "gh: API rate limit exceeded for user ID 1. (HTTP 403)";
 
@@ -463,5 +464,52 @@ describe("makeGhRunner — GraphQL waits for the empty bucket's reset (#2841)", 
     await h.run(["issue", "list", "--repo", "o/r"]).catch(() => {});
     expect(h.execs.filter(isBudgetRead)).toHaveLength(0);
     expect(h.graph.snapshot().pausedUntil).toBe(MIN);
+  });
+});
+
+describe("makeGhRunner — per-caller attribution (#2743)", () => {
+  const reading = (used: number, cost: number, resetAt: string) =>
+    JSON.stringify({ data: { rateLimit: { cost, used, remaining: 5000 - used, resetAt } } });
+  const q = ["api", "graphql", "-f", "query=query{rateLimit{cost used remaining resetAt}}"];
+
+  it("tallies calls, GraphQL points and REST calls per caller; untagged → unattributed", async () => {
+    const outs = [reading(10, 3, "1970-01-01T01:00:00Z"), "[]", "{}"];
+    const h = harness({ exec: async () => outs.shift()! });
+    await withGhCaller("pr-poller:full", () => h.run(q));
+    await withGhCaller("pr-poller:full", () =>
+      h.run(["pr", "list", "--repo", "o/r", "--head", "b", "--limit", "1"]),
+    );
+    await h.run(["api", "--method", "GET", "repos/o/r"]);
+    expect(h.spend.callers()).toEqual([
+      { caller: "pr-poller:full", calls: 2, graphqlPoints: 4, restCalls: 0 },
+      { caller: UNATTRIBUTED, calls: 1, graphqlPoints: 0, restCalls: 1 },
+    ]);
+  });
+
+  it("counts failed calls too, and resets with a new window", async () => {
+    const outs: Array<() => string> = [
+      () => reading(10, 1, "1970-01-01T01:00:00Z"),
+      () => {
+        throw new Error("boom");
+      },
+      () => reading(5, 1, "1970-01-01T02:00:00Z"),
+    ];
+    const h = harness({ exec: async () => outs.shift()!() });
+    await withGhCaller("a", () => h.run(q));
+    await withGhCaller("a", () => h.run(["api", "--method", "GET", "x"])).catch(() => {});
+    expect(h.spend.callers()).toEqual([{ caller: "a", calls: 2, graphqlPoints: 1, restCalls: 1 }]);
+    h.advance(3_600_001);
+    await withGhCaller("b", () => h.run(q));
+    expect(h.spend.callers()).toEqual([{ caller: "b", calls: 1, graphqlPoints: 1, restCalls: 0 }]);
+  });
+});
+
+describe("routeCaller", () => {
+  it("collapses id segments", () => {
+    expect(routeCaller("GET", "/api/sessions/3f2b8c1e-1234-4abc-9def-0123456789ab/git")).toBe(
+      "http:GET /api/sessions/:id/git",
+    );
+    expect(routeCaller("POST", "/api/issues/2743/close")).toBe("http:POST /api/issues/:id/close");
+    expect(routeCaller("GET", "/api/epics/completed")).toBe("http:GET /api/epics/completed");
   });
 });

@@ -1702,6 +1702,7 @@ describe("realtime /events", () => {
   test("real session:new and session:archived frames match the contract", async () => {
     const declared = new Set(declaredEvents());
     let id = "";
+    const manualSteps = [{ id: "ms1", text: "Restart worker", postMerge: true }];
     const frames = await collectEvents(s, token, async () => {
       const res = await fetch(`${s.baseUrl}/api/sessions`, {
         method: "POST",
@@ -1709,6 +1710,9 @@ describe("realtime /events", () => {
         body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "events" }),
       });
       id = ((await res.json()) as { id: string }).id;
+      // Relaunch/restore paths can emit a session read back from the store, not the create object.
+      s.deps.store.setSessionManualSteps(id, manualSteps);
+      s.deps.events.emit("session:new", s.deps.store.get(id));
       await fetch(`${s.baseUrl}/api/sessions/${id}`, {
         method: "DELETE",
         headers: bearer(token),
@@ -1717,6 +1721,16 @@ describe("realtime /events", () => {
     const names = frames.map((f) => f.event);
     expect(names).toContain("session:new");
     expect(names).toContain("session:archived");
+    const sessions = frames
+      .filter((frame) => frame.event === "session:new")
+      .map((frame) => frame.data as Record<string, unknown>);
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((session) => session.manualSteps)).toEqual([[], manualSteps]);
+    for (const session of sessions) {
+      expect(session.id).toBe(id);
+      expect(session.launchMetadata).toMatchObject({ sourceKind: "generated", prompt: "events" });
+      expect(Object.keys(session).filter((key) => key.endsWith("Json"))).toEqual([]);
+    }
     // Everything the real server pushed that the contract declares must match it; frames for
     // undeclared events (the native client ignores them) are not the contract's business.
     for (const f of frames) if (declared.has(f.event)) validateEvent(f.event, f.data);

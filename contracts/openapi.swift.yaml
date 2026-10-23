@@ -6072,6 +6072,7 @@ components:
         - hidden
         - pinned
         - defaultBranch
+        - faviconUrl
       properties:
         path:
           type: string
@@ -6123,6 +6124,10 @@ components:
             - string
             - "null"
           description: Local origin/HEAD branch name (no forge call); null when unset or unreadable.
+        faviconUrl:
+          type:
+            - string
+            - "null"
     BacklogPrKinds:
       type: object
       additionalProperties: true

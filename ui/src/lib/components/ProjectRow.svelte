@@ -140,7 +140,7 @@
   use:statusTip={tip}
 >
   <div class="row-main">
-    <RepoMark path={project.path} name={displayName} />
+    <RepoMark path={project.path} name={displayName} favicon={project.faviconUrl} />
     <span class="row-name">{displayName}</span>
     {#if pinned && !hidden}
       <span class="pin-icon" role="img" aria-label={m.backlog_pinned_label()}>

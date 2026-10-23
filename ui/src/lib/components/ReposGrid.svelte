@@ -151,7 +151,7 @@
   {@const run = runLine(project)}
   <button class="rg-tile rg-tile-big" type="button" onclick={() => onselect(project.path)}>
     <span class="rg-title">
-      <RepoMark path={project.path} name={id.name} />
+      <RepoMark path={project.path} name={id.name} favicon={project.faviconUrl} />
       <span class="rg-name">{id.name}</span>
     </span>
     {#if id.owner}<span class="rg-owner">{id.owner}</span>{/if}
@@ -238,7 +238,7 @@
           >
             <span class="rg-small-row">
               <span class="rg-title">
-                <RepoMark path={project.path} {name} />
+                <RepoMark path={project.path} {name} favicon={project.faviconUrl} />
                 <span class="rg-name">{name}</span>
               </span>
               <span class="rg-small-counts">

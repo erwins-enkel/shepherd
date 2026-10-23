@@ -2737,6 +2737,8 @@ export interface BacklogProject {
   pinned: boolean;
   /** Local origin/HEAD branch name (no forge call); null when unset or unreadable. */
   defaultBranch: string | null;
+  /** Repo mark image (GitHub owner avatar); null/absent for other forges. */
+  faviconUrl?: string | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;

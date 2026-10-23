@@ -6221,6 +6221,31 @@ const internalApps = new WeakMap<AppDeps, ReturnType<typeof makeApp>>();
 function operatorActionDeps(deps: AppDeps): OperatorActionDeps {
   return {
     permissions: () => config.assistantPermissions,
+    // New Task's preselection: base = the repo's default branch (pickBaseBranch's order), and the
+    // operator's default provider, model and effort (repo override wins) — as Up Next resolves them.
+    taskDefaults(repoPath) {
+      const b = listBranches(repoPath);
+      const rc = deps.store.getRepoConfig(repoPath);
+      const provider = config.defaultAgentProvider;
+      return {
+        baseBranch: b.default ?? b.current ?? b.branches[0] ?? "main",
+        agentProvider: provider,
+        model: drainSpawnModel(
+          resolveProviderDefaultModelSetting(
+            rc.defaultModel,
+            provider,
+            config.defaultModel,
+            config.defaultCodexModel,
+          ),
+        ),
+        effort: drainSpawnEffort(
+          resolveDefaultEffortSetting(
+            rc.defaultEffort,
+            engineDefaultEffortSetting(provider, config),
+          ),
+        ),
+      };
+    },
     async dispatch({ method, path, body }) {
       let app = internalApps.get(deps);
       if (!app) {

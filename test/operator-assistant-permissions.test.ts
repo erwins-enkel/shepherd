@@ -16,15 +16,17 @@ import { OPERATOR_DIAG_TOOLS } from "../src/operator-assistant-tools";
 const ALL_OFF: AssistantPermissions = {
   shell: "ask",
   steer: "off",
+  start: "off",
   sessions: "off",
   approve: "off",
   automation: "off",
 };
 
-test("defaults: reads run free, every action group asks", () => {
+test("defaults: reads and starting a session run free, every other action group asks", () => {
   expect(DEFAULT_ASSISTANT_PERMISSIONS).toEqual({
     shell: "read",
     steer: "ask",
+    start: "allow",
     sessions: "ask",
     approve: "ask",
     automation: "ask",
@@ -59,6 +61,11 @@ test("stored value: missing or corrupt fields fall back to their defaults one by
     ...DEFAULT_ASSISTANT_PERMISSIONS,
     steer: "allow",
   });
+  // A set stored before `start` existed gets it at its default, on.
+  const before =
+    '{"shell":"read","steer":"ask","sessions":"ask","approve":"ask","automation":"ask"}';
+  expect(normalizeStoredAssistantPermissions(before).start).toBe("allow");
+  expect(normalizeStoredAssistantPermissions('{"start":"off"}').start).toBe("off");
 });
 
 test("rules: each shell level maps to exactly one Bash rule set", () => {
@@ -84,11 +91,13 @@ test("rules: every tool of a group lands in the bucket of the group's level", ()
   const rules = assistantPermissionRules({
     shell: "read",
     steer: "allow",
+    start: "allow",
     sessions: "ask",
     approve: "off",
     automation: "ask",
   });
   expect(rules.allow).toContain("mcp__shepherd__session_steer");
+  expect(rules.allow).toContain("mcp__shepherd__session_start");
   expect(rules.allow).toContain("mcp__shepherd__plan_answer");
   expect(rules.ask).toContain("mcp__shepherd__session_interrupt");
   expect(rules.ask).toContain("mcp__shepherd__herd_retry");
@@ -98,6 +107,7 @@ test("rules: every tool of a group lands in the bucket of the group's level", ()
 test("actionGroupOf names the group of an action tool and null for a read tool", () => {
   expect(actionGroupOf("pr_merge")).toBe("approve");
   expect(actionGroupOf("held_task")).toBe("automation");
+  expect(actionGroupOf("session_start")).toBe("start");
   expect(actionGroupOf("herd_status")).toBe(null);
 });
 
@@ -105,8 +115,12 @@ test("mode: acts when anything runs unasked, readonly when no group is on, else 
   expect(assistantMode(ALL_OFF)).toBe("readonly");
   expect(assistantMode({ ...ALL_OFF, shell: "read" })).toBe("readonly");
   expect(assistantMode({ ...ALL_OFF, shell: "all" })).toBe("acts");
-  expect(assistantMode(DEFAULT_ASSISTANT_PERMISSIONS)).toBe("asks");
-  expect(assistantMode({ ...DEFAULT_ASSISTANT_PERMISSIONS, approve: "allow" })).toBe("acts");
+  // Starting a session runs unasked by default.
+  expect(assistantMode(DEFAULT_ASSISTANT_PERMISSIONS)).toBe("acts");
+  expect(assistantMode({ ...DEFAULT_ASSISTANT_PERMISSIONS, start: "ask" })).toBe("asks");
+  expect(assistantMode({ ...DEFAULT_ASSISTANT_PERMISSIONS, start: "ask", approve: "allow" })).toBe(
+    "acts",
+  );
 });
 
 test("the overlay's read-tool names are exactly the read catalog, so no read tool prompts", () => {

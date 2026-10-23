@@ -12,7 +12,7 @@ New user-facing capabilities surface through the What's-New drawer + first-view 
 **A `feat` that ships UX but skips the catalog rots it silently** — it builds, passes CI, and deploys while the discovery system stops reflecting reality. Every shipped user-facing feature adds **one** catalog entry **in the same PR as the feature**:
 
 1. Add one fragment file in `ui/src/lib/feature-announcements/entries/` named `v<version>-<id>.ts` (for example `v1.41.0-quick-filter.ts`) with a default export satisfying `FeatureAnnouncement`: `id` (stable kebab slug), `sinceVersion`, `titleKey` + `bodyKey`. Use the same version string for both the filename and the `sinceVersion` field.
-2. Add `titleKey`/`bodyKey` to **both** `ui/messages/en.json` and `de.json`.
+2. Add `titleKey`/`bodyKey` to **both** `ui/messages/en.json` and `de.json`, prefixed `feat_`. The drawer and coachmark resolve keys through the prefix-scoped `featureMessage` (`ui/src/lib/feature-messages.ts`); `feature-gate.test.ts` fails on a key it can't resolve.
 3. Optionally set `targetId` and put `use:coachTarget={"<id>"}` on the anchor element so the coachmark can point at it.
 
 **`<version>` is the NEXT (unreleased) version — run `bun run next-version`; NEVER read `package.json`.** Between releases `package.json` holds the _last released_ version (release-please only bumps it when its release PR merges), so stamping that makes the entry invisible forever: `feature-gate.ts` only surfaces `sinceVersion > the user's lastSeen`, and an upgraded user already saw the last release.

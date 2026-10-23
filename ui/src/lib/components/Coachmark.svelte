@@ -2,6 +2,7 @@
   import { anchorPopover } from "#lib/floating-anchor.js";
   import { coachTargets } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { featureMessage } from "#lib/feature-messages.js";
   import GlossaryText from "#lib/components/GlossaryText.svelte";
 
   let {
@@ -83,11 +84,11 @@
   bind:this={popEl}
   class="coachmark"
   role="dialog"
-  aria-label={(m as unknown as Record<string, () => string>)[titleKey]()}
+  aria-label={featureMessage(titleKey)?.() ?? ""}
 >
-  <p class="coachmark-title">{(m as unknown as Record<string, () => string>)[titleKey]()}</p>
+  <p class="coachmark-title">{featureMessage(titleKey)?.() ?? ""}</p>
   <p class="coachmark-body">
-    <GlossaryText text={(m as unknown as Record<string, () => string>)[bodyKey]()} />
+    <GlossaryText text={featureMessage(bodyKey)?.() ?? ""} />
   </p>
   <button class="coachmark-btn" onclick={onseen}>{m.coachmark_dismiss()}</button>
 </div>

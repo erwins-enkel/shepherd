@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
+  import { keyedMessages } from "#lib/keyed-messages.js";
   import AutomationPanel from "#lib/components/AutomationPanel.svelte";
   import GuardMarker from "#lib/components/GuardMarker.svelte";
   import { buildGuardTimeline, type GuardRepoConfig } from "#lib/guard-timeline.js";
@@ -41,7 +42,9 @@
   const localSteps = $derived(timeline.steps.filter((s) => !s.repoScoped));
   const repoSteps = $derived(timeline.steps.filter((s) => s.repoScoped));
 
-  const msg = (key: string) => (m as unknown as Record<string, () => string>)[key]!();
+  // Only the `guardtl_*` key family is bundled for these data-driven keys (#3242).
+  const guardMessage = keyedMessages(m, ["guardtl_"]);
+  const msg = (key: string) => guardMessage(key)!();
 
   // The card's use:dialog Escape handler bails on defaultPrevented, so consuming the
   // event here closes the popover first and leaves the dialog open.

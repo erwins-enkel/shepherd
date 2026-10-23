@@ -5,6 +5,7 @@
   import { getLocale } from "#lib/i18n.js";
   import { releaseDates } from "#lib/build-info.js";
   import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
+  import { featureMessage } from "#lib/feature-messages.js";
   import GlossaryText from "#lib/components/GlossaryText.svelte";
 
   let {
@@ -119,12 +120,10 @@
               {#each group.entries as entry (entry.id)}
                 <li class="entry">
                   <h4 class="entry-title">
-                    {(m as unknown as Record<string, () => string>)[entry.titleKey]()}
+                    {featureMessage(entry.titleKey)?.()}
                   </h4>
                   <p class="entry-body">
-                    <GlossaryText
-                      text={(m as unknown as Record<string, () => string>)[entry.bodyKey]()}
-                    />
+                    <GlossaryText text={featureMessage(entry.bodyKey)?.() ?? ""} />
                   </p>
                   {#if entry.ctaUrl && entry.ctaLabelKey}
                     <a
@@ -132,7 +131,7 @@
                       href={entry.ctaUrl}
                       target="_blank"
                       rel="external noreferrer noopener"
-                      >{(m as unknown as Record<string, () => string>)[entry.ctaLabelKey]()}
+                      >{featureMessage(entry.ctaLabelKey)?.()}
                       <span aria-hidden="true">↗</span></a
                     >
                   {/if}

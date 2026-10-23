@@ -8,6 +8,7 @@ import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { configDefaults, defineConfig } from "vitest/config";
+import { paraglideSplit } from "./vite/paraglide-split.ts";
 
 function gitSha(): string {
   try {
@@ -72,6 +73,8 @@ export default defineConfig({
       preprocess: vitePreprocess(),
       adapter: adapter({ pages: outDir, assets: outDir, fallback: "index.html" }),
     }),
+    // Build-only: per-message imports so lazy chunks own their messages (#3242).
+    paraglideSplit({ srcDir: "./src", outdir: "./src/lib/paraglide" }),
   ],
   server: {
     port: 5174,

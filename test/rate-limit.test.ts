@@ -13,6 +13,7 @@ import {
   isRestBucketCall,
   isRestReadCall,
   isRateLimitError,
+  isSecondaryLimitError,
   parseRetryAfter,
 } from "../src/forge/rate-limit";
 
@@ -216,6 +217,79 @@ describe("BucketRateLimit — noteLimitError()", () => {
   });
 });
 
+// ── BucketRateLimit: noteLimitError() with a budget reading (#2841) ───────────
+
+describe("BucketRateLimit — noteLimitError() with a budget reading (#2841)", () => {
+  let warnSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  const MIN = 60_000;
+  const graph = (now: () => number) =>
+    new BucketRateLimit({ now, defaultCooldownMs: MIN, maxCooldownMs: 15 * MIN });
+
+  it("an empty bucket's resetAt holds the backoff until just past the reset", () => {
+    const rl = graph(() => 0);
+    rl.noteLimitError(undefined, "gh issue list: limit", { remaining: 0, resetAt: 40 * MIN });
+    expect(rl.snapshot().pausedUntil).toBe(40 * MIN + 5_000);
+  });
+
+  it("logs one engagement naming the cause and the reset", () => {
+    let t = 0;
+    const rl = graph(() => t);
+    const reading = { remaining: 0, resetAt: 40 * MIN };
+    rl.noteLimitError(undefined, "gh issue list: limit", reading);
+    t = 1_000;
+    rl.noteLimitError(undefined, "gh pr list: limit");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const line = String(warnSpy.mock.calls[0]?.[0]);
+    expect(line).toContain(new Date(40 * MIN + 5_000).toISOString());
+    expect(line).toContain("gh issue list: limit");
+    expect(line).toContain(`resets ${new Date(40 * MIN).toISOString()}`);
+  });
+
+  it("a reading with points left falls back to the escalating cooldown", () => {
+    const rl = graph(() => 0);
+    rl.noteLimitError(undefined, undefined, { remaining: 12, resetAt: 40 * MIN });
+    expect(rl.snapshot().pausedUntil).toBe(MIN);
+  });
+
+  it("a resetAt more than an hour ahead falls back to the escalating cooldown", () => {
+    const rl = graph(() => 0);
+    rl.noteLimitError(undefined, undefined, { remaining: 0, resetAt: 61 * MIN });
+    expect(rl.snapshot().pausedUntil).toBe(MIN);
+  });
+
+  it("a resetAt already past falls back to the escalating cooldown", () => {
+    const rl = graph(() => 10 * MIN);
+    rl.noteLimitError(undefined, undefined, { remaining: 0, resetAt: 9 * MIN });
+    expect(rl.snapshot().pausedUntil).toBe(11 * MIN);
+  });
+
+  it("bad readings escalate 60 s → 15 min", () => {
+    let t = 0;
+    const rl = graph(() => t);
+    const windows: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      rl.noteLimitError(undefined, undefined, { remaining: 5, resetAt: t + 30 * MIN });
+      const until = rl.snapshot().pausedUntil!;
+      windows.push(until - t);
+      t = until;
+    }
+    expect(windows).toEqual([MIN, 2 * MIN, 4 * MIN, 8 * MIN, 15 * MIN, 15 * MIN]);
+  });
+
+  it("a Retry-After wins over the reading", () => {
+    const rl = graph(() => 0);
+    rl.noteLimitError(30, undefined, { remaining: 0, resetAt: 40 * MIN });
+    expect(rl.snapshot().pausedUntil).toBe(30_000);
+  });
+});
+
 // ── BucketRateLimit: snapshot() ────────────────────────────────────────────────
 
 describe("BucketRateLimit — snapshot()", () => {
@@ -388,7 +462,7 @@ describe("BucketRateLimit — REST bucket (label + escalation)", () => {
     expect(rl.snapshot().pausedUntil).toBe(30_000);
   });
 
-  it("without maxCooldownMs there is no escalation (the GraphQL default is unchanged)", () => {
+  it("without maxCooldownMs there is no escalation", () => {
     let t = 0;
     const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
     rl.noteLimitError();
@@ -569,6 +643,24 @@ describe("isRateLimitError()", () => {
 
   it("returns false for non-rate-limit Error", () => {
     expect(isRateLimitError(new Error("network timeout"))).toBe(false);
+  });
+});
+
+// ── isSecondaryLimitError() (#2841) ──────────────────────────────────────────
+
+describe("isSecondaryLimitError()", () => {
+  it("matches a secondary rate limit", () => {
+    expect(isSecondaryLimitError("You have exceeded a secondary rate limit.")).toBe(true);
+  });
+
+  it("matches the abuse-detection wording", () => {
+    expect(isSecondaryLimitError("You have triggered an abuse detection mechanism.")).toBe(true);
+  });
+
+  it("does not match a primary limit", () => {
+    expect(isSecondaryLimitError("GraphQL: API rate limit already exceeded for user ID 1.")).toBe(
+      false,
+    );
   });
 });
 

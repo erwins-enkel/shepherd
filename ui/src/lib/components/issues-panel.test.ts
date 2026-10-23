@@ -5,8 +5,12 @@
  * test infrastructure here, so we cover the extracted pure filter the template
  * delegates to.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { m } from "#lib/paraglide/messages.js";
 import {
+  activeFilterChips,
+  shownOfTotal,
+  shortcutHints,
   filterIssues,
   hideOthers,
   hideActive,
@@ -750,5 +754,154 @@ describe("stripEpicPrefix", () => {
 
   it("keeps the whole title when nothing is left after the prefix", () => {
     expect(stripEpicPrefix("Stack (#158):  ", 158)).toBe("Stack (#158):  ");
+  });
+});
+
+describe("activeFilterChips (#2639)", () => {
+  function toggles(
+    over: Partial<{ hideOthers: boolean; hideActive: boolean; hideBlocked: boolean }>,
+  ) {
+    return {
+      hideOthers: false,
+      hideActive: false,
+      hideBlocked: false,
+      set: vi.fn(),
+      setActive: vi.fn(),
+      setBlocked: vi.fn(),
+      ...over,
+    };
+  }
+  const base = {
+    mineOffered: true,
+    author: null,
+    labels: [],
+    clearAuthor: vi.fn(),
+    clearLabel: vi.fn(),
+  };
+
+  it("is empty when nothing filters", () => {
+    expect(activeFilterChips({ ...base, toggles: toggles({}) })).toEqual([]);
+  });
+
+  it("lists every on toggle, the author and each label, in that order", () => {
+    const chips = activeFilterChips({
+      ...base,
+      toggles: toggles({ hideOthers: true, hideActive: true, hideBlocked: true }),
+      author: "octocat",
+      labels: ["bug", "docs"],
+    });
+    expect(chips.map((c) => c.id)).toEqual([
+      "active",
+      "blocked",
+      "others",
+      "author",
+      "label:bug",
+      "label:docs",
+    ]);
+    expect(chips.map((c) => c.label)).toEqual([
+      m.issues_filter_chip_active(),
+      m.issues_filter_chip_blocked(),
+      m.issues_filter_chip_others(),
+      m.issues_filter_chip_author({ name: "octocat" }),
+      "bug",
+      "docs",
+    ]);
+  });
+
+  it("each chip's clear turns off exactly its filter", () => {
+    const t = toggles({ hideOthers: true, hideActive: true, hideBlocked: true });
+    const clearAuthor = vi.fn();
+    const clearLabel = vi.fn();
+    const chips = activeFilterChips({
+      ...base,
+      toggles: t,
+      author: "a",
+      labels: ["bug"],
+      clearAuthor,
+      clearLabel,
+    });
+    const byId = (id: string) => chips.find((c) => c.id === id)!.clear();
+    byId("active");
+    expect(t.setActive).toHaveBeenCalledWith(false);
+    byId("blocked");
+    expect(t.setBlocked).toHaveBeenCalledWith(false);
+    byId("others");
+    expect(t.set).toHaveBeenCalledWith(false);
+    byId("author");
+    expect(clearAuthor).toHaveBeenCalled();
+    byId("label:bug");
+    expect(clearLabel).toHaveBeenCalledWith("bug");
+  });
+
+  it("skips mine & unassigned when the viewer is unknown (the filter fails open)", () => {
+    const chips = activeFilterChips({
+      ...base,
+      mineOffered: false,
+      toggles: toggles({ hideOthers: true }),
+    });
+    expect(chips).toEqual([]);
+  });
+});
+
+describe("shownOfTotal (#2639)", () => {
+  const issue = (number: number): Issue => ({
+    number,
+    title: `#${number}`,
+    body: "",
+    url: "",
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  });
+  const issues = [issue(1), issue(2), issue(3), issue(4)];
+  const epics = new Set([1]);
+  const subs = new Set([4]);
+  const rowsFor = (visible: Issue[]) =>
+    buildIssueRows(visible, epics, subs, new Set(), () => undefined);
+
+  it("counts top-level issues (epics + singles, not sub-issues) against the rendered rows", () => {
+    expect(shownOfTotal(rowsFor([issue(1), issue(3)]), issues, epics, subs)).toEqual({
+      shown: 2,
+      total: 3,
+    });
+  });
+
+  it("is null when nothing is hidden", () => {
+    expect(shownOfTotal(rowsFor(issues), issues, epics, subs)).toBeNull();
+  });
+
+  it("ignores an expanded epic's child rows", () => {
+    const rows = buildIssueRows([issue(1)], epics, subs, new Set([1]), () => [
+      {
+        number: 4,
+        title: "child",
+        url: "",
+        order: 0,
+        body: "",
+        blockedBy: [],
+        state: "ready",
+        sessionId: null,
+        prNumber: null,
+        issueClosed: false,
+        claimed: false,
+      },
+    ]);
+    expect(shownOfTotal(rows, issues, epics, subs)).toEqual({ shown: 1, total: 3 });
+  });
+});
+
+describe("shortcutHints (#2639)", () => {
+  it("names → only with epics and Esc only with a selection", () => {
+    expect(shortcutHints({ hasEpics: false, selected: false })).toBe(
+      `${m.issuespanel_hint_select()} · ${m.issuespanel_hint_start()}`,
+    );
+    expect(shortcutHints({ hasEpics: true, selected: true })).toBe(
+      [
+        m.issuespanel_hint_select(),
+        m.issuespanel_hint_expand(),
+        m.issuespanel_hint_start(),
+        m.issuespanel_hint_esc(),
+      ].join(" · "),
+    );
   });
 });

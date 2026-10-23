@@ -66,6 +66,7 @@ function cfg(): RepoConfig & { automationConfirmed: boolean; automationRowExists
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
     previewStartScript: null,
     previewStartCommand: null,
     previewOpenMode: "ask",

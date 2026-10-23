@@ -152,6 +152,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   expect(store.getRepoConfig("/repo").autopilotEnabled).toBe(true);
 });

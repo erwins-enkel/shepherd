@@ -105,6 +105,28 @@ test("patch: previewOpenMode survives a later unrelated patch", () => {
   expect(store.getRepoConfig("/r").previewOpenMode).toBe("inline");
 });
 
+test("patch: pinned round-trips and survives a later unrelated patch", () => {
+  const { store, svc } = harness();
+  expect(store.getRepoConfig("/r").pinned).toBe(false);
+  expect(svc.patch("/r", { pinned: true }).ok).toBe(true);
+  const r = svc.patch("/r", { criticEnabled: false });
+  expect(r.ok && r.config.pinned).toBe(true);
+  expect(store.getRepoConfig("/r").pinned).toBe(true);
+  expect(svc.patch("/r", { pinned: false }).ok).toBe(true);
+  expect(store.getRepoConfig("/r").pinned).toBe(false);
+});
+
+test("pinnedRepoPaths: returns exactly the repos flagged pinned", () => {
+  const { store, svc } = harness();
+  expect(store.pinnedRepoPaths()).toEqual(new Set());
+  svc.patch("/a", { pinned: true });
+  svc.patch("/b", { hidden: true }); // hidden, not pinned
+  svc.patch("/c", { pinned: true });
+  expect(store.pinnedRepoPaths()).toEqual(new Set(["/a", "/c"]));
+  svc.patch("/a", { pinned: false });
+  expect(store.pinnedRepoPaths()).toEqual(new Set(["/c"]));
+});
+
 test("hiddenRepoPaths: returns exactly the repos flagged hidden", () => {
   const { store, svc } = harness();
   expect(store.hiddenRepoPaths()).toEqual(new Set());

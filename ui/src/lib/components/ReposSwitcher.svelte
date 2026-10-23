@@ -3,24 +3,22 @@
   import type { BacklogProject } from "#lib/types.js";
   import { anchorPopover } from "#lib/floating-anchor.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { projectIcons } from "#lib/projectIcons.svelte.js";
   import ProjectRow from "./ProjectRow.svelte";
+  import RepoMark from "./RepoMark.svelte";
   import AddRepoButton from "./AddRepoButton.svelte";
   import RepoFilterBar from "./RepoFilterBar.svelte";
-  import { partitionRecents, repoOwnerName } from "./backlog-view";
+  import { repoOwnerName, type RepoGroups } from "./backlog-view";
 
   // The desktop Repos dialog's repo switcher: an owner/name button in the header that
   // opens an anchored, NON-modal popover (role="dialog", no aria-modal, no scrim — the
   // "small anchored, non-blocking popovers" exemption in ui-design-system.md) with the
-  // search, recent tiles, the two-column repo list, the Hidden group and "+ Add repo".
+  // search, the Pinned rows, recent tiles, the repo list, the Hidden group and "+ Add repo".
   // The parent (BacklogView) owns every piece of state; this only renders + routes.
   let {
     selected = null,
-    projects,
-    hiddenProjects = [],
+    groups,
     hiddenCount = 0,
     showHidden = false,
-    pinnedPath,
     selectedPath,
     hasIssues,
     hasPRs,
@@ -31,18 +29,18 @@
     onsearch,
     onselect,
     onhide = () => {},
+    onpin = () => {},
     onaddclone,
     onaddfork,
     onaddnewproject,
   }: {
     /** The repo whose detail is open — names the trigger. null → "Choose repo". */
     selected?: BacklogProject | null;
-    /** Already scoped (chips + search) by the parent via filterProjects. */
-    projects: BacklogProject[];
-    hiddenProjects?: BacklogProject[];
+    /** Already scoped (chips + search) and grouped by the parent via groupRepos; `hidden`
+     *  is non-empty only when the Hidden group should render. */
+    groups: RepoGroups;
     hiddenCount?: number;
     showHidden?: boolean;
-    pinnedPath: string | null;
     selectedPath: string | null;
     hasIssues: boolean;
     hasPRs: boolean;
@@ -53,6 +51,7 @@
     onsearch: (q: string) => void;
     onselect: (path: string) => void;
     onhide?: (path: string) => void;
+    onpin?: (path: string) => void;
     onaddclone: () => void;
     onaddfork: () => void;
     onaddnewproject: () => void;
@@ -67,11 +66,10 @@
   let bar = $state<ReturnType<typeof RepoFilterBar>>();
 
   const searching = $derived(query.trim() !== "");
-  // Same ranking as the old sidebar / New Task picker; hoisted so each repo keeps a
-  // single selectable row. A search flattens the list (no recents group).
-  const grouped = $derived(partitionRecents(projects, searching));
+  const empty = $derived(
+    groups.pinned.length + groups.recents.length + groups.rest.length + groups.hidden.length === 0,
+  );
   const id = $derived(selected ? repoOwnerName(selected) : null);
-  const icon = $derived(selected ? (projectIcons.iconFor(selected.path) ?? "▣") : null);
 
   /** Open the popover (the `R` shortcut + the trigger share this). Starts from an
    *  empty search so a stale query never narrows the list on re-open. */
@@ -199,6 +197,21 @@
   const prCount = (p: BacklogProject) => p.prKinds?.regular ?? p.openPRs ?? "—";
 </script>
 
+{#snippet rows(list: BacklogProject[], hidden: boolean)}
+  <div class="rs-rows">
+    {#each list as project (project.path)}
+      <ProjectRow
+        {project}
+        {hidden}
+        selected={project.path === selectedPath}
+        onselect={() => pick(project.path)}
+        onhide={() => onhide(project.path)}
+        onpin={() => onpin(project.path)}
+      />
+    {/each}
+  </div>
+{/snippet}
+
 <button
   bind:this={btn}
   class="rs-trigger"
@@ -211,7 +224,9 @@
   aria-label={id ? m.repos_switcher_aria({ repo: id.name }) : m.repos_switcher_choose()}
   onclick={() => (open ? close(true) : openPanel())}
 >
-  <span class="rs-glyph" aria-hidden="true">{icon ?? "▣"}</span>
+  {#if selected && id}
+    <RepoMark path={selected.path} name={id.name} />
+  {/if}
   <span class="rs-id">
     {#if id?.owner}<span class="rs-owner">{id.owner}</span>{/if}
     <span class="rs-name">{id ? id.name : m.repos_switcher_choose()}</span>
@@ -247,7 +262,7 @@
     />
 
     <div class="rs-scroll">
-      {#if projects.length === 0 && hiddenProjects.length === 0}
+      {#if empty}
         <div class="rs-empty">
           {#if hiddenCount > 0 && !showHidden && !searching}
             {m.backlog_filter_all_hidden()}
@@ -257,17 +272,26 @@
         </div>
       {/if}
 
-      {#if grouped.recents.length > 0}
+      {#if groups.pinned.length > 0}
+        <div class="rs-label">{m.backlog_pinned_heading()}</div>
+        {@render rows(groups.pinned, false)}
+      {/if}
+
+      {#if groups.recents.length > 0}
         <div class="rs-label">{m.reposelect_recent_heading()}</div>
         <div class="rs-tiles">
-          {#each grouped.recents as project (project.path)}
+          {#each groups.recents as project (project.path)}
+            {@const name = repoOwnerName(project).name}
             <button
               class="rs-tile"
               class:sel={project.path === selectedPath}
               type="button"
               onclick={() => pick(project.path)}
             >
-              <span class="rs-tile-name">{repoOwnerName(project).name}</span>
+              <span class="rs-tile-title">
+                <RepoMark path={project.path} {name} />
+                <span class="rs-tile-name">{name}</span>
+              </span>
               <span class="rs-tile-counts">
                 {m.repos_switcher_tile_counts({
                   issues: project.openIssues ?? "—",
@@ -279,35 +303,17 @@
         </div>
       {/if}
 
-      {#if grouped.rest.length > 0}
-        <div class="rs-label">{m.repos_switcher_all()}</div>
-        <div class="rs-cols">
-          {#each grouped.rest as project (project.path)}
-            <ProjectRow
-              {project}
-              pinned={project.path === pinnedPath}
-              selected={project.path === selectedPath}
-              onselect={() => pick(project.path)}
-              onhide={() => onhide(project.path)}
-            />
-          {/each}
+      {#if groups.rest.length > 0}
+        <div class="rs-label rs-label-cols">
+          <span>{m.repos_switcher_all()}</span>
+          <span class="rs-col-hint">{m.repos_switcher_col_issues()}</span>
         </div>
+        {@render rows(groups.rest, false)}
       {/if}
 
-      {#if hiddenProjects.length > 0}
+      {#if groups.hidden.length > 0}
         <div class="rs-label">{m.backlog_hidden_heading()}</div>
-        <div class="rs-cols">
-          {#each hiddenProjects as project (project.path)}
-            <ProjectRow
-              {project}
-              hidden
-              pinned={project.path === pinnedPath}
-              selected={project.path === selectedPath}
-              onselect={() => pick(project.path)}
-              onhide={() => onhide(project.path)}
-            />
-          {/each}
-        </div>
+        {@render rows(groups.hidden, true)}
       {/if}
     </div>
 
@@ -361,13 +367,6 @@
   .rs-trigger:focus-visible {
     outline: 2px solid var(--color-line-bright);
     outline-offset: 2px;
-  }
-
-  .rs-glyph {
-    flex-shrink: 0;
-    color: var(--color-faint);
-    font-size: var(--fs-base);
-    line-height: 1;
   }
 
   .rs-id {
@@ -425,7 +424,8 @@
     margin: 0;
     display: flex;
     flex-direction: column;
-    width: min(560px, 92vw);
+    /* one column of rows: ~290px for the name next to the mark and the counts slot */
+    width: min(420px, 92vw);
     max-height: min(70vh, 560px);
     padding: 0;
     overflow: visible;
@@ -468,6 +468,18 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
+  /* "Alle Repos" head: the right-aligned hint names the rows' count column */
+  .rs-label-cols {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding-right: 4px;
+  }
+  .rs-col-hint {
+    color: var(--color-faint);
+    text-transform: none;
+    white-space: nowrap;
+  }
 
   /* "Zuletzt bearbeitet": up to three tiles — name over `Issues · PRs`. */
   .rs-tiles {
@@ -476,7 +488,7 @@
     gap: 6px;
   }
   .rs-tile {
-    flex: 1 1 140px;
+    flex: 1 1 110px;
     min-width: 0;
     min-height: 44px;
     display: flex;
@@ -509,7 +521,14 @@
     border-color: var(--color-line-bright);
     background: var(--color-sel);
   }
+  .rs-tile-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
   .rs-tile-name {
+    min-width: 0;
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
     font-weight: 500;
@@ -519,25 +538,19 @@
     text-overflow: ellipsis;
   }
   .rs-tile-counts {
+    overflow: hidden;
     color: var(--color-muted);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
-  /* "Alle Repos": two columns, filled column by column so DOM (= focus) order is the
-     visual top-to-bottom order and ↓ walks down the first column before the second. */
-  .rs-cols {
-    column-count: 2;
-    column-gap: 8px;
-  }
-  .rs-cols > :global(*) {
-    break-inside: avoid;
-    margin-bottom: 2px;
-  }
-  @media (max-width: 480px) {
-    .rs-cols {
-      column-count: 1;
-    }
+  /* One column, so a repo name gets the full row width before it ellipsizes. */
+  .rs-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .rs-empty {

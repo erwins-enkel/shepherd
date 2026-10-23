@@ -1224,6 +1224,8 @@ export interface RepoConfig {
   claudeAiConnectorsEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
+  /** Pinned to the top of the Backlog repos panel (list-only ordering; sessions/drain unaffected). Default off. */
+  pinned: boolean;
   /** Local, non-replicated preview start script path stored by Shepherd. */
   previewStartScript?: string | null;
   /** Command captured when Shepherd generated the local preview start script. */
@@ -2731,6 +2733,10 @@ export interface BacklogProject {
   ciStatus: "success" | "failure" | "pending" | null;
   /** Hidden from the repos panel (list-only declutter). The client filters/groups on this. */
   hidden: boolean;
+  /** Operator-pinned to the top of the repos panel (list-only ordering). */
+  pinned: boolean;
+  /** Local origin/HEAD branch name (no forge call); null when unset or unreadable. */
+  defaultBranch: string | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;

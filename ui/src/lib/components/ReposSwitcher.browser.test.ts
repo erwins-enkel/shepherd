@@ -21,6 +21,8 @@ function project(name: string, over: Partial<BacklogProject> = {}): BacklogProje
     workflows: null,
     ciStatus: null,
     hidden: false,
+    pinned: false,
+    defaultBranch: "main",
     ...over,
   };
 }
@@ -142,6 +144,24 @@ describe("Repos header", () => {
     expect(onclose).toHaveBeenCalledOnce();
   });
 
+  it("names the open repo's default branch behind a divider; generic without one (#2639)", async () => {
+    const view = await render(BacklogOverlay, props());
+    const ff = () => q(".rh .ff-btn")!;
+    expect(ff().textContent?.trim()).toBe(m.backlog_ff_branch({ branch: "main" }));
+    const sep = ff().previousElementSibling as HTMLElement;
+    expect(sep.classList.contains("ff-sep")).toBe(true);
+    expect(sep.getAttribute("aria-hidden")).toBe("true");
+    expect(sep.getBoundingClientRect().width).toBe(1);
+
+    const base = payload();
+    const projects = base.projects.map((p) =>
+      p.path === "/r/echo" ? { ...p, defaultBranch: null } : p,
+    );
+    await view.rerender(props({ payload: { ...base, projects } }));
+    await tick();
+    expect(ff().textContent?.trim()).toBe(m.backlog_ff_main());
+  });
+
   it("disables Fast-forward with no repo open", async () => {
     await render(BacklogOverlay, props({ filterPaths: [] }));
     expect((q(".rh .ff-btn") as HTMLButtonElement).disabled).toBe(true);
@@ -196,16 +216,57 @@ describe("Repo switcher popover", () => {
     expect(q(".scrim")).toBeNull();
   });
 
-  it("shows recent tiles (name + Issues · PRs) and the rest in two columns, no repeats", async () => {
+  it("shows recent tiles (name + Issues · PRs) and the rest in one column, no repeats", async () => {
     await render(BacklogOverlay, props());
     await openByClick();
     expect(names(".rs-tile", ".rs-tile-name")).toEqual(["alpha", "bravo", "charlie"]);
     expect(q(".rs-tile .rs-tile-counts")?.textContent?.trim()).toBe(
       m.repos_switcher_tile_counts({ issues: 42, prs: 1 }),
     );
-    expect(names(".rs-cols .project-row", ".row-name")).toEqual(["delta", "echo"]);
-    const cols = getComputedStyle(q(".rs-cols")!).columnCount;
-    expect(cols).toBe("2");
+    expect(names(".rs-rows .project-row", ".row-name")).toEqual(["delta", "echo"]);
+    // one column: every row spans the list width
+    const rows = qa(".rs-rows .project-row").map((r) => r.getBoundingClientRect());
+    expect(rows[0].left).toBe(rows[1].left);
+    expect(rows[0].bottom).toBeLessThanOrEqual(rows[1].top + 1);
+  });
+
+  it("puts the Pinned group first, then Zuletzt, then All repos with the issues column hint", async () => {
+    const p = payload();
+    p.projects = p.projects.map((x) => (x.path === "/r/echo" ? { ...x, pinned: true } : x));
+    await render(BacklogOverlay, props({ payload: p }));
+    await openByClick();
+    const labels = qa(".rs-label").map((l) => l.firstChild?.textContent?.trim());
+    expect(labels).toEqual([
+      m.backlog_pinned_heading(),
+      m.reposelect_recent_heading(),
+      m.repos_switcher_all(),
+    ]);
+    expect(q(".rs-label-cols .rs-col-hint")?.textContent?.trim()).toBe(
+      m.repos_switcher_col_issues(),
+    );
+    const groups = qa(".rs-rows").map((g) =>
+      [...g.querySelectorAll(".row-name")].map((n) => n.textContent?.trim()),
+    );
+    expect(groups).toEqual([["echo"], ["delta"]]);
+  });
+
+  it("marks the trigger and the tiles with the repo mark, never ▣", async () => {
+    await render(BacklogOverlay, props());
+    expect(q(".rs-trigger .repo-mark")?.textContent?.trim()).toBe("E");
+    await openByClick();
+    expect(q(".rs-tile .repo-mark")?.textContent?.trim()).toBe("A");
+    expect(q(".rs-pop")!.textContent).not.toContain("▣");
+  });
+
+  it("a long repo name fits the single-column row untruncated", async () => {
+    const p = payload();
+    p.projects = [...p.projects, project("a-quite-long-repository-name")];
+    await render(BacklogOverlay, props({ payload: p }));
+    await openByClick();
+    const name = qa<HTMLElement>(".rs-rows .row-name").find(
+      (n) => n.textContent?.trim() === "a-quite-long-repository-name",
+    )!;
+    expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
   });
 
   it("keeps hidden repos, the Hidden toggle, filters and + Add repo", async () => {

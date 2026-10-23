@@ -125,6 +125,7 @@ function makeHarness(
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   let pr = conflictingPr();
   let rebaseCalls = 0;

@@ -146,9 +146,10 @@
      it claim the right margin itself; in the cluster the wrapper owns the margin. Only
      one branch renders, so there's a single instance + a single coach anchor. -->
 {#snippet ffButton(solo: boolean)}
+  {@const branch = selected?.defaultBranch}
+  <span class="ff-sep" class:ff-btn-solo={solo} aria-hidden="true"></span>
   <button
     class="gbtn ff-btn"
-    class:ff-btn-solo={solo}
     type="button"
     disabled={ffInFlight || selectedPath === null}
     onclick={onff}
@@ -160,7 +161,7 @@
       <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
       <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
     </svg>
-    {m.backlog_ff_main()}
+    {branch ? m.backlog_ff_branch({ branch }) : m.backlog_ff_main()}
   </button>
 {/snippet}
 
@@ -264,7 +265,17 @@
     white-space: nowrap;
   }
 
-  /* Standalone ff-btn (no doc-agent) claims the auto margin itself. */
+  /* A hairline ahead of Fast-forward: it acts on the repo, unlike the tabs/toggles before it. */
+  .ff-sep {
+    align-self: stretch;
+    flex-shrink: 0;
+    width: 1px;
+    margin-block: 4px;
+    margin-right: 6px;
+    background: var(--color-line);
+  }
+
+  /* Standalone fast-forward (no doc-agent): its divider claims the auto margin. */
   .ff-btn-solo {
     margin-left: auto;
   }

@@ -114,6 +114,7 @@ function makeHarness(
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
 
   const forge: GitForge = {

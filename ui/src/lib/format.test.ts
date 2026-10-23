@@ -3,6 +3,7 @@ import {
   hideStatusBadge,
   autopilotBadgeShown,
   relativeAge,
+  relativeTimeAgo,
   formatAgo,
   elapsedCoarse,
   formatResetIn,
@@ -238,6 +239,27 @@ describe("relativeAge", () => {
     expect(relativeAge(now - 2 * 3_600_000, now)).toBe("2h");
     expect(relativeAge(now - 3 * 86_400_000, now)).toBe("3d");
     expect(relativeAge(now + 10_000, now)).toBe("now"); // future clamps to 0
+  });
+});
+
+describe("relativeTimeAgo", () => {
+  const now = 1_000_000_000_000;
+  const DAY = 86_400_000;
+  it("spells the age out in English", () => {
+    expect(relativeTimeAgo(now, now, "en")).toBe("now");
+    expect(relativeTimeAgo(now + 10_000, now, "en")).toBe("now"); // future clamps
+    expect(relativeTimeAgo(now - 3 * 3_600_000, now, "en")).toBe("3 hours ago");
+    expect(relativeTimeAgo(now - 44 * DAY, now, "en")).toBe("44 days ago");
+    expect(relativeTimeAgo(now - 95 * DAY, now, "en")).toBe("3 months ago");
+    expect(relativeTimeAgo(now - 800 * DAY, now, "en")).toBe("2 years ago");
+  });
+  it("spells the age out in German", () => {
+    expect(relativeTimeAgo(now, now, "de")).toBe("jetzt");
+    expect(relativeTimeAgo(now - 5 * 60_000, now, "de")).toBe("vor 5 Minuten");
+    expect(relativeTimeAgo(now - 3 * 3_600_000, now, "de")).toBe("vor 3 Stunden");
+    expect(relativeTimeAgo(now - DAY, now, "de")).toBe("gestern");
+    expect(relativeTimeAgo(now - 44 * DAY, now, "de")).toBe("vor 44 Tagen");
+    expect(relativeTimeAgo(now - 95 * DAY, now, "de")).toBe("vor 3 Monaten");
   });
 });
 

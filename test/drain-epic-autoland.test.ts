@@ -138,6 +138,7 @@ function makeHarness(opts: {
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
 
   const spy = fakeForge(opts);

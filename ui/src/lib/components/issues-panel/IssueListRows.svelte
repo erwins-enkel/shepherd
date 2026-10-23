@@ -1,11 +1,18 @@
 <script lang="ts">
   import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { relativeAge } from "#lib/format.js";
-  import { labelChipStyle } from "#lib/label-color.js";
+  import { relativeTimeAgo } from "#lib/format.js";
+  import { dataSlot } from "#lib/data-slot.js";
+  import { getLocale } from "#lib/i18n.js";
   import { clock } from "#lib/now.svelte.js";
   import { chipFor, epicRole, queuePosition, slotHeldBy, stateLabel } from "../epic-panel";
-  import { ACTIVE_LABEL, activate, stripEpicPrefix, type IssueListRow } from "../issues-panel";
+  import {
+    ACTIVE_LABEL,
+    activate,
+    lastChange,
+    stripEpicPrefix,
+    type IssueListRow,
+  } from "../issues-panel";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
   import EpicHeaderRow from "./EpicHeaderRow.svelte";
@@ -43,12 +50,20 @@
   /** Meta-line separator — rendered via a variable so its spaces survive Svelte's whitespace
    *  trimming at block and element edges. */
   const SEP = " · ";
-  // The label the meta line names: the first one, except the drain's claim label — a running
-  // issue says so with its own "läuft" segment.
-  const metaLabel = (issue: Issue) => issue.labels?.find((l) => l !== ACTIVE_LABEL);
-  const metaAge = (issue: Issue) => relativeAge(issue.createdAt, clock.current);
+  /** Between label chips: invisible in their flex row, but keeps "docs bug" apart for screen
+   *  readers and copied text. A variable for the same whitespace-trimming reason as SEP. */
+  const GAP = " ";
+  /** Label chips a single row shows before folding the rest into "+N". */
+  const MAX_CHIPS = 2;
+  // The labels the meta line names, except the drain's claim label — a running issue says so
+  // with its own "läuft" segment.
+  const metaLabels = (issue: Issue) => (issue.labels ?? []).filter((l) => l !== ACTIVE_LABEL);
+  // Spelled-out age of the last change ("vor 44 Tagen"), in the UI's locale.
+  const metaAge = (issue: Issue) => relativeTimeAgo(lastChange(issue), clock.current, getLocale());
 
   const firstSingle = $derived(rows.find((r) => r.kind === "single")?.key ?? null);
+  // "Einzelne Issues" only separates singles from epics — without an epic it labels nothing.
+  const hasEpics = $derived(rows.some((r) => r.kind === "epic"));
 
   type MenuState = { issue: Issue; x: number; y: number; opener: HTMLElement; canSteer: boolean };
   type DetailsState = { issue: Issue; x: number; y: number; opener: HTMLElement };
@@ -122,9 +137,11 @@
     </div>
   {:else}
     {@const issue = row.issue}
-    {@const label = metaLabel(issue)}
-    {@const hue = label ? labelChipStyle(issue.labelColors?.[label] ?? "") : null}
-    {#if row.key === firstSingle}
+    {@const labels = metaLabels(issue)}
+    {@const shown = labels.slice(0, MAX_CHIPS)}
+    {@const rest = labels.slice(MAX_CHIPS)}
+    {@const age = metaAge(issue)}
+    {#if row.key === firstSingle && hasEpics}
       <div class="section-heading" role="presentation">{m.issuespanel_singles_heading()}</div>
     {/if}
     <div
@@ -142,12 +159,14 @@
       <!-- SEP is a variable on purpose: a literal separator loses its spaces at block/element edges. -->
       <span class="meta"
         >#{issue.number}{#if running?.(issue)}{SEP}<span class="dot dot-running" aria-hidden="true"
-          ></span>{m.issuelist_running()}{/if}{#if label}{SEP}<span
-            class="label-dot"
-            class:hued={hue !== null}
-            style={hue}
-            aria-hidden="true"
-          ></span>{label}{/if}{SEP}{metaAge(issue)}</span
+          ></span>{m.issuelist_running()}{/if}{#if shown.length}{SEP}<span class="lchips"
+            >{#each shown as label, i (label)}{#if i}{GAP}{/if}<span
+                class="lchip"
+                style:--lc="var(--data-{dataSlot(label)})">{label}</span
+              >{/each}{#if rest.length}{GAP}<span class="lchip more" title={rest.join(", ")}
+                >+{rest.length}</span
+              >{/if}</span
+          >{/if}{SEP}<span class="age" title={m.issuelist_age_tip({ age })}>{age}</span></span
       >
     </div>
   {/if}
@@ -299,22 +318,23 @@
     margin-right: 5px;
     vertical-align: middle;
   }
-  /* The label's own hue as a dot (the sanctioned forge-colour exception, as the overview's
-     label rows); neutral when the forge sends no colour. */
-  .label-dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    margin-right: 5px;
-    border-radius: 50%;
-    background: var(--color-muted);
+  /* Label chips: a categorical `--data-N` tint from a stable hash of the name (never a status
+     colour, never the forge's) so a label keeps its hue across rows; "+N" stays neutral. */
+  .lchips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 3px;
     vertical-align: middle;
   }
-  .label-dot.hued {
-    background: var(--lc-text-d);
+  .lchip {
+    padding: 0 5px;
+    border-radius: 2px;
+    background: color-mix(in oklch, var(--lc) 15%, transparent);
+    color: var(--lc);
+    line-height: 1.5;
   }
-  :global([data-theme="light"]) .label-dot.hued {
-    background: var(--lc-text-l);
+  .lchip.more {
+    --lc: var(--color-muted);
   }
 
   @media (max-width: 768px), (pointer: coarse) {

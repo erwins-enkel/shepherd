@@ -13,6 +13,7 @@
     onselect = () => {},
     onff = undefined,
     ffDisabled = false,
+    branch = null,
     fromFilter = false,
     onclose,
     children = undefined,
@@ -24,6 +25,8 @@
      *  loading / no-repos states have nothing to fast-forward). */
     onff?: () => void;
     ffDisabled?: boolean;
+    /** The selected repo's default branch — the Fast-forward label names it. null → generic. */
+    branch?: string | null;
     /** The open repo is the one filtered on the dashboard — say so next to the switcher. */
     fromFilter?: boolean;
     onclose: () => void;
@@ -65,6 +68,7 @@
   {/if}
   <div class="rh-actions">
     {#if onff}
+      <span class="ff-sep" aria-hidden="true"></span>
       <button
         class="gbtn ff-btn"
         type="button"
@@ -78,7 +82,7 @@
           <path d="M1 2.5L5.5 6 1 9.5V2.5Z" fill="currentColor" />
           <path d="M6.5 2.5L11 6 6.5 9.5V2.5Z" fill="currentColor" />
         </svg>
-        {m.backlog_ff_main()}
+        {branch ? m.backlog_ff_branch({ branch }) : m.backlog_ff_main()}
       </button>
     {/if}
     <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
@@ -202,6 +206,13 @@
   .gbtn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* Sets Fast-forward apart from the recents chips — it acts on the repo, not a switch. */
+  .ff-sep {
+    align-self: stretch;
+    width: 1px;
+    margin: 2px 4px;
+    background: var(--color-line);
   }
   .ff-btn {
     display: inline-flex;

@@ -2,19 +2,21 @@
   import type { DrainStatus, Epic, EpicSummary } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { labelChipStyle } from "#lib/label-color.js";
+  import { repoOverviewRunExplanation } from "#lib/tooltips/explanations.js";
   import {
     epicRole,
     epicRunState,
     epicRunStateLabel,
     epicRunSteps,
+    overviewRunState,
     queuePosition,
-    type EpicRunTone,
   } from "../epic-panel";
   import { epicKey, STALE_DAYS, type RunningIssue, type StaleSummary } from "../issues-panel";
   import RunPanel from "./RunPanel.svelte";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
   import EpicQueueList from "./EpicQueueList.svelte";
+  import InfoTip from "../InfoTip.svelte";
 
   // The reading detail with nothing selected (#2622): what is happening in this repo. The run
   // area "Abarbeitung im Repo" (which epic leads, its Now → Next → After steps, epics winding
@@ -26,7 +28,6 @@
 
   let {
     repoPath,
-    repoName,
     epics,
     running,
     labels,
@@ -44,7 +45,6 @@
     onopenautomation = undefined,
   }: {
     repoPath: string;
-    repoName: string;
     /** The repo's epics, in list order. */
     epics: readonly EpicSummary[];
     /** Single issues being worked right now, whether or not the list shows them. */
@@ -78,23 +78,27 @@
   );
   const steps = $derived(record && leading != null ? epicRunSteps(record, leading, drain) : null);
 
-  const state = $derived.by((): { text: string; tone: EpicRunTone } => {
-    if (leading == null) {
-      return {
-        text: m.repooverview_none_leading(),
-        // Landing repairs hold no slot (#2973) but still run.
-        tone:
-          summary && (summary.slots.used > 0 || summary.landingRepairs?.length) ? "run" : "quiet",
-      };
-    }
-    if (!record) return { text: m.repooverview_leading_only({ epic: leading }), tone: "run" };
-    const run = epicRunState(record, leading, drain);
-    const inflight = run.inFlight.map((n) => `#${n}`).join(", ") || "…";
-    return {
-      text: m.repooverview_leading({ epic: leading, state: epicRunStateLabel(run.kind, inflight) }),
-      tone: run.tone,
-    };
+  const leaderRun = $derived(
+    record && leading != null ? epicRunState(record, leading, drain) : null,
+  );
+  // Tone and dot shape (#2639); landing repairs hold no slot (#2973) but still run.
+  const indicator = $derived(overviewRunState(summary, leaderRun));
+  const stateText = $derived.by((): string => {
+    if (leading == null) return m.repooverview_none_leading();
+    if (!leaderRun) return m.repooverview_leading_only({ epic: leading });
+    const inflight = leaderRun.inFlight.map((n) => `#${n}`).join(", ") || "…";
+    return m.repooverview_leading({
+      epic: leading,
+      state: epicRunStateLabel(leaderRun.kind, inflight),
+    });
   });
+  const slots = $derived(
+    summary
+      ? { used: summary.slots.used, max: summary.slots.max }
+      : drain
+        ? { used: drain.inFlight, max: drain.max }
+        : null,
+  );
 
   // Leading and winding-down epics first, the rest in list order.
   const cards = $derived(
@@ -125,21 +129,27 @@
   }
 </script>
 
-<article class="overview" aria-label={m.repooverview_title({ repo: repoName })}>
-  <h2 class="title">{m.repooverview_title({ repo: repoName })}</h2>
+<article class="overview" aria-label={m.repooverview_title()}>
+  <h2 class="title">{m.repooverview_title()}</h2>
 
   <RunPanel
     label={m.repooverview_run_label()}
-    stateText={state.text}
-    tone={state.tone}
+    {stateText}
+    tone={indicator.tone}
+    kind={indicator.kind}
+    dot={indicator.dot}
     data-repo-run
   >
     {#snippet actions()}
+      {#if slots}
+        <span class="slots-value" data-slots-value>{m.repooverview_slots_value(slots)}</span>
+      {/if}
       {#if onopenautomation}
         <button class="gbtn" type="button" onclick={onopenautomation}
-          >{m.repooverview_change_slots()}</button
+          >{m.repooverview_change()}</button
         >
       {/if}
+      <InfoTip text={repoOverviewRunExplanation()} label={m.tooltip_repo_run_title()} />
     {/snippet}
 
     {#if steps}
@@ -168,34 +178,37 @@
         onselect={(n) => onselect(epicKey(n))}
       />
     {/if}
-    <p class="note">{m.repooverview_hint()}</p>
   </RunPanel>
 
   {#if cards.length}
     <section class="group" aria-label={m.repooverview_epics()}>
       <h3 class="group-head">{m.repooverview_epics()}</h3>
-      <ul class="cards">
+      <ul class="rows">
         {#each cards as { epic, role, position } (epic.parentIssueNumber)}
           <li>
             <button
-              class="card"
+              class="orow"
               type="button"
+              data-epic-row
               onclick={() => onselect(epicKey(epic.parentIssueNumber))}
             >
-              <span class="line">
-                <span class="num">#{epic.parentIssueNumber}</span>
-                {#if role}<EpicRoleBadge {role} {position} />{/if}
-                <span class="faint"
-                  >{m.repooverview_progress({ merged: epic.merged, total: epic.total })}</span
+              <span class="orow-body">
+                <span class="line">
+                  <span class="num">#{epic.parentIssueNumber}</span>
+                  {#if role}<EpicRoleBadge {role} {position} />{/if}
+                  <span class="faint"
+                    >{m.repooverview_progress({ merged: epic.merged, total: epic.total })}</span
+                  >
+                </span>
+                <span class="card-title">{epic.parentTitle}</span>
+                <span class="bar" aria-hidden="true"
+                  ><span
+                    class="fill"
+                    style:width="{epic.total ? (epic.merged / epic.total) * 100 : 0}%"
+                  ></span></span
                 >
               </span>
-              <span class="card-title">{epic.parentTitle}</span>
-              <span class="bar" aria-hidden="true"
-                ><span
-                  class="fill"
-                  style:width="{epic.total ? (epic.merged / epic.total) * 100 : 0}%"
-                ></span></span
-              >
+              <span class="arrow" aria-hidden="true">›</span>
             </button>
           </li>
         {/each}
@@ -286,6 +299,7 @@
                       ></span></span
                     >
                     <span class="label-count">{count}</span>
+                    <span class="arrow" aria-hidden="true">›</span>
                   </button>
                 </li>
               {/each}
@@ -299,21 +313,25 @@
 
   <section class="group" aria-label={m.repooverview_next()}>
     <h3 class="group-head">{m.repooverview_next()}</h3>
-    <div class="next">
-      <div class="next-card">
-        <span class="next-title">{m.repooverview_next_single_title()} <kbd>A</kbd></span>
-        <span class="note">{m.repooverview_next_single_body()}</span>
-      </div>
+    <ul class="rows">
+      <li class="orow next-row">
+        <span class="orow-body">
+          <span class="next-title">{m.repooverview_next_single_title()} <kbd>A</kbd></span>
+          <span class="note">{m.repooverview_next_single_body()}</span>
+        </span>
+      </li>
       {#if ondraftepic}
-        <div class="next-card">
-          <span class="next-title">{m.repooverview_next_epic_title()}</span>
-          <span class="note">{m.repooverview_next_epic_body()}</span>
-          <button class="gbtn primary" type="button" onclick={ondraftepic}
-            >{m.repooverview_draft_epic()}</button
-          >
-        </div>
+        <li class="orow next-row">
+          <span class="orow-body">
+            <span class="next-title">{m.repooverview_next_epic_title()}</span>
+            <span class="note">{m.repooverview_next_epic_body()}</span>
+            <button class="gbtn primary" type="button" onclick={ondraftepic}
+              >{m.repooverview_draft_epic()}</button
+            >
+          </span>
+        </li>
       {/if}
-    </div>
+    </ul>
   </section>
 </article>
 
@@ -356,38 +374,63 @@
     text-transform: uppercase;
   }
 
-  .cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 6px;
+  /* Borderless list rows (#2639), shared by the epics and the next steps: one column, a hover
+     ground and a trailing ›. An epic row is the button that selects the epic. */
+  .rows {
+    display: flex;
+    flex-direction: column;
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  /* Panel-recipe cards; the whole card is the button that selects the epic. */
-  .card {
+  .orow {
     display: flex;
+    align-items: center;
+    gap: 10px;
     width: 100%;
     min-width: 0;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
+    padding: 6px 8px;
+    background: transparent;
+    border: 0;
     border-radius: 2px;
     color: inherit;
     font: inherit;
     text-align: left;
+  }
+  button.orow {
     cursor: pointer;
   }
-  .card {
-    flex-direction: column;
-    gap: 4px;
-    padding: 6px 8px;
+  /* Only actionable rows answer hover — the next-step rows are information, not targets. */
+  button.orow:hover {
+    background: var(--color-panel);
   }
-  .card:hover {
-    border-color: var(--color-line-bright);
-  }
-  .card:focus-visible {
+  .orow:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .orow-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .next-row .orow-body {
+    align-items: flex-start;
+  }
+  .arrow {
+    flex: none;
+    color: var(--color-faint);
+    font-size: var(--fs-base);
+  }
+  button.orow:hover .arrow,
+  .label-row:hover .arrow {
+    color: var(--color-ink);
+  }
+
+  .slots-value {
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
   }
 
   /* Running now (#2638): one line per issue, its session one click away. */
@@ -403,10 +446,6 @@
     align-items: center;
     gap: 10px;
     padding: 6px 8px;
-    border-top: 1px solid var(--color-line);
-  }
-  .run-row:last-child {
-    border-bottom: 1px solid var(--color-line);
   }
   .run-dot {
     flex: none;
@@ -455,7 +494,7 @@
     --label-ink: var(--color-ink);
     --label-dot: var(--color-muted);
     display: grid;
-    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr) 3ch;
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr) 3ch auto;
     align-items: center;
     gap: 10px;
     width: 100%;
@@ -522,20 +561,6 @@
   }
 
   /* Next step: start one issue by hand, or bundle several into an epic. */
-  .next {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 8px;
-  }
-  .next-card {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 10px 12px;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-  }
   .next-title {
     color: var(--color-ink-bright);
     font-size: var(--fs-meta);

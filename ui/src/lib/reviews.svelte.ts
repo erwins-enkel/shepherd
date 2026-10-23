@@ -404,6 +404,7 @@ class RepoConfigStore {
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
   claudeAiConnectors = $state<Record<string, boolean>>({}); // claude.ai account connectors for this repo's Claude sessions (default off)
   hidden = $state<Record<string, boolean>>({}); // hidden from the Backlog repos panel (optimistic overlay over payload; default off)
+  pinned = $state<Record<string, boolean>>({}); // pinned to the top of the Backlog repos panel (optimistic overlay over payload; default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
@@ -453,6 +454,7 @@ class RepoConfigStore {
       [repoPath]: c.claudeAiConnectorsEnabled,
     };
     this.hidden = { ...this.hidden, [repoPath]: c.hidden };
+    this.pinned = { ...this.pinned, [repoPath]: c.pinned };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
@@ -546,6 +548,7 @@ class RepoConfigStore {
         | "browserAllowedHosts"
         | "claudeAiConnectorsEnabled"
         | "hidden"
+        | "pinned"
         | "planGateEnabled"
         | "draftMode"
         | "signoffAuthority"
@@ -621,6 +624,23 @@ class RepoConfigStore {
     this.hidden = { ...this.hidden, [repoPath]: next }; // optimistic
     await this.apply(repoPath, { hidden: next }, () => {
       this.hidden = { ...this.hidden, [repoPath]: prev };
+    });
+  }
+
+  /** Effective pinned state for a repo: the optimistic overlay if this client has
+   *  toggled it, else the server-provided baseline (`fallback`, from the backlog payload). */
+  isPinned(repoPath: string, fallback: boolean): boolean {
+    return this.pinned[repoPath] ?? fallback;
+  }
+
+  /** Pin/unpin a repo to the top of the Backlog panel. `current` is the effective state
+   *  being flipped (overlay or payload baseline). Optimistic, reverts on a failed PUT. */
+  async togglePinned(repoPath: string, current: boolean) {
+    const prev = this.pinned[repoPath];
+    const next = !current;
+    this.pinned = { ...this.pinned, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { pinned: next }, () => {
+      this.pinned = { ...this.pinned, [repoPath]: prev };
     });
   }
 

@@ -100,10 +100,9 @@ const root = () => document.querySelector<HTMLElement>(".overview")!;
 const run = () => root().querySelector<HTMLElement>("[data-repo-run]")!;
 
 describe("RepoOverview (#2622)", () => {
-  it("names the repo, the leading epic's state and steps, winding epics and the slot hint", async () => {
+  it("titles the overview, names the leading epic's state and steps, winding epics and the slots", async () => {
     const onopenautomation = vi.fn();
     render(RepoOverview, {
-      repoName: "shepherd",
       epics: [summaryOf(A, 1, 3), summaryOf(B, 0, 2)],
       ...quiet,
       drain: drain(),
@@ -112,17 +111,24 @@ describe("RepoOverview (#2622)", () => {
       onselect: vi.fn(),
       onopenautomation,
     });
-    expect(root().querySelector("h2")?.textContent).toBe(
-      m.repooverview_title({ repo: "shepherd" }),
-    );
+    expect(root().querySelector("h2")?.textContent).toBe(m.repooverview_title());
+    expect(root().getAttribute("aria-label")).toBe(m.repooverview_title());
     expect(run().querySelector(".run-state")?.textContent).toContain(
       m.repooverview_leading({ epic: B, state: m.epic_run_state_running() }),
     );
     expect(run().textContent).toContain("#21 First of B");
     expect(run().textContent).toContain(m.repooverview_winding({ epic: A, inflight: "#11" }));
-    expect(run().textContent).toContain(m.repooverview_hint());
+    // The slot value is visible; the hint lives in the InfoTip's explanation (#2639).
+    expect(run().querySelector("[data-slots-value]")?.textContent).toBe(
+      m.repooverview_slots_value({ used: 1, max: 2 }),
+    );
+    // No hint note: the only note is the winding-down line.
+    expect(run().querySelectorAll(":scope > .note")).toHaveLength(1);
+    expect(
+      run().querySelector(`button[aria-label="${m.tooltip_repo_run_title()}"]`),
+    ).not.toBeNull();
     [...run().querySelectorAll("button")]
-      .find((b) => b.textContent?.includes(m.repooverview_change_slots()))!
+      .find((b) => b.textContent === m.repooverview_change())!
       .click();
     expect(onopenautomation).toHaveBeenCalledOnce();
   });
@@ -139,7 +145,6 @@ describe("RepoOverview (#2622)", () => {
       ],
     };
     render(RepoOverview, {
-      repoName: "shepherd",
       epics: [summaryOf(A, 1, 3), summaryOf(B, 0, 2), summaryOf(30, 0, 1)],
       ...quiet,
       drain: d,
@@ -164,7 +169,6 @@ describe("RepoOverview (#2622)", () => {
 
   it("shows no queue without queued epics", async () => {
     render(RepoOverview, {
-      repoName: "shepherd",
       epics: [],
       ...quiet,
       drain: drain(),
@@ -178,26 +182,92 @@ describe("RepoOverview (#2622)", () => {
   it("lists epics with role and progress (leading first) and selects on click", async () => {
     const onselect = vi.fn();
     render(RepoOverview, {
-      repoName: "shepherd",
       epics: [summaryOf(A, 1, 3), summaryOf(B, 0, 2), summaryOf(30, 2, 2)],
       ...quiet,
       drain: drain(),
       titleFor,
       onselect,
     });
-    const cards = [...root().querySelectorAll<HTMLButtonElement>(".card")];
+    const cards = [...root().querySelectorAll<HTMLButtonElement>("[data-epic-row]")];
     expect(cards.map((c) => c.querySelector(".num")?.textContent)).toEqual(["#20", "#10", "#30"]);
     expect(cards[0].textContent).toContain(m.epic_role_leading());
     expect(cards[1].textContent).toContain(m.epic_role_winding());
     expect(cards[1].textContent).toContain(m.repooverview_progress({ merged: 1, total: 3 }));
     cards[2].click();
     expect(onselect).toHaveBeenCalledWith("e:30");
+    // Borderless list rows with a trailing arrow (#2639).
+    for (const c of cards) {
+      expect(getComputedStyle(c).borderTopWidth).toBe("0px");
+      expect(c.querySelector(".arrow[aria-hidden=true]")?.textContent).toBe("›");
+    }
+    expect(cards[0].getBoundingClientRect().left).toBe(cards[1].getBoundingClientRect().left);
+  });
+
+  it("next-step rows are borderless, with no arrow or hover (not click targets) (#2639)", async () => {
+    render(RepoOverview, {
+      epics: [],
+      ...quiet,
+      titleFor,
+      onselect: vi.fn(),
+      ondraftepic: vi.fn(),
+    });
+    const rows = [...root().querySelectorAll<HTMLElement>(".next-row")];
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(getComputedStyle(r).borderTopWidth).toBe("0px");
+      expect(r.querySelector(".arrow")).toBeNull();
+      expect(r.tagName).toBe("LI");
+    }
+  });
+
+  describe("run state dot (#2639)", () => {
+    const dot = () => run().querySelector<HTMLElement>(".run-state")!;
+    const withSlots = (used: number, max: number, over: Partial<DrainStatus> = {}) => {
+      const d = drain();
+      d.runSummary = {
+        ...d.runSummary!,
+        leadingEpic: null,
+        windingDown: [],
+        slots: { ...d.runSummary!.slots, used, max },
+      };
+      return { ...d, ...over };
+    };
+    const props = { epics: [], ...quiet, titleFor, onselect: vi.fn() };
+
+    it("idle: ring", async () => {
+      render(RepoOverview, { ...props, drain: withSlots(0, 2) });
+      expect(dot().dataset.dot).toBe("ring");
+      expect(dot().dataset.kind).toBe("idle");
+    });
+
+    it("leading: filled", async () => {
+      render(RepoOverview, { ...props, drain: drain(), leadingRecord: leading() });
+      // drain() has A winding down beside B leading — the leader's own state decides.
+      expect(dot().dataset.kind).toBe("leading");
+      expect(dot().dataset.dot).toBe("filled");
+    });
+
+    it("saturated: filled amber", async () => {
+      const d = drain();
+      d.runSummary = { ...d.runSummary!, slots: { ...d.runSummary!.slots, used: 2, max: 2 } };
+      render(RepoOverview, { ...props, drain: d, leadingRecord: leading() });
+      expect(dot().dataset.kind).toBe("saturated");
+      expect(dot().dataset.dot).toBe("filled");
+      expect(dot().classList.contains("tone-busy")).toBe(true);
+    });
+
+    it("winding: half", async () => {
+      const d = withSlots(1, 2);
+      d.runSummary = { ...d.runSummary!, windingDown: [{ epic: A, inFlight: [11] }] };
+      render(RepoOverview, { ...props, drain: d });
+      expect(dot().dataset.kind).toBe("winding");
+      expect(dot().dataset.dot).toBe("half");
+    });
   });
 
   it("without a leading epic says so, lists no issues and offers the next steps (#2638)", async () => {
     const ondraftepic = vi.fn();
     render(RepoOverview, {
-      repoName: "shepherd",
       epics: [],
       ...quiet,
       titleFor,
@@ -218,7 +288,6 @@ describe("RepoOverview (#2622)", () => {
   it("names running issues — also ones the list hides — and opens their session (#2638)", async () => {
     const onopensession = vi.fn();
     render(RepoOverview, {
-      repoName: "shepherd",
       epics: [],
       ...quiet,
       running: [
@@ -231,6 +300,11 @@ describe("RepoOverview (#2622)", () => {
     });
     const rows = [...root().querySelectorAll<HTMLElement>(".run-row")];
     expect(root().textContent).toContain(m.repooverview_running({ count: 2 }));
+    // No hairlines between running rows (#2639).
+    for (const r of rows) {
+      expect(getComputedStyle(r).borderTopWidth).toBe("0px");
+      expect(getComputedStyle(r).borderBottomWidth).toBe("0px");
+    }
     expect(rows[0].textContent).toContain("#160 Issue 160");
     expect(rows[0].textContent).toContain(`TASK-160 · ${m.repooverview_running_hidden()}`);
     expect(rows[1].textContent).toContain(m.repooverview_running_label_only());
@@ -243,7 +317,6 @@ describe("RepoOverview (#2622)", () => {
     const onfilterlabel = vi.fn();
     const ontoggleoldest = vi.fn();
     render(RepoOverview, {
-      repoName: "shepherd",
       epics: [],
       ...quiet,
       labels: [
@@ -259,8 +332,9 @@ describe("RepoOverview (#2622)", () => {
       onselect: vi.fn(),
     });
     const labels = [...root().querySelectorAll<HTMLButtonElement>(".label-row")];
-    expect(labels.map((l) => l.textContent?.replace(/\s+/g, ""))).toEqual(["bug3", "docs1"]);
+    expect(labels.map((l) => l.textContent?.replace(/\s+/g, ""))).toEqual(["bug3›", "docs1›"]);
     expect(labels[0].classList.contains("hued")).toBe(true);
+    expect(labels[0].querySelector(".arrow[aria-hidden=true]")).not.toBeNull();
     labels[1].click();
     expect(onfilterlabel).toHaveBeenCalledWith("docs");
 
@@ -290,7 +364,6 @@ describe("RepoOverview (#2622)", () => {
     it("shows Jetzt · Als nächstes · Danach side by side", async () => {
       await page.viewport(1100, 800);
       render(RepoOverview, {
-        repoName: "shepherd",
         epics: [summaryOf(A, 1, 3), summaryOf(B, 0, 2)],
         ...quiet,
         drain: drain(),
@@ -310,7 +383,6 @@ describe("RepoOverview (#2622)", () => {
     it("below them: running and idle on the left, open-by-label on the right", async () => {
       await page.viewport(1100, 800);
       render(RepoOverview, {
-        repoName: "shepherd",
         epics: [],
         ...quiet,
         ...facts,
@@ -331,7 +403,6 @@ describe("RepoOverview (#2622)", () => {
     it("stacks the two columns in a narrow reading view", async () => {
       await page.viewport(520, 800);
       render(RepoOverview, {
-        repoName: "shepherd",
         epics: [],
         ...quiet,
         ...facts,
@@ -345,7 +416,6 @@ describe("RepoOverview (#2622)", () => {
     it("renders the columns for running issues alone", async () => {
       await page.viewport(1100, 800);
       render(RepoOverview, {
-        repoName: "shepherd",
         epics: [],
         ...quiet,
         running: facts.running,

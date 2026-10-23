@@ -12,6 +12,7 @@ import { issuesOverview } from "#lib/issues-overview.svelte.js";
 import { ACTIVE_LABEL } from "./issues-panel";
 import { formatReset } from "#lib/format.js";
 import { reactiveRecord } from "./reactive-fixture.svelte";
+import { dialog } from "#lib/a11yDialog.js";
 
 // Mock the API so no network calls fire; each test seeds the results.
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -75,8 +76,8 @@ async function selectRow(key: string) {
 const userKey = (key: string) => userEvent.keyboard(key.length === 1 ? key : `{${key}}`);
 const epicCount = (n: number) => option(`e:${n}`)?.querySelector(".count")?.textContent?.trim();
 
-describe("IssuesPanel repo slug link", () => {
-  it("renders an <a> linking to webUrl when provided", async () => {
+describe("IssuesPanel header (#2639)", () => {
+  it("shows no ISSUES · repo line — the dialog header already names the repo", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",
       webUrl: "https://github.com/owner/repo",
@@ -86,30 +87,11 @@ describe("IssuesPanel repo slug link", () => {
     mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
-    const link = document.querySelector(".issues-header .repo-link") as HTMLAnchorElement | null;
-    expect(link).not.toBeNull();
-    expect(link!.href).toBe("https://github.com/owner/repo");
-    expect(link!.getAttribute("target")).toBe("_blank");
-    expect(link!.textContent?.trim()).toBe("owner/repo");
-  });
-
-  it("renders slug as plain text when webUrl is null", async () => {
-    mockListIssues.mockResolvedValue({
-      slug: "owner/repo",
-      webUrl: null,
-      issues: [],
-      viewer: null,
-    });
-    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
-    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
-
-    await expect.poll(() => document.querySelector(".issues-header")).toBeTruthy();
     await expect
-      .poll(() => document.querySelector(".issues-header")?.textContent)
-      .toContain("owner/repo");
-    const link = document.querySelector(".issues-header .repo-link");
-    expect(link).toBeNull();
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.common_no_open_issues());
+    expect(document.querySelector(".issues-header")).toBeNull();
+    expect(document.querySelector(".repo-link")).toBeNull();
   });
 });
 
@@ -496,10 +478,12 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     const row = option("s:42")!;
     expect(row.getAttribute("role")).toBe("option");
     expect(row.querySelector(".issue-title")?.textContent).toBe("Compact issue row");
-    expect(row.querySelector(".meta")?.textContent).toContain("#42 · enhancement · ");
+    expect(row.querySelector(".meta")?.textContent).toContain("#42 · enhancement feedback +1 · ");
+    // No epic in this repo: the "Single issues" heading would label nothing.
+    expect(document.querySelector(".issue-options .section-heading")).toBeNull();
     const overview = document.querySelector<HTMLElement>(".detail-col .overview")!;
-    expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title({ repo: "repo" }));
-    expect(overview.querySelector("[data-repo-run]")?.textContent).toContain(m.repooverview_hint());
+    expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title());
+    expect(overview.querySelector("[data-repo-run] .note")).toBeNull();
     // The overview doesn't repeat the list (#2638): no entry lists the issue.
     const entries = [...overview.querySelectorAll("li")].map((li) => li.textContent ?? "");
     expect(entries.some((t) => t.includes("Compact issue row"))).toBe(false);
@@ -642,14 +626,16 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   });
 
-  it("the meta line names number, running state, the label's hue dot and age (#2950)", async () => {
+  it("the meta line names number, running state, label chips and the spelled-out age (#2639)", async () => {
+    const DAY = 86_400_000;
     seed([
       plain(7, {
         labels: [ACTIVE_LABEL, "ci-gate-rot"],
         labelColors: { "ci-gate-rot": "#d73a4a" },
-        createdAt: Date.now() - 7 * 60_000,
+        createdAt: Date.now() - 90 * DAY,
+        updatedAt: Date.now() - 44 * DAY - 60_000,
       }),
-      plain(8, { labels: ["docs"], createdAt: Date.now() - 7 * 60_000 }),
+      plain(8, { labels: ["docs", "bug", "ui", "ux"], createdAt: Date.now() - 3 * DAY - 60_000 }),
     ]);
     render(IssuesPanel, {
       repoPath: "/repo",
@@ -660,17 +646,24 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect.poll(() => option("s:8")).not.toBeNull();
     const meta = (key: string) => option(key)!.querySelector<HTMLElement>(".meta")!;
     const text = (key: string) => meta(key).textContent?.replace(/\s+/g, " ").trim();
+    const chips = (key: string) =>
+      [...meta(key).querySelectorAll<HTMLElement>(".lchip")].map((c) => c.textContent);
 
-    expect(text("s:7")).toMatch(
-      new RegExp(`^#7 · ${m.issuelist_running()} · ci-gate-rot · \\d+m$`),
-    );
+    // Age from the last change (updatedAt), not creation; the claim label is no chip.
+    expect(text("s:7")).toBe(`#7 · ${m.issuelist_running()} · ci-gate-rot · 44 days ago`);
     expect(meta("s:7").querySelector(".dot-running")).not.toBeNull();
-    expect(meta("s:7").querySelector(".label-dot")!.classList.contains("hued")).toBe(true);
-    expect(text("s:7")).not.toContain(ACTIVE_LABEL);
+    expect(chips("s:7")).toEqual(["ci-gate-rot"]);
+    const age = meta("s:7").querySelector<HTMLElement>(".age")!;
+    expect(age.title).toBe(m.issuelist_age_tip({ age: "44 days ago" }));
 
-    expect(text("s:8")).toMatch(/^#8 · docs · \d+m$/);
+    // At most two chips, the rest folded into "+N" (its title names them).
+    expect(chips("s:8")).toEqual(["docs", "bug", "+2"]);
+    expect(meta("s:8").querySelector<HTMLElement>(".lchip.more")!.title).toBe("ui, ux");
+    expect(text("s:8")).toBe("#8 · docs bug +2 · 3 days ago");
     expect(meta("s:8").querySelector(".dot-running")).toBeNull();
-    expect(meta("s:8").querySelector(".label-dot")!.classList.contains("hued")).toBe(false);
+    // Tinted from the --data-* palette, never the forge colour.
+    const style = meta("s:7").querySelector<HTMLElement>(".lchip")!.getAttribute("style") ?? "";
+    expect(style).toMatch(/--lc: var\(--data-[1-7]\)/);
   });
 
   it("an epic header reads on two lines; its children drop the epic prefix and show a held slot below the title (#2950)", async () => {
@@ -827,7 +820,147 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(option("s:2")?.getAttribute("aria-selected")).toBe("true");
     await userKey("a");
     expect(onnewtask).toHaveBeenCalledWith(expect.objectContaining({ number: 2 }), {});
-    expect(document.querySelector(".shortcuts")?.textContent).toBe(m.issuespanel_shortcuts());
+    expect(document.querySelector(".shortcuts")?.textContent?.trim()).toBe(
+      [
+        m.issuespanel_hint_select(),
+        m.issuespanel_hint_expand(),
+        m.issuespanel_hint_start(),
+        m.issuespanel_hint_esc(),
+      ].join(" · "),
+    );
+  });
+
+  describe("visible filters, shortcuts and Esc (#2639)", () => {
+    let prev = { active: false, blocked: true };
+    beforeEach(() => {
+      prev = { active: issuesFilter.hideActive, blocked: issuesFilter.hideBlocked };
+    });
+    afterEach(() => {
+      issuesFilter.setActive(prev.active);
+      issuesFilter.setBlocked(prev.blocked);
+    });
+    const chip = (id: string) => document.querySelector<HTMLElement>(`.fchip[data-chip="${id}"]`);
+    const shown = () => document.querySelector(".shown-count")?.textContent?.trim() ?? null;
+    const hints = () => document.querySelector(".shortcuts")?.textContent?.trim() ?? "";
+
+    it("names a hiding toggle as a chip with N of M; × clears it", async () => {
+      issuesFilter.setActive(true);
+      issuesFilter.setBlocked(false);
+      seed([plain(1, { labels: [ACTIVE_LABEL] }), plain(2), plain(3)]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+      await expect.poll(() => chip("active")?.textContent).toContain(m.issues_filter_chip_active());
+      expect(chip("blocked")).toBeNull();
+      expect(shown()).toBe(m.issues_shown_of_total({ shown: 2, total: 3 }));
+      expect(option("s:1")).toBeNull();
+
+      const x = chip("active")!.querySelector<HTMLButtonElement>("button")!;
+      expect(x.getAttribute("aria-label")).toBe(
+        m.issues_filter_chip_remove({ name: m.issues_filter_chip_active() }),
+      );
+      x.click();
+      await expect.poll(() => chip("active")).toBeNull();
+      expect(issuesFilter.hideActive).toBe(false);
+      await expect.poll(() => option("s:1")).not.toBeNull();
+      expect(shown()).toBeNull();
+    });
+
+    it("hints → only with epics and Esc only with a selection", async () => {
+      seed([plain(2), plain(3)]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => option("s:2")).not.toBeNull();
+      expect(hints()).toBe([m.issuespanel_hint_select(), m.issuespanel_hint_start()].join(" · "));
+      await selectRow("s:2");
+      expect(hints()).toBe(
+        [m.issuespanel_hint_select(), m.issuespanel_hint_start(), m.issuespanel_hint_esc()].join(
+          " · ",
+        ),
+      );
+    });
+
+    it("Esc with a selection returns to the overview without closing the dialog", async () => {
+      const onclose = vi.fn();
+      const onWindowKey = vi.fn();
+      window.addEventListener("keydown", onWindowKey);
+      try {
+        seed([plain(2), plain(3)]);
+        const { container } = await render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+        // The Repos dialog's card carries this action (BacklogOverlay: use:dialog={{ onclose }}).
+        // It sits BELOW Svelte's delegation root (the mount target), so its native listener
+        // runs before any delegated `onkeydown` — mount it on a descendant to keep that order.
+        const trap = dialog(container.firstElementChild as HTMLElement, { onclose });
+        try {
+          await selectRow("s:2");
+          document.querySelector<HTMLElement>(".issue-options")!.focus();
+          await userKey("Escape");
+          await expect.poll(() => document.querySelector(".detail-col .overview")).not.toBeNull();
+          expect(option("s:2")!.getAttribute("aria-selected")).toBe("false");
+          expect(onclose).not.toHaveBeenCalled();
+          expect(onWindowKey).not.toHaveBeenCalled();
+
+          // Focus in the detail column (e.g. after picking an epic from the overview): Esc
+          // still returns to the overview instead of closing the dialog.
+          await selectRow("s:2");
+          const detail = document.querySelector<HTMLElement>(".detail-col")!;
+          detail.tabIndex = -1;
+          detail.focus();
+          await userKey("Escape");
+          await expect.poll(() => document.querySelector(".detail-col .overview")).not.toBeNull();
+          expect(onclose).not.toHaveBeenCalled();
+
+          // Typing in the search: the field owns Esc — the panel leaves the selection alone
+          // (what the dialog then does with the key is unchanged from before).
+          await selectRow("s:2");
+          document.querySelector<HTMLInputElement>("input.issue-filter")!.focus();
+          await userKey("Escape");
+          expect(option("s:2")!.getAttribute("aria-selected")).toBe("true");
+          onclose.mockClear();
+          option("s:2")!.closest<HTMLElement>(".issue-options")!.focus();
+          await userKey("Escape");
+          await expect.poll(() => option("s:2")!.getAttribute("aria-selected")).toBe("false");
+          expect(onclose).not.toHaveBeenCalled();
+
+          // Nothing selected: Esc falls through and closes the dialog as before.
+          await userKey("Escape");
+          expect(onclose).toHaveBeenCalledTimes(1);
+        } finally {
+          trap.destroy();
+        }
+      } finally {
+        window.removeEventListener("keydown", onWindowKey);
+      }
+    });
+    it("Esc after picking an epic from the overview returns there (focus moves to the list)", async () => {
+      const onclose = vi.fn();
+      seed([plain(1, { title: "Epic parent" }), plain(2)], [summary(1)]);
+      mockEpic.mockResolvedValue({
+        repoPath: "/repo",
+        parentIssueNumber: 1,
+        parentTitle: "Epic 1",
+        source: "native",
+        children: [childOf(9)],
+        warnings: [],
+        run: { repoPath: "/repo", parentIssueNumber: 1, mode: "auto", status: "idle" },
+      });
+      const { container } = await render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      const trap = dialog(container.firstElementChild as HTMLElement, { onclose });
+      try {
+        const row = () =>
+          document.querySelector<HTMLElement>(".detail-col .overview [data-epic-row]");
+        await expect.poll(() => row()).not.toBeNull();
+        await page.elementLocator(row()!).click();
+        await expect.poll(() => option("e:1")?.getAttribute("aria-selected")).toBe("true");
+        // The clicked overview button unmounted; focus must not have fallen to <body>.
+        await expect
+          .poll(() => document.activeElement?.classList.contains("issue-options"))
+          .toBe(true);
+        await userKey("Escape");
+        await expect.poll(() => document.querySelector(".detail-col .overview")).not.toBeNull();
+        expect(onclose).not.toHaveBeenCalled();
+      } finally {
+        trap.destroy();
+      }
+    });
   });
 
   it("the task box starts a task with the changed run settings and keeps quick steers", async () => {
@@ -1040,7 +1173,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(option("e:10")?.textContent).toContain(m.epic_role_winding());
     await expect.element(page.getByText(m.issuespanel_epics_one_leads())).toBeInTheDocument();
     // The list heading shows the bare "used/max" with −/+ (#2950); the way into Automation is
-    // the overview's "change agent slots".
+    // the overview's "Change" beside the slot value.
     const slots = document.querySelector<HTMLElement>(".epics-heading .count")!;
     expect(slots.textContent).toBe("1/1");
     expect(slots.getAttribute("aria-label")).toBe(m.issuespanel_slots_aria({ used: 1, max: 1 }));
@@ -1051,7 +1184,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect
       .poll(() => document.querySelector("[data-repo-run] .run-state")?.textContent)
       .toContain(m.repooverview_leading({ epic: 20, state: m.epic_run_state_waiting_slot() }));
-    await page.getByRole("button", { name: m.repooverview_change_slots(), exact: true }).click();
+    await page.getByRole("button", { name: m.repooverview_change(), exact: true }).click();
     expect(onopenautomation).toHaveBeenCalled();
 
     // A (#10) is expanded by default (topmost epic): its running child holds the slot.

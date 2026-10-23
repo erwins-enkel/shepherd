@@ -110,6 +110,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     browserAllowedHosts: [],
     claudeAiConnectorsEnabled: false,
     hidden: false,
+    pinned: false,
     buildQueueEnabled: false,
     draftMode: false,
     signoffAuthority: "human",
@@ -145,6 +146,25 @@ test("GET /api/repo-config with repo outside root → 400", async () => {
 
 // ── PUT /api/repo-config ──────────────────────────────────────────────────────
 
+test("PUT /api/repo-config persists pinned; non-boolean pinned → 400", async () => {
+  const { app } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const put = (body: unknown) =>
+    app.fetch(
+      new Request(url, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  expect((await put({ pinned: "yes" })).status).toBe(400);
+  const ok = await put({ pinned: true });
+  expect(ok.status).toBe(200);
+  expect(((await ok.json()) as { pinned: boolean }).pinned).toBe(true);
+  const get = await app.fetch(new Request(url));
+  expect(((await get.json()) as { pinned: boolean }).pinned).toBe(true);
+});
+
 test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () => {
   const { app } = harness();
   const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
@@ -174,6 +194,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     browserAllowedHosts: [],
     claudeAiConnectorsEnabled: false,
     hidden: false,
+    pinned: false,
     buildQueueEnabled: false,
     draftMode: false,
     signoffAuthority: "human",
@@ -211,6 +232,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     browserAllowedHosts: [],
     claudeAiConnectorsEnabled: false,
     hidden: false,
+    pinned: false,
     buildQueueEnabled: false,
     draftMode: false,
     signoffAuthority: "human",
@@ -258,6 +280,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     browserAllowedHosts: [],
     claudeAiConnectorsEnabled: false,
     hidden: false,
+    pinned: false,
     buildQueueEnabled: false,
     draftMode: false,
     signoffAuthority: "human",

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Attachment } from "svelte/attachments";
   import { listIssues, getEpics, getEpic } from "#lib/api.js";
   import { steers } from "#lib/steers.svelte.js";
   import { repos } from "#lib/repos.svelte.js";
@@ -37,6 +38,9 @@
     labelCounts,
     runningIssues,
     ACTIVE_LABEL,
+    activeFilterChips,
+    shownOfTotal,
+    shortcutHints,
   } from "./issues-panel";
   import { childAsIssue, openBlockers } from "./epic-child";
   import { progress } from "./epic-panel";
@@ -49,8 +53,8 @@
   import IssueDetail from "./issues-panel/IssueDetail.svelte";
   import EpicsListHeading from "./issues-panel/EpicsListHeading.svelte";
   import RepoOverview from "./issues-panel/RepoOverview.svelte";
+  import ActiveFilters from "./issues-panel/ActiveFilters.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
-  import RepoLink from "./RepoLink.svelte";
   import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
   import IssueRateLimitNotice from "./issues-panel/IssueRateLimitNotice.svelte";
   import { isRateLimited } from "./issues-panel/rate-limit-wait";
@@ -121,7 +125,6 @@
 
   let issues = $state<Issue[]>([]);
   let slug = $state<string | null>(null);
-  let repoUrl = $state<string | null>(null);
   let viewer = $state<string | null>(null);
   let loading = $state(true);
   // True when the forge listing failed (rate-limited gh, network, un-authed CLI):
@@ -285,7 +288,6 @@
       .then((r) => {
         if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         slug = r.slug;
-        repoUrl = r.webUrl;
         issues = r.issues;
         viewer = r.viewer;
         viewerCache.set(rp, r.viewer);
@@ -368,7 +370,6 @@
           return;
         }
         slug = r.slug;
-        repoUrl = r.webUrl;
         issues = r.issues;
         viewer = r.viewer;
         viewerCache.set(rp, r.viewer);
@@ -533,6 +534,21 @@
     ),
   );
   let listEl = $state<HTMLElement>();
+  const hasEpicRows = $derived(rows.some((r) => r.kind === "epic"));
+
+  // Every filter hiding issues right now, as removable chips under the search (#2639) — the
+  // default-on toggles too, so nothing is hidden invisibly — and how many top-level issues show.
+  const filterChips = $derived(
+    activeFilterChips({
+      toggles: issuesFilter,
+      mineOffered: viewer != null,
+      author: selectedAuthor,
+      labels: selectedLabels,
+      clearAuthor: () => (selectedAuthor = null),
+      clearLabel: (label) => selectedLabels.delete(label),
+    }),
+  );
+  const shownCount = $derived(shownOfTotal(rows, issues, epicParentNums, nativeSubIssues));
 
   /** Move the selection; a new entry starts with a clean task box. */
   function select(key: string | null) {
@@ -577,18 +593,24 @@
     const key = childKey(parent, child);
     expandEpicRow(parent);
     select(key);
-    tick().then(() =>
-      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
-    );
+    revealRow(key);
   }
 
   /** Select an entry from the detail — an epic child's "← Epic #n" or a repo-overview entry
    *  (#2622) — and bring its row into view. */
   function selectAndReveal(key: string) {
     select(key);
-    tick().then(() =>
-      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
-    );
+    revealRow(key);
+  }
+
+  /** Scroll the selected row into view and, on desktop, hand keyboard focus to the list: the
+   *  clicked control in the detail unmounts on the swap, which would drop focus to <body> —
+   *  out of reach of the panel's Esc (and ↑/↓). */
+  function revealRow(key: string) {
+    tick().then(() => {
+      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" });
+      if (!mobile) listEl?.focus({ preventScroll: true });
+    });
   }
 
   /** "Start as a task anyway" on an epic child: the New Task dialog, carrying the child's open
@@ -638,26 +660,77 @@
     onnewtask(issue, $state.snapshot(taskRun));
   }
 
+  function stepListSelection(e: KeyboardEvent, delta: number) {
+    e.preventDefault();
+    const next = stepSelection(rows, selectedKey, delta);
+    if (next == null) return;
+    select(next);
+    tick().then(() =>
+      document.getElementById(`issue-opt-${next}`)?.scrollIntoView?.({ block: "nearest" }),
+    );
+  }
+
+  function expandSelectedEpic(e: KeyboardEvent) {
+    const row = rows.find((r) => r.key === selectedKey);
+    if (row?.kind !== "epic") return;
+    e.preventDefault();
+    expandEpicRow(row.issue.number);
+  }
+
+  function startSelectedTask(e: KeyboardEvent) {
+    if (selection?.kind !== "single") return;
+    e.preventDefault();
+    startTask(selection.issue);
+  }
+
+  /** Esc with an entry selected: back to the repo overview (the tab row's "Overview" path),
+   *  consumed so the dialog stays open. Without a selection it bubbles on and closes it. */
+  function escapeToOverview(e: KeyboardEvent) {
+    if (selection == null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    select(null);
+  }
+
+  const listKeys: Record<string, (e: KeyboardEvent) => void> = {
+    ArrowDown: (e) => stepListSelection(e, 1),
+    ArrowUp: (e) => stepListSelection(e, -1),
+    ArrowRight: expandSelectedEpic,
+    a: startSelectedTask,
+    A: startSelectedTask,
+  };
+
+  function isTypingTarget(el: EventTarget | null): boolean {
+    if (!(el instanceof HTMLElement)) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  }
+
+  /** A nested surface inside the panel that handles its own Esc (menu, popover, modal). */
+  function ownsEscape(el: EventTarget | null, panel: HTMLElement): boolean {
+    if (!(el instanceof Element)) return false;
+    const owner = el.closest('[role="menu"], [role="dialog"], [aria-modal="true"], [popover]');
+    return owner !== null && panel.contains(owner);
+  }
+
+  // Escape is bound natively, not via the delegated `onkeydown`: Svelte delegates that to
+  // the app root, so the dialog's own native Escape listener on its card would close the
+  // dialog before the delegated handler ever ran. Bound on the panel (both columns), so it
+  // also works with focus in the detail — but never mid-typing (a field owns its Esc) and
+  // never inside a nested menu/popover/modal, which closes itself first.
+  const escapeKey: Attachment<HTMLElement> = (node) => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      if (isTypingTarget(e.target) || ownsEscape(e.target, node)) return;
+      escapeToOverview(e);
+    };
+    node.addEventListener("keydown", onKey);
+    return () => node.removeEventListener("keydown", onKey);
+  };
+
   function onListKey(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const next = stepSelection(rows, selectedKey, e.key === "ArrowDown" ? 1 : -1);
-      if (next == null) return;
-      select(next);
-      tick().then(() =>
-        document.getElementById(`issue-opt-${next}`)?.scrollIntoView?.({ block: "nearest" }),
-      );
-    } else if (e.key === "ArrowRight") {
-      const row = rows.find((r) => r.key === selectedKey);
-      if (row?.kind !== "epic") return;
-      e.preventDefault();
-      expandEpicRow(row.issue.number);
-    } else if (e.key === "a" || e.key === "A") {
-      if (selection?.kind !== "single") return;
-      e.preventDefault();
-      startTask(selection.issue);
-    }
+    listKeys[e.key]?.(e);
   }
 
   /** Author filter: null clears it (radio "All authors"). */
@@ -733,12 +806,8 @@
   });
 </script>
 
-<div class="issues-panel" class:mobile>
+<div class="issues-panel" class:mobile {@attach escapeKey}>
   <div class="list-col">
-    <div class="issues-header">
-      {m.issuespanel_title()}<RepoLink {slug} webUrl={repoUrl} />
-    </div>
-
     <div class="issues-list">
       {#if loading}
         <div class="muted">{m.common_loading()}</div>
@@ -787,6 +856,7 @@
             ontogglelabel={toggleLabel}
           />
         </div>
+        <ActiveFilters chips={filterChips} count={shownCount} />
         {#if oldestFirst}
           <button
             type="button"
@@ -813,7 +883,7 @@
             <div class="muted">{m.issuespanel_no_match()}</div>
           {/if}
         {/if}
-        {#if rows.some((r) => r.kind === "epic")}
+        {#if hasEpicRows}
           <EpicsListHeading {repoPath} runSummary={drain?.runSummary ?? null} />
         {/if}
         <div
@@ -841,7 +911,9 @@
       {/if}
     </div>
     {#if !mobile}
-      <div class="shortcuts">{m.issuespanel_shortcuts()}</div>
+      <div class="shortcuts">
+        {shortcutHints({ hasEpics: hasEpicRows, selected: selection != null })}
+      </div>
     {/if}
   </div>
 
@@ -895,9 +967,6 @@
       {:else}
         <RepoOverview
           {repoPath}
-          repoName={repos.nameFor(repoPath) ??
-            repoPath.split("/").filter(Boolean).pop() ??
-            repoPath}
           epics={overviewEpics}
           running={overviewRunning}
           labels={overviewLabels}
@@ -948,18 +1017,6 @@
     border-right: 0;
   }
 
-  .issues-header {
-    overflow-wrap: anywhere;
-    padding: 6px 12px;
-    margin-bottom: 8px; /* gap below the border to the flush sticky filter — margin (outside the border), not padding */
-    font-size: var(--fs-micro);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    border-bottom: 1px solid var(--color-line);
-    flex-shrink: 0;
-  }
-
   .issues-list {
     flex: 1;
     min-height: 0;
@@ -970,15 +1027,27 @@
     gap: 2px;
   }
 
-  .issues-list::-webkit-scrollbar {
-    width: 4px;
+  /* Thin scrollbar inset from the column hairline (#2639): the transparent border plus
+     padding-box clip keep the 6px thumb off the edge. Scoped to the two columns. */
+  .issues-list,
+  .detail-col {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-bright) transparent;
   }
-  .issues-list::-webkit-scrollbar-track {
+  .issues-list::-webkit-scrollbar,
+  .detail-col::-webkit-scrollbar {
+    width: 6px;
+  }
+  .issues-list::-webkit-scrollbar-track,
+  .detail-col::-webkit-scrollbar-track {
     background: transparent;
   }
-  .issues-list::-webkit-scrollbar-thumb {
-    background: var(--color-faint);
-    border-radius: 2px;
+  .issues-list::-webkit-scrollbar-thumb,
+  .detail-col::-webkit-scrollbar-thumb {
+    background: var(--color-line-bright);
+    background-clip: padding-box;
+    border: 1px solid transparent;
+    border-radius: 3px;
   }
 
   /* The listbox: rows are options, focus stays here (aria-activedescendant). */
@@ -1002,6 +1071,7 @@
     display: flex;
     align-items: stretch;
     gap: 6px;
+    padding-top: 8px; /* breathing room above the search, inside the sticky bar so rows don't show through */
     background: var(--color-inset);
   }
 
@@ -1046,7 +1116,7 @@
     flex-shrink: 0;
     padding: 5px 12px;
     border-top: 1px solid var(--color-line);
-    color: var(--color-faint);
+    color: var(--color-muted);
     font-size: var(--fs-micro);
     letter-spacing: 0.06em;
   }

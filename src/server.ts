@@ -2547,6 +2547,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "sharedBrowserEnabled",
   "claudeAiConnectorsEnabled",
   "hidden",
+  "pinned",
 ] as const;
 
 type RepoCfgBody = {
@@ -2567,6 +2568,7 @@ type RepoCfgBody = {
   sharedBrowserEnabled?: unknown;
   claudeAiConnectorsEnabled?: unknown;
   hidden?: unknown;
+  pinned?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
   defaultModel?: unknown;
@@ -2677,6 +2679,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       sharedBrowserEnabled?: boolean;
       claudeAiConnectorsEnabled?: boolean;
       hidden?: boolean;
+      pinned?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
       defaultModel?: string;
@@ -2699,7 +2702,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/sharedBrowserEnabled/hidden) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/sharedBrowserEnabled/hidden/pinned) must be booleans",
       },
       400,
     );
@@ -2731,7 +2734,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -2754,6 +2757,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
     claudeAiConnectorsEnabled: body.claudeAiConnectorsEnabled as boolean | undefined,
     hidden: body.hidden as boolean | undefined,
+    pinned: body.pinned as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
     defaultModel,
@@ -9784,6 +9788,10 @@ export interface BacklogProject {
   ciStatus: "success" | "failure" | "pending" | null;
   /** Hidden from the repos panel (list-only declutter). The client filters on this. */
   hidden: boolean;
+  /** Operator-pinned to the top of the repos panel (list-only ordering). */
+  pinned: boolean;
+  /** Local `origin/HEAD` branch name (no forge call); null when unset or unreadable. */
+  defaultBranch: string | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
@@ -9808,6 +9816,8 @@ export interface BacklogPayloadInputs {
   recentCountsByRepo: (since: number) => Record<string, number>;
   /** repoPaths flagged hidden from the repos panel — store.hiddenRepoPaths(). */
   hiddenRepoPaths: () => Set<string>;
+  /** repoPaths pinned to the top of the repos panel — store.pinnedRepoPaths(). */
+  pinnedRepoPaths: () => Set<string>;
   repoRoot: string;
 }
 
@@ -9835,6 +9845,8 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
   // silently reappear on reload. Reuses the `repos` enumeration above so the realpath
   // map is built once (not re-readdir'd per hidden repo).
   const hiddenSet = reconcileRealPathsToRaw(inputs.hiddenRepoPaths(), repos);
+  // Pins live in the same realpath key space — same reconcile.
+  const pinnedSet = reconcileRealPathsToRaw(inputs.pinnedRepoPaths(), repos);
 
   const resolved = repos.map((r) => ({ ...r, forge: inputs.resolveForge(r.path) }));
 
@@ -9855,8 +9867,12 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
 
   const uniqueRepos = [...forgeRepos, ...localRepos];
 
-  // Fetch counts for the deduped repos in parallel
-  const countsArr = await Promise.all(uniqueRepos.map((r) => inputs.counts(r.path)));
+  // Fetch counts + local default branch for the deduped repos in parallel. The branch
+  // read is local git only (origin/HEAD, no forge call); any failure degrades to null.
+  const [countsArr, defaultBranches] = await Promise.all([
+    Promise.all(uniqueRepos.map((r) => inputs.counts(r.path))),
+    Promise.all(uniqueRepos.map((r) => resolveDefaultBranch(r.path, {}).catch(() => null))),
+  ]);
 
   const projects: BacklogProject[] = uniqueRepos.map((r, i) => {
     const counts = countsArr[i]!;
@@ -9875,6 +9891,8 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       workflows: r.forge?.kind === "github" ? countDefinedWorkflows(r.path) : null,
       ciStatus: counts.ciStatus,
       hidden: hiddenSet.has(r.path),
+      pinned: pinnedSet.has(r.path),
+      defaultBranch: defaultBranches[i] ?? null,
     };
   });
 
@@ -10101,6 +10119,7 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
       lastUsedByRepo: () => deps.store.lastUsedByRepo(),
       recentCountsByRepo: (since) => deps.store.recentSessionCountsByRepo(since),
       hiddenRepoPaths: () => deps.store.hiddenRepoPaths(),
+      pinnedRepoPaths: () => deps.store.pinnedRepoPaths(),
       repoRoot: config.repoRoot,
     }),
   );

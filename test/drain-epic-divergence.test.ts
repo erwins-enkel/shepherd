@@ -97,6 +97,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "running" });
   // Pin the canonical name up front so divergence is measured against PINNED.

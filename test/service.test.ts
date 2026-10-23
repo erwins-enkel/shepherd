@@ -5324,6 +5324,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -6291,6 +6292,7 @@ function buildQueueDeps(
       claudeAiConnectorsEnabled: false,
       browserAllowedHosts: [],
       hidden: false,
+      pinned: false,
       ...repoConfig,
     });
   }
@@ -8687,6 +8689,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
@@ -8737,6 +8740,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(sandboxResearchDeps(store, captured) as any);

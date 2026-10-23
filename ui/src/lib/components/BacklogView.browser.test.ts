@@ -42,6 +42,8 @@ function props(count: number) {
       workflows: null,
       ciStatus: null,
       hidden: false,
+      pinned: false,
+      defaultBranch: "main",
     })),
   };
   return {
@@ -145,8 +147,8 @@ describe("mobile backlog issue scrolling", () => {
       await expect.poll(() => document.querySelectorAll(".single-row").length).toBe(1);
       await search.fill("");
       await expect.poll(() => document.querySelectorAll(".single-row").length).toBe(49);
-      const header = document.querySelector<HTMLElement>(".issues-header")!;
-      expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth + 1);
+      // No ISSUES · repo line above the search (#2639): the dialog header names the repo.
+      expect(document.querySelector(".issues-header")).toBeNull();
       for (const control of filter.querySelectorAll<HTMLElement>(".issue-filter, .filter-chip")) {
         expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
       }

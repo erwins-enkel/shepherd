@@ -25,6 +25,8 @@ function project(path: string): BacklogProject {
     workflows: null,
     ciStatus: null,
     hidden: false,
+    pinned: false,
+    defaultBranch: "main",
   };
 }
 

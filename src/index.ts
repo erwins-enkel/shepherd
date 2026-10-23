@@ -3832,6 +3832,7 @@ const broadcastBacklog = async () =>
       lastUsedByRepo: () => store.lastUsedByRepo(),
       recentCountsByRepo: (since) => store.recentSessionCountsByRepo(since),
       hiddenRepoPaths: () => store.hiddenRepoPaths(),
+      pinnedRepoPaths: () => store.pinnedRepoPaths(),
       repoRoot: config.repoRoot,
     }),
   );

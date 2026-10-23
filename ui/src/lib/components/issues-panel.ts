@@ -2,6 +2,7 @@
  * Pure logic extracted from IssuesPanel.svelte — unit-testable without a DOM.
  */
 import type { Issue, EpicSummary, EpicChild } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 /** Which "someone else is working / owns this epic" signal (#1616) fired, highest-priority first. */
 export type EpicOthersTier = "inflight" | "assigned" | "authored";
@@ -501,4 +502,94 @@ export function resolveSelection(
     return asEpic ? { kind: "epic", issue: asEpic } : { kind: "child", parent, child };
   }
   return null;
+}
+
+// ── Visible filters + list hints (#2639) ──────────────────────────────────────────────────
+
+/** One active filter shown as a removable chip under the search field. */
+export interface FilterChip {
+  id: string;
+  label: string;
+  clear: () => void;
+}
+
+/** The toggle filters a chip can show and clear (the shared issuesFilter store). */
+export interface ChipToggles {
+  hideOthers: boolean;
+  hideActive: boolean;
+  hideBlocked: boolean;
+  set(v: boolean): void;
+  setActive(v: boolean): void;
+  setBlocked(v: boolean): void;
+}
+
+/**
+ * Every filter that currently hides issues, as removable chips — including the default-on
+ * toggles, so hidden content is never invisible. "mine & unassigned" only counts when
+ * `mineOffered` (a known viewer; otherwise the filter fails open and hides nothing). Sub-issues
+ * get no chip: the panel lists them inside their epic and offers no toggle for them.
+ */
+export function activeFilterChips(opts: {
+  toggles: ChipToggles;
+  mineOffered: boolean;
+  author: string | null;
+  labels: Iterable<string>;
+  clearAuthor: () => void;
+  clearLabel: (label: string) => void;
+}): FilterChip[] {
+  const { toggles } = opts;
+  const chips: FilterChip[] = [];
+  if (toggles.hideActive)
+    chips.push({
+      id: "active",
+      label: m.issues_filter_chip_active(),
+      clear: () => toggles.setActive(false),
+    });
+  if (toggles.hideBlocked)
+    chips.push({
+      id: "blocked",
+      label: m.issues_filter_chip_blocked(),
+      clear: () => toggles.setBlocked(false),
+    });
+  if (opts.mineOffered && toggles.hideOthers)
+    chips.push({
+      id: "others",
+      label: m.issues_filter_chip_others(),
+      clear: () => toggles.set(false),
+    });
+  if (opts.author != null)
+    chips.push({
+      id: "author",
+      label: m.issues_filter_chip_author({ name: opts.author }),
+      clear: opts.clearAuthor,
+    });
+  for (const label of opts.labels)
+    chips.push({ id: `label:${label}`, label, clear: () => opts.clearLabel(label) });
+  return chips;
+}
+
+/**
+ * "{shown} of {total}" for the list: `total` counts the fetched open top-level issues (epic
+ * parents + singles, i.e. not sub-issues) before any filter or search; `shown` counts the epic
+ * and single rows the list renders. Null when nothing is hidden.
+ */
+export function shownOfTotal(
+  rows: readonly IssueListRow[],
+  issues: readonly Issue[],
+  epicParents: ReadonlySet<number>,
+  subIssues: ReadonlySet<number>,
+): { shown: number; total: number } | null {
+  const total = issues.filter((i) => epicParents.has(i.number) || !subIssues.has(i.number)).length;
+  const shown = rows.filter((r) => r.kind === "epic" || r.kind === "single").length;
+  return shown < total ? { shown, total } : null;
+}
+
+/** The list's keyboard hint line: only the keys that do something right now. */
+export function shortcutHints(opts: { hasEpics: boolean; selected: boolean }): string {
+  return [
+    m.issuespanel_hint_select(),
+    ...(opts.hasEpics ? [m.issuespanel_hint_expand()] : []),
+    m.issuespanel_hint_start(),
+    ...(opts.selected ? [m.issuespanel_hint_esc()] : []),
+  ].join(" · ");
 }

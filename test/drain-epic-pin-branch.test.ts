@@ -95,6 +95,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "running" });
 

@@ -78,6 +78,7 @@ function makeHarness(opts: {
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   if (opts.epicStatus !== null) {
     store.setEpicRun({

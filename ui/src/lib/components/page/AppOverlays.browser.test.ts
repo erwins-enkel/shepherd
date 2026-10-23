@@ -244,6 +244,8 @@ describe("AppOverlays — Repos selection", () => {
         workflows: null,
         ciStatus: null,
         hidden: false,
+        pinned: false,
+        defaultBranch: "main",
       })),
       totals: { openIssues: 2, openPRs: 0 },
     } satisfies BacklogPayload;
@@ -280,6 +282,8 @@ describe("AppOverlays — Repos selection", () => {
         workflows: null,
         ciStatus: null,
         hidden: false,
+        pinned: false,
+        defaultBranch: "main",
       })),
       totals: { openIssues: 3, openPRs: 0 },
     } satisfies BacklogPayload;

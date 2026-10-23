@@ -184,6 +184,7 @@ function makeHarness(
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
 
   const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [], removed: [] };

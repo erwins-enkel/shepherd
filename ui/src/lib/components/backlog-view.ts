@@ -176,6 +176,50 @@ export function splitHidden(
 }
 
 /**
+ * Effective pinned state for a repo: the client's optimistic overlay (`overrides`,
+ * keyed by repo path) wins over the server baseline `project.pinned` — same order as
+ * {@link effectiveHidden}.
+ */
+export function effectivePinned(
+  project: BacklogProject,
+  overrides: Record<string, boolean>,
+): boolean {
+  return overrides[project.path] ?? project.pinned ?? false;
+}
+
+/** The repo list's groups, top to bottom. Every repo lands in exactly one. */
+export interface RepoGroups {
+  /** Operator-pinned and not hidden ("Pinned"). */
+  pinned: BacklogProject[];
+  /** Recently worked on, not pinned ({@link partitionRecents}). */
+  recents: BacklogProject[];
+  /** Everything else that is visible ("All repos"). */
+  rest: BacklogProject[];
+  /** Hidden — wins over pinned, so a pinned + hidden repo shows only here. */
+  hidden: BacklogProject[];
+}
+
+/**
+ * Group the (already filtered) repo list: pinned → recents → rest → hidden. The
+ * `pinned`/`hidden` overlays are the client's optimistic toggles over each project's
+ * server baseline. `recent: false` (an active search) flattens the visible repos into
+ * `rest` — no pinned or recents group — so the results read as one search list.
+ * Input order is kept within `pinned`, `rest` and `hidden`.
+ */
+export function groupRepos(
+  projects: readonly BacklogProject[],
+  opts: { pinned: Record<string, boolean>; hidden: Record<string, boolean>; recent?: boolean },
+): RepoGroups {
+  const { visible, hidden } = splitHidden(projects, opts.hidden);
+  if (opts.recent === false) return { pinned: [], recents: [], rest: visible, hidden };
+  const pinned: BacklogProject[] = [];
+  const unpinned: BacklogProject[] = [];
+  for (const p of visible) (effectivePinned(p, opts.pinned) ? pinned : unpinned).push(p);
+  const { recents, rest } = partitionRecents(unpinned);
+  return { pinned, recents, rest, hidden };
+}
+
+/**
  * Narrow the repo list by activity and optional name search. Each active
  * predicate is AND'd together:
  * - `hasIssues` keeps only repos with open issues.

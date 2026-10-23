@@ -44,6 +44,7 @@ pub fn repo_config_json() -> Value {
         "sharedBrowserEnabled",
         "claudeAiConnectorsEnabled",
         "hidden",
+        "pinned",
     ] {
         v[flag] = json!(false);
     }

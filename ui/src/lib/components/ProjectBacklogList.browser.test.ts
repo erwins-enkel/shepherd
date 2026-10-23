@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import ProjectBacklogList from "./ProjectBacklogList.svelte";
+import { groupRepos } from "./backlog-view";
 import type { BacklogProject } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
@@ -18,16 +19,23 @@ function project(path: string, hidden = false): BacklogProject {
     workflows: null,
     ciStatus: null,
     hidden,
+    pinned: false,
+    defaultBranch: "main",
   };
 }
 
+/** `projects` (visible) + `hiddenProjects` are grouped like BacklogView does. */
 function baseProps(over: Partial<Record<string, unknown>> = {}) {
+  const {
+    projects = [project("/r/a"), project("/r/b")],
+    hiddenProjects = [],
+    ...rest
+  } = over as { projects?: BacklogProject[]; hiddenProjects?: BacklogProject[] };
+  const grouped = groupRepos(projects as BacklogProject[], { pinned: {}, hidden: {} });
   return {
-    projects: [project("/r/a"), project("/r/b")],
-    hiddenProjects: [],
+    groups: { ...grouped, hidden: hiddenProjects as BacklogProject[] },
     hiddenCount: 0,
     showHidden: false,
-    pinnedPath: null,
     selectedPath: null,
     hasIssues: false,
     hasPRs: false,
@@ -38,12 +46,37 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
     onsearch: () => {},
     onselect: () => {},
     onhide: () => {},
+    onpin: () => {},
     onaddclone: () => {},
     onaddfork: () => {},
     onaddnewproject: () => {},
-    ...over,
+    ...rest,
   };
 }
+
+describe("ProjectBacklogList — pinned group", () => {
+  it("lists pinned repos first under a Pinned heading, and the pin button fires onpin(path)", () => {
+    const onpin = vi.fn();
+    const onselect = vi.fn();
+    render(
+      ProjectBacklogList,
+      baseProps({
+        projects: [project("/r/a"), { ...project("/r/b"), pinned: true }],
+        onpin,
+        onselect,
+      }),
+    );
+    const labels = [...document.body.querySelectorAll(".recent-label")].map((l) =>
+      l.textContent?.trim(),
+    );
+    expect(labels[0]).toBe(m.backlog_pinned_heading());
+    const rows = [...document.body.querySelectorAll<HTMLElement>(".project-row")];
+    expect(rows.map((r) => r.querySelector(".row-name")?.textContent?.trim())).toEqual(["b", "a"]);
+    rows[1].querySelector<HTMLButtonElement>(".row-pin")!.click();
+    expect(onpin).toHaveBeenCalledWith("/r/a");
+    expect(onselect).not.toHaveBeenCalled();
+  });
+});
 
 describe("ProjectBacklogList — hide repos", () => {
   it("no Hidden toggle when nothing is hidden", () => {

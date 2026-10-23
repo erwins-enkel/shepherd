@@ -27,6 +27,7 @@
   import {
     actionsTabState,
     filterProjects,
+    groupRepos,
     partitionRecents,
     splitHidden,
     tabForFilters,
@@ -214,16 +215,22 @@
   let showHidden = $state(false);
   const searching = $derived(query.trim() !== "");
 
-  // Filter first (unchanged predicate), then partition by hidden using repoConfig.hidden
-  // as the optimistic overlay over each project's server `hidden` baseline.
+  // Filter first (unchanged predicate), then group pinned → recents → rest → hidden,
+  // with repoConfig.pinned/hidden as the optimistic overlays over each project's server
+  // baseline. A search flattens the visible groups.
   const filtered = $derived(
     payload ? filterProjects(payload.projects, { hasIssues, hasPRs, query }) : [],
   );
-  const split = $derived(splitHidden(filtered, repoConfig.hidden));
-  let visibleProjects = $derived(split.visible);
+  const grouped = $derived(
+    groupRepos(filtered, {
+      pinned: repoConfig.pinned,
+      hidden: repoConfig.hidden,
+      recent: !searching,
+    }),
+  );
   // The Hidden group is revealed when the chip is on OR a search is active (so a
   // name search can surface a matching hidden repo even with Show-hidden off).
-  const shownHidden = $derived(showHidden || searching ? split.hidden : []);
+  const listGroups = $derived(showHidden || searching ? grouped : { ...grouped, hidden: [] });
   // Chip badge counts ALL hidden repos, independent of the active search/scope.
   const hiddenCount = $derived(
     payload ? splitHidden(payload.projects, repoConfig.hidden).hidden.length : 0,
@@ -244,6 +251,12 @@
     const p = payload?.projects.find((q) => q.path === path);
     if (!p) return;
     void repoConfig.toggleHidden(path, repoConfig.isHidden(path, p.hidden));
+  }
+
+  function handlePin(path: string) {
+    const p = payload?.projects.find((q) => q.path === path);
+    if (!p) return;
+    void repoConfig.togglePinned(path, repoConfig.isPinned(path, p.pinned));
   }
 
   // Tab badges count the SELECTED repo's items — the same repo the detail pane
@@ -327,7 +340,7 @@
   // panel). Applied once per distinct value (appliedSelectPath read untracked so
   // the effect depends only on `selectPath`). A brand-new repo has zero issues/PRs
   // and won't match an active search, so the filter chips + query are cleared first
-  // — otherwise filterProjects would drop it from visibleProjects and the new repo
+  // — otherwise filterProjects would drop it from the list and the new repo
   // would be missing from the list the user just added it to. Switch to Issues so
   // its detail pane opens (on mobile this opens the full-screen detail overlay,
   // which is the desired outcome of an explicit add action).
@@ -389,17 +402,16 @@
         onselect={handleSelect}
         onff={handleFf}
         ffDisabled={ffInFlight || selectedPath === null}
+        branch={selected?.defaultBranch ?? null}
         {fromFilter}
         {onclose}
       >
         <ReposSwitcher
           bind:this={switcher}
           {selected}
-          projects={visibleProjects}
-          hiddenProjects={shownHidden}
+          groups={listGroups}
           {hiddenCount}
           {showHidden}
-          pinnedPath={payload.pinnedPath}
           {selectedPath}
           {hasIssues}
           {hasPRs}
@@ -410,6 +422,7 @@
           onsearch={(q) => (query = q)}
           onselect={handleSelect}
           onhide={handleHide}
+          onpin={handlePin}
           {onaddclone}
           {onaddfork}
           {onaddnewproject}
@@ -441,11 +454,9 @@
          since list and detail are never co-visible. -->
     <div class="mobile-master">
       <ProjectBacklogList
-        projects={visibleProjects}
-        hiddenProjects={shownHidden}
+        groups={listGroups}
         {hiddenCount}
         {showHidden}
-        pinnedPath={payload.pinnedPath}
         {selectedPath}
         {hasIssues}
         {hasPRs}
@@ -456,6 +467,7 @@
         onsearch={(q) => (query = q)}
         onselect={handleSelect}
         onhide={handleHide}
+        onpin={handlePin}
         {onaddclone}
         {onaddfork}
         {onaddnewproject}

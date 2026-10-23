@@ -222,6 +222,20 @@ export function epicLeadExplanation(): TooltipExplanation {
   };
 }
 
+/** The repo overview's run area (#2639): one epic leads per repo, hand-started tasks hold no
+ *  slot, and what the state dot's shape says. */
+export function repoOverviewRunExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_repo_run_title(),
+    summary: m.tooltip_repo_run_summary(),
+    sections: [
+      { label: m.tooltip_repo_run_lead(), text: m.tooltip_repo_run_lead_body() },
+      { label: m.tooltip_repo_run_manual(), text: m.tooltip_repo_run_manual_body() },
+      { label: m.tooltip_repo_run_dot(), text: m.tooltip_repo_run_dot_body() },
+    ],
+  };
+}
+
 /** The epic run region's live-state indicator (#2620). */
 export function epicRunStateExplanation(): TooltipExplanation {
   return {

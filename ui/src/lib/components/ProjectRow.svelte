@@ -1,26 +1,31 @@
 <script lang="ts">
   import type { BacklogProject } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
   import { statusTip, type StatusTipParams } from "#lib/tooltips/statusTip.svelte.js";
+  import RepoMark from "./RepoMark.svelte";
 
   let {
     project,
-    pinned,
     selected,
     hidden = false,
     onselect,
     onhide,
+    onpin,
   }: {
     project: BacklogProject;
-    pinned: boolean;
     selected: boolean;
     /** Rendered in the dimmed "Hidden" group — the eye control acts as unhide. */
     hidden?: boolean;
     onselect: () => void;
     /** Toggle this repo's hidden state (hide when visible, unhide when in the Hidden group). */
     onhide: () => void;
+    /** Toggle this repo's pin (pin to the top group / unpin). */
+    onpin: () => void;
   } = $props();
+
+  // The operator's pin (optimistic overlay over the payload baseline), not the MRU pinnedPath.
+  const pinned = $derived(repoConfig.isPinned(project.path, project.pinned));
 
   // Keyboard activation for the role=button row (Enter/Space → select), matching
   // native <button> semantics now that the root is a <div> (a real <button> can't
@@ -41,15 +46,16 @@
     onhide();
   }
 
+  function onPinClick(e: MouseEvent) {
+    e.stopPropagation(); // never also select the row
+    onpin();
+  }
+
   // Show the repo name (path basename), not the full path — far easier to scan.
   // Fall back to slug/display only if the path has no usable trailing segment.
   const displayName = $derived(
     project.path.replace(/\/+$/, "").split("/").pop() || project.slug || project.display,
   );
-
-  // Repo identity glyph, same recipe as the New Task repo picker (RepoSelect): the configured project emoji when set,
-  // else the ▣ marker so every row's name starts on the same column.
-  const repoIcon = $derived(projectIcons.iconFor(project.path));
 
   const issuesLabel = $derived(
     project.openIssues != null
@@ -103,6 +109,26 @@
   });
 </script>
 
+{#snippet pinGlyph()}
+  <!-- outline pin (stroke only) -->
+  <svg
+    viewBox="0 0 24 24"
+    width="1em"
+    height="1em"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 17v5" />
+    <path
+      d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
+    />
+  </svg>
+{/snippet}
+
 <div
   class="project-row"
   class:sel={selected}
@@ -114,78 +140,94 @@
   use:statusTip={tip}
 >
   <div class="row-main">
-    <span class="row-glyph" class:emoji={!!repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span>
+    <RepoMark path={project.path} name={displayName} />
     <span class="row-name">{displayName}</span>
-    {#if pinned}
+    {#if pinned && !hidden}
       <span class="pin-icon" role="img" aria-label={m.backlog_pinned_label()}>
-        <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
-          <path
-            d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"
-          />
-        </svg>
+        {@render pinGlyph()}
       </span>
     {/if}
   </div>
-  <div class="row-counts">
-    <span class="count-item" aria-label={issuesLabel}>{project.openIssues ?? "—"}</span>
-    <span class="sep" aria-hidden="true">·</span>
-    {#if project.prKinds}
-      <span
-        class="count-item count-prs"
-        class:prom={project.prKinds.regular > 0}
-        aria-label={m.backlog_code_prs_count({ count: project.prKinds.regular })}
-      >
-        {project.prKinds.regular}
-      </span>
-      {#if project.prKinds.dependabot > 0}
+  <!-- One fixed slot: the counts, swapped for the pin + hide actions on hover /
+       focus-within (fine pointers). Both are stacked in the same grid cell so the
+       slot keeps its width and the name never reflows. -->
+  <div class="row-slot">
+    <div class="row-counts">
+      <span class="count-item" aria-label={issuesLabel}>{project.openIssues ?? "—"}</span>
+      <span class="sep" aria-hidden="true">·</span>
+      {#if project.prKinds}
         <span
-          class="bot-note"
-          aria-label={m.prkind_dependabot_title({ count: project.prKinds.dependabot })}
+          class="count-item count-prs"
+          class:prom={project.prKinds.regular > 0}
+          aria-label={m.backlog_code_prs_count({ count: project.prKinds.regular })}
         >
-          {m.prkind_dependabot_badge({ count: project.prKinds.dependabot })}
+          {project.prKinds.regular}
+        </span>
+        {#if project.prKinds.dependabot > 0}
+          <span
+            class="bot-note"
+            aria-label={m.prkind_dependabot_title({ count: project.prKinds.dependabot })}
+          >
+            {m.prkind_dependabot_badge({ count: project.prKinds.dependabot })}
+          </span>
+        {/if}
+        {#if project.prKinds.release > 0}
+          <span
+            class="bot-note"
+            aria-label={m.prkind_release_title({ count: project.prKinds.release })}
+          >
+            {m.prkind_release_badge({ count: project.prKinds.release })}
+          </span>
+        {/if}
+      {:else}
+        <span
+          class="count-item count-prs"
+          class:prom={(project.openPRs ?? 0) > 0}
+          aria-label={prsLabel}
+        >
+          {project.openPRs ?? "—"}
         </span>
       {/if}
-      {#if project.prKinds.release > 0}
-        <span
-          class="bot-note"
-          aria-label={m.prkind_release_title({ count: project.prKinds.release })}
+    </div>
+    <div class="row-actions">
+      {#if !hidden}
+        <button
+          class="row-pin"
+          class:on={pinned}
+          type="button"
+          onclick={onPinClick}
+          aria-pressed={pinned}
+          title={pinned ? m.backlog_unpin_repo() : m.backlog_pin_repo()}
+          aria-label={pinned ? m.backlog_unpin_repo() : m.backlog_pin_repo()}
         >
-          {m.prkind_release_badge({ count: project.prKinds.release })}
-        </span>
+          {@render pinGlyph()}
+        </button>
       {/if}
-    {:else}
-      <span
-        class="count-item count-prs"
-        class:prom={(project.openPRs ?? 0) > 0}
-        aria-label={prsLabel}
+      <button
+        class="row-hide"
+        type="button"
+        onclick={onEyeClick}
+        title={hidden ? m.backlog_unhide_repo() : m.backlog_hide_repo()}
+        aria-label={hidden ? m.backlog_unhide_repo() : m.backlog_hide_repo()}
       >
-        {project.openPRs ?? "—"}
-      </span>
-    {/if}
+        {#if hidden}
+          <!-- eye (open): unhide -->
+          <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
+            <path
+              d="M12 5c-5 0-9.27 3.11-11 7.5C2.73 16.89 7 20 12 20s9.27-3.11 11-7.5C21.27 8.11 17 5 12 5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"
+            />
+          </svg>
+        {:else}
+          <!-- eye-off: hide -->
+          <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
+            <path
+              d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.44-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C9.74 7.13 10.35 7 12 7zM2.71 3.16a.996.996 0 0 0 0 1.41l1.97 1.97A11.86 11.86 0 0 0 1 12.5C2.73 16.89 7 20 12 20c1.52 0 2.97-.3 4.31-.82l2.72 2.72a.996.996 0 1 0 1.41-1.41L4.13 3.16a.996.996 0 0 0-1.42 0zM12 17c-2.76 0-5-2.24-5-5 0-.77.18-1.5.49-2.14l1.57 1.57c-.03.18-.06.37-.06.57a3 3 0 0 0 3 3c.2 0 .38-.03.57-.07l1.57 1.57c-.65.32-1.37.5-2.14.5z"
+            />
+          </svg>
+        {/if}
+      </button>
+    </div>
   </div>
-  <button
-    class="row-hide"
-    type="button"
-    onclick={onEyeClick}
-    title={hidden ? m.backlog_unhide_repo() : m.backlog_hide_repo()}
-    aria-label={hidden ? m.backlog_unhide_repo() : m.backlog_hide_repo()}
-  >
-    {#if hidden}
-      <!-- eye (open): unhide -->
-      <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
-        <path
-          d="M12 5c-5 0-9.27 3.11-11 7.5C2.73 16.89 7 20 12 20s9.27-3.11 11-7.5C21.27 8.11 17 5 12 5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"
-        />
-      </svg>
-    {:else}
-      <!-- eye-off: hide -->
-      <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
-        <path
-          d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.44-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C9.74 7.13 10.35 7 12 7zM2.71 3.16a.996.996 0 0 0 0 1.41l1.97 1.97A11.86 11.86 0 0 0 1 12.5C2.73 16.89 7 20 12 20c1.52 0 2.97-.3 4.31-.82l2.72 2.72a.996.996 0 1 0 1.41-1.41L4.13 3.16a.996.996 0 0 0-1.42 0zM12 17c-2.76 0-5-2.24-5-5 0-.77.18-1.5.49-2.14l1.57 1.57c-.03.18-.06.37-.06.57a3 3 0 0 0 3 3c.2 0 .38-.03.57-.07l1.57 1.57c-.65.32-1.37.5-2.14.5z"
-        />
-      </svg>
-    {/if}
-  </button>
 </div>
 
 <style>
@@ -234,8 +276,47 @@
     font-weight: 400;
   }
 
-  /* eye-off / unhide control: hidden until row hover/focus on fine pointers;
-     always shown on coarse (touch) pointers where hover is unreachable. */
+  /* Counts ↔ actions share one grid cell (fixed slot width). Fine pointers: counts
+     by default, the pin + hide actions on row hover / focus-within (keyboard focus on
+     the row or a button reveals them, so they stay reachable). Coarse (touch)
+     pointers can't hover: both sit side by side, actions always shown. */
+  .row-slot {
+    display: grid;
+    align-items: center;
+    justify-items: end;
+    flex-shrink: 0;
+  }
+  .row-slot > * {
+    grid-area: 1 / 1;
+  }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+  }
+  .row-counts {
+    transition: opacity 0.12s;
+  }
+  .project-row:hover .row-actions,
+  .project-row:focus-within .row-actions,
+  /* in the Hidden group the unhide control is the primary affordance — always lit */
+  .project-row.dim .row-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .project-row:hover .row-counts,
+  .project-row:focus-within .row-counts,
+  .project-row.dim .row-counts {
+    opacity: 0;
+    /* the stacked, faded counts must not swallow clicks meant for the actions */
+    pointer-events: none;
+  }
+
+  .row-pin,
   .row-hide {
     display: inline-flex;
     align-items: center;
@@ -247,22 +328,21 @@
     color: var(--color-faint);
     font-size: var(--fs-base);
     cursor: pointer;
-    opacity: 0;
-    transition:
-      opacity 0.12s,
-      color 0.12s;
+    transition: color 0.12s;
   }
-  .project-row:hover .row-hide,
-  .project-row:focus-within .row-hide,
+  .row-pin:focus-visible,
   .row-hide:focus-visible {
-    opacity: 1;
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: -1px;
+  }
+  .row-pin:hover,
+  .row-pin.on {
+    color: var(--color-amber);
   }
   .row-hide:hover {
     color: var(--color-red);
   }
-  /* in the Hidden group the control is the primary affordance — always lit */
   .project-row.dim .row-hide {
-    opacity: 1;
     color: var(--color-muted);
   }
   .project-row.dim .row-hide:hover {
@@ -270,8 +350,22 @@
   }
 
   @media (pointer: coarse) {
-    .row-hide {
+    .row-slot {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .row-actions,
+    .row-counts,
+    .project-row:hover .row-counts,
+    .project-row:focus-within .row-counts {
       opacity: 1;
+    }
+    .project-row.dim .row-counts {
+      display: none;
+    }
+    .row-pin,
+    .row-hide {
       min-width: 44px;
       min-height: 44px;
     }
@@ -283,24 +377,6 @@
     gap: 6px;
     min-width: 0;
     flex: 1;
-  }
-
-  /* Fixed 18px box (not the glyph's own font-size) so the names stay on one
-     column whether a row shows an emoji or the ▣ fallback. */
-  .row-glyph {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 18px;
-    height: 18px;
-    color: var(--color-faint);
-    font-size: var(--fs-micro);
-    line-height: 1;
-  }
-
-  .row-glyph.emoji {
-    font-size: var(--fs-base);
   }
 
   .row-name {

@@ -24,7 +24,7 @@ async fn backlog_prints_the_payload() {
             "path": "/work/repo", "display": "repo", "slug": "o/repo", "kind": "github",
             "lastUsedAt": null, "recentAgentCount": 1, "openIssues": 4, "openPRs": 2,
             "prKinds": {"release": 0, "dependabot": 1, "regular": 1}, "workflows": 3,
-            "ciStatus": "success", "hidden": false
+            "ciStatus": "success", "hidden": false, "pinned": false, "defaultBranch": "main"
         }],
         "totals": {"openIssues": 4, "openPRs": 2}
     });

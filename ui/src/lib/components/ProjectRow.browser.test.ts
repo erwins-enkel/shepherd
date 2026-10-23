@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import "../../app.css";
 import ProjectRow from "./ProjectRow.svelte";
 import type { BacklogProject } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { projectIcons } from "#lib/projectIcons.svelte.js";
+import { repoConfig } from "#lib/reviews.svelte.js";
 
 function project(partial: Partial<BacklogProject> = {}): BacklogProject {
   return {
@@ -18,6 +20,8 @@ function project(partial: Partial<BacklogProject> = {}): BacklogProject {
     workflows: null,
     ciStatus: null,
     hidden: false,
+    pinned: false,
+    defaultBranch: "main",
     ...partial,
   };
 }
@@ -25,10 +29,10 @@ function project(partial: Partial<BacklogProject> = {}): BacklogProject {
 function renderRow(p: BacklogProject) {
   render(ProjectRow, {
     project: p,
-    pinned: false,
     selected: false,
     onselect: () => {},
     onhide: () => {},
+    onpin: () => {},
   });
   return document.body.querySelector<HTMLElement>(".project-row")!;
 }
@@ -103,10 +107,10 @@ describe("ProjectRow compact counts", () => {
     const onselect = vi.fn();
     render(ProjectRow, {
       project: project({ openIssues: 1 }),
-      pinned: false,
       selected: false,
       onselect,
       onhide: () => {},
+      onpin: () => {},
     });
     const row = document.body.querySelector<HTMLElement>(".project-row")!;
     // A sidebar-width row outside the viewport, so no real cursor can be over it: the shared
@@ -122,43 +126,131 @@ describe("ProjectRow compact counts", () => {
     await expect.poll(() => panel.matches(":popover-open")).toBe(false);
   });
 
-  it("is a compact 30px row with an 18px glyph box on a fine pointer", () => {
+  it("is a compact 30px row with a 20px repo mark on a fine pointer", () => {
     const row = renderRow(project());
     expect(row.getBoundingClientRect().height).toBeLessThanOrEqual(31);
-    const glyph = row.querySelector<HTMLElement>(".row-glyph")!.getBoundingClientRect();
-    expect(glyph.width).toBeCloseTo(18, 0);
-    expect(glyph.height).toBeCloseTo(18, 0);
+    const mark = row.querySelector<HTMLElement>(".repo-mark")!.getBoundingClientRect();
+    expect(mark.width).toBeCloseTo(20, 0);
+    expect(mark.height).toBeCloseTo(20, 0);
   });
 });
 
-describe("ProjectRow repo glyph", () => {
+describe("ProjectRow repo mark", () => {
   afterEach(() => projectIcons.apply({}));
 
   it("shows the configured project emoji", () => {
     projectIcons.apply({ "/repo/a": "🐑" });
-    render(ProjectRow, {
-      project: project(),
-      pinned: false,
-      selected: false,
-      onselect: () => {},
-      onhide: () => {},
-    });
-    const glyph = document.body.querySelector(".row-glyph");
-    expect(glyph?.textContent?.trim()).toBe("🐑");
-    expect(glyph?.classList.contains("emoji")).toBe(true);
+    const row = renderRow(project());
+    const mark = row.querySelector(".repo-mark");
+    expect(mark?.textContent?.trim()).toBe("🐑");
+    expect(mark?.classList.contains("emoji")).toBe(true);
   });
 
-  it("falls back to the ▣ marker when the repo has no icon", () => {
+  it("falls back to the uppercase first letter of the repo name on a data tint", () => {
+    const row = renderRow(project({ path: "/repo/shepherd" }));
+    const mark = row.querySelector<HTMLElement>(".repo-mark")!;
+    expect(mark.textContent?.trim()).toBe("S");
+    expect(mark.classList.contains("emoji")).toBe(false);
+    expect(mark.style.getPropertyValue("--mark")).toMatch(/^var\(--data-[1-7]\)$/);
+    expect(row.textContent).not.toContain("▣");
+  });
+});
+
+describe("ProjectRow pin + hide actions", () => {
+  afterEach(() => {
+    repoConfig.pinned = {};
+  });
+
+  const opacity = (row: HTMLElement, sel: string) =>
+    getComputedStyle(row.querySelector<HTMLElement>(sel)!).opacity;
+
+  it("shows the counts at rest, actions faded out", async () => {
+    const row = renderRow(project({ openIssues: 4 }));
+    // off-screen so no real cursor (shared across test files) can hover it
+    row.style.cssText += "position:fixed;left:-1000px;top:120px;width:240px";
+    await expect.poll(() => opacity(row, ".row-counts")).toBe("1");
+    await expect.poll(() => opacity(row, ".row-actions")).toBe("0");
+  });
+
+  it("hover swaps the counts for the pin + hide actions in the same slot", async () => {
+    const row = renderRow(project({ openIssues: 4 }));
+    await page.elementLocator(row).hover();
+    await expect.poll(() => opacity(row, ".row-actions")).toBe("1");
+    await expect.poll(() => opacity(row, ".row-counts")).toBe("0");
+    const counts = row.querySelector<HTMLElement>(".row-counts")!.getBoundingClientRect();
+    const actions = row.querySelector<HTMLElement>(".row-actions")!.getBoundingClientRect();
+    expect(Math.abs(counts.right - actions.right)).toBeLessThanOrEqual(1);
+  });
+
+  it("on hover a real click lands on the pin + hide buttons, not the faded counts", async () => {
+    const row = renderRow(project({ openIssues: 4 }));
+    await page.elementLocator(row).hover();
+    await expect.poll(() => opacity(row, ".row-actions")).toBe("1");
+    for (const sel of [".row-pin", ".row-hide"]) {
+      const btn = row.querySelector<HTMLElement>(sel)!;
+      const r = btn.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      expect(btn.contains(hit)).toBe(true);
+    }
+  });
+
+  it("keyboard focus on the row reveals the actions (focus-within)", async () => {
+    const row = renderRow(project());
+    row.style.cssText += "position:fixed;left:-1000px;top:120px;width:240px";
+    row.focus();
+    await expect.poll(() => opacity(row, ".row-actions")).toBe("1");
+    await expect.poll(() => opacity(row, ".row-counts")).toBe("0");
+  });
+
+  it("the pin button calls onpin, never onselect", () => {
+    const onselect = vi.fn();
+    const onpin = vi.fn();
+    render(ProjectRow, { project: project(), selected: false, onselect, onhide: () => {}, onpin });
+    const pin = document.body.querySelector<HTMLButtonElement>(".row-pin")!;
+    expect(pin.getAttribute("aria-label")).toBe(m.backlog_pin_repo());
+    expect(pin.getAttribute("aria-pressed")).toBe("false");
+    pin.click();
+    expect(onpin).toHaveBeenCalledTimes(1);
+    expect(onselect).not.toHaveBeenCalled();
+  });
+
+  it("the pin is an outline icon (stroke, no fill)", () => {
+    const row = renderRow(project());
+    const svg = row.querySelector(".row-pin svg")!;
+    expect(svg.getAttribute("fill")).toBe("none");
+    expect(svg.getAttribute("stroke")).toBe("currentColor");
+  });
+
+  it("a user-pinned repo shows the pin indicator and an Unpin action", () => {
+    const row = renderRow(project({ pinned: true }));
+    expect(row.querySelector(".pin-icon")?.getAttribute("aria-label")).toBe(
+      m.backlog_pinned_label(),
+    );
+    const pin = row.querySelector<HTMLButtonElement>(".row-pin")!;
+    expect(pin.getAttribute("aria-label")).toBe(m.backlog_unpin_repo());
+    expect(pin.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("the optimistic pin overlay wins over the payload baseline", () => {
+    repoConfig.pinned = { "/repo/a": true };
+    const row = renderRow(project({ pinned: false }));
+    expect(row.querySelector(".pin-icon")).not.toBeNull();
+  });
+
+  it("a hidden row offers only unhide — no pin action or indicator", () => {
     render(ProjectRow, {
-      project: project(),
-      pinned: false,
+      project: project({ pinned: true }),
+      hidden: true,
       selected: false,
       onselect: () => {},
       onhide: () => {},
+      onpin: () => {},
     });
-    const glyph = document.body.querySelector(".row-glyph");
-    expect(glyph?.textContent?.trim()).toBe("▣");
-    expect(glyph?.classList.contains("emoji")).toBe(false);
+    expect(document.body.querySelector(".row-pin")).toBeNull();
+    expect(document.body.querySelector(".pin-icon")).toBeNull();
+    expect(document.body.querySelector(".row-hide")?.getAttribute("aria-label")).toBe(
+      m.backlog_unhide_repo(),
+    );
   });
 });
 
@@ -167,10 +259,10 @@ describe("ProjectRow keyboard", () => {
     const onselect = vi.fn();
     render(ProjectRow, {
       project: project(),
-      pinned: false,
       selected: false,
       onselect,
       onhide: () => {},
+      onpin: () => {},
     });
     const row = document.body.querySelector<HTMLElement>(".project-row")!;
     row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -182,10 +274,10 @@ describe("ProjectRow keyboard", () => {
     const onhide = vi.fn();
     render(ProjectRow, {
       project: project(),
-      pinned: false,
       selected: false,
       onselect,
       onhide,
+      onpin: () => {},
     });
     const eye = document.body.querySelector<HTMLElement>(".row-hide")!;
     // A keydown originating on the eye bubbles to the row's handler with a foreign

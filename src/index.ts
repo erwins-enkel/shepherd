@@ -122,6 +122,8 @@ import {
   attachCreditsPush,
   notifySessionDone,
 } from "./push";
+import { attachCiSteer } from "./ci-steer";
+import { effectiveAutopilot } from "./effective-autopilot";
 import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
 import { ApnsSender } from "./apns";
@@ -2263,6 +2265,11 @@ deferredStarts.push(() => {
 
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
+// #2852: tell the task agent when its PR's checks finish, so it never polls CI itself.
+attachCiSteer(events, store, {
+  reply: (id, text) => service.reply(id, text, { automatic: true }),
+  autopilotOn: (s) => effectiveAutopilot(s, store.getRepoConfig(s.repoPath).autopilotEnabled),
+});
 attachMergePush(events, push);
 
 // Reduced-push "ready-after-5s" evaluator (#896): while reducedPushMode is on, fire the

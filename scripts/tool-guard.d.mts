@@ -28,6 +28,8 @@ export type ToolGuardDecision = ToolGuardDenial | ToolGuardContext;
 export const STASH_REASON: string;
 export const INLINE_SHELL_REASON: string;
 export const RATE_LIMIT_REASON: string;
+export const CI_WATCH_REASON: string;
+export const CI_POLL_CONTEXT: string;
 export const PR_CREATE_CONTEXT: string;
 export const PUSH_CONTEXT: string;
 export const BACKGROUND_CONTEXT: string;

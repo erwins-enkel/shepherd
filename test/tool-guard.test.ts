@@ -3,6 +3,8 @@ import {
   decideToolGuard,
   hookOutput,
   isTmpfsPath,
+  CI_POLL_CONTEXT,
+  CI_WATCH_REASON,
   RATE_LIMIT_REASON,
   type ToolGuardContext,
   type ToolGuardDenial,
@@ -288,6 +290,56 @@ describe("#2860 rate_limit rule (gh api rate_limit misreports on this account)",
   });
 });
 
+describe("#2852 CI polling rule (Shepherd already tracks the PR's checks)", () => {
+  it("denies the CI watchers", () => {
+    for (const cmd of [
+      "gh pr checks 2750 --watch",
+      "gh pr checks 2750 --watch --interval 30",
+      "gh pr checks --watch=true",
+      "gh run watch 123 --interval 45",
+      "gh run watch",
+      "git push && gh pr checks --watch",
+      "until gh run watch 1; do sleep 5; done",
+    ]) {
+      const d = deny(bash(cmd));
+      expect(`${cmd}: ${d?.permissionDecision}`).toBe(`${cmd}: deny`);
+      expect(d?.permissionDecisionReason).toBe(CI_WATCH_REASON);
+    }
+    expect(CI_WATCH_REASON).toContain("self_status");
+    expect(CI_WATCH_REASON).toContain("--log-failed");
+  });
+
+  it("hints on one-shot CI reads without blocking them", () => {
+    for (const cmd of [
+      "gh pr checks 2733 --json name,bucket",
+      "gh pr checks",
+      "gh run view 99 --json status,conclusion,jobs",
+      "gh api repos/o/r/commits/abc123/check-runs",
+      "gh api /repos/o/r/commits/abc123/check-suites --jq .total_count",
+      "until gh pr checks 1; do sleep 30; done",
+    ]) {
+      const d = ctx(bash(cmd));
+      expect(`${cmd}: ${d?.additionalContext}`).toBe(`${cmd}: ${CI_POLL_CONTEXT}`);
+    }
+    expect(CI_POLL_CONTEXT).toContain("self_status");
+  });
+
+  it("leaves failed-log reads, other gh calls and mere mentions alone", () => {
+    for (const cmd of [
+      "gh run view 99 --log-failed",
+      "gh run view 99 --log",
+      "gh run list",
+      "gh pr view 12",
+      "gh api repos/o/r",
+      `git commit -m "gh run watch"`,
+      `echo "gh pr checks 1 --watch"`,
+      "cat <<EOF\ngh pr checks 1 --watch\nEOF",
+    ]) {
+      expect(`${cmd}: ${decideToolGuard(bash(cmd), DEPS)}`).toBe(`${cmd}: null`);
+    }
+  });
+});
+
 describe("#2002 deterministic backstops for the moved notices", () => {
   it("carries the one-PR + manual-steps rules at `gh pr create`", () => {
     // The skill is model-invoked; this fires on the exact call that matters, so the two invariants
@@ -303,7 +355,7 @@ describe("#2002 deterministic backstops for the moved notices", () => {
   });
 
   it("does not fire on other gh subcommands", () => {
-    for (const cmd of ["gh pr view 12", "gh pr checks --watch", "gh issue create -t x"])
+    for (const cmd of ["gh pr view 12", "gh pr list --state open", "gh issue create -t x"])
       expect(`${cmd}: ${ctx(bash(cmd))}`).toBe(`${cmd}: null`);
   });
 

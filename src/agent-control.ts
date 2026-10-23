@@ -530,7 +530,8 @@ const SELF_STATUS: McpTool = {
   description:
     "This session's own state: PR and CI checks, the critic's latest review verdict, the " +
     "plan-gate verdict, and Shepherd's live GitHub API budget (`github`) — make no `gh` call " +
-    "before `github.blockedUntil`." +
+    "before `github.blockedUntil`. Read CI here instead of polling `gh pr checks`; Shepherd " +
+    "steers you when your checks finish." +
     READ_NOTE,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };

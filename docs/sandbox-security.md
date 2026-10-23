@@ -188,7 +188,10 @@ still stand.
   "runs rm" approval (anthropics/claude-code#99630), so the guard denies it at
   once with a rewrite. It also denies `gh api rate_limit`, which misreports the
   account's GitHub budget, and points the agent at the `self_status` tool, which
-  carries Shepherd's real budget (#2860). It is a **local `command` hook**, not the fail-open HTTP ingest
+  carries Shepherd's real budget (#2860). It denies the CI watchers
+  `gh pr checks --watch` and `gh run watch` too, and hints on one-shot CI reads:
+  Shepherd already polls each session's PR and steers the agent when its checks
+  finish (#2852). It is a **local `command` hook**, not the fail-open HTTP ingest
   transport, precisely so the deny still holds for unattended sessions whose
   `--clearenv` membrane 401s the restricted ingress. Its script is bound RO into
   the membrane (`agentSupportPaths` → `agentSupportFlags`, `src/sandbox.ts`),

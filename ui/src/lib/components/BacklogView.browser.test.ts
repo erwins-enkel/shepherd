@@ -42,6 +42,8 @@ function props(count: number) {
       workflows: null,
       ciStatus: null,
       hidden: false,
+      pinned: false,
+      defaultBranch: "main",
     })),
   };
   return {

@@ -10,7 +10,7 @@
  * Pattern mirrors test/server-issues.test.ts.
  */
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { makeApp, type AppDeps } from "../src/server";
 import type { SessionStore } from "../src/store";
@@ -80,12 +80,14 @@ function makeDeps(
   overrideForge?: AppDeps["resolveForge"],
   recentCounts: Record<string, number> = {},
   hidden: Set<string> = new Set<string>(),
+  pinned: Set<string> = new Set<string>(),
 ): AppDeps {
   return {
     store: {
       lastUsedByRepo: () => lastUsed,
       recentSessionCountsByRepo: () => recentCounts,
       hiddenRepoPaths: () => hidden,
+      pinnedRepoPaths: () => pinned,
     } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,
@@ -274,6 +276,79 @@ test("buildBacklogPayload: surfaces per-repo hidden flag onto each project", asy
   const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.hidden]));
   expect(byPath[repoA]).toBe(true);
   expect(byPath[repoB]).toBe(false);
+});
+
+test("buildBacklogPayload: surfaces per-repo pinned flag onto each project", async () => {
+  const app = makeApp(
+    makeDeps(
+      { [repoA]: { openIssues: 1, openPRs: 0 }, [repoB]: { openIssues: 2, openPRs: 0 } },
+      {},
+      undefined,
+      {},
+      new Set(),
+      new Set([repoB]),
+    ),
+  );
+  const res = await app.fetch(new Request("http://x/api/backlog"));
+  const body = (await res.json()) as { projects: { path: string; pinned: boolean }[] };
+  const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.pinned]));
+  expect(byPath[repoA]).toBe(false);
+  expect(byPath[repoB]).toBe(true);
+});
+
+test("buildBacklogPayload: a realpath-keyed pin matches its symlinked repo entry", async () => {
+  // repo_config keys are realpath-resolved; listRepos yields the raw symlink path.
+  const real = mkdtempSync(join(config.repoRoot, ".blt-real-"));
+  const link = join(config.repoRoot, `blt-link-${process.pid}`);
+  symlinkSync(real, link, "dir");
+  try {
+    const app = makeApp(makeDeps({}, {}, undefined, {}, new Set(), new Set([realpathSync(real)])));
+    const res = await app.fetch(new Request("http://x/api/backlog"));
+    const body = (await res.json()) as { projects: { path: string; pinned: boolean }[] };
+    const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.pinned]));
+    expect(byPath[link]).toBe(true);
+    expect(byPath[repoA]).toBe(false);
+  } finally {
+    rmSync(link, { force: true });
+    rmSync(real, { recursive: true, force: true });
+  }
+});
+
+/** Run git in `dir` with ambient GIT_* scrubbed so it never touches an enclosing repo. */
+function gitIn(dir: string, args: string[]): void {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")),
+  ) as Record<string, string>;
+  const r = Bun.spawnSync(["git", ...args], { cwd: dir, env });
+  if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
+}
+
+test("buildBacklogPayload: defaultBranch from local origin/HEAD, null when unset", async () => {
+  gitIn(repoA, ["init", "-q", "-b", "work"]);
+  gitIn(repoA, [
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@t",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "init",
+  ]);
+  gitIn(repoA, ["update-ref", "refs/remotes/origin/trunk", "HEAD"]);
+  gitIn(repoA, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"]);
+  const app = makeApp(
+    makeDeps({ [repoA]: { openIssues: 1, openPRs: 0 }, [repoB]: { openIssues: 1, openPRs: 0 } }),
+  );
+  const res = await app.fetch(new Request("http://x/api/backlog"));
+  const body = (await res.json()) as {
+    projects: { path: string; defaultBranch: string | null }[];
+  };
+  const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.defaultBranch]));
+  expect(byPath[repoA]).toBe("trunk");
+  // repoB is a plain dir (no git, no origin/HEAD) → null, never a throw
+  expect(byPath[repoB]).toBeNull();
 });
 
 test("GET /api/backlog with deps.backlog absent → empty payload", async () => {

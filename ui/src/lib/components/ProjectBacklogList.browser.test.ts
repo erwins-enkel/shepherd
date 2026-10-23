@@ -18,6 +18,8 @@ function project(path: string, hidden = false): BacklogProject {
     workflows: null,
     ciStatus: null,
     hidden,
+    pinned: false,
+    defaultBranch: "main",
   };
 }
 

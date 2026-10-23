@@ -133,6 +133,7 @@ function makeHarness(
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   store.setEpicRun({
     repoPath: REPO,

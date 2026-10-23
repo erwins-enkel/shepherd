@@ -18,6 +18,8 @@ function project(partial: Partial<BacklogProject> = {}): BacklogProject {
     workflows: null,
     ciStatus: null,
     hidden: false,
+    pinned: false,
+    defaultBranch: "main",
     ...partial,
   };
 }

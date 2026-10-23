@@ -619,6 +619,9 @@ export interface RepoConfig {
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
+  /** Pinned to the top of the Backlog repos panel (list-only ordering; never affects
+   *  sessions/drain). Default OFF. */
+  pinned: boolean;
   /** Local, non-replicated script Shepherd can run to start a repo preview without steering an agent. */
   previewStartScript?: string | null;
   /** The command captured when the local preview script was generated; used to recreate stale scripts. */
@@ -998,6 +1001,7 @@ type RepoCfgRow = {
   browserAllowedHosts: string | null;
   claudeAiConnectorsEnabled: number;
   hidden: number;
+  pinned: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
   previewOpenMode: string;
@@ -1193,6 +1197,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       browserAllowedHosts: [],
       claudeAiConnectorsEnabled: false,
       hidden: false,
+      pinned: false,
       previewStartScript: null,
       previewStartCommand: null,
       previewOpenMode: "ask",
@@ -1226,6 +1231,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     browserAllowedHosts: parseHostListJson(r.browserAllowedHosts),
     claudeAiConnectorsEnabled: !!r.claudeAiConnectorsEnabled,
     hidden: !!r.hidden,
+    pinned: !!r.pinned,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
     previewOpenMode: normalizePreviewOpenMode(r.previewOpenMode),
@@ -1262,6 +1268,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     JSON.stringify(cfg.browserAllowedHosts ?? []),
     Number(Boolean(cfg.claudeAiConnectorsEnabled)),
     Number(Boolean(cfg.hidden)),
+    Number(Boolean(cfg.pinned)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
     cfg.previewOpenMode,
@@ -2352,7 +2359,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2365,8 +2372,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2394,6 +2401,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          browserAllowedHosts = excluded.browserAllowedHosts,
          claudeAiConnectorsEnabled = excluded.claudeAiConnectorsEnabled,
          hidden = excluded.hidden,
+         pinned = excluded.pinned,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
          previewOpenMode = excluded.previewOpenMode,
@@ -2406,6 +2414,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    *  backlog payload (avoids a per-repo getRepoConfig). */
   hiddenRepoPaths(): Set<string> {
     const rows = this.db.query(`SELECT repoPath FROM repo_config WHERE hidden = 1`).all() as {
+      repoPath: string;
+    }[];
+    return new Set(rows.map((r) => r.repoPath));
+  }
+
+  /** repoPaths pinned to the top of the Backlog repos panel — one batch read, like
+   *  hiddenRepoPaths. */
+  pinnedRepoPaths(): Set<string> {
+    const rows = this.db.query(`SELECT repoPath FROM repo_config WHERE pinned = 1`).all() as {
       repoPath: string;
     }[];
     return new Set(rows.map((r) => r.repoPath));
@@ -6618,6 +6635,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("claudeAiConnectorsEnabled", `claudeAiConnectorsEnabled INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
+    // Pinned to the top of the Backlog repos panel (list-only ordering). Default OFF.
+    add("pinned", `pinned INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.
     add("previewStartScript", `previewStartScript TEXT`);
     add("previewStartCommand", `previewStartCommand TEXT`);

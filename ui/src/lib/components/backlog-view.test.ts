@@ -55,6 +55,8 @@ function project(
     workflows,
     ciStatus,
     hidden,
+    pinned: false,
+    defaultBranch: "main",
   };
 }
 

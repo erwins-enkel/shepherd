@@ -5408,6 +5408,8 @@ components:
         - workflows
         - ciStatus
         - hidden
+        - pinned
+        - defaultBranch
       properties:
         path:
           type: string
@@ -5442,6 +5444,13 @@ components:
           nullable: true
         hidden:
           type: boolean
+        pinned:
+          type: boolean
+          description: Operator-pinned to the top of the repos panel (list-only ordering).
+        defaultBranch:
+          type: string
+          nullable: true
+          description: Local origin/HEAD branch name (no forge call); null when unset or unreadable.
     BacklogPrKinds:
       type: object
       additionalProperties: true
@@ -6881,6 +6890,7 @@ components:
         - sharedBrowserEnabled
         - claudeAiConnectorsEnabled
         - hidden
+        - pinned
         - signoffAuthority
         - maxAuto
         - autoLabel
@@ -6930,6 +6940,9 @@ components:
           description: Let this repo's Claude task sessions load the operator's claude.ai account connectors (Claude Docs, Gmail, Drive, Notion …). Off by default. Flipping it restarts the repo's live Claude sessions once each is idle, and under the autonomous sandbox profile it allowlists the connector proxy host.
         hidden:
           type: boolean
+        pinned:
+          type: boolean
+          description: Pinned to the top of the Backlog repos panel (list-only ordering; never affects sessions or drain).
         connectorRestart:
           type: object
           description: "Present only on a PUT that flipped claudeAiConnectorsEnabled: how many live Claude sessions of the repo restart with the new setting now (settled) and after their current turn."
@@ -7020,6 +7033,9 @@ components:
           description: Let this repo's Claude task sessions load the operator's claude.ai account connectors (Claude Docs, Gmail, Drive, Notion …). Off by default. Flipping it restarts the repo's live Claude sessions once each is idle, and under the autonomous sandbox profile it allowlists the connector proxy host.
         hidden:
           type: boolean
+        pinned:
+          type: boolean
+          description: Pinned to the top of the Backlog repos panel (list-only ordering; never affects sessions or drain).
         signoffAuthority:
           type: string
         maxAuto:

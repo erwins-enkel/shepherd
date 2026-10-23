@@ -208,6 +208,7 @@ function makeHarness(
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   const forgeRec: ForgeRec = {
     merges: [],
@@ -1207,6 +1208,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
@@ -1237,6 +1239,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
 
   const forgeRec: ForgeRec = {
@@ -2406,6 +2409,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
+    pinned: false,
   });
 
   const candidateIssue = issue(42);

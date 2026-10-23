@@ -1143,6 +1143,8 @@ function buildBacklog(pullRequests: Record<string, PullRequest[]>): BacklogPaylo
         workflows: 3,
         ciStatus: "success",
         hidden: false,
+        pinned: false,
+        defaultBranch: "main",
       },
       {
         path: API,
@@ -1156,6 +1158,8 @@ function buildBacklog(pullRequests: Record<string, PullRequest[]>): BacklogPaylo
         workflows: 2,
         ciStatus: "success",
         hidden: false,
+        pinned: false,
+        defaultBranch: "main",
       },
     ],
   };
@@ -1803,6 +1807,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     browserAllowedHosts: [],
     claudeAiConnectorsEnabled: false,
     hidden: false,
+    pinned: false,
     previewStartScript: null,
     previewStartCommand: null,
     previewOpenMode: "ask",

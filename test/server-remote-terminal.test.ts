@@ -352,6 +352,12 @@ describe("terminal of a mirrored session through the coordinator", () => {
     );
     expect(lost.closed).toEqual({ code: 4002, reason: "machine unreachable" });
     expect(opens).toEqual([]);
+    // The mirror's recheck probes the dead machine; let it settle first, or the check below joins
+    // that in-flight probe and reads its stale "unreachable" (#3299).
+    await until(
+      () => a.deps.remoteInstances.get(bId)?.status,
+      (s) => s === "unreachable",
+    );
 
     // Same machine (same store and identity) back on the same address.
     startNode(port, store);

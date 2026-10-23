@@ -3226,6 +3226,7 @@
           issueNumber={session.issueNumber}
           isolated={session.isolated}
           baseBranch={session.baseBranch}
+          epicParent={session.epicParent ?? null}
           ondecommission={confirmDecommission}
           mobile
         />

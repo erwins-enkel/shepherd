@@ -4,7 +4,7 @@ import { planGateChip, type PlanGateChip } from "#lib/components/plan-gate-badge
 import { planQuestionsUnanswered } from "#lib/tab-signal.svelte.js";
 import type { HoldReason, PlanGate, Session } from "#lib/types.js";
 
-/** The thirteen mutually-exclusive presentations a plan-gate row can take. One classifier
+/** The fourteen mutually-exclusive presentations a plan-gate row can take. One classifier
  *  decides the state; LINE and ACTION are total maps over it, so the subline can never
  *  contradict the button beside it. */
 export type RowState =
@@ -20,10 +20,11 @@ export type RowState =
   | "none"
   | "server-answer"
   | "ci-retry"
-  | "login";
+  | "login"
+  | "epic-start";
 
 export interface HoldAction {
-  kind: "go" | "rereview" | "resume" | "answer" | "reply" | "retry-ci" | "browser";
+  kind: "go" | "rereview" | "resume" | "answer" | "reply" | "retry-ci" | "browser" | "epic-start";
   label: string;
   title: string;
 }
@@ -50,6 +51,18 @@ function isRetryableCiRed(h: HoldReason | undefined): boolean {
   return h?.code === "ci-red" && h.params?.pr != null;
 }
 
+/** True when a server hold is an `epic-run-stopped` naming its epic — the "Start/Resume epic" CTA
+ *  needs the epic to PUT (#2735). A non-plan hold, handled in R1's non-planning arm. */
+function isEpicStartable(h: HoldReason | undefined): boolean {
+  return h?.code === "epic-run-stopped" && h.params?.epic != null;
+}
+
+/** The epic the "Start/Resume epic" CTA runs: the paused leader when one leads (resuming it
+ *  integrates every epic's children), else the child's own epic. */
+export function epicStartTarget(h: HoldReason): number | null {
+  return h.params?.leadEpic ?? h.params?.epic ?? null;
+}
+
 /** True when the agent is waiting on a Handoff Login (#2882) — offered in ANY phase, since the
  *  agent is blocked on the operator either way. */
 function isLoginRequest(h: HoldReason | undefined): boolean {
@@ -73,11 +86,7 @@ export function rowState(
   const atCap = chip.kind === "changes" && chip.round >= chip.cap;
 
   if (isLoginRequest(serverHold)) return "login"; // R0 — any phase → Open browser CTA (#2882)
-  if (session.planPhase !== "planning") {
-    if (isRetryableCiRed(serverHold)) return "ci-retry"; // R1b — ci-red with a PR → Retry CI CTA
-    if (serverHold && ANSWERABLE.has(serverHold.code)) return "server-answer"; // R1a
-    return "passthrough"; // R1
-  }
+  if (session.planPhase !== "planning") return nonPlanningState(serverHold); // R1, R1a–R1c
   if (
     session.status === "blocked" ||
     session.haltReason != null ||
@@ -94,6 +103,15 @@ export function rowState(
   if (chip.kind === "changes") return "awaiting-rereview"; // R10
   if (chip.kind === "ready" && parked) return "ready"; // R11
   return "none"; // R12
+}
+
+/** R1's non-planning arm, in precedence order: the server hold passes through unless it carries a
+ *  one-click CTA. */
+function nonPlanningState(serverHold: HoldReason | undefined): RowState {
+  if (isRetryableCiRed(serverHold)) return "ci-retry"; // R1b — ci-red with a PR → Retry CI CTA
+  if (isEpicStartable(serverHold)) return "epic-start"; // R1c — epic run stopped → Start/Resume
+  if (serverHold && ANSWERABLE.has(serverHold.code)) return "server-answer"; // R1a
+  return "passthrough"; // R1
 }
 
 interface Ctx {
@@ -119,6 +137,7 @@ const LINE: Record<RowState, (ctx: Ctx) => string | null> = {
   "server-answer": serverLine,
   "ci-retry": serverLine,
   login: serverLine,
+  "epic-start": serverLine,
   reviewing: ({ gate }) => {
     const n = gate?.findings?.length ?? 0;
     return n > 0 ? m.hold_reviewing_findings({ count: n }) : m.hold_reviewing_plain();
@@ -171,7 +190,23 @@ const openBrowser = (): HoldAction => ({
   title: m.hold_cta_open_browser_title(),
 });
 
-const ACTION: Record<RowState, () => HoldAction | null> = {
+const epicStart = ({ serverHold }: Ctx): HoldAction | null => {
+  const epic = serverHold ? epicStartTarget(serverHold) : null;
+  if (epic == null) return null;
+  return serverHold?.params?.leadEpic != null
+    ? {
+        kind: "epic-start",
+        label: m.hold_cta_epic_resume(),
+        title: m.hold_cta_epic_resume_title({ epic }),
+      }
+    : {
+        kind: "epic-start",
+        label: m.hold_cta_epic_start(),
+        title: m.hold_cta_epic_start_title({ epic }),
+      };
+};
+
+const ACTION: Record<RowState, (ctx: Ctx) => HoldAction | null> = {
   passthrough: () => null,
   dismissed: () => null,
   reviewing: () => null,
@@ -185,6 +220,7 @@ const ACTION: Record<RowState, () => HoldAction | null> = {
   "server-answer": reply,
   "ci-retry": retryCi,
   login: openBrowser,
+  "epic-start": epicStart,
 };
 
 /** Classify the row, then read its line and action off the two total maps. */
@@ -197,5 +233,5 @@ export function rowHold(
   const chip = planGateChip(session, gate, planReviewing, { allowView: false });
   const state = rowState(session, gate, planReviewing, serverHold, chip);
   const ctx: Ctx = { gate, chip, serverHold };
-  return { state, line: LINE[state](ctx), action: ACTION[state]() };
+  return { state, line: LINE[state](ctx), action: ACTION[state](ctx) };
 }

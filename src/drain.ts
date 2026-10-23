@@ -17,6 +17,7 @@ import {
   buildRunSummary,
   slotHolders,
   computeNext,
+  drainEnabled,
   selectCandidates,
   mappedIssueSet,
   needsOpenPrCheck,
@@ -34,7 +35,7 @@ import { forecastEpic } from "./epic-forecast";
 import { repoLeadTime } from "./delivery-metrics";
 import {
   epicIntegrationBranch as epicBranchName,
-  epicParentFromBranch,
+  sessionEpicParent,
   branchReferencesEpic,
 } from "./epic-branch";
 import {
@@ -293,12 +294,6 @@ export interface DrainStatus {
  *  never carries the flag (the store clears it), but the status check keeps that explicit here. */
 function usageCeilingLifted(run: EpicRun | null): boolean {
   return run?.status === "running" && run.ignoreUsageCeiling === true;
-}
-
-/** The epic a session is a child of: its persisted stamp, else (legacy unstamped row) the parent
- *  its `epic/<#>-…` base branch names. Null for a non-epic session. */
-function sessionEpicParent(s: Pick<Session, "epicParent" | "baseBranch">): number | null {
-  return s.epicParent ?? epicParentFromBranch(s.baseBranch);
 }
 
 /** #3102: children of `parent` whose PR merged out of band into a non-epic branch — an archived
@@ -1163,10 +1158,8 @@ export class DrainService {
       [...allRepoSessions, ...routedHomeViews(allSessions, repoPath)],
       summaryCandidates,
     );
-    // enabled reflects whether spawning is active: epic running → use epic's running
-    // status; otherwise fall back to the label-drain toggle. An idle/paused epic or no
-    // epic row at all defers to autoDrainEnabled.
-    const enabled = epicActive ? epicRun!.status === "running" : cfg.autoDrainEnabled;
+    // enabled reflects whether spawning (and retiring) is active — see drainEnabled.
+    const enabled = drainEnabled(epicRun, cfg.autoDrainEnabled);
     const stall = this.epicStall(repoPath, epicActive, epicRun, builtEpic, epicParent);
 
     return {

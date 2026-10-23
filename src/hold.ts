@@ -88,6 +88,8 @@ const EN: CopyMap = {
     `Ready to merge${p.pr !== undefined ? ` (PR #${p.pr})` : ""} — waiting on you.`,
   "manual-steps": (p) =>
     `${p.steps ?? 1} manual step${(p.steps ?? 1) === 1 ? "" : "s"} to do before merge — ack to proceed.`,
+  "epic-run-stopped": (p) =>
+    `Waiting on epic run #${p.epic ?? "?"} — ${p.pr !== undefined ? `PR #${p.pr}` : "the PR"} is ready, but ${p.leadEpic !== undefined ? `epic #${p.leadEpic} is paused` : "the run is stopped"}.`,
 };
 
 const DE: CopyMap = {
@@ -138,6 +140,8 @@ const DE: CopyMap = {
     `Bereit zum Mergen${p.pr !== undefined ? ` (PR #${p.pr})` : ""} — wartet auf dich.`,
   "manual-steps": (p) =>
     `${p.steps ?? 1} manuelle${(p.steps ?? 1) === 1 ? "r" : ""} Schritt${(p.steps ?? 1) === 1 ? "" : "e"} vor dem Mergen — bestätigen zum Fortfahren.`,
+  "epic-run-stopped": (p) =>
+    `Wartet auf Epic-Lauf #${p.epic ?? "?"} — ${p.pr !== undefined ? `PR #${p.pr}` : "der PR"} ist bereit, aber ${p.leadEpic !== undefined ? `Epic #${p.leadEpic} ist pausiert` : "der Lauf ist gestoppt"}.`,
 };
 
 /** Server-side localized copy for a hold reason. Locale "de" → German, else English. */

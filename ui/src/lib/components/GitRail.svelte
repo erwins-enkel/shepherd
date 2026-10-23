@@ -35,6 +35,7 @@
   import Coachmark from "#lib/components/Coachmark.svelte";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { pullMainAndToast } from "#lib/pull-offer.js";
+  import { railEpicChild, railEpicStopped } from "./git-rail/epic-rail";
 
   let {
     sessionId,
@@ -51,6 +52,7 @@
     issueNumber = null,
     isolated = false,
     baseBranch = "",
+    epicParent = null,
     ondecommission = undefined,
   }: {
     sessionId: string;
@@ -75,6 +77,8 @@
     isolated?: boolean;
     /** The session's base branch (e.g. "main"); used by the combined fast-forward action. */
     baseBranch?: string;
+    /** The epic this session is a child of (`Session.epicParent`); null for a non-epic session. */
+    epicParent?: number | null;
     /** Offer to tear down THIS session after its PR is merged; called with the merged session's id. */
     ondecommission?: (id: string) => void;
   } = $props();
@@ -427,6 +431,10 @@
         : git.checks === "failure"),
   );
 
+  // #2735: an epic child merges into its epic branch, and the rail marks a run that won't integrate it.
+  const epicChild = $derived(railEpicChild(epicParent, baseBranch));
+  const epicStopped = $derived(railEpicStopped(epicChild, drain));
+
   const mergeBlockedReason = $derived(
     !mergeBlocked
       ? undefined
@@ -727,6 +735,8 @@
         {toggleReview}
         {doReview}
         {doReviewPlan}
+        {epicChild}
+        {epicStopped}
       />
 
       {#if repoPath}

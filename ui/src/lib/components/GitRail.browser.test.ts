@@ -287,6 +287,72 @@ describe("GitRail — shortened issue & PR labels", () => {
   });
 });
 
+describe("GitRail — epic child (#2735)", () => {
+  const stoppedDrain = {
+    repoPath: "/repo",
+    enabled: false,
+    paused: false,
+    reason: "disabled",
+    detail: null,
+    queued: 0,
+    inFlight: 0,
+    max: 1,
+    epicParent: null,
+  };
+
+  it("an epic child under a stopped drain: stopped chip + Merge into epic", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    const h = host(900);
+    const screen = await render(GitRail, {
+      target: h,
+      props: {
+        ...baseProps,
+        mobile: false,
+        epicParent: 67,
+        baseBranch: "epic/67-x",
+        drain: stoppedDrain,
+      },
+    });
+    await expect.element(screen.getByText(m.gitrail_epic_stopped({ epic: 67 }))).toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: m.gitrail_merge_into_epic() }))
+      .toBeVisible();
+  });
+
+  it("a running drain hides the chip but keeps Merge into epic", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    const h = host(900);
+    const screen = await render(GitRail, {
+      target: h,
+      props: {
+        ...baseProps,
+        mobile: false,
+        epicParent: 67,
+        baseBranch: "epic/67-x",
+        drain: { ...stoppedDrain, enabled: true },
+      },
+    });
+    await expect
+      .element(screen.getByRole("button", { name: m.gitrail_merge_into_epic() }))
+      .toBeVisible();
+    expect(h.textContent).not.toContain(m.gitrail_epic_stopped({ epic: 67 }));
+  });
+
+  it("a non-epic session keeps the plain Merge label and no chip", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    const h = host(900);
+    const screen = await render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, baseBranch: "main", drain: stoppedDrain },
+    });
+    await expect
+      .element(screen.getByRole("button", { name: m.gitrail_merge(), exact: true }))
+      .toBeVisible();
+    expect(h.textContent).not.toContain(m.gitrail_merge_into_epic());
+    expect(h.querySelector(".epic-stopped")).toBeNull();
+  });
+});
+
 describe("GitRail — PR actions menu", () => {
   beforeEach(() => {
     toastsInfo.mockClear();

@@ -846,3 +846,72 @@ export function assistantLayoutExplanation(layout: AssistantLayout): TooltipExpl
     footer: [m.assistant_layout_tip_remembered()],
   };
 }
+
+/** An epic child's ready PR waits because the epic run is stopped (#2735): the hold, what moves it,
+ *  and what that costs. `leadEpic` is the paused epic leading the repo, when one does; the child
+ *  tally comes from the live epic and is left out when that is not loaded. */
+export function epicRunStoppedExplanation(p: {
+  pr: number | null;
+  epic: number;
+  leadEpic: number | null;
+  integrated?: number;
+  total?: number;
+}): TooltipExplanation {
+  const pr = p.pr ?? 0;
+  const status =
+    p.leadEpic === p.epic
+      ? m.tooltip_epic_stopped_status_paused()
+      : m.tooltip_epic_stopped_status_stopped();
+  const state =
+    p.integrated != null && p.total != null
+      ? m.tooltip_epic_stopped_state_body_count({
+          epic: p.epic,
+          status,
+          integrated: p.integrated,
+          total: p.total,
+        })
+      : m.tooltip_epic_stopped_state_body({ epic: p.epic, status });
+  return {
+    title: m.tooltip_epic_stopped_title(),
+    summary:
+      p.leadEpic != null
+        ? m.tooltip_epic_stopped_summary_lead({ pr, lead: p.leadEpic })
+        : m.tooltip_epic_stopped_summary({ pr, epic: p.epic }),
+    sections: [
+      { label: m.tooltip_epic_stopped_state(), text: state },
+      {
+        label: m.tooltip_epic_stopped_next(),
+        text:
+          p.leadEpic != null
+            ? m.tooltip_epic_stopped_next_resume({ lead: p.leadEpic })
+            : m.tooltip_epic_stopped_next_start(),
+      },
+      { label: m.tooltip_epic_stopped_cost(), text: m.tooltip_epic_stopped_cost_body() },
+    ],
+  };
+}
+
+/** The rail's "Merge into epic" button (#2735): where the PR lands, and that the run stays put. */
+export function mergeIntoEpicExplanation(p: {
+  branch: string;
+  stopped: boolean;
+}): TooltipExplanation {
+  return {
+    title: m.gitrail_merge_into_epic_tip_title(),
+    summary: m.gitrail_merge_into_epic_tip_summary({ branch: p.branch }),
+    sections: [
+      {
+        label: m.gitrail_merge_into_epic_tip_target(),
+        text: m.gitrail_merge_into_epic_tip_target_body(),
+      },
+      ...(p.stopped
+        ? [
+            {
+              label: m.gitrail_merge_into_epic_tip_run(),
+              text: m.gitrail_merge_into_epic_tip_run_body(),
+            },
+          ]
+        : []),
+    ],
+  };
+}

@@ -3,7 +3,7 @@ import type { AgentProvider, SessionStatus, ReviewDecision } from "./types";
 import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
 import { checksCleared } from "./checks-gate";
 import { verdictStale } from "./verdict-freshness";
-import type { EpicChild } from "./epic-core";
+import type { EpicChild, EpicRun } from "./epic-core";
 
 /** Issues carrying this label jump to the head of the drain queue. Fixed (the
  *  per-repo `autoLabel` is configurable, but the priority marker is a constant
@@ -235,7 +235,7 @@ function signoffView(s: AutoSessionView): SignoffView {
   };
 }
 
-function readyToRetire(
+export function readyToRetire(
   s: AutoSessionView,
   criticEnabled: boolean,
   draftMode: boolean,
@@ -282,6 +282,18 @@ function awaitingSignoff(
     return false;
   }
   return !signedOff(authority, signoffView(s));
+}
+
+/** Whether the repo's drain acts at all (spawns AND retires): a leading epic (running or paused)
+ *  decides — only `running` acts; an idle run or no row defers to the label-drain toggle. Shared by
+ *  the drain's buildState and the epic-run-stopped hold (#2735) so the two cannot drift. */
+export function drainEnabled(
+  run: Pick<EpicRun, "status"> | null | undefined,
+  autoDrainEnabled: boolean,
+): boolean {
+  if (run?.status === "running") return true;
+  if (run?.status === "paused") return false;
+  return autoDrainEnabled;
 }
 
 function usageGuardsApply(state: DrainRepoState): boolean {

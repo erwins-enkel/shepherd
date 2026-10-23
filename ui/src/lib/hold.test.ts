@@ -35,6 +35,7 @@ const EXPECTED: Record<HoldCode, boolean> = {
   merging: false,
   "merge-rebasing": false,
   "ready-merge": false,
+  "epic-run-stopped": false,
   "halted-usage": false,
 };
 

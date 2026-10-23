@@ -56,6 +56,7 @@ const COLLECTION_READS = new Set([
   "/api/amendments",
 ]);
 const SESSION_READS = new Set([
+  "recap",
   "usage",
   "activity",
   "steer-log",

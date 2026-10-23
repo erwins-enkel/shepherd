@@ -78,6 +78,8 @@ struct ActionBarView: View {
         return app.selectedSessionID == session.id || app.selectedSessionID == nil
     }
 
+    @State private var recapExpanded = false
+    @State private var recapDetail = RecapDetailState()
     @State private var command = SessionCommandState()
     @State private var sheet: Sheet?
     @State private var confirmingRelaunch = false
@@ -85,6 +87,12 @@ struct ActionBarView: View {
     /// command. Separate from `command.message`, which is only ever a failure — and unlike it,
     /// this one carries its own tone, because most but not all of these are good news.
     @State private var outcome = ActionBarOutcome()
+
+    private func loadRecapDetails() async {
+        await recapDetail.load(sessionID: session.id, summary: model.recap(for: session.id)) {
+            try await store.client.recap(sessionID: $0)
+        }
+    }
 
     private var actions: [SessionAction] { model.actions(for: session) }
 
@@ -100,15 +108,27 @@ struct ActionBarView: View {
             }
             if let recap = RecapLine.content(for: model.recap(for: session.id)) {
                 recapLine(recap)
-                if let blocks = model.recap(for: session.id)?.blocks, !blocks.isEmpty {
-                    DisclosureGroup(L.t("feat_visual_recap_title")) {
-                        ScrollView { VisualBlocksView(blocks: blocks, inferred: true) }
-                            .frame(maxHeight: 280)
-                    }.padding(.horizontal, 16)
-                }
+                DisclosureGroup(L.t("feat_visual_recap_title"), isExpanded: $recapExpanded) {
+                    if recapExpanded {
+                        if recapDetail.isLoading { ProgressView() }
+                        if let error = recapDetail.error {
+                            Text(verbatim: error)
+                            Button(L.t("common_retry")) { Task { await loadRecapDetails() } }
+                        }
+                        if let blocks = recapDetail.current(sessionID: session.id,
+                            summary: model.recap(for: session.id))?.blocks, !blocks.isEmpty {
+                            ScrollView { VisualBlocksView(blocks: blocks, inferred: true) }
+                                .frame(maxHeight: 280)
+                        }
+                    }
+                }.padding(.horizontal, 16)
             }
             buttons
         }
+        .task(id: "\(app.activationGeneration):\(recapExpanded):\(RecapDetailState.version(sessionID: session.id, summary: model.recap(for: session.id)))") {
+            if recapExpanded { await loadRecapDetails() } else { recapDetail.close() }
+        }
+        .onDisappear { recapDetail.close() }
         .accessibilityIdentifier("action-bar")
         .accessibilityLabel(L.t("native_actions_bar_label"))
         .sheet(isPresented: $confirmingRelaunch) {
@@ -136,6 +156,8 @@ struct ActionBarView: View {
         // go with it too — none of the three has anything to do with a session the bar has
         // moved on from.
         .onChange(of: session.id) { _, _ in
+            recapExpanded = false
+            recapDetail.close()
             resetForSessionChange()
             consumePendingOutcomeNote()
         }

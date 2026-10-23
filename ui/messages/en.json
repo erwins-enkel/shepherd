@@ -1509,6 +1509,7 @@
   "feat_epic_landing_pr_body": "When an epic's children are all integrated, Shepherd opens a final PR that lands the whole epic and closes the parent issue — surfaced as a link in the Integrated-epics band.",
   "integrated_epics_landing_pr_merged": "Landing PR #{number} — merged",
   "recap_changed_files": "Changed files",
+  "recap_detail_load_failed": "Recap details could not be loaded.",
   "recap_unavailable": "No recap record exists for this session; the reason was not recorded.",
   "recap_predates_feature": "This session finished before session recaps were available, so none was recorded.",
   "recap_issue": "Issue #{n}",

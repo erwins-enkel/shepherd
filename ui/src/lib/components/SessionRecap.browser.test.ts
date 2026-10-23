@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -7,6 +7,11 @@ import { recaps } from "#lib/recaps.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { Session, Recap } from "#lib/types.js";
 import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
+
+vi.mock(import("#lib/api.js"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  getSessionRecap: vi.fn(async (id: string) => recaps.map[id]),
+}));
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -193,4 +198,22 @@ describe("SessionRecap parked verdict contrast", () => {
       expectQuietLegible(document.querySelector<HTMLElement>(".recap-verdict-chip")!);
     });
   }
+});
+
+describe("SessionRecap detail fetch", () => {
+  it("does not fetch while collapsed, then loads the opened recap", async () => {
+    const { getSessionRecap } = await import("#lib/api.js");
+    vi.mocked(getSessionRecap).mockClear();
+    recaps.map = { lazy: recap({ sessionId: "lazy" }) };
+    vi.mocked(getSessionRecap).mockResolvedValueOnce({
+      ...recaps.map.lazy,
+      blocks: [{ type: "callout", id: "lazy", tone: "risk", markdown: "Fetched after expansion" }],
+    });
+    render(SessionRecap, { session: session({ id: "lazy" }) });
+    expect(getSessionRecap).not.toHaveBeenCalled();
+    await page.getByRole("button", { expanded: false }).click();
+    await expect.element(page.getByText("Fetched after expansion")).toBeVisible();
+    expect(getSessionRecap).toHaveBeenCalledWith("lazy");
+    expect(recaps.map.lazy.blocks).toBeUndefined();
+  });
 });

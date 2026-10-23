@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  recapSummary,
   parseRecapVerdict,
   buildTranscriptDigest,
   buildUiMarkupDigest,
@@ -1348,4 +1349,13 @@ test("buildRecapPrompt without amendments is byte-identical", () => {
   expect(strip(buildRecapPrompt({ ...input, amendments: [] }))).toBe(
     strip(buildRecapPrompt(input)),
   );
+});
+
+test("recapSummary omits blocks without mutating the complete recap", async () => {
+  const { recap } = await import("./contract/actions-fixtures");
+  const { blocks, ...expected } = recap;
+  expect(recapSummary(recap)).toEqual(expected);
+  expect(Object.hasOwn(recapSummary({ ...recap, blocks: [] }), "blocks")).toBe(false);
+  expect(recap.blocks).toBe(blocks);
+  expect(recap.blocks?.length).toBe(1);
 });

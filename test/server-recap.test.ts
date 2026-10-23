@@ -5,6 +5,7 @@ import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
+import { recap as diffRecap } from "./contract/actions-fixtures";
 import type { Session, Recap } from "../src/types";
 
 let tmpRoot: string;
@@ -230,4 +231,37 @@ test("POST /api/sessions/:id/recap/regenerate → status:error when recap dep is
   );
   expect(res.status).toBe(202);
   expect(await res.json()).toEqual({ ok: true, status: "error" });
+});
+
+test("recap list omits blocks without changing cached detail", async () => {
+  const { app } = harness({ recapCache: { snapshot: () => ({ s1: diffRecap }) } });
+  const response = await app.fetch(new Request("http://x/api/recaps"));
+  const rows = await response.json();
+  const { blocks, ...summary } = diffRecap;
+  expect(rows.s1).toEqual(summary);
+  expect(Object.hasOwn(rows.s1, "blocks")).toBe(false);
+  expect(diffRecap.blocks).toBe(blocks);
+});
+
+test("recap detail reads archived sessions with grounded hunks; missing recap is 404", async () => {
+  const { app, store } = harness();
+  const session = store.create({
+    name: "detail",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "detail",
+    worktreePath: repoDir,
+    isolated: true,
+    herdrSession: "detail",
+    herdrAgentId: "detail",
+  });
+  const url = `http://x/api/sessions/${session.id}/recap`;
+  expect((await app.fetch(new Request(url))).status).toBe(404);
+  store.putRecap({ ...diffRecap, sessionId: session.id });
+  store.archive(session.id);
+  const response = await app.fetch(new Request(url));
+  expect(response.status).toBe(200);
+  expect((await response.json()).blocks).toEqual(diffRecap.blocks);
+  expect((await app.fetch(new Request("http://x/api/sessions/nope/recap"))).status).toBe(404);
 });

@@ -27,6 +27,8 @@ import {
   repoOwnerName,
   effectiveHidden,
   splitHidden,
+  effectivePinned,
+  groupRepos,
   RECENT_LIMIT,
   resolveFilterPaths,
   sortProjects,
@@ -517,6 +519,74 @@ describe("effectiveHidden / splitHidden", () => {
     const { visible, hidden } = splitHidden([b], { "/r/b": false });
     expect(visible.map((p) => p.path)).toEqual(["/r/b"]);
     expect(hidden).toEqual([]);
+  });
+});
+
+describe("effectivePinned / groupRepos", () => {
+  const p = (path: string, over: Partial<BacklogProject> = {}): BacklogProject => ({
+    ...project(path, 1, 0),
+    ...over,
+  });
+  const paths = (ps: BacklogProject[]) => ps.map((x) => x.path);
+  const none = { pinned: {}, hidden: {} };
+
+  it("effectivePinned: overlay wins over the server baseline, missing field → false", () => {
+    expect(effectivePinned(p("/r/a", { pinned: true }), {})).toBe(true);
+    expect(effectivePinned(p("/r/a", { pinned: true }), { "/r/a": false })).toBe(false);
+    expect(effectivePinned(p("/r/a"), { "/r/a": true })).toBe(true);
+    const bare = { ...p("/r/b"), pinned: undefined } as unknown as BacklogProject;
+    expect(effectivePinned(bare, {})).toBe(false);
+  });
+
+  it("orders pinned → recents → rest → hidden, keeping input order", () => {
+    const a = p("/r/a");
+    const b = p("/r/b", { pinned: true });
+    const c = p("/r/c", { recentAgentCount: 2 });
+    const d = p("/r/d", { hidden: true });
+    const e = p("/r/e", { pinned: true });
+    const g = groupRepos([a, b, c, d, e], none);
+    expect(paths(g.pinned)).toEqual(["/r/b", "/r/e"]);
+    expect(paths(g.recents)).toEqual(["/r/c"]);
+    expect(paths(g.rest)).toEqual(["/r/a"]);
+    expect(paths(g.hidden)).toEqual(["/r/d"]);
+  });
+
+  it("a pinned + hidden repo lands only in hidden", () => {
+    const g = groupRepos([p("/r/a", { pinned: true, hidden: true })], none);
+    expect(g.pinned).toEqual([]);
+    expect(paths(g.hidden)).toEqual(["/r/a"]);
+  });
+
+  it("a pinned repo with recent agents stays in pinned, not recents", () => {
+    const g = groupRepos([p("/r/a", { pinned: true, recentAgentCount: 5 })], none);
+    expect(paths(g.pinned)).toEqual(["/r/a"]);
+    expect(g.recents).toEqual([]);
+  });
+
+  it("applies the optimistic pin and hide overlays", () => {
+    const g = groupRepos([p("/r/a"), p("/r/b", { pinned: true })], {
+      pinned: { "/r/a": true, "/r/b": false },
+      hidden: {},
+    });
+    expect(paths(g.pinned)).toEqual(["/r/a"]);
+    expect(paths(g.rest)).toEqual(["/r/b"]);
+    const h = groupRepos([p("/r/a", { pinned: true })], { pinned: {}, hidden: { "/r/a": true } });
+    expect(paths(h.hidden)).toEqual(["/r/a"]);
+  });
+
+  it("recent: false (search) flattens visible repos into rest", () => {
+    const g = groupRepos(
+      [
+        p("/r/a", { pinned: true }),
+        p("/r/b", { recentAgentCount: 3 }),
+        p("/r/c", { hidden: true }),
+      ],
+      { ...none, recent: false },
+    );
+    expect(g.pinned).toEqual([]);
+    expect(g.recents).toEqual([]);
+    expect(paths(g.rest)).toEqual(["/r/a", "/r/b"]);
+    expect(paths(g.hidden)).toEqual(["/r/c"]);
   });
 });
 

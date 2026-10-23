@@ -6950,5 +6950,11 @@
   "feat_assistant_yes_no_title": "Answer yes/no questions with a click",
   "feat_assistant_yes_no_body": "The assistant asks for decisions in a structured dialog. Explicit yes/no questions in chat also offer quick replies; answer numbered questions together.",
   "feat_assistant_drain_issues_title": "Manage drain issues in the Assistant",
-  "feat_assistant_drain_issues_body": "Ask the Assistant to enqueue or dequeue issues, set priority, or release orphaned claims. These actions follow your Automation permissions in Settings → Assistant."
+  "feat_assistant_drain_issues_body": "Ask the Assistant to enqueue or dequeue issues, set priority, or release orphaned claims. These actions follow your Automation permissions in Settings → Assistant.",
+  "backlog_pin_repo": "Pin repo",
+  "backlog_unpin_repo": "Unpin repo",
+  "backlog_pinned_heading": "Pinned",
+  "repos_switcher_col_issues": "open issues",
+  "feat_repo_pin_title": "Pin your repos",
+  "feat_repo_pin_body": "Hover a repo in the Repos list and click the pin to keep it in a Pinned group at the top. Each repo now also shows a coloured initial, or its emoji if you set one."
 }

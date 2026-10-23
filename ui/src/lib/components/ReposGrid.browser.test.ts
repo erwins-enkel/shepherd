@@ -104,6 +104,21 @@ afterEach(async () => {
 });
 
 describe("ReposGrid tiles", () => {
+  it("puts pinned repos in a Pinned group of big tiles above Recently edited", async () => {
+    const ps = projects().map((p) => (p.path === "/r/delta" ? { ...p, pinned: true } : p));
+    await render(ReposGrid, props({ projects: ps }));
+    const labels = qa(".rg-label").map((l) => l.textContent?.trim());
+    expect(labels.slice(0, 2)).toEqual([m.backlog_pinned_heading(), m.repos_grid_recent()]);
+    expect(names(".rg-tile-big")).toEqual(["delta", "alpha", "bravo"]);
+    expect(names(".rg-tile-small")).not.toContain("delta");
+  });
+
+  it("every tile carries the repo mark, never ▣", async () => {
+    await render(ReposGrid, props());
+    expect(qa(".rg-tile").every((t) => t.querySelector(".repo-mark"))).toBe(true);
+    expect(q(".rg")!.textContent).not.toContain("▣");
+  });
+
   it("shows recent repos as big tiles and the rest as compact ones", async () => {
     await render(ReposGrid, props());
     expect(names(".rg-tile-big")).toEqual(["alpha", "bravo"]);

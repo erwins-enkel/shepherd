@@ -2,13 +2,14 @@
   import { on } from "svelte/events";
   import type { BacklogProject, DrainStatus } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
   import AddRepoButton from "./AddRepoButton.svelte";
+  import RepoMark from "./RepoMark.svelte";
   import { pausedText } from "./queue-strip";
   import {
     filterProjects,
+    groupRepos,
     nearestInDirection,
-    partitionRecents,
     repoOwnerName,
     repoRunState,
     sizeShare,
@@ -18,7 +19,7 @@
 
   // The desktop Repos dialog's entry when no single repo is preselected (no dashboard
   // filter, or several repos filtered): a full-width grid instead of list + reading view.
-  // "Recently edited" gets large tiles (counts + what the drain is doing), "All repos"
+  // "Pinned" and "Recently edited" get large tiles (counts + what the drain is doing), "All repos"
   // compact ones with a size bar. Search and sort are local — independent of the header
   // switcher's popover scope. The parent (BacklogView) owns the repo selection.
   let {
@@ -49,8 +50,15 @@
 
   const searching = $derived(query.trim() !== "");
   const filtered = $derived(filterProjects(projects, { hasIssues: false, hasPRs: false, query }));
-  // Same recents ranking as the switcher; a search flattens the list (no recents group).
-  const grouped = $derived(partitionRecents(filtered, searching));
+  // Same grouping as the switcher (pinned → recents → rest); a search flattens the list.
+  // The parent already dropped hidden repos, so `grouped.hidden` stays empty here.
+  const grouped = $derived(
+    groupRepos(filtered, {
+      pinned: repoConfig.pinned,
+      hidden: repoConfig.hidden,
+      recent: !searching,
+    }),
+  );
   const rest = $derived(sortProjects(grouped.rest, sort));
   const maxIssues = $derived(Math.max(0, ...projects.map((p) => p.openIssues ?? 0)));
 
@@ -138,6 +146,25 @@
   });
 </script>
 
+{#snippet bigTile(project: BacklogProject)}
+  {@const id = repoOwnerName(project)}
+  {@const run = runLine(project)}
+  <button class="rg-tile rg-tile-big" type="button" onclick={() => onselect(project.path)}>
+    <span class="rg-title">
+      <RepoMark path={project.path} name={id.name} />
+      <span class="rg-name">{id.name}</span>
+    </span>
+    {#if id.owner}<span class="rg-owner">{id.owner}</span>{/if}
+    <span class="rg-counts">{counts(project)}</span>
+    {#if run}
+      <span class="rg-run" class:paused={run.paused}>
+        <span aria-hidden="true">●</span>
+        {run.text}
+      </span>
+    {/if}
+  </button>
+{/snippet}
+
 <section class="rg" bind:this={root} aria-label={m.repos_switcher_choose()}>
   <div class="rg-bar">
     <div class="rg-search-wrap">
@@ -181,28 +208,20 @@
       <div class="rg-empty">{m.backlog_filter_none_match()}</div>
     {/if}
 
+    {#if grouped.pinned.length > 0}
+      <div class="rg-label">{m.backlog_pinned_heading()}</div>
+      <div class="rg-big">
+        {#each grouped.pinned as project (project.path)}
+          {@render bigTile(project)}
+        {/each}
+      </div>
+    {/if}
+
     {#if grouped.recents.length > 0}
       <div class="rg-label">{m.repos_grid_recent()}</div>
       <div class="rg-big">
         {#each grouped.recents as project (project.path)}
-          {@const id = repoOwnerName(project)}
-          {@const run = runLine(project)}
-          <button class="rg-tile rg-tile-big" type="button" onclick={() => onselect(project.path)}>
-            <span class="rg-title">
-              <span class="rg-glyph" aria-hidden="true"
-                >{projectIcons.iconFor(project.path) ?? "▣"}</span
-              >
-              <span class="rg-name">{id.name}</span>
-            </span>
-            {#if id.owner}<span class="rg-owner">{id.owner}</span>{/if}
-            <span class="rg-counts">{counts(project)}</span>
-            {#if run}
-              <span class="rg-run" class:paused={run.paused}>
-                <span aria-hidden="true">●</span>
-                {run.text}
-              </span>
-            {/if}
-          </button>
+          {@render bigTile(project)}
         {/each}
       </div>
     {/if}
@@ -211,13 +230,17 @@
       <div class="rg-label">{m.repos_switcher_all()}</div>
       <div class="rg-small">
         {#each rest as project (project.path)}
+          {@const name = repoOwnerName(project).name}
           <button
             class="rg-tile rg-tile-small"
             type="button"
             onclick={() => onselect(project.path)}
           >
             <span class="rg-small-row">
-              <span class="rg-name">{repoOwnerName(project).name}</span>
+              <span class="rg-title">
+                <RepoMark path={project.path} {name} />
+                <span class="rg-name">{name}</span>
+              </span>
               <span class="rg-small-counts">
                 {m.repos_switcher_tile_counts({
                   issues: project.openIssues ?? "—",
@@ -415,12 +438,6 @@
     gap: 8px;
     min-width: 0;
   }
-  .rg-glyph {
-    flex-shrink: 0;
-    color: var(--color-faint);
-    font-size: var(--fs-base);
-    line-height: 1;
-  }
   .rg-name {
     min-width: 0;
     color: var(--color-ink-bright);
@@ -466,7 +483,7 @@
   }
   .rg-small-row {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 10px;
     min-width: 0;

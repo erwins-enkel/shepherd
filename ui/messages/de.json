@@ -6950,5 +6950,11 @@
   "feat_assistant_yes_no_title": "Ja/Nein-Fragen per Klick beantworten",
   "feat_assistant_yes_no_body": "Der Assistent stellt Entscheidungsfragen im strukturierten Dialog. Auch ausdrückliche Ja/Nein-Fragen im Chat bieten Schnellantworten; nummerierte Fragen lassen sich gemeinsam beantworten.",
   "feat_assistant_drain_issues_title": "Drain-Issues im Assistenten verwalten",
-  "feat_assistant_drain_issues_body": "Lass den Assistenten Issues einreihen oder herausnehmen, priorisieren oder verwaiste Claims freigeben. Dafür gelten deine Automatik-Berechtigungen unter Einstellungen → Assistent."
+  "feat_assistant_drain_issues_body": "Lass den Assistenten Issues einreihen oder herausnehmen, priorisieren oder verwaiste Claims freigeben. Dafür gelten deine Automatik-Berechtigungen unter Einstellungen → Assistent.",
+  "backlog_pin_repo": "Repo anheften",
+  "backlog_unpin_repo": "Repo lösen",
+  "backlog_pinned_heading": "Angeheftet",
+  "repos_switcher_col_issues": "offene Issues",
+  "feat_repo_pin_title": "Repos anheften",
+  "feat_repo_pin_body": "Fahre in der Repo-Liste über ein Repo und klicke die Stecknadel: Es bleibt dann oben in der Gruppe „Angeheftet“. Jedes Repo zeigt jetzt außerdem einen farbigen Anfangsbuchstaben oder sein Emoji, falls du eins gesetzt hast."
 }

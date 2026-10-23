@@ -3010,6 +3010,7 @@ export async function putRepoConfig(
       | "browserAllowedHosts"
       | "claudeAiConnectorsEnabled"
       | "hidden"
+      | "pinned"
       | "previewStartScript"
       | "previewStartCommand"
       | "previewOpenMode"

@@ -4,14 +4,12 @@
   import ProjectRow from "./ProjectRow.svelte";
   import AddRepoButton from "./AddRepoButton.svelte";
   import RepoFilterBar from "./RepoFilterBar.svelte";
-  import { partitionRecents } from "./backlog-view";
+  import type { RepoGroups } from "./backlog-view";
 
   let {
-    projects,
-    hiddenProjects = [],
+    groups,
     hiddenCount = 0,
     showHidden = false,
-    pinnedPath,
     selectedPath,
     hasIssues,
     hasPRs,
@@ -22,21 +20,20 @@
     onsearch,
     onselect,
     onhide = () => {},
+    onpin = () => {},
     onaddclone,
     onaddfork,
     onaddnewproject,
   }: {
-    /** Already filtered by the parent (BacklogView) via filterProjects — the
-     *  parent owns the filter state so it can keep the selection in sync. */
-    projects: BacklogProject[];
-    /** Hidden repos to show in the collapsible "Hidden" group; the parent gates this
-     *  to non-empty only when the group should render (Show-hidden on, or searching). */
-    hiddenProjects?: BacklogProject[];
+    /** Already filtered (filterProjects) and grouped (groupRepos) by the parent
+     *  (BacklogView) — it owns the filter state so it can keep the selection in sync.
+     *  `hidden` (the collapsible "Hidden" group) is gated by the parent to non-empty
+     *  only when the group should render (Show-hidden on, or searching). */
+    groups: RepoGroups;
     /** Total hidden repos (drives the chip badge; independent of search). */
     hiddenCount?: number;
     /** Whether the Show-hidden chip reads as active. */
     showHidden?: boolean;
-    pinnedPath: string | null;
     selectedPath: string | null;
     hasIssues: boolean;
     hasPRs: boolean;
@@ -48,6 +45,8 @@
     onselect: (path: string) => void;
     /** Hide/unhide a repo by path. */
     onhide?: (path: string) => void;
+    /** Pin/unpin a repo by path. */
+    onpin?: (path: string) => void;
     /** "+ Add repo" menu actions — open the already-mounted Clone/Fork/New-project
      *  modals. Bubbled up via BacklogView → BacklogOverlay → AppOverlays → +page. */
     onaddclone: () => void;
@@ -57,12 +56,28 @@
 
   const searching = $derived(query.trim() !== "");
 
-  // "Recently worked on" group at the top — same ranking criteria as the New
-  // Task repo picker's pinned recents (see partitionRecents). Hoisted, not
-  // duplicated, so each repo keeps a single selectable row. Suppressed while
-  // searching so the results read as a flat search list.
-  const grouped = $derived(partitionRecents(projects, searching));
+  // Pinned, then "recently worked on" (same ranking as the New Task picker), then the
+  // rest — each repo keeps a single selectable row. A search flattens the list.
+  const sections = $derived(
+    [
+      { key: "pinned", label: m.backlog_pinned_heading(), list: groups.pinned },
+      { key: "recent", label: m.reposelect_recent_heading(), list: groups.recents },
+      { key: "rest", label: null, list: groups.rest },
+    ].filter((sec) => sec.list.length > 0),
+  );
+  const visibleCount = $derived(groups.pinned.length + groups.recents.length + groups.rest.length);
 </script>
+
+{#snippet row(project: BacklogProject, hidden: boolean)}
+  <ProjectRow
+    {project}
+    {hidden}
+    selected={project.path === selectedPath}
+    onselect={() => onselect(project.path)}
+    onhide={() => onhide(project.path)}
+    onpin={() => onpin(project.path)}
+  />
+{/snippet}
 
 <RepoFilterBar
   {query}
@@ -81,7 +96,7 @@
      repo is hidden and Show-hidden is off (a distinct, less-confusing hint). Suppress
      the banner entirely when the Hidden group below is populated (e.g. a search that
      only matches hidden repos), so "No repos match" never sits above visible rows. -->
-{#if projects.length === 0 && hiddenProjects.length === 0}
+{#if visibleCount === 0 && groups.hidden.length === 0}
   <div class="filter-empty">
     {#if hiddenCount > 0 && !showHidden && !searching}
       <span class="filter-empty-label">{m.backlog_filter_all_hidden()}</span>
@@ -91,50 +106,30 @@
   </div>
 {:else}
   <div class="project-list">
-    {#if grouped.recents.length > 0}
-      <div class="recent-label">{m.reposelect_recent_heading()}</div>
-      {#each grouped.recents as project (project.path)}
-        <ProjectRow
-          {project}
-          pinned={project.path === pinnedPath}
-          selected={project.path === selectedPath}
-          onselect={() => onselect(project.path)}
-          onhide={() => onhide(project.path)}
-        />
-      {/each}
-      {#if grouped.rest.length > 0}
+    {#each sections as sec, i (sec.key)}
+      {#if i > 0}
         <div class="recent-sep" role="presentation"></div>
       {/if}
-    {/if}
-    {#each grouped.rest as project (project.path)}
-      <ProjectRow
-        {project}
-        pinned={project.path === pinnedPath}
-        selected={project.path === selectedPath}
-        onselect={() => onselect(project.path)}
-        onhide={() => onhide(project.path)}
-      />
+      {#if sec.label}
+        <div class="recent-label">{sec.label}</div>
+      {/if}
+      {#each sec.list as project (project.path)}
+        {@render row(project, false)}
+      {/each}
     {/each}
   </div>
 {/if}
 
-<!-- Hidden group: the parent passes a non-empty `hiddenProjects` only when it should
+<!-- Hidden group: the parent passes a non-empty `groups.hidden` only when it should
      show (Show-hidden on, or an active search surfacing hidden matches). Dimmed rows
      whose eye control acts as unhide. -->
-{#if hiddenProjects.length > 0}
+{#if groups.hidden.length > 0}
   <div class="hidden-group">
     <div class="recent-label">{m.backlog_hidden_heading()}</div>
     <div class="recent-sep" role="presentation"></div>
     <div class="project-list">
-      {#each hiddenProjects as project (project.path)}
-        <ProjectRow
-          {project}
-          hidden
-          pinned={project.path === pinnedPath}
-          selected={project.path === selectedPath}
-          onselect={() => onselect(project.path)}
-          onhide={() => onhide(project.path)}
-        />
+      {#each groups.hidden as project (project.path)}
+        {@render row(project, true)}
       {/each}
     </div>
   </div>

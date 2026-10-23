@@ -4,7 +4,7 @@ import Testing
 
 /// The machine choice on the wire (#2776): the placement preview, the requirements read from a
 /// task, the keyed create and the tasks for connected machines that are not settled.
-@Suite("ShepherdClient machine choice")
+@Suite("ShepherdClient machine choice", .timeLimit(.minutes(1)))
 struct ShepherdClientPlacementTests {
     private func makeClient(_ server: FakeShepherdServer) throws -> ShepherdClient {
         let credentials = InMemoryCredentialStore()

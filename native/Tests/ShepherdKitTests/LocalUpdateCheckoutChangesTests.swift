@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import ShepherdKit
 
-@Suite(.serialized) struct LocalUpdateCheckoutChangesTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalUpdateCheckoutChangesTests {
   private func git(_ arguments: [String], in environment: LocalServerEnvironment) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/git")

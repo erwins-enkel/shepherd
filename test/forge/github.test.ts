@@ -1537,6 +1537,31 @@ test("GithubForge.prStatus: a cached terminal branch is dropped once a new PR sh
   }
 });
 
+test("GithubForge.prStatus: a branch with no PR is re-looked up, so an agent's new PR shows at once (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let found: unknown[] = [];
+    const { run } = etagRestFake({
+      open: () => [],
+      check: () => "success",
+      remaining: () => 4000,
+      lookup: () => found,
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.prStatus("feature")).state).toBe("none");
+    // `gh pr create` by the agent; the open-pulls list is still inside its 60s cache.
+    found = [{ number: 62, state: "open", head: { ref: "feature", sha: "c" } }];
+    setSystemTime(new Date("2026-10-01T12:00:10Z"));
+    expect(await forge.prStatus("feature")).toMatchObject({ state: "open", number: 62 });
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
 test("GithubForge.prStatus: open-pulls list revalidates with If-None-Match and reuses a 304 (#2834)", async () => {
   blockGraphql();
   restFallbackReserve.reset();

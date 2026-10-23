@@ -207,11 +207,10 @@ const REST_CHECK_LOOKUP_BUDGET = 40;
 /** How long the shared REST open-pulls list answers from its cache (#2834): every fallback
  *  `prStatus` of a repo reads it instead of a per-branch lookup. */
 const REST_OPEN_PULLS_TTL_MS = 60_000;
-/** How long a branch's REST "no PR" lookup is reused (#2834). */
-const REST_NONE_TTL_MS = 10 * 60_000;
-/** How long a branch's REST merged/closed lookup is reused (#2834). Longer than "none": leaving
- *  it takes a new or reopened PR, which an open-list hit (dropping the entry) usually shows
- *  first — but one opened and merged between two list reads doesn't, so it is still bounded. */
+/** How long a branch's REST merged/closed lookup is reused (#2834). Leaving it takes a new or
+ *  reopened PR, which an open-list hit (dropping the entry) usually shows first — but one opened
+ *  and merged between two list reads doesn't, so it is still bounded. "No PR" is never cached:
+ *  an agent's own `gh pr create` must show on the next (targeted) poll. */
 const REST_TERMINAL_BRANCH_TTL_MS = 30 * 60_000;
 /** How long {@link GithubForge.listWorkflowRuns} answers from its cache: the Actions tab polls
  *  every 12s and each fetch fans out to a `gh run view` per workflow (#2660). */
@@ -999,7 +998,7 @@ export class GithubForge implements GitForge {
   private restOpenPullsInflight: Promise<{ prs: RestPull[]; capped: boolean }> | null = null;
   private restOpenPullsGen = 0;
   private readonly restPullPages = new Map<number, { etag: string; rows: RestPull[] }>();
-  /** Per-branch REST lookups of branches absent from the open list: merged/closed/none only. */
+  /** Per-branch REST lookups of branches absent from the open list: merged/closed only. */
   private readonly restBranchCache = new Map<string, { at: number; status: PrStatus }>();
   private readonly restReviewCache = new Map<
     string,
@@ -2310,10 +2309,11 @@ export class GithubForge implements GitForge {
       return this.restPullStatus(hit, deployConfigured);
     }
     const cached = this.restBranchCache.get(headBranch);
-    const ttl = cached?.status.state === "none" ? REST_NONE_TTL_MS : REST_TERMINAL_BRANCH_TTL_MS;
-    if (cached && Date.now() - cached.at < ttl) return { ...cached.status, deployConfigured };
+    if (cached && Date.now() - cached.at < REST_TERMINAL_BRANCH_TTL_MS)
+      return { ...cached.status, deployConfigured };
     const status = await this.lookupBranchPrRest(headBranch, owner!, deployConfigured);
-    if (status.state !== "open") this.restBranchCache.set(headBranch, { at: Date.now(), status });
+    if (status.state === "merged" || status.state === "closed")
+      this.restBranchCache.set(headBranch, { at: Date.now(), status });
     return status;
   }
 

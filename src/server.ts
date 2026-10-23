@@ -2838,7 +2838,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   if (!(parts[0] === "api" && parts[1] === "repo-config" && !parts[2])) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  if (req.method === "GET") return json(repoConfigSvc(deps).read(dir));
+  if (req.method === "GET") return json(withNoPrCi(deps, dir, repoConfigSvc(deps).read(dir)));
   if (req.method !== "PUT") return null;
 
   const patch = await parseRepoConfigPatch(req);
@@ -2858,9 +2858,20 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
   if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
-  if (before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled)
-    return json(r.config);
-  return json({ ...r.config, connectorRestart: kickConnectorRestart(deps, dir) });
+  const view = withNoPrCi(deps, dir, r.config);
+  if (before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled) return json(view);
+  return json({ ...view, connectorRestart: kickConnectorRestart(deps, dir) });
+}
+
+/** #3221: derived, read-only — the repo is on GitHub and no workflow runs on a PR head, so its
+ *  PRs carry no checks. The automation pane warns next to `mergeWithoutCi`. */
+function withNoPrCi<T extends object>(
+  deps: AppDeps,
+  dir: string,
+  view: T,
+): T & { noPrCi: boolean } {
+  const forge = deps.resolveForge?.(dir) ?? null;
+  return { ...view, noPrCi: !!forge && repoHasNoCiCached(forge.kind, dir) };
 }
 
 /**

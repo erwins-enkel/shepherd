@@ -116,6 +116,10 @@
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
   const mergeWithoutCiActive = $derived(repoConfig.mergeWithoutCiOn(repoPath) && !lightweight);
+  // #3221: no workflow runs on PRs, so PRs carry no checks — warn until the operator opts in.
+  const noPrCiWarn = $derived(
+    repoConfig.noPrCiOn(repoPath) && !mergeWithoutCiActive && !lightweight,
+  );
   const epicStacksActive = $derived(repoConfig.epicStacksOn(repoPath) && !lightweight);
   // Smell lens is a no-op without the critic (same dependency as auto-address); hoist its row state
   // out of the template so the markup stays under the Tier-1 <template> complexity bar.
@@ -604,11 +608,12 @@
     <span class="knob"></span>
   </button>
 </div>
-<!-- #3104: a GitHub repo with zero workflows holds autonomous merges unless opted in here. -->
+<!-- #3104: a GitHub repo with no PR-triggered workflow holds autonomous merges unless opted in here. -->
 <div class={["auto-row", { disabled: lightweight }]}>
   <div class="auto-meta">
     <div class="auto-name">⊘ {m.automation_merge_without_ci_name()}</div>
     <div class="auto-desc">{m.automation_merge_without_ci_desc()}</div>
+    <div class="auto-warn" hidden={!noPrCiWarn}>{m.automation_no_pr_ci_warning()}</div>
   </div>
   <button
     class={["sw", { on: mergeWithoutCiActive }]}
@@ -803,6 +808,11 @@
   .auto-desc {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+    margin-top: 2px;
+  }
+  .auto-warn {
+    font-size: var(--fs-meta);
+    color: var(--color-amber);
     margin-top: 2px;
   }
   /* per-task plan-gate reality: amber, shown only when this task is actually gated

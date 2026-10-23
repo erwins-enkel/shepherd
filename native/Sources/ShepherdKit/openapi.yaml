@@ -1605,6 +1605,7 @@ components:
         - manual_steps
         - migrations
         - no_ci
+        - checks_absent
         - queued
     LimitWindow:
       type: object
@@ -7759,7 +7760,10 @@ components:
           type: boolean
         mergeWithoutCi:
           type: boolean
-          description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo that defines zero workflows. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
+          description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo where no workflow runs on pull requests. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
+        noPrCi:
+          type: boolean
+          description: "Derived, read-only (responses only): the repo is on GitHub and none of its workflows runs on pull requests, so its PRs carry no checks."
         epicStacksEnabled:
           type: boolean
         sharedBrowserEnabled:
@@ -7860,7 +7864,7 @@ components:
           type: boolean
         mergeWithoutCi:
           type: boolean
-          description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo that defines zero workflows. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
+          description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo where no workflow runs on pull requests. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
         epicStacksEnabled:
           type: boolean
         sharedBrowserEnabled:

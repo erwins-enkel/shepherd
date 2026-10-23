@@ -137,4 +137,21 @@ describe("AutoMergeBanner", () => {
       .poll(() => banner()?.querySelector(`[aria-label="${m.automergebanner_tip_title()}"]`))
       .not.toBeNull();
   });
+
+  it("no checks (no_ci / checks_absent): amber strip with a Merge-without-CI action (#3221)", async () => {
+    for (const code of ["no_ci", "checks_absent"] as const) {
+      mount(code);
+      await expect.poll(() => banner()?.dataset.owner).toBe("operator");
+      expect(banner()!.querySelector(".am-merge")?.textContent).toBe(
+        m.automergebanner_merge_without_ci(),
+      );
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("other codes offer no merge action", async () => {
+    mount("critic_error");
+    await expect.poll(() => banner()?.dataset.owner).toBe("operator");
+    expect(banner()!.querySelector(".am-merge")).toBeNull();
+  });
 });

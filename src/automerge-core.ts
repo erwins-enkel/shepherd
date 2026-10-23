@@ -15,6 +15,11 @@ export const REBASE_DEDUP_TTL_MS = 10 * 60_000;
  *  ownership BEFORE it lapses — at 1x the two windows race and a spurious CI_FIX_STEER fires. */
 export const OWNERSHIP_TTL_MS = 2 * REBASE_DEDUP_TTL_MS;
 
+/** #3221: how long a CI repo's PR may sit at `checks:"none"` on one head, while GitHub already
+ *  calls it mergeable (`clean`), before the train stops reading it as "CI not started yet" and
+ *  reports `checks_absent` — a path/branch filter evidently skipped CI for this PR. */
+export const CHECKS_ABSENT_MS = 10 * 60_000;
+
 /** Why the merge train is holding — surfaced on automerge:status. */
 export interface MergeHoldReason {
   code: "disabled" | "rebase_cap" | "idle" | "manual_steps" | "stacked" | "migrations";
@@ -36,12 +41,15 @@ export interface MergeSessionView {
   desig: string;
   state: PrStatus["state"];
   checks: ChecksState;
-  /** True when the repo has no CI to wait on (GitHub + zero workflows): a terminal checks:"none"
+  /** True when the repo has no CI to wait on (GitHub + no PR-triggered workflow): a terminal checks:"none"
    *  counts as cleared for merge. Projected from the cached GitState's noCi. */
   noCi: boolean;
   /** True when the repo has no CI AND the operator has not opted in to merging without it
    *  (`mergeWithoutCi`, #3104): a cleared checks:"none" PR is otherwise ready but held as `no_ci`. */
   noCiHold: boolean;
+  /** A CI repo's PR has reported no checks on its current head for {@link CHECKS_ABSENT_MS} while
+   *  GitHub calls it `clean` (#3221): held as `checks_absent` rather than `checks_pending`. Absent = false. */
+  checksAbsent?: boolean;
   /** null = host still computing; treat as not-yet-mergeable. */
   mergeable: boolean | null;
   /** GitHub branch-protection merge state; absent on forges that do not supply it. */
@@ -161,7 +169,8 @@ function readyExceptManualSteps(
  *    `queued` (in the base's merge queue; GitHub lands it once the queue's CI passes),
  *    `changes_requested` (auto-address — or the operator — answers the critic).
  *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
- *    `stacked`, `migrations`, `signoff`, `protection_blocked` (branch protection holds a green PR — typically a
+ *    `stacked`, `migrations`, `signoff`, `checks_absent` (a CI repo's PR has had no checks for
+ *    10 minutes while mergeable — CI evidently skips it, #3221), `protection_blocked` (branch protection holds a green PR — typically a
  *    required human approval, which Shepherd never gives), `no_ci` (a GitHub repo with zero
  *    workflows and no `mergeWithoutCi` opt-in, #3104). */
 export type MergeWaitCode =
@@ -181,6 +190,7 @@ export type MergeWaitCode =
   | "manual_steps"
   | "migrations"
   | "no_ci"
+  | "checks_absent"
   | "queued";
 
 /** The first readiness gate this PR fails, as a wait code — or null when it passes every gate of
@@ -217,6 +227,7 @@ function forgeGateFailure(s: MergeSessionView): MergeWaitCode | null {
   const cleared = checksCleared(s.checks, s.noCi);
   if (cleared && s.mergeable === true && s.mergeStateStatus !== "blocked") return null;
   if (isDefiniteConflict(s)) return "conflict";
+  if (!cleared && s.checks === "none" && s.checksAbsent) return "checks_absent";
   if (!cleared) return s.checks === "failure" ? "checks_failed" : "checks_pending";
   // Green CI yet blocked: branch protection wants something only a human gives (an approval).
   if (s.mergeStateStatus === "blocked") return "protection_blocked";

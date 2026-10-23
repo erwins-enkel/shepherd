@@ -601,7 +601,7 @@ export interface RepoConfig {
    *  (#1664). Default OFF — explicit opt-in. */
   preWarmEpicLandingCi: boolean;
   /** Let the merge train and epic auto-land merge into the default branch in a GitHub repo that
-   *  defines zero workflows (#3104). Default OFF — without CI those autonomous merges hold. */
+   *  has no PR-triggered workflow (#3104, #3221). Default OFF — without CI those autonomous merges hold. */
   mergeWithoutCi: boolean;
   /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
    *  merge (#2069, epic #2063). GitHub-only (the stacked-PR API is a GitHub preview). Default

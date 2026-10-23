@@ -5,6 +5,12 @@
   import { autoMergeView } from "#lib/auto-merge-banner.js";
   import { autoMergeStripExplanation } from "#lib/tooltips/explanations.js";
   import InfoTip from "#lib/components/InfoTip.svelte";
+  import { mergePr, MergeRefusedError } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { prMergeAvailable } from "../pr-badge";
+  import { mergeConfirmFromGit } from "../merge-confirm";
+  import { MergeConfirmFlow } from "../merge-confirm-flow.svelte";
+  import MergeConfirmHost from "../MergeConfirmHost.svelte";
 
   // Non-blocking "full auto-merge owns this PR" strip (TASK-1368): the same bottom slot as
   // ReviewInFlightBanner / CiRunningBanner, shown only when neither claims it, naming what the
@@ -70,6 +76,7 @@
     migrations: m.automergebanner_migrations,
     signoff: m.automergebanner_signoff,
     no_ci: m.automergebanner_no_ci,
+    checks_absent: m.automergebanner_checks_absent,
     queued: m.automergebanner_queued,
   };
 
@@ -87,6 +94,35 @@
   }
 
   const shown = $derived(view.show && tab === "term");
+
+  // #3221: the PR carries no checks (no PR CI, or CI skipped it) — offer the manual merge here,
+  // through the same confirmation dialog as the PR badge, instead of a dead-end wait.
+  const NO_CHECKS: ReadonlySet<MergeWaitCode> = new Set(["no_ci", "checks_absent"]);
+  const canMergeWithoutCi = $derived(
+    !!view.code && NO_CHECKS.has(view.code) && prMergeAvailable(git ?? undefined),
+  );
+  const mergeFlow = new MergeConfirmFlow();
+
+  function mergeWithoutCi() {
+    const ctx = mergeConfirmFromGit(git);
+    if (!canMergeWithoutCi || !ctx) return;
+    mergeFlow.open(ctx, async (confirm) => {
+      try {
+        await mergePr(sessionId, { deleteBranch: true, confirm });
+        toasts.info(m.prbadge_merged_toast({ number: ctx.number }), {
+          key: `pr-merge:${sessionId}`,
+        });
+      } catch (err) {
+        if (err instanceof MergeRefusedError) throw err; // the dialog re-states and stays open
+        toasts.info(
+          m.prbadge_merge_failed({
+            reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
+          }),
+          { alert: true, key: `pr-merge:${sessionId}` },
+        );
+      }
+    });
+  }
 
   // Publish occupied height so the jump-to-latest button and .term-mount make room, mirroring
   // CiRunningBanner. Seeded pre-paint via the bound element; bind:offsetHeight keeps it current.
@@ -119,9 +155,15 @@
       <span class="am-sep" aria-hidden="true"> — </span>
       <span class="am-reason">{reason(view.code)}</span>
     </span>
+    {#if canMergeWithoutCi}
+      <button class="am-merge" type="button" onclick={mergeWithoutCi}
+        >{m.automergebanner_merge_without_ci()}</button
+      >
+    {/if}
     <InfoTip text={autoMergeStripExplanation()} label={m.automergebanner_tip_title()} />
   </div>
 {/if}
+<MergeConfirmHost flow={mergeFlow} />
 
 <style>
   /* Geometry, tint and entry animation come from the shared .term-strip recipe (app.css) — the
@@ -150,5 +192,24 @@
   }
   .am-sep {
     color: var(--color-faint);
+  }
+  .am-merge {
+    flex-shrink: 0;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--color-line-bright));
+    background: color-mix(in srgb, var(--accent) 18%, var(--color-bg));
+    color: var(--color-ink-bright);
+    font: inherit;
+    cursor: pointer;
+  }
+  .am-merge:hover {
+    background: color-mix(in srgb, var(--accent) 28%, var(--color-bg));
+  }
+  @media (pointer: coarse) {
+    .am-merge {
+      min-height: 44px;
+    }
   }
 </style>

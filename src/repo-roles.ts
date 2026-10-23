@@ -248,7 +248,7 @@ export function annotateHandoff(
   prev?: GitState,
 ): GitState {
   // Stamp noCi on EVERY state (the poller + on-demand /git chokepoint) so all downstream gates can
-  // read git.noCi without re-deriving it. A no-CI repo (GitHub + zero workflows) treats a terminal
+  // read git.noCi without re-deriving it. A no-CI repo (GitHub + no PR-triggered workflow) treats a terminal
   // checks:"none" as cleared — see checks-gate.ts.
   const noCi = repoHasNoCiCached(state.kind, repoPath);
   const preservedReviewerStates =

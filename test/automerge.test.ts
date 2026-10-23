@@ -1,5 +1,6 @@
 import { test, expect, mock, spyOn } from "bun:test";
 import { AutoMergeService, type AutoMergeDeps } from "../src/automerge";
+import { CHECKS_ABSENT_MS } from "../src/automerge-core";
 import {
   MergeEnqueuedError,
   StackedMergeRefusedError,
@@ -1233,6 +1234,74 @@ test("#3104: no-CI repo with mergeWithoutCi → merges", async () => {
   const merge = mock(async () => {});
   await new AutoMergeService(noCiDeps(true, merge)).pump("/r");
   expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
+});
+
+// ── #3221: a CI repo's PR with no checks for 10 min while clean → checks_absent ──
+
+function absentDeps(clock: { t: number }, snap: () => any, emitStatus = mock(() => {})) {
+  return deps({
+    store: {
+      ...deps().store,
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+    } as any,
+    prCache: { snapshot: () => ({ s1: snap() }) } as any,
+    now: () => clock.t,
+    emitStatus,
+  });
+}
+
+const absentPr = (over: any = {}) => ({
+  state: "open",
+  checks: "none",
+  noCi: false,
+  mergeable: true,
+  mergeStateStatus: "clean",
+  number: 7,
+  headSha: "h1",
+  ...over,
+});
+
+const lastCode = (emitStatus: any) => emitStatus.mock.calls.at(-1)[0].waiting[0]?.code;
+
+test("#3221: checks:none on a CI repo reads checks_pending, then checks_absent after 10 min", async () => {
+  const clock = { t: 1_000 };
+  const emitStatus = mock(() => {});
+  const svc = new AutoMergeService(absentDeps(clock, () => absentPr(), emitStatus));
+  await svc.pump("/r");
+  expect(lastCode(emitStatus)).toBe("checks_pending");
+  clock.t += CHECKS_ABSENT_MS - 1;
+  await svc.pump("/r");
+  expect(lastCode(emitStatus)).toBe("checks_pending");
+  clock.t += 1;
+  await svc.pump("/r");
+  expect(lastCode(emitStatus)).toBe("checks_absent");
+});
+
+test("#3221: a new head restarts the checks_absent clock", async () => {
+  const clock = { t: 0 };
+  let head = "h1";
+  const emitStatus = mock(() => {});
+  const svc = new AutoMergeService(
+    absentDeps(clock, () => absentPr({ headSha: head }), emitStatus),
+  );
+  await svc.pump("/r");
+  clock.t += CHECKS_ABSENT_MS;
+  head = "h2";
+  await svc.pump("/r");
+  expect(lastCode(emitStatus)).toBe("checks_pending");
+});
+
+test("#3221: not clean (e.g. blocked by a required check) never becomes checks_absent", async () => {
+  const clock = { t: 0 };
+  const emitStatus = mock(() => {});
+  const svc = new AutoMergeService(
+    absentDeps(clock, () => absentPr({ mergeStateStatus: "blocked" }), emitStatus),
+  );
+  await svc.pump("/r");
+  clock.t += 2 * CHECKS_ABSENT_MS;
+  await svc.pump("/r");
+  expect(lastCode(emitStatus)).not.toBe("checks_absent");
 });
 
 // ── Incremental epic child touching migrations: held, never merged by the train ────────────

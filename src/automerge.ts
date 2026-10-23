@@ -9,6 +9,7 @@ import {
 import type { ReviewVerdict, Session, SessionArchiveReason } from "./types";
 import type { WorktreeMgr } from "./worktree";
 import {
+  CHECKS_ABSENT_MS,
   computeMerge,
   mergeWaitReason,
   type MergeDecision,
@@ -162,6 +163,9 @@ export class AutoMergeService {
    *  {@link stackedHold}: the layer below can land without this layer's head moving, so a
    *  head-keyed hold would never lift. Cleared for the repo on every successful train merge. */
   private stackConfirmHeld = new Map<string, Map<string, number>>();
+  /** #3221: when each session's PR was first seen at `checks:"none"` on its current head. Feeds
+   *  {@link MergeSessionView.checksAbsent}. In-memory only; a restart restarts the clock. */
+  private checksNoneSince = new Map<string, { head: string; since: number }>();
   /** Per-repo wait reasons from the latest buildState, attached to every emitted status. */
   private waiting = new Map<string, AutoMergeWait[]>();
   private now: () => number;
@@ -350,6 +354,7 @@ export class AutoMergeService {
       desig: s.desig,
       ...pr,
       noCiHold: pr.noCi && !mergeWithoutCi,
+      checksAbsent: this.checksAbsent(s.id, pr),
       behind,
       queued: reconcile
         ? await this.reconcileQueued(s, pr, queue)
@@ -486,10 +491,32 @@ export class AutoMergeService {
   }
 
   /** Drop migration-probe entries for sessions no longer live, so the cache stays bounded. */
+  /** Whether a CI repo's open PR has sat at `checks:"none"` on its current head for
+   *  CHECKS_ABSENT_MS while GitHub calls it `clean` (#3221). Stamps the first sighting. */
+  private checksAbsent(id: string, pr: ReturnType<typeof AutoMergeService.prFields>): boolean {
+    if (pr.state !== "open" || pr.checks !== "none" || pr.noCi) {
+      this.checksNoneSince.delete(id);
+      return false;
+    }
+    const head = pr.headSha ?? "";
+    let seen = this.checksNoneSince.get(id);
+    if (seen?.head !== head) {
+      seen = { head, since: this.now() };
+      this.checksNoneSince.set(id, seen);
+    }
+    return pr.mergeStateStatus === "clean" && this.now() - seen.since >= CHECKS_ABSENT_MS;
+  }
+
   private pruneMigrationsCache(live: Session[]): void {
     if (this.migrationsCache.size === 0) return;
     const ids = new Set(live.filter((s) => s.status !== "archived").map((s) => s.id));
     for (const id of this.migrationsCache.keys()) if (!ids.has(id)) this.migrationsCache.delete(id);
+  }
+
+  private pruneChecksNoneSince(live: Session[]): void {
+    if (this.checksNoneSince.size === 0) return;
+    const ids = new Set(live.filter((s) => s.status !== "archived").map((s) => s.id));
+    for (const id of this.checksNoneSince.keys()) if (!ids.has(id)) this.checksNoneSince.delete(id);
   }
 
   /** Drop enqueue marks for sessions no longer live (archived by the poller once merged). */
@@ -506,6 +533,7 @@ export class AutoMergeService {
     const snapshot = this.deps.prCache.snapshot();
     const all = this.deps.store.list();
     this.pruneMigrationsCache(all);
+    this.pruneChecksNoneSince(all);
     if (reconcile) this.pruneEnqueued(all);
     const sessions: MergeSessionView[] = await Promise.all(
       all

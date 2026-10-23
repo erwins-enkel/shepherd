@@ -1692,7 +1692,7 @@ const prPoller = new PrPoller(
   undefined,
   ownsPr,
   warm, // full cadence only while warm; cold → fast sweep pauses, full sweep throttles
-  () => graphRateLimit.blocked(), // skip every sweep while the GraphQL bucket is exhausted
+  () => graphRateLimit.blocked(), // GraphQL exhausted: fast sweep skips, full sweep goes per-session REST
   undefined, // idleIntervalMs (default 300s coarse full-sweep cadence while cold)
   undefined, // transientMaxMs (default)
   undefined, // batchOpenRatio (default)

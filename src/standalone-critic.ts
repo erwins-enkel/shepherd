@@ -253,7 +253,7 @@ export class StandalonePrCriticService {
 
     let prs: PullRequest[];
     try {
-      const snapshot = await this.deps.openPrSnapshot.get(forge);
+      const snapshot = await this.deps.openPrSnapshot.get(forge, { background: true });
       if (!snapshot && forge.listOpenPrSnapshot) throw new Error("open-PR snapshot unavailable");
       prs = snapshot?.prs ?? (await forge.listPullRequests());
     } catch (err) {

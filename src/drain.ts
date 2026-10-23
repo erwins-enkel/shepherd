@@ -1233,7 +1233,7 @@ export class DrainService {
   private async openPrBranches(repoPath: string): Promise<ReadonlySet<string> | null> {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge || forge.isFork || !this.deps.openPrSnapshot) return null;
-    const snap = await this.deps.openPrSnapshot.get(forge).catch(() => null);
+    const snap = await this.deps.openPrSnapshot.get(forge, { background: true }).catch(() => null);
     return snap && !snap.capped ? new Set(snap.statuses.keys()) : null;
   }
 

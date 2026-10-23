@@ -578,11 +578,12 @@ export class PrPoller implements PrCache {
    *  with one `listOpenPrStatuses`; a repo with stable open PRs beyond the few
    *  transient ones trips the gate and falls back to bounded per-session polls. No
    *  per-PR cap or round-robin — every eligible PR is covered each tick, O(repos)
-   *  when transient-dominant, O(eligible) per-session otherwise. */
+   *  when transient-dominant, O(eligible) per-session otherwise. Skipped while GraphQL is
+   *  limited: its per-session REST fallback costs a multiple of the batch (#2660), and the
+   *  full sweep still keeps every session moving. */
   async fastTick(): Promise<void> {
-    const graphqlLimited = this.rateLimited();
-    // Cadence gate first: skip entirely when not warm, before the activity-aware filter below.
-    if (!this.warm()) return;
+    // Cadence gates first: skip entirely when limited or not warm, before the activity-aware filter.
+    if (this.rateLimited() || !this.warm()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
     if (open.length === 0) return;
@@ -608,9 +609,7 @@ export class PrPoller implements PrCache {
     // inside the mutual-exclusion window — a concurrent full tick can't interleave.
     this.sweeping = true;
     try {
-      const batches = graphqlLimited
-        ? new Map<string, PrBatch | null>()
-        : await this.buildBatches(sessions);
+      const batches = await this.buildBatches(sessions);
       for (const s of sessions) {
         if (this.inFlight.has(s.id)) continue; // a targeted pollSession is already covering it
         this.inFlight.add(s.id);

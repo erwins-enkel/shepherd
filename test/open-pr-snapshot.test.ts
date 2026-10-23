@@ -153,6 +153,37 @@ test("read-through: GraphQL backoff bypasses a fresh GraphQL snapshot", async ()
   }
 });
 
+test("read-through: a background get serves a stale GraphQL snapshot during backoff (#2660)", async () => {
+  let now = 0;
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+
+  await svc.get(forge);
+  now = SNAPSHOT_TTL_MS * 10; // long expired
+  blockGraphql();
+  try {
+    const snap = await svc.get(forge, { background: true });
+    expect(snap!.prs[0]!.number).toBe(1);
+    expect(forge.calls).toBe(1);
+    await svc.get(forge); // operator read still refetches
+    expect(forge.calls).toBe(2);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("read-through: a background get with no snapshot yet still fetches", async () => {
+  const svc = new OpenPrSnapshotService(() => 0);
+  const forge = makeForge();
+  blockGraphql();
+  try {
+    expect(await svc.get(forge, { background: true })).not.toBeNull();
+    expect(forge.calls).toBe(1);
+  } finally {
+    unblockGraphql();
+  }
+});
+
 test("read-through: GraphQL backoff reuses a fresh REST snapshot", async () => {
   let now = 0;
   const svc = new OpenPrSnapshotService(() => now);

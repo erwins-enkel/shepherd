@@ -195,7 +195,14 @@ const REST_LIST_CAP = 200;
 const REST_PAGE_CAP = 10;
 const MAX_CHECK_RUN_PAGES = 2;
 const REST_CHECK_CACHE_TTL_MS = 60_000;
+/** A finished head's checks only move on a rerun, so the REST fallback keeps them longer (#2660). */
+const REST_TERMINAL_CHECK_CACHE_TTL_MS = 10 * 60_000;
+/** REST reviews per PR head: the fallback's per-poll review read was uncached (#2660). */
+const REST_REVIEW_CACHE_TTL_MS = 5 * 60_000;
 const REST_CHECK_LOOKUP_BUDGET = 40;
+/** How long {@link GithubForge.listWorkflowRuns} answers from its cache: the Actions tab polls
+ *  every 12s and each fetch fans out to a `gh run view` per workflow (#2660). */
+const WORKFLOW_RUNS_CACHE_TTL_MS = 30_000;
 /** How long {@link GithubForge.listIssues} answers from its cache (#2656). */
 const ISSUES_CACHE_TTL_MS = 30_000;
 /** First and longest per-repo backoff window after a failed issue listing (#2656). */
@@ -925,6 +932,16 @@ export class GithubForge implements GitForge {
    *  most once per forge instance (on transition into the capped regime). */
   private openPrCapLogged = false;
   private readonly restCheckCache = new Map<string, { at: number; state: ChecksState }>();
+  /** {@link listWorkflowRuns} cache + in-flight share; `workflowRunsGen` bumps on rerun/cancel. */
+  private workflowRunsCache: { at: number; runs: WorkflowRun[] } | null = null;
+  private workflowRunsInflight: Promise<WorkflowRun[]> | null = null;
+  private workflowRunsGen = 0;
+  /** Jobs of a completed run, by runId, valid for that `attempt` only (a rerun keeps the id). */
+  private readonly completedRunJobs = new Map<number, { attempt: number; jobs: WorkflowJob[] }>();
+  private readonly restReviewCache = new Map<
+    string,
+    { at: number; value: Pick<PrStatus, "latestReview" | "reviewerStates"> }
+  >();
   /** Own-write generations guard in-flight reads; content keys validate cached data. */
   private issuesCache: GithubCacheEntry<Issue[]> | null = null;
   private issuesInflight: Promise<Issue[]> | null = null;
@@ -1541,7 +1558,7 @@ export class GithubForge implements GitForge {
         await mapBounded(
           heads,
           6,
-          async (sha) => [sha, await this.restChecksForHead(sha)] as const,
+          async (sha) => [sha, await this.restChecksForHeadCached(sha)] as const,
         ),
       );
     if (graphRateLimit.blocked()) return rest();
@@ -1583,6 +1600,44 @@ export class GithubForge implements GitForge {
   }
 
   async listWorkflowRuns(): Promise<WorkflowRun[]> {
+    const cached = this.workflowRunsCache;
+    if (cached && Date.now() - cached.at < WORKFLOW_RUNS_CACHE_TTL_MS) return cached.runs;
+    if (this.workflowRunsInflight) return this.workflowRunsInflight;
+    const gen = this.workflowRunsGen;
+    const p = this.fetchWorkflowRuns()
+      .then((runs) => {
+        if (gen === this.workflowRunsGen) this.workflowRunsCache = { at: Date.now(), runs };
+        return runs;
+      })
+      .finally(() => {
+        if (this.workflowRunsInflight === p) this.workflowRunsInflight = null;
+      });
+    this.workflowRunsInflight = p;
+    return p;
+  }
+
+  private invalidateWorkflowRuns(runId: number): void {
+    this.workflowRunsGen++;
+    this.workflowRunsCache = null;
+    this.workflowRunsInflight = null;
+    this.completedRunJobs.delete(runId);
+  }
+
+  /** A completed run's jobs come from {@link completedRunJobs} while its attempt is unchanged. */
+  private async jobsForRun(r: {
+    databaseId: number;
+    status?: string | null;
+    attempt?: number;
+  }): Promise<WorkflowJob[]> {
+    const hit = this.completedRunJobs.get(r.databaseId);
+    if (hit && r.attempt != null && hit.attempt === r.attempt) return hit.jobs;
+    const jobs = await this.listRunJobs(r.databaseId);
+    if (r.status === "completed" && r.attempt != null)
+      this.completedRunJobs.set(r.databaseId, { attempt: r.attempt, jobs });
+    return jobs;
+  }
+
+  private async fetchWorkflowRuns(): Promise<WorkflowRun[]> {
     // Resolve the default branch; CI health is read from its runs, not PR branches.
     // A lookup failure degrades to [] (fail-quiet, matching the other forge readers).
     const branch = await this.defaultBranch().catch(() => null);
@@ -1598,10 +1653,11 @@ export class GithubForge implements GitForge {
       "--limit",
       "50",
       "--json",
-      "databaseId,workflowName,workflowDatabaseId,status,conclusion,headSha,createdAt,url",
+      "databaseId,attempt,workflowName,workflowDatabaseId,status,conclusion,headSha,createdAt,url",
     ]);
     const raw = JSON.parse(listOut || "[]") as Array<{
       databaseId: number;
+      attempt?: number;
       workflowName?: string;
       workflowDatabaseId?: number;
       status?: string | null;
@@ -1618,13 +1674,16 @@ export class GithubForge implements GitForge {
       if (!newest.has(wf)) newest.set(wf, r);
     }
     const selected = [...newest.values()].slice(0, MAX_WORKFLOWS);
+    const kept = new Set(selected.map((r) => r.databaseId));
+    for (const id of this.completedRunJobs.keys())
+      if (!kept.has(id)) this.completedRunJobs.delete(id);
 
     // Fan out the per-run job fetches in parallel now that `this.run` is async.
     // Serial was the old behaviour (execFileSync); the Promise.all here now truly
     // parallelises the `gh run view` subprocess calls across the selected runs.
     const runs = await Promise.all(
       selected.map(async (r): Promise<WorkflowRun> => {
-        const jobs = await this.listRunJobs(r.databaseId);
+        const jobs = await this.jobsForRun(r);
         const ts = Date.parse(r.createdAt ?? "");
         return {
           runId: r.databaseId,
@@ -1772,13 +1831,17 @@ export class GithubForge implements GitForge {
     // `--failed` retries only the failed jobs (+ their dependents) of a failed run;
     // a fully green run has none, so the caller passes failedOnly:false there.
     if (o.failedOnly) args.push("--failed");
-    await this.run(args).finally(() => this.invalidatePrs());
+    await this.run(args).finally(() => {
+      this.invalidatePrs();
+      this.invalidateWorkflowRuns(runId);
+    });
   }
 
   async cancelWorkflowRun(runId: number): Promise<void> {
-    await this.run(["run", "cancel", String(runId), "--repo", this.slug]).finally(() =>
-      this.invalidatePrs(),
-    );
+    await this.run(["run", "cancel", String(runId), "--repo", this.slug]).finally(() => {
+      this.invalidatePrs();
+      this.invalidateWorkflowRuns(runId);
+    });
   }
 
   /** Default-branch runs in any status with id > `sinceId` — one REST page (100, newest-first),
@@ -1962,6 +2025,22 @@ export class GithubForge implements GitForge {
 
   private async restReviewStatus(
     prNumber: number,
+    headSha?: string,
+  ): Promise<Pick<PrStatus, "latestReview" | "reviewerStates">> {
+    const key = headSha ? `${prNumber}@${headSha}` : null;
+    const cached = key ? this.restReviewCache.get(key) : undefined;
+    if (cached && Date.now() - cached.at < REST_REVIEW_CACHE_TTL_MS) return cached.value;
+    const value = await this.fetchRestReviewStatus(prNumber);
+    if (key) {
+      for (const [k, e] of this.restReviewCache)
+        if (Date.now() - e.at >= REST_REVIEW_CACHE_TTL_MS) this.restReviewCache.delete(k);
+      this.restReviewCache.set(key, { at: Date.now(), value });
+    }
+    return value;
+  }
+
+  private async fetchRestReviewStatus(
+    prNumber: number,
   ): Promise<Pick<PrStatus, "latestReview" | "reviewerStates">> {
     const out = await this.run([
       "api",
@@ -1982,6 +2061,26 @@ export class GithubForge implements GitForge {
     };
   }
 
+  /** The cached REST check state for `sha`, or null when absent/expired (dropped). */
+  private cachedRestChecks(sha: string, now = Date.now()): ChecksState | null {
+    const cached = this.restCheckCache.get(sha);
+    if (!cached) return null;
+    const terminal = cached.state === "success" || cached.state === "failure";
+    const ttl = terminal ? REST_TERMINAL_CHECK_CACHE_TTL_MS : REST_CHECK_CACHE_TTL_MS;
+    if (now - cached.at < ttl) return cached.state;
+    this.restCheckCache.delete(sha);
+    return null;
+  }
+
+  private async restChecksForHeadCached(headSha?: string): Promise<ChecksState> {
+    if (!headSha) return this.restChecksForHead(headSha);
+    const cached = this.cachedRestChecks(headSha);
+    if (cached) return cached;
+    const state = await this.restChecksForHead(headSha);
+    this.restCheckCache.set(headSha, { at: Date.now(), state });
+    return state;
+  }
+
   private async restChecksForPulls(prs: RestPull[]): Promise<ChecksState[]> {
     const now = Date.now();
     const checks: ChecksState[] = Array.from({ length: prs.length }, () => "none");
@@ -1989,12 +2088,11 @@ export class GithubForge implements GitForge {
     for (let i = 0; i < prs.length; i++) {
       const sha = prs[i]!.head?.sha;
       if (!sha) continue;
-      const cached = this.restCheckCache.get(sha);
-      if (cached && now - cached.at < REST_CHECK_CACHE_TTL_MS) {
-        checks[i] = cached.state;
+      const cached = this.cachedRestChecks(sha, now);
+      if (cached) {
+        checks[i] = cached;
         continue;
       }
-      if (cached) this.restCheckCache.delete(sha);
       if (lookups.length < REST_CHECK_LOOKUP_BUDGET) {
         lookups.push({ index: i, sha });
       } else {
@@ -2037,7 +2135,7 @@ export class GithubForge implements GitForge {
     }
 
     await mapBounded([...statuses.values()], 6, async (status) => {
-      Object.assign(status, await this.restReviewStatus(status.number!));
+      Object.assign(status, await this.restReviewStatus(status.number!, status.headSha));
     });
     return { prs: pullRequests, statuses, capped, source: "rest" };
   }
@@ -2071,10 +2169,10 @@ export class GithubForge implements GitForge {
     if (!pr) return { state: "none", checks: "none", deployConfigured };
     const state: PrStatus["state"] =
       pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed";
-    const checks = state === "open" ? await this.restChecksForHead(pr.head?.sha) : "none";
+    const checks = state === "open" ? await this.restChecksForHeadCached(pr.head?.sha) : "none";
     return {
       ...this.mapRestPull(pr, deployConfigured, checks),
-      ...(await this.restReviewStatus(pr.number)),
+      ...(await this.restReviewStatus(pr.number, pr.head?.sha)),
     };
   }
 

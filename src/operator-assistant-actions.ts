@@ -569,7 +569,7 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
   {
     name: "drain_enqueue",
     description:
-      "[automation] Enqueue or dequeue an issue using the repo's autoLabel, set high/normal/low priority, or release an orphaned claim. Enqueueing may start work immediately when Auto-Drain is on. Release refuses issues with a session, an open linked PR or an unverifiable PR state. Verify via repo_automation({repo, issueNumber})." +
+      "[automation] Enqueue or dequeue an issue using the repo's autoLabel, set high/normal/low priority (low is only a marker label; drain order does not deprioritize it), or release an orphaned claim. Enqueueing may start work immediately when Auto-Drain is on. Release refuses issues with a session, an open linked PR or an unverifiable PR state. Verify via repo_automation({repo, issueNumber})." +
       NOTE,
     inputSchema: {
       type: "object",

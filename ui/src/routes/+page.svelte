@@ -346,6 +346,8 @@
     showSettings = target.showSettings;
     history.replaceState(history.state, "", target.cleanUrl);
   });
+  onMount(() => () => upNext.reset());
+
   // Overlays are code-split off the first-boot bundle (#3233); warm the most-opened ones once
   // the boot settles so their first open doesn't wait on the network.
   onMount(() => prefetchWhenIdle([loadNewTask, loadSettingsOverlay]));
@@ -2260,9 +2262,6 @@
     spawnNotices.load();
     recaps.load();
     amendments.load();
-    // App-load paints the CACHED Up Next snapshot only (peek) — no cross-repo gh recompute for a
-    // session that never opens the lens. Lens-open + the 15-min loop keep it fresh.
-    upNext.load({ peek: true });
     refreshHeldCount();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().

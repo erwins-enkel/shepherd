@@ -79,21 +79,40 @@ public struct UpNextStartResult: Sendable, Equatable {
   public var errors: [Components.Schemas.UpNextStartError] { body.errors }
 }
 
+/// A bodyless 304 is distinct from a successfully cached JSON null.
+public enum UpNextReadResult: Sendable {
+  case modified(snapshot: UpNextSnapshot?, etag: String?)
+  case notModified
+}
+
 extension ShepherdClient {
-  /// Cache-only read: always send peek=1, including bootstrap and pull-to-refresh.
-  public func peekUpNext() async throws -> UpNextSnapshot? {
+  /// Cache-only read: always send peek=1, including invalidation and pull-to-refresh.
+  public func readUpNext(ifNoneMatch: String? = nil) async throws -> UpNextReadResult {
     do {
-      switch try await generated.peekUpNext(.init(query: .init(peek: ._1))) {
+      switch try await generated.peekUpNext(.init(
+        query: .init(peek: ._1), headers: .init(ifNoneMatch: ifNoneMatch))) {
       case .ok(let ok):
-        guard let cached = try ok.body.json else { return nil }
-        return UpNextSnapshot(generatedAt: cached.generatedAt, sections: cached.sections,
-          repoCount: cached.repoCount, fallback: cached.fallback,
-          failedRepoCount: cached.failedRepoCount, additionalProperties: cached.additionalProperties)
+        let cached = try ok.body.json
+        let snapshot = cached.map { cached in
+          UpNextSnapshot(generatedAt: cached.generatedAt, sections: cached.sections,
+            repoCount: cached.repoCount, fallback: cached.fallback,
+            failedRepoCount: cached.failedRepoCount, additionalProperties: cached.additionalProperties)
+        }
+        return .modified(snapshot: snapshot, etag: ok.headers.eTag)
+      case .notModified: return .notModified
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "peekUpNext")
       }
     } catch { throw ShepherdError.from(error, route: "peekUpNext") }
+  }
+
+  public func peekUpNext() async throws -> UpNextSnapshot? {
+    switch try await readUpNext() {
+    case .modified(let snapshot, _): return snapshot
+    case .notModified:
+      throw ShepherdError.contractMismatch(route: "peekUpNext", underlying: "304 without a validator")
+    }
   }
 
   /// `GET /api/held`. Preserve the server's capacity-last, FIFO ordering.
@@ -158,7 +177,7 @@ extension ShepherdClient {
   }
 
   /// `POST /api/up-next/refresh` accepts computation with 202. Read the snapshot from
-  /// the upnext:snapshot event; acceptance does not mean computation has finished.
+  /// HTTP after upnext:changed; acceptance does not mean computation has finished.
   public func refreshUpNext() async throws {
     do {
       switch try await generated.refreshUpNext(.init()) {

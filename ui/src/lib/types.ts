@@ -3162,6 +3162,7 @@ export type WsEvent =
   | { event: "repo-bootstrap:update"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
+  | { event: "upnext:changed"; data: { version: string; computedAt: number } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | {

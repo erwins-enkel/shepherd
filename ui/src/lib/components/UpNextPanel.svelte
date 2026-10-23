@@ -38,13 +38,11 @@
     flow?: boolean;
   } = $props();
 
-  // On lens-open: repaint the cached snapshot and kick a server recompute (GET /api/up-next
-  // triggers a background refresh that lands in place via the upnext:snapshot WS event), so the
-  // lens reflects "now" rather than the last app-load — not just on-app-load (#1169 spec).
+  // The mounted lens owns demand; closed lenses only remember invalidations.
   onMount(() => {
     sortMode = readStoredSortMode();
     readStoredCollapsed();
-    void upNext.load();
+    return upNext.open();
   });
 
   // Display caps mirror src/up-next-core PRIORITY_CAP / REPO_CAP; the server returns the full

@@ -550,6 +550,14 @@ describe("extracted helpers (direct)", () => {
     expect(out.match(/^ExecStart=.*$/gm)).toEqual(["ExecStart=/usr/local/bin/herdr server"]);
   });
 
+  it("templateHerdrUnit ships the NOFILE headroom (#1857)", () => {
+    const unit = readFileSync("deploy/herdr.service", "utf8");
+    // Soft raised off the 1024 default; hard kept at systemd's stock ceiling, not lowered.
+    expect(unit).toMatch(/^LimitNOFILE=65536:524288$/m);
+    const out = templateHerdrUnit(unit, "/usr/local/bin/herdr", "/home/op/.shepherd/app");
+    expect(out).toMatch(/^LimitNOFILE=65536:524288$/m);
+  });
+
   it("installService writes a TEMPLATED herdr unit and adopts the socket before enabling (#1574)", () => {
     const { calls, writes, run, fileIO } = recorder();
     installService(

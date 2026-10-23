@@ -447,6 +447,11 @@ The unit also sets `TasksMax=16384`. Every pane and its threads count against
 herdr's task limit, and a low systemd default (2500 on some hosts) can make herdr
 crash with `pthread_create: EAGAIN`.
 
+It also sets `LimitNOFILE=65536:524288`. Every pane holds open files, and at the
+default soft limit of 1024 a burst of tabs can stop herdr's API with
+`No file descriptors available`. A `herdr.service.d` drop-in of your own still
+overrides this value.
+
 ## Operator Assistant
 
 The **Operator Assistant** is a Claude session that Shepherd runs for you and grounds

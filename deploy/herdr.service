@@ -48,6 +48,11 @@ Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 # (TasksMax=2500 on that host) and took the daemon out with `pthread_create: EAGAIN`. Explicit
 # and bounded: well above a healthy herd, still stops a runaway leak before it eats the host.
 TasksMax=16384
+# Every pane holds FDs (pty master, pipes). #1852 died at the 1024 soft default with
+# `os error 24` on the API listener at ~335 panes (#1857). Raise soft only; keep systemd's stock
+# 524288 hard ceiling. An unreachable hard value is clamped by systemd, never a start failure, and
+# an operator's own herdr.service.d drop-in still overrides this.
+LimitNOFILE=65536:524288
 
 [Install]
 WantedBy=default.target

@@ -101,6 +101,25 @@ describe("attachCiSteer", () => {
     expect(h.sent.length).toBe(1);
   });
 
+  it("waits for in-flight checks before announcing red, then names every failure", async () => {
+    const h = harness();
+    const job = (name: string, state: ChecksState) => ({ name, state });
+    h.emit(git("pending"));
+    h.emit(
+      git("failure", "abcdef1234", {
+        runningChecks: ["e2e"],
+        jobs: [job("lint", "failure"), job("e2e", "pending")],
+      }),
+    );
+    h.emit(git("failure", "abcdef1234", { jobs: [job("lint", "failure"), job("e2e", "pending")] }));
+    await Promise.resolve();
+    expect(h.sent).toEqual([]);
+    h.emit(git("failure", "abcdef1234", { jobs: [job("lint", "failure"), job("e2e", "failure")] }));
+    await Promise.resolve();
+    expect(h.sent.length).toBe(1);
+    expect(h.sent[0]).toContain("failed — lint, e2e.");
+  });
+
   it("leaves red to autopilot but still reports green under it", async () => {
     const h = harness(session(), true);
     h.emit(git("pending"));

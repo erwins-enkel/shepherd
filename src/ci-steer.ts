@@ -49,6 +49,14 @@ export function ciFinishedSteer(git: GitState): string {
 
 const finished = (c: ChecksState): c is "success" | "failure" => c === "success" || c === "failure";
 
+/** Checks still running on the head. The rollup is worst-of with failure ABOVE pending, so a red
+ *  rollup can still have jobs in flight; absent per-job data (REST fallback, Gitea) reads as none. */
+function inFlight(git: GitState): boolean {
+  return (
+    (git.runningChecks?.length ?? 0) > 0 || (git.jobs ?? []).some((j) => j.state === "pending")
+  );
+}
+
 /** Sessions the steer may address: a live agent session with an open PR, not planning and not
  *  owned by the merge train (which steers its own rebase). */
 function steerable(s: Session | null | undefined, git: GitState): s is Session {
@@ -88,11 +96,14 @@ export function attachCiSteer(
     }
     if (event !== "session:git") return;
     const { id, git } = data as { id: string; git: GitState };
-    const key = `${git.headSha ?? ""}:${git.checks}`;
+    // The in-flight flag is part of the key so a red head whose remaining jobs then finish is a
+    // new pair: the steer waits for that, and then names every failure, not the first one.
+    const running = inFlight(git);
+    const key = `${git.headSha ?? ""}:${git.checks}:${running ? "running" : "done"}`;
     const prev = last.get(id);
     last.set(id, key);
     if (prev === undefined || prev === key || steered.get(id) === key) return;
-    if (!finished(git.checks) || !git.headSha) return;
+    if (!finished(git.checks) || running || !git.headSha) return;
     const s = store.get(id);
     if (!steerable(s, git)) return;
     if (git.checks === "failure" && deps.autopilotOn(s)) return;

@@ -895,7 +895,10 @@ test("#822 tick fail-fast: unparseable + finished spawn → 'failed' before time
 test("#822 tick gate: repaired + still-working → stays generating (not finalized)", async () => {
   const rec = makeRecap({ state: "generating", cwd: "/tmp/recap-rw", spawnedAt: 1_000 });
   const store = makeStore([], [rec]);
-  const herdr = makeHerdr([{ cwd: "/tmp/recap-rw", terminalId: "t-rw", agentStatus: "working" }]);
+  const herdr = makeHerdr(
+    [{ cwd: "/tmp/recap-rw", terminalId: "t-rw", agentStatus: "working" }],
+    ["claude"], // liveness comes from the pane's foreground procs, not agentStatus (#2664)
+  );
   const cleaned: string[] = [];
 
   const svc = buildSvc({

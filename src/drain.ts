@@ -2301,6 +2301,7 @@ export class DrainService {
         cfg.preWarmEpicLandingCi,
       );
       this.resolveLanding(repoPath, parentIssueNumber, resolution);
+      if (resolution.state === "open") this.landingPrs.markOpened(repoPath, integrationBranch);
       if (resolution.state === "open" && resolution.prNumber != null) {
         // #1838: the open-time rebase (in openNewLandingPr / adoptOpenLanding) hit a genuine
         // conflict — layer the conflict pause + operator push on AFTER resolveLanding has persisted
@@ -3278,7 +3279,7 @@ export class DrainService {
 
     // c. Check current PR state (#2873: shared with the other landing passes of this tick).
     const pr = await this.landingPrs.read(repoPath, forge, branch);
-    if (pr.state !== "open") return;
+    if (this.reconcileNotOpenLanding(repoPath, parent, branch, pr)) return;
 
     // d. Compute stuck flags.
     const behind = pr.mergeStateStatus === "behind";
@@ -3580,7 +3581,7 @@ export class DrainService {
     // dispatch a second repair session. (Also fences rebase/auto-land — see those passes.)
     if (this.hasLiveRepairSession(repoPath, branch)) return;
     const pr = await this.landingPrs.read(repoPath, forge, branch);
-    if (pr.state !== "open" || pr.isDraft) return;
+    if (this.reconcileNotOpenLanding(repoPath, parent, branch, pr) || pr.isDraft) return;
     // Only a TERMINAL failure on an otherwise-mergeable, not-behind PR. behind/conflicting → the rebase
     // pass; pending/none/success → nothing to rerun.
     if (pr.checks !== "failure" || pr.mergeStateStatus === "behind" || pr.mergeable === false)
@@ -3611,15 +3612,16 @@ export class DrainService {
       await this.maybeDispatchLandingRepair(repoPath, parent, prNumber, pr, branch, row);
       return;
     }
-    // The re-run sets the checks pending without moving the PR fingerprint: read afresh next tick.
-    await rerunWorkflowRun(runId, { failedOnly: true }).finally(() =>
-      this.landingPrs.invalidate(repoPath, branch),
-    );
+    // #2657: a failed re-run spends the budget too, or it would retry every tick forever.
     this.deps.store.setEpicLandingRerun(repoPath, parent, {
       head,
       count: used + 1,
       unavailable: false,
     });
+    // The re-run sets the checks pending without moving the PR fingerprint: read afresh next tick.
+    await rerunWorkflowRun(runId, { failedOnly: true }).finally(() =>
+      this.landingPrs.invalidate(repoPath, branch),
+    );
     console.warn(
       `[drain] rerunning failed landing CI for ${repoPath}#${parent} (run ${runId}, ${used + 1}/${LANDING_RERUN_CAP})`,
     );
@@ -4108,14 +4110,7 @@ export class DrainService {
       console.warn(`[drain] auto-land prStatus failed for ${repoPath}#${parentIssueNumber}:`, err);
       return; // fail-closed
     }
-    if (pr.state === "merged") {
-      this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", pr);
-      return;
-    }
-    if (pr.state === "closed" || pr.state === "none") {
-      this.reconcileAutoLand(repoPath, parentIssueNumber, "none", pr);
-      return;
-    }
+    if (this.reconcileNotOpenLanding(repoPath, parentIssueNumber, branch, pr)) return;
     if (pr.isDraft) return; // never merge a draft (computeLandingReady's Gitea fallback can't tell)
     // not green / mergeable yet (no-CI repos: a terminal checks:"none" + clean mergeStateStatus is ready)
     const noCi = repoHasNoCiCached(forge.kind, repoPath);
@@ -4203,6 +4198,22 @@ export class DrainService {
       prUrl: state === "merged" ? (pr.url ?? row?.landingPrUrl ?? null) : null,
       attempts: row?.landingAttempts ?? 0,
     });
+  }
+
+  /** A landing PR that is no longer open settles its row: merged out-of-band (a manual land / external
+   *  merge) → 'merged'; closed/vanished → terminal 'none'. Every landing pass calls it, so a stale
+   *  'open' row stops being re-read even with auto-land off (#2657). True when the PR is not open.
+   *  A row opened this tick is left alone: this tick's read may predate the open. */
+  private reconcileNotOpenLanding(
+    repoPath: string,
+    parent: number,
+    branch: string,
+    pr: PrStatus,
+  ): boolean {
+    if (pr.state === "open") return false;
+    if (this.landingPrs.openedThisTick(repoPath, branch)) return true;
+    this.reconcileAutoLand(repoPath, parent, pr.state === "merged" ? "merged" : "none", pr);
+    return true;
   }
 
   /** True while this epic's auto-land is backed off: CAP failures on the current head, inside the

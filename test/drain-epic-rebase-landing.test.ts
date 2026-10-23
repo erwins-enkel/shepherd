@@ -803,27 +803,39 @@ describe("rebaseStuckLandingPrsForRepo (#1071)", () => {
 
   // ── PR not open ──────────────────────────────────────────────────────────────
 
-  test("PR state=closed → skip (let reconcile own it), no rebase", async () => {
+  // #2657: the pass reconciles a not-open PR itself (auto-merge off → auto-land never runs),
+  // so the row leaves `open` and is never read again.
+  test("PR state=merged → row reconciled to merged, no rebase, not re-read", async () => {
     const h = makeHarness({
-      autoMergeEnabled: true,
-      prStatus: async () => behindPr({ state: "closed" }),
-    });
-    seedOpenLanding(h);
-
-    await h.drain.tick();
-
-    expect(h.rebaseCalls).toHaveLength(0);
-  });
-
-  test("PR state=merged → skip, no rebase", async () => {
-    const h = makeHarness({
-      autoMergeEnabled: true,
+      autoDrainEnabled: true,
       prStatus: async () => behindPr({ state: "merged" }),
     });
     seedOpenLanding(h);
 
-    await h.drain.tick();
-
+    await callRebasePass(h);
     expect(h.rebaseCalls).toHaveLength(0);
+    expect(row(h).landingState).toBe("merged");
+    expect(row(h).landingPrNumber).toBe(LANDING_PR);
+
+    await callRebasePass(h);
+    expect(h.spy.prStatusCalls).toHaveLength(1);
   });
+
+  for (const state of ["closed", "none"] as const) {
+    test(`PR state=${state} → row reconciled to none, no rebase, not re-read`, async () => {
+      const h = makeHarness({
+        autoDrainEnabled: true,
+        prStatus: async () => behindPr({ state }),
+      });
+      seedOpenLanding(h);
+
+      await callRebasePass(h);
+      expect(h.rebaseCalls).toHaveLength(0);
+      expect(row(h).landingState).toBe("none");
+      expect(row(h).landingPrNumber).toBeNull();
+
+      await callRebasePass(h);
+      expect(h.spy.prStatusCalls).toHaveLength(1);
+    });
+  }
 });

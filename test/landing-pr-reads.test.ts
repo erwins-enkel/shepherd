@@ -287,4 +287,15 @@ describe("LandingPrReads", () => {
       expect(h.calls()).toBe(1);
     });
   });
+
+  test("#2657: markOpened holds for this tick only, and the next read is a fresh one", async () => {
+    const h = harness();
+    await h.tick();
+    expect(h.reads.openedThisTick(REPO, BRANCH)).toBe(false);
+    h.reads.markOpened(REPO, BRANCH);
+    expect(h.reads.openedThisTick(REPO, BRANCH)).toBe(true);
+    await h.tick();
+    expect(h.reads.openedThisTick(REPO, BRANCH)).toBe(false);
+    expect(h.calls()).toBe(2);
+  });
 });

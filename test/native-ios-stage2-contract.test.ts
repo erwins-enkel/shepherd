@@ -83,6 +83,33 @@ describe("native iOS acceptance tools", () => {
       expect(result.exitCode === 0).toBe(resultState === "Passed");
     });
   }
+  test("names the failing assertion file:line from the xcresult tree", () => {
+    const fixture = JSON.parse(
+      readFileSync("test/fixtures/native-ios-stage2-results-pass.json", "utf8"),
+    );
+    fixture.summary = { ...fixture.summary, passedTests: 0, failedTests: 1 };
+    fixture.tests.testNodes[0].result = "Failed";
+    fixture.tests.testNodes[0].children = [
+      { nodeType: "Failure Message", name: "IOSFixtureTests.swift:12: XCTAssertTrue failed" },
+    ];
+    const run = (tests: unknown, summary: unknown) =>
+      python(
+        "check-ios-results.py",
+        json("summary.json", summary),
+        json("tests.json", tests),
+        "--expected",
+        json("expected.json", fixture.expected),
+      );
+    const failed = run(fixture.tests, fixture.summary);
+    expect(failed.exitCode).not.toBe(0);
+    expect(failed.stderr.toString()).toContain(
+      "FAILURE: IOSFixtureTests/testFlow(): IOSFixtureTests.swift:12: XCTAssertTrue failed",
+    );
+    const pass = JSON.parse(
+      readFileSync("test/fixtures/native-ios-stage2-results-pass.json", "utf8"),
+    );
+    expect(run(pass.tests, pass.summary).stderr.toString()).not.toContain("FAILURE:");
+  });
   test("rejects passing counts when a required identity never executed", () => {
     const fixture = JSON.parse(
       readFileSync("test/fixtures/native-ios-stage2-results-pass.json", "utf8"),

@@ -57,6 +57,23 @@ interface ForgeSpy {
   latestFailedRunCalls: number[];
 }
 
+/** #3278: the rerun capability as prototype methods that read `this`, like `GithubForge` — so a
+ *  caller that invokes them unbound throws instead of passing (the arrow-fn fake can't catch that). */
+class ThisBoundRerun {
+  constructor(
+    private readonly latestFailedRunCalls: number[],
+    private readonly rerunCalls: RerunCall[],
+    private readonly failedRun?: (prNumber: number) => Promise<number | null>,
+  ) {}
+  async latestFailedRunForPr(prNumber: number): Promise<number | null> {
+    this.latestFailedRunCalls.push(prNumber);
+    return (await this.failedRun?.(prNumber)) ?? null;
+  }
+  async rerunWorkflowRun(runId: number, o: { failedOnly: boolean }): Promise<void> {
+    this.rerunCalls.push({ runId, failedOnly: o.failedOnly });
+  }
+}
+
 function fakeForge(opts: {
   kind?: "github" | "gitea" | "local";
   prStatus?: (branch: string) => Promise<PrStatus>;
@@ -65,6 +82,8 @@ function fakeForge(opts: {
   hasRerunCapability?: boolean;
   /** When true, rerunWorkflowRun records the call and then rejects. */
   rerunThrows?: boolean;
+  /** #3278: provide the rerun capability as `this`-using class methods (see ThisBoundRerun). */
+  classMethods?: boolean;
 }): ForgeSpy {
   const prStatusCalls: string[] = [];
   const rerunCalls: RerunCall[] = [];
@@ -100,7 +119,7 @@ function fakeForge(opts: {
     getIssue: async (): Promise<Issue | null> => null,
     listSubIssues: async (): Promise<SubIssueRef[]> => [],
     listBlockedBy: async () => [],
-    ...(hasCap
+    ...(hasCap && !opts.classMethods
       ? {
           latestFailedRunForPr: async (prNumber: number) => {
             latestFailedRunCalls.push(prNumber);
@@ -113,6 +132,15 @@ function fakeForge(opts: {
         }
       : {}),
   };
+  if (opts.classMethods) {
+    const viaThis = new ThisBoundRerun(latestFailedRunCalls, rerunCalls, opts.latestFailedRunForPr);
+    return {
+      forge: Object.assign(viaThis, forge),
+      prStatusCalls,
+      rerunCalls,
+      latestFailedRunCalls,
+    };
+  }
   return { forge, prStatusCalls, rerunCalls, latestFailedRunCalls };
 }
 
@@ -134,6 +162,7 @@ function makeHarness(opts: {
   github?: boolean;
   hasRerunCapability?: boolean;
   rerunThrows?: boolean;
+  classMethods?: boolean;
   /** #2805: the GitHub REST write backoff seam. */
   restWritesBlocked?: () => boolean;
   /** #2872: reuse a store (simulates a server restart: a fresh DrainService over the same DB). */
@@ -186,6 +215,7 @@ function makeHarness(opts: {
     latestFailedRunForPr: opts.latestFailedRunForPr,
     hasRerunCapability: opts.hasRerunCapability,
     rerunThrows: opts.rerunThrows,
+    classMethods: opts.classMethods,
   });
   const completedEmits: CompletedEpic[] = [];
 
@@ -391,6 +421,21 @@ describe("rerunRedLandingCiForRepo (C)", () => {
       autoMergeEnabled: true,
       prStatus: async () => redPr(),
       latestFailedRunForPr: async () => 42,
+    });
+    seedOpenLanding(h);
+
+    await callRerunPass(h);
+
+    expect(h.spy.latestFailedRunCalls).toEqual([LANDING_PR]);
+    expect(h.spy.rerunCalls).toEqual([{ runId: 42, failedOnly: true }]);
+  });
+
+  test("#3278: class-method forge (methods use `this`, like GithubForge) → rerun still fires", async () => {
+    const h = makeHarness({
+      autoMergeEnabled: true,
+      prStatus: async () => redPr(),
+      latestFailedRunForPr: async () => 42,
+      classMethods: true,
     });
     seedOpenLanding(h);
 

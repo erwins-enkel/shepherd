@@ -3524,10 +3524,11 @@ export class DrainService {
     // repair dispatch below waits out the window too.
     if (this.deps.restWritesBlocked?.()) return;
     // Capability gate (both are optional on GitForge — GitHub-only). Capture locals so TS keeps the
-    // non-undefined narrowing across the awaits below.
-    const latestFailedRunForPr = forge.latestFailedRunForPr;
-    const rerunWorkflowRun = forge.rerunWorkflowRun;
-    if (!latestFailedRunForPr || !rerunWorkflowRun) return;
+    // non-undefined narrowing across the awaits below — bound, since GithubForge's methods use
+    // `this` (#3278).
+    if (!forge.latestFailedRunForPr || !forge.rerunWorkflowRun) return;
+    const latestFailedRunForPr = forge.latestFailedRunForPr.bind(forge);
+    const rerunWorkflowRun = forge.rerunWorkflowRun.bind(forge);
 
     const open = this.deps.store
       .listEpicCompleted(repoPath)

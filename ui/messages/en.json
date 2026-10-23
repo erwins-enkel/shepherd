@@ -6145,7 +6145,7 @@
   "tooltip_placement_needs": "Requirements",
   "tooltip_placement_needs_none": "None — any connected machine with the project fits.",
   "tooltip_placement_how": "How it was chosen",
-  "tooltip_placement_how_auto": "Automatically: among the machines that fit, the platform order (Linux before macOS by default) and then the machine ID decide.",
+  "tooltip_placement_how_auto": "Automatically: suitable machines follow your platform preference, then machine ID. When the preferred connected machine is under high load, a suitable machine with fresh spare capacity can take the new task.",
   "tooltip_placement_how_manual": "Picked under Run on. It fit: connected, the project checked out and every requirement verified.",
   "tooltip_placement_by": "Decided by",
   "remote_detail_placement": "Placement",
@@ -7018,5 +7018,16 @@
   "diagnostics_label_no_pr_ci": "No PR CI · {repo}",
   "diagnostics_hint_no_pr_ci": "No workflow runs on pull requests in {repo}, so auto-merge holds its PRs. Set up a CI workflow, or turn on Merge without CI in the repo's automation settings.",
   "feat_diagnostics_no_pr_ci_title": "Diagnostics flags repos without PR CI",
-  "feat_diagnostics_no_pr_ci_body": "Settings → Diagnostics now lists each GitHub repo where no workflow runs on pull requests, so auto-merge holds its PRs. Set up CI there, or turn on Merge without CI in the repo's automation settings."
+  "feat_diagnostics_no_pr_ci_body": "Settings → Diagnostics now lists each GitHub repo where no workflow runs on pull requests, so auto-merge holds its PRs. Set up CI there, or turn on Merge without CI in the repo's automation settings.",
+  "placement_basis_load": "Preferred machine {machine} is under high load",
+  "placement_load_busy": "High host load; starts here anyway",
+  "placement_load_unknown": "Host load is unknown",
+  "placement_load_observed": "Load when selected",
+  "placement_load_preferred": "Preferred machine when selected",
+  "placement_load_detail": "{machine}: one-minute load per CPU core {ratio}; running sessions: {count}",
+  "placement_load_unavailable": "{machine}: no fresh load measurement",
+  "placement_load_start": "At start",
+  "placement_load_recheck": "Load is checked again when you start. Automatic may choose a different suitable machine.",
+  "feat_machine_load_title": "Avoid busy machines when starting tasks",
+  "feat_machine_load_body": "Automatic keeps your machine preference. When that host is busy, a suitable machine with spare capacity can take the new task. The selection explains why; manual choices stay yours."
 }

@@ -98,11 +98,12 @@ public enum PlacementCopy {
     // MARK: - Why a task runs where it runs
 
     /// "Needs macOS and Xcode", "No special requirements – preferred: Linux", "Chosen manually", …
-    public static func reason(_ placement: MachinePlacement) -> String {
+    private static func selectionReason(_ placement: MachinePlacement) -> String {
         let ids = placement.requirements.map(\.rawValue)
         let list = capabilityList(ids)
         let platform = platformLabel(placement.preferred ?? placement.target.platform.rawValue)
         switch placement.basis.rawValue {
+        case "load": return L.t("placement_basis_load", placement.load?.preferredHost.name ?? "")
         case "manual": return L.t("placement_basis_manual")
         case "requirements": return L.t("placement_basis_requirements", list)
         case "preference":
@@ -114,9 +115,27 @@ public enum PlacementCopy {
         }
     }
 
+    public static func reason(_ placement: MachinePlacement) -> String {
+        let reason = selectionReason(placement)
+        let note: String
+        switch placement.load?.state.rawValue {
+        case "busy": note = L.t("placement_load_busy")
+        case "unknown": note = L.t("placement_load_unknown")
+        default: note = ""
+        }
+        return note.isEmpty ? reason : "\(reason). \(note)"
+    }
+
+    private static func loadObservation(_ machine: String, _ report: Components.Schemas.HostLoadReport?) -> String {
+        guard let report, !report.stale else { return L.t("placement_load_unavailable", machine) }
+        let ratio = (report.load1 / Double(report.cpuCount)).formatted(.number.precision(.fractionLength(0...2)))
+        return L.t("placement_load_detail", machine, ratio, String(report.runningSessions))
+    }
+
     /// "Runs on MacBook — Needs Xcode", before the task is submitted.
     public static func runsOn(_ placement: MachinePlacement) -> String {
-        L.t("placement_runs_on", placement.target.name, reason(placement))
+        let text = L.t("placement_runs_on", placement.target.name, reason(placement))
+        return placement.load == nil || placement.mode.rawValue != "auto" ? text : "\(text). \(L.t("placement_load_recheck"))"
     }
 
     /// "Waits for MacBook — Needs Xcode. …", and where it could run now instead (#2775).
@@ -247,16 +266,24 @@ public enum PlacementCopy {
     /// Why a task runs where it runs: the reason, what it needed, who decided.
     public static func explanation(_ placement: MachinePlacement) -> RemoteExplanation {
         let ids = placement.requirements.map(\.rawValue)
-        return RemoteExplanation(
-            title: L.t("tooltip_placement_title", placement.target.name), summary: reason(placement),
-            sections: [
-                .init(label: L.t("tooltip_placement_needs"),
-                      text: ids.isEmpty ? L.t("tooltip_placement_needs_none") : capabilityList(ids)),
-                .init(label: L.t("tooltip_placement_how"),
-                      text: placement.mode.rawValue == "manual"
-                        ? L.t("tooltip_placement_how_manual") : L.t("tooltip_placement_how_auto")),
-                .init(label: L.t("tooltip_placement_by"), text: placement.by.name),
-            ])
+        var sections: [RemoteExplanation.Section] = [
+            .init(label: L.t("tooltip_placement_needs"),
+                  text: ids.isEmpty ? L.t("tooltip_placement_needs_none") : capabilityList(ids)),
+            .init(label: L.t("tooltip_placement_how"),
+                  text: placement.mode.rawValue == "manual"
+                    ? L.t("tooltip_placement_how_manual") : L.t("tooltip_placement_how_auto")),
+        ]
+        if let load = placement.load {
+            sections.append(.init(label: L.t("placement_load_observed"),
+                text: loadObservation(placement.target.name, load.selectedReport)))
+            if load.state.rawValue == "diverted" {
+                sections.append(.init(label: L.t("placement_load_preferred"),
+                    text: loadObservation(load.preferredHost.name, load.preferredReport)))
+            }
+        }
+        sections.append(.init(label: L.t("tooltip_placement_by"), text: placement.by.name))
+        return RemoteExplanation(title: L.t("tooltip_placement_title", placement.target.name),
+            summary: reason(placement), sections: sections)
     }
 
     /// That a task never moves on its own, and where it could run now instead.

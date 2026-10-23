@@ -53,6 +53,20 @@ struct ShepherdClientPlacementTests {
         }
     }
 
+    @Test func loadPlacementDecodesHistoricalMeasurements() throws {
+        let report = #"{"sampledAt":1,"ageMs":4,"stale":false,"load1":9.6,"cpuCount":8,"runningSessions":4}"#
+        let json = #"""
+            {"mode":"auto","target":\#(Self.mac),"requirements":[],"basis":"load","preferred":null,
+             "by":{"instanceId":"linux","name":"moes-tavern"},"decidedAt":5,
+             "load":{"state":"diverted","preferredHost":\#(Self.linux),"preferredReport":\#(report),"selectedReport":null}}
+            """#
+        let placement = try JSONDecoder().decode(MachinePlacement.self, from: Data(json.utf8))
+        #expect(placement.basis.rawValue == "load")
+        #expect(placement.load?.state.rawValue == "diverted")
+        #expect(placement.load?.preferredReport?.sampledAt == 1)
+        #expect(placement.load?.selectedReport == nil)
+    }
+
     @Test func derivationDecodesTheQuestionAndTheFailure() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

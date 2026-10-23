@@ -12868,7 +12868,9 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"matchesTheSchemeCaseInsensitivelyKeepingTheURLAsWritten()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"linksNothingThatIsNotABareHTTPURL()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"alwaysReassemblesToTheInput()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"attributedLinksOnlyTheURL()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"attributedLinksOnlyTheURL()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.PlacementCopyTests\",\"loadExplainsDiversionAndWarnsWithoutChangingManualChoice() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"loadPlacementDecodesHistoricalMeasurements() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

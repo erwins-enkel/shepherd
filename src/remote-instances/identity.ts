@@ -19,7 +19,8 @@ import { SHEPHERD_VERSION } from "../version";
  * it whenever a server-to-server route a connected machine relies on changes shape. 2 (#2772): a
  * task sent to a machine carries its `placement` record and names the machine as its `target`.
  */
-export const FEDERATION_API_VERSION = 2;
+// 3: load-based placement records include the new `load` basis.
+export const FEDERATION_API_VERSION = 3;
 
 /** Upper bound for this instance's name and for a machine's local label. */
 export const INSTANCE_NAME_MAX = 64;

@@ -43,6 +43,7 @@ interface Node {
   ok: Capability[];
   /** How often this node's capabilities were probed on demand (`refresh`). */
   probes: number;
+  load1: number;
   port: number;
   /** The next task this node sends to a machine reaches it, but the answer is lost. */
   dropCreate: boolean;
@@ -123,7 +124,7 @@ function startNode(dir: string, platform: "linux" | "macos", ok: Capability[]): 
   });
   remoteInstances.onChange((id) => remoteSessions.sync(id));
   const forge = { slug: "acme/app", isFork: false } as unknown as GitForge;
-  const node = { ok: [...ok], probes: 0, dropCreate: false } as Node;
+  const node = { ok: [...ok], probes: 0, dropCreate: false, load1: 1 } as Node;
   const deps = {
     store,
     events,
@@ -132,6 +133,12 @@ function startNode(dir: string, platform: "linux" | "macos", ok: Capability[]): 
     remoteInstances,
     remoteSessions,
     hostPlatform: platform,
+    hostLoad: () => ({
+      sampledAt: Date.now(),
+      load1: node.load1,
+      cpuCount: 8,
+      runningSessions: created.length,
+    }),
     capabilities: fixedCapabilities(node),
     resolveForge: ((path: string) => (path === checkout ? forge : null)) as AppDeps["resolveForge"],
     usageLimits: {
@@ -992,5 +999,70 @@ describe("waiting for the right machine (#2775)", () => {
       ["held", undefined],
       ["unknown", undefined],
     ]);
+  });
+});
+
+describe("host load at the session boundary", () => {
+  test("busy Linux diverts from either entry and retains the decision on the Mac", async () => {
+    const { linux, mac } = await pair();
+    linux.load1 = 9.6;
+    mac.load1 = 2.4;
+    await Promise.all([
+      linux.deps.remoteInstances.check(mac.id),
+      mac.deps.remoteInstances.check(linux.id),
+    ]);
+    for (const at of [linux, mac]) {
+      linux.created.length = 0;
+      mac.created.length = 0;
+      const shown = await preview(at, {});
+      expect(shown.body.placement).toMatchObject({
+        target: { instanceId: mac.id },
+        basis: "load",
+        load: { state: "diverted" },
+      });
+      const result = await create(at, task(at));
+      expect(result.status).toBe(201);
+      expect(ranOn([linux, mac])).toEqual([mac]);
+      expect(
+        (mac.created[0] as Exclude<CreateSessionInput, { terminal: true }>).placement,
+      ).toMatchObject({
+        basis: "load",
+        load: { preferredHost: { instanceId: linux.id }, selectedReport: { load1: 2.4 } },
+      });
+    }
+  });
+
+  test("create rechecks changed load, but a keyed retry stays on its first host", async () => {
+    const { linux, mac } = await pair();
+    const shown = await preview(linux, {});
+    expect(shown.body.placement).toMatchObject({ target: { instanceId: linux.id } });
+    linux.load1 = 9.6;
+    const body = task(linux);
+    const first = await create(linux, body, { key: "load-bound-key" });
+    expect(first.status).toBe(201);
+    expect(ranOn([linux, mac])).toEqual([mac]);
+    linux.load1 = 0;
+    mac.load1 = 20;
+    const retry = await create(linux, body, { key: "load-bound-key" });
+    expect(retry.status).toBe(201);
+    expect(mac.created).toHaveLength(1);
+    expect(linux.created).toHaveLength(0);
+  });
+
+  test("all busy still starts on the preferred host; explicit host remains binding", async () => {
+    const { linux, mac } = await pair();
+    linux.load1 = 9.6;
+    mac.load1 = 8.8;
+    await linux.deps.remoteInstances.check(mac.id);
+    expect((await preview(linux, {})).body.placement).toMatchObject({
+      target: { instanceId: linux.id },
+      load: { state: "busy" },
+    });
+    expect((await create(linux, task(linux))).status).toBe(201);
+    expect(linux.created).toHaveLength(1);
+    expect((await create(linux, task(linux, { target: { instanceId: mac.id } }))).status).toBe(201);
+    expect(
+      (mac.created[0] as Exclude<CreateSessionInput, { terminal: true }>).placement,
+    ).toMatchObject({ mode: "manual", basis: "manual", load: { state: "busy" } });
   });
 });

@@ -4025,6 +4025,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return r ? this.hydrate(r) : null;
   }
 
+  /** Local running tasks only; mirrors live outside this store. */
+  countRunningSessions(): number {
+    return (
+      this.db
+        .query(
+          "SELECT COUNT(*) AS count FROM sessions WHERE status = 'running' AND terminal = 0 AND operatorAssistant = 0",
+        )
+        .get() as { count: number }
+    ).count;
+  }
+
   list(opts?: { activeOnly?: boolean }): Session[] {
     const where = opts?.activeOnly ? `WHERE status != 'archived'` : ``;
     return (

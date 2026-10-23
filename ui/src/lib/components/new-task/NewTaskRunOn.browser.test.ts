@@ -515,3 +515,49 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
     expect(onsubmit.mock.calls[2]![0].dispatchKey).not.toBe(first.dispatchKey);
   });
 });
+
+describe("host load in New Task", () => {
+  it.each(["diverted", "busy"] as const)(
+    "shows %s without pinning Automatic or blocking submit",
+    async (state) => {
+      vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
+      const report = {
+        sampledAt: 1,
+        ageMs: 0,
+        stale: false,
+        load1: 9.6,
+        cpuCount: 8,
+        runningSessions: 4,
+      };
+      const placement = placed(state === "diverted" ? mac : here, {
+        basis: state === "diverted" ? "load" : "preference",
+        load: {
+          state,
+          preferredHost: here,
+          preferredReport: report,
+          selectedReport: { ...report, load1: state === "diverted" ? 2.4 : 9.6 },
+        },
+      });
+      vi.mocked(previewPlacement).mockResolvedValue({ active: true, placement });
+      const onsubmit = vi.fn().mockResolvedValue(undefined);
+      render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
+      await expect
+        .poll(placementText)
+        .toContain(
+          state === "busy"
+            ? m.placement_load_busy()
+            : m.placement_basis_load({ machine: here.name }),
+        );
+      expect(document.querySelector(".nt-placement")!.classList.contains("warn")).toBe(
+        state === "busy",
+      );
+      expect(document.querySelector(".nt-placement")!.getAttribute("aria-description")).toContain(
+        m.placement_load_recheck(),
+      );
+      await typePrompt("fix settings");
+      await submit();
+      await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+      expect(onsubmit.mock.calls[0]![0].target).toBeUndefined();
+    },
+  );
+});

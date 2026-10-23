@@ -518,3 +518,142 @@ describe("whether reading requirements from a task can change the choice (#2773)
     expect(choiceDependsOn([linux(), android], DERIVABLE)).toBe(true);
   });
 });
+
+const hostLoad = (ratio: number, over = {}) => ({
+  sampledAt: 42,
+  ageMs: 0,
+  stale: false,
+  load1: ratio * 8,
+  cpuCount: 8,
+  runningSessions: 3,
+  ...over,
+});
+
+describe("load-aware placement", () => {
+  test("keeps preference until busy, then uses the first fitting host with reserve", () => {
+    const preferred = linux({ local: true, load: hostLoad(1.2) });
+    const spare = mac({ load: hostLoad(0.3) });
+    for (const views of [
+      [preferred, spare],
+      [spare, preferred],
+    ]) {
+      const d = decidePlacement(views, request());
+      expect(d).toMatchObject({
+        ok: true,
+        placement: {
+          target: spare.host,
+          basis: "load",
+          preferred: null,
+          load: {
+            state: "diverted",
+            preferredHost: preferred.host,
+            preferredReport: preferred.load,
+            selectedReport: spare.load,
+          },
+        },
+      });
+      if (d.ok) expect(parsePlacementRecord(d.placement)).toEqual(d.placement);
+    }
+    expect(
+      target([linux({ load: hostLoad(0.5, { runningSessions: 50 }) }), spare], request()),
+    ).toBe(LINUX_ID);
+    expect(target([linux({ load: hostLoad(1) }), mac({ load: hostLoad(0.75) })], request())).toBe(
+      MAC_ID,
+    );
+    expect(target([linux({ load: hostLoad(0.999) }), spare], request())).toBe(LINUX_ID);
+    expect(target([preferred, mac({ load: hostLoad(0.751) })], request())).toBe(LINUX_ID);
+    const secondLinux = machine("c333", "second", "linux", { load: hostLoad(0.7) });
+    expect(target([spare, secondLinux, preferred], request())).toBe("c333");
+  });
+
+  test("busy without proven reserve starts on the preferred host with a warning", () => {
+    for (const load of [
+      hostLoad(1.1),
+      hostLoad(0.1, { stale: true }),
+      null,
+      hostLoad(0.1, { sampledAt: 0 }),
+    ]) {
+      const d = decidePlacement(
+        [linux({ load: hostLoad(1.2, { sampledAt: 20_000 }) }), mac({ load })],
+        request({ now: 20_000 }),
+      );
+      expect(d).toMatchObject({
+        ok: true,
+        placement: { target: { instanceId: LINUX_ID }, load: { state: "busy" } },
+      });
+      expect(d).not.toHaveProperty("wait");
+    }
+    expect(
+      decidePlacement([linux({ load: null }), mac({ load: hostLoad(0) })], request()),
+    ).toMatchObject({
+      ok: true,
+      placement: { target: { instanceId: LINUX_ID }, load: { state: "unknown" } },
+    });
+  });
+
+  test("requirements, explicit targets, project eligibility and offline waiting still win", () => {
+    const busy = linux({ load: hostLoad(1.2) });
+    const spare = mac({ load: hostLoad(0.2) });
+    expect(target([busy, spare], request({ override: LINUX_ID }))).toBe(LINUX_ID);
+    expect(target([busy, spare], request({ requirements: ["platform:linux"] }))).toBe(LINUX_ID);
+    expect(target([busy, { ...spare, hasProject: false }], request())).toBe(LINUX_ID);
+    expect(target([busy, { ...spare, released: false }], request())).toBe(LINUX_ID);
+    expect(
+      target(
+        [busy, { ...spare, report: report(["xcode"], true) }],
+        request({ requirements: ["xcode"] }),
+      ),
+    ).toBeNull();
+    expect(
+      target(
+        [mac({ load: hostLoad(1.2) }), linux({ load: hostLoad(0) })],
+        request({ requirements: ["xcode"] }),
+      ),
+    ).toBe(MAC_ID);
+    const offline = decidePlacement(
+      [{ ...busy, connected: false, status: "unreachable" }, spare],
+      request(),
+    );
+    expect(offline).toMatchObject({
+      ok: true,
+      placement: { target: busy.host, basis: "preference" },
+      wait: { status: "unreachable" },
+    });
+    if (offline.ok) expect(offline.placement.load).toBeUndefined();
+  });
+
+  test("the record captures stale observations as stale at selection time", () => {
+    const d = decidePlacement(
+      [linux({ load: hostLoad(0.5) }), mac({ load: null })],
+      request({ now: 20_000 }),
+    );
+    expect(d).toMatchObject({
+      ok: true,
+      placement: { load: { state: "unknown", selectedReport: { stale: true, ageMs: 19_958 } } },
+    });
+  });
+
+  test("placement parser preserves old records and rejects malformed load records", () => {
+    const d = decidePlacement(
+      [linux({ load: hostLoad(1.2) }), mac({ load: hostLoad(0.2) })],
+      request(),
+    );
+    if (!d.ok) throw new Error("expected placement");
+    for (const load of [
+      null,
+      {},
+      { ...d.placement.load, state: "free" },
+      { ...d.placement.load, state: ["diverted"] },
+      { ...d.placement.load, selectedReport: { ...hostLoad(0), cpuCount: 0 } },
+    ]) {
+      expect(parsePlacementRecord({ ...d.placement, load })).toHaveProperty("error");
+    }
+    expect(parsePlacementRecord({ ...d.placement, load: undefined })).toHaveProperty("error");
+    const old = { ...d.placement };
+    delete old.load;
+    expect(parsePlacementRecord({ ...old, basis: "preference" })).toEqual({
+      ...old,
+      basis: "preference",
+    });
+  });
+});

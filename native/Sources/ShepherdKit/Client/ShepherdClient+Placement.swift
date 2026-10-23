@@ -24,6 +24,7 @@ extension Components.Schemas.RemoteDispatchState: OpenEnum {}
 extension Components.Schemas.DispatchReadiness.StatePayload: OpenEnum {}
 extension Components.Schemas.Placement.ModePayload: OpenEnum {}
 extension Components.Schemas.Placement.BasisPayload: OpenEnum {}
+extension Components.Schemas.PlacementLoad.StatePayload: OpenEnum {}
 extension Components.Schemas.RequirementsDerivation.StatusPayload: OpenEnum {}
 extension Components.Schemas.RequirementsDerivation.CausePayload: OpenEnum {}
 

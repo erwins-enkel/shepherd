@@ -11,6 +11,7 @@
  * and nowhere else: nothing here logs, throws or returns it, and redirects are never followed
  * (`redirect: "manual"`), so the header cannot be replayed to wherever a 3xx points.
  */
+import { type HostLoadSnapshot, parseRemoteLoad } from "./load";
 import { type CapabilitySnapshot, parseCapabilityReport } from "./capabilities";
 import { FEDERATION_API_VERSION, INSTANCE_NAME_MAX, type InstanceIdentity } from "./identity";
 
@@ -33,6 +34,8 @@ export type ProbeOutcome =
       repoSlugs: Map<string, string>;
       /** The machine's capability report re-based onto this clock; null when it sends none. */
       capabilities: CapabilitySnapshot | null;
+      load: HostLoadSnapshot | null;
+      loadReadAt: number;
     }
   | ProbeFailure;
 
@@ -304,6 +307,7 @@ export async function probeRemote(
   const grant = grantFailure(me.body);
   if (grant) return grant;
 
+  const loadReadAt = (opts.now ?? Date.now)();
   const instance = await getRemoteJson(target, "/api/instance", opts);
   if (!instance.ok) return instance.failure;
   const info = parseIdentity(instance.body);
@@ -318,8 +322,11 @@ export async function probeRemote(
     (opts.now ?? Date.now)(),
   );
 
+  const load = parseRemoteLoad((instance.body as Record<string, unknown>).load, loadReadAt);
   const repos = await getRemoteJson(target, "/api/repos", opts);
   if (!repos.ok) return repos.failure;
   const parsed = parseProjects(repos.body);
-  return parsed ? { status: "connected", info, ...parsed, capabilities } : BAD_RESPONSE;
+  return parsed
+    ? { status: "connected", info, ...parsed, capabilities, load, loadReadAt }
+    : BAD_RESPONSE;
 }

@@ -1616,11 +1616,19 @@ export class GithubForge implements GitForge {
     return p;
   }
 
+  /** Own rerun/cancel: the run's head sha is unknown here, so every cached REST check state goes —
+   *  a cached terminal failure would otherwise mask the rerun for 10 min (drain re-reruns). */
   private invalidateWorkflowRuns(runId: number): void {
     this.workflowRunsGen++;
     this.workflowRunsCache = null;
     this.workflowRunsInflight = null;
     this.completedRunJobs.delete(runId);
+    this.restCheckCache.clear();
+  }
+
+  private invalidateRestReviews(prNumber: number): void {
+    for (const key of this.restReviewCache.keys())
+      if (key.startsWith(`${prNumber}@`)) this.restReviewCache.delete(key);
   }
 
   /** A completed run's jobs come from {@link completedRunJobs} while its attempt is unchanged. */
@@ -3304,7 +3312,10 @@ export class GithubForge implements GitForge {
           "--request-changes",
           "--body",
           o.body,
-        ]).finally(() => this.invalidatePrs());
+        ]).finally(() => {
+          this.invalidatePrs();
+          this.invalidateRestReviews(prNumber);
+        });
         return {}; // gh pr review prints no machine-readable URL
       } catch {
         // GitHub forbids request-changes on a PR you authored, and the agent +
@@ -3326,7 +3337,10 @@ export class GithubForge implements GitForge {
       "--comment",
       "--body",
       o.body,
-    ]).finally(() => this.invalidatePrs());
+    ]).finally(() => {
+      this.invalidatePrs();
+      this.invalidateRestReviews(prNumber);
+    });
     return {}; // gh pr review prints no machine-readable URL
   }
 

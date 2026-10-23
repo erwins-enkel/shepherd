@@ -1269,6 +1269,27 @@ test("GithubForge.prStatus: REST fallback caches a settled head's checks and rev
   }
 });
 
+test("GithubForge.prStatus: own rerun/cancel and review drop the REST check/review caches", async () => {
+  blockGraphql();
+  try {
+    const { run, count } = restPrRunner({ head: () => "abc", check: () => "failure" });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.prStatus("feature");
+    await forge.rerunWorkflowRun(9, { failedOnly: true });
+    await forge.prStatus("feature");
+    expect(count("/status")).toBe(2); // rerun → checks re-read, not a cached failure
+    await forge.cancelWorkflowRun(9);
+    await forge.prStatus("feature");
+    expect(count("/status")).toBe(3);
+    expect(count("/reviews")).toBe(1);
+    await forge.postReview(7, { event: "COMMENT", body: "x" });
+    await forge.prStatus("feature");
+    expect(count("/reviews")).toBe(2);
+  } finally {
+    unblockGraphql();
+  }
+});
+
 test("GithubForge.prStatus: REST fallback re-reads pending checks after 60s and reviews on a new head", async () => {
   blockGraphql();
   setSystemTime(new Date("2026-10-01T12:00:00Z"));

@@ -131,6 +131,27 @@ final class IOSTerminalTests: XCTestCase {
         XCTAssertTrue(presentation.followsTail)
     }
 
+    func testPromptSummonsWritingOnlyAtTheTail() {
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in IOSFixturePTY() })
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
+        XCTAssertTrue(presentation.promptSummonsWriting)
+        // Scrolled back, the bottom line is history and Latest output sits there.
+        presentation.userScrolled(position: 0.4, canScroll: true)
+        XCTAssertFalse(presentation.promptSummonsWriting)
+        presentation.jumpToTail()
+        XCTAssertTrue(presentation.promptSummonsWriting)
+        _ = presentation.agentScrolled(lines: 3)
+        XCTAssertFalse(presentation.promptSummonsWriting, "The agent's own scroll counts as history too")
+        presentation.resetAgentScroll()
+        XCTAssertTrue(presentation.promptSummonsWriting)
+        presentation.openWriting(focus: true)
+        XCTAssertFalse(presentation.promptSummonsWriting)
+        presentation.closeWriting()
+        XCTAssertTrue(presentation.promptSummonsWriting)
+        presentation.screenChanged(["❯ 1. Yes", "  2. No", "Enter to select · ↑/↓ to navigate · Esc to cancel"])
+        XCTAssertFalse(presentation.promptSummonsWriting, "A dialog's last line is its footer")
+    }
+
     func testGridResizesOnlyWhenAttachedAndOnlyWhenChanged() {
         let pty = IOSFixturePTY()
         let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { cols, rows in

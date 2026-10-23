@@ -98,16 +98,31 @@ describe("AskQuestionDialog", () => {
   });
 
   it("names the repo, task, session and prompt the question comes from", async () => {
+    const { container } = await mount([{ session: session("s1"), ask: ask(`toolu_${++seq}`) }]);
+    // The detail pane, not the list beside it, which repeats repo, task and session.
+    const detail = page.elementLocator(container.querySelector(".detail")!);
+    await expect.element(detail.getByText("shepherd", { exact: true })).toBeVisible();
+    await expect.element(detail.getByText("TASK-2240", { exact: true })).toBeVisible();
+    await expect.element(detail.getByText("repo-coding-cli", { exact: true })).toBeVisible();
+    await expect.element(detail.getByText("pick the coding CLI per repo")).toBeVisible();
+    await expect.element(detail.getByText(/shepherd\/repo-coding-cli/)).toBeVisible();
+    await expect.element(detail.getByText(/(terminal of|Terminal von) TASK-2240/)).toBeVisible();
+  });
+
+  it("keeps the question-center layout for a single open question", async () => {
     await mount([{ session: session("s1"), ask: ask(`toolu_${++seq}`) }]);
-    const dialog = page.getByRole("dialog");
-    await expect.element(dialog.getByText("shepherd", { exact: true })).toBeVisible();
-    await expect.element(dialog.getByText("TASK-2240", { exact: true })).toBeVisible();
-    await expect.element(dialog.getByText("repo-coding-cli", { exact: true })).toBeVisible();
-    await expect.element(dialog.getByText("pick the coding CLI per repo")).toBeVisible();
-    await expect.element(dialog.getByText(/shepherd\/repo-coding-cli/)).toBeVisible();
-    await expect.element(dialog.getByText(/(terminal of|Terminal von) TASK-2240/)).toBeVisible();
-    // A single question needs no list.
-    expect(document.querySelector("nav")).toBeNull();
+    const dialog = page.getByRole("dialog", { name: /Open questions|Offene Fragen/ });
+    await expect.element(dialog).toBeVisible();
+    await expect
+      .element(page.getByRole("navigation").getByText("shepherd", { exact: true }))
+      .toBeVisible();
+    await expect.element(dialog.getByText(/Question 1 of 1|Frage 1 von 1/)).toBeVisible();
+    await expect
+      .element(dialog.getByRole("button", { name: /^(Skip|Überspringen)$/ }))
+      .toBeDisabled();
+    await expect
+      .element(dialog.getByRole("button", { name: /^(Answer|Antworten)$/ }))
+      .toBeVisible();
   });
 
   it("lists other sessions' questions by repo and moves on to the next after an answer", async () => {
@@ -128,12 +143,20 @@ describe("AskQuestionDialog", () => {
     const nav = page.getByRole("navigation");
     await expect.element(nav.getByText("calendar", { exact: true })).toBeVisible();
     await expect.element(nav.getByText(/Pet · Export RRULE\?/)).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: /^(Answer & next|Antworten & weiter)$/ }))
+      .toBeVisible();
 
     await pickSecondAndSubmit(container);
     expect(answerAsk).toHaveBeenCalledWith("s1", first, expect.any(Array));
     expect(onclose).not.toHaveBeenCalled();
     await expect.element(page.getByText("Export RRULE?", { exact: true })).toBeVisible();
-    await expect.element(page.getByRole("navigation")).not.toBeInTheDocument();
+    // The last open question keeps the same layout instead of jumping to a narrower one.
+    await expect.element(nav.getByText("calendar", { exact: true })).toBeVisible();
+    await expect.element(page.getByText(/Question 1 of 1|Frage 1 von 1/)).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: /^(Skip|Überspringen)$/ }))
+      .toBeDisabled();
   });
 
   it("opens another session's question in its session", async () => {

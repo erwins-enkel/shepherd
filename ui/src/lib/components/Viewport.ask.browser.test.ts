@@ -85,7 +85,7 @@ const ask = (toolUseId: string): PendingAsk => ({
     },
   ],
 });
-const dialogEl = () => page.getByRole("dialog", { name: /Claude is asking|Claude fragt/ });
+const dialogEl = () => page.getByRole("dialog", { name: /Open questions|Offene Fragen/ });
 const answerStrip = () => page.getByRole("button", { name: /^(Answer|Beantworten)$/ });
 
 beforeEach(async () => {

@@ -19,7 +19,8 @@
   // names the repo, task and session asking, and lists every other session's open question beside
   // it, grouped by repo. The answer is typed into that session's real terminal by the server, which
   // then reports what landed. It closes itself once no open question is left — e.g. the operator
-  // answered the last one in the terminal first.
+  // answered the last one in the terminal first. The layout is the same for a single question, so
+  // answering down to the last one never jumps to a different view.
   let {
     entries,
     focusId,
@@ -53,7 +54,6 @@
   const index = $derived(current ? ordered.indexOf(current) : -1);
   const multi = $derived(ordered.length > 1);
   const block = $derived(current ? askToQuestionForm(current.ask) : null);
-  const title = $derived(multi ? m.ask_center_title() : m.ask_dialog_title());
 
   let closed = false;
   function close() {
@@ -117,46 +117,43 @@
 >
   <div
     class="card"
-    class:multi
     role="dialog"
     aria-modal="true"
-    aria-label={title}
+    aria-label={m.ask_center_title()}
     use:dialog={{ onclose: close }}
   >
     <div class="chead">
-      <span class="micro">{title}</span>
-      {#if multi}<span class="count">{ordered.length}</span>{/if}
+      <span class="micro">{m.ask_center_title()}</span>
+      <span class="count">{ordered.length}</span>
       <button type="button" class="x" onclick={close} aria-label={m.common_close()}>✕</button>
     </div>
     <div class="cbody">
-      {#if multi}
-        <nav class="list" aria-label={m.ask_center_title()}>
-          {#each groups as g (g.repoPath)}
-            <div class="group">
-              <span class="glyph" aria-hidden="true">{repoIcon(g.repoPath)}</span>
-              <span class="gname">{basename(g.repoPath)}</span>
-              <span class="gcount">{g.entries.length}</span>
-            </div>
-            {#each g.entries as e (e.ask.toolUseId)}
-              <button
-                type="button"
-                class="row"
-                aria-current={e === current ? "true" : undefined}
-                onclick={() => (selectedId = e.session.id)}
-              >
-                <span class="rtop">
-                  <span class="desig">{e.session.desig}</span>
-                  <span class="rname">{e.session.name}</span>
-                </span>
-                <span class="rq">{firstQuestion(e.ask)}</span>
-                <span class="rmeta">
-                  {[agent(e.session), waiting(e.since)].filter(Boolean).join(" · ")}
-                </span>
-              </button>
-            {/each}
+      <nav class="list" aria-label={m.ask_center_title()}>
+        {#each groups as g (g.repoPath)}
+          <div class="group">
+            <span class="glyph" aria-hidden="true">{repoIcon(g.repoPath)}</span>
+            <span class="gname">{basename(g.repoPath)}</span>
+            <span class="gcount">{g.entries.length}</span>
+          </div>
+          {#each g.entries as e (e.ask.toolUseId)}
+            <button
+              type="button"
+              class="row"
+              aria-current={e === current ? "true" : undefined}
+              onclick={() => (selectedId = e.session.id)}
+            >
+              <span class="rtop">
+                <span class="desig">{e.session.desig}</span>
+                <span class="rname">{e.session.name}</span>
+              </span>
+              <span class="rq">{firstQuestion(e.ask)}</span>
+              <span class="rmeta">
+                {[agent(e.session), waiting(e.since)].filter(Boolean).join(" · ")}
+              </span>
+            </button>
           {/each}
-        </nav>
-      {/if}
+        {/each}
+      </nav>
       {#if current && block}
         {@const s = current.session}
         <div class="detail">
@@ -196,17 +193,17 @@
             <QuestionFormBlock
               {block}
               {onanswer}
-              submitLabel={multi ? m.ask_center_submit_next() : m.ask_dialog_submit()}
+              submitLabel={multi ? m.ask_center_submit_next() : m.ask_center_submit()}
             />
           {/key}
-          {#if multi}
-            <div class="foot">
-              <span class="pos"
-                >{m.ask_center_position({ index: index + 1, count: ordered.length })}</span
-              >
-              <button type="button" class="gbtn" onclick={skip}>{m.ask_center_skip()}</button>
-            </div>
-          {/if}
+          <div class="foot">
+            <span class="pos"
+              >{m.ask_center_position({ index: index + 1, count: ordered.length })}</span
+            >
+            <button type="button" class="gbtn" disabled={!multi} onclick={skip}
+              >{m.ask_center_skip()}</button
+            >
+          </div>
         </div>
       {/if}
     </div>
@@ -224,17 +221,13 @@
     z-index: 20;
   }
   .card {
-    width: min(600px, 92vw);
-    max-height: 90dvh;
+    width: min(1040px, 94vw);
+    height: min(720px, 90dvh);
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
     display: flex;
     flex-direction: column;
     min-height: 0;
-  }
-  .card.multi {
-    width: min(1040px, 94vw);
-    height: min(720px, 90dvh);
   }
   .chead {
     display: flex;
@@ -456,13 +449,17 @@
     padding: 4px 10px;
     cursor: pointer;
   }
-  .gbtn:hover {
+  .gbtn:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
   .gbtn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   @media (pointer: coarse) {
     .gbtn {
@@ -474,10 +471,8 @@
       align-items: stretch;
       justify-content: stretch;
     }
-    .card,
-    .card.multi {
+    .card {
       width: 100%;
-      max-height: none;
       height: 100dvh;
       border: 0;
     }

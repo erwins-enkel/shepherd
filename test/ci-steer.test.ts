@@ -120,6 +120,17 @@ describe("attachCiSteer", () => {
     expect(h.sent[0]).toContain("failed — lint, e2e.");
   });
 
+  it("announces a repeat red after a rerun on the same head", async () => {
+    const h = harness();
+    h.emit(git("pending"));
+    h.emit(git("failure"));
+    h.emit(git("pending", "abcdef1234", { runningChecks: ["test"] }));
+    h.emit(git("failure"));
+    await Promise.resolve();
+    expect(h.sent.length).toBe(2);
+    expect(h.sent[1]).toContain("failed");
+  });
+
   it("leaves red to autopilot but still reports green under it", async () => {
     const h = harness(session(), true);
     h.emit(git("pending"));

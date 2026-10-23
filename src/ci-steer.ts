@@ -102,6 +102,9 @@ export function attachCiSteer(
     const key = `${git.headSha ?? ""}:${git.checks}:${running ? "running" : "done"}`;
     const prev = last.get(id);
     last.set(id, key);
+    // Jobs seen running again are a real new attempt (a rerun on the same head): forget the last
+    // announcement so a repeat red is announced. Samples without job data keep the suppression.
+    if (running) steered.delete(id);
     if (prev === undefined || prev === key || steered.get(id) === key) return;
     if (!finished(git.checks) || running || !git.headSha) return;
     const s = store.get(id);

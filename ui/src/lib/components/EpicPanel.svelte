@@ -188,7 +188,8 @@
 
   /* ── state chips ─────────────────────────────────────────────────────────
      Token mapping (all per app.css — NO literals):
-       done     = --status-done    (=--color-slate) : merged/finished-parked, per house rule
+       done     = --status-done    (=--color-slate) : merged/finished-parked, per house rule —
+                  tint only; the word is --color-muted (slate text is 3.0:1)
        ready    = --color-green                     : genuinely actionable-complete
        running  = --status-running (=--color-amber) : in-progress
        review   = --color-blue                      : in-review (no --status-review token exists)
@@ -205,7 +206,7 @@
   }
 
   .chip-done {
-    color: var(--status-done);
+    color: var(--color-muted);
     background: color-mix(in oklab, var(--status-done) 12%, transparent);
   }
 

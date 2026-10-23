@@ -52,14 +52,14 @@
 
   const VERDICT_COLOR: Record<RecapVerdict, string> = {
     ready: "var(--color-green)",
-    parked: "var(--status-done)",
+    parked: "var(--color-muted)",
     needs_attention: "var(--color-amber)",
   };
 
   const relabeled = (v: RecapVerdict) => autoMergeOwned && v === "needs_attention";
 
   function verdictColor(v: RecapVerdict): string {
-    return relabeled(v) ? "var(--status-done)" : VERDICT_COLOR[v];
+    return relabeled(v) ? "var(--color-muted)" : VERDICT_COLOR[v];
   }
 
   function verdictLabel(v: RecapVerdict): string {

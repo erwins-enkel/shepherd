@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 import PluginLoadedCard from "./PluginLoadedCard.svelte";
 import type { PluginInfo, PluginUINode } from "#lib/types.js";
+import { THEMES, expectQuietLegible, tokenColor } from "#lib/test-support/contrast.js";
 
 // iPhone 14 Pro Max. The settings pane (.pbody) pads 18px either side, so a plugin
 // card gets 394px — the width the reported overflow was measured against.
@@ -166,4 +167,26 @@ describe("PluginLoadedCard at phone width", () => {
     });
     expect(spill(container)).toEqual([]);
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — the ok health word reads muted,
+// while the dot keeps the slate hue.
+describe("PluginLoadedCard ok-health contrast", () => {
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+  for (const theme of THEMES) {
+    it(`keeps the ok word legible, dot slate: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      await render(PluginLoadedCard, {
+        props: {
+          plugin: { ...card({ type: "stack", props: {}, children: [] }), ui: null },
+          folder: "p1",
+          onuninstall: () => {},
+        },
+      });
+      expectQuietLegible(document.querySelector<HTMLElement>(".health")!);
+      expect(getComputedStyle(document.querySelector(".dot")!).backgroundColor).toBe(
+        tokenColor("--status-done"),
+      );
+    });
+  }
 });

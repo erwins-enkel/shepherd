@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import { m } from "#lib/paraglide/messages.js";
 import { pwaDocLink } from "#lib/diagnostics-docs.js";
 import type { PwaRowState } from "#lib/pwa.js";
+import { THEMES, expectQuietLegible, tokenColor } from "#lib/test-support/contrast.js";
 
 // PwaInstallRow reads pwaRowState() on mount (browser-only); mock it so each test
 // can drive the row into a specific state.
@@ -60,4 +61,21 @@ describe("PwaInstallRow learn-more link", () => {
     render(PwaInstallRow);
     expect(document.querySelector("a.doc-link")).toBeNull();
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — the "installed" word reads muted,
+// while the ✓ keeps the slate hue.
+describe("PwaInstallRow installed contrast", () => {
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+  for (const theme of THEMES) {
+    it(`keeps the installed word legible, glyph slate: ${theme}`, () => {
+      document.documentElement.dataset.theme = theme;
+      state.value = "installed";
+      render(PwaInstallRow);
+      expectQuietLegible(document.querySelector<HTMLElement>(".state-word")!);
+      expect(getComputedStyle(document.querySelector(".glyph")!).color).toBe(
+        tokenColor("--status-done"),
+      );
+    });
+  }
 });

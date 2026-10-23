@@ -40,6 +40,7 @@
 
   // Core-derived health → token + label. Design rule (mirrors DiagnoseRows): never
   // --color-green for healthy — ok is steady-state slate, not actionable-complete.
+  // Slate stays on the dot; the ok word is muted (slate text is 3.0:1, below AA).
   const HEALTH: Record<PluginInfo["health"], { color: string; label: () => string }> = {
     ok: { color: "var(--status-done)", label: m.plugins_health_ok },
     "timed-out": { color: "var(--status-warn)", label: m.plugins_health_timed_out },
@@ -74,7 +75,11 @@
       <span class="dot" style="background:{health.color}" aria-hidden="true"></span>
       <span class="name">{plugin.name}</span>
       <span class="ver micro">v{plugin.version}</span>
-      <span class="health micro" style="color:{health.color}">{health.label()}</span>
+      <span
+        class="health micro"
+        style="color:{plugin.health === 'ok' ? 'var(--color-muted)' : health.color}"
+        >{health.label()}</span
+      >
     </button>
     {#if update?.latest}
       <span class="upd-badge micro">

@@ -253,7 +253,7 @@
     color: var(--color-warn);
   }
   .done {
-    color: var(--status-done);
+    color: var(--color-muted);
   }
   .failure {
     display: flex;

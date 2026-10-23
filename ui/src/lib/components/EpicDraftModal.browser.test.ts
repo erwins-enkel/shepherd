@@ -6,6 +6,7 @@ import "../../app.css";
 import type { EpicDraft } from "#lib/types.js";
 import { epicDrafts } from "#lib/epic-draft.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
+import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
 import { m } from "#lib/paraglide/messages.js";
 import EpicDraftModal from "./EpicDraftModal.svelte";
 
@@ -419,4 +420,24 @@ describe("EpicDraftModal landing choice (#3191)", () => {
     expect(approve.approveEpic).toHaveBeenCalledWith(sessionId, "incremental");
     unmount();
   });
+});
+
+// #3283: slate (--status-done) is 3.0:1 on the panel — the approved chip and note read muted.
+describe("EpicDraftModal approved contrast", () => {
+  for (const theme of THEMES) {
+    it(`keeps the approved chip and note legible and un-green: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      const sessionId = `epic-draft-modal-approved-${theme}`;
+      epicDrafts.upsert({ ...longDraft(sessionId), status: "approved" });
+      const { unmount } = await render(EpicDraftModal, {
+        sessionId,
+        sessionLive: true,
+        onclose: () => {},
+      });
+      expectQuietLegible(document.querySelector<HTMLElement>(".chip-done")!);
+      expectQuietLegible(document.querySelector<HTMLElement>(".note-done")!);
+      unmount();
+      document.documentElement.removeAttribute("data-theme");
+    });
+  }
 });

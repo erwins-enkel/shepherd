@@ -108,6 +108,8 @@
 
   // State → color token. Design rule: never --color-green for healthy.
   // ok/optional → --status-done (slate), warning → --status-warn, error → --color-red.
+  // The slate states colour only the glyph: their word sits on --color-muted, since
+  // slate text is 3.0:1 on the panel (below AA at this size).
   const stateColor: Record<DiagnosticCheck["state"], string> = {
     ok: "var(--status-done)",
     optional: "var(--status-done)",
@@ -117,6 +119,10 @@
 
   function isClear(state: DiagnosticCheck["state"]): boolean {
     return state === "ok" || state === "optional";
+  }
+
+  function wordColor(state: DiagnosticCheck["state"]): string {
+    return isClear(state) ? "var(--color-muted)" : stateColor[state];
   }
 
   function askable(check: DiagnosticCheck): boolean {
@@ -138,7 +144,7 @@
             {#if check.state === "ok"}✓{:else if check.state === "optional"}–{:else if check.state === "warning"}⚠{:else}✗{/if}
           </span>
           <span class="micro label">{label(check.id)}</span>
-          <span class="state-word micro" style="color:{stateColor[check.state]}"
+          <span class="state-word micro" style="color:{wordColor(check.state)}"
             >{stateWord(check.state)}</span
           >
         </div>

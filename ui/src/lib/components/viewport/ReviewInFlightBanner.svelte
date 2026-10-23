@@ -575,6 +575,7 @@
      - overflow:hidden so offsetHeight (→ --review-banner-h) equals the rendered box; any
        oversized content is clipped inside the cap instead of spilling below un-measured. */
   .review-banner {
+    --accent-ink: var(--accent);
     position: absolute;
     bottom: 0;
     left: 0;
@@ -587,7 +588,7 @@
     overflow: hidden;
     padding: 5px 10px;
     font-size: var(--fs-meta);
-    color: var(--accent);
+    color: var(--accent-ink);
     background: color-mix(in srgb, var(--accent) 14%, var(--color-head));
     border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
     animation: term-strip-in 0.14s ease; /* shared keyframes, app.css */
@@ -651,7 +652,7 @@
   }
   .rb-btn:hover:not(:disabled) {
     border-color: var(--accent);
-    color: var(--accent);
+    color: var(--accent-ink);
   }
   .rb-btn:focus-visible {
     outline: none;
@@ -663,7 +664,7 @@
   }
   .rb-btn.primary {
     border-color: var(--accent);
-    color: var(--accent);
+    color: var(--accent-ink);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
   .rb-btn.danger {
@@ -729,6 +730,7 @@
     font-style: italic;
   }
   .rb-icon {
+    color: var(--accent);
     font-size: var(--fs-base);
     line-height: 1;
   }
@@ -766,7 +768,9 @@
     color: var(--color-ink-bright);
   }
   /* Tone → accent token. Calm/watch = amber (matches the REVIEWING dot); escalated =
-     warn; pasted/released = green; nothing/awaiting-go = slate (done); error = red. */
+     warn; pasted/released = green; nothing/awaiting-go = slate (done); error = red.
+     Text reads --accent-ink (= --accent); the slate tones point it at --color-muted,
+     since slate text is only 3.0:1 — slate stays on the border, wash and icons. */
   .review-banner[data-tone="calm"],
   .review-banner[data-tone="watch"] {
     --accent: var(--color-amber);
@@ -780,6 +784,7 @@
   }
   .review-banner[data-tone="cancelled"] {
     --accent: var(--status-done);
+    --accent-ink: var(--color-muted);
   }
   .review-banner[data-tone="pasted"],
   .review-banner[data-tone="released"] {
@@ -788,6 +793,7 @@
   .review-banner[data-tone="nothing"],
   .review-banner[data-tone="awaiting-go"] {
     --accent: var(--status-done);
+    --accent-ink: var(--color-muted);
   }
   .review-banner[data-tone="errored"] {
     --accent: var(--color-red);

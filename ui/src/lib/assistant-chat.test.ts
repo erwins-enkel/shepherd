@@ -73,6 +73,14 @@ describe("unsettled", () => {
       [],
     );
   });
+
+  it("settles each repeated send with its own echo", () => {
+    const first = { text: "Yes", at: 100_000 };
+    const second = { text: "Yes", at: 110_000 };
+    const echo = (ts: number) => ({ kind: "user" as const, text: "Yes", ts });
+    expect(unsettled([first, second], [echo(101_000)])).toEqual([second]);
+    expect(unsettled([first, second], [echo(101_000), echo(111_000)])).toEqual([]);
+  });
 });
 
 describe("viewFocus", () => {

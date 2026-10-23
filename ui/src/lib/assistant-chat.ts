@@ -69,14 +69,22 @@ export interface PendingSend {
 const ECHO_SKEW_MS = 60_000;
 
 /** The sends the transcript has not logged yet: no user row with the same text, stamped no
- *  earlier than the skew window before the send (an older identical message is not the echo). */
+ *  earlier than the skew window before the send (an older identical message is not the echo).
+ *  Each row settles one send, so a repeated answer ("Yes", then "Yes") waits for its own echo. */
 export function unsettled(pending: PendingSend[], entries: ChatEntry[]): PendingSend[] {
-  return pending.filter(
-    (p) =>
-      !entries.some(
-        (e) => e.kind === "user" && e.text.trim() === p.text.trim() && e.ts >= p.at - ECHO_SKEW_MS,
-      ),
-  );
+  const used = new Set<number>();
+  return pending.filter((p) => {
+    const i = entries.findIndex(
+      (e, j) =>
+        !used.has(j) &&
+        e.kind === "user" &&
+        e.text.trim() === p.text.trim() &&
+        e.ts >= p.at - ECHO_SKEW_MS,
+    );
+    if (i < 0) return true;
+    used.add(i);
+    return false;
+  });
 }
 
 /** What the assistant sees of the operator's window, for the panel's context line. Null when no

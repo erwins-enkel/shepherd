@@ -218,6 +218,7 @@ describe("Up Next", () => {
         refreshes += 1;
         return fx.snapshot;
       },
+      refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
     };
@@ -237,6 +238,7 @@ describe("Up Next", () => {
     s.deps.upNext = {
       snapshot: () => fx.snapshot,
       refresh: async () => fx.snapshot,
+      refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
     };

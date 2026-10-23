@@ -1603,7 +1603,7 @@ deferredStarts.push(() => {
 // When the first dashboard connects after a quiet spell, kick one immediate
 // catch-up sweep so it doesn't sit a full interval behind reality. Debounced
 // (~1.5s) so connect/disconnect flapping coalesces into a single catch-up. The
-// closure references `prPoller`/`backlogPoller` declared further down — fine, it
+// closure references `prPoller`/`backlogPoller`/`upNext` declared further down — fine, it
 // only runs at runtime when a socket actually opens, never during module init.
 let presenceCatchUp: ReturnType<typeof setTimeout> | null = null;
 const presence = new Presence(() => {
@@ -1613,6 +1613,7 @@ const presence = new Presence(() => {
     if (firstRun.pending) return; // no background ticks until a root is picked
     void prPoller.fastTick();
     void backlogPoller.tick();
+    upNext.catchUp();
   }, 1_500);
 });
 // Native iOS push (#2665): credentials from Settings → Notifications, each field overridable by
@@ -3838,7 +3839,7 @@ function onFingerprintObserved(o: FingerprintObservation): void {
       await applyFingerprintChanges(issueSlugs, refresh);
       if (!bootReadsStarted && fingerprint.backgroundReady()) {
         bootReadsStarted = true;
-        void upNext.refresh().catch((err) => console.warn("[up-next] boot refresh:", err));
+        upNext.catchUp(); // presence-gated: with no dashboard, the first connect's catch-up runs it
         void backlogPoller.tick();
       }
     })
@@ -3890,10 +3891,11 @@ deferredStarts.push(() => {
 });
 
 // Up Next (#1169): cross-repo ranked queue of un-started work. In-memory snapshot kept warm
-// by a 15-min background loop; reuses the drain's epic pipeline for ready-child gating and
-// pushes each fresh snapshot to clients over the WS (upnext:snapshot).
+// by a 15-min background loop while a dashboard is connected (#2658); reuses the drain's epic
+// pipeline for ready-child gating and pushes each fresh snapshot to clients over the WS
+// (upnext:snapshot).
 const upNext = new UpNextService({
-  shouldBackgroundRefresh: () => fingerprint.backgroundReady(),
+  shouldBackgroundRefresh: () => presence.hasClients() && fingerprint.backgroundReady(),
   // Forge-backed, non-hidden repos only. buildUpNextRepos owns forge-kind filtering,
   // the realpath→raw reconcile, hidden-repo filtering, and the exact field mapping.
   listForgeRepos: () =>
@@ -4047,6 +4049,7 @@ const appDeps: AppDeps = {
   upNext: {
     snapshot: () => upNext.snapshot(),
     refresh: () => upNext.refresh(),
+    refreshIfStale: (maxAgeMs) => upNext.refreshIfStale(maxAgeMs),
     recomputeUntilCleared: (started) => upNext.recomputeUntilCleared(started),
     hiddenRepoPathsRaw: () =>
       reconcileRealPathsToRaw(store.hiddenRepoPaths(), listRepos(config.repoRoot)),

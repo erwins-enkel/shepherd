@@ -1506,6 +1506,7 @@ test("PUT upNextReadiness accepts a boolean, persists, kicks an Up Next refresh;
         refreshes++;
         return {} as any;
       },
+      refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
     },

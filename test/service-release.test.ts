@@ -74,7 +74,7 @@ function harness(opts: {
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => ((opts.paneLive ?? true) ? [{ terminalId: term }] : []),
+      listAsync: async () => ((opts.paneLive ?? true) ? [{ terminalId: term }] : []),
       stop: async () => {},
       paneForegroundProcs: async () => ["claude"],
       send: async (target: string, text: string) => {

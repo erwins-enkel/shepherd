@@ -292,7 +292,7 @@ export class PrPoller implements PrCache {
     /** Called when the stored branch yields no PR: re-resolves the session's live
      *  worktree branch (an agent may have renamed it), persists the adoption, and
      *  returns the new branch to retry against — or null when nothing changed. */
-    private reconcileBranch: (s: Session) => string | null = () => null,
+    private reconcileBranch: (s: Session) => Promise<string | null> = async () => null,
     /** Fast cadence for re-polling open PRs (in-flight CI/merge state). */
     private fastIntervalMs = 15_000,
     /** Whether a name-matched terminal (merged/closed) PR's head commit actually
@@ -757,7 +757,7 @@ export class PrPoller implements PrCache {
     // adopted branch is just as susceptible to a reused-name terminal hit, so run
     // the same ownership guard over its status too.
     if (git.state === "none") {
-      const live = this.reconcileBranch(s);
+      const live = await this.reconcileBranch(s);
       if (live) {
         try {
           git = guard({ kind: forge.kind, ...(await forge.prStatus(live)) });
@@ -806,7 +806,7 @@ export class PrPoller implements PrCache {
 
     if (git != null && git.state !== "none") return git;
 
-    const live = this.reconcileBranch(s);
+    const live = await this.reconcileBranch(s);
     if (!live || live === s.branch) return git ?? noneGit();
 
     const liveHit = batch.get(live);

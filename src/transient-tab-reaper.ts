@@ -52,7 +52,7 @@ import type { HerdrDriver } from "./herdr";
  * @param logTag a short bracketed tag for log lines, e.g. "[namer]".
  */
 export async function reapTransientByLabel(
-  herdr: Pick<HerdrDriver, "list" | "tabsAsync" | "closeTab">,
+  herdr: Pick<HerdrDriver, "listAsync" | "tabsAsync" | "closeTab">,
   labelPrefix: string,
   ownedTerminalIds: Set<string>,
   logTag: string,
@@ -64,8 +64,7 @@ export async function reapTransientByLabel(
     const ownedTabIds = new Set(
       ownedTerminalIds.size === 0
         ? []
-        : herdr
-            .list()
+        : (await herdr.listAsync())
             .filter((a) => ownedTerminalIds.has(a.terminalId))
             .map((a) => a.tabId),
     );

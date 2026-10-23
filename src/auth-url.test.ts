@@ -155,7 +155,7 @@ describe("detectPendingAuthUrl (freshness-gated)", () => {
   });
 });
 
-// Byte-faithful capture of a real `herdr.read(term,"visible")` of the Claude Code `/login`
+// Byte-faithful capture of a real `herdr.readAsync(term,"visible")` of the Claude Code `/login`
 // (account re-login) panel — the pane hard-wrapped the flush-left URL at 63 cols, breaking it
 // mid-token with NO inserted spaces. This authorize URL is PTY-only (it never lands in the JSONL
 // transcript), so this fixture is the sole validation that the wrap-join reconstructs a REAL

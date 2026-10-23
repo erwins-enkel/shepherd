@@ -192,16 +192,16 @@ export interface AutopilotDeps {
    *  awaited result decides). truthy resolved value = ok. */
   resume: (id: string) => unknown;
   /** Whether the session's herdr pane is currently live. */
-  paneAlive: (id: string) => boolean;
+  paneAlive: (id: string) => Promise<boolean>;
   /** Defer steering while a herdr-restored account pane still needs a re-drive (SessionService.shouldDeferSteer). */
-  deferSteer?: (id: string) => boolean;
-  /** Visible terminal tail for a session (herdr.read → tailLines). */
-  readTail: (id: string) => string[];
+  deferSteer?: (id: string) => Promise<boolean>;
+  /** Visible terminal tail for a session (herdr.readAsync → tailLines). */
+  readTail: (id: string) => Promise<string[]>;
   /** The pending MCP OAuth authorize URL for a session (freshness-gated transcript read), or
    *  null. An OAuth flow is human-only — autopilot cannot paste the callback — so a non-null
    *  result stands autopilot down until the operator completes it (the poller surfaces the
    *  banner). Reads fresh (not off an event) so `onDone` can short-circuit deterministically. */
-  pendingAuthUrl: (id: string) => string | null;
+  pendingAuthUrl: (id: string) => Promise<string | null>;
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
    *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
   hasPr: (id: string) => boolean;
@@ -558,7 +558,7 @@ export class AutopilotService {
     // A done-edge auth URL may have been unflushed when onDone read it; by now (post-classify)
     // it has landed. Re-read fresh and stand down before applying any terminal verdict, so a
     // mid-OAuth session is never markComplete'd — deterministic, not reliant on onBlock's timing.
-    if (this.deps.pendingAuthUrl(cur.id)) {
+    if (await this.deps.pendingAuthUrl(cur.id)) {
       this.authPending.add(cur.id);
       return;
     }
@@ -614,7 +614,7 @@ export class AutopilotService {
     // BEFORE classify so a mid-OAuth session is never filed complete/paused (the poller surfaces
     // the banner). Cheap early-out; a done-edge read that misses an as-yet-unflushed URL is
     // caught by consider()'s post-classify re-check.
-    if (this.deps.pendingAuthUrl(id)) {
+    if (await this.deps.pendingAuthUrl(id)) {
       this.authPending.add(id);
       return;
     }
@@ -648,7 +648,7 @@ export class AutopilotService {
     if (this.reEngageRebase(id)) return;
     let tail: string[] = [];
     try {
-      tail = this.deps.readTail(id);
+      tail = await this.deps.readTail(id);
     } catch {
       // empty tail still classifies (→ likely "unknown" → surface), which is safe
     }

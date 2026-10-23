@@ -50,7 +50,7 @@ function liveAgent(): HerdrAgent {
 function makePoller(store: SessionStore, agents: HerdrAgent[], now: () => number) {
   return new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "", readAsync: async () => "" } as never),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as never),
     () => {},
     () => {},
     1000,

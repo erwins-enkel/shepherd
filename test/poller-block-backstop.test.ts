@@ -82,7 +82,6 @@ function rig(mode: BlockJudgeMode, p: number, over: { operatorAssistant?: boolea
         workspaceId: "w",
       },
     ],
-    read: () => buffer,
     readAsync: () => Promise.resolve(buffer),
   };
 

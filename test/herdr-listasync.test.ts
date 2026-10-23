@@ -101,14 +101,11 @@ describe("HerdrDriver.listAsync", () => {
         ],
       },
     });
-    const fakeRunner = () => {
-      throw new Error("sync runner must not be called by listAsync");
-    };
     const fakeAsyncRunner = async (args: string[]) => {
       expect(args).toEqual(["agent", "list"]);
       return canned;
     };
-    const driver = new HerdrDriver(fakeRunner, fakeAsyncRunner);
+    const driver = new HerdrDriver(fakeAsyncRunner);
     await expect(driver.listAsync()).resolves.toEqual([
       {
         agent: "claude",

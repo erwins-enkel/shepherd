@@ -61,7 +61,7 @@ function makePoller(opts: {
 }) {
   return new StatusPoller(
     opts.store,
-    withListAsync({ list: () => opts.agents, read: () => "" } as any),
+    withListAsync({ list: () => opts.agents, readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,

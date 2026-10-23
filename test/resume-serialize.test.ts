@@ -28,7 +28,7 @@ function makeService(hooks: { fn: Hooks }) {
       // reDriveAccount healed/unhealed inference depends on spawnTerminalId actually changing.
       start: async () => ({ terminalId: `term_${++startCount}` }) as never,
       stop: async () => {},
-      list: () => [],
+      listAsync: async () => [],
     } as never,
   });
   return { service, store, startCount: () => startCount };

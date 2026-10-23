@@ -44,7 +44,7 @@ function harness(provider: AgentProvider) {
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [{ terminalId: "t1" }],
+      listAsync: async () => [{ terminalId: "t1" }],
       stop: async () => {},
       send: async (_target: string, text: string) => {
         sent.push(text);

@@ -173,7 +173,7 @@ test("poller-warmed snapshot is served to GET /api/prs with zero additional fetc
     () => {},
     120_000, // intervalMs
     1000, // pollDelayMs
-    () => null, // reconcileBranch
+    async () => null, // reconcileBranch
     15_000, // fastIntervalMs
     () => true, // ownsPr
     () => true, // warm

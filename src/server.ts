@@ -658,7 +658,7 @@ export interface AppDeps {
     star(): Promise<StarPromptStatus>;
   };
   /** Herdr driver (for liveness checks). Absent in some tests; gate fails open. */
-  herdr?: Pick<HerdrDriver, "list">;
+  herdr?: Pick<HerdrDriver, "listAsync">;
   /** True when the herdr socket driver is active (flag on + protocol probe ok). Gates the socket terminal path; absent/false → node-pty. */
   herdrSocketActive?: boolean;
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
@@ -6938,7 +6938,7 @@ async function resolveGitState(
   // statusPerSession so GitRail recognizes a renamed-branch PR the same way, and so a
   // resolved "none" is authoritative (the caller can safely clear a stale cached PR).
   if (result.state === "none") {
-    const live = deps.service.syncWorktreeBranch?.(session.id) ?? null;
+    const live = (await deps.service.syncWorktreeBranch?.(session.id)) ?? null;
     if (live && live !== session.branch) {
       result = guard(
         annotateHandoff(
@@ -11888,10 +11888,10 @@ export interface LivePtyAttach {
  * falls back to the stored id (node-pty attach, no paneTarget) rather than closing a live
  * session.
  */
-export function livePtyAttach(
+export async function livePtyAttach(
   cur: Session,
-  herdr: Pick<HerdrDriver, "list"> | undefined,
-): LivePtyAttach | null {
+  herdr: Pick<HerdrDriver, "listAsync"> | undefined,
+): Promise<LivePtyAttach | null> {
   // Clean-terminal session (pane-direct): the attach target is the PERSISTED pane — there is
   // no herdr agent to match against. The stored ids are stable for the pane's lifetime; when
   // the pane is gone the socket bridge reports terminal.closed("not found") → PTY_GONE.
@@ -11899,7 +11899,7 @@ export function livePtyAttach(
     return { terminalId: cur.herdrAgentId, paneTarget: cur.terminalPaneId ?? undefined };
   if (!herdr) return { terminalId: cur.herdrAgentId };
   try {
-    const a = matchAgent(cur, herdr.list());
+    const a = matchAgent(cur, await herdr.listAsync());
     if (!a) return null; // truly gone → caller closes PTY_GONE
     const paneTarget = a.paneId.includes(":") ? a.paneId : `${a.workspaceId}:${a.paneId}`;
     return { terminalId: a.terminalId, paneTarget };
@@ -12229,7 +12229,7 @@ export function serve(deps: AppDeps, port: number) {
   // terminals that recently fell off the socket path — memo so a reconnect within the
   // TTL retries node-pty directly instead of re-attempting (and re-failing) the socket.
   const socketTerminalFailures = new Map<string, number>();
-  function openPtySocket(ws: ServerWebSocket<WsData & { kind: "pty" }>): void {
+  async function openPtySocket(ws: ServerWebSocket<WsData & { kind: "pty" }>): Promise<void> {
     // Don't attach a terminal whose herdr agent is gone: attaching would make
     // herdr reply agent_not_found and the client would reconnect-loop on it.
     // A "done" status only means the agent finished its turn (idle at the
@@ -12241,9 +12241,14 @@ export function serve(deps: AppDeps, port: number) {
       ws.close(PTY_GONE_CODE, "ended");
       return;
     }
+    // Queue client frames while herdr is listed off-loop (#3127); flushed into whichever bridge
+    // attaches below.
+    ws.data.awaitingFirstFrame = true;
+    ws.data.pendingInput = [];
     // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
     // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
-    const attach = livePtyAttach(cur, deps.herdr);
+    const attach = await livePtyAttach(cur, deps.herdr);
+    if (ws.readyState !== WebSocket.OPEN) return; // client left while herdr answered
     if (attach === null) {
       ws.close(PTY_GONE_CODE, "ended");
       return;
@@ -12284,21 +12289,21 @@ export function serve(deps: AppDeps, port: number) {
     // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
     // socket bridge already targets paneTarget. See nodePtyAttachTarget.
     const ptyTarget = nodePtyAttachTarget(attach, tid);
+    const flushPending = (b: PtyBridge | SocketPtyBridge) => {
+      if (!socketAuthorized(ws)) {
+        data.pendingInput = [];
+        return;
+      }
+      for (const f of data.pendingInput ?? []) b.write(f);
+      data.pendingInput = [];
+    };
     if (kind === "node-pty") {
       const b = new PtyBridge(ptyTarget, sock);
       data.bridge = b;
       b.open(data.cols, data.rows);
+      data.awaitingFirstFrame = false;
+      flushPending(b);
     } else {
-      data.awaitingFirstFrame = true;
-      data.pendingInput = [];
-      const flushPending = (b: PtyBridge | SocketPtyBridge) => {
-        if (!socketAuthorized(ws)) {
-          data.pendingInput = [];
-          return;
-        }
-        for (const f of data.pendingInput ?? []) b.write(f);
-        data.pendingInput = [];
-      };
       const sb = new SocketPtyBridge(attach.paneTarget!, sock, {
         onFirstFrame: () => {
           recordSocketAttach();
@@ -12404,7 +12409,11 @@ export function serve(deps: AppDeps, port: number) {
     } else if (ws.data.kind === "remote-pty") {
       openRemotePtySocket(ws as ServerWebSocket<WsData & { kind: "remote-pty" }>);
     } else {
-      openPtySocket(ws as ServerWebSocket<WsData & { kind: "pty" }>);
+      const pty = ws as ServerWebSocket<WsData & { kind: "pty" }>;
+      void openPtySocket(pty).catch((err) => {
+        console.warn(`[pty] attach failed for ${pty.data.id}:`, err);
+        pty.close(PTY_GONE_CODE, "ended");
+      });
     }
   }
   function onSocketMessage(ws: ServerWebSocket<WsData>, msg: string | Buffer): void {

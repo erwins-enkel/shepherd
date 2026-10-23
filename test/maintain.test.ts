@@ -164,9 +164,9 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
       stop: async (id: string) => {
         stopped.push(id);
       },
-      // isSpawnAlive reads these: an agent absent from list() is dead; one present and "idle" is
-      // resolved by its foreground procs (shell-only = husk = dead).
-      list: () =>
+      // isSpawnAlive reads these: an agent absent from listAsync() is dead; one present and "idle"
+      // is resolved by its foreground procs (shell-only = husk = dead).
+      listAsync: async () =>
         spawns.map((sp, i) => ({
           cwd: sp.worktreePath,
           paneId: `pane_${i + 1}`,

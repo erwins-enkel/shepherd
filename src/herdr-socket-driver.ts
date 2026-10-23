@@ -44,9 +44,7 @@ import { SpawnCanceled } from "./spawn-progress";
  * JSON-RPC transport (`HerdrSocketClient`, one connection per request), avoiding a CLI spawn
  * per call.
  *
- * Only the sync `list`/`read`/`tabs`/`panes` still delegate to a wrapped `HerdrDriver`, and
- * deliberately: a sync method can't be socket-backed without reintroducing event-loop blocking
- * (a fake-sync wait on a promise); the socket only helps async callers.
+ * `panesAsync` and `startShellTab` delegate to a wrapped CLI `HerdrDriver` (see each method).
  */
 export class SocketHerdrDriver implements IHerdrDriver {
   /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
@@ -120,18 +118,6 @@ export class SocketHerdrDriver implements IHerdrDriver {
 
   // ── Delegated to the CLI driver (unchanged) ──────────────────────────────
 
-  list(): HerdrAgent[] {
-    return this.cli.list();
-  }
-
-  tabs() {
-    return this.cli.tabs();
-  }
-
-  panes() {
-    return this.cli.panes();
-  }
-
   /** Delegates to the CLI driver's async runner — already non-blocking, and pane liveness is a
    *  low-rate poller read, so a socket-native pane list buys nothing here. */
   panesAsync() {
@@ -143,10 +129,6 @@ export class SocketHerdrDriver implements IHerdrDriver {
    *  agent-registration machinery the socket transport exists to accelerate. */
   startShellTab(cwd: string, label: string, env?: Record<string, string>) {
     return this.cli.startShellTab(cwd, label, env);
-  }
-
-  read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
-    return this.cli.read(target, source, lines);
   }
 
   // ── Socket-backed async writes (issues #1553, #1567) ─────────────────────

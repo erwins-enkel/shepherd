@@ -90,7 +90,7 @@ function makeService(hooks: { fn: Hooks }) {
     herdr: {
       start: async () => ({ terminalId: `term_${++counter}` }) as never,
       stop: async () => {},
-      list: () => [],
+      listAsync: async () => [],
     } as never,
   });
   return { service, store };

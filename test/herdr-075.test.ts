@@ -59,7 +59,7 @@ function route(args: string[]): string {
   return OK; // agent rename / tab rename / tab close
 }
 
-/** A HerdrDriver whose sync + async runners share ONE fake that records every call. */
+/** A HerdrDriver whose async runner wraps ONE fake that records every call. */
 function mkDriver(fake: (args: string[]) => string): { d: HerdrDriver; calls: string[][] } {
   const calls: string[][] = [];
   const runner = (args: string[]) => {
@@ -69,7 +69,6 @@ function mkDriver(fake: (args: string[]) => string): { d: HerdrDriver; calls: st
   // no-op sleep so the trusted auto-detect poll never actually waits in tests
   return {
     d: new HerdrDriver(
-      runner,
       async (args) => runner(args),
       async () => {},
     ),
@@ -283,7 +282,7 @@ test("start (0.7.5, SANDBOXED): a pane that never leaves its shell still registe
     if (args[0] === "pane" && args[1] === "process-info") return procsReply("zsh");
     return route(args);
   };
-  const d = new HerdrDriver(runner, async (args) => runner(args), clock.sleep, clock.now);
+  const d = new HerdrDriver(async (args) => runner(args), clock.sleep, clock.now);
   const warn = console.warn;
   console.warn = () => {};
   try {
@@ -363,7 +362,6 @@ test("start (0.7.5, TRUSTED): the 30s auto-detect budget is wall-clock, list lat
     return route(args);
   };
   const d = new HerdrDriver(
-    runner,
     async (args) => runner(args),
     async (ms) => {
       clock += ms;

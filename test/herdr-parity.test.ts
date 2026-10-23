@@ -8,7 +8,7 @@ import type { HerdrSocketClient } from "../src/herdr-socket-client";
  * paths must map the SAME herdr `agent list` body to an IDENTICAL `HerdrAgent[]`.
  */
 describe("CLI/socket parity — agent list", () => {
-  it("HerdrDriver.list() and SocketHerdrDriver.listAsync() agree on the same body", async () => {
+  it("HerdrDriver.listAsync() and SocketHerdrDriver.listAsync() agree on the same body", async () => {
     const body = {
       agents: [
         {
@@ -34,11 +34,8 @@ describe("CLI/socket parity — agent list", () => {
       ],
     };
 
-    const cli = new HerdrDriver(
-      () => JSON.stringify({ result: body }),
-      async () => JSON.stringify({ result: body }),
-    );
-    const cliResult = cli.list();
+    const cli = new HerdrDriver(async () => JSON.stringify({ result: body }));
+    const cliResult = await cli.listAsync();
 
     const client = { request: mock(() => body) } as unknown as HerdrSocketClient;
     const socketDriver = new SocketHerdrDriver(client, cli);
@@ -201,7 +198,7 @@ describe("CLI/socket parity — last-tab guard (#2039)", () => {
       }
       return "{}";
     };
-    const cli = new HerdrDriver(cliReply, async (a) => {
+    const cli = new HerdrDriver(async (a) => {
       await new Promise((r) => setTimeout(r, 0));
       return cliReply(a);
     });
@@ -230,10 +227,7 @@ describe("CLI/socket parity — last-tab guard (#2039)", () => {
         return { type: "ok" };
       }),
     } as unknown as HerdrSocketClient;
-    const socket = new SocketHerdrDriver(
-      client,
-      new HerdrDriver(cliReply, async (a) => cliReply(a)),
-    );
+    const socket = new SocketHerdrDriver(client, new HerdrDriver(async (a) => cliReply(a)));
 
     return { cli, socket, cliClosed, socketClosed, tabs, created };
   }

@@ -61,7 +61,6 @@ function makePoller(
     store,
     withListAsync({
       list: () => [agentIn(state())],
-      read: () => "",
       readAsync: async () => "",
     } as never),
     () => {},

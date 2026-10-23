@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
-import { agentsHoldingName, tabLabelMap, type HerdrDriver, type HerdrAgent } from "./herdr";
+import { agentsHoldingName, withLazyTabLabels, type HerdrDriver, type HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
@@ -337,7 +337,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
   // wait-for-the-deadline behavior. Tests exercising that layer MUST provide it.
   herdr: Pick<
     HerdrDriver,
-    "start" | "stop" | "list" | "tabs" | "closeTab" | "paneForegroundProcs" | "readAsync"
+    "start" | "stop" | "listAsync" | "tabsAsync" | "closeTab" | "paneForegroundProcs" | "readAsync"
   >;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
@@ -2183,16 +2183,14 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    *  no `agent.name` the reviewer is still found by its TAB label instead of silently degrading to
    *  the cwd fallback (#2033). Tab labels are read best-effort and only when there is a label to
    *  match. Returns undefined when no live agent matches. */
-  private findSquatter(label: string, cwd: string): HerdrAgent | undefined {
-    const agents = this.deps.herdr.list();
+  private async findSquatter(label: string, cwd: string): Promise<HerdrAgent | undefined> {
+    const agents = await this.deps.herdr.listAsync();
     const byName = label
-      ? agentsHoldingName(agents, label, () => {
-          try {
-            return tabLabelMap(this.deps.herdr.tabs());
-          } catch {
-            return undefined;
-          }
-        })[0]
+      ? (
+          await withLazyTabLabels(this.deps.herdr, (labels) =>
+            agentsHoldingName(agents, label, labels),
+          )
+        )[0]
       : undefined;
     return byName ?? agents.find((a) => a.cwd === cwd);
   }
@@ -2277,7 +2275,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // Free the name AND kill the still-alive claude process by closing its herdr tab.
     // Resolve by NAME first ("review TASK-<n>"), fall back to cwd only as a safety net
     // (avoids a second list() call for the name-absent case when the session is gone).
-    const squatter = this.findSquatter(s ? `review ${s.desig}` : "", row.worktreePath);
+    const squatter = await this.findSquatter(s ? `review ${s.desig}` : "", row.worktreePath);
     if (squatter) await this.deps.herdr.closeTab(squatter.tabId, { allowLastTab: true });
     // Remove the worktree AFTER freeing the name so the herdr slot is open before
     // the worktree is gone (mirrors plan-gate's ordering invariant).

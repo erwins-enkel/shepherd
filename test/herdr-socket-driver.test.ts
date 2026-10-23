@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import { SocketHerdrDriver, selectHerdrDriver } from "../src/herdr-socket-driver";
-import type { HerdrDriver, HerdrAgent, HerdrTab, HerdrPane } from "../src/herdr";
+import type { HerdrDriver, HerdrAgent, HerdrPane } from "../src/herdr";
 import { HerdrSocketError, type HerdrSocketClient } from "../src/herdr-socket-client";
 
 /** Fake client exposing controllable `request` / `requestLegacy` spies routed through the same
@@ -14,12 +14,9 @@ function fakeClient(impl: (method: string, params: unknown) => unknown): HerdrSo
  *  since the real `HerdrDriver` class has private fields this plain object lacks. */
 function fakeCli() {
   return {
-    list: mock(() => [] as HerdrAgent[]),
-    tabs: mock(() => [] as HerdrTab[]),
-    panes: mock(() => [] as HerdrPane[]),
+    panesAsync: mock(async () => [] as HerdrPane[]),
     start: mock(() => ({}) as HerdrAgent),
     send: mock(async () => {}),
-    read: mock(() => ""),
     stop: mock(() => undefined),
     relabel: mock(() => undefined),
     closeTab: mock(() => undefined),
@@ -113,45 +110,15 @@ describe("SocketHerdrDriver — delegation to the CLI driver", () => {
     return { client, cli, driver };
   }
 
-  it("list() delegates to cli.list()", () => {
-    const { client, cli, driver } = setup();
-    cli.list.mockReturnValue([parsedAgent]);
-
-    expect(driver.list()).toEqual([parsedAgent]);
-    expect(cli.list).toHaveBeenCalledWith();
-    expect(client.request).not.toHaveBeenCalled();
-  });
-
-  it("read() delegates to cli.read() with forwarded args", () => {
-    const { client, cli, driver } = setup();
-    cli.read.mockReturnValue("buffer text");
-
-    expect(driver.read("t", "recent", 10)).toBe("buffer text");
-    expect(cli.read).toHaveBeenCalledWith("t", "recent", 10);
-    expect(client.request).not.toHaveBeenCalled();
-  });
-
-  it("tabs() delegates to cli.tabs()", () => {
-    const { client, cli, driver } = setup();
-    const tabs: HerdrTab[] = [
-      { tabId: "tab1", label: "l", agentStatus: "working", workspaceId: "w1" },
-    ];
-    cli.tabs.mockReturnValue(tabs);
-
-    expect(driver.tabs()).toEqual(tabs);
-    expect(cli.tabs).toHaveBeenCalledWith();
-    expect(client.request).not.toHaveBeenCalled();
-  });
-
-  it("panes() delegates to cli.panes()", () => {
+  it("panesAsync() delegates to cli.panesAsync()", async () => {
     const { client, cli, driver } = setup();
     const panes: HerdrPane[] = [
       { paneId: "p1", tabId: "tab1", label: "l", cwd: "/c", agentStatus: "working" },
     ];
-    cli.panes.mockReturnValue(panes);
+    cli.panesAsync.mockResolvedValue(panes);
 
-    expect(driver.panes()).toEqual(panes);
-    expect(cli.panes).toHaveBeenCalledWith();
+    expect(await driver.panesAsync()).toEqual(panes);
+    expect(cli.panesAsync).toHaveBeenCalledWith();
     expect(client.request).not.toHaveBeenCalled();
   });
 });

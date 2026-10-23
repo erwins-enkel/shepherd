@@ -104,7 +104,7 @@ function harness(opts: {
   pendingAuthUrl?: string | null;
   /** Optional deferSteer dep (SessionService.shouldDeferSteer); omit to test the optional-dep
    *  default (undefined → today's paneAlive-only behavior). */
-  deferSteer?: (id: string) => boolean;
+  deferSteer?: (id: string) => Promise<boolean>;
   resumeOk?: boolean;
   steerOk?: boolean;
   fullAuto?: boolean;
@@ -210,10 +210,10 @@ function harness(opts: {
       events.push({ resume: true });
       return opts.resumeOk ?? true;
     },
-    paneAlive: () => opts.paneAlive ?? true,
+    paneAlive: async () => opts.paneAlive ?? true,
     deferSteer: opts.deferSteer,
-    readTail: () => ["finished, nothing else"],
-    pendingAuthUrl: () => opts.pendingAuthUrl ?? null,
+    readTail: async () => ["finished, nothing else"],
+    pendingAuthUrl: async () => opts.pendingAuthUrl ?? null,
     hasPr: () => prOpen,
     hasDiff: async () => opts.hasDiff ?? true,
     openLocalPr: async (id) => {
@@ -708,7 +708,7 @@ test("finished + live pane but deferSteer true (herdr-restored account husk) →
     session: sess({ status: "done" }),
     verdict: { kind: "finished", summary: "done" },
     paneAlive: true, // pane IS live — only deferSteer forces the resume() detour (Locus B re-drive)
-    deferSteer: () => true,
+    deferSteer: async () => true,
     resumeOk: true,
   });
   await h.svc.onDone("s1");
@@ -721,7 +721,7 @@ test("finished + live pane + deferSteer false → steers directly, no resume (un
     session: sess({ status: "done" }),
     verdict: { kind: "finished", summary: "done" },
     paneAlive: true,
-    deferSteer: () => false,
+    deferSteer: async () => false,
   });
   await h.svc.onDone("s1");
   expect(h.events).not.toContainEqual({ resume: true });
@@ -855,9 +855,9 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
       return true;
     },
     resume: () => true,
-    paneAlive: () => true,
-    readTail: () => [],
-    pendingAuthUrl: () => null,
+    paneAlive: async () => true,
+    readTail: async () => [],
+    pendingAuthUrl: async () => null,
     hasPr: () => false,
     hasDiff: async () => true,
     openLocalPr: async () => {},
@@ -903,9 +903,9 @@ test("open PR + failing CI → CI-fix steer + step++", async () => {
 test("same failing head is nudged only once", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ headSha: "sha1" }));
-  await Promise.resolve();
+  await flush();
   h.svc.onGit("s1", git({ headSha: "sha1" })); // next poll, same red head
-  await Promise.resolve();
+  await flush();
   expect(h.events.filter((e) => "steer" in e).length).toBe(1);
   expect(h.state().autopilotStepCount).toBe(1);
 });
@@ -947,9 +947,9 @@ test("a paused session is not CI-steered (already handed to the operator)", () =
 test("CI-fix recovery resumes a dead pane before steering", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true, paneAlive: false });
   h.svc.onGit("s1", git());
-  // driveSteer awaits the (now async) resume on the dead-pane path; flush that microtask
-  // so the fire-and-forget steer lands before asserting.
-  await Promise.resolve();
+  // driveSteer awaits the async paneAlive + resume on the dead-pane path; flush so the
+  // fire-and-forget steer lands before asserting.
+  await flush();
   expect(h.events).toContainEqual({ resume: true });
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
 });
@@ -997,11 +997,12 @@ test("handoff reset fires once per PR-open, not every poll (preserves CI-fix bud
   expect(h.state().autopilotStepCount).toBe(1);
 });
 
-test("PR closing/merging clears CI dedup so a reopened red head can re-steer", () => {
+test("PR closing/merging clears CI dedup so a reopened red head can re-steer", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ headSha: "sha1" })); // steer 1
   h.svc.onGit("s1", git({ state: "merged", checks: "success" })); // clears dedup + openSeen
   h.svc.onGit("s1", git({ headSha: "sha1" })); // open again, same head → steer 2
+  await flush(); // the steers land after the async paneAlive check
   expect(h.events.filter((e) => "steer" in e).length).toBe(2);
 });
 
@@ -1073,16 +1074,18 @@ function stuckRed(over: Partial<Session> = {}) {
   });
 }
 
-test("real-trigger regression: repeated tick() re-engages an idle red PR, then caps + notifies", () => {
+test("real-trigger regression: repeated tick() re-engages an idle red PR, then caps + notifies", async () => {
   const h = stuckRed();
   // Each tick re-engages (step++ + CI-fix steer) — NO onGit needed (the gitStateChanged gate
   // never re-emits for the unchanged red head). Drive ticks until the step budget (cap 10) trips.
   for (let i = 0; i < 10; i++) h.svc.tick();
+  await flush(); // the fire-and-forget steers land after the async paneAlive check
   expect(h.events.filter((e) => "steer" in e && e.steer === CI_FIX_STEER).length).toBe(10);
   expect(h.state().autopilotStepCount).toBe(10);
   expect(h.state().autopilotPaused).toBe(false);
   // The 11th tick is at the cap → pause + push (onPause), no further steer.
   h.svc.tick();
+  await flush();
   expect(h.state().autopilotPaused).toBe(true);
   expect(h.events).toContainEqual({ pause: "s1", q: CI_CAP_MESSAGE });
   expect(h.events.filter((e) => "steer" in e).length).toBe(10); // no steer on the cap tick
@@ -1118,6 +1121,7 @@ test("idle gate: tick() does not steer a blocked session", () => {
 test("onDone guard: stuck-red full-auto re-engages and does NOT classify", async () => {
   const h = stuckRed();
   await h.svc.onDone("s1");
+  await flush();
   expect(h.classifyCount()).toBe(0); // never reached the LLM classifier
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
   expect(h.state().autopilotStepCount).toBe(1);
@@ -1154,7 +1158,7 @@ test("guaranteed hand-back on a dead pane: failed resume still bumps toward the 
   });
   // The bump happens BEFORE the (failing) steer, so each tick counts toward the cap regardless.
   for (let i = 0; i < 10; i++) h.svc.tick();
-  await Promise.resolve(); // flush the fire-and-forget sendSteer microtasks
+  await flush(); // flush the fire-and-forget sendSteer microtasks
   expect(h.state().autopilotStepCount).toBe(10);
   expect(h.events.some((e) => "steer" in e)).toBe(false); // resume failed → nothing steered
   h.svc.tick(); // at cap → pause
@@ -1397,7 +1401,7 @@ test("merge-train: onGit/considerCi suppressed while marked (no CI steer, no bum
     repoEnabled: true,
   });
   h.svc.onGit("s1", git()); // open + red
-  await Promise.resolve();
+  await flush();
   expect(h.events.some((e) => "steer" in e)).toBe(false);
   expect(h.state().autopilotStepCount).toBe(0);
 });
@@ -1606,6 +1610,7 @@ test("rebase: behind + clean signoff + green → steers rebase + bumps rebaseCou
     review: review(),
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
   expect(rebased(h, 1)).toBe(true);
 });
@@ -1618,6 +1623,7 @@ test("rebase: conflict (mergeable=false) → steers", async () => {
     review: review(),
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
@@ -1651,6 +1657,7 @@ test("rebase: critic on + no verdict + behind → steers (don't wait for the cri
     review: null,
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
@@ -1662,6 +1669,7 @@ test("rebase: critic on + stale reviewHeadSha + behind → steers (the critic is
     review: review({ headSha: "sha1", findings: ["old"] }), // verdict applies to an old head
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
@@ -1673,6 +1681,7 @@ test("rebase: behind + CI pending + no verdict → steers", async () => {
     review: null,
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
@@ -1700,6 +1709,7 @@ test("rebase: critic OFF + green + behind → steers (no review requirement)", a
     review: null,
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
@@ -1724,6 +1734,7 @@ test("rebase: behind + red CI → rebase steer, NOT a CI-fix steer (red ran on a
     review: review(),
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
   expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
 });
@@ -1749,7 +1760,9 @@ test("rebase: no per-head dedup → re-steers each idle episode (marches to the 
     review: review(),
   });
   await h.svc.onDone("s1"); // count 0 → 1, steer
+  await flush();
   await h.svc.onDone("s1"); // count 1 → 2, steer again (same head, no dedup)
+  await flush();
   expect(h.events.filter((e) => e.steer === REBASE_STEER_MAIN).length).toBe(2);
   expect(rebased(h, 2)).toBe(true);
 });
@@ -1777,6 +1790,7 @@ test("rebase: tick re-engages an idle behind PR", async () => {
     review: review(),
   });
   await h.svc.tick();
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
@@ -1929,6 +1943,7 @@ test("behind with a current-head SPAWN-ABORTED error verdict → steers (no crit
     review: review({ decision: "error", spawnAborted: true }),
   });
   await h.svc.onDone("s1");
+  await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
@@ -2004,7 +2019,7 @@ test("post-classify re-check blocks a terminal verdict when the auth URL flushes
   expect(h.events.some((e) => "steer" in e || "complete" in e)).toBe(false);
 });
 
-test("reEngageCi respects the auth stand-down; onStatus(running) clears it", () => {
+test("reEngageCi respects the auth stand-down; onStatus(running) clears it", async () => {
   const h = harness({
     session: sess({ status: "done" }),
     repoEnabled: true,
@@ -2014,9 +2029,11 @@ test("reEngageCi respects the auth stand-down; onStatus(running) clears it", () 
   });
   void h.svc.onBlock("s1", authBlock()); // sets the stand-down (add is synchronous)
   h.svc.tick();
+  await flush();
   expect(h.events.some((e) => "steer" in e)).toBe(false); // reEngageCi stood down
   h.svc.onStatus("s1", "running"); // operator resumed → clears the stand-down
   h.svc.tick();
+  await flush();
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
 });
 

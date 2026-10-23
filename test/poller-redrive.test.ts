@@ -55,7 +55,7 @@ test("poller fires reDrive for a herdr-restored account pane (spawnTerminalId !=
   const agents: HerdrAgent[] = [fakeAgent("T2")];
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as never),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as never),
     () => {},
     () => {},
   );
@@ -78,7 +78,7 @@ test("poller does NOT fire reDrive for a default session (spawnAccountDir=null)"
   const agents: HerdrAgent[] = [fakeAgent("T2")];
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as never),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as never),
     () => {},
     () => {},
   );
@@ -99,7 +99,7 @@ test("poller tick() never throws even when reDrive itself throws (fire-and-forge
   const agents: HerdrAgent[] = [fakeAgent("T2")];
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as never),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as never),
     () => {},
     () => {},
   );

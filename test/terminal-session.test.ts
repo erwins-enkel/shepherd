@@ -48,7 +48,7 @@ function makeSvc(over: { shell?: Partial<ShellReply>; parkSpawn?: Promise<void> 
       },
     } as any,
     herdr: {
-      list: () => [],
+      listAsync: async () => [],
       send: async (target: string, text: string) => {
         calls.sends.push({ target, text });
       },

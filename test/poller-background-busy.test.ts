@@ -41,7 +41,7 @@ function setup(initialScan: Scan) {
   const box = { scan: initialScan, clock: 100_000 };
   const poller = new StatusPoller(
     store,
-    { listAsync: () => Promise.resolve(agents), read: () => "", readAsync: async () => "" } as any,
+    { listAsync: () => Promise.resolve(agents), readAsync: async () => "" } as any,
     (id, status) => log.push(`status:${status}`),
     () => {},
     1000,

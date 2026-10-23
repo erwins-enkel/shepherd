@@ -51,7 +51,7 @@ export class HerdrSocketClient {
    *  if no reply arrives in time, or with a "closed before response" error if the
    *  connection drops before a response was parsed. Refuses synchronously (throws
    *  `HerdrUnavailableError`, no socket opened) while `maintenance.active` — mirrors
-   *  `makeHerdrRunner`/`makeHerdrAsyncRunner` so nothing pokes the socket mid-update. */
+   *  `makeHerdrAsyncRunner` so nothing pokes the socket mid-update. */
   async request<M extends HerdrMethod>(
     method: M,
     params: HerdrParams[M],

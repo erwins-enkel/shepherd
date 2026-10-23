@@ -73,7 +73,7 @@ function harness(
         n++;
         return { terminalId: `term_${n}`, cwd, agentStatus: "idle", paneId: `p${n}` } as any;
       },
-      list: () => fake.agents,
+      listAsync: async () => fake.agents,
       stop: async (id: string) => {
         calls.stops.push(id);
       },

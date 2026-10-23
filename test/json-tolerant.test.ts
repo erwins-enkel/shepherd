@@ -130,11 +130,11 @@ function makeHerdrStub(opts: {
   procs?: string[] | Error;
   listThrows?: boolean;
 }): {
-  list: () => { cwd: string; paneId: string; agentStatus: string }[];
+  listAsync: () => Promise<{ cwd: string; paneId: string; agentStatus: string }[]>;
   paneForegroundProcs: () => Promise<string[]>;
 } {
   return {
-    list: () => {
+    listAsync: async () => {
       if (opts.listThrows) throw new Error("herdr unavailable");
       return opts.agents ?? [];
     },
@@ -152,7 +152,7 @@ describe("isSpawnAlive", () => {
   test("agentStatus=working → alive (fast path, no paneForegroundProcs call)", async () => {
     let procsCalled = false;
     const herdr = {
-      list: () => [agent("working")],
+      listAsync: async () => [agent("working")],
       paneForegroundProcs: async () => {
         procsCalled = true;
         return ["zsh"];
@@ -194,7 +194,7 @@ describe("isSpawnAlive", () => {
     expect(await isSpawnAlive(herdr, CWD)).toBe(true);
   });
 
-  test("list() throws → alive (fail-closed, helper does not propagate)", async () => {
+  test("listAsync() throws → alive (fail-closed, helper does not propagate)", async () => {
     const herdr = makeHerdrStub({ listThrows: true });
     expect(await isSpawnAlive(herdr, CWD)).toBe(true);
   });

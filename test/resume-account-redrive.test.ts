@@ -47,7 +47,7 @@ function makeService(hooks: { fn: Hooks }) {
       stop: async (terminalId: string) => {
         stopCalls.push(terminalId);
       },
-      list: () => (liveAgent.current ? [liveAgent.current] : []),
+      listAsync: async () => (liveAgent.current ? [liveAgent.current] : []),
     } as never,
   });
   return { service, store, startCount: () => startCount, startCalls, stopCalls, liveAgent };

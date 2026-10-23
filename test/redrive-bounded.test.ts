@@ -32,7 +32,7 @@ function makeService(hooks: { fn: Hooks }) {
       // fresh live terminalId) is distinguishable from the prior husk/anchor.
       start: async () => ({ terminalId: `term_${++startCount}` }) as never,
       stop: async () => {},
-      list: () => [],
+      listAsync: async () => [],
     } as never,
   });
   return { service, store, startCount: () => startCount };

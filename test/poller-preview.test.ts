@@ -125,7 +125,7 @@ function makePollerWithPreview(opts: {
 
   return new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as any),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000, // intervalMs
@@ -228,7 +228,7 @@ test("preview sweep: re-entrancy — pending sweep blocks a concurrent second sw
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -369,7 +369,7 @@ test("preview sweep: when idle agent's port disappears → converge excludes it 
     store,
     withListAsync({
       list: () => [{ ...baseHerdrAgent, agentStatus: "done" as const }],
-      read: () => "",
+      readAsync: async () => "",
     } as any),
     () => {},
     () => {},
@@ -465,7 +465,7 @@ test("preview sweep: pick is called with the session's worktreePath first in hin
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -535,7 +535,7 @@ test("preview sweep: throwing scan → no crash + previewSweeping resets → lat
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -583,7 +583,7 @@ test("preview sweep: rejecting pick → no crash + previewSweeping resets → la
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -678,7 +678,7 @@ function makeIdleStopPoller(opts: {
     convergeArgs,
     poller: new StatusPoller(
       store,
-      withListAsync({ list: () => agents, read: () => "" } as any),
+      withListAsync({ list: () => agents, readAsync: async () => "" } as any),
       () => {},
       () => {},
       1000, // intervalMs
@@ -733,7 +733,7 @@ test("idle-stop: disabled by default — no stop called even when idle+stale", a
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -846,7 +846,7 @@ test("idle-stop: stale-status guard — s.status is idle (stale snapshot) but st
     // to "running" before async sweep fires, so store.get(id).status = "running"
     withListAsync({
       list: () => [{ ...baseHerdrAgent, agentStatus: "working" as const }],
-      read: () => "",
+      readAsync: async () => "",
     } as any),
     () => {},
     () => {},
@@ -1042,7 +1042,7 @@ test("idle-stop: reset on recovery — after SIGTERM, next sweep with low idleSi
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -1110,7 +1110,7 @@ test("idle-stop: reset on port death — after SIGTERM, port disappears then rea
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -1179,7 +1179,7 @@ test("idle-stop: devPort change mid-escalation → resets to fresh SIGTERM (not 
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -1308,7 +1308,7 @@ test("preview sweep (null scan): does not converge, so bound listeners are not t
   const clock = { v: 100_000 };
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,

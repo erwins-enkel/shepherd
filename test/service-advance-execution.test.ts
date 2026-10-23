@@ -45,7 +45,7 @@ function harness(opts: {
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => ((opts.paneLive ?? true) ? [{ terminalId: term }] : []),
+      listAsync: async () => ((opts.paneLive ?? true) ? [{ terminalId: term }] : []),
       stop: async () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
     } as any,

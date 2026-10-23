@@ -74,7 +74,6 @@ function makePoller(
     store,
     withListAsync({
       list: () => [liveAgent()],
-      read: () => "",
       readAsync: async () => "",
     } as never),
     () => {},

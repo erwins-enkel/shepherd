@@ -61,7 +61,7 @@ function makeService(
         opts?: { signal?: AbortSignal },
       ) => herdrStart(opts),
       stop: async (terminalId: string) => void stopped.push(terminalId),
-      list: () => [],
+      listAsync: async () => [],
     } as never,
   });
   return { service, removed, stopped };

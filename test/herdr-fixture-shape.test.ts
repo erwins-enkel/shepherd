@@ -78,7 +78,7 @@ function mkDriver(closed: string[]): HerdrDriver {
     }
     throw new Error(`unexpected herdr call: ${args.join(" ")}`);
   };
-  return new HerdrDriver(route, async (args) => route(args));
+  return new HerdrDriver(async (args) => route(args));
 }
 
 afterEach(() => setDetectedHerdrVersion(null));
@@ -89,8 +89,8 @@ test("reapOrphanTabs reaps a 0.7.5 husk tab and spares the live helper (#2029)",
   const d = mkDriver(closed);
 
   // Neither husk detection surface the old code used exists in these replies…
-  expect(d.panes().every((p) => p.label === undefined)).toBe(true);
-  expect(d.list().every((a) => a.name === undefined)).toBe(true);
+  expect((await d.panesAsync()).every((p) => p.label === undefined)).toBe(true);
+  expect((await d.listAsync()).every((a) => a.name === undefined)).toBe(true);
 
   // …yet the sweep still finds both helper tabs and classifies them correctly.
   const r1 = await reapOrphanTabs(d);

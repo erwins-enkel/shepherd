@@ -45,7 +45,7 @@ import {
   type SessionPreviewServeEvent,
 } from "./types";
 import { WorktreeMgr } from "./worktree";
-import { matchAgent, tabLabelMap, type IHerdrDriver } from "./herdr";
+import { matchAgentLive, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
 import { startTerminalTransportSelfCheck } from "./terminal-transport-metrics";
 import { generateName } from "./namer";
@@ -675,18 +675,14 @@ deferredStarts.push(() => {
 });
 const herdr: IHerdrDriver = await selectHerdrDriver();
 const herdrSocketActive = herdr instanceof SocketHerdrDriver;
-/** Lazy tab-label source for `matchAgent`'s contended-cwd branch (#2029): on herdr 0.7.5 a
- *  session's name survives only on its TAB label — `agent.name` is not sent at all — so without
- *  this, two sessions sharing a worktree could never be told apart after a daemon restart.
- *  `matchAgent` consults it ONLY when the cwd is contended, so the ordinary single-session lookup
- *  still costs exactly one `agent list`. */
-const liveTabLabels = (): ReadonlyMap<string, string> | undefined => {
-  try {
-    return tabLabelMap(herdr.tabs());
-  } catch {
-    return undefined; // transient tab-list failure — no name evidence, never a wrong pairing
-  }
-};
+/** Whether session `id` has a live herdr agent — the shared `paneAlive` seam. `matchAgentLive`
+ *  reads tab labels only for a contended cwd (#2029: on herdr 0.7.5 a session's name survives only
+ *  on its TAB label), so the ordinary lookup costs exactly one `agent list`. Rejects when herdr
+ *  cannot be listed. */
+async function sessionPaneAlive(id: string): Promise<boolean> {
+  const s = store.get(id);
+  return !!s && (await matchAgentLive(s, herdr)) !== null;
+}
 deferredStarts.push(() => {
   startTerminalTransportSelfCheck(herdrSocketActive);
 });
@@ -1108,7 +1104,7 @@ const usageLimits = new UsageLimitsService(
 );
 
 deferredStarts.push(() => {
-  reconcile(store, herdr);
+  void reconcile(store, herdr);
 });
 
 // Reconcile orphaned per-session egress temp dirs (config + dns.log) from sessions
@@ -1924,7 +1920,7 @@ const reviewService = new ReviewService({
   // retries next cycle) rather than steer findings into the wrong-account husk. The poller heals it
   // within ~1 tick (Locus A); shouldDeferSteer goes false once healed or bounded-out (degraded).
   autoAddress: async (id, text) =>
-    service.shouldDeferSteer(id)
+    (await service.shouldDeferSteer(id))
       ? false
       : await service.resumeAndReply(id, text, { automatic: true }),
   // global, UI-configurable max auto-address rounds before escalating to the human.
@@ -1992,10 +1988,7 @@ const planGate = new PlanGateService({
   // what makes a Codex planner (which exits after its turn) actually receive the findings and revise.
   reply: (id, text) => service.resumeAndReply(id, text, { automatic: true }),
   // Whether the planning session is still a live agent (mirrors autopilot.paneAlive).
-  paneAlive: (id) => {
-    const s = store.get(id);
-    return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
-  },
+  paneAlive: sessionPaneAlive,
   // SessionService resolves the exact conversation or refuses without steering.
   resume: (id) => service.resume(id, { automatic: true }),
   hasConversation: (s) => service.hasConversation(s),
@@ -2504,12 +2497,12 @@ events.subscribe((event, data) => {
 
 /** A session's live PTY visible buffer via its matched herdr agent, or null (no session / no live
  *  agent / herdr down). Shared by the `readTail` and `pendingAuthUrl` autopilot seams. */
-function readVisibleBuffer(id: string): string | null {
+async function readVisibleBuffer(id: string): Promise<string | null> {
   const s = store.get(id);
   if (!s) return null;
   try {
-    const live = matchAgent(s, herdr.list(), liveTabLabels);
-    return live ? herdr.read(live.terminalId, "visible") : null;
+    const live = await matchAgentLive(s, herdr);
+    return live ? await herdr.readAsync(live.terminalId, "visible") : null;
   } catch {
     return null;
   }
@@ -2634,13 +2627,10 @@ const autopilot = new AutopilotService({
   },
   steer: (id, text) => service.resumeAndReply(id, text, { automatic: true }),
   resume: (id) => service.resume(id, { automatic: true }),
-  paneAlive: (id) => {
-    const s = store.get(id);
-    return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
-  },
+  paneAlive: sessionPaneAlive,
   deferSteer: (id) => service.shouldDeferSteer(id),
-  readTail: (id) => {
-    const v = readVisibleBuffer(id);
+  readTail: async (id) => {
+    const v = await readVisibleBuffer(id);
     return v === null ? [] : tailLines(v);
   },
   // Pending human-only OAuth authorize URL — autopilot stands down until the operator completes
@@ -2649,7 +2639,7 @@ const autopilot = new AutopilotService({
   // freshness-gated) and, failing that, a fresh PTY visible read reconstructing a `/login`
   // account-re-login URL (PTY-only — never in the transcript). The `claudeSessionId` precondition
   // gates ONLY the transcript branch, so a `/login` session still reaches the PTY fallback.
-  pendingAuthUrl: (id) => {
+  pendingAuthUrl: async (id) => {
     const s = store.get(id);
     if (!s) return null;
     if (s.claudeSessionId) {
@@ -2662,7 +2652,7 @@ const autopilot = new AutopilotService({
         // transcript missing/unreadable → fall through to the PTY source
       }
     }
-    const v = readVisibleBuffer(id); // PTY-only `/login` URL (guarded → null when herdr is down)
+    const v = await readVisibleBuffer(id); // PTY-only `/login` URL (guarded → null when herdr is down)
     return v === null ? null : detectLoginAuthUrl(v);
   },
   // Any PR (open/merged/closed) stands autopilot down — only a session with NO PR yet is its
@@ -2986,10 +2976,7 @@ const autoMerge = new AutoMergeService({
   resolveForge,
   worktree, // has behindBase
   prCache: prPoller,
-  paneAlive: (id) => {
-    const s = store.get(id);
-    return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
-  },
+  paneAlive: sessionPaneAlive,
   deferSteer: (id) => service.shouldDeferSteer(id),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   emitStatus: (status) => events.emit("automerge:status", status),
@@ -3474,7 +3461,7 @@ async function resumeCapacityHelper(intent: CapacityIntent): Promise<boolean> {
 
 async function pollCodexCapacity(): Promise<void> {
   if (readCodexAuthMode() === "apikey") return;
-  const live = herdr.list();
+  const live = await herdr.listAsync();
   await codexReset.refresh();
   for (const s of store.list({ activeOnly: true })) {
     if (
@@ -4122,11 +4109,11 @@ const appDeps: AppDeps = {
   recommend: async (id, provider, model) => {
     const s = store.get(id);
     if (!s) return { error: "no-history" as const };
-    const live = matchAgent(s, herdr.list(), liveTabLabels);
+    const live = await matchAgentLive(s, herdr);
     if (!live) return { error: "no-history" as const };
     let tail: string[];
     try {
-      tail = tailLines(herdr.read(live.terminalId, "recent", 600), 600);
+      tail = tailLines(await herdr.readAsync(live.terminalId, "recent", 600), 600);
     } catch {
       return { error: "no-history" as const };
     }

@@ -38,7 +38,7 @@ function labelledPane(
 }
 
 /** Drives the sweep: `tabsAsync()` returns one tab per distinct tabId (labelled from the
- *  FakePane), `panes()` returns the label-less panes, and `paneForegroundProcs(paneId)` resolves
+ *  FakePane), `panesAsync()` resolves the label-less panes, and `paneForegroundProcs(paneId)` resolves
  *  from `procMap` (a thrown value re-throws). `panesCalls` records whether the pane read was
  *  issued at all, so an empty helper scope can assert it short-circuits. */
 function procFake(
@@ -67,7 +67,7 @@ function procFake(
         if (opts.tabsThrows) throw new Error("tab list: herdr unreachable");
         return [...tabs.values()];
       },
-      panes: () => {
+      panesAsync: async () => {
         panesCalls.n++;
         if (opts.panesThrows) throw new Error("pane list: unknown subcommand");
         return panes.map((p) => p.pane);
@@ -224,7 +224,7 @@ test("unique-label helper: tab __maintain__<8hex> with live agent is spared (liv
   expect(r2.sparedLive).toBe(1);
 });
 
-test("panes() throwing fails closed — reaps nothing, preserves debounce state, flags panesFailed", async () => {
+test("panesAsync() throwing fails closed — reaps nothing, preserves debounce state, flags panesFailed", async () => {
   // A helper tab must be IN SCOPE for the pane read to be attempted at all.
   const { h, closed } = procFake([pane("w1:p1", "w1:t1", PROBE_NAME)], {}, { panesThrows: true });
   const r = await reapOrphanTabs(h, new Set(["w1:t1"]));
@@ -810,7 +810,7 @@ test("sweeper: boot triggers skipped under maintenance — the first later trigg
 test("sweeper: a panesFailed pass surfaces via onResult and the preserved debounce still confirms later", async () => {
   const seq: ReapResult[] = [
     rr({ shellOnly: new Set(["t9"]) }), // sighting
-    rr({ shellOnly: new Set(["t9"]), panesFailed: true }), // confirm hits a panes() failure — zero work
+    rr({ shellOnly: new Set(["t9"]), panesFailed: true }), // confirm hits a panesAsync() failure — zero work
     rr({ closed: ["t9"], shellOnly: new Set(["t9"]) }), // next trigger confirms off the preserved set
   ];
   let i = 0;

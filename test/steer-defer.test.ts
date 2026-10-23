@@ -42,7 +42,7 @@ function makeHarness(agents: HerdrAgent[] = []) {
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => agents,
+      listAsync: async () => agents,
       stop: async () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
       relabel: async () => {},
@@ -71,15 +71,15 @@ function makeHarness(agents: HerdrAgent[] = []) {
   return { store, svc, mk, resumed, sent };
 }
 
-test("shouldDeferSteer: restored account husk, not exhausted -> true", () => {
+test("shouldDeferSteer: restored account husk, not exhausted -> true", async () => {
   const { store, svc, mk } = makeHarness([fakeAgent("T2", "/wt/a")]);
   const a = mk("a", "T2"); // herdrAgentId already re-pointed to the live husk
   store.setSpawnIdentity(a.id, "T1", "/acct"); // spawned on T1 under an owning account
 
-  expect(svc.shouldDeferSteer(a.id)).toBe(true);
+  expect(await svc.shouldDeferSteer(a.id)).toBe(true);
 });
 
-test("shouldDeferSteer: exhausted (degraded) -> false", () => {
+test("shouldDeferSteer: exhausted (degraded) -> false", async () => {
   const { store, svc, mk } = makeHarness([fakeAgent("T2", "/wt/a")]);
   const a = mk("a", "T2");
   store.setSpawnIdentity(a.id, "T1", "/acct");
@@ -88,31 +88,31 @@ test("shouldDeferSteer: exhausted (degraded) -> false", () => {
   // brief allows in lieu of driving CAP real failures through reDriveAccount.
   (svc as any).redriveAttempts.set(a.id, { anchor: "T1", attempts: REDRIVE_CAP });
 
-  expect(svc.shouldDeferSteer(a.id)).toBe(false);
+  expect(await svc.shouldDeferSteer(a.id)).toBe(false);
 });
 
-test("shouldDeferSteer: default session (spawnAccountDir null) -> false", () => {
+test("shouldDeferSteer: default session (spawnAccountDir null) -> false", async () => {
   const { store, svc, mk } = makeHarness([fakeAgent("T2", "/wt/a")]);
   const a = mk("a", "T2");
   store.setSpawnIdentity(a.id, "T1", null);
 
-  expect(svc.shouldDeferSteer(a.id)).toBe(false);
+  expect(await svc.shouldDeferSteer(a.id)).toBe(false);
 });
 
-test("shouldDeferSteer: healed (live terminalId === spawnTerminalId) -> false", () => {
+test("shouldDeferSteer: healed (live terminalId === spawnTerminalId) -> false", async () => {
   const { store, svc, mk } = makeHarness([fakeAgent("T2", "/wt/a")]);
   const a = mk("a", "T2");
   store.setSpawnIdentity(a.id, "T2", "/acct"); // anchor now matches the live pane
 
-  expect(svc.shouldDeferSteer(a.id)).toBe(false);
+  expect(await svc.shouldDeferSteer(a.id)).toBe(false);
 });
 
-test("shouldDeferSteer: no live agent -> false", () => {
+test("shouldDeferSteer: no live agent -> false", async () => {
   const { store, svc, mk } = makeHarness([]); // herdr lists nothing
   const a = mk("a", "T2");
   store.setSpawnIdentity(a.id, "T1", "/acct");
 
-  expect(svc.shouldDeferSteer(a.id)).toBe(false);
+  expect(await svc.shouldDeferSteer(a.id)).toBe(false);
 });
 
 test("retryHalted: restored account husk (live, deferred) -> resume(), not replyToLive", async () => {

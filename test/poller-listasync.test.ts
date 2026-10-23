@@ -11,7 +11,7 @@ function fakeStore(): SessionStore {
   return { list: mock(() => []) } as unknown as SessionStore;
 }
 
-type FakeHerdr = Pick<HerdrDriver, "listAsync" | "read" | "readAsync" | "reportAgentState">;
+type FakeHerdr = Pick<HerdrDriver, "listAsync" | "readAsync" | "reportAgentState">;
 
 function newPoller(herdr: FakeHerdr): StatusPoller {
   return new StatusPoller(
@@ -23,7 +23,7 @@ function newPoller(herdr: FakeHerdr): StatusPoller {
 }
 
 describe("StatusPoller.tick()", () => {
-  it("calls herdr.listAsync() and never the sync herdr.list()", async () => {
+  it("calls herdr.listAsync() and never a sync herdr.list()", async () => {
     const listAsync = mock(() => Promise.resolve([] as HerdrAgent[]));
     const listSync = mock((): HerdrAgent[] => {
       throw new Error("tick() must not call the sync list()");
@@ -31,7 +31,6 @@ describe("StatusPoller.tick()", () => {
     const herdr = {
       listAsync,
       list: listSync,
-      read: mock(() => ""),
       readAsync: mock(() => Promise.resolve("")),
     } as unknown as FakeHerdr;
     const poller = newPoller(herdr);
@@ -47,7 +46,6 @@ describe("StatusPoller.tick()", () => {
     const listAsync = mock(() => new Promise<HerdrAgent[]>((resolve) => (resolveFirst = resolve)));
     const herdr = {
       listAsync,
-      read: mock(() => ""),
       readAsync: mock(() => Promise.resolve("")),
     } as unknown as FakeHerdr;
     const poller = newPoller(herdr);

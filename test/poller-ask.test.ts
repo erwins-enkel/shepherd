@@ -55,7 +55,6 @@ function rig(screen = MENU) {
   const herdr = {
     list,
     listAsync: () => Promise.resolve(list()),
-    read: () => buffer,
     readAsync: () => Promise.resolve(buffer),
   };
   const poller = new StatusPoller(

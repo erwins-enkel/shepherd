@@ -55,7 +55,7 @@ function fixture(
     namer: () => "transcript",
     worktree: {} as never,
     herdr: {
-      list: () => (live ? [{ terminalId, cwd: s.worktreePath, name: s.name }] : []),
+      listAsync: async () => (live ? [{ terminalId, cwd: s.worktreePath, name: s.name }] : []),
       paneForegroundProcs: async () => ["claude"],
       send: async (_target: string, text: string) => {
         sent.push(text);

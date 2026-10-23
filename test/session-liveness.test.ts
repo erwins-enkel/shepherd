@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   SessionLiveness,
   type LivenessOutcome,
+  type LivenessStep,
   type TranscriptSignals,
 } from "../src/session-liveness";
 import { STRIP_WINDOW_MS } from "../src/activity-signal";
@@ -9,19 +10,10 @@ import { type StallConfig } from "../src/stall";
 
 const STALL_CFG: StallConfig = { stallMs: 10_000, pendingStallMs: 20_000 };
 
-/** Build a `SessionLiveness` with fake herdr reads. `readImpl`/`readAsyncImpl` default
- *  to throwing (unused in most tests) — pass what a given test needs. */
-function makeLiveness(opts: {
-  read?: (term: string) => string;
-  readAsync?: (term: string) => Promise<string>;
-  cfg?: StallConfig;
-}) {
+/** Build a `SessionLiveness` with a fake herdr read. `readAsync` defaults to rejecting (unused in
+ *  most tests) — pass what a given test needs. */
+function makeLiveness(opts: { readAsync?: (term: string) => Promise<string>; cfg?: StallConfig }) {
   return new SessionLiveness({
-    read:
-      opts.read ??
-      (() => {
-        throw new Error("unexpected sync read");
-      }),
     readAsync: opts.readAsync ?? (() => Promise.reject(new Error("unexpected async read"))),
     stallCfg: () => opts.cfg ?? STALL_CFG,
   });
@@ -31,10 +23,9 @@ function transcriptSignals(lastTs: number, pending = false): TranscriptSignals {
   return { snapshot: { lastTs, pending }, activity: null };
 }
 
-async function resolve(
-  step: { outcome: LivenessOutcome } | { pending: Promise<LivenessOutcome> },
-): Promise<LivenessOutcome> {
-  return "outcome" in step ? step.outcome : await step.pending;
+async function resolve(step: LivenessStep): Promise<LivenessOutcome> {
+  if ("outcome" in step) return step.outcome;
+  return "pending" in step ? await step.pending : await step.transcriptPending;
 }
 
 // ── transcript path: fresh → moving → frozen ────────────────────────────────
@@ -53,9 +44,9 @@ test("transcript: not-stalled candidate clears broad (clearBroad)", () => {
   expect((second as { outcome: LivenessOutcome }).outcome).toEqual({ verdict: "clearBroad" });
 });
 
-test("transcript: stalled candidate — fresh first sighting → clearStall, frozen next → fire, moving → clearStall", () => {
+test("transcript: stalled candidate — fresh first sighting → clearStall, frozen next → fire, moving → clearStall", async () => {
   let visible = "still chewing on it";
-  const l = makeLiveness({ read: () => visible, cfg: STALL_CFG });
+  const l = makeLiveness({ readAsync: async () => visible, cfg: STALL_CFG });
   let now = 1_700_000_000_000;
   const staleTs = now - STALL_CFG.stallMs - 1; // already stalled candidate
 
@@ -68,27 +59,27 @@ test("transcript: stalled candidate — fresh first sighting → clearStall, fro
   now += 1000;
   const nextTs = staleTs + 1;
   const s2 = l.step("t", transcriptSignals(nextTs), now, false);
-  expect("outcome" in s2).toBe(true);
+  expect("transcriptPending" in s2).toBe(true); // a stall candidate confirms off-loop (#3127)
   // first sample of the transcript liveness diff → "fresh", not "frozen" → clearStall
-  expect((s2 as { outcome: LivenessOutcome }).outcome).toEqual({ verdict: "clearStall" });
+  expect(await resolve(s2)).toEqual({ verdict: "clearStall" });
 
   // terminal unchanged next probe → frozen → fire (carries visible)
   now += 1000;
   const s3 = l.step("t", transcriptSignals(nextTs + 1), now, false);
-  expect((s3 as { outcome: LivenessOutcome }).outcome).toEqual({ verdict: "fire", visible });
+  expect(await resolve(s3)).toEqual({ verdict: "fire", visible });
 
   // terminal now moves → clearStall
   visible = "Computing… (1s)";
   now += 1000;
   const s4 = l.step("t", transcriptSignals(nextTs + 2), now, false);
-  expect((s4 as { outcome: LivenessOutcome }).outcome).toEqual({ verdict: "clearStall" });
+  expect(await resolve(s4)).toEqual({ verdict: "clearStall" });
 });
 
 // ── hung command (pending) bypass ───────────────────────────────────────────
 
-test("hung command (pending past pendingStallMs) fires even while the terminal keeps changing", () => {
+test("hung command (pending past pendingStallMs) fires even while the terminal keeps changing", async () => {
   let frame = 0;
-  const live = makeLiveness({ read: () => `Computing… (${frame}s)`, cfg: STALL_CFG });
+  const live = makeLiveness({ readAsync: async () => `Computing… (${frame}s)`, cfg: STALL_CFG });
   let now = 1_700_000_000_000;
   const staleTs = now - STALL_CFG.pendingStallMs - 1;
 
@@ -99,7 +90,7 @@ test("hung command (pending past pendingStallMs) fires even while the terminal k
   frame += 1;
   const s2 = live.step("t", transcriptSignals(staleTs + 1, true), now, false);
   // pending bypasses the moving-gate entirely → fires on first transcript-path probe
-  expect((s2 as { outcome: LivenessOutcome }).outcome).toEqual({
+  expect(await resolve(s2)).toEqual({
     verdict: "fire",
     visible: `Computing… (${frame}s)`,
   });
@@ -107,7 +98,7 @@ test("hung command (pending past pendingStallMs) fires even while the terminal k
   now += 1000;
   frame += 1;
   const s3 = live.step("t", transcriptSignals(staleTs + 2, true), now, false);
-  expect((s3 as { outcome: LivenessOutcome }).outcome).toEqual({
+  expect(await resolve(s3)).toEqual({
     verdict: "fire",
     visible: `Computing… (${frame}s)`,
   });
@@ -298,16 +289,14 @@ test("clearStaleBlock set on every completed interim read, not on throw or in-fl
 
 // ── read-failure invariant (BLOCKING) ───────────────────────────────────────
 
-test("read-failure on the transcript confirming probe does not set lastVisible — next success is a fresh first sighting", () => {
+test("read-failure on the transcript confirming probe does not set lastVisible — next success is a fresh first sighting", async () => {
   let shouldThrow = true;
   const visible = "output-A";
   const live = makeLiveness({
-    read: () =>
-      shouldThrow
-        ? (() => {
-            throw new Error("read failed");
-          })()
-        : visible,
+    readAsync: async () => {
+      if (shouldThrow) throw new Error("read failed");
+      return visible;
+    },
     cfg: STALL_CFG,
   });
   let now = 1_700_000_000_000;
@@ -320,17 +309,51 @@ test("read-failure on the transcript confirming probe does not set lastVisible �
   // advance past baseline → transcript path, stalled candidate → attempts read → throws
   now += 1000;
   const s2 = live.step("t", transcriptSignals(staleTs + 1), now, false);
-  expect((s2 as { outcome: LivenessOutcome }).outcome).toEqual({ verdict: "none" });
+  expect(await resolve(s2)).toEqual({ verdict: "none" });
 
   // now reads succeed: lastVisible must still be unset (the throw never set it) →
   // this probe is a FRESH first sighting, not a frozen match against "output-A" → clearStall
   shouldThrow = false;
   now += 1000;
   const s3 = live.step("t", transcriptSignals(staleTs + 2), now, false);
-  expect((s3 as { outcome: LivenessOutcome }).outcome).toEqual({ verdict: "clearStall" });
+  expect(await resolve(s3)).toEqual({ verdict: "clearStall" });
 
   // next probe with the SAME visible buffer → now frozen → fire
   now += 1000;
   const s4 = live.step("t", transcriptSignals(staleTs + 3), now, false);
-  expect((s4 as { outcome: LivenessOutcome }).outcome).toEqual({ verdict: "fire", visible });
+  expect(await resolve(s4)).toEqual({ verdict: "fire", visible });
+});
+
+// ── transcript confirm in-flight guard (#3127) ───────────────────────────────
+
+test("transcript in-flight guard: an overlapping stall candidate resolves to none without a second read", async () => {
+  let reads = 0;
+  let resolveFirst!: (v: string) => void;
+  const firstRead = new Promise<string>((res) => {
+    resolveFirst = res;
+  });
+  const live = makeLiveness({
+    readAsync: () => {
+      reads += 1;
+      // read 1 is the first-sighting interim probe; read 2 is the transcript confirm we hold open
+      if (reads === 2) return firstRead;
+      return reads === 1 ? Promise.resolve("v") : Promise.reject(new Error("no third read"));
+    },
+    cfg: STALL_CFG,
+  });
+  let now = 1_700_000_000_000;
+  const staleTs = now - STALL_CFG.stallMs - 1;
+  await resolve(live.step("t", transcriptSignals(staleTs), now, false)); // first sighting → interim
+
+  now += 1000;
+  const first = live.step("t", transcriptSignals(staleTs + 1), now, false);
+  expect("transcriptPending" in first).toBe(true);
+
+  now += 1000;
+  const second = live.step("t", transcriptSignals(staleTs + 2), now, false);
+  expect(second).toEqual({ outcome: { verdict: "none" } });
+
+  resolveFirst("frame");
+  expect(await resolve(first)).toEqual({ verdict: "clearStall" }); // fresh first sample
+  expect(reads).toBe(2);
 });

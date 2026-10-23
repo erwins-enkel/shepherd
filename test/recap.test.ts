@@ -209,7 +209,7 @@ type FakeHerdr = {
     env?: Record<string, string>,
   ) => Promise<{ terminalId: string }>;
   stop: (id: string) => Promise<void>;
-  list: () => FakePaneEntry[];
+  listAsync: () => Promise<FakePaneEntry[]>;
   paneForegroundProcs: (paneId: string) => Promise<string[]>;
   readAsync: (paneId: string, source?: "visible" | "recent", lines?: number) => Promise<string>;
 };
@@ -229,7 +229,7 @@ function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["z
       return { terminalId: tid };
     },
     stop: async (id) => void h.stopped.push(id),
-    list: () => h.livePanes,
+    listAsync: async () => h.livePanes,
     paneForegroundProcs: async (paneId: string) => h.procsOverride.get(paneId) ?? h.defaultProcs,
     readAsync: async () => h.readBuffer,
   };
@@ -1437,7 +1437,7 @@ test("generate/regenerate: herdr.start throws → returns 'error', records failu
       throw new Error("herdr start failed");
     },
     stop: async (id) => void herdr.stopped.push(id),
-    list: () => herdr.livePanes,
+    listAsync: async () => herdr.livePanes,
     paneForegroundProcs: async (paneId: string) =>
       herdr.procsOverride.get(paneId) ?? herdr.defaultProcs,
     readAsync: async () => herdr.readBuffer,

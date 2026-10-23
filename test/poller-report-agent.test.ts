@@ -66,7 +66,6 @@ function harness(opts?: {
             } as HerdrAgent,
           ],
     listAsync: () => Promise.resolve(herdr.list()),
-    read: () => visible(),
     readAsync: () => Promise.resolve(visible()),
     reportAgentState: (paneId: string, agentName: string, state: string) => {
       pushes.push({ paneId, agentName, state });

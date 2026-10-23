@@ -100,13 +100,13 @@ export function isSpawnWorking(
  */
 export async function isSpawnAlive(
   herdr: {
-    list: () => { cwd: string; paneId: string; agentStatus: string }[];
+    listAsync: () => Promise<{ cwd: string; paneId: string; agentStatus: string }[]>;
     paneForegroundProcs: (paneId: string) => Promise<string[]>;
   },
   cwd: string,
 ): Promise<boolean> {
   try {
-    const agent = herdr.list().find((x) => x.cwd === cwd);
+    const agent = (await herdr.listAsync()).find((x) => x.cwd === cwd);
     if (!agent) return false; // absent from list → genuinely dead (herdr 0.7: husks persist in list)
     if (agent.agentStatus === "working") return true; // fast path — skip process-info call
     try {

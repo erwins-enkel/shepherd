@@ -69,7 +69,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () =>
+      listAsync: async () =>
         liveTerminals.map((terminalId) => ({
           terminalId,
           cwd: "/wt",
@@ -852,7 +852,7 @@ test("POST /api/sessions returns 422 when the selected base does not resolve to 
       start: async () => {
         throw new Error("herdr should not start for a missing base ref");
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -944,7 +944,7 @@ function harnessWithReaper(reaper: {
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -1248,7 +1248,7 @@ test("WS /pty/:id with preview-port Origin → 403 (CSRF guard covers WS upgrade
 // Build a herdr stub whose live list contains exactly the given terminal ids.
 function herdrWith(...liveTerminalIds: string[]): AppDeps["herdr"] {
   return {
-    list: () =>
+    listAsync: async () =>
       liveTerminalIds.map((terminalId) => ({
         agent: "claude",
         agentStatus: "done",
@@ -2017,7 +2017,7 @@ function clearMergedHarness(reaperExtra?: { canDetectLeftovers?: any; health?: a
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -2736,7 +2736,7 @@ function harnessWithPreviewStop({
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,

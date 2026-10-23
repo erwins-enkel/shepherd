@@ -41,7 +41,7 @@ function deps(
         captured.argv = argv;
         return { terminalId: "t1" };
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,

@@ -283,12 +283,30 @@ export function detectEgressHostLoopback(
  * allowlisted: optional, an exfil surface, and the turn degraded gracefully without
  * them. `statsig.anthropic.com` (feature-gate telemetry) is kept as harmless
  * best-effort. Operators who need a registry/MCP host in autonomous mode add it via
- * SHEPHERD_SANDBOX_EXTRA_HOSTS / the per-repo egressExtraHosts setting.
+ * SHEPHERD_SANDBOX_EXTRA_HOSTS / the per-repo egressExtraHosts setting. The claude.ai
+ * connector proxy is added per spawn by {@link connectorEgressHosts} when the repo opts in.
  */
 export const ANTHROPIC_EGRESS_HOSTS: readonly string[] = [
   "api.anthropic.com",
   "statsig.anthropic.com",
 ] as const;
+
+/** The host Claude Code reaches the claude.ai account connectors through. */
+export const CLAUDEAI_CONNECTOR_EGRESS_HOST = "mcp-proxy.anthropic.com";
+
+/**
+ * Extra egress hosts a spawn needs for the claude.ai account connectors: the connector proxy, but
+ * only when the repo opted in (`claudeAiConnectorsEnabled`) AND the spawn is a Claude task session.
+ * Codex has no claude.ai connectors and the Operator Assistant never gets them, so neither widens
+ * its allowlist.
+ */
+export function connectorEgressHosts(
+  enabled: boolean,
+  spawn: { agentProvider?: string; operatorAssistant?: boolean },
+): string[] {
+  if (!enabled || spawn.agentProvider === "codex" || spawn.operatorAssistant) return [];
+  return [CLAUDEAI_CONNECTOR_EGRESS_HOST];
+}
 
 // ── GitHub well-known set ─────────────────────────────────────────────────────
 

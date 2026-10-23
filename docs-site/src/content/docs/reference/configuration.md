@@ -700,3 +700,30 @@ A few runtime toggles live in the SQLite `settings` table
 cleanup of merged local `shepherd/*` branches, on by default) and
 `sessionAutoArchiveEnabled` (the persisted override for
 `SHEPHERD_SESSION_AUTO_ARCHIVE` above; a stored `"0"`/`"1"` wins over the env seed).
+
+## claude.ai connectors (per repo)
+
+Shepherd starts every Claude session with `ENABLE_CLAUDEAI_MCP_SERVERS=false`, so the connectors of
+your claude.ai account (Claude Docs, Gmail, Google Drive, Notion, Calendar …) are off by default: a
+coding agent has no business reaching your mail unless you say so.
+
+The **claude.ai connectors** switch in a repo's automation settings says so for that repo
+(`claudeAiConnectorsEnabled` in the repo config). With it on:
+
+- The repo's Claude task sessions start and resume with `ENABLE_CLAUDEAI_MCP_SERVERS=true` and see
+  every connector of the account they run under. To turn single ones off in a session, run `/mcp`
+  there.
+- Under the `autonomous` sandbox profile the session's egress allowlist also gets
+  `mcp-proxy.anthropic.com`, the host the connectors are reached through.
+- Codex sessions, the Operator Assistant and the reviewer/critic agents are unaffected and stay
+  without connectors.
+
+Claude Code only loads the connectors with a claude.ai subscription login. In API-key mode the
+switch has no effect. Shepherd leaves a `disableClaudeAiConnectors: true` in your own or a managed
+Claude settings file alone, and that setting can still keep the connectors off.
+
+**Flipping the switch restarts the repo's live Claude sessions** with the new setting, so it takes
+effect without waiting for a new task. The conversation is restored; the pane's terminal scrollback
+is not. Sessions that have been idle for 15 seconds restart right away, sessions mid-turn or
+waiting on a question once they settle, so no turn is cut off. Each session records the setting it
+was started with, so a restart that was still pending when Shepherd restarted happens after boot.

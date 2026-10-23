@@ -1801,6 +1801,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],
+    claudeAiConnectorsEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

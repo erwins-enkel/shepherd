@@ -243,6 +243,7 @@ import { buildLandingPrTitle } from "./epic-landing";
 import type { CompletedEpic } from "./completed-epic";
 import { DeliveryFactsService } from "./delivery";
 import { BuildQueueReminderService } from "./build-queue-reminder";
+import { ConnectorRestartService } from "./connector-restart";
 import { TurnEndBackstopService } from "./turn-end-backstop";
 import { PlanStopTrigger } from "./plan-stop-trigger";
 import { jsonlPathFor } from "./usage";
@@ -1090,6 +1091,15 @@ const buildQueueReminder = new BuildQueueReminderService({
       (await service.reply(id, text, { automatic: true }))
     );
   },
+});
+
+// Restart a repo's live Claude sessions, once each is settled, when its claude.ai-connector switch
+// no longer matches what they were spawned with. Kicked by the repo-config PUT; the 15s tick below
+// covers sessions still mid-turn at that moment and a mismatch left over from before a restart.
+const connectorRestart = new ConnectorRestartService({
+  store,
+  livenessOf: (id) => poller.livenessOf(id),
+  resume: (id) => service.resume(id, { force: true }),
 });
 
 const accountIndex = new AccountUsageIndex();
@@ -2458,6 +2468,10 @@ deferredStarts.push(() => {
     void turnEndBackstop
       .sweep()
       .catch((err) => console.warn("[turn-end-backstop] sweep failed:", err));
+    // settled restart of sessions spawned with a stale claude.ai-connector setting
+    void connectorRestart
+      .sweep()
+      .catch((err) => console.warn("[connector-restart] sweep failed:", err));
   }, 15_000);
 });
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
@@ -3928,6 +3942,7 @@ deferredStarts.push(() => {
 
 const appDeps: AppDeps = {
   store,
+  connectorRestart,
   sharedBrowser,
   netnsDevForward,
   loginRequests,

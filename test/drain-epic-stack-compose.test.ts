@@ -190,6 +190,7 @@ function makeHarness(
     mergeWithoutCi: false,
     epicStacksEnabled: opts.epicStacks ?? true,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });

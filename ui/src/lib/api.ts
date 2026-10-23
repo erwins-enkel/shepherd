@@ -2953,6 +2953,9 @@ export async function adoptGitignore(repoPath: string): Promise<{
 export type RepoConfigResponse = RepoConfig & {
   automationConfirmed?: boolean;
   automationRowExists?: boolean;
+  /** Only on a PUT that flipped `claudeAiConnectorsEnabled`: live Claude sessions restarting with
+   *  the new setting now (settled) and after their current turn. */
+  connectorRestart?: { now: number; later: number };
 };
 
 export async function getRepoConfig(repoPath: string): Promise<RepoConfigResponse> {
@@ -3005,6 +3008,7 @@ export async function putRepoConfig(
       | "epicStacksEnabled"
       | "sharedBrowserEnabled"
       | "browserAllowedHosts"
+      | "claudeAiConnectorsEnabled"
       | "hidden"
       | "previewStartScript"
       | "previewStartCommand"

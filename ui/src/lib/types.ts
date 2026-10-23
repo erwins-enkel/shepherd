@@ -1216,6 +1216,9 @@ export interface RepoConfig {
   sharedBrowserEnabled: boolean;
   /** Exact hostnames an autonomous session's confined Browser Attach may reach (#2883). */
   browserAllowedHosts: string[];
+  /** Let this repo's Claude sessions load the operator's claude.ai account connectors (Docs, Gmail,
+   *  Drive, Notion …). Default off. Flipping it restarts the repo's live Claude sessions. */
+  claudeAiConnectorsEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
   /** Local, non-replicated preview start script path stored by Shepherd. */

@@ -612,6 +612,10 @@ export interface RepoConfig {
   sharedBrowserEnabled: boolean;
   /** Hosts an autonomous Browser Attach may reach (#2883). Normalized hostnames; default []. */
   browserAllowedHosts: string[];
+  /** Let this repo's Claude task sessions load the operator's claude.ai account connectors (Docs,
+   *  Gmail, Drive, Notion …). Default OFF — every spawn pins `ENABLE_CLAUDEAI_MCP_SERVERS=false`
+   *  unless the repo opts in (see spawnSettingsOverlay). */
+  claudeAiConnectorsEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
@@ -678,6 +682,7 @@ type NewSession = Omit<
   | "createdAt"
   | "updatedAt"
   | "settledAt"
+  | "claudeAiConnectors"
   | "archivedAt"
   | "archiveReason"
   | "model"
@@ -778,7 +783,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+  claudeAiConnectors, (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
 /** A bootstrap spawn: P1+P2 carries its resolved stack, P3 (#3110) only its phase. */
 function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">): boolean {
@@ -864,6 +869,7 @@ type SessionRow = {
   experimentRole: string | null;
   spawnTerminalId: string | null;
   spawnAccountDir: string | null;
+  claudeAiConnectors: number | null;
   launchMetadataJson: string | null;
   codexLaunchId: string | null;
 };
@@ -990,6 +996,7 @@ type RepoCfgRow = {
   epicStacksEnabled: number;
   sharedBrowserEnabled: number;
   browserAllowedHosts: string | null;
+  claudeAiConnectorsEnabled: number;
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
@@ -1184,6 +1191,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       epicStacksEnabled: false,
       sharedBrowserEnabled: false,
       browserAllowedHosts: [],
+      claudeAiConnectorsEnabled: false,
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
@@ -1216,6 +1224,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     epicStacksEnabled: !!r.epicStacksEnabled,
     sharedBrowserEnabled: !!r.sharedBrowserEnabled,
     browserAllowedHosts: parseHostListJson(r.browserAllowedHosts),
+    claudeAiConnectorsEnabled: !!r.claudeAiConnectorsEnabled,
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
@@ -1251,6 +1260,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.epicStacksEnabled)),
     Number(Boolean(cfg.sharedBrowserEnabled)),
     JSON.stringify(cfg.browserAllowedHosts ?? []),
+    Number(Boolean(cfg.claudeAiConnectorsEnabled)),
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
@@ -2342,7 +2352,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2355,8 +2365,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2382,6 +2392,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          epicStacksEnabled = excluded.epicStacksEnabled,
          sharedBrowserEnabled = excluded.sharedBrowserEnabled,
          browserAllowedHosts = excluded.browserAllowedHosts,
+         claudeAiConnectorsEnabled = excluded.claudeAiConnectorsEnabled,
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
@@ -5465,6 +5476,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** Record the claude.ai-connector setting a Claude spawn/resume baked into its overlay. The ONLY
+   *  writer is SessionService's persistSpawnIdentity; ConnectorRestartService reads it back. */
+  setClaudeAiConnectors(id: string, on: boolean): void {
+    this.db.run(`UPDATE sessions SET claudeAiConnectors=?, updatedAt=? WHERE id=?`, [
+      Number(on),
+      Date.now(),
+      id,
+    ]);
+  }
+
   /** Persist a provider-native session id (the Codex rollout UUID) discovered post-spawn. Dedicated
    *  setter (the generic update() whitelist would work too, but this mirrors {@link setSpawnIdentity}'s
    *  targeted-UPDATE style for a post-spawn-discovered marker). Callers only ever pass a non-empty id. */
@@ -6419,6 +6440,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // account's CLAUDE_CONFIG_DIR. Both nullable; written only via setSpawnIdentity.
     add("spawnTerminalId", `spawnTerminalId TEXT`);
     add("spawnAccountDir", `spawnAccountDir TEXT`);
+    // The claude.ai-connector setting the live agent was spawned with (written only via
+    // setClaudeAiConnectors). Nullable, no default: null reads as "spawned with connectors off".
+    add("claudeAiConnectors", `claudeAiConnectors INTEGER`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
     // The commit the worktree was actually created from (#2761). Nullable, no default: legacy rows
@@ -6590,6 +6614,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("sharedBrowserEnabled", `sharedBrowserEnabled INTEGER NOT NULL DEFAULT 0`);
     // #2883: hosts an autonomous Browser Attach may reach; JSON string array (nullable, default []).
     add("browserAllowedHosts", `browserAllowedHosts TEXT`);
+    // default OFF — opt-in; let this repo's Claude sessions load the claude.ai account connectors
+    add("claudeAiConnectorsEnabled", `claudeAiConnectorsEnabled INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.
@@ -7350,6 +7376,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           : null,
       spawnTerminalId: r.spawnTerminalId ?? null,
       spawnAccountDir: r.spawnAccountDir ?? null,
+      claudeAiConnectors: nullableBool(r.claudeAiConnectors),
     } as Session;
   }
 

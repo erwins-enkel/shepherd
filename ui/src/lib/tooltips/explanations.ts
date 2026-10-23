@@ -344,6 +344,33 @@ export function sharedBrowserExplanation(): TooltipExplanation {
   };
 }
 
+/** Automation → "claude.ai connectors": what the per-repo switch unlocks, what agents can then
+ *  reach, what it needs, and what flipping it does to running sessions. */
+export function claudeAiConnectorsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_claudeai_connectors_title(),
+    summary: m.tooltip_claudeai_connectors_summary(),
+    sections: [
+      {
+        label: m.tooltip_claudeai_connectors_for(),
+        text: m.tooltip_claudeai_connectors_for_body(),
+      },
+      {
+        label: m.tooltip_claudeai_connectors_cost(),
+        text: m.tooltip_claudeai_connectors_cost_body(),
+      },
+      {
+        label: m.tooltip_claudeai_connectors_needs(),
+        text: m.tooltip_claudeai_connectors_needs_body(),
+      },
+      {
+        label: m.tooltip_claudeai_connectors_switch(),
+        text: m.tooltip_claudeai_connectors_switch_body(),
+      },
+    ],
+  };
+}
+
 /** Browser allowed hosts (#2898): what to enter, what is always refused, what else it needs. */
 export function browserAllowedHostsExplanation(): TooltipExplanation {
   return {

@@ -1250,6 +1250,13 @@ test("spawnSettingsOverlay pins remoteControlAtStartup + disables claude.ai conn
   }
 });
 
+test("spawnSettingsOverlay: a repo's claude.ai connector opt-in pins the env to true; off stays byte-identical", () => {
+  expect(spawnSettingsOverlay({ claudeAiConnectors: false })).toBe(spawnSettingsOverlay());
+  expect(JSON.parse(spawnSettingsOverlay({ claudeAiConnectors: true })).env).toEqual({
+    ENABLE_CLAUDEAI_MCP_SERVERS: "true",
+  });
+});
+
 test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper/promptCacheTtl); api-key + helper path => adds promptCacheTtl 1h + apiKeyHelper last", () => {
   const prevMode = config.authMode;
   const prevPath = config.authApiKeyHelperPath;
@@ -5231,6 +5238,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });
@@ -6190,6 +6198,7 @@ function buildQueueDeps(
       mergeWithoutCi: false,
       epicStacksEnabled: false,
       sharedBrowserEnabled: false,
+      claudeAiConnectorsEnabled: false,
       browserAllowedHosts: [],
       hidden: false,
       ...repoConfig,
@@ -7273,6 +7282,66 @@ test("resume of an auto session re-applies the trim: plugin-off + skill overlay"
   } finally {
     config.trimAutoContext = prev;
   }
+});
+
+test("a repo's claude.ai connector opt-in reaches the create overlay; switching it off pins false again", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", {
+    ...store.getRepoConfig("/repo"),
+    claudeAiConnectorsEnabled: true,
+  });
+  const captured: { argv?: string[] } = {};
+  const { deps } = trimDeps(store, captured, [], []);
+  const svc = new SessionService(deps as any);
+  const on = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  });
+  expect(settingsOverlay(captured.argv!).env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "true" });
+  // the restart sweep compares this stamp with the repo setting
+  expect(store.get(on.id)!.claudeAiConnectors).toBe(true);
+
+  store.setRepoConfig("/repo", {
+    ...store.getRepoConfig("/repo"),
+    claudeAiConnectorsEnabled: false,
+  });
+  await svc.create({ repoPath: "/repo", baseBranch: "main", prompt: "p", model: null, images: [] });
+  expect(settingsOverlay(captured.argv!).env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "false" });
+});
+
+test("resume re-reads the repo's claude.ai connector opt-in", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: { argv?: string[] } = {};
+  const svc = new SessionService({
+    transcriptExists: () => true,
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      listAsync: async () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store);
+  expect(store.get(s.id)!.claudeAiConnectors).toBeNull(); // legacy / never stamped
+  store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), claudeAiConnectorsEnabled: true });
+  await svc.resume(s.id);
+  expect(settingsOverlay(calls.argv!).env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "true" });
+  expect(store.get(s.id)!.claudeAiConnectors).toBe(true);
 });
 
 // ── relaunch ───────────────────────────────────────────────────────────────
@@ -8525,6 +8594,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });
@@ -8574,6 +8644,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
     hidden: false,
   });

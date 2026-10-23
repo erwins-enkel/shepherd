@@ -2332,6 +2332,45 @@ test("PUT /api/repo-config rejects non-boolean mergeWithoutCi", async () => {
   expect(res.status).toBe(400);
 });
 
+// ── claudeAiConnectorsEnabled repo-config ───────────────────────────────────
+
+test("PUT /api/repo-config accepts claudeAiConnectorsEnabled true → 200 and persists it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).claudeAiConnectorsEnabled).toBe(false); // default off
+  const res = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).claudeAiConnectorsEnabled).toBe(true);
+  expect(deps.store.getRepoConfig(validRepo).claudeAiConnectorsEnabled).toBe(true);
+});
+
+test("PUT /api/repo-config kicks the connector restart sweep only when the switch flips", async () => {
+  const deps = makeDeps();
+  let sweeps = 0;
+  deps.connectorRestart = {
+    sweep: async () => void sweeps++,
+    pending: () => ({ now: 2, later: 1 }),
+  };
+  const app = makeApp(deps);
+  const flipped = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true });
+  expect(sweeps).toBe(1);
+  // the UI's toast reads what is about to restart off the PUT that flipped the switch
+  expect((await flipped.json()).connectorRestart).toEqual({ now: 2, later: 1 });
+  const same = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: true }); // unchanged
+  expect((await same.json()).connectorRestart).toBeUndefined();
+  await putRepoConfig(app, validRepo, { criticEnabled: false }); // another field
+  expect(sweeps).toBe(1);
+  await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: false });
+  expect(sweeps).toBe(2);
+});
+
+test("PUT /api/repo-config rejects non-boolean claudeAiConnectorsEnabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { claudeAiConnectorsEnabled: "yes" });
+  expect(res.status).toBe(400);
+});
+
 // ── epicStacksEnabled repo-config (#2069) ────────────────────────────────────
 test("PUT /api/repo-config accepts epicStacksEnabled true → 200 and GET reflects it", async () => {
   const deps = makeDeps();

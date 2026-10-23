@@ -6884,5 +6884,20 @@
   "settings_assistant_start_title": "Sessions starten",
   "settings_assistant_start_hint": "Neue Session in einem Repo starten, wie mit Neue Aufgabe: eigener Worktree, dein Standard-Modell und das Plan-Gate des Repos.",
   "feat_assistant_start_sessions_title": "Der Assistent startet Sessions",
-  "feat_assistant_start_sessions_body": "Bitte den Operator-Assistenten — oder einen Repo-Assistenten für sein Repo —, etwas erledigen zu lassen, und er startet dafür eine neue Session, genau wie Neue Aufgabe, und nennt dir ihre Bezeichnung. Unter Einstellungen → Assistent → Sessions starten schaltest du das ab oder lässt ihn vorher fragen; standardmäßig ist es erlaubt."
+  "feat_assistant_start_sessions_body": "Bitte den Operator-Assistenten — oder einen Repo-Assistenten für sein Repo —, etwas erledigen zu lassen, und er startet dafür eine neue Session, genau wie Neue Aufgabe, und nennt dir ihre Bezeichnung. Unter Einstellungen → Assistent → Sessions starten schaltest du das ab oder lässt ihn vorher fragen; standardmäßig ist es erlaubt.",
+  "automation_claudeai_connectors_name": "claude.ai-Connectoren",
+  "automation_claudeai_connectors_desc": "Die Claude-Sessions dieses Repos dürfen die Connectoren deines claude.ai-Kontos nutzen, etwa Claude Docs, Drive oder Notion.",
+  "automation_claudeai_connectors_restart_toast": "Claude-Sessions starten mit der neuen Connector-Einstellung neu: {now} jetzt, {later} nach ihrem aktuellen Turn",
+  "tooltip_claudeai_connectors_title": "claude.ai-Connectoren",
+  "tooltip_claudeai_connectors_summary": "Standardmäßig aus: Shepherd startet jede Claude-Session ohne die Connectoren deines claude.ai-Kontos. Schalte das für Repos ein, deren Agenten sie brauchen.",
+  "tooltip_claudeai_connectors_for": "Wofür",
+  "tooltip_claudeai_connectors_for_body": "Agenten können bei der Arbeit an diesem Repo Dokumente in Claude Docs lesen und schreiben oder in Drive oder Notion nachschlagen.",
+  "tooltip_claudeai_connectors_cost": "Was Agenten erreichen",
+  "tooltip_claudeai_connectors_cost_body": "Jeden Connector deines Kontos, auch Gmail und Kalender. Einzelne schaltest du in einer Session mit /mcp ab.",
+  "tooltip_claudeai_connectors_needs": "Voraussetzung",
+  "tooltip_claudeai_connectors_needs_body": "Eine Anmeldung mit claude.ai-Abo; mit API-Key gibt es keine Connectoren. Autonome Sessions bekommen mcp-proxy.anthropic.com auf ihre Egress-Allowlist.",
+  "tooltip_claudeai_connectors_switch": "Beim Umschalten",
+  "tooltip_claudeai_connectors_switch_body": "Laufende Claude-Sessions dieses Repos starten mit der neuen Einstellung neu: ruhende sofort, arbeitende nach ihrem aktuellen Turn. Die Unterhaltung bleibt, der Terminal-Verlauf nicht. Codex-Sessions sind nicht betroffen.",
+  "feat_claudeai_connectors_title": "claude.ai-Connectoren je Repo",
+  "feat_claudeai_connectors_body": "Shepherd startet Claude-Sessions ohne deine claude.ai-Connectoren. In den Automatisierungseinstellungen eines Repos kannst du sie seinen Agenten jetzt freigeben – Claude Docs, Drive, Notion und die übrigen. Laufende Sessions starten mit der neuen Einstellung neu, sobald ihr aktueller Turn endet."
 }

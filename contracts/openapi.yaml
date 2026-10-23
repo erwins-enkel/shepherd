@@ -5506,6 +5506,7 @@ components:
         - mergeWithoutCi
         - epicStacksEnabled
         - sharedBrowserEnabled
+        - claudeAiConnectorsEnabled
         - hidden
         - signoffAuthority
         - maxAuto
@@ -5553,8 +5554,25 @@ components:
           type: boolean
           description: >-
             Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo profile that the operator logs in to and this repo's agents drive via brokered CDP. Agents attached to this repo can read every login in its profile.
+        claudeAiConnectorsEnabled:
+          type: boolean
+          description: >-
+            Let this repo's Claude task sessions load the operator's claude.ai account connectors (Claude Docs, Gmail, Drive, Notion …). Off by default. Flipping it restarts the repo's live Claude sessions once each is idle, and under the autonomous sandbox profile it allowlists the connector proxy host.
         hidden:
           type: boolean
+        connectorRestart:
+          type: object
+          description: >-
+            Present only on a PUT that flipped claudeAiConnectorsEnabled: how many live Claude sessions of the repo restart with the new setting now (settled) and after their current turn.
+          additionalProperties: false
+          required:
+            - now
+            - later
+          properties:
+            now:
+              type: integer
+            later:
+              type: integer
         signoffAuthority:
           type: string
         maxAuto:
@@ -5633,6 +5651,10 @@ components:
           type: boolean
           description: >-
             Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo profile that the operator logs in to and this repo's agents drive via brokered CDP. Agents attached to this repo can read every login in its profile.
+        claudeAiConnectorsEnabled:
+          type: boolean
+          description: >-
+            Let this repo's Claude task sessions load the operator's claude.ai account connectors (Claude Docs, Gmail, Drive, Notion …). Off by default. Flipping it restarts the repo's live Claude sessions once each is idle, and under the autonomous sandbox profile it allowlists the connector proxy host.
         hidden:
           type: boolean
         signoffAuthority:

@@ -8,7 +8,10 @@
   import { DOCS_URL } from "#lib/build-info.js";
   import AutomationInfoTip from "./automation-settings/AutomationInfoTip.svelte";
   import InfoTip from "./InfoTip.svelte";
-  import { sharedBrowserExplanation } from "#lib/tooltips/explanations.js";
+  import {
+    claudeAiConnectorsExplanation,
+    sharedBrowserExplanation,
+  } from "#lib/tooltips/explanations.js";
   import AutomationDetail from "./automation-settings/AutomationDetail.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
@@ -87,6 +90,14 @@
       toasts.info(sharedBrowserOpenError(e), { alert: true });
     } finally {
       openingBrowser = false;
+    }
+  }
+
+  /** Flip the connector switch; a flip that restarts sessions says how many, now and later. */
+  async function toggleClaudeAiConnectors() {
+    const restart = await repoConfig.toggleClaudeAiConnectors(repoPath);
+    if (restart && restart.now + restart.later > 0) {
+      toasts.info(m.automation_claudeai_connectors_restart_toast(restart));
     }
   }
 
@@ -536,6 +547,28 @@
   </button>
 </div>
 <BrowserAllowedHosts {repoPath} />
+<div class="auto-row">
+  <div class="auto-meta">
+    <div class="auto-name">
+      ⧉ {m.automation_claudeai_connectors_name()}
+      <InfoTip
+        text={claudeAiConnectorsExplanation()}
+        label={m.tooltip_claudeai_connectors_title()}
+      />
+    </div>
+    <div class="auto-desc">{m.automation_claudeai_connectors_desc()}</div>
+  </div>
+  <button
+    class={["sw", { on: repoConfig.claudeAiConnectorsOn(repoPath) }]}
+    type="button"
+    role="switch"
+    aria-checked={repoConfig.claudeAiConnectorsOn(repoPath)}
+    aria-label={m.automation_claudeai_connectors_name()}
+    onclick={toggleClaudeAiConnectors}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
 <div class={["auto-row", { disabled: flags.draftMode }]}>
   <div class="auto-meta">
     <div class="auto-name">

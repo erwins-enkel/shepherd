@@ -633,6 +633,12 @@ export interface AppDeps {
   restart?: Pick<RestartService, "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
+  /** Restarts live Claude sessions after a repo's claude.ai-connector switch flips; absent → the
+   *  15s tick never runs either (tests), so a flip applies at each session's next resume. */
+  connectorRestart?: Pick<
+    import("./connector-restart").ConnectorRestartService,
+    "sweep" | "pending"
+  >;
   /** Shared Browser lifecycle (ADR 0001); absent in tests that don't exercise Browser Attach. */
   sharedBrowser?: Pick<
     import("./shared-browser").SharedBrowserManager,
@@ -2531,6 +2537,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "mergeWithoutCi",
   "epicStacksEnabled",
   "sharedBrowserEnabled",
+  "claudeAiConnectorsEnabled",
   "hidden",
 ] as const;
 
@@ -2550,6 +2557,7 @@ type RepoCfgBody = {
   mergeWithoutCi?: unknown;
   epicStacksEnabled?: unknown;
   sharedBrowserEnabled?: unknown;
+  claudeAiConnectorsEnabled?: unknown;
   hidden?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
@@ -2659,6 +2667,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       mergeWithoutCi?: boolean;
       epicStacksEnabled?: boolean;
       sharedBrowserEnabled?: boolean;
+      claudeAiConnectorsEnabled?: boolean;
       hidden?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
@@ -2714,7 +2723,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -2735,6 +2744,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     mergeWithoutCi: body.mergeWithoutCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
     sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
+    claudeAiConnectorsEnabled: body.claudeAiConnectorsEnabled as boolean | undefined,
     hidden: body.hidden as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
@@ -2774,13 +2784,33 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
       return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
     }
   }
-  const browserWasOn = deps.store.getRepoConfig(dir).sharedBrowserEnabled;
+  const before = deps.store.getRepoConfig(dir);
   const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
   if (!r.ok) return json({ error: r.error }, 400);
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
-  if (browserWasOn && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
-  return json(r.config);
+  if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
+  if (before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled)
+    return json(r.config);
+  return json({ ...r.config, connectorRestart: kickConnectorRestart(deps, dir) });
+}
+
+/**
+ * A flipped claude.ai-connector switch restarts the repo's settled live sessions now rather than on
+ * the next 15s tick; sessions mid-turn are picked up by that tick once they settle. The counts are
+ * read before the sweep starts, so they say what is about to restart (the UI's toast). Undefined
+ * (key dropped from the response) when the restart service is not wired.
+ */
+function kickConnectorRestart(
+  deps: AppDeps,
+  dir: string,
+): { now: number; later: number } | undefined {
+  if (!deps.connectorRestart) return undefined;
+  const pending = deps.connectorRestart.pending(dir);
+  void deps.connectorRestart
+    .sweep()
+    .catch((err) => console.warn("[connector-restart] sweep failed:", err));
+  return pending;
 }
 
 // ── project bootstrap (#3105) ─────────────────────────────────────────────────────────────────

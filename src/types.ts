@@ -245,6 +245,11 @@ export interface Session {
    *  once set (see persistSpawnIdentity) — a failed/wrong re-derivation can't silently self-clear
    *  onto the default account. */
   spawnAccountDir: string | null;
+  /** The claude.ai-connector setting (`ENABLE_CLAUDEAI_MCP_SERVERS`) the live agent was last spawned
+   *  or resumed with — the repo's `claudeAiConnectorsEnabled` at that moment. OPTIONAL like
+   *  `settledAt`: null/absent means it was spawned with the connectors off (legacy rows, Codex, the
+   *  Operator Assistant). ConnectorRestartService compares it with the repo's current value. */
+  claudeAiConnectors?: boolean | null;
   /** Launch-time display metadata for the task-id tooltip. Null/absent for legacy rows. */
   launchMetadata?: SessionLaunchMetadata | null;
 }

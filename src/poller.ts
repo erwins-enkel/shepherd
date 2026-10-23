@@ -775,7 +775,7 @@ export class StatusPoller {
       const activeIds = new Set<string>();
       for (const listed of sessions) {
         activeIds.add(listed.id);
-        await this.tickSession(listed.id, matched);
+        await this.tickSession(listed, matched);
       }
       this.pruneInactive(activeIds);
       // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired
@@ -1205,11 +1205,17 @@ export class StatusPoller {
   }
 
   /** One session's share of `tick`. Extracted to keep tick's cognitive complexity in bound. */
-  private async tickSession(id: string, matched: Map<string, HerdrAgent | null>): Promise<void> {
+  private async tickSession(
+    listed: Session,
+    matched: Map<string, HerdrAgent | null>,
+  ): Promise<void> {
     // Re-read: an earlier session's awaited terminal read (reconcileAgent) yields the loop, so
-    // this row may have been archived or updated since the tick listed sessions.
-    const s = this.store.get(id);
+    // this row may have been archived, resumed or respawned since the tick listed sessions. A
+    // changed identity/status means `matched` (taken from the pre-await `agent list`) no longer
+    // describes it — reaping or re-pointing it would undo that change. Next tick re-pairs it.
+    const s = this.store.get(listed.id);
     if (!s || s.status === "archived") return;
+    if (s.herdrAgentId !== listed.herdrAgentId || s.status !== listed.status) return;
     // Clean-terminal sessions (pane-direct) have NO herdr agent: reconciling would read
     // "gone" every tick. Their liveness is pane existence — sweepTerminalPanes below.
     if (s.terminal) return;

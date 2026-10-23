@@ -1546,7 +1546,9 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     const now = this.now();
     const timedOut = now - f.startedAt > this.timeoutMs;
     const exited = !raw && (await this.codexReviewerExited(f, now));
-    if (f.finalizing) return null; // an overlapping tick claimed it while herdr was being listed
+    // While herdr was being listed, an overlapping tick may have claimed the run, or reapReviewer
+    // dropped it from `inflight` — either way it is not this tick's to settle.
+    if (f.finalizing || this.inflight.get(f.sessionId) !== f) return null;
     if (!raw && !timedOut && !exited) {
       // still running — surface what the reviewer is doing right now. Emit every tick (not
       // only on change) so a reloaded client repopulates within one tick; the client dedups

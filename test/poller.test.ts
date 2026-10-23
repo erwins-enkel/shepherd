@@ -3557,3 +3557,49 @@ test("a failing tab list leaves the pre-existing behaviour (reap), never a mis-p
   expect(h.store.get(h.ids.a)!.status).toBe("done");
   expect(h.store.get(h.ids.b)!.status).toBe("done");
 });
+
+test("a session resumed while an earlier session's terminal read is awaited is not reaped (#3127)", async () => {
+  const store = new SessionStore(":memory:");
+  const a = store.create({ ...baseSession, herdrAgentId: "term_a", worktreePath: "/wt-a" });
+  await Bun.sleep(2); // createdAt orders the tick: A (awaits a read) is handled before B
+  const b = store.create({ ...baseSession, herdrAgentId: "term_b_old", worktreePath: "/wt-b" });
+  store.update(b.id, { status: "done", lastState: "done" });
+  const herdr = withListAsync({
+    // Only A is live; B's old pane is gone, so the pre-await pairing has B unmatched.
+    list: (): HerdrAgent[] => [
+      {
+        agent: "claude",
+        agentStatus: "blocked",
+        cwd: "/wt-a",
+        paneId: "p",
+        tabId: "t",
+        name: "",
+        terminalId: "term_a",
+        workspaceId: "w",
+      },
+    ],
+    readAsync: async () => {
+      // B is resumed onto a fresh pane while A's classify read is in flight.
+      store.update(b.id, { status: "running", lastState: "working", herdrAgentId: "term_b_new" });
+      return "Do you want to proceed?\n❯ 1. Yes\n  2. No";
+    },
+  });
+  const changes: Array<[string, string]> = [];
+  const poller = new StatusPoller(
+    store,
+    herdr,
+    (id, status) => changes.push([id, status]),
+    () => {},
+    1000,
+    3000,
+    classifyBlocked,
+    () => 1_000_000,
+  );
+
+  await poller.tick();
+
+  expect(store.get(a.id)?.status).toBe("blocked");
+  expect(store.get(b.id)?.status).toBe("running");
+  expect(store.get(b.id)?.herdrAgentId).toBe("term_b_new");
+  expect(changes.filter(([id]) => id === b.id)).toEqual([]);
+});

@@ -4021,3 +4021,21 @@ test("after cancel, auto consider on the same plan is skipped; a changed plan or
   expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
   expect(h.started).toHaveLength(3);
 });
+
+test("tick does not finalize a codex review reaped while herdr was being listed (#3127)", async () => {
+  let clock = 1000;
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.5", effort: null }),
+    now: () => clock,
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(h.started).toHaveLength(1);
+  const sessionId = planningSession().id;
+  h.deps.herdr.listAsync = async () => {
+    h.svc.reapReviewer(sessionId); // operator stop lands mid-list
+    return []; // reviewer pane gone → would read as a verdict-less exit
+  };
+  clock += 60_000; // past the codex exit grace
+  await h.svc.tick();
+  expect((h.store as any).gate).toBeUndefined();
+});

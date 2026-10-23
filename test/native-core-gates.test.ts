@@ -138,6 +138,18 @@ describe("native core gates", () => {
   test("rejects duplicate identities", () => {
     expect(results(summary(), [node("first"), node("first")]).exitCode).not.toBe(0);
   });
+  test("names the failing assertion file:line from the xcresult tree", () => {
+    const failed = {
+      ...node("second", "Failed"),
+      children: [{ nodeType: "Failure Message", name: "Example.swift:7: Expectation failed" }],
+    };
+    const result = results(summary(1, 0, 1), [node("first"), failed]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain(
+      "FAILURE: CoreSeamTests/Example/second(): Example.swift:7: Expectation failed",
+    );
+    expect(results().stderr.toString()).not.toContain("FAILURE:");
+  });
   test("rejects unknown tree schema", () => {
     expect(results(summary(), {}).exitCode).not.toBe(0);
   });

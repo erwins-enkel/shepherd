@@ -126,6 +126,18 @@ def xcresult_rows(tree):
     return rows, arguments
 
 
+def failure_messages(tree, case=None):
+    """Best-effort `case: File.swift:line: message` lines for the CI log; never raises."""
+    nodes = tree.get("testNodes") if isinstance(tree, dict) else tree
+    for node in nodes if isinstance(nodes, list) else []:
+        if not isinstance(node, dict):
+            continue
+        if node.get("nodeType") == "Failure Message":
+            yield f"{case}: {node.get('name')}"
+        yield from failure_messages(node.get("children"),
+                                    node.get("nodeIdentifier") if node.get("nodeType") == "Test Case" else case)
+
+
 def xunit_rows(path, target):
     root = ET.parse(path).getroot()
     if root.tag != "testsuites" or len(root) != 1 or root[0].tag != "testsuite":
@@ -191,7 +203,10 @@ if __name__ == "__main__":
                       "per-argument coverage UNVERIFIED here; core requires the simulator xcresult gate")
         elif args.summary and args.tests and not args.xunit:
             summary = json.loads(Path(args.summary).read_text())
-            rows, arguments = xcresult_rows(json.loads(Path(args.tests).read_text()))
+            tree = json.loads(Path(args.tests).read_text())
+            for line in failure_messages(tree):
+                print(f"FAILURE: {line}", file=sys.stderr)
+            rows, arguments = xcresult_rows(tree)
             required = expected_arguments(args.parameters, args.target, parameterized)
             if arguments != required:
                 mismatches = sorted(key for key in arguments.keys() | required.keys()

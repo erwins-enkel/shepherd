@@ -72,7 +72,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         expected = json.loads(Path(args.expected).read_text()) if args.expected else source_inventory(args.source_root, args.suite)
-        print(validate(json.loads(Path(args.summary).read_text()), json.loads(Path(args.tests).read_text()), expected))
+        tree = json.loads(Path(args.tests).read_text())
+        for line in core.failure_messages(tree):
+            print(f"FAILURE: {line}", file=sys.stderr)
+        print(validate(json.loads(Path(args.summary).read_text()), tree, expected))
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         sys.exit(1)

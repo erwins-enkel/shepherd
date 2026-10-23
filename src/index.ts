@@ -3827,7 +3827,7 @@ async function applyFingerprintChanges(issueSlugs: Set<string>, refresh: string[
     }
   }
   if (refresh.length === 0) return;
-  await Promise.all(refresh.map((path) => backlog.refresh(path, "fingerprint-plan")));
+  await Promise.all(refresh.map((path) => backlog.sync(path, "fingerprint-plan")));
   if (presence.hasClients()) await broadcastBacklog();
 }
 // The reconcile and count re-fetches run off the fingerprint's own run, so an operator view

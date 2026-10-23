@@ -786,7 +786,7 @@ function mapMergeable(v: string | undefined): boolean | null {
 }
 
 /** GitHub StatusState rollup → our CiStatus. Unknown/absent → null. */
-function mapRollupState(state: string | undefined | null): CiStatus {
+export function mapRollupState(state: string | undefined | null): CiStatus {
   switch (state) {
     case "SUCCESS":
       return "success";

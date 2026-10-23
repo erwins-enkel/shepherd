@@ -12,9 +12,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { CountsService } from "../src/backlog";
-import { GithubReadCache, type GithubCacheStore } from "../src/github-read-cache";
+import { GithubReadCache, countsKey, type GithubCacheStore } from "../src/github-read-cache";
 import type { GhRunner } from "../src/forge/github";
-import type { ForgeMap } from "../src/forge/types";
+import type { ForgeMap, PullRequest } from "../src/forge/types";
+import type { RepoFingerprint } from "../src/forge/github-fingerprint";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -679,4 +680,100 @@ test("CountsService: concurrent refreshes of different repos go out as one alias
   const res = await Promise.all(dirs.map((d) => svc.refresh(d)));
   expect(queries.length).toBe(1);
   expect(res.map((r) => r.openIssues).sort()).toEqual([1, 2, 3]);
+});
+
+// ── fingerprint-derived counts (#2879) ──────────────────────────────────────
+
+const memStore = () =>
+  ({
+    listGithubReadCache: () => [],
+    putGithubReadCache: () => {},
+    deleteGithubReadCache: () => {},
+  }) as unknown as GithubCacheStore;
+
+const fp = (o: Partial<RepoFingerprint> = {}): RepoFingerprint => ({
+  openIssues: 5,
+  issuesUpdatedAt: "2026-10-01T00:00:00Z",
+  openPrs: 3,
+  prsUpdatedAt: "2026-10-01T00:00:00Z",
+  ciState: "SUCCESS",
+  ...o,
+});
+
+const pr = (kind: PullRequest["kind"]) => ({ kind }) as PullRequest;
+
+/** A covered GitHub repo whose cache holds `cachedFp` and counts fetched under it. */
+function derivedSetup() {
+  const dir = gitInit(join(tmpBase, "derive"), "https://github.com/o/derive");
+  let clock = 1_000_000;
+  const cache = new GithubReadCache(memStore(), { now: () => clock });
+  const { run, calls } = fakeRunner(
+    JSON.stringify({
+      data: { repository: { issues: { totalCount: 99 }, pullRequests: { totalCount: 0 } } },
+    }),
+  );
+  const svc = new CountsService({}, run, fetch, 6, undefined, undefined, cache);
+  const prKinds = { release: 1, dependabot: 1, regular: 1 };
+  const old = fp();
+  cache.put("fingerprint", "o/derive", null, old);
+  cache.put("counts", "o/derive", countsKey(old), {
+    openIssues: 5,
+    openPRs: 3,
+    ciStatus: "success",
+    prKinds,
+  });
+  const graphql = () => calls.filter((c) => c.includes("graphql")).length;
+  return { dir, cache, svc, prKinds, graphql, advance: (ms: number) => (clock += ms) };
+}
+
+test("CountsService: issues/CI-only fingerprint move is derived without a fetch", async () => {
+  const { dir, cache, svc, prKinds, graphql } = derivedSetup();
+  cache.put("fingerprint", "o/derive", null, fp({ openIssues: 7, ciState: "FAILURE" }));
+  expect(await svc.counts(dir)).toEqual({
+    openIssues: 7,
+    openPRs: 3,
+    ciStatus: "failure",
+    prKinds,
+  });
+  expect((await svc.sync(dir, "test")).openIssues).toBe(7);
+  expect(graphql()).toBe(0);
+});
+
+test("CountsService: PR move takes prKinds from a matching open-PR snapshot", async () => {
+  const { dir, cache, svc, graphql } = derivedSetup();
+  const next = fp({ openPrs: 4, prsUpdatedAt: "2026-10-02T00:00:00Z" });
+  cache.put("fingerprint", "o/derive", null, next);
+  cache.put("prs", "o/derive", cache.contentKey("prs", "o/derive"), {
+    prs: [pr("release"), pr("dependabot"), pr("dependabot"), pr("regular")],
+    statuses: new Map(),
+    capped: false,
+  });
+  expect(await svc.sync(dir, "test")).toEqual({
+    openIssues: 5,
+    openPRs: 4,
+    ciStatus: "success",
+    prKinds: { release: 1, dependabot: 2, regular: 1 },
+  });
+  expect(graphql()).toBe(0);
+});
+
+test("CountsService: PR move without a matching snapshot fetches once", async () => {
+  const { dir, cache, svc, graphql } = derivedSetup();
+  cache.put("fingerprint", "o/derive", null, fp({ prsUpdatedAt: "2026-10-02T00:00:00Z" }));
+  expect((await svc.sync(dir, "test")).openIssues).toBe(99);
+  expect(graphql()).toBe(1);
+});
+
+test("CountsService: a covered entry past 24h is re-derived and restamped, not fetched", async () => {
+  const { dir, cache, svc, prKinds, graphql, advance } = derivedSetup();
+  const now = advance(25 * 60 * 60_000);
+  expect((await svc.counts(dir)).prKinds).toEqual(prKinds);
+  expect(cache.get("counts", "o/derive")?.at).toBe(now);
+  expect(graphql()).toBe(0);
+});
+
+test("CountsService: refresh still fetches a covered repo", async () => {
+  const { dir, svc, graphql } = derivedSetup();
+  expect((await svc.refresh(dir)).openIssues).toBe(99);
+  expect(graphql()).toBe(1);
 });

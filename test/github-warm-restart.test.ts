@@ -748,7 +748,7 @@ describe("GitHub warm restart", () => {
     expect(reads).toBe(2);
   });
 
-  test("backlog counts rehydrate before the first fingerprint and refresh only on a changed counts key", async () => {
+  test("backlog counts rehydrate before the first fingerprint and derive a changed counts key", async () => {
     const dir = mkdtempSync(join(tmpdir(), "shepherd-warm-counts-"));
     try {
       execFileSync("git", ["init", "-q", dir]);
@@ -793,11 +793,12 @@ describe("GitHub warm restart", () => {
       expect(reads).toBe(1);
       h.changeCounts();
       await warm.svc.tick();
-      expect((await rehydrated.counts(dir)).openPRs).toBe(2);
-      expect(reads).toBe(2);
+      // A CI-only move is derived from the fingerprint, not fetched (#2879).
+      expect((await rehydrated.counts(dir)).ciStatus).toBe("failure");
+      expect(reads).toBe(1);
       await warm.forge.closeIssue(10);
       expect(rehydrated.peek(dir)).toBeNull();
-      expect((await rehydrated.counts(dir)).openPRs).toBe(3);
+      expect((await rehydrated.counts(dir)).openPRs).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

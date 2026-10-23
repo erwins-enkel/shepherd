@@ -50,7 +50,10 @@ const GITHUB_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
 export const issuesKey = (f: RepoFingerprint) => `${f.openIssues}|${f.issuesUpdatedAt}`;
 export const countsKey = (f: RepoFingerprint) =>
   `${f.openIssues}|${f.openPrs}|${f.prsUpdatedAt}|${f.ciState}`;
-const prsKey = (f: RepoFingerprint) => `${f.openPrs}|${f.prsUpdatedAt}`;
+export const prsKey = (f: RepoFingerprint) => `${f.openPrs}|${f.prsUpdatedAt}`;
+/** The {@link prsKey} part of a {@link countsKey}. */
+export const countsPrsPart = (countsContentKey: string) =>
+  countsContentKey.split("|").slice(1, 3).join("|");
 const key = (kind: string, slug: string, entryKey: string) =>
   JSON.stringify([kind, slug, entryKey]);
 

@@ -4,6 +4,8 @@
 // fan-out shape (mapBounded, ~6 concurrent) and the REAL epic pipeline (drain.buildEpic +
 // selectEpicCandidates) so epic readiness gates on store session/integration/claim/PR facts,
 // never on raw listIssues (which lacks them and would mis-gate).
+import { createHash } from "node:crypto";
+import type { EventHub } from "./events";
 import { realpathSync } from "node:fs";
 import { mapBounded } from "./map-bounded";
 import { parseEpicBody } from "./epic-parse";
@@ -57,6 +59,16 @@ export function buildUpNextRepos(args: {
   return result;
 }
 
+export interface UpNextChanged {
+  version: string;
+  computedAt: number;
+}
+
+/** Shared by production wiring and the real-transport regression test. */
+export function upNextChangePublisher(events: Pick<EventHub, "emit">): UpNextDeps["onChange"] {
+  return (_snapshot, change) => events.emit("upnext:changed", change);
+}
+
 export interface UpNextDeps {
   /** Forge-backed repos only (the caller filters out non-forge / lightweight repos). */
   listForgeRepos: () => UpNextRepo[];
@@ -66,8 +78,8 @@ export interface UpNextDeps {
   /** The drain's on-demand epic assembler (pulls session/integration/claim/PR facts). */
   buildEpic: (repoPath: string, run: EpicRun) => Promise<Epic | null>;
   getEpicRun: (repoPath: string) => EpicRun | null;
-  /** Push the fresh snapshot to clients (a `upnext:snapshot` WS frame). */
-  onChange: (snap: UpNextSnapshot) => void;
+  /** Publication callback: snapshots stay in memory; clients receive only the change metadata. */
+  onChange: (snap: UpNextSnapshot, change: UpNextChanged) => void;
   now?: () => number;
   concurrency?: number;
   intervalMs?: number;
@@ -176,7 +188,10 @@ export class UpNextService {
   private publish(snap: UpNextSnapshot): UpNextSnapshot {
     this.snap = snap;
     try {
-      this.deps.onChange(snap);
+      this.deps.onChange(snap, {
+        version: createHash("sha256").update(JSON.stringify(snap)).digest("hex"),
+        computedAt: snap.generatedAt,
+      });
     } catch (err) {
       console.warn("[up-next] onChange:", err);
     }

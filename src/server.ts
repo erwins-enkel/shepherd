@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { PairingCodeService } from "./pairing-codes";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
@@ -2022,11 +2023,11 @@ async function handleManualSteps({ req, parts, deps }: Ctx): Promise<Response | 
 const UP_NEXT_OPEN_MIN_AGE_MS = 60_000;
 
 /** GET /api/up-next — paint the cached snapshot. The default (lens-open) path also kicks a
- *  single-flight recompute that lands in place via WS, unless the snapshot is younger than
- *  {@link UP_NEXT_OPEN_MIN_AGE_MS}; `?peek` (app-load) paints cached only so a session that never
+ *  single-flight recompute announced via upnext:changed, unless the snapshot is younger than
+ *  {@link UP_NEXT_OPEN_MIN_AGE_MS}; `?peek` (invalidation/read-only) reads cached only so a session that never
  *  opens the lens costs zero cross-repo `gh` fan-out (the presence-gated 15-min loop + lens-open
  *  keep it fresh). */
-function handleUpNextGet(url: URL, deps: AppDeps): Response {
+function handleUpNextGet(req: Request, url: URL, deps: AppDeps): Response {
   const cached = deps.upNext?.snapshot() ?? null;
   // Apply a read-time hidden filter so a repo hidden after the last background compute is
   // excluded on the very next GET without waiting for the next recompute cycle (≤15 min).
@@ -2036,14 +2037,18 @@ function handleUpNextGet(url: URL, deps: AppDeps): Response {
       : cached;
   if (!url.searchParams.has("peek") && deps.upNext)
     deps.upNext.refreshIfStale(UP_NEXT_OPEN_MIN_AGE_MS);
-  return json(snap);
+  const etag = `W/"${createHash("sha256").update(JSON.stringify(snap)).digest("hex")}"`;
+  const headers = { etag, "cache-control": "private, no-cache", vary: "Accept-Encoding" };
+  if (etagMatches(req.headers.get("if-none-match"), etag))
+    return new Response(null, { status: 304, headers });
+  return json(snap, 200, headers);
 }
 
 async function handleUpNext(ctx: Ctx): Promise<Response | null> {
   const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "up-next")) return null;
 
-  if (req.method === "GET" && !parts[2]) return handleUpNextGet(url, deps);
+  if (req.method === "GET" && !parts[2]) return handleUpNextGet(req, url, deps);
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);

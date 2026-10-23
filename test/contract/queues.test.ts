@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { UpNextService, upNextChangePublisher } from "../../src/up-next";
+import type { GitForge } from "../../src/forge/types";
 import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { SandboxAutoRefused } from "../../src/sandbox";
@@ -480,8 +482,65 @@ test("six queue events travel over the real websocket, including cleared nullabl
     expect(frames).toContainEqual({ event: name, data: payload });
     validateEvent(name, payload);
   }
-  expect(EVENTS).toHaveLength(6);
+  expect(EVENTS).toHaveLength(7);
   expect(() => validateEvent("upnext:snapshot", { snapshot: null })).toThrow();
+});
+
+test("Up Next publication stays below 64 KB and the full snapshot is read conditionally", async () => {
+  const service = new UpNextService({
+    listForgeRepos: () => [{ repoPath: s.validRepo, repoSlug: "o/r", repoLabel: "r" }],
+    resolveForge: () =>
+      ({
+        kind: "github",
+        listIssues: async () => [
+          {
+            number: 1,
+            title: "large",
+            body: "🦙".repeat(40_000),
+            url: "https://example.test/1",
+            labels: [],
+            createdAt: 1,
+            assignees: [],
+          },
+        ],
+      }) as unknown as GitForge,
+    lastUsedByRepo: () => ({}),
+    buildEpic: async () => null,
+    getEpicRun: () => null,
+    onChange: upNextChangePublisher(s.deps.events),
+    now: () => 42,
+  });
+  s.deps.upNext = {
+    snapshot: () => service.snapshot(),
+    refresh: () => service.refresh(),
+    refreshIfStale: (age) => service.refreshIfStale(age),
+    recomputeUntilCleared: (items) => service.recomputeUntilCleared(items),
+    hiddenRepoPathsRaw: () => new Set(),
+  };
+  try {
+    const frames = await collectEvents(s, token, async () => {
+      await service.refresh();
+    });
+    expect(Buffer.byteLength(JSON.stringify(service.snapshot()))).toBeGreaterThan(65_536);
+    const upNextFrames = frames.filter((frame) => frame.event.startsWith("upnext:"));
+    expect(upNextFrames).toHaveLength(1);
+    for (const frame of upNextFrames) {
+      expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThanOrEqual(65_536);
+      expect(frame.event).toBe("upnext:changed");
+      expect(Object.keys(frame.data as object).sort()).toEqual(["computedAt", "version"]);
+      validateEvent(frame.event, frame.data);
+    }
+    const first = await request("GET", "/api/up-next?peek=1");
+    expect(await validateResponse("GET", "/api/up-next", first)).toEqual(service.snapshot());
+    const unchanged = await fetch(`${s.baseUrl}/api/up-next?peek=1`, {
+      headers: { ...bearer(token), "If-None-Match": first.headers.get("etag")! },
+    });
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe("");
+    await validateResponse("GET", "/api/up-next", unchanged);
+  } finally {
+    delete s.deps.upNext;
+  }
 });
 
 // Stays LAST: independently police every status/event declared by this stream.

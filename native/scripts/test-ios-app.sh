@@ -46,6 +46,8 @@ SIGNING=(CODE_SIGNING_ALLOWED=NO)
 if [[ "${SHEPHERD_IOS_SIMULATOR_SIGNING:-0}" == 1 ]]; then
   SIGNING=(CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-)
 fi
+# Finish cold simulator boot before XCTest starts its first app-launch timeout.
+xcrun simctl bootstatus "$UDID" -b
 set +e
 # Resolve packages without a github.com Keychain prompt (#2694): netrc instead
 # of the Keychain authorizes binary-artifact downloads, and the system git only

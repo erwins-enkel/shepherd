@@ -33,6 +33,15 @@ struct SessionListView: View {
         TimelineView(.periodic(from: .now, by: 20)) { context in
             content(now: Int(context.date.timeIntervalSince1970 * 1_000))
         }
+        .task(id: upNextModels.map(ObjectIdentifier.init)) {
+            let models = upNextModels
+            await withTaskGroup(of: Void.self) { group in
+                for queues in models {
+                    group.addTask { await queues.observeUpNext() }
+                }
+                await group.waitForAll()
+            }
+        }
         .background(SessionListStyle.background)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if layout.bottomBar { bottomBar }
@@ -141,6 +150,10 @@ struct SessionListView: View {
     }
     private func toggleCollapsed(_ stage: HerdStage) { if let hub { hub.toggleCollapsed(stage) } else { model.toggleCollapsed(stage) } }
     private func selectRow(_ id: IOSSessionIdentity) { if let hub { hub.select(id) } else { select(id.sessionID) } }
+    private var upNextModels: [QueuesModel] {
+        guard lens == .next, scenePhase == .active else { return [] }
+        return (hub?.connected ?? [app]).compactMap { $0.extension(QueuesModel.self) }
+    }
     private var queues: QueuesModel? { app.extension(QueuesModel.self) }
     private var herd: HerdSignals? { app.extension(HerdSignals.self) }
     private var merge: MergeModel? { app.extension(MergeModel.self) }

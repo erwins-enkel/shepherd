@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import ShepherdKit
 
+@Suite(.timeLimit(.minutes(1)))
 struct ShepherdClientRunnerUpdatesTests {
     private func client(_ server: FakeShepherdServer) throws -> ShepherdClient {
         try ShepherdClient(profile: .init(name: "fixture", baseURL: server.baseURL, mode: .local),

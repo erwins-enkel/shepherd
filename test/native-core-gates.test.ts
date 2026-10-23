@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { collectTests, identity, type TestIdentity } from "../native/scripts/test-conservation";
 
 const scripts = resolve("native/scripts");
 const target = "ShepherdAppCoreTests";
@@ -504,5 +505,24 @@ for mode in ("term", "kill", "exit"):
     expect(run).toContain("get test-results tests");
     expect(run).toContain("check-core-results.py");
     expect(run).toContain("--parameters native/Tests/Conservation/issue-2431-core-parameters.json");
+  });
+  test("Kit tests outside the baseline end a hang as a named time-limit failure", () => {
+    // Baselined and upstream-pinned Kit tests keep their recorded attributes
+    // (conservation); every later one needs a time limit so a hang names the
+    // test instead of stalling until the CI step timeout (#3204).
+    const read = (name: string) =>
+      JSON.parse(readFileSync(`native/Tests/Conservation/${name}`, "utf8")) as unknown;
+    const baseline = read("issue-2431-baseline.json") as { tests: TestIdentity[] };
+    const upstream = read("issue-2431-upstream.json") as {
+      transitions: { destination: TestIdentity }[];
+    };
+    const original = new Set(
+      [...baseline.tests, ...upstream.transitions.map((t) => t.destination)].map(identity),
+    );
+    const unbounded = collectTests(resolve("."))
+      .filter((t) => t.target === "ShepherdKitTests" && !original.has(identity(t)))
+      .filter((t) => !t.attributes.includes(".timeLimit("))
+      .map((t) => `${t.path} ${t.suite}.${t.signature}`);
+    expect(unbounded).toEqual([]);
   });
 });

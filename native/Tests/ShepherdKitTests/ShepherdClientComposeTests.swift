@@ -281,7 +281,7 @@ struct ShepherdClientComposeTests {
         #expect(body.contains("\r\n\r\n" + content + "\r\n"))
     }
 
-    @Test func sessionUploadUsesExistingQueryAndPreservesMultipart() async throws {
+    @Test(.timeLimit(.minutes(1))) func sessionUploadUsesExistingQueryAndPreservesMultipart() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }
         server.stub("POST", "/api/uploads", status: 200, json: Data(#"{"path":"/worktree/image.png"}"#.utf8))
@@ -466,7 +466,7 @@ struct ShepherdClientComposeTests {
         #expect(result.subIssues == [413, 414])
     }
 
-    @Test("one epic decodes with its children and dependency edges")
+    @Test("one epic decodes with its children and dependency edges", .timeLimit(.minutes(1)))
     func epic() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }
@@ -490,7 +490,7 @@ struct ShepherdClientComposeTests {
         #expect(query?.first(where: { $0.name == "parent" })?.value == "111")
     }
 
-    @Test("epic maps documented errors", arguments: [400, 401, 404, 503])
+    @Test("epic maps documented errors", .timeLimit(.minutes(1)), arguments: [400, 401, 404, 503])
     func epicErrors(status: Int) async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

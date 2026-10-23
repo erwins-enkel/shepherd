@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ShepherdKit
 
-@Suite("ShepherdClient epic control")
+@Suite("ShepherdClient epic control", .timeLimit(.minutes(1)))
 struct ShepherdClientEpicControlTests {
     private let wire = Data(#"{"repoPath":"/repo space","parentIssueNumber":100,"parentTitle":"Epic","source":"native","children":[],"warnings":[],"run":{"repoPath":"/repo space","parentIssueNumber":100,"mode":"attended","status":"running"}}"#.utf8)
     private func client(_ server: FakeShepherdServer) throws -> ShepherdClient {

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import ShepherdKit
 
+@Suite(.timeLimit(.minutes(1)))
 struct ShepherdClientVoiceTests {
     private func client(_ server: FakeShepherdServer) throws -> ShepherdClient {
         let credentials = InMemoryCredentialStore()

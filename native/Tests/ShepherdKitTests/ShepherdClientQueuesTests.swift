@@ -32,7 +32,7 @@ struct ShepherdClientQueuesTests {
                            credentials: InMemoryCredentialStore(), urlSession: server.urlSession())
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func peekUpNextReadsCachedSnapshotOrNullWithoutRecomputation(cached: Bool) async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }
@@ -48,7 +48,7 @@ struct ShepherdClientQueuesTests {
         #expect(requests.first?.query == "peek=1")
     }
 
-    @Test func peekUpNextMapsUnauthorized() async throws {
+    @Test(.timeLimit(.minutes(1))) func peekUpNextMapsUnauthorized() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }
         server.stub("GET", "/api/up-next", status: 401, json: Data(#"{"error":"login"}"#.utf8))

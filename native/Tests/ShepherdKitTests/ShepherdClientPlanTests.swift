@@ -163,7 +163,7 @@ struct ShepherdClientPlanTests {
     #expect(sent[2]["optionIndices"] == nil)
   }
 
-  @Test("answer-ask sends the tool use id and decodes every verdict",
+  @Test("answer-ask sends the tool use id and decodes every verdict", .timeLimit(.minutes(1)),
     arguments: ["verified", "mismatch", "unverified", "future"])
   func answerAsk(verdict: String) async throws {
     let server = FakeShepherdServer()
@@ -315,6 +315,7 @@ struct ShepherdClientPlanTests {
 
   @Test(
     "answer-ask keeps its conflicts and rejections",
+    .timeLimit(.minutes(1)),
     arguments: [
       (409, "ask_not_open", ShepherdError.conflict(code: nil, message: "ask_not_open")),
       (409, "ask_in_flight", .conflict(code: nil, message: "ask_in_flight")),

@@ -6,7 +6,7 @@ import Synchronization
 import Testing
 @testable import ShepherdKit
 
-@Suite struct LocalBatteryPauseTests {
+@Suite(.timeLimit(.minutes(1))) struct LocalBatteryPauseTests {
   @Test func processArgumentsAreNotMistakenForEnvironmentMarkers() {
     func bytes(_ args: [String], _ env: [String]) -> [UInt8] {
       var count = Int32(args.count)

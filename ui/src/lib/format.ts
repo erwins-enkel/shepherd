@@ -274,3 +274,27 @@ export function relativeAge(fromMs: number, nowMs: number): string {
   const delta = nowMs - fromMs;
   return delta < 60_000 ? "now" : formatAgo(delta);
 }
+
+/** Units for {@link relativeTimeAgo}, largest first: `[unit, size, from]` — the first unit
+ *  whose `from` the delta reaches names it, floored in `size`. Days run up to two months so a
+ *  six-week-old issue reads "44 days ago", not a vague "last month"; months/years are
+ *  calendar-agnostic (30 / 365 days). */
+const AGO_UNITS: readonly [Intl.RelativeTimeFormatUnit, number, number][] = [
+  ["year", 365 * 86_400_000, 365 * 86_400_000],
+  ["month", 30 * 86_400_000, 60 * 86_400_000],
+  ["day", 86_400_000, 86_400_000],
+  ["hour", 3_600_000, 3_600_000],
+  ["minute", 60_000, 60_000],
+];
+
+/** Localized, spelled-out age like "44 days ago" / "vor 44 Tagen" (`Intl.RelativeTimeFormat`,
+ *  `numeric: "auto"`, so 0 s reads "now"/"jetzt" and 1 day "yesterday"/"gestern"). Floored to
+ *  the unit picked by {@link AGO_UNITS}; a future timestamp clamps to now. */
+export function relativeTimeAgo(fromMs: number, nowMs: number, locale: string): string {
+  const delta = Math.max(0, nowMs - fromMs);
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  for (const [unit, size, from] of AGO_UNITS) {
+    if (delta >= from) return rtf.format(-Math.floor(delta / size), unit);
+  }
+  return rtf.format(-Math.floor(delta / 1000), "second");
+}

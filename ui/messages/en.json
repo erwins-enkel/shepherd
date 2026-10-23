@@ -6973,5 +6973,6 @@
   "issuespanel_hint_select": "↑↓ select",
   "issuespanel_hint_expand": "→ expand",
   "issuespanel_hint_start": "A start task",
-  "issuespanel_hint_esc": "Esc to overview"
+  "issuespanel_hint_esc": "Esc to overview",
+  "issuelist_age_tip": "Last changed {age}"
 }

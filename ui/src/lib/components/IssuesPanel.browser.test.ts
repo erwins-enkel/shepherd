@@ -478,7 +478,9 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     const row = option("s:42")!;
     expect(row.getAttribute("role")).toBe("option");
     expect(row.querySelector(".issue-title")?.textContent).toBe("Compact issue row");
-    expect(row.querySelector(".meta")?.textContent).toContain("#42 · enhancement · ");
+    expect(row.querySelector(".meta")?.textContent).toContain("#42 · enhancement feedback +1 · ");
+    // No epic in this repo: the "Single issues" heading would label nothing.
+    expect(document.querySelector(".issue-options .section-heading")).toBeNull();
     const overview = document.querySelector<HTMLElement>(".detail-col .overview")!;
     expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title());
     expect(overview.querySelector("[data-repo-run] .note")).toBeNull();
@@ -624,14 +626,16 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   });
 
-  it("the meta line names number, running state, the label's hue dot and age (#2950)", async () => {
+  it("the meta line names number, running state, label chips and the spelled-out age (#2639)", async () => {
+    const DAY = 86_400_000;
     seed([
       plain(7, {
         labels: [ACTIVE_LABEL, "ci-gate-rot"],
         labelColors: { "ci-gate-rot": "#d73a4a" },
-        createdAt: Date.now() - 7 * 60_000,
+        createdAt: Date.now() - 90 * DAY,
+        updatedAt: Date.now() - 44 * DAY - 60_000,
       }),
-      plain(8, { labels: ["docs"], createdAt: Date.now() - 7 * 60_000 }),
+      plain(8, { labels: ["docs", "bug", "ui", "ux"], createdAt: Date.now() - 3 * DAY - 60_000 }),
     ]);
     render(IssuesPanel, {
       repoPath: "/repo",
@@ -642,17 +646,24 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect.poll(() => option("s:8")).not.toBeNull();
     const meta = (key: string) => option(key)!.querySelector<HTMLElement>(".meta")!;
     const text = (key: string) => meta(key).textContent?.replace(/\s+/g, " ").trim();
+    const chips = (key: string) =>
+      [...meta(key).querySelectorAll<HTMLElement>(".lchip")].map((c) => c.textContent);
 
-    expect(text("s:7")).toMatch(
-      new RegExp(`^#7 · ${m.issuelist_running()} · ci-gate-rot · \\d+m$`),
-    );
+    // Age from the last change (updatedAt), not creation; the claim label is no chip.
+    expect(text("s:7")).toBe(`#7 · ${m.issuelist_running()} · ci-gate-rot · 44 days ago`);
     expect(meta("s:7").querySelector(".dot-running")).not.toBeNull();
-    expect(meta("s:7").querySelector(".label-dot")!.classList.contains("hued")).toBe(true);
-    expect(text("s:7")).not.toContain(ACTIVE_LABEL);
+    expect(chips("s:7")).toEqual(["ci-gate-rot"]);
+    const age = meta("s:7").querySelector<HTMLElement>(".age")!;
+    expect(age.title).toBe(m.issuelist_age_tip({ age: "44 days ago" }));
 
-    expect(text("s:8")).toMatch(/^#8 · docs · \d+m$/);
+    // At most two chips, the rest folded into "+N" (its title names them).
+    expect(chips("s:8")).toEqual(["docs", "bug", "+2"]);
+    expect(meta("s:8").querySelector<HTMLElement>(".lchip.more")!.title).toBe("ui, ux");
+    expect(text("s:8")).toBe("#8 · docs bug +2 · 3 days ago");
     expect(meta("s:8").querySelector(".dot-running")).toBeNull();
-    expect(meta("s:8").querySelector(".label-dot")!.classList.contains("hued")).toBe(false);
+    // Tinted from the --data-* palette, never the forge colour.
+    const style = meta("s:7").querySelector<HTMLElement>(".lchip")!.getAttribute("style") ?? "";
+    expect(style).toMatch(/--lc: var\(--data-[1-7]\)/);
   });
 
   it("an epic header reads on two lines; its children drop the epic prefix and show a held slot below the title (#2950)", async () => {

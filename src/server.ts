@@ -409,7 +409,7 @@ import {
   type Encoding,
 } from "./static-assets";
 import { execFileSync, markPtyEvent } from "./instrument";
-import { opStart } from "./loop-watchdog";
+import { opStart, withOp } from "./loop-watchdog";
 import { startLoopLagMonitor, withServerTiming } from "./server-timing";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
@@ -12370,6 +12370,91 @@ export function serve(deps: AppDeps, port: number) {
     if (typeof msg !== "string") ws.close(1003, "binary frames not supported");
     else ws.data.view?.handle(msg);
   }
+  function onSocketOpen(ws: ServerWebSocket<WsData>): void {
+    if (!socketAuthorized(ws)) return;
+    if (ws.data.tokenId) {
+      ws.data.authUnsub = accessTokens(deps).onChange((id) => {
+        if (id === ws.data.tokenId) closeTokenSocket(ws);
+      });
+      armTokenExpiry(ws);
+    }
+    if (ws.data.kind === "events") {
+      const unsub = deps.events.subscribe((event, data) => sendTokenEvent(ws, event, data));
+      ws.data.unsub = unsub;
+      sendTerminalOwners(ws);
+      if (!ws.data.localOnly) {
+        // Mirrored sessions travel on their own channel, never through `deps.events`, so no
+        // server-side listener ever acts on them; only dashboards receive them.
+        ws.data.unsubRemote = deps.remoteSessions?.subscribe((event, data) =>
+          sendTokenEvent(ws, event, data),
+        );
+        // A live /events socket = a dashboard is open (regardless of focus), so
+        // background pollers should run warm. `close` drops it again.
+        deps.presence?.connect(ws);
+      } else if (ws.data.peer) {
+        // Another Shepherd mirroring this one: listed while this socket is open (#3056).
+        incomingMirrors(deps).open(ws, {
+          ...ws.data.peer,
+          tokenId: ws.data.tokenId ?? null,
+          since: Date.now(),
+        });
+      }
+    } else if (ws.data.kind === "browser-view") {
+      openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
+    } else if (ws.data.kind === "remote-pty") {
+      openRemotePtySocket(ws as ServerWebSocket<WsData & { kind: "remote-pty" }>);
+    } else {
+      openPtySocket(ws as ServerWebSocket<WsData & { kind: "pty" }>);
+    }
+  }
+  function onSocketMessage(ws: ServerWebSocket<WsData>, msg: string | Buffer): void {
+    if (!socketAuthorized(ws)) return;
+    if (ws.data.kind === "events") return onEventsMessage(ws, msg);
+    if (ws.data.kind === "browser-view")
+      return onBrowserViewMessage(ws as ServerWebSocket<WsData & { kind: "browser-view" }>, msg);
+    // Verbatim, text or binary: the machine's own pty handler reads the frame.
+    if (ws.data.kind === "remote-pty") {
+      ws.data.terminal?.write(msg);
+      return;
+    }
+    const frame = typeof msg === "string" ? msg : msg.toString();
+    if (takeViewFrame(ws as ServerWebSocket<WsData & { kind: "pty" }>, frame)) return;
+    markPtyEvent("in");
+    // Stamp the operator-activity seam only for genuine keystrokes — the same
+    // stream carries \x00resize: control frames that storm on mobile (#1022).
+    if (isOperatorKeystroke(frame))
+      stampOperatorKeystroke(operatorKeystrokes, ws.data.id, Date.now());
+    if (ws.data.awaitingFirstFrame) (ws.data.pendingInput ??= []).push(frame);
+    else ws.data.bridge?.write(frame);
+  }
+  function onSocketClose(ws: ServerWebSocket<WsData>): void {
+    ws.data.authUnsub?.();
+    if (ws.data.expiryTimer) clearTimeout(ws.data.expiryTimer);
+    if (ws.data.kind === "events") {
+      ws.data.unsub?.();
+      ws.data.unsubRemote?.();
+      deps.presence?.drop(ws);
+      incomingMirrors(deps).close(ws);
+    } else if (ws.data.kind === "browser-view") {
+      // only drop ownership if still the owner (a newer view may have taken over)
+      if (browserViewOwners.get(ws.data.id) === ws) browserViewOwners.delete(ws.data.id);
+      ws.data.view?.close();
+    } else if (ws.data.kind === "remote-pty") {
+      ws.data.terminal?.close();
+    } else {
+      // only drop ownership if we're still the owner (a newer client may have
+      // already claimed this terminal before our close fired)
+      if (ptyOwners.get(ws.data.terminalId) === ws) {
+        ptyOwners.delete(ws.data.terminalId);
+        deps.events.emit("terminal:owners", terminalOwners());
+        // No owner, no view (#3161): a message sent now didn't come from a Shepherd window.
+        deps.assistantView?.set(ws.data.id, null);
+      }
+      operatorKeystrokes.delete(ws.data.id); // don't let the seam map grow unbounded
+      pruneSocketTerminalFailures(socketTerminalFailures, Date.now());
+      ws.data.bridge?.close();
+    }
+  }
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
@@ -12399,92 +12484,12 @@ export function serve(deps: AppDeps, port: number) {
       if (slowSec !== null) server.timeout(req, slowSec);
       return app.fetch(req);
     },
+    // Each handler is registered with the loop watchdog, like HTTP requests and timer ticks, so a
+    // stall report names socket work instead of "in flight: none" (#3170).
     websocket: {
-      open(ws) {
-        if (!socketAuthorized(ws)) return;
-        if (ws.data.tokenId) {
-          ws.data.authUnsub = accessTokens(deps).onChange((id) => {
-            if (id === ws.data.tokenId) closeTokenSocket(ws);
-          });
-          armTokenExpiry(ws);
-        }
-        if (ws.data.kind === "events") {
-          const unsub = deps.events.subscribe((event, data) => sendTokenEvent(ws, event, data));
-          ws.data.unsub = unsub;
-          sendTerminalOwners(ws);
-          if (!ws.data.localOnly) {
-            // Mirrored sessions travel on their own channel, never through `deps.events`, so no
-            // server-side listener ever acts on them; only dashboards receive them.
-            ws.data.unsubRemote = deps.remoteSessions?.subscribe((event, data) =>
-              sendTokenEvent(ws, event, data),
-            );
-            // A live /events socket = a dashboard is open (regardless of focus), so
-            // background pollers should run warm. `close` drops it again.
-            deps.presence?.connect(ws);
-          } else if (ws.data.peer) {
-            // Another Shepherd mirroring this one: listed while this socket is open (#3056).
-            incomingMirrors(deps).open(ws, {
-              ...ws.data.peer,
-              tokenId: ws.data.tokenId ?? null,
-              since: Date.now(),
-            });
-          }
-        } else if (ws.data.kind === "browser-view") {
-          openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
-        } else if (ws.data.kind === "remote-pty") {
-          openRemotePtySocket(ws as ServerWebSocket<WsData & { kind: "remote-pty" }>);
-        } else {
-          openPtySocket(ws as ServerWebSocket<WsData & { kind: "pty" }>);
-        }
-      },
-      message(ws, msg) {
-        if (!socketAuthorized(ws)) return;
-        if (ws.data.kind === "events") return onEventsMessage(ws, msg);
-        if (ws.data.kind === "browser-view")
-          return onBrowserViewMessage(
-            ws as ServerWebSocket<WsData & { kind: "browser-view" }>,
-            msg,
-          );
-        // Verbatim, text or binary: the machine's own pty handler reads the frame.
-        if (ws.data.kind === "remote-pty") return ws.data.terminal?.write(msg);
-        const frame = typeof msg === "string" ? msg : msg.toString();
-        if (takeViewFrame(ws as ServerWebSocket<WsData & { kind: "pty" }>, frame)) return;
-        markPtyEvent("in");
-        // Stamp the operator-activity seam only for genuine keystrokes — the same
-        // stream carries \x00resize: control frames that storm on mobile (#1022).
-        if (isOperatorKeystroke(frame))
-          stampOperatorKeystroke(operatorKeystrokes, ws.data.id, Date.now());
-        if (ws.data.awaitingFirstFrame) (ws.data.pendingInput ??= []).push(frame);
-        else ws.data.bridge?.write(frame);
-      },
-      close(ws) {
-        ws.data.authUnsub?.();
-        if (ws.data.expiryTimer) clearTimeout(ws.data.expiryTimer);
-        if (ws.data.kind === "events") {
-          ws.data.unsub?.();
-          ws.data.unsubRemote?.();
-          deps.presence?.drop(ws);
-          incomingMirrors(deps).close(ws);
-        } else if (ws.data.kind === "browser-view") {
-          // only drop ownership if still the owner (a newer view may have taken over)
-          if (browserViewOwners.get(ws.data.id) === ws) browserViewOwners.delete(ws.data.id);
-          ws.data.view?.close();
-        } else if (ws.data.kind === "remote-pty") {
-          ws.data.terminal?.close();
-        } else {
-          // only drop ownership if we're still the owner (a newer client may have
-          // already claimed this terminal before our close fired)
-          if (ptyOwners.get(ws.data.terminalId) === ws) {
-            ptyOwners.delete(ws.data.terminalId);
-            deps.events.emit("terminal:owners", terminalOwners());
-            // No owner, no view (#3161): a message sent now didn't come from a Shepherd window.
-            deps.assistantView?.set(ws.data.id, null);
-          }
-          operatorKeystrokes.delete(ws.data.id); // don't let the seam map grow unbounded
-          pruneSocketTerminalFailures(socketTerminalFailures, Date.now());
-          ws.data.bridge?.close();
-        }
-      },
+      open: (ws) => withOp(`WS open ${ws.data.kind}`, () => onSocketOpen(ws)),
+      message: (ws, msg) => withOp(`WS message ${ws.data.kind}`, () => onSocketMessage(ws, msg)),
+      close: (ws) => withOp(`WS close ${ws.data.kind}`, () => onSocketClose(ws)),
     },
   });
 }

@@ -112,3 +112,14 @@ export function opStart(label: string): () => void {
     reg.end(slot, Date.now());
   };
 }
+
+/** Run a synchronous callback as an in-flight op, for entry points with no promise to settle on
+ *  (WebSocket handlers). Settles even when `fn` throws; the throw propagates. */
+export function withOp<T>(label: string, fn: () => T): T {
+  const settled = opStart(label);
+  try {
+    return fn();
+  } finally {
+    settled();
+  }
+}

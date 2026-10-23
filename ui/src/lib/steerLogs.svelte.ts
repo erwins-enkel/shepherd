@@ -14,7 +14,10 @@ class SteerLogsStore {
     if (this.#inFlight.has(sessionId)) return;
     this.#inFlight.add(sessionId);
     try {
-      this.map = setKey(this.map, sessionId, await getSteerLog(sessionId));
+      // Await before reading `this.map`: a read in the synchronous part would subscribe the
+      // caller's $effect to the whole map, and each write would re-run it — a request loop (#3170).
+      const log = await getSteerLog(sessionId);
+      this.map = setKey(this.map, sessionId, log);
     } catch {
       // keep the last known log; the next trigger retries
     } finally {

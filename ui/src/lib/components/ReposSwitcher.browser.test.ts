@@ -144,6 +144,24 @@ describe("Repos header", () => {
     expect(onclose).toHaveBeenCalledOnce();
   });
 
+  it("names the open repo's default branch behind a divider; generic without one (#2639)", async () => {
+    const view = await render(BacklogOverlay, props());
+    const ff = () => q(".rh .ff-btn")!;
+    expect(ff().textContent?.trim()).toBe(m.backlog_ff_branch({ branch: "main" }));
+    const sep = ff().previousElementSibling as HTMLElement;
+    expect(sep.classList.contains("ff-sep")).toBe(true);
+    expect(sep.getAttribute("aria-hidden")).toBe("true");
+    expect(sep.getBoundingClientRect().width).toBe(1);
+
+    const base = payload();
+    const projects = base.projects.map((p) =>
+      p.path === "/r/echo" ? { ...p, defaultBranch: null } : p,
+    );
+    await view.rerender(props({ payload: { ...base, projects } }));
+    await tick();
+    expect(ff().textContent?.trim()).toBe(m.backlog_ff_main());
+  });
+
   it("disables Fast-forward with no repo open", async () => {
     await render(BacklogOverlay, props({ filterPaths: [] }));
     expect((q(".rh .ff-btn") as HTMLButtonElement).disabled).toBe(true);

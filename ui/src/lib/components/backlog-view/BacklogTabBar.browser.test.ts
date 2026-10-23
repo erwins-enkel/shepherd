@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import type { ComponentProps } from "svelte";
 import "../../../app.css";
+import type { BacklogProject } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { issuesOverview } from "#lib/issues-overview.svelte.js";
 import BacklogTabBar from "./BacklogTabBar.svelte";
@@ -26,6 +27,27 @@ const overview = () => page.getByRole("button", { name: m.backlog_overview_butto
 
 afterEach(() => {
   issuesOverview.selected = false;
+});
+
+describe("BacklogTabBar fast-forward label (#2639)", () => {
+  const repo = (defaultBranch: string | null) =>
+    ({ path: "/repo", openIssues: 1, openPRs: 0, defaultBranch }) as BacklogProject;
+  const ffBtn = () => page.getByRole("button", { name: m.backlog_ff_main_title() }).element();
+
+  it("names the selected repo's default branch behind a divider (mobile)", async () => {
+    mount({ variant: "mobile", selected: repo("develop") });
+    await expect
+      .poll(() => ffBtn().textContent?.trim())
+      .toBe(m.backlog_ff_branch({ branch: "develop" }));
+    const sep = ffBtn().previousElementSibling as HTMLElement;
+    expect(sep.classList.contains("ff-sep")).toBe(true);
+    expect(sep.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("falls back to the generic label without a default branch", async () => {
+    mount({ variant: "mobile", selected: repo(null) });
+    await expect.poll(() => ffBtn().textContent?.trim()).toBe(m.backlog_ff_main());
+  });
 });
 
 describe("BacklogTabBar Overview button (#2950)", () => {

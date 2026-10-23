@@ -402,6 +402,7 @@
         onselect={handleSelect}
         onff={handleFf}
         ffDisabled={ffInFlight || selectedPath === null}
+        branch={selected?.defaultBranch ?? null}
         {fromFilter}
         {onclose}
       >

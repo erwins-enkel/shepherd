@@ -6974,5 +6974,6 @@
   "issuespanel_hint_expand": "→ aufklappen",
   "issuespanel_hint_start": "A Aufgabe starten",
   "issuespanel_hint_esc": "Esc zum Überblick",
-  "issuelist_age_tip": "Zuletzt geändert {age}"
+  "issuelist_age_tip": "Zuletzt geändert {age}",
+  "backlog_ff_branch": "{branch} vorspulen"
 }

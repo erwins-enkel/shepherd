@@ -6974,5 +6974,6 @@
   "issuespanel_hint_expand": "→ expand",
   "issuespanel_hint_start": "A start task",
   "issuespanel_hint_esc": "Esc to overview",
-  "issuelist_age_tip": "Last changed {age}"
+  "issuelist_age_tip": "Last changed {age}",
+  "backlog_ff_branch": "Fast-forward {branch}"
 }

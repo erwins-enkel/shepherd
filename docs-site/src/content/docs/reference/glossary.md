@@ -261,8 +261,8 @@ has full reach.
 A Claude session Shepherd runs for you and grounds in its own telemetry, docs and
 source. Ask it why the herd stalled, an epic won't drain or an agent died: it
 reads, explains and tells you what to do, and acts only when you ask — how far
-it may go (shell, steering, session control, approvals & merge, automation) is
-set in **Settings → Assistant**. See
+it may go (shell, steering, starting sessions, session control, approvals &
+merge, automation) is set in **Settings → Assistant**. See
 [Operator Assistant](/operating/#operator-assistant).
 
 ### Machine

@@ -452,8 +452,9 @@ crash with `pthread_create: EAGAIN`.
 The **Operator Assistant** is a Claude session that Shepherd runs for you and grounds
 in its own state. Ask it in plain words why the herd stalled, why an epic won't drain,
 why an agent died, or whether this node is healthy. It reads, explains and tells you
-what to do. What it may change itself — steer a session, approve a plan, merge a PR, flip
-repo automation — you decide under **Settings → Assistant**.
+what to do. Ask it to get something done in a repo and it starts a session for it, as New
+Task would. What else it may change itself — steer a session, approve a plan, merge a PR,
+flip repo automation — you decide under **Settings → Assistant**.
 
 It uses Shepherd's default Claude model and effort, and its tokens count toward your
 usage like any session's. The first open starts it with no prompt, so nothing is spent
@@ -492,10 +493,10 @@ long-press menu, or **+ Repo assistant** at the top of the panel, which lists ev
 There is at most one per repo; on a repo that has one, the same entries open it.
 
 - **It sees one repo.** Its herd and repo-automation tools show only that repo's sessions,
-  held tasks and settings, and its actions refuse a session or repo outside it. Shepherd
-  enforces this, not only the prompt. With every message it gets that repo as its filter,
-  and the session in view only when it belongs there. Questions about the node — health,
-  logs — still work.
+  held tasks and settings, it starts sessions only there, and its actions refuse a session
+  or repo outside it. Shepherd enforces this, not only the prompt. With every message it
+  gets that repo as its filter, and the session in view only when it belongs there.
+  Questions about the node — health, logs — still work.
 - **Everything else stays with the global assistant.** Ask there about the whole herd or
   about another repo. Halting the whole herd is the global one's too: a repo assistant
   interrupts its repo's sessions one by one instead.
@@ -543,12 +544,14 @@ far it goes, one row each:
 | --- | --- | --- |
 | Shell commands | Commands it runs on this node to diagnose | Off · Ask for every command · Reads run, the rest asks · Run everything |
 | Steering & answers | Send a message into a session, answer a plan's open questions | Off · Ask first · Allowed |
+| Start sessions | Start a new session in a repo, as New Task: its own worktree from the repo's default branch (or one it names), your default model and effort, and the repo's plan gate, autopilot and usage hold | Off · Ask first · Allowed |
 | Control sessions | Interrupt, resume, relaunch or archive a session | Off · Ask first · Allowed |
 | Approvals & merge | Start an approved plan, approve a build queue, mark a PR ready, merge a PR | Off · Ask first · Allowed |
 | Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd | Off · Ask first · Allowed |
 
 - **The default** lets read-only commands run (grep, cat, git log, ps, systemctl status …)
-  and has every action ask first.
+  and starting a session, and has every other action ask first. It answers with the new
+  session's designation, or the held task's when the usage hold queued it.
 - **Ask first** shows Claude's confirmation in the panel's terminal before each call; **Allowed** runs
   it without asking; **Off** refuses it — Shepherd itself refuses a turned-off action, not
   only Claude.

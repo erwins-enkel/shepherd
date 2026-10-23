@@ -167,7 +167,7 @@ function makeDeps(
     noCommentApi?: boolean; // when true the fake forge omits comment() (non-GitHub host)
     /** Inject a raw 3-way verdict read directly (for the #822 repaired/unparseable gate tests). */
     verdictRead?: VerdictRead<RawVerdict>;
-    /** agentStatus reported by herdr.list() for the critic at /review-wt (default "idle" = finished). */
+    /** agentStatus reported by herdr.listAsync() for the critic at /review-wt (default "idle" = finished). */
     criticAgentStatus?: string;
     /** Plan-gate row the critic reads provenance from. Omitted ⇒ an approved gate matching the
      *  injected `readPlan`; `null` ⇒ no gate ever ran. */
@@ -280,7 +280,7 @@ function makeDeps(
         this.recorded.push(t); // this.recorded → throws TypeError if called unbound
       }
       // tick() consults agentStatus + paneForegroundProcs via isSpawnAlive to gate verdicts.
-      list() {
+      async listAsync() {
         return [
           {
             cwd: "/review-wt",
@@ -3654,8 +3654,8 @@ function makeOrphanDeps(
     herdr: {
       start: async () => ({ terminalId: "rt" }) as any,
       stop: async () => {},
-      list: () => agents,
-      tabs: () => tabs,
+      listAsync: async () => agents,
+      tabsAsync: async () => tabs,
       closeTab: async (tabId: string) => closedTabs.push(tabId),
     },
     worktree: {
@@ -4218,7 +4218,9 @@ test("tab baseline: repeated critic runs (finalize + forget) leave zero open tab
         const tab = byTerminal.get(terminalId);
         if (tab) openTabs.delete(tab);
       },
-      list: () => [{ cwd: "/review-wt", terminalId: `rt${n}`, paneId: "p1", agentStatus: "idle" }],
+      listAsync: async () => [
+        { cwd: "/review-wt", terminalId: `rt${n}`, paneId: "p1", agentStatus: "idle" },
+      ],
       paneForegroundProcs: async () => ["zsh"],
       closeTab: async () => {},
     },

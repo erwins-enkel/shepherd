@@ -327,8 +327,8 @@ describe("herd controls", () => {
     await validateResponse("POST", "/api/halt", res);
   });
   test("an unreachable herdr is a genuine halt failure, without a success event", async () => {
-    const saved = s.stubs.herdr.list;
-    s.stubs.herdr.list = () => {
+    const saved = s.stubs.herdr.listAsync;
+    s.stubs.herdr.listAsync = async () => {
       throw new Error("herdr unreachable");
     };
     try {
@@ -339,7 +339,7 @@ describe("herd controls", () => {
       });
       expect(frames.some((frame) => frame.event === "halt:done")).toBe(false);
     } finally {
-      s.stubs.herdr.list = saved;
+      s.stubs.herdr.listAsync = saved;
     }
   });
   test("retry counts requested ids, broadcast classifies missing ids", async () => {

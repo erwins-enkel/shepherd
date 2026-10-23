@@ -84,7 +84,7 @@ function harness(provider: AgentProvider, shell = false) {
     detectEgressBackend: () => null,
     worktree: { remove() {}, gitCommonDir: () => "/git" } as any,
     herdr: {
-      list: () => agents,
+      listAsync: async () => agents,
       start: async (_name: string, _cwd: string, argv: string[]) => {
         starts.push(argv);
         const live = agent("resumed", target.name);

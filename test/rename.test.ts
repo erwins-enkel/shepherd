@@ -69,7 +69,7 @@ type HerdrNames = {
 function fakeHerdr(relabels: string[], names: HerdrNames = {}) {
   const own = names.own;
   return {
-    list: () => {
+    listAsync: async () => {
       if (names.listThrows) throw new Error("herdr unreachable");
       const foreign = (names.agents ?? []).map((name, i) => ({
         name,
@@ -78,7 +78,7 @@ function fakeHerdr(relabels: string[], names: HerdrNames = {}) {
       }));
       return own ? [...foreign, { name: own.name, terminalId: "a1", tabId: "own-tab" }] : foreign;
     },
-    tabs: () => {
+    tabsAsync: async () => {
       const foreign = (names.tabs ?? []).map((label, i) => ({
         label,
         tabId: `foreign-tab-${i}`,
@@ -95,6 +95,10 @@ function fakeHerdr(relabels: string[], names: HerdrNames = {}) {
     },
   } as never;
 }
+
+/** `rename` fires the relabel without awaiting it (its free-name check lists herdr off-loop), so
+ *  let that chain settle before asserting on `relabels` — including that nothing was recorded. */
+const settleRelabel = () => new Promise<void>((r) => setTimeout(r, 0));
 
 function makeService(
   store: SessionStore,
@@ -163,26 +167,28 @@ test("service.rename returns null for an unknown id", () => {
 
 // The herdr tab carries the session's name in the operator's terminal. Every rename path
 // must move it, or the tab keeps advertising a name the session no longer has.
-test("service.rename relabels the herdr agent/tab with the new slug", () => {
+test("service.rename relabels the herdr agent/tab with the new slug", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels);
   const s = seed(store);
 
   svc.rename(s.id, "new-name", { renameLocalBranch: true });
+  await settleRelabel();
 
   expect(relabels).toEqual(["a1->new-name"]);
 });
 
 // #1927's display-only rename is exactly the case that must still relabel: the branch is
 // pinned by an open PR, so the tab label is the ONLY thing left that can follow the name.
-test("service.rename relabels even when the branch is pinned (display-only)", () => {
+test("service.rename relabels even when the branch is pinned (display-only)", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels);
   const s = seed(store);
 
   svc.rename(s.id, "new-name", { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(relabels).toEqual(["a1->new-name"]);
 });
@@ -193,7 +199,7 @@ test("service.rename relabels even when the branch is pinned (display-only)", ()
 const LONG_NAME = "fix-the-session-rename-branch-deletion"; // 38 chars
 const LONG_NAME_V2 = `${LONG_NAME}-v2`; // distinct slug, identical once sanitized to 32
 
-test("service.rename relabels when only the truncated tail changes (own handle excluded)", () => {
+test("service.rename relabels when only the truncated tail changes (own handle excluded)", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels, {
@@ -202,24 +208,26 @@ test("service.rename relabels when only the truncated tail changes (own handle e
   const s = seed(store, LONG_NAME);
 
   svc.rename(s.id, LONG_NAME_V2, { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(relabels).toEqual([`a1->${LONG_NAME_V2}`]);
 });
 
 // The 0.7.5+ half on its own: no agent name, the session's own name lives only on its tab.
-test("service.rename does not collide with its own tab label", () => {
+test("service.rename does not collide with its own tab label", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels, { own: { label: "old-name" } });
   const s = seed(store);
 
   svc.rename(s.id, "new-name", { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(relabels).toEqual([`a1->new-name`]);
 });
 
 // …but a SIBLING holding the truncated name is still a real collision.
-test("service.rename still skips when a sibling holds the truncated name", () => {
+test("service.rename still skips when a sibling holds the truncated name", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels, {
@@ -229,6 +237,7 @@ test("service.rename still skips when a sibling holds the truncated name", () =>
   const s = seed(store, LONG_NAME);
 
   svc.rename(s.id, LONG_NAME_V2, { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(relabels).toEqual([]);
 });
@@ -236,38 +245,41 @@ test("service.rename still skips when a sibling holds the truncated name", () =>
 // Both automatic callers resolve their slug through uniqueName() first; the manual path
 // hands over the operator's raw choice. Pushing a duplicate into herdr's name space is what
 // makes agent_name_taken evict the UNRELATED sibling, so a taken name must pin the label.
-test("service.rename skips the relabel when a live agent already answers to the slug", () => {
+test("service.rename skips the relabel when a live agent already answers to the slug", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels, { agents: ["sibling"] });
   const s = seed(store);
 
   const out = svc.rename(s.id, "sibling", { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(out?.name).toBe("sibling"); // the session still renames…
   expect(relabels).toEqual([]); // …the tab keeps its own unique label
 });
 
 // On herdr 0.7.5+ the agent half is empty and the name survives only as the TAB label.
-test("service.rename skips the relabel when a live tab label already holds the slug", () => {
+test("service.rename skips the relabel when a live tab label already holds the slug", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels, { agents: [], tabs: ["sibling"] });
   const s = seed(store);
 
   svc.rename(s.id, "sibling", { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(relabels).toEqual([]);
 });
 
 // herdr binds sanitized names, so `fix login` and `fix-login` are one name to it.
-test("service.rename compares the slug in sanitized space", () => {
+test("service.rename compares the slug in sanitized space", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels, { tabs: ["fix login"] });
   const s = seed(store);
 
   svc.rename(s.id, "fix-login", { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(relabels).toEqual([]);
 });
@@ -275,24 +287,26 @@ test("service.rename compares the slug in sanitized space", () => {
 // Fail closed: an unreadable herdr can't prove the name is free. A stale tab label is
 // recoverable; an evicted sibling isn't. And it must not throw — the server reads any
 // throw out of rename() as a 409 name_taken.
-test("service.rename survives an unreadable herdr and skips the relabel", () => {
+test("service.rename survives an unreadable herdr and skips the relabel", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels, { listThrows: true });
   const s = seed(store);
 
   const out = svc.rename(s.id, "new-name", { renameLocalBranch: false });
+  await settleRelabel();
 
   expect(out?.name).toBe("new-name"); // rename landed
   expect(relabels).toEqual([]);
 });
 
-test("service.rename does not relabel for an unknown id", () => {
+test("service.rename does not relabel for an unknown id", async () => {
   const store = new SessionStore(":memory:");
   const relabels: string[] = [];
   const svc = makeService(store, [], relabels);
 
   expect(svc.rename("nope", "x", { renameLocalBranch: true })).toBeNull();
+  await settleRelabel();
 
   expect(relabels).toEqual([]);
 });

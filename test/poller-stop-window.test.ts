@@ -59,7 +59,6 @@ function stopHarness() {
         workspaceId: "w",
       } as HerdrAgent,
     ],
-    read: () => "",
     readAsync: () => Promise.resolve(""),
   };
   const poller = new StatusPoller(

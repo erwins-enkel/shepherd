@@ -526,7 +526,7 @@ export class StatusPoller {
 
   constructor(
     private store: SessionStore,
-    private herdr: Pick<HerdrDriver, "listAsync" | "read" | "readAsync" | "reportAgentState"> &
+    private herdr: Pick<HerdrDriver, "listAsync" | "readAsync" | "reportAgentState"> &
       Partial<Pick<HerdrDriver, "tabsAsync" | "panesAsync">>,
     private onChange: (id: string, status: string) => void,
     private onBlock: (id: string, block: BlockReason | null) => void,
@@ -688,7 +688,6 @@ export class StatusPoller {
     let ep = this.liveness.get(id);
     if (!ep) {
       ep = new SessionLiveness({
-        read: (term) => this.herdr.read(term, "visible"),
         readAsync: (term) => this.herdr.readAsync(term, "visible"),
         stallCfg: () => this.stallCfg,
       });
@@ -774,21 +773,9 @@ export class StatusPoller {
       const matched = await this.matchSessions(sessions, agents);
       this.lastMatched = matched; // stash for the throttled liveness sweep (has no agent in scope)
       const activeIds = new Set<string>();
-      for (const s of sessions) {
-        activeIds.add(s.id);
-        // Clean-terminal sessions (pane-direct) have NO herdr agent: reconciling would read
-        // "gone" every tick. Their liveness is pane existence — sweepTerminalPanes below.
-        if (s.terminal) continue;
-        const agent = matched.get(s.id) ?? null;
-        if (!agent) this.reapGone(s);
-        else this.reconcileAgent(s, agent);
-        // Best-effort seed of a live Codex session's provider-native id (no-op unless it's a
-        // launch-marked Codex session that hasn't been seeded yet). Rescanning $CODEX_HOME every
-        // tick for a session that never matches is wasteful, so an applicable miss backs off
-        // exponentially (see below). tick() runs on a bare setInterval — never throw.
-        if (agent && this.captureCodexSessionId) {
-          this.maybeCaptureCodexSessionId(s);
-        }
+      for (const listed of sessions) {
+        activeIds.add(listed.id);
+        await this.tickSession(listed.id, matched);
       }
       this.pruneInactive(activeIds);
       // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired
@@ -1217,7 +1204,28 @@ export class StatusPoller {
     }
   }
 
-  private reconcileAgent(s: Session, agent: HerdrAgent): void {
+  /** One session's share of `tick`. Extracted to keep tick's cognitive complexity in bound. */
+  private async tickSession(id: string, matched: Map<string, HerdrAgent | null>): Promise<void> {
+    // Re-read: an earlier session's awaited terminal read (reconcileAgent) yields the loop, so
+    // this row may have been archived or updated since the tick listed sessions.
+    const s = this.store.get(id);
+    if (!s || s.status === "archived") return;
+    // Clean-terminal sessions (pane-direct) have NO herdr agent: reconciling would read
+    // "gone" every tick. Their liveness is pane existence — sweepTerminalPanes below.
+    if (s.terminal) return;
+    const agent = matched.get(s.id) ?? null;
+    if (!agent) this.reapGone(s);
+    else await this.reconcileAgent(s, agent);
+    // Best-effort seed of a live Codex session's provider-native id (no-op unless it's a
+    // launch-marked Codex session that hasn't been seeded yet). Rescanning $CODEX_HOME every
+    // tick for a session that never matches is wasteful, so an applicable miss backs off
+    // exponentially (see below). tick() runs on a bare setInterval — never throw.
+    if (agent && this.captureCodexSessionId) {
+      this.maybeCaptureCodexSessionId(s);
+    }
+  }
+
+  private async reconcileAgent(s: Session, agent: HerdrAgent): Promise<void> {
     this.maybeReDriveRestoredAccount(s, agent);
     // Re-fold liveness against this tick's fresh match (`lastMatched`) so a herdr-restored pane's
     // strand surfaces on the match change too, not only on the next throttled /proc sweep.
@@ -1266,9 +1274,9 @@ export class StatusPoller {
     // can classify THIS tick even before herdr latches "blocked". When it handles the
     // session (announced a block), short-circuit so the normal routing below doesn't
     // immediately wipe the just-emitted block. See tryHookAwaitingBlock.
-    if (status !== "blocked" && this.tryHookAwaitingBlock(s)) return;
+    if (status !== "blocked" && (await this.tryHookAwaitingBlock(s))) return;
 
-    if (status === "blocked") this.maybeClassify(s, s.herdrAgentId);
+    if (status === "blocked") await this.maybeClassify(s, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
     else this.maybeQuota(s, status);
     // #1891: catch the working→idle timeout (a pure absence of activity — no emission sink fires for
@@ -1420,11 +1428,11 @@ export class StatusPoller {
    * marker) routes normally, so a resolved prompt clears via the usual path. A non-block
    * classify (e.g. a working spinner suppressed it) returns false → normal routing runs.
    */
-  private tryHookAwaitingBlock(s: Session): boolean {
+  private async tryHookAwaitingBlock(s: Session): Promise<boolean> {
     if (!hookSignalsActive() || !this.hookAwaitingInput.has(s.id)) return false;
     // Consume the marker only when the classify actually ran (throttle didn't skip);
     // a throttled tick keeps the marker so the next tick retries the surface.
-    if (this.maybeClassify(s, s.herdrAgentId)) this.hookAwaitingInput.delete(s.id);
+    if (await this.maybeClassify(s, s.herdrAgentId)) this.hookAwaitingInput.delete(s.id);
     const sig = this.lastSig.get(s.id);
     return sig !== undefined && sig !== STALL_SIG;
   }
@@ -1709,7 +1717,7 @@ export class StatusPoller {
     }
     const hookFresh = this.hookActivityFresh(s.id, t);
     const step = this.livenessFor(s.id).step(s.herdrAgentId, signals, t, hookFresh);
-    if ("outcome" in step) {
+    if (!("pending" in step)) {
       // transcript path: poller owns the transcript activity emit (unchanged gating), then
       // the verdict. Phase-1 freshness guard (issue #704, Finding 3): when push activity is
       // fresh, the push path already carries this session with a REAL tool summary (vs. the
@@ -1718,7 +1726,8 @@ export class StatusPoller {
       // suppression is safe — and as a belt-and-suspenders guard, if the probe carries error
       // heat the push hasn't emitted, we still emit it.
       if (signals.activity) this.emitProbeActivity(s.id, signals.activity, hookFresh);
-      this.applyOutcome(s, step.outcome);
+      if ("outcome" in step) this.applyOutcome(s, step.outcome);
+      else void step.transcriptPending.then((o) => this.applyOutcome(s, o));
     } else {
       void step.pending.then((o) => this.applyOutcome(s, o));
     }
@@ -2007,7 +2016,7 @@ export class StatusPoller {
    * emitted) `onWorkingBlocked(id, false)` fires first, then `onBlock`, in the same
    * tick — clients see the flag drop and the block land together.
    */
-  private maybeClassify(s: Session, term: string): boolean {
+  private async maybeClassify(s: Session, term: string): Promise<boolean> {
     const id = s.id;
     const t = this.now();
     // Throttled this tick → did NOT look (caller may keep an awaiting marker to retry).
@@ -2016,7 +2025,7 @@ export class StatusPoller {
     let visible: string;
     let reason: BlockReason;
     try {
-      visible = this.herdr.read(term, "visible");
+      visible = await this.herdr.readAsync(term, "visible");
       reason = this.classify(visible);
     } catch (err) {
       console.warn(`[poller] classify failed for ${id}:`, err);

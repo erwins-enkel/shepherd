@@ -33,7 +33,7 @@ function makeService(hooks: { fn: Hooks }) {
         return { terminalId: "term_z" } as never;
       },
       stop: async (id: string) => stopped.push(id),
-      list: () => [],
+      listAsync: async () => [],
     } as never,
   });
   return { service, store, captured, removed, stopped };
@@ -133,7 +133,7 @@ test("no runSpawnHooks dep → spawn proceeds unchanged (no-op invariant)", asyn
         started = true;
         return { terminalId: "term_z" } as never;
       },
-      list: () => [],
+      listAsync: async () => [],
     } as never,
   });
   const s = await service.create({

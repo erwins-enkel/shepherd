@@ -430,7 +430,7 @@ function mkHarness(opts?: {
     stop: async (terminalId: string) => {
       stoppedTerminals.push(terminalId);
     },
-    list: () =>
+    listAsync: async () =>
       o.herdrAgents.map(
         (a) =>
           ({
@@ -440,7 +440,7 @@ function mkHarness(opts?: {
             terminalId: a.terminalId ?? "",
           }) as any,
       ),
-    tabs: () =>
+    tabsAsync: async () =>
       o.herdrAgents.map(
         (a) =>
           ({ tabId: a.tabId, label: a.label, agentStatus: "unknown", workspaceId: "w1" }) as any,

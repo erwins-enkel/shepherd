@@ -49,7 +49,7 @@ function makeSvc() {
         }
         events.push(`${tag}:end`);
       },
-      list: () => [{ terminalId: "t1", agentStatus: "idle" }],
+      listAsync: async () => [{ terminalId: "t1", agentStatus: "idle" }],
     },
     namer: (p: string) => p,
   } as any);

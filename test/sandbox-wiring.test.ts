@@ -27,7 +27,7 @@ function herdrStub(record: { argv?: string[] }) {
         workspaceId: "w",
       };
     },
-    list: () => [],
+    listAsync: async () => [],
     stop: async () => {},
     send: () => {},
     relabel: async () => {},

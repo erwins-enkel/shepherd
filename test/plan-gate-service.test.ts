@@ -100,7 +100,7 @@ function harness(over: any = {}) {
         return { terminalId: "t1" };
       },
       async stop() {},
-      list: () => [],
+      listAsync: async () => [],
     },
     worktreeExists: () => true,
     worktree: {
@@ -114,9 +114,9 @@ function harness(over: any = {}) {
     reply: async () => true,
     // Default: pane live (Claude idles at its prompt) → resumeThenSteer skips resume and delivers
     // via `reply`, preserving every pre-existing test's behavior. Codex-exit tests override paneAlive.
-    paneAlive: () => true,
+    paneAlive: async () => true,
     resume: async () => ({}),
-    deferSteer: () => false,
+    deferSteer: async () => false,
     async release() {},
     async regate() {},
     onChange() {},
@@ -548,7 +548,7 @@ test("answered Codex planning question resumes through a readable plan into auto
       reviewerStarts.push({ argv });
       return { terminalId: "term-review", agentStatus: "working" } as any;
     },
-    list: () => [
+    listAsync: async () => [
       resumed
         ? {
             agent: "codex",
@@ -629,7 +629,7 @@ test("answered Codex planning question resumes through a readable plan into auto
       },
       detectBackend: () => null,
       reply: async () => true,
-      paneAlive: () => true,
+      paneAlive: async () => true,
       resume: async () => ({}),
       async release() {},
       async regate() {},
@@ -863,7 +863,7 @@ test("consider persists reviewer ownership before asking Herdr to start it", asy
         return { terminalId: "t1" };
       },
       async stop() {},
-      list: () => [],
+      listAsync: async () => [],
     },
   });
 
@@ -1153,7 +1153,7 @@ test("codex planner exited (pane dead) → resume THEN steer, findings land, rou
       body: "B",
       findings: ["fix A"],
     }),
-    paneAlive: () => alive,
+    paneAlive: async () => alive,
     resume: async (id: string) => {
       resumed.push(id);
       alive = true; // revived → now steerable
@@ -1182,7 +1182,7 @@ test("codex planner exited but resume refused (non-isolated) → no steer, round
       body: "B",
       findings: ["fix"],
     }),
-    paneAlive: () => false, // pane exited
+    paneAlive: async () => false, // pane exited
     resume: async () => null, // the wiring refuses a non-isolated Codex resume (sibling-corruption guard)
     reply: (_id: string, t: string) => {
       steers.push(t);
@@ -1206,7 +1206,7 @@ test("claude planner live at prompt → steer WITHOUT a needless resume", async 
       body: "B",
       findings: ["fix"],
     }),
-    paneAlive: () => true, // Claude idles live at its prompt
+    paneAlive: async () => true, // Claude idles live at its prompt
     resume: async (id: string) => {
       resumed.push(id);
       return {};
@@ -1444,7 +1444,7 @@ test("a no-verdict finalize reads the reviewer pane tail before the pane is reap
       async stop() {
         stopped = true;
       },
-      list: () => [],
+      listAsync: async () => [],
       readAsync: async (target: string, source?: string, lines?: number) => {
         reads.push([target, source, lines]);
         expect(stopped).toBe(false); // still alive when we read
@@ -1469,7 +1469,7 @@ test("a failing pane read never derails a no-verdict finalize", async () => {
     herdr: {
       start: async () => ({ terminalId: "t1" }),
       async stop() {},
-      list: () => [],
+      listAsync: async () => [],
       readAsync: async () => {
         throw new Error("herdr gone");
       },
@@ -1490,7 +1490,11 @@ test("an exited codex reviewer without a verdict fails before the file timeout",
     env: () => ({ provider: "codex", model: "gpt-5.5", effort: null }),
     now: () => t,
     readVerdict: () => null,
-    herdr: { start: async () => ({ terminalId: "t1" }), async stop() {}, list: () => [] },
+    herdr: {
+      start: async () => ({ terminalId: "t1" }),
+      async stop() {},
+      listAsync: async () => [],
+    },
   });
   await h.svc.consider(planningSession() as any);
   t += 5_000;
@@ -1871,7 +1875,7 @@ test("reapReviewer reaps terminal+worktree+inflight but does NOT drop the persis
     herdr: {
       start: async () => ({ terminalId: "t-rev" }),
       stop: async (id: string) => stopped.push(id),
-      list: () => [],
+      listAsync: async () => [],
     },
   });
   // Spin up an inflight reviewer.
@@ -1945,7 +1949,7 @@ test("adoptOrphans resolves the reviewer terminal by worktree cwd for reaping", 
     herdr: {
       start: async () => ({ terminalId: "t1" }),
       stop: async (id: string) => stopped.push(id),
-      list: () => [{ cwd: "/wt-detached", terminalId: "rev-term-9" }],
+      listAsync: async () => [{ cwd: "/wt-detached", terminalId: "rev-term-9" }],
     },
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
   });
@@ -2743,7 +2747,7 @@ test("adoptOrphans reaps an approved orphan: stops terminal, completes spawn, re
     herdr: {
       start: async () => ({ terminalId: "t1" }),
       stop: async (id: string) => stopped.push(id),
-      list: () => [{ cwd: "/wt-detached", terminalId: "rev-term-approved" }],
+      listAsync: async () => [{ cwd: "/wt-detached", terminalId: "rev-term-approved" }],
     },
     readUsage: async () => usage,
   });
@@ -2846,7 +2850,7 @@ test("tab baseline: repeated plan reviews (approve + timeout + cancel) leave zer
         const tab = byTerminal.get(terminalId);
         if (tab) openTabs.delete(tab);
       },
-      list: () => [],
+      listAsync: async () => [],
     },
     readVerdict: () => verdict,
     now: () => t,
@@ -3628,7 +3632,7 @@ test("#2224: a request-changes re-review re-gates an EXECUTING session, wired to
     send: async (_t: string, text: string) => {
       sent.push(text);
     },
-    list: () => [
+    listAsync: async () => [
       {
         agent: "claude",
         terminalId: "term-agent",
@@ -3694,7 +3698,7 @@ test("#2224: a request-changes re-review re-gates an EXECUTING session, wired to
       },
       detectBackend: () => null,
       reply: (id: string, text: string) => service.reply(id, text),
-      paneAlive: () => true,
+      paneAlive: async () => true,
       resume: async () => ({}),
       async release() {},
       regate: async (id: string) => {

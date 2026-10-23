@@ -132,7 +132,7 @@ function makeDeps(
     } as any,
     herdr: {
       start: (_name: string, _cwd: string, argv: string[]) => start(argv),
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,

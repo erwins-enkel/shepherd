@@ -112,9 +112,9 @@ export interface AutoMergeDeps {
   worktree: Pick<WorktreeMgr, "behindBase">;
   prCache: { snapshot(): Record<string, GitState> };
   /** Whether the session's herdr pane is live (so a steer lands). */
-  paneAlive: (id: string) => boolean;
+  paneAlive: (id: string) => Promise<boolean>;
   /** Defer steering while a herdr-restored account pane still needs a re-drive (SessionService.shouldDeferSteer). */
-  deferSteer?: (id: string) => boolean;
+  deferSteer?: (id: string) => Promise<boolean>;
   repos: () => string[];
   emitStatus: (s: AutoMergeStatus) => void;
   emitArchived: (id: string) => void;
@@ -806,7 +806,7 @@ export class AutoMergeService {
         rebaseSteeredAt: this.now(),
       });
     }
-    if (!this.deps.paneAlive(sessionId) || this.deps.deferSteer?.(sessionId)) {
+    if (!(await this.deps.paneAlive(sessionId)) || (await this.deps.deferSteer?.(sessionId))) {
       // Not live, OR a herdr-restored account husk that must be re-driven first (else the rebase steer
       // lands on the wrong-account pane). resume() re-drives (Locus B) before we reply below.
       if (!(await this.deps.service.resume(sessionId))) return;

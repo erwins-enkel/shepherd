@@ -24,7 +24,7 @@ function makeDeps(): AppDeps {
     } as any,
     herdr: {
       start: async () => ({ terminalId: "term_x" }),
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,

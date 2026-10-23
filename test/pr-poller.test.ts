@@ -728,7 +728,7 @@ test("restart hydrates prior PR identity and accepts its unreachable terminal tr
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => false,
   );
@@ -1079,7 +1079,7 @@ test("reconciles to the live worktree branch when the stored branch has no PR", 
     (id, git) => emitted.push({ id, state: git.state, number: git.number }),
     120_000,
     1000,
-    (sess) => {
+    async (sess) => {
       reconcileCalls++;
       expect(sess.id).toBe(s.id);
       return "shepherd/renamed"; // agent renamed the worktree branch
@@ -1101,7 +1101,7 @@ test("does not reconcile when the stored branch already has a PR", async () => {
     () => {},
     120_000,
     1000,
-    () => {
+    async () => {
       reconcileCalls++;
       return "shepherd/renamed";
     },
@@ -1121,7 +1121,7 @@ test("leaves state none when reconcile finds no other branch", async () => {
     (_id, git) => emitted.push({ state: git.state }),
     120_000,
     1000,
-    () => null, // nothing to adopt
+    async () => null, // nothing to adopt
   );
 
   await poller.tick();
@@ -1167,7 +1167,7 @@ test("discards a merged PR whose head commit isn't on this session's branch (nam
     (_id, git) => emitted.push({ state: git.state, number: git.number }),
     120_000,
     1000,
-    () => null, // no other branch to adopt
+    async () => null, // no other branch to adopt
     15_000,
     () => false, // head commit does NOT belong to this session's branch
   );
@@ -1188,7 +1188,7 @@ test("keeps a merged PR whose head commit is on this session's branch", async ()
     (_id, git) => emitted.push({ state: git.state, number: git.number }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true, // genuinely this session's own merged PR
   );
@@ -1207,7 +1207,7 @@ test("keeps a merged PR when ownership is unknowable (null) rather than hiding i
     (_id, git) => emitted.push({ state: git.state }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => null, // bad worktree / git error → don't mask a real merge
   );
@@ -1226,7 +1226,7 @@ test("never runs the ownership check for an open PR (name match is current)", as
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => {
       ownsCalls++;
@@ -1249,7 +1249,7 @@ test("applies the ownership guard to an adopted live branch's terminal PR too", 
     (_id, git) => emitted.push({ state: git.state, number: git.number }),
     120_000,
     1000,
-    () => "shepherd/renamed", // agent renamed the worktree branch
+    async () => "shepherd/renamed", // agent renamed the worktree branch
     15_000,
     () => false, // the adopted branch's merged head isn't this session's commit
   );
@@ -1490,7 +1490,7 @@ test("fastTick under rateLimited() keeps transient PRs moving per-session", asyn
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true, // warm
@@ -1522,7 +1522,7 @@ test("fastTick skips when warm() is false and runs when warm & not limited", asy
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => warm,
@@ -1552,7 +1552,7 @@ test("tick runs every call when warm() is true", async () => {
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true, // warm
@@ -1577,7 +1577,7 @@ test("tick when not warm runs once then skips within idleIntervalMs", async () =
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => false, // not warm
@@ -1604,7 +1604,7 @@ test("tick when not warm runs again with idleIntervalMs 0", async () => {
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => false, // not warm
@@ -1641,7 +1641,7 @@ test("tick under rateLimited() skips GraphQL batches but still polls sessions", 
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true, // warm
@@ -1876,7 +1876,7 @@ test("refresh signal (c): cold cache + ownsPr=false, PR opened after the session
     (_id, git) => emitted.push({ state: git.state, number: git.number }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => false, // ownsPr always false — the stale worktree can't reach the final head
   );
@@ -1907,7 +1907,7 @@ test("refresh signal (c): a terminal PR created BEFORE the session is still reje
     (_id, git) => emitted.push({ state: git.state, number: git.number }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => false,
   );
@@ -1929,7 +1929,7 @@ test("refresh signal (b): prior-owned PR transitions to merged, bypasses guard w
     (_id, git) => emitted.push({ state: git.state, number: git.number }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => false, // ownsPr always returns false
   );
@@ -1965,7 +1965,7 @@ test("refresh signal (a): cold cache + marked + markedNumber matches, ownsPr=fal
     (_id, git) => emitted.push({ state: git.state, number: git.number }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => false, // ownsPr always returns false
   );
@@ -2346,7 +2346,7 @@ test("fastTick parks a transient PR whose transientMaxMs window has expired", as
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true,
@@ -2384,7 +2384,7 @@ test("headSha change restamps the transient window, making an aged-out PR eligib
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true,
@@ -2640,7 +2640,7 @@ test("stale-terminal guard under batch: reused-name merged dropped to none", asy
     (_id, g) => emitted.push({ state: g.state, number: g.number }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => false, // ownsPr false → reused-name terminal rejected
   );
@@ -2674,7 +2674,7 @@ test("rename present in batch adopted next sweep with no extra prStatus", async 
     (_id, g) => emitted.push({ state: g.state, number: g.number }),
     120_000,
     1000,
-    () => live,
+    async () => live,
   );
 
   await poller.tick(); // tick1: dummy batch hit (none); shepherd/x miss → one confirm (none) → reconcile null → none
@@ -2700,7 +2700,7 @@ test("rename via pollSession (per-session path) adopts the renamed branch", asyn
     (_id, g) => emitted.push({ state: g.state }),
     120_000,
     0, // no debounce
-    () => "shepherd/renamed",
+    async () => "shepherd/renamed",
   );
 
   poller.pollSession(s.id);
@@ -2719,7 +2719,7 @@ test("cold-cache none: confirmed once then skipped within the recheck window", a
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
   );
 
   await poller.tick(); // shepherd/x: prev null → confirm once → none cached; dummy: batch hit
@@ -2740,7 +2740,7 @@ test("stuck-none heals after noneRecheckMs via a per-session re-confirm", async 
     (_id, g) => emitted.push({ state: g.state }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true, // ownsPr true → keep the merge
     () => true,
@@ -2900,7 +2900,7 @@ test("cap-hit: countOpenPrs≥200 forces per-session regardless of ratio", async
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true,
@@ -2993,7 +2993,7 @@ test("snapshot: poller calls refresh (not get) and results drive session git sta
     (id, git) => emitted.push({ id, state: git.state }),
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true,
@@ -3027,7 +3027,7 @@ test("snapshot: count-gate trip prevents snapshot.refresh from being called", as
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true,
@@ -3059,7 +3059,7 @@ test("snapshot: fork mode never calls snapshot.refresh", async () => {
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true,
@@ -3087,7 +3087,7 @@ test("snapshot: single-session repo (count<2) never calls snapshot.refresh", asy
     () => {},
     120_000,
     1000,
-    () => null,
+    async () => null,
     15_000,
     () => true,
     () => true,

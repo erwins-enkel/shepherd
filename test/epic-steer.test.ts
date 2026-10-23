@@ -65,7 +65,7 @@ function makeSvc(
         sentTo.push(id);
         sent.push(text);
       },
-      list: () =>
+      listAsync: async () =>
         liveIds.current.map((terminalId) => ({
           terminalId,
           paneId: `pane-${terminalId}`,

@@ -67,7 +67,7 @@ export class HerdrUsageProbe implements UsageProbe {
   private trust: () => Promise<void>;
 
   constructor(
-    private herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync">,
+    private herdr: Pick<HerdrDriver, "start" | "stop" | "listAsync" | "tabsAsync">,
     private cwd: string = config.repoRoot,
     private helperPath = new URL("./pty-attach.mjs", import.meta.url).pathname,
     // Trust pre-seed, injectable for tests. Defaults resolve the SAME `.claude.json`
@@ -108,7 +108,7 @@ export class HerdrUsageProbe implements UsageProbe {
       return; // transient tab-list failure — best-effort, same as the per-stop catch below
     }
     if (probeTabs.size === 0) return;
-    for (const a of this.herdr.list()) {
+    for (const a of await this.herdr.listAsync()) {
       if (!probeTabs.has(a.tabId)) continue;
       try {
         await this.herdr.stop(a.terminalId);
@@ -142,12 +142,12 @@ export class HerdrUsageProbe implements UsageProbe {
     try {
       // Resolve the new agent by list diff: herdr.start()'s cwd-based resolution is ambiguous if a
       // prior probe still lingers in the same cwd, and would hand back a stale/dead terminal id.
-      const before = new Set(this.herdr.list().map((a) => a.terminalId));
+      const before = new Set((await this.herdr.listAsync()).map((a) => a.terminalId));
       const started = await this.herdr.start(PROBE_NAME, this.cwd, [
         "claude",
         "--dangerously-skip-permissions",
       ]);
-      const fresh = this.herdr.list().find((a) => !before.has(a.terminalId));
+      const fresh = (await this.herdr.listAsync()).find((a) => !before.has(a.terminalId));
       terminalId = fresh?.terminalId ?? started.terminalId;
     } catch {
       // start() can throw after the agent is already running (the post-start cwd lookup found no
@@ -160,7 +160,7 @@ export class HerdrUsageProbe implements UsageProbe {
     // herdr 0.7.5 attaches by pane_id; terminal_id is rejected as agent_not_found (#1890). ≤0.7.4
     // keeps the terminal_id target. On a resolution miss, fall back to terminalId (best-effort).
     const attachTarget = herdrUsesExternalRegistrationSpawn()
-      ? (resolvePaneId(this.herdr.list(), terminalId) ?? terminalId)
+      ? (resolvePaneId(await this.herdr.listAsync(), terminalId) ?? terminalId)
       : terminalId;
     const proc = Bun.spawn(["node", this.helperPath, attachTarget, "120", "40"], {
       stdin: "pipe",
@@ -207,7 +207,7 @@ export class HerdrUsageProbe implements UsageProbe {
       void pump.catch(() => {});
       void drainErr.catch(() => {});
       // Sweep by name rather than stop(terminalId): closes this probe AND any straggler, and
-      // doesn't depend on terminalId having resolved. Awaited: `sweep`'s `herdr.list()` loop
+      // doesn't depend on terminalId having resolved. Awaited: `sweep`'s `herdr.listAsync()` loop
       // header can throw synchronously (outside the per-item try), so an un-awaited call here
       // would reject a detached promise from this `finally` with no handler.
       await this.sweep();

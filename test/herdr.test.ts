@@ -37,11 +37,9 @@ afterEach(() => {
   else process.env.SHEPHERD_AGENT_TMPDIR = prevAgentTmp;
 });
 
-/** Build a HerdrDriver whose sync AND async runners share ONE fake. The write surface
- *  (start/stop/relabel/closeTab, issue #1553) now runs on the async runner while reads
- *  (list/tabs/panes) stay on the sync one, so a write test must wire both from its fake. */
+/** Build a HerdrDriver around a sync fake reply fn (wrapped onto the async-only runner, #3127). */
 function mkDriver(fake: (args: string[]) => string): HerdrDriver {
-  return new HerdrDriver(fake, async (args) => fake(args));
+  return new HerdrDriver(async (args) => fake(args));
 }
 
 const FIXTURE = JSON.stringify({
@@ -84,7 +82,7 @@ test("posixShellJoin single-quotes every token so spaces/metacharacters/quotes s
 
 test("list parses herdr json into typed agents", async () => {
   const d = mkDriver(() => FIXTURE);
-  const a = d.list();
+  const a = await d.listAsync();
   expect(a.length).toBe(2);
   expect(a[0]).toMatchObject({ terminalId: "term_a", agentStatus: "working", cwd: "/wt/a" });
 });
@@ -119,7 +117,7 @@ test("list surfaces the agent name, and leaves it UNDEFINED when herdr omits it"
   // on every record, and laundering it into an empty string is what turned three name-prefix
   // reapers into silent no-ops — `"".startsWith(prefix)` is simply false, forever.
   const d = mkDriver(() => FIXTURE);
-  const a = d.list();
+  const a = await d.listAsync();
   expect(a[0]!.name).toBe("flatten");
   expect(a[1]!.name).toBeUndefined(); // second fixture agent has no name field
 });
@@ -341,7 +339,7 @@ test("start: captures agent start reply before root-pane close can remove the ta
     }
     return "{}";
   };
-  const d = new HerdrDriver(runner, async (a) => runner(a));
+  const d = new HerdrDriver(async (a) => runner(a));
 
   const agent = await d.start("flatten", "/wt/a", ["claude", "go"]);
 
@@ -368,7 +366,7 @@ test("start: keeps the root pane alive for a headless codex exec role", async ()
     }
     return "{}";
   };
-  const d = new HerdrDriver(runner, async (a) => runner(a));
+  const d = new HerdrDriver(async (a) => runner(a));
 
   const agent = await d.start("plan-review TASK-707", "/wt/a", [
     "bwrap",
@@ -407,10 +405,10 @@ const TAB_LIST = JSON.stringify({
 });
 
 test("tabs parses herdr tab-list json into typed tabs", async () => {
-  const d = new HerdrDriver((args) =>
+  const d = new HerdrDriver(async (args) =>
     args[0] === "tab" && args[1] === "list" ? TAB_LIST : FIXTURE,
   );
-  const t = d.tabs();
+  const t = await d.tabsAsync();
   expect(t.length).toBe(3);
   expect(t[0]).toMatchObject({ tabId: "w:1", label: "usage-probe", agentStatus: "unknown" });
 });
@@ -482,7 +480,7 @@ function tabStateDriver(tabs: { tab_id: string; workspace_id: string }[]) {
     }
     return "{}";
   };
-  const driver = new HerdrDriver(reply, async (args) => {
+  const driver = new HerdrDriver(async (args) => {
     await new Promise((r) => setTimeout(r, 0));
     return reply(args);
   });
@@ -955,26 +953,11 @@ test("matchAgents: a sole session at its cwd re-pairs even when its name drifted
 });
 
 import { maintenance } from "../src/maintenance";
-import { HerdrUnavailableError, makeHerdrRunner, isNameTakenError } from "../src/herdr";
-
-test("runner throws fast (no spawn) while maintenance is active", async () => {
-  let spawned = 0;
-  const runner = makeHerdrRunner(() => {
-    spawned++;
-    return "{}";
-  });
-  maintenance.begin();
-  try {
-    expect(() => runner(["agent", "list"])).toThrow(HerdrUnavailableError);
-    expect(spawned).toBe(0); // never reached the exec
-  } finally {
-    maintenance.end();
-  }
-});
+import { HerdrUnavailableError, isNameTakenError } from "../src/herdr";
 
 test("runner delegates to exec when maintenance is inactive", async () => {
-  const runner = makeHerdrRunner(() => "ok");
-  expect(runner(["agent", "list"])).toBe("ok");
+  const runner = makeHerdrAsyncRunner(async () => "ok");
+  expect(await runner(["agent", "list"])).toBe("ok");
 });
 
 import { makeHerdrAsyncRunner } from "../src/herdr";
@@ -983,13 +966,10 @@ const READ_REPLY = JSON.stringify({ result: { type: "read", read: { text: "Compu
 
 test("readAsync mirrors read's argv and parses the buffer text", async () => {
   let captured: string[] = [];
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async (args) => {
-      captured = args;
-      return READ_REPLY;
-    },
-  );
+  const d = new HerdrDriver(async (args) => {
+    captured = args;
+    return READ_REPLY;
+  });
   const text = await d.readAsync("term_a", "visible", 200);
   expect(text).toBe("Computing… (3s)");
   expect(captured).toEqual([
@@ -1006,10 +986,7 @@ test("readAsync mirrors read's argv and parses the buffer text", async () => {
 });
 
 test("readAsync returns raw output when the reply is unparseable", async () => {
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async () => "not json",
-  );
+  const d = new HerdrDriver(async () => "not json");
   expect(await d.readAsync("term_a")).toBe("not json");
 });
 
@@ -1162,10 +1139,10 @@ const PANE_LIST_MISSING_FIELDS = JSON.stringify({
 });
 
 test("panes() parses multi-pane reply into HerdrPane[] with correct field mapping", async () => {
-  const d = new HerdrDriver((args) =>
+  const d = new HerdrDriver(async (args) =>
     args[0] === "pane" && args[1] === "list" ? PANE_LIST : FIXTURE,
   );
-  const p = d.panes();
+  const p = await d.panesAsync();
   expect(p.length).toBe(2);
   expect(p[0]).toMatchObject({
     paneId: "w65:p2",
@@ -1184,10 +1161,10 @@ test("panes() parses multi-pane reply into HerdrPane[] with correct field mappin
 });
 
 test("panes() applies defensive defaults when optional fields are absent", async () => {
-  const d = new HerdrDriver((args) =>
+  const d = new HerdrDriver(async (args) =>
     args[0] === "pane" && args[1] === "list" ? PANE_LIST_MISSING_FIELDS : FIXTURE,
   );
-  const p = d.panes();
+  const p = await d.panesAsync();
   expect(p.length).toBe(1);
   expect(p[0]).toMatchObject({
     paneId: "w1:p1",
@@ -1209,10 +1186,10 @@ const EXPLICIT_NULLS = JSON.stringify({
 });
 
 test("panes() normalizes an explicit null label to undefined", async () => {
-  const d = new HerdrDriver((args) =>
+  const d = new HerdrDriver(async (args) =>
     args[0] === "pane" && args[1] === "list" ? EXPLICIT_NULLS : FIXTURE,
   );
-  const p = d.panes()[0]!;
+  const p = (await d.panesAsync())[0]!;
   expect(p.label).toBeUndefined();
   expect(p.label).not.toBeNull();
   expect(p.cwd).toBe(""); // required domain field: null still collapses to ""
@@ -1226,10 +1203,10 @@ test("parseAgents normalizes an explicit null name to undefined", () => {
 });
 
 test("panes() returns [] when result.panes is absent", async () => {
-  const d = new HerdrDriver((args) =>
+  const d = new HerdrDriver(async (args) =>
     args[0] === "pane" && args[1] === "list" ? JSON.stringify({ result: {} }) : FIXTURE,
   );
-  expect(d.panes()).toEqual([]);
+  expect(await d.panesAsync()).toEqual([]);
 });
 
 // -- paneForegroundProcs() tests --
@@ -1271,22 +1248,16 @@ const LIVE_PROC_REPLY = JSON.stringify({
 });
 
 test("paneForegroundProcs() returns ['zsh'] for a husk pane", async () => {
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async (args) => {
-      expect(args).toEqual(["pane", "process-info", "--pane", "w65:p3"]);
-      return HUSK_PROC_REPLY;
-    },
-  );
+  const d = new HerdrDriver(async (args) => {
+    expect(args).toEqual(["pane", "process-info", "--pane", "w65:p3"]);
+    return HUSK_PROC_REPLY;
+  });
   const procs = await d.paneForegroundProcs("w65:p3");
   expect(procs).toEqual(["zsh"]);
 });
 
 test("paneForegroundProcs() returns multi-name list for a live pane", async () => {
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async () => LIVE_PROC_REPLY,
-  );
+  const d = new HerdrDriver(async () => LIVE_PROC_REPLY);
   const procs = await d.paneForegroundProcs("w65:p4");
   expect(procs).toEqual(["claude", "npm", "node-MainThread"]);
 });
@@ -1307,22 +1278,16 @@ const SANDBOXED_PROC_REPLY = JSON.stringify({
 });
 
 test("paneForegroundProcs() reports ['bwrap'] for a live sandboxed pane (#1891)", async () => {
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async () => SANDBOXED_PROC_REPLY,
-  );
+  const d = new HerdrDriver(async () => SANDBOXED_PROC_REPLY);
   expect(await d.paneForegroundProcs("w65:p6")).toEqual(["bwrap"]);
 });
 
 test("reportAgentState() issues pane report-agent with the state (#1891)", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async (args) => {
-      calls.push(args);
-      return "{}";
-    },
-  );
+  const d = new HerdrDriver(async (args) => {
+    calls.push(args);
+    return "{}";
+  });
   await d.reportAgentState("w65:p6", "task-01", "idle");
   expect(calls).toEqual([
     [
@@ -1340,22 +1305,16 @@ test("reportAgentState() issues pane report-agent with the state (#1891)", async
 });
 
 test("paneForegroundProcs() returns [] on unparseable reply (JSON parse failure)", async () => {
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async () => "not valid json at all",
-  );
+  const d = new HerdrDriver(async () => "not valid json at all");
   const procs = await d.paneForegroundProcs("w65:p2");
   expect(procs).toEqual([]);
 });
 
 test("paneForegroundProcs() propagates a thrown runner error (does not swallow)", async () => {
   const cliErr = new Error("herdr: unknown subcommand pane process-info");
-  const d = new HerdrDriver(
-    () => FIXTURE,
-    async () => {
-      throw cliErr;
-    },
-  );
+  const d = new HerdrDriver(async () => {
+    throw cliErr;
+  });
   await expect(d.paneForegroundProcs("w65:p2")).rejects.toThrow(
     "herdr: unknown subcommand pane process-info",
   );
@@ -1579,37 +1538,25 @@ test("start: non-name-taken error — no retry, immediate rollback", async () =>
 
 test("send: issues `agent send <target> <text>` on the ASYNC runner", async () => {
   const calls: string[][] = [];
-  const syncCalls: string[][] = [];
-  const d = new HerdrDriver(
-    (args) => {
-      syncCalls.push(args);
-      return "{}";
-    },
-    async (args) => {
-      calls.push(args);
-      return "{}";
-    },
-  );
+  const d = new HerdrDriver(async (args) => {
+    calls.push(args);
+    return "{}";
+  });
 
   await d.send("term_a", "hello world");
 
   expect(calls).toEqual([["agent", "send", "term_a", "hello world"]]);
-  // must never block the loop on the sync runner
-  expect(syncCalls).toEqual([]);
 });
 
 test("send: propagates a runner failure (a dead pane is never a silent no-op)", async () => {
-  const d = new HerdrDriver(
-    () => "{}",
-    async () => {
-      throw new Error("herdr: no such agent");
-    },
-  );
+  const d = new HerdrDriver(async () => {
+    throw new Error("herdr: no such agent");
+  });
 
   await expect(d.send("gone", "hi")).rejects.toThrow("herdr: no such agent");
 });
 
-// ── #1944: E2BIG → OversizedArgvError at the two runner factories ─────────────
+// ── #1944: E2BIG → OversizedArgvError at the runner factory ───────────────────
 //
 // A bare E2BIG renders as "spawn herdr E2BIG", naming neither the cause (one argv element over
 // MAX_ARG_STRLEN) nor the cure. Mapping the kernel's OWN verdict — rather than predicting the
@@ -1619,14 +1566,14 @@ import { OversizedArgvError } from "../src/argv-limit";
 describe("#1944 runner E2BIG mapping", () => {
   const e2big = () => Object.assign(new Error("spawn herdr E2BIG"), { code: "E2BIG" });
 
-  test("sync runner maps E2BIG to OversizedArgvError, preserving the original as cause", () => {
+  test("runner maps E2BIG to OversizedArgvError, preserving the original as cause", async () => {
     const original = e2big();
-    const runner = makeHerdrRunner(() => {
+    const runner = makeHerdrAsyncRunner(async () => {
       throw original;
     });
     let caught: unknown;
     try {
-      runner(["agent", "start", "--", "claude", "-p", "x".repeat(200_000)]);
+      await runner(["agent", "start", "--", "claude", "-p", "x".repeat(200_000)]);
     } catch (e) {
       caught = e;
     }
@@ -1635,24 +1582,15 @@ describe("#1944 runner E2BIG mapping", () => {
     expect((caught as Error).message).toContain("per-argument limit");
   });
 
-  test("async runner maps E2BIG the same way", async () => {
-    const runner = makeHerdrAsyncRunner(async () => {
-      throw e2big();
-    });
-    await expect(runner(["pane", "run", "p1", "'claude' '-p' 'x'"])).rejects.toBeInstanceOf(
-      OversizedArgvError,
-    );
-  });
-
-  test("EVERY other error rethrows UNCHANGED, by identity", () => {
+  test("EVERY other error rethrows UNCHANGED, by identity", async () => {
     for (const code of ["ENOENT", "EACCES", "ETIMEDOUT"]) {
       const original = Object.assign(new Error("nope"), { code });
-      const runner = makeHerdrRunner(() => {
+      const runner = makeHerdrAsyncRunner(async () => {
         throw original;
       });
       let caught: unknown;
       try {
-        runner(["agent", "list"]);
+        await runner(["agent", "list"]);
       } catch (e) {
         caught = e;
       }
@@ -1661,28 +1599,19 @@ describe("#1944 runner E2BIG mapping", () => {
     }
   });
 
-  test("async: a non-E2BIG rejection rethrows by identity", async () => {
-    const original = Object.assign(new Error("nope"), { code: "ENOENT" });
+  test("the maintenance guard still wins over any mapping", async () => {
     const runner = makeHerdrAsyncRunner(async () => {
-      throw original;
-    });
-    await expect(runner(["agent", "list"])).rejects.toBe(original);
-  });
-
-  test("the maintenance guard still wins over any mapping", () => {
-    const runner = makeHerdrRunner(() => {
       throw e2big();
     });
     maintenance.begin();
     try {
-      expect(() => runner(["agent", "list"])).toThrow(HerdrUnavailableError);
+      await expect(runner(["agent", "list"])).rejects.toBeInstanceOf(HerdrUnavailableError);
     } finally {
       maintenance.end();
     }
   });
 
   test("a successful call is untouched", async () => {
-    expect(makeHerdrRunner(() => "ok")(["agent", "list"])).toBe("ok");
     expect(await makeHerdrAsyncRunner(async () => "ok")(["agent", "list"])).toBe("ok");
   });
 });

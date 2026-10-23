@@ -47,7 +47,7 @@ function makeHarness({
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () =>
+      listAsync: async () =>
         [...liveIds].map((id) => ({ terminalId: id, agentStatus: "idle", cwd: "/", name: "" })),
       stop: async () => {},
       send: (target: string, text: string) => sent.push({ target, text }),

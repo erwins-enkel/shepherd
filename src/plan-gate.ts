@@ -557,7 +557,8 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   >;
   /** `readAsync` is OPTIONAL and used on the no-verdict error path only (see `logReviewerTail`),
    *  so a driver stub without it degrades to today's silent behaviour rather than failing. */
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list"> & Partial<Pick<HerdrDriver, "readAsync">>;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "listAsync"> &
+    Partial<Pick<HerdrDriver, "readAsync">>;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   /** Resolve the forge for a repo so begin() can fetch the originating issue's body as UNTRUSTED
    *  reviewer context. Optional + optional-chained: absence ⇒ no issue context (never blocks). */
@@ -568,13 +569,13 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   reply: (sessionId: string, text: string) => Promise<boolean>;
   /** Whether the planning session's herdr pane is currently a live agent (matchAgent). A Codex
    *  planner EXITS after its turn, so findings must resume it before steering; Claude idles live. */
-  paneAlive: (sessionId: string) => boolean;
+  paneAlive: (sessionId: string) => Promise<boolean>;
   /** Resume an exited planning session so findings can land (SessionService.resume; async — the
    *  awaited result decides, truthy = resumed). Missing conversation identity refuses resume
    *  and escalates to the operator. */
   resume: (sessionId: string) => unknown;
   /** Defer + re-drive first while a herdr-restored account pane needs it (SessionService.shouldDeferSteer). */
-  deferSteer?: (sessionId: string) => boolean;
+  deferSteer?: (sessionId: string) => Promise<boolean>;
   /** Release an APPROVED autonomous (auto/autopilot) session into execution (SessionService.releasePlanGate).
    *  Async since #1567: the release steers the agent, so it resolves once that steer has landed. */
   release: (sessionId: string) => Promise<void>;
@@ -1424,7 +1425,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       sessionId: s.id,
       repoPath: s.repoPath,
       worktreePath: sp.worktreePath,
-      terminalId: this.resolveTerminal(sp.worktreePath),
+      terminalId: await this.resolveTerminal(sp.worktreePath),
       reviewerSessionId: sp.reviewerSessionId,
       planHash: await PlanGateService.hashPlan(plan),
       plan,
@@ -1458,7 +1459,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     reviewerProvider: AgentProvider | null;
     model: string | null;
   }): Promise<void> {
-    const terminalId = this.resolveTerminal(sp.worktreePath);
+    const terminalId = await this.resolveTerminal(sp.worktreePath);
     void this.deps.herdr.stop(terminalId).catch(() => {});
     try {
       const usage = await this.readUsage(
@@ -1503,8 +1504,10 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
   /** Best-effort: find the reviewer's live terminal id by its disposable-worktree cwd, so a
    *  re-adopted orphan can still be reaped. "" when no live pane matches (reviewer already gone);
    *  herdr.stop("") is a safe no-op. */
-  private resolveTerminal(worktreePath: string): string {
-    return this.deps.herdr.list().find((a) => a.cwd === worktreePath)?.terminalId ?? "";
+  private async resolveTerminal(worktreePath: string): Promise<string> {
+    return (
+      (await this.deps.herdr.listAsync()).find((a) => a.cwd === worktreePath)?.terminalId ?? ""
+    );
   }
 
   /** A reviewer that produced no verdict has usually been dead since its first seconds — a launcher
@@ -1527,14 +1530,32 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
   /** A Codex role is a one-shot `codex exec`: after a brief registration grace period, a missing
    * terminal without a verdict means it has already exited. Avoid making the operator wait for the
    * full file timeout; a Herdr read failure remains inconclusive and falls back to that timeout. */
-  private codexReviewerExited(f: PlanInFlight, now: number): boolean {
+  private async codexReviewerExited(f: PlanInFlight, now: number): Promise<boolean> {
     if (f.reviewerProvider !== "codex" || !f.terminalId || now - f.startedAt < CODEX_EXIT_GRACE_MS)
       return false;
     try {
-      return !this.deps.herdr.list().some((a) => a.terminalId === f.terminalId);
+      return !(await this.deps.herdr.listAsync()).some((a) => a.terminalId === f.terminalId);
     } catch {
       return false;
     }
+  }
+
+  /** Whether `f` is ready to settle: null while still running (or claimed by an overlapping tick),
+   *  else whether a Codex reviewer exited verdict-less. Split out of tick for complexity. */
+  private async settleState(f: PlanInFlight, raw: RawPlanVerdict | null): Promise<boolean | null> {
+    const now = this.now();
+    const timedOut = now - f.startedAt > this.timeoutMs;
+    const exited = !raw && (await this.codexReviewerExited(f, now));
+    if (f.finalizing) return null; // an overlapping tick claimed it while herdr was being listed
+    if (!raw && !timedOut && !exited) {
+      // still running — surface what the reviewer is doing right now. Emit every tick (not
+      // only on change) so a reloaded client repopulates within one tick; the client dedups
+      // identical summaries. Mirrors ReviewService.tick's critic-activity signal.
+      const summary = this.readActivity(f.worktreePath, f.reviewerSessionId, f.reviewerProvider);
+      if (summary) this.deps.onActivity?.(f.sessionId, summary);
+      return null;
+    }
+    return exited;
   }
 
   /** Finalize any in-flight plan review whose verdict file is ready or that timed out. */
@@ -1542,17 +1563,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
       const raw = this.readVerdict(f.worktreePath, f.reviewerSessionId);
-      const now = this.now();
-      const timedOut = now - f.startedAt > this.timeoutMs;
-      const exited = !raw && this.codexReviewerExited(f, now);
-      if (!raw && !timedOut && !exited) {
-        // still running — surface what the reviewer is doing right now. Emit every tick (not
-        // only on change) so a reloaded client repopulates within one tick; the client dedups
-        // identical summaries. Mirrors ReviewService.tick's critic-activity signal.
-        const summary = this.readActivity(f.worktreePath, f.reviewerSessionId, f.reviewerProvider);
-        if (summary) this.deps.onActivity?.(f.sessionId, summary);
-        continue;
-      }
+      const exited = await this.settleState(f, raw);
+      if (exited === null) continue;
       if (f.heldSince != null) continue; // held: leave the run unsettled until the operator releases it
       if (exited)
         console.warn(`[plan-gate] codex reviewer exited without a verdict for ${f.sessionId}`);

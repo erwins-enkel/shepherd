@@ -25,7 +25,7 @@ function fakeHerdr(listed: FakeTab[], opts: { throwOnList?: boolean; throwOnTabs
   return {
     closed,
     listCalls,
-    list: (): HerdrAgent[] => {
+    listAsync: async (): Promise<HerdrAgent[]> => {
       listCalls.n++;
       if (opts.throwOnList) throw new Error("herdr unavailable");
       return listed

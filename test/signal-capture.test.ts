@@ -8,7 +8,7 @@ function deps(store: SessionStore) {
     store,
     worktree: {} as any,
     // reply() now liveness-checks the pane before sending; list the session's agent live.
-    herdr: { send: async () => {}, list: () => [{ terminalId: "t1" }] } as any,
+    herdr: { send: async () => {}, listAsync: async () => [{ terminalId: "t1" }] } as any,
     namer: (p: string) => p,
   };
 }
@@ -66,7 +66,7 @@ test("critic changes_requested records a 'critic' signal", async () => {
     herdr: {
       start: async () => ({ terminalId: "rev1" }),
       stop: async () => {},
-      list: () => [{ cwd: "/rev-wt", terminalId: "rev1", agentStatus: "idle" }],
+      listAsync: async () => [{ cwd: "/rev-wt", terminalId: "rev1", agentStatus: "idle" }],
     } as any,
     worktree: {
       createDetached: async () => ({ worktreePath: "/rev-wt" }),

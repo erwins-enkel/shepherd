@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { recordPowerPane } from "./power-panes";
-import { execFileSync } from "./instrument";
 import { config } from "./config";
 import {
   detectedHerdrVersion,
@@ -60,8 +59,9 @@ export interface HerdrPane {
   agentStatus: HerdrState;
 }
 
-export type Runner = (args: string[]) => string;
-/** Async counterpart to `Runner` — spawns off Bun's single loop (no blocking). */
+/** Runs one herdr CLI call off Bun's single loop. There is deliberately no synchronous runner:
+ *  a blocking call froze the whole server for up to `HERDR_TIMEOUT_MS` per call when herdr
+ *  stopped answering (#3127). */
 export type AsyncRunner = (args: string[]) => Promise<string>;
 
 /** A herdr CLI call attempted while an update is in flight. Thrown WITHOUT
@@ -88,38 +88,18 @@ export class HerdrSpawnUnsupportedError extends Error {
   }
 }
 
-/** Hard ceiling on any synchronous herdr CLI call. `execFileSync` blocks Bun's
- *  single JS thread, so an unbounded call against a half-down server would freeze
- *  every HTTP response (the persistent-502 we are fixing). 10s is far above a
- *  healthy call yet bounds the worst case. */
+/** Hard ceiling on any herdr CLI call. Calls run off the loop, so this bounds how long a
+ *  waiting tick or request hangs on a half-down server, not how long the loop stalls. */
 const HERDR_TIMEOUT_MS = 10_000;
 
-/** Build a Runner around a raw exec fn. Refuses (throws) while maintenance is
- *  active; otherwise delegates. Exported so tests can inject a fake exec.
+/** Build an AsyncRunner around a raw exec fn. Refuses (throws) while maintenance is active;
+ *  otherwise delegates. Exported so tests can inject a fake exec.
  *
  *  A kernel `E2BIG` is re-thrown as {@link OversizedArgvError} (#1944): its default rendering,
  *  `spawn herdr E2BIG`, named neither the cause (one argv element over `MAX_ARG_STRLEN`) nor the
  *  cure, so ten such failures in one session read as an unexplained spawn flake. Mapping the
  *  kernel's OWN verdict — rather than predicting the limit — means this can never over-refuse an
  *  argv a large-page kernel would have accepted. Every other error rethrows untouched. */
-export function makeHerdrRunner(exec: (args: string[]) => string): Runner {
-  return (args) => {
-    if (maintenance.active) throw new HerdrUnavailableError();
-    try {
-      return exec(args);
-    } catch (err) {
-      throw oversizedFromArgv(err, args) ?? err;
-    }
-  };
-}
-
-const defaultRunner: Runner = makeHerdrRunner((args) =>
-  execFileSync(config.herdrBin, args, { encoding: "utf8", timeout: HERDR_TIMEOUT_MS }),
-);
-
-/** Async sibling of `makeHerdrRunner`: same maintenance guard and the same `E2BIG` →
- *  {@link OversizedArgvError} mapping, but the delegate returns a promise so the spawn never
- *  blocks Bun's single loop. */
 export function makeHerdrAsyncRunner(exec: (args: string[]) => Promise<string>): AsyncRunner {
   return async (args) => {
     if (maintenance.active) throw new HerdrUnavailableError();
@@ -256,6 +236,42 @@ export function matchAgent(
     if (byName.length === 1) return byName[0]!;
   }
   return null;
+}
+
+/**
+ * Run a sync matcher with tab labels read only when it actually asks for them. The matcher runs
+ * once with a probe source; if it never consulted labels (the uncontended case — no herdr read at
+ * all) that result stands. Otherwise `tab list` is read asynchronously and the matcher re-runs with
+ * the real labels. A failed tab read keeps the label-free result: no name evidence, never a wrong
+ * pairing. This is the async replacement for passing a thunk that issued a blocking `tab list`.
+ */
+export async function withLazyTabLabels<T>(
+  herdr: Pick<IHerdrDriver, "tabsAsync">,
+  match: (labels: TabLabelSource) => T,
+): Promise<T> {
+  let wanted = false;
+  const first = match(() => {
+    wanted = true;
+    return undefined;
+  });
+  if (!wanted) return first;
+  let labels: ReadonlyMap<string, string>;
+  try {
+    labels = tabLabelMap(await herdr.tabsAsync());
+  } catch {
+    return first;
+  }
+  return match(() => labels);
+}
+
+/** {@link matchAgent} against a fresh `agent list`, with lazily-read tab labels. Throws when herdr
+ *  cannot be listed. */
+export async function matchAgentLive(
+  s: { herdrAgentId: string; worktreePath: string; name: string; isolated?: boolean },
+  herdr: Pick<IHerdrDriver, "listAsync" | "tabsAsync">,
+): Promise<HerdrAgent | null> {
+  const agents = await herdr.listAsync();
+  return withLazyTabLabels(herdr, (labels) => matchAgent(s, agents, labels));
 }
 
 /**
@@ -421,7 +437,7 @@ export function matchAgents(
 /**
  * Returns true when the error thrown by `runner` signals that a same-named agent is
  * already registered in herdr. The CLI emits `agent_name_taken` as a JSON code on
- * stderr/stdout, which execFileSync surfaces on the thrown error's `.stderr`/`.stdout`/
+ * stderr/stdout, which execFile surfaces on the thrown error's `.stderr`/`.stdout`/
  * `.message`. The socket transport surfaces it as `HerdrSocketError.code` (the `.message`
  * is human prose without the marker, so the `.code` check is load-bearing there —
  * confirmed against live herdr 0.7.3). Defensive: coerces unknown fields to string safely;
@@ -945,14 +961,11 @@ export interface HerdrStartOptions {
  * callers keep using `Pick<HerdrDriver, …>` today; nothing about them changes.
  */
 export interface IHerdrDriver {
-  list(): HerdrAgent[];
-  /** Non-blocking sibling of `list()` — see `HerdrDriver.listAsync`. */
+  /** Every live agent (`agent list`). The read surface is async-only (#3127): a blocking read
+   *  stalls Bun's single loop for as long as herdr takes to answer. */
   listAsync(): Promise<HerdrAgent[]>;
-  tabs(): HerdrTab[];
-  /** Non-blocking sibling of `tabs()` — the recorded-tab verification in `stop()` runs
-   *  on the async surface (#1852). */
+  /** Every tab, including husks with no live agent (`tab list`). */
   tabsAsync(): Promise<HerdrTab[]>;
-  panes(): HerdrPane[];
   paneForegroundProcs(paneId: string): Promise<string[]>;
   /** Push a Shepherd-derived lifecycle state to a pane's registered agent (`pane report-agent
    *  --state`, issue #1891). Used for externally-registered sandboxed 0.7.5 agents whose
@@ -971,15 +984,14 @@ export interface IHerdrDriver {
    *  `SHEPHERD_HERDR_SOCKET=1`, else non-blocking CLI). Callers that deliver a multi-send
    *  sequence (bracket-paste then CR) must serialize the pair — see `SessionService.sendSteerTo`. */
   send(target: string, text: string): Promise<void>;
-  read(target: string, source?: "visible" | "recent", lines?: number): string;
   readAsync(target: string, source?: "visible" | "recent", lines?: number): Promise<string>;
   stop(terminalId: string): Promise<void>;
   relabel(terminalId: string, newName: string): Promise<void>;
   /** Close a tab, declining when it is the last in its workspace unless `allowLastTab` —
    *  see `HerdrDriver.closeTab` (#2039). */
   closeTab(tabId: string, opts?: { allowLastTab?: boolean }): Promise<void>;
-  /** Non-blocking sibling of `panes()` — for poller-loop consumers (clean-terminal pane
-   *  liveness) that must never run `execFileSync` on Bun's loop. */
+  /** Every pane across all tabs (`pane list`), including idle shell panes left behind by exited
+   *  agents. */
   panesAsync(): Promise<HerdrPane[]>;
   /** Spawn a bare shell tab (clean terminal, pane-direct): `tab create` ONLY — deliberately no
    *  `agent start` (herdr hosts only known agent CLIs, and a shell needs none). The fresh tab's
@@ -1011,7 +1023,6 @@ export class HerdrDriver implements IHerdrDriver {
   private ledger = new TabLedger();
 
   constructor(
-    private runner: Runner = defaultRunner,
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
     /** Injectable delay for the trusted-spawn auto-detect poll; overridden in tests to run instantly. */
     private sleep: (ms: number) => Promise<void> = (ms) =>
@@ -1020,36 +1031,17 @@ export class HerdrDriver implements IHerdrDriver {
     private now: () => number = Date.now,
   ) {}
 
-  list(): HerdrAgent[] {
-    return parseAgents(JSON.parse(this.runner(["agent", "list"]))?.result);
-  }
-
-  /**
-   * Async sibling of `list()` — same maintenance guard, but spawns via `asyncRunner`
-   * so it never blocks Bun's single loop. Used by the poll loop, which calls `agent
-   * list` every 1s; the sync `list()` there would freeze the live web terminal.
-   */
+  /** `agent list` via `asyncRunner`, so it never blocks Bun's single loop. */
   async listAsync(): Promise<HerdrAgent[]> {
     return parseAgents(JSON.parse(await this.asyncRunner(["agent", "list"]))?.result);
   }
 
   /** Every tab in the workspace — including husks with no live agent (`tab list`). */
-  tabs(): HerdrTab[] {
-    return parseTabs(JSON.parse(this.runner(["tab", "list"]))?.result);
-  }
-
-  /** Async sibling of `tabs()` — spawns via `asyncRunner` so the recorded-tab
-   *  verification in `stop()` never blocks Bun's single loop. */
   async tabsAsync(): Promise<HerdrTab[]> {
     return parseTabs(JSON.parse(await this.asyncRunner(["tab", "list"]))?.result);
   }
 
   /** Every pane across all tabs (`pane list`). Includes idle shell panes left behind by exited agents. */
-  panes(): HerdrPane[] {
-    return this.parsePanes(JSON.parse(this.runner(["pane", "list"])));
-  }
-
-  /** Non-blocking sibling of `panes()` — see IHerdrDriver.panesAsync. */
   async panesAsync(): Promise<HerdrPane[]> {
     return this.parsePanes(JSON.parse(await this.asyncRunner(["pane", "list"])));
   }
@@ -1552,12 +1544,6 @@ export class HerdrDriver implements IHerdrDriver {
     return resolvePaneId(await this.listAsync(), terminalId);
   }
 
-  /** Sync sibling of {@link resolveTargetAsync} for the sync `read` (uses the sync `list()`). */
-  private resolveTargetSync(terminalId: string): string | null {
-    if (!herdrUsesExternalRegistrationSpawn()) return terminalId;
-    return resolvePaneId(this.list(), terminalId);
-  }
-
   /**
    * Write literal text to an agent's PTY (no implicit Enter). Async since #1567 — spawns via
    * `asyncRunner` so a steer never blocks Bun's loop, matching the other async writes. On 0.7.5 the
@@ -1580,7 +1566,7 @@ export class HerdrDriver implements IHerdrDriver {
     );
   }
 
-  /** The `agent read` argv shared by the sync and async readers. */
+  /** The `agent read` argv. */
   private readArgs(target: string, source: "visible" | "recent", lines: number): string[] {
     return [
       "agent",
@@ -1606,19 +1592,6 @@ export class HerdrDriver implements IHerdrDriver {
 
   /** Read an agent's terminal buffer as plain text (default: the visible viewport). On 0.7.5 the
    *  same `agent read` command targets the resolved `pane_id` (#1890); a gone pane reads as `""`. */
-  read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
-    const resolved = this.resolveTargetSync(target);
-    if (resolved === null) return "";
-    return this.parseRead(this.runner(this.readArgs(resolved, source, lines)));
-  }
-
-  /**
-   * Async sibling of `read` — same args/timeout/maintenance guard, but spawns via
-   * `promisify(execFile)` so it never blocks Bun's single loop. Use this from the
-   * poll loop (the poller reads the visible buffer for EVERY running agent every
-   * probe cadence in the interim heartbeat path); the sync `read` would freeze the
-   * live web terminal under that fan-out.
-   */
   async readAsync(
     target: string,
     source: "visible" | "recent" = "visible",

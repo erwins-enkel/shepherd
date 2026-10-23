@@ -314,7 +314,7 @@ export interface RecapServiceDeps {
     | "list"
     | "setRecapPendingDiff"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs" | "readAsync">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "listAsync" | "paneForegroundProcs" | "readAsync">;
   onChange: (id: string, recap: Recap | null) => void;
   // optional environment thunk (CLI + model, read per spawn → live settings)
   env?: () => RoleEnvironment;
@@ -439,8 +439,8 @@ export class RecapService {
   // ── resolveTerminal ──────────────────────────────────────────────────────────
 
   /** Find a recap spawn's live terminal by its tmpdir cwd. "" when gone; herdr.stop("") is a no-op. */
-  private resolveTerminal(cwd: string): string {
-    return this.deps.herdr.list().find((a) => a.cwd === cwd)?.terminalId ?? "";
+  private async resolveTerminal(cwd: string): Promise<string> {
+    return (await this.deps.herdr.listAsync()).find((a) => a.cwd === cwd)?.terminalId ?? "";
   }
 
   private putTerminalRecap(
@@ -624,7 +624,9 @@ export class RecapService {
    *  adopted across a restart and safely resolves to "" after the agent has exited. */
   private async reapPane(cwd: string): Promise<void> {
     try {
-      await this.deps.herdr.stop(this.generatingTerminals.get(cwd) ?? this.resolveTerminal(cwd));
+      await this.deps.herdr.stop(
+        this.generatingTerminals.get(cwd) ?? (await this.resolveTerminal(cwd)),
+      );
     } catch {
       /* best-effort */
     } finally {
@@ -1031,7 +1033,7 @@ export class RecapService {
     const spawn = this.deps.store
       .listReviewerSpawns()
       .find((s) => s.reviewerSessionId === r.spawnSessionId);
-    const paneId = this.resolveTerminal(r.cwd);
+    const paneId = await this.resolveTerminal(r.cwd);
     const ctx =
       `spawn=${r.spawnSessionId || "<none>"} cwd=${r.cwd || "<none>"} model=${r.model ?? "<default>"} ` +
       `provider=${spawn?.reviewerProvider ?? "<unknown>"} effort=${spawn?.reviewerEffort ?? "<default>"} ` +

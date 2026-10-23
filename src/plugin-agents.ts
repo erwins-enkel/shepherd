@@ -95,7 +95,7 @@ export type PluginAgentStore = Pick<
 export interface PluginAgentDeps extends MembraneSeams {
   herdr: Pick<
     HerdrDriver,
-    "start" | "stop" | "list" | "paneForegroundProcs" | "tabsAsync" | "closeTab"
+    "start" | "stop" | "listAsync" | "paneForegroundProcs" | "tabsAsync" | "closeTab"
   >;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "ensureBaseRef" | "gitCommonDir">;
   store: PluginAgentStore;

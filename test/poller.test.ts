@@ -68,7 +68,6 @@ test("default probe emits Codex runtime model and effort via session:activity", 
           workspaceId: "w",
         },
       ],
-      read: () => "working",
       readAsync: async () => "working",
     });
     const poller = new StatusPoller(
@@ -166,7 +165,7 @@ test("tick maps herdr state to status and emits only on change", async () => {
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as any),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as any),
     (id, status) => emitted.push({ id, status }),
     () => {},
   );
@@ -203,9 +202,8 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
         workspaceId: "w",
       },
     ],
-    read: () => "❯ 1. Yes\n  2. No",
-    // resume runs the interim path (no injected transcript probe → empty signals),
-    // whose block-clear is async; provide the async read so it fires
+    // also feeds the resume's interim path (no injected transcript probe → empty signals),
+    // whose block-clear is async
     readAsync: () => Promise.resolve("❯ 1. Yes\n  2. No"),
   };
 
@@ -257,7 +255,7 @@ test("re-emits onBlock when the blocked reason changes after the cadence", async
         workspaceId: "w",
       },
     ],
-    read: () => text,
+    readAsync: async () => text,
   };
   let clock = 100_000;
   const poller = new StatusPoller(
@@ -314,7 +312,6 @@ function spinnerHarness(initialText: string) {
               workspaceId: "w",
             } as HerdrAgent,
           ],
-    read: () => text,
     readAsync: () => Promise.resolve(text),
   };
   let clock = 100_000;
@@ -738,7 +735,7 @@ test("marks a session done and emits once when its herdr agent is gone", async (
   // herdr no longer lists the agent (claude exited / ctrl-c reaped the terminal)
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [] as HerdrAgent[], read: () => "" } as any),
+    withListAsync({ list: () => [] as HerdrAgent[], readAsync: async () => "" } as any),
     (id, status) => emitted.push({ id, status }),
     () => {},
   );
@@ -772,7 +769,7 @@ test("clears an active block when the agent disappears", async () => {
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "❯ 1. Yes\n  2. No" } as any),
+    withListAsync({ list: () => agents, readAsync: async () => "❯ 1. Yes\n  2. No" } as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -817,7 +814,7 @@ test("flags a silent working agent with a FROZEN terminal as a stall, fires once
         workspaceId: "w",
       },
     ],
-    read: () => visible,
+    readAsync: async () => visible,
   };
 
   let clock = 1_700_000_000_000; // realistic ms epoch so a past lastTs stays positive
@@ -911,7 +908,7 @@ test("does NOT flag a transcript-silent agent whose terminal is still moving (li
         workspaceId: "w",
       },
     ],
-    read: () => `Computing… (${frame}s • ${frame}k tokens)`,
+    readAsync: async () => `Computing… (${frame}s • ${frame}k tokens)`,
   };
 
   let clock = 1_700_000_000_000;
@@ -960,7 +957,7 @@ test("fires a stall for a hung command (pending past the ceiling) even when the 
         workspaceId: "w",
       },
     ],
-    read: () => `$ slow-cmd  (esc to interrupt · ${frame}s)`,
+    readAsync: async () => `$ slow-cmd  (esc to interrupt · ${frame}s)`,
   };
 
   let clock = 1_700_000_000_000;
@@ -1019,7 +1016,7 @@ test("clears an emitted stall when the terminal resumes moving even before the t
         workspaceId: "w",
       },
     ],
-    read: () => visible,
+    readAsync: async () => visible,
   };
 
   let clock = 1_700_000_000_000;
@@ -1075,7 +1072,7 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", a
         workspaceId: "w",
       },
     ],
-    read: () => visible,
+    readAsync: async () => visible,
   };
 
   let clock = 1_700_000_000_000;
@@ -1154,7 +1151,7 @@ test.each(["working", "blocked"] as const)(
 
     const poller = new StatusPoller(
       store,
-      withListAsync({ list: () => agents, read: () => "" } as any),
+      withListAsync({ list: () => agents, readAsync: async () => "" } as any),
       () => {},
       () => {},
       1000,
@@ -1198,7 +1195,7 @@ test("leaves readyToMerge untouched while a ready session stays idle", async () 
           workspaceId: "w",
         },
       ],
-      read: () => "",
+      readAsync: async () => "",
     } as any),
     () => {},
     () => {},
@@ -1234,7 +1231,7 @@ test("does not emit onBlock when reading the terminal throws", async () => {
         workspaceId: "w",
       },
     ],
-    read: () => {
+    readAsync: async () => {
       throw new Error("herdr down");
     },
   };
@@ -1268,7 +1265,6 @@ const runningHerdr = {
       workspaceId: "w",
     },
   ],
-  read: () => "",
   // a constant visible buffer: when a probe flips to the interim path (transcript
   // not advancing), the unchanged terminal produces no heartbeat tick → no emit.
   readAsync: () => Promise.resolve("const"),
@@ -1473,7 +1469,7 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", async
         workspaceId: "w",
       },
     ],
-    read: () => "",
+    readAsync: async () => "",
   };
 
   const poller = new StatusPoller(
@@ -1532,7 +1528,6 @@ function interimHarness(opts: {
         workspaceId: "w",
       },
     ],
-    read: () => opts.visible(),
     readAsync: () => Promise.resolve(opts.visible()),
   };
   return new StatusPoller(
@@ -1824,11 +1819,7 @@ test("interim path is NOT used when the transcript probe returns a non-null sign
       },
     ],
     // a healthy (non-stalled) transcript signal must not read the terminal by
-    // EITHER path — the interim uses readAsync, evaluateStall the sync read
-    read: () => {
-      visibleReads++;
-      return "irrelevant";
-    },
+    // EITHER path — the interim probe and the transcript stall confirm both use readAsync
     readAsync: () => {
       visibleReads++;
       return Promise.resolve("irrelevant");
@@ -1912,7 +1903,6 @@ test("interim engages when the transcript parses but its newest record is FROZEN
         workspaceId: "w",
       },
     ],
-    read: () => "irrelevant",
     // the interim path's heartbeat reads the live terminal (changing each cadence)
     readAsync: () => {
       visibleReads++;
@@ -1993,7 +1983,6 @@ test("a resumed stale transcript engages the interim path on the FIRST probe (no
         workspaceId: "w",
       },
     ],
-    read: () => "irrelevant",
     readAsync: () => {
       visibleReads++;
       return Promise.resolve("frozen output");
@@ -2049,7 +2038,6 @@ test("a frozen resumed transcript with a frozen terminal fires an interim stall"
         workspaceId: "w",
       },
     ],
-    read: () => "frozen",
     readAsync: () => Promise.resolve("frozen output"),
   };
 
@@ -2115,7 +2103,6 @@ test("a live-writing probe resets a stale interim stall baseline (Finding 1)", a
         workspaceId: "w",
       },
     ],
-    read: () => "frozen",
     // terminal stays frozen the whole time → the interim stall is driven purely by
     // the change-baseline, which is exactly what resetInterim must clear.
     readAsync: () => Promise.resolve("frozen terminal"),
@@ -2207,7 +2194,7 @@ test("pruneInactive clears activity tracking for a running-only session that goe
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as any),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -2281,7 +2268,7 @@ test("tick adopts a resurrected agent by cwd, re-points the id, emits, and does 
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as any),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as any),
     (id, status) => emitted.push({ id, status }),
     () => {},
   );
@@ -2299,7 +2286,7 @@ test("tick reaps when neither terminalId nor cwd matches a live agent", async ()
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => [], read: () => "" } as any),
+    withListAsync({ list: () => [], readAsync: async () => "" } as any),
     () => {},
     () => {},
   );
@@ -2328,7 +2315,7 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
 
   const poller = new StatusPoller(
     store,
-    withListAsync({ list: () => agents, read: () => "" } as any),
+    withListAsync({ list: () => agents, readAsync: async () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -2374,7 +2361,6 @@ test("tick() is a no-op while maintenance is active (no herdr call, no reap)", a
       listCalls++;
       return [];
     },
-    read: () => "",
     readAsync: () => Promise.resolve(""),
   };
   const poller = new StatusPoller(
@@ -2409,7 +2395,6 @@ test("tick() swallows a herdr.list() throw (no crash, no reap)", async () => {
     list: () => {
       throw new Error("herdr list timed out"); // simulate HERDR_TIMEOUT_MS firing
     },
-    read: () => "",
     readAsync: () => Promise.resolve(""),
   };
   const poller = new StatusPoller(
@@ -2459,7 +2444,6 @@ function hookHarness(opts?: {
         workspaceId: "w",
       } as HerdrAgent,
     ],
-    read: () => visible(),
     readAsync: () => Promise.resolve(visible()),
   };
   const livenessWiring = opts?.onLivenessChange ? { onChange: opts.onLivenessChange } : undefined;
@@ -2549,7 +2533,9 @@ test("hooks: a permission_prompt notification triggers maybeClassify on the next
     // but the marker is gone so the awaiting branch never even runs again)
     h.advance(5000);
     await h.poller.tick();
-    expect(h.blocks).toHaveLength(1);
+    // Only announcements count: this working-status tick's interim probe may legitimately CLEAR
+    // the stale block (block: null) — that is the normal running-path routing, not a re-fire.
+    expect(h.blocks.filter((b) => b.block !== null)).toHaveLength(1);
   } finally {
     config.hooksSignals = orig;
   }
@@ -2589,10 +2575,11 @@ test("hooks: a throttled awaiting tick KEEPS the marker and retries once the cad
     expect(h.blocks).toHaveLength(2); // classify ran → block re-emitted
     expect((h.blocks[1]!.block as any).shape).toBe("menu");
 
-    // Marker now consumed: a further (post-cadence) tick does not re-fire.
+    // Marker now consumed: a further (post-cadence) tick does not re-fire (a clear from the
+    // running-path interim probe is not an announcement).
     h.advance(3000);
     await h.poller.tick();
-    expect(h.blocks).toHaveLength(2);
+    expect(h.blocks.filter((b) => b.block !== null)).toHaveLength(2);
   } finally {
     config.hooksSignals = orig;
   }
@@ -2902,7 +2889,7 @@ function idleQuotaHarness() {
         workspaceId: "w",
       },
     ],
-    read: () => "",
+    readAsync: async () => "",
   };
 
   const poller = new StatusPoller(
@@ -2971,7 +2958,6 @@ test("quota: block is cleared when a quota-carrying session transitions to runni
         workspaceId: "w",
       },
     ],
-    read: () => "",
     readAsync: () => Promise.resolve(""),
   };
 
@@ -3023,7 +3009,7 @@ test("quota: blocked session goes through maybeClassify, not the quota branch", 
         workspaceId: "w",
       },
     ],
-    read: () => "❯ 1. Yes\n  2. No",
+    readAsync: async () => "❯ 1. Yes\n  2. No",
   };
 
   const clock = 100_000;
@@ -3184,7 +3170,6 @@ function doneAuthHarness() {
         workspaceId: "w",
       },
     ],
-    read: () => "",
     readAsync: () => Promise.resolve(""),
   };
   let clock = 100_000;
@@ -3286,7 +3271,6 @@ function doneLoginHarness() {
         workspaceId: "w",
       } as HerdrAgent,
     ],
-    read: () => visible, // sync read drives the blocked path (maybeClassify)
     readAsync: () => {
       readCalls++;
       return Promise.resolve(visible);
@@ -3517,7 +3501,7 @@ function contendedHarness(opts: { tabsAsync?: () => Promise<{ tabId: string; lab
     },
   ];
   let tabCalls = 0;
-  const herdr: Record<string, unknown> = { list: () => agents, read: () => "" };
+  const herdr: Record<string, unknown> = { list: () => agents, readAsync: async () => "" };
   if (opts.tabsAsync) {
     herdr.tabsAsync = () => {
       tabCalls++;

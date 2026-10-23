@@ -64,7 +64,7 @@ function deps(over: Partial<AutoMergeDeps> = {}): AutoMergeDeps {
         s1: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "h1" },
       }),
     } as any,
-    paneAlive: () => true,
+    paneAlive: async () => true,
     repos: () => ["/r"],
     emitStatus: mock(() => {}),
     emitArchived: mock(() => {}),
@@ -231,7 +231,7 @@ test("dead pane → resume attempted before steer; counter bumped once resumed",
   const setState = mock(() => {});
   const d = deps({
     worktree: { behindBase: async () => true } as any,
-    paneAlive: () => false,
+    paneAlive: async () => false,
     service: { archive: mock(() => 1), reply, resume, resolveMerging: mock(() => {}) } as any,
   });
   d.store.setAutoMergeState = setState as any;
@@ -251,8 +251,8 @@ test("herdr-restored account husk (deferSteer true) → resume attempted before 
   const setState = mock(() => {});
   const d = deps({
     worktree: { behindBase: async () => true } as any,
-    paneAlive: () => true, // pane IS live — only deferSteer forces the resume() detour
-    deferSteer: () => true,
+    paneAlive: async () => true, // pane IS live — only deferSteer forces the resume() detour
+    deferSteer: async () => true,
     service: { archive: mock(() => 1), reply, resume, resolveMerging: mock(() => {}) } as any,
   });
   d.store.setAutoMergeState = setState as any;
@@ -271,8 +271,8 @@ test("deferSteer false + paneAlive true → replies directly, no resume (unchang
   const resume = mock(() => true);
   const d = deps({
     worktree: { behindBase: async () => true } as any,
-    paneAlive: () => true,
-    deferSteer: () => false,
+    paneAlive: async () => true,
+    deferSteer: async () => false,
     service: { archive: mock(() => 1), reply, resume, resolveMerging: mock(() => {}) } as any,
   });
   const svc = new AutoMergeService(d);
@@ -949,7 +949,7 @@ test("conflict rebase on an UNRESUMABLE pane still counts + stamps (cap stays re
       recordEpicIntegrated: mock(() => {}),
     } as any,
     // Dead pane that cannot be resumed → doRebase returns before ever replying.
-    paneAlive: () => false,
+    paneAlive: async () => false,
     service: {
       archive: mock(() => 1),
       reply,

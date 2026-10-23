@@ -93,7 +93,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "listEpicCompleted"
     | "getEpicParentByBranch"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "listAsync" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   openPrSnapshot: Pick<OpenPrSnapshotService, "get">;
@@ -685,7 +685,7 @@ export class StandalonePrCriticService {
       // A strict OR repaired parse is a usable verdict → finalize (repair recovers a malformed-but-
       // complete verdict that JSON.parse would have rejected). `absent`/`unparseable` mean no usable
       // verdict yet → wait, exactly as before, until the hard timeout finalizes with null. This
-      // service has no herdr.list() dep so it can't gate a repaired parse on spawn-completion like
+      // service has no herdr.listAsync() dep so it can't gate a repaired parse on spawn-completion like
       // ReviewService; that's acceptable here because this critic only ever posts COMMENTS (it never
       // request-changes / blocks a merge), so an over-trusted repaired verdict can't flip a gate.
       let raw: RawVerdict | null;

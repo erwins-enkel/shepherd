@@ -35,7 +35,7 @@ test("scrape returns null without calling herdr.start in api-key mode", async ()
     config.authMode = "api-key";
     let startCalled = false;
     const herdr = {
-      list: () => [] as HerdrAgent[],
+      listAsync: async () => [] as HerdrAgent[],
       tabsAsync: async () => [] as HerdrTab[],
       start: async () => {
         startCalled = true;
@@ -68,7 +68,7 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
     tab("t-user", "usage-probe"),
   ];
   const herdr = {
-    list: () => agents,
+    listAsync: async () => agents,
     tabsAsync: async () => tabs,
     start: async () => {
       throw new Error("agent start failed after tab create");
@@ -100,7 +100,7 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
 
 function throwingHerdr() {
   return {
-    list: () => [] as HerdrAgent[],
+    listAsync: async () => [] as HerdrAgent[],
     tabsAsync: async () => [] as HerdrTab[],
     start: async () => {
       throw new Error("start stubbed — return null after pre-seed");

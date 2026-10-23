@@ -277,7 +277,7 @@ export interface RetargetPromptCtx {
 }
 
 export interface DocAgentDeps extends MembraneSeams {
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabs" | "closeTab">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "listAsync" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "create" | "remove" | "gitCommonDir" | "ensureBaseRef">;
   resolveForge: (repoPath: string) => GitForge | null;
   openPrSnapshot: Pick<OpenPrSnapshotService, "get">;
@@ -1418,7 +1418,7 @@ export class DocAgentService {
       }
     }
     await this.sweepDanglingRows();
-    this.closeHuskTabs();
+    await this.closeHuskTabs();
   }
 
   /** Per repo: walk the doc-update worktrees applying the decision tree, then reap orphan remote
@@ -1463,7 +1463,7 @@ export class DocAgentService {
       return false;
     }
     const sentinel = this.readSentinel(path);
-    const liveTab = this.findLiveTab(path);
+    const liveTab = await this.findLiveTab(path);
     let base: string;
     try {
       base = await forge.defaultBranch();
@@ -1577,7 +1577,7 @@ export class DocAgentService {
    *  husk tab. The terminal prune branch of the decision tree. */
   private async pruneWorktree(repo: string, path: string, branch: string): Promise<void> {
     await this.completeRowFor(path);
-    const tab = this.findLiveTab(path);
+    const tab = await this.findLiveTab(path);
     if (tab) await this.deps.herdr.closeTab(tab.tabId);
     this.deps.worktree.remove(path);
     try {
@@ -1621,14 +1621,14 @@ export class DocAgentService {
   /** A live herdr agent (doc-agent prefix) whose cwd is this worktree, or undefined.
    *  Identified by its TAB label: herdr 0.7.5 sends no `agent.name`, so the old
    *  `a.name.startsWith(DOC_AGENT_LABEL)` matched nothing there (#2029). */
-  private findLiveTab(
+  private async findLiveTab(
     worktreePath: string,
-  ): { tabId: string; terminalId: string; name: string } | undefined {
+  ): Promise<{ tabId: string; terminalId: string; name: string } | undefined> {
     try {
-      const labels = tabLabelMap(this.deps.herdr.tabs());
-      const agent = this.deps.herdr
-        .list()
-        .find((a) => a.cwd === worktreePath && !!labels.get(a.tabId)?.startsWith(DOC_AGENT_LABEL));
+      const labels = tabLabelMap(await this.deps.herdr.tabsAsync());
+      const agent = (await this.deps.herdr.listAsync()).find(
+        (a) => a.cwd === worktreePath && !!labels.get(a.tabId)?.startsWith(DOC_AGENT_LABEL),
+      );
       if (!agent) return undefined;
       return {
         tabId: agent.tabId,
@@ -1644,15 +1644,18 @@ export class DocAgentService {
    *  Scoped by TAB label (#2029) — which also brings husks whose agent already exited (absent
    *  from `agent list`, still in `tab list`) into reach. The owned spares are keyed on agent
    *  records, so candidate tabs are joined to `list()` by `tab_id` to resolve them. */
-  private closeHuskTabs(): void {
-    const ownedCwds = new Set([...this.inflight.values()].map((f) => f.worktreePath));
-    const ownedTerms = new Set(
-      [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
-    );
+  private async closeHuskTabs(): Promise<void> {
     try {
-      const candidates = this.deps.herdr.tabs().filter((t) => t.label.startsWith(DOC_AGENT_LABEL));
+      const candidates = (await this.deps.herdr.tabsAsync()).filter((t) =>
+        t.label.startsWith(DOC_AGENT_LABEL),
+      );
       if (candidates.length === 0) return;
-      const agentByTab = new Map(this.deps.herdr.list().map((a) => [a.tabId, a]));
+      const agentByTab = new Map((await this.deps.herdr.listAsync()).map((a) => [a.tabId, a]));
+      // Owned sets AFTER the herdr reads: a run adopted while they were in flight must be spared.
+      const ownedCwds = new Set([...this.inflight.values()].map((f) => f.worktreePath));
+      const ownedTerms = new Set(
+        [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
+      );
       for (const t of candidates) {
         const agent = agentByTab.get(t.tabId);
         // spare re-adopted runs (a husk has no agent record, so it can never be owned)

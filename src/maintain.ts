@@ -240,7 +240,7 @@ export type MaintainStore = Pick<
 export interface MaintainDeps extends MembraneSeams {
   herdr: Pick<
     HerdrDriver,
-    "start" | "stop" | "list" | "paneForegroundProcs" | "tabsAsync" | "closeTab"
+    "start" | "stop" | "listAsync" | "paneForegroundProcs" | "tabsAsync" | "closeTab"
   >;
   worktree: Pick<
     WorktreeMgr,

@@ -323,8 +323,8 @@ export interface ServiceDeps {
   herdr: Pick<
     HerdrDriver,
     | "start"
-    | "list"
-    | "tabs"
+    | "listAsync"
+    | "tabsAsync"
     | "stop"
     | "send"
     | "relabel"
@@ -3817,11 +3817,9 @@ export class SessionService {
     return { session: this.deps.store.get(id)!, provider };
   }
 
-  private liveAgentFor(id: string): HerdrAgent | null {
-    return (
-      matchAgents(this.deps.store.list({ activeOnly: true }), this.deps.herdr.list()).get(id) ??
-      null
-    );
+  private async liveAgentFor(id: string): Promise<HerdrAgent | null> {
+    const agents = await this.deps.herdr.listAsync();
+    return matchAgents(this.deps.store.list({ activeOnly: true }), agents).get(id) ?? null;
   }
 
   private adoptLiveResumeAgent(session: Session, agent: HerdrAgent): Session | null {
@@ -4223,7 +4221,12 @@ export class SessionService {
     try {
       const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
       const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
-      const name = this.uniqueName("terminal", herdSlug, input.repoPath);
+      const name = this.uniqueName(
+        await this.takenHerdrNames(),
+        "terminal",
+        herdSlug,
+        input.repoPath,
+      );
       const shell = await this.deps.herdr.startShellTab(input.repoPath, name, {
         [SESSION_MARKER_ENV]: sessionId,
       });
@@ -4328,7 +4331,10 @@ export class SessionService {
     await this.assertIssueAuthorTrusted(input);
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
-    const name = this.uniqueName(await this.baseName(input), herdSlug, input.repoPath);
+    // Base first: the namer can take a while, and the live-name snapshot must be fresh when the
+    // synchronous uniqueness check runs.
+    const base = await this.baseName(input);
+    const name = this.uniqueName(await this.takenHerdrNames(), base, herdSlug, input.repoPath);
     const baseRef = await phases.phase("base", () => this.resolveBaseRef(input));
     const wt = await phases.phase("worktree", () =>
       this.deps.worktree.create(input.repoPath, baseRef, name),
@@ -4563,7 +4569,7 @@ export class SessionService {
   private async ensureOperatorAssistantNow(repo: string | null): Promise<Session> {
     const live = this.deps.store.getLiveOperatorAssistant(repo);
     if (!live) return this.createOperatorAssistant(repo);
-    const agent = this.liveAgentFor(live.id);
+    const agent = await this.liveAgentFor(live.id);
     // Re-point a herdr-restored pane first, so a replace below stops the pane that is really there.
     const current = (agent && this.adoptLiveResumeAgent(live, agent)) || live;
     if (agent && !(await this.paneIsBareShell(agent))) return current;
@@ -4615,6 +4621,7 @@ export class SessionService {
     const model = modelForProviderOrDefault(drainSpawnModel(config.defaultModel), "claude");
     const effort = drainSpawnEffort(engineDefaultEffortSetting("claude", config));
     const name = this.uniqueName(
+      await this.takenHerdrNames(),
       repo
         ? `${OPERATOR_ASSISTANT_NAME}-${slugifyManual(basename(repo))}`
         : OPERATOR_ASSISTANT_NAME,
@@ -5345,12 +5352,12 @@ export class SessionService {
    * handle already — one whose tab is labelled with the name it is renaming AWAY from — so without
    * this it collides with itself. Creation has no handle yet and passes nothing.
    */
-  private takenHerdrNames(exceptTerminalId?: string): Set<string> {
+  private async takenHerdrNames(exceptTerminalId?: string): Promise<Set<string>> {
     const taken = new Set<string>();
     const add = (raw: string | undefined): void => {
       if (raw) taken.add(sanitizeHerdrAgentName(raw));
     };
-    const agents = this.deps.herdr.list();
+    const agents = await this.deps.herdr.listAsync();
     // `exceptTerminalId` excludes ONE caller's own handle — the exclude-your-own rule
     // `agentsHoldingName` documents: a session's tab was created with its own name as the label
     // (and ≤0.7.4 puts that name on the agent record too), so it matches itself by construction.
@@ -5363,7 +5370,8 @@ export class SessionService {
     const ownTabId = ownAgent?.tabId;
     for (const a of agents) if (a !== ownAgent) add(a.name);
     try {
-      for (const t of this.deps.herdr.tabs()) if (!ownTabId || t.tabId !== ownTabId) add(t.label);
+      for (const t of await this.deps.herdr.tabsAsync())
+        if (!ownTabId || t.tabId !== ownTabId) add(t.label);
     } catch {
       /* best-effort: the agent-name half alone */
     }
@@ -5395,8 +5403,12 @@ export class SessionService {
    * add -b shepherd/<base>` and fail fatally. Pre-empting it here keeps the display name, herdr
    * agent name, branch, and worktree path all in sync on the suffixed value.
    */
-  private uniqueName(base: string, herd?: string, repoPath?: string): string {
-    const liveNames = this.takenHerdrNames();
+  private uniqueName(
+    liveNames: Set<string>,
+    base: string,
+    herd?: string,
+    repoPath?: string,
+  ): string {
     // Worktree paths of every session that has not been archived. Load-bearing ON TOP of the
     // existsSync below, not a duplicate of it: a session whose directory has been destroyed (or
     // never restored) still OWNS its path, and handing that path to a new session is how two rows
@@ -5480,7 +5492,7 @@ export class SessionService {
     // Keep the issue number the create path folded in (#2459) through the comprehended name.
     const base =
       session.issueNumber != null ? withIssueNumber(raw, session.issueNumber, ISSUE_NAME_MAX) : raw;
-    const slug = this.uniqueName(base, herd);
+    const slug = this.uniqueName(await this.takenHerdrNames(), base, herd);
     if (slug === session.name) return;
     // Don't clobber a manual rename that landed during the (up-to-60s) refine window:
     // re-read the row and bail if its name no longer matches the snapshot we started
@@ -5583,7 +5595,7 @@ export class SessionService {
     const { session, provider } = target;
     if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(session))) return null;
     this.assertNotTerminal(session, "resume");
-    const agent = this.liveAgentFor(id);
+    const agent = await this.liveAgentFor(id);
     if (agent && !opts.force && !needsAccountRedrive(session, agent)) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new terminalId)
       // AND either a default session or already on its owning account. Adopt; never spawn a second
@@ -5750,10 +5762,10 @@ export class SessionService {
    * once healed (needsAccountRedrive clears) OR degraded (bounded re-drive hit CAP — steering resumes
    * as today). Closes the race where a caller steers before the poller's proactive re-drive lands.
    */
-  shouldDeferSteer(id: string): boolean {
+  async shouldDeferSteer(id: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || s.spawnAccountDir === null) return false;
-    const agent = this.liveAgentFor(id);
+    const agent = await this.liveAgentFor(id);
     if (!agent || !needsAccountRedrive(s, agent)) return false;
     const rec = this.redriveAttempts.get(id);
     const exhausted =
@@ -5844,17 +5856,22 @@ export class SessionService {
    * `uniqueName` like the other automatic rename paths so it can't clash with a
    * sibling's tab label.
    */
-  syncWorktreeBranch(id: string): string | null {
+  async syncWorktreeBranch(id: string): Promise<string | null> {
     const s = this.deps.store.get(id);
     if (!s || !s.isolated || !s.branch) return null;
     const live = this.deps.worktree.currentBranch(s.worktreePath);
     if (!live || live === s.branch) return null;
     const nameMirrorsBranch = s.name === s.branch.replace(/^shepherd\//, "");
-    const label = nameMirrorsBranch ? this.uniqueName(live.replace(/^shepherd\//, "")) : null;
+    const taken = nameMirrorsBranch ? await this.takenHerdrNames() : null;
+    // A manual rename that landed while herdr was being listed outranks the branch slug.
+    const label =
+      taken && this.deps.store.get(id)?.name === s.name
+        ? this.uniqueName(taken, live.replace(/^shepherd\//, ""))
+        : null;
     this.deps.store.update(id, label ? { name: label, branch: live } : { branch: live });
     if (label) {
-      // Fire-and-forget: this method is sync; `relabel` is internally guarded (best-effort,
-      // never rejects), so a floating call is safe — a gone tab doesn't undo branch adoption.
+      // Fire-and-forget: `relabel` is internally guarded (best-effort, never rejects), so a
+      // floating call is safe — a gone tab doesn't undo branch adoption.
       void this.deps.herdr.relabel(s.herdrAgentId, label);
     }
     this.deps.events?.emit("session:renamed", { id, name: label ?? s.name, branch: live });
@@ -5887,7 +5904,7 @@ export class SessionService {
     this.deps.store.update(id, { name: slug, branch: newBranch });
     // Deliberately after the branch move: a clashing `git branch -m` throws out of here,
     // and a rename that never happened must not relabel the tab.
-    this.relabelRenamedAgent(s, slug);
+    void this.relabelRenamedAgent(s, slug);
     return this.deps.store.get(id);
   }
 
@@ -5918,15 +5935,13 @@ export class SessionService {
    * traceable. Fails CLOSED: an unreadable herdr means we cannot prove the name is free, and
    * a stale tab label is always recoverable where an evicted sibling is not.
    *
-   * Fire-and-forget: this method is sync; `relabel` is internally guarded (best-effort, never
-   * rejects), so a floating call is safe — a gone tab doesn't undo the rename. Fully wrapped
-   * because the server maps ANY throw out of `rename()` to `409 name_taken`, and neither a
-   * relabel hiccup nor an unreachable herdr is a name clash — reporting one after the row has
-   * already moved would be a lie.
+   * Fire-and-forget: `rename` does not await it, so it never rejects — a gone tab doesn't undo
+   * the rename. Fully wrapped because neither a relabel hiccup nor an unreachable herdr is a name
+   * clash, and the row has already moved by the time it runs.
    */
-  private relabelRenamedAgent(s: Session, slug: string): void {
+  private async relabelRenamedAgent(s: Session, slug: string): Promise<void> {
     try {
-      if (this.takenHerdrNames(s.herdrAgentId).has(sanitizeHerdrAgentName(slug))) {
+      if ((await this.takenHerdrNames(s.herdrAgentId)).has(sanitizeHerdrAgentName(slug))) {
         console.warn(
           `[rename] herdr already answers to "${slug}" — keeping ${s.herdrAgentId}'s tab label`,
         );
@@ -5962,8 +5977,8 @@ export class SessionService {
    * as a REJECTED promise rather than a sync throw; the callers that already guarded that race
    * with try/catch now guard it with try/await.)
    */
-  reply(id: string, text: string, opts: { automatic?: boolean } = {}): Promise<boolean> {
-    return this.replyToLive(id, text, this.liveTerminalIds(), text, opts.automatic);
+  async reply(id: string, text: string, opts: { automatic?: boolean } = {}): Promise<boolean> {
+    return this.replyToLive(id, text, await this.liveTerminalIds(), text, opts.automatic);
   }
 
   /** Deliver an internal task steer, reviving an exited planner by exact identity first.
@@ -5985,7 +6000,7 @@ export class SessionService {
       current.codexLaunchId !== s.codexLaunchId
     )
       return false;
-    if (!target.agent || target.forceResume || this.shouldDeferSteer(id)) {
+    if (!target.agent || target.forceResume || (await this.shouldDeferSteer(id))) {
       if (!(await this.resume(id, { force: target.forceResume, automatic: opts.automatic })))
         return false;
     } else if (!this.adoptLiveResumeAgent(s, target.agent)) return false;
@@ -5998,7 +6013,7 @@ export class SessionService {
   ): Promise<{ agent: HerdrAgent | null; forceResume: boolean } | null> {
     let agents: HerdrAgent[];
     try {
-      agents = this.deps.herdr.list();
+      agents = await this.deps.herdr.listAsync();
     } catch {
       return null;
     }
@@ -6059,7 +6074,7 @@ export class SessionService {
       if (!this.adoptLiveResumeAgent(s, target.agent)) return false;
     }
     return await resumeThenSteer(id, text, {
-      paneAlive: () => paneAlive,
+      paneAlive: async () => paneAlive,
       resume: async () => {
         if (!resumableCodex) return null;
         return await this.resume(id, { force: target.forceResume });
@@ -6216,7 +6231,7 @@ export class SessionService {
     ids: string[],
     continueText: string,
   ): Promise<{ resumed: number; steered: number; total: number }> {
-    const live = this.liveTerminalIds();
+    const live = await this.liveTerminalIds();
     let resumed = 0;
     let steered = 0;
     // Resolve + screen targets up front: unknown ids drop, and (defensively) so do clean
@@ -6231,7 +6246,7 @@ export class SessionService {
       let succeeded = false;
       // A live herdr-restored account husk must be deferred to resume() (Locus B re-drive) rather
       // than steered — else the retry lands on the wrong-account pane.
-      if (live.has(s.herdrAgentId) && !this.shouldDeferSteer(id)) {
+      if (live.has(s.herdrAgentId) && !(await this.shouldDeferSteer(id))) {
         if (await this.replyToLive(id, continueText, live)) {
           steered++;
           succeeded = true;
@@ -6277,7 +6292,7 @@ export class SessionService {
   }> {
     let agents: HerdrAgent[];
     try {
-      agents = this.deps.herdr.list();
+      agents = await this.deps.herdr.listAsync();
     } catch {
       agents = []; // herdr unreachable → every target is offline (the steer can't land)
     }
@@ -6334,7 +6349,7 @@ export class SessionService {
    * indistinguishable from "nothing was working" — a silent no-op at the worst moment.
    */
   async haltAll(): Promise<{ halted: number }> {
-    const agents = this.deps.herdr.list(); // let a herdr-unreachable error propagate
+    const agents = await this.deps.herdr.listAsync(); // let a herdr-unreachable error propagate
     // Clean terminals are filtered out BEFORE matching: they have no agent, and a shell running
     // a long build could plausibly read `working` through some future match path — it must never
     // receive a stray ESC (haltAll deliberately bypasses the sendSteerTo funnel guard). The
@@ -6414,7 +6429,7 @@ export class SessionService {
     try {
       // liveAgentFor lets a herdr-unreachable error propagate; an interrupt that can't reach herdr
       // is a "didn't land", not a 500 (matches operatorReplyTarget's catch).
-      agent = this.liveAgentFor(id);
+      agent = await this.liveAgentFor(id);
     } catch {
       return false;
     }
@@ -6450,7 +6465,7 @@ export class SessionService {
     this.assertNotTerminal(s, "answer-ask");
     let agent: HerdrAgent | null;
     try {
-      agent = this.liveAgentFor(id);
+      agent = await this.liveAgentFor(id);
     } catch {
       return false;
     }
@@ -6474,9 +6489,9 @@ export class SessionService {
 
   /** Terminal ids herdr currently lists as live. Empty when herdr can't be reached, so
    *  callers treat an unlisted agent as a dead pane (the steer won't land). */
-  private liveTerminalIds(): Set<string> {
+  private async liveTerminalIds(): Promise<Set<string>> {
     try {
-      return new Set(this.deps.herdr.list().map((a) => a.terminalId));
+      return new Set((await this.deps.herdr.listAsync()).map((a) => a.terminalId));
     } catch {
       return new Set();
     }

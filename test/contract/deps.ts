@@ -121,7 +121,7 @@ export function makeContractDeps(): ContractDeps {
       panes.push(pane);
       return pane;
     },
-    list: () => panes,
+    listAsync: async () => panes,
     paneForegroundProcs: async () => ["claude"],
     stop: async () => {},
     send: () => {},

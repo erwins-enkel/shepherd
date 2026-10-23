@@ -15,7 +15,7 @@ import type { SessionStore } from "./store";
 
 export type ReapableHerdr = Pick<
   HerdrDriver,
-  "closeTab" | "tabsAsync" | "panes" | "paneForegroundProcs"
+  "closeTab" | "tabsAsync" | "panesAsync" | "paneForegroundProcs"
 >;
 
 /** Labels shepherd authors for its short-lived helper agents. A tab with one of these
@@ -171,7 +171,7 @@ export interface ReapResult {
    *  (#1156). Broken out so one log line distinguishes the two populations: the helper husks
    *  #2029 targets from the archived-session husks that survive `herdr.stop`'s no-op teardown. */
   sessionTabs: number;
-  /** True when `panes()` itself threw: the sweep did ZERO work (fail-closed) — the caller
+  /** True when `panesAsync()` itself threw: the sweep did ZERO work (fail-closed) — the caller
    *  must surface this instead of reading it as "nothing to do" (#1852). */
   panesFailed: boolean;
   /** True when `tabsAsync()` threw: the sweep did ZERO work and the SCOPE is unknown, so
@@ -225,7 +225,7 @@ export interface ReapResult {
  * (its tabId was in `prevShellOnly`). A first-time shell-only sighting is recorded in the
  * returned `shellOnly` set (caller threads it back in) but not closed.
  *
- * **`panes()` throw is fail-closed AND flagged.** If `herdr.panes()` itself throws it's a
+ * **`panesAsync()` throw is fail-closed AND flagged.** If `herdr.panesAsync()` itself throws it's a
  * transient herdr read failure on a supported herdr — we reap nothing this sweep and
  * preserve the debounce set (return `prevShellOnly` unchanged) so a candidate isn't lost
  * mid-debounce, and set `panesFailed` so the caller can log the zero-work sweep instead of
@@ -299,9 +299,9 @@ export async function reapOrphanTabs(
     };
   }
 
-  let panes: ReturnType<ReapableHerdr["panes"]>;
+  let panes: Awaited<ReturnType<ReapableHerdr["panesAsync"]>>;
   try {
-    panes = herdr.panes();
+    panes = await herdr.panesAsync();
   } catch {
     return zeroWork("panes");
   }

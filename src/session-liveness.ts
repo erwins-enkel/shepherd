@@ -21,15 +21,19 @@ export interface LivenessOutcome {
 }
 
 export interface LivenessDeps {
-  /** Read the terminal's visible buffer synchronously (rare candidate confirm). */
-  read: (term: string) => string;
-  /** Read the terminal's visible buffer asynchronously (off-loop interim probe). */
+  /** Read the terminal's visible buffer — always off-loop (#3127): the transcript path's stall
+   *  confirm and the interim probe both await it. */
   readAsync: (term: string) => Promise<string>;
   /** A GETTER (not a value) so a future runtime stallCfg change would propagate. */
   stallCfg: () => StallConfig;
 }
 
-export type LivenessStep = { outcome: LivenessOutcome } | { pending: Promise<LivenessOutcome> };
+/** `outcome`: transcript path settled without a terminal read. `transcriptPending`: transcript path
+ *  whose stall candidate needs the terminal read. `pending`: interim (terminal-only) path. */
+export type LivenessStep =
+  | { outcome: LivenessOutcome }
+  | { transcriptPending: Promise<LivenessOutcome> }
+  | { pending: Promise<LivenessOutcome> };
 
 /**
  * Per-session liveness state machine — the transcript-vs-interim routing, both
@@ -65,11 +69,15 @@ export class SessionLiveness {
   /** True while an async interim terminal read is in flight — a slow read must
    *  not let the next cadence pile a second read on top; skip while pending. */
   private interimInFlight = false;
+  /** Same guard for the transcript path's stall-confirm read, so a slow read can't let a later
+   *  probe sample `lastVisible` out of order. */
+  private transcriptInFlight = false;
 
   constructor(private readonly deps: LivenessDeps) {}
 
-  /** Route + compute the liveness verdict for one probe. Transcript path resolves
-   *  synchronously ({outcome}); interim path returns a module-owned Promise ({pending}). */
+  /** Route + compute the liveness verdict for one probe. Transcript path resolves synchronously
+   *  ({outcome}) unless a stall candidate needs a terminal read ({transcriptPending}); interim path
+   *  returns a module-owned Promise ({pending}). */
   step(term: string, signals: TranscriptSignals, now: number, hookFresh: boolean): LivenessStep {
     const newestTs = signals.activity?.lastActivityTs ?? signals.snapshot?.lastTs ?? null;
     const prevTs = this.lastTranscriptTs; // undefined on first sighting
@@ -79,7 +87,11 @@ export class SessionLiveness {
     if (!liveWriting) return { pending: this.probeInterim(term, now, hookFresh) };
 
     this.resetInterim(); // clear stale interim baseline
-    return { outcome: this.evaluateTranscript(term, signals.snapshot, now) };
+    const cfg = this.deps.stallCfg();
+    const snap = signals.snapshot;
+    if (!snap || !isStalled(snap, now, cfg)) return { outcome: { verdict: "clearBroad" } };
+    if (this.transcriptInFlight) return { outcome: { verdict: "none" } };
+    return { transcriptPending: this.confirmTranscriptStall(term, snap) };
   }
 
   /** Reset the transcript diff baseline (lastVisible). Called by the poller's clearBlock. */
@@ -88,28 +100,29 @@ export class SessionLiveness {
   }
 
   /**
-   * Confirm or clear a stall for a running agent from its transcript snapshot.
-   * No candidate (transcript progressing) → clearBroad (poller's clearBlock).
-   * A candidate reads the live terminal once (for the tail and the liveness diff).
-   * The diff applies ONLY to pure-generation candidates (`!pending`): a hung
+   * Confirm or clear a transcript stall candidate (no candidate — transcript progressing — is
+   * settled synchronously in `step` as clearBroad). Reads the live terminal once (for the tail and
+   * the liveness diff). The diff applies ONLY to pure-generation candidates (`!pending`): a hung
    * command (pending past the ceiling) bypasses the gate and fires directly.
    */
-  private evaluateTranscript(
+  private async confirmTranscriptStall(
     term: string,
-    snap: ActivitySnapshot | null,
-    now: number,
-  ): LivenessOutcome {
-    const cfg = this.deps.stallCfg();
-    if (!snap || !isStalled(snap, now, cfg)) return { verdict: "clearBroad" };
-    let visible: string;
+    snap: ActivitySnapshot,
+  ): Promise<LivenessOutcome> {
+    this.transcriptInFlight = true;
     try {
-      visible = this.deps.read(term);
-    } catch {
-      return { verdict: "none" }; // can't assess this cycle — lastVisible stays untouched
+      let visible: string;
+      try {
+        visible = await this.deps.readAsync(term);
+      } catch {
+        return { verdict: "none" }; // can't assess this cycle — lastVisible stays untouched
+      }
+      if (!snap.pending && this.sampleTerminal(visible) !== "frozen")
+        return { verdict: "clearStall" };
+      return { verdict: "fire", visible };
+    } finally {
+      this.transcriptInFlight = false;
     }
-    if (!snap.pending && this.sampleTerminal(visible) !== "frozen")
-      return { verdict: "clearStall" };
-    return { verdict: "fire", visible };
   }
 
   /**

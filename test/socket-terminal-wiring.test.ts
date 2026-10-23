@@ -85,46 +85,46 @@ function fakeAgent(overrides: Partial<HerdrAgent> = {}): HerdrAgent {
   };
 }
 
-function fakeHerdr(list: () => HerdrAgent[] | never): Pick<HerdrDriver, "list"> {
-  return { list: list as () => HerdrAgent[] };
+function fakeHerdr(list: () => HerdrAgent[] | never): Pick<HerdrDriver, "listAsync"> {
+  return { listAsync: async () => list() };
 }
 
 // ── livePtyAttach ────────────────────────────────────────────────────────────
 
-test("livePtyAttach: no herdr → stored id, no paneTarget", () => {
-  expect(livePtyAttach(SESSION, undefined)).toEqual({ terminalId: "term_stored" });
+test("livePtyAttach: no herdr → stored id, no paneTarget", async () => {
+  expect(await livePtyAttach(SESSION, undefined)).toEqual({ terminalId: "term_stored" });
 });
 
-test("livePtyAttach: matchAgent hit with composed w:p paneId (bare suffix)", () => {
+test("livePtyAttach: matchAgent hit with composed w:p paneId (bare suffix)", async () => {
   const herdr = fakeHerdr(() => [
     fakeAgent({ terminalId: "term_stored", paneId: "p1", workspaceId: "w1" }),
   ]);
-  expect(livePtyAttach(SESSION, herdr)).toEqual({
+  expect(await livePtyAttach(SESSION, herdr)).toEqual({
     terminalId: "term_stored",
     paneTarget: "w1:p1",
   });
 });
 
-test("livePtyAttach: matchAgent hit with an already-composed w:p paneId used as-is", () => {
+test("livePtyAttach: matchAgent hit with an already-composed w:p paneId used as-is", async () => {
   const herdr = fakeHerdr(() => [
     fakeAgent({ terminalId: "term_stored", paneId: "w9:p9", workspaceId: "w1" }),
   ]);
-  expect(livePtyAttach(SESSION, herdr)).toEqual({
+  expect(await livePtyAttach(SESSION, herdr)).toEqual({
     terminalId: "term_stored",
     paneTarget: "w9:p9",
   });
 });
 
-test("livePtyAttach: matchAgent miss → null (truly gone)", () => {
+test("livePtyAttach: matchAgent miss → null (truly gone)", async () => {
   const herdr = fakeHerdr(() => [fakeAgent({ terminalId: "other", cwd: "/elsewhere" })]);
-  expect(livePtyAttach(SESSION, herdr)).toBeNull();
+  expect(await livePtyAttach(SESSION, herdr)).toBeNull();
 });
 
-test("livePtyAttach: herdr.list() throws → stored id, no paneTarget (hiccup fallback, not null)", () => {
+test("livePtyAttach: herdr.listAsync() rejects → stored id, no paneTarget (hiccup fallback, not null)", async () => {
   const herdr = fakeHerdr(() => {
     throw new Error("herdr hiccup");
   });
-  expect(livePtyAttach(SESSION, herdr)).toEqual({ terminalId: "term_stored" });
+  expect(await livePtyAttach(SESSION, herdr)).toEqual({ terminalId: "term_stored" });
 });
 
 // ── pickTerminalBridgeKind ───────────────────────────────────────────────────

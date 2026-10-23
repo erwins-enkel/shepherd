@@ -90,7 +90,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -163,7 +163,7 @@ function baseCommitHarness(head: string | null) {
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
   const input = {
@@ -232,7 +232,7 @@ test("createSession: emits session_created telemetry exactly once with primitive
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     telemetry,
   });
@@ -277,7 +277,7 @@ test("createSession: does NOT emit session_created when create() rolls back (spa
       start: async () => {
         throw new Error("herdr start failed");
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     telemetry,
   });
@@ -322,7 +322,7 @@ test("createSession: session_created props map each to its own source (distinct-
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     telemetry,
   });
@@ -389,7 +389,7 @@ function codexHarness(
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     readCodexAuthMode: () => authMode,
     readCodexHelp,
@@ -874,7 +874,7 @@ for (const alias of ["opus[1m]", "sonnet[1m]", "claude-opus-5", "claude-opus-5[1
             workspaceId: "w",
           };
         },
-        list: () => [],
+        listAsync: async () => [],
       } as any,
     });
 
@@ -916,7 +916,7 @@ test("prepareSpawn fail-closed: api-key mode with no helper path refuses create(
         started = true;
         return { terminalId: "term_z" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
   try {
@@ -962,7 +962,7 @@ test("setReadyToMerge persists the flag and emits session:ready", () => {
       remove: () => {},
       branchExists: () => false,
     } as any,
-    herdr: { start: async () => ({}) as any, list: () => [] } as any,
+    herdr: { start: async () => ({}) as any, listAsync: async () => [] } as any,
     events: { emit: (event, data) => emitted.push({ event, data }) },
   });
 
@@ -975,7 +975,7 @@ test("setReadyToMerge persists the flag and emits session:ready", () => {
   expect(emitted[1]).toEqual({ event: "session:ready", data: { id: s.id, ready: false } });
 });
 
-test("syncWorktreeBranch adopts the agent's renamed branch, syncs name + tab, emits", () => {
+test("syncWorktreeBranch adopts the agent's renamed branch, syncs name + tab, emits", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({
     name: "view-refresh",
@@ -996,12 +996,12 @@ test("syncWorktreeBranch adopts the agent's renamed branch, syncs name + tab, em
     worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
     herdr: {
       relabel: async (id: string, label: string) => relabels.push({ id, label }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     events: { emit: (event, data) => emitted.push({ event, data }) },
   });
 
-  const adopted = service.syncWorktreeBranch(s.id);
+  const adopted = await service.syncWorktreeBranch(s.id);
   expect(adopted).toBe("shepherd/refresh-on-wake");
   const row = store.get(s.id)!;
   expect(row.branch).toBe("shepherd/refresh-on-wake");
@@ -1015,7 +1015,7 @@ test("syncWorktreeBranch adopts the agent's renamed branch, syncs name + tab, em
   ]);
 });
 
-test("syncWorktreeBranch adopts the branch but preserves a chosen display name", () => {
+test("syncWorktreeBranch adopts the branch but preserves a chosen display name", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({
     name: "nice-human-name", // diverged from the branch slug → a chosen name
@@ -1034,11 +1034,14 @@ test("syncWorktreeBranch adopts the branch but preserves a chosen display name",
     store,
     namer: async () => "x",
     worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
-    herdr: { relabel: async (...a: unknown[]) => relabels.push(a), list: () => [] } as any,
+    herdr: {
+      relabel: async (...a: unknown[]) => relabels.push(a),
+      listAsync: async () => [],
+    } as any,
     events: { emit: (event, data) => emitted.push({ event, data }) },
   });
 
-  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(await service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
   const row = store.get(s.id)!;
   expect(row.branch).toBe("shepherd/refresh-on-wake"); // branch adopted (fixes PR recognition)
   expect(row.name).toBe("nice-human-name"); // chosen name outranks the raw branch slug
@@ -1051,7 +1054,7 @@ test("syncWorktreeBranch adopts the branch but preserves a chosen display name",
   ]);
 });
 
-test("syncWorktreeBranch de-dupes the adopted name against live tab labels", () => {
+test("syncWorktreeBranch de-dupes the adopted name against live tab labels", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({
     name: "view-refresh",
@@ -1069,16 +1072,16 @@ test("syncWorktreeBranch de-dupes the adopted name against live tab labels", () 
     namer: async () => "x",
     worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
     // a sibling already owns the bare slug → uniqueName suffixes it
-    herdr: { relabel: async () => {}, list: () => [{ name: "refresh-on-wake" }] } as any,
+    herdr: { relabel: async () => {}, listAsync: async () => [{ name: "refresh-on-wake" }] } as any,
   });
 
-  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(await service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
   const row = store.get(s.id)!;
   expect(row.branch).toBe("shepherd/refresh-on-wake"); // branch still the live one
   expect(row.name).toBe("refresh-on-wake-2"); // display name de-duped
 });
 
-test("syncWorktreeBranch de-dupes against a TAB label when herdr sends no agent.name (#2033)", () => {
+test("syncWorktreeBranch de-dupes against a TAB label when herdr sends no agent.name (#2033)", async () => {
   // The 0.7.5 shape: the sibling's record carries only the bare KIND under `agent` and no `name`,
   // so the agent-name half of the taken set is empty. Reading it alone made this de-duper a no-op
   // on every 0.7.5 host — two live sessions could then share a name, which is exactly the state the
@@ -1101,16 +1104,16 @@ test("syncWorktreeBranch de-dupes against a TAB label when herdr sends no agent.
     worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
     herdr: {
       relabel: async () => {},
-      list: () => [{ agent: "claude", tabId: "t1" }],
-      tabs: () => [{ tabId: "t1", label: "refresh-on-wake" }],
+      listAsync: async () => [{ agent: "claude", tabId: "t1" }],
+      tabsAsync: async () => [{ tabId: "t1", label: "refresh-on-wake" }],
     } as any,
   });
 
-  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(await service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
   expect(store.get(s.id)!.name).toBe("refresh-on-wake-2"); // suffixed off the tab label alone
 });
 
-test("syncWorktreeBranch de-dupes in SANITIZED space — a punctuation twin is already taken", () => {
+test("syncWorktreeBranch de-dupes in SANITIZED space — a punctuation twin is already taken", async () => {
   // herdr 0.7.5+ binds `sanitizeHerdrAgentName(name)`, so `Refresh On Wake` and `refresh-on-wake`
   // are ONE name to herdr. De-duping raw let both go live; the second one's spawn then collided
   // and its eviction closed the first — the hazard this de-dupe exists to prevent.
@@ -1132,17 +1135,17 @@ test("syncWorktreeBranch de-dupes in SANITIZED space — a punctuation twin is a
     worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
     herdr: {
       relabel: async () => {},
-      list: () => [],
+      listAsync: async () => [],
       // Differs from the adopted slug only by case and punctuation — same herdr name.
-      tabs: () => [{ tabId: "t1", label: "Refresh On Wake" }],
+      tabsAsync: async () => [{ tabId: "t1", label: "Refresh On Wake" }],
     } as any,
   });
 
-  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(await service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
   expect(store.get(s.id)!.name).toBe("refresh-on-wake-2");
 });
 
-test("syncWorktreeBranch: a failing tab read degrades the de-dupe, it never fails the rename", () => {
+test("syncWorktreeBranch: a failing tab read degrades the de-dupe, it never fails the rename", async () => {
   // Best-effort by contract: a herdr hiccup must not take session naming down with it.
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -1162,18 +1165,18 @@ test("syncWorktreeBranch: a failing tab read degrades the de-dupe, it never fail
     worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
     herdr: {
       relabel: async () => {},
-      list: () => [],
-      tabs: () => {
+      listAsync: async () => [],
+      tabsAsync: async () => {
         throw new Error("herdr: tab list unavailable");
       },
     } as any,
   });
 
-  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(await service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
   expect(store.get(s.id)!.name).toBe("refresh-on-wake"); // nothing taken → the bare slug stands
 });
 
-test("syncWorktreeBranch is a no-op when the live branch matches the stored one", () => {
+test("syncWorktreeBranch is a no-op when the live branch matches the stored one", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({
     name: "x",
@@ -1195,12 +1198,12 @@ test("syncWorktreeBranch is a no-op when the live branch matches the stored one"
     events: { emit: (...args: unknown[]) => emitted.push(args) },
   });
 
-  expect(service.syncWorktreeBranch(s.id)).toBeNull();
+  expect(await service.syncWorktreeBranch(s.id)).toBeNull();
   expect(store.get(s.id)?.name).toBe("x");
   expect(emitted).toHaveLength(0);
 });
 
-test("syncWorktreeBranch returns null on a detached HEAD (currentBranch null)", () => {
+test("syncWorktreeBranch returns null on a detached HEAD (currentBranch null)", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({
     name: "x",
@@ -1219,7 +1222,7 @@ test("syncWorktreeBranch returns null on a detached HEAD (currentBranch null)", 
     worktree: { currentBranch: () => null } as any,
     herdr: { relabel: async () => {} } as any,
   });
-  expect(service.syncWorktreeBranch(s.id)).toBeNull();
+  expect(await service.syncWorktreeBranch(s.id)).toBeNull();
   expect(store.get(s.id)?.branch).toBe("shepherd/x");
 });
 
@@ -1455,7 +1458,7 @@ test("createSession: uses herd-qualified name on collision with a different-repo
         return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
       },
       // koennen-wir-schon is taken; koennen-wir-schon-repo (herd-qualified) is free
-      list: () => [{ name: "koennen-wir-schon" }, { name: "other" }],
+      listAsync: async () => [{ name: "koennen-wir-schon" }, { name: "other" }],
     } as any,
   });
 
@@ -1495,7 +1498,7 @@ test("createSession: falls back to numeric suffix when base AND herd-qualified n
         return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
       },
       // both base and herd-qualified are taken → numeric suffix on the composed name
-      list: () => [{ name: "koennen-wir-schon" }, { name: "koennen-wir-schon-repo" }],
+      listAsync: async () => [{ name: "koennen-wir-schon" }, { name: "koennen-wir-schon-repo" }],
     } as any,
   });
 
@@ -1534,7 +1537,7 @@ test("createSession: falls back to numeric-only suffix when repoPath has no usab
         return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
       },
       // base is taken; no usable herd → classic numeric fallback
-      list: () => [{ name: "koennen-wir-schon" }],
+      listAsync: async () => [{ name: "koennen-wir-schon" }],
     } as any,
   });
 
@@ -1570,7 +1573,7 @@ test("createSession: keeps the base name when no agent holds it", async () => {
     } as any,
     herdr: {
       start: async () => ({ terminalId: "term_z", cwd: "/wt/fresh-name", agentStatus: "working" }),
-      list: () => [{ name: "something-else" }, { name: "" }],
+      listAsync: async () => [{ name: "something-else" }, { name: "" }],
     } as any,
   });
 
@@ -1611,7 +1614,7 @@ test("createSession: suffixes past a leftover branch with the herd-qualified nam
         return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
       },
       // no live agent collision — the collision is purely the leftover branch
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -1653,7 +1656,7 @@ test("createSession: falls back to numeric suffix when bare AND herd-qualified b
         calls.startName = name;
         return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -1697,7 +1700,9 @@ test("createSession: suffixes stay unique in herdr's 32-char name space (no infi
         return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
       },
       // An earlier session still holds the slug in herdr's name space.
-      list: () => [{ name: live, terminalId: "term_old", tabId: "t_old", agentStatus: "done" }],
+      listAsync: async () => [
+        { name: live, terminalId: "term_old", tabId: "t_old", agentStatus: "done" },
+      ],
     } as any,
   });
 
@@ -1734,7 +1739,7 @@ test("createSession: an issue-spawned name keeps the issue number through de-dup
     } as any,
     herdr: {
       start: async (name: string) => ({ terminalId: "term_z", cwd: `/wt/${name}` }),
-      list: () =>
+      listAsync: async () =>
         live.map((name) => ({ name, terminalId: name, tabId: name, agentStatus: "done" })),
     } as any,
   });
@@ -1774,7 +1779,7 @@ test("createSession: an exhausted name scan throws instead of spinning", async (
       },
       remove: () => {},
     } as any,
-    herdr: { start: async () => ({}), list: () => [] } as any,
+    herdr: { start: async () => ({}), listAsync: async () => [] } as any,
   });
 
   await expect(
@@ -1805,7 +1810,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
         calls.argv = argv;
         return { terminalId: "term_z", cwd: "/wt/x", agentStatus: "working" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -1860,7 +1865,7 @@ test("createSession: copies attachments into worktree and appends paths to the p
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     copyUploads: (uploads: string[], worktreePath: string) =>
       uploads.map((i) => ({
@@ -1911,7 +1916,7 @@ test("createSession: a video attachment appends the ffmpeg consumption note", as
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     copyUploads: (uploads: string[], worktreePath: string) =>
       uploads.map((i) => ({
@@ -1964,7 +1969,7 @@ test("createSession: a dropped (swept) attachment still spawns, notes the loss, 
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     events: { emit: (event: string, data: unknown) => events.push({ event, data }) },
     // One of two staged attachments is gone; the copy seam returns only the survivor.
@@ -2046,7 +2051,7 @@ test("createSession: the record of the machine choice lands in launchMetadata (#
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
   const placement = {
@@ -2093,7 +2098,7 @@ test("createSession: issue content tripping an injection signature emits a signa
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     events: { emit: (event: string, data: unknown) => events.push({ event, data }) },
   });
@@ -2150,7 +2155,7 @@ test("createSession: no attachments leaves the prompt argv unchanged", async () 
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
   await service.create({
@@ -2188,7 +2193,7 @@ test("createSession: appends the issueRef body out-of-band, keeps the stored pro
           workspaceId: "w",
         };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -2237,7 +2242,7 @@ test("createSession: appends the issue's comment thread after the body when the 
         calls.argv = argv;
         return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     resolveForge: () =>
       ({
@@ -2295,7 +2300,7 @@ test("createSession: a throwing listIssueComments degrades to a body-only prompt
         calls.argv = argv;
         return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     resolveForge: () =>
       ({
@@ -2343,7 +2348,7 @@ test("createSession: persists auto=true and issueNumber from issueRef.number", a
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     pluginIds: async () => [], // hermetic: auto+trim must not read the operator's real settings
     // Author-trust gate (auto=true + issueRef) needs a resolvable, trusted author or it refuses
@@ -2399,7 +2404,7 @@ test("createSession: a routed ticket (#3245) links its home issue, reads it from
         argv = a;
         return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     pluginIds: async () => [],
     resolveForge: (repo: string) =>
@@ -2457,7 +2462,7 @@ test("createSession: an unrouted create whose issue targets another repo is stam
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     resolveForge: () => ({ slug: "org/A" }) as any,
   });
@@ -2489,7 +2494,7 @@ test("createSession: defaults auto=false and issueNumber=null when not provided"
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -2525,7 +2530,7 @@ test("createSession: refuses an autonomous spawn from an untrusted-author issue 
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as any,
     resolveForge: () =>
@@ -2597,7 +2602,7 @@ test("createSession: allows an autonomous spawn from a trusted-author issue", as
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     resolveForge: () =>
       ({
@@ -2641,7 +2646,7 @@ test("createSession: does NOT gate an operator-initiated (auto=false) spawn rega
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     resolveForge: () =>
       ({
@@ -2689,7 +2694,7 @@ test("createSession: SHEPHERD_TRUST_ISSUE_AUTHORS escape hatch allows a non-GitH
       } as any,
       herdr: {
         start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-        list: () => [],
+        listAsync: async () => [],
       } as any,
       resolveForge: () =>
         ({
@@ -2733,7 +2738,7 @@ test("createSession: SHEPHERD_TRUST_ISSUE_AUTHORS escape hatch allows a non-GitH
       } as any,
       herdr: {
         start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-        list: () => [],
+        listAsync: async () => [],
       } as any,
       resolveForge: () =>
         ({
@@ -2781,7 +2786,7 @@ test("createSession: refused auto-spawn signals untrusted_author ONCE per (repo,
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t", cwd: "/wt/x", agentStatus: "working" }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     resolveForge: () =>
       ({
@@ -2848,7 +2853,7 @@ test("createSession: worktree.create receives resolved baseRef (sha), persisted 
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -2888,7 +2893,7 @@ test("createSession: rolls back the worktree when the agent fails to start", asy
       start: async () => {
         throw new Error("no active workspace");
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -2926,7 +2931,7 @@ test("createSession: skips worktree rollback when the cwd fallback isn't isolate
       start: async () => {
         throw new Error("no active workspace");
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
 
@@ -2956,7 +2961,7 @@ test("archive stops the herdr agent, removes the worktree, and archives the row"
     } as any,
     herdr: {
       start: async () => ({}),
-      list: () => [],
+      listAsync: async () => [],
       stop: async (t: string) => calls.stopped.push(t),
     } as any,
   });
@@ -3003,7 +3008,7 @@ test("archive awaits beforeArchive BEFORE removing the worktree (recap reads it 
       branchExists: () => false,
       remove: () => order.push("remove"),
     } as any,
-    herdr: { start: async () => ({}), list: () => [], stop: async () => {} } as any,
+    herdr: { start: async () => ({}), listAsync: async () => [], stop: async () => {} } as any,
     // resolves only after a tick — if archive didn't await it, remove would race ahead.
     beforeArchive: async () => {
       await new Promise<void>((r) => setTimeout(r, 5));
@@ -3028,7 +3033,7 @@ test("archive: a rejecting beforeArchive never blocks teardown (worktree still r
       branchExists: () => false,
       remove: (p: string) => removed.push(p),
     } as any,
-    herdr: { start: async () => ({}), list: () => [], stop: async () => {} } as any,
+    herdr: { start: async () => ({}), listAsync: async () => [], stop: async () => {} } as any,
     beforeArchive: async () => {
       throw new Error("recap spawn failed");
     },
@@ -3051,7 +3056,7 @@ test("archive: a HANGING beforeArchive is bounded by the timeout (teardown proce
       branchExists: () => false,
       remove: (p: string) => removed.push(p),
     } as any,
-    herdr: { start: async () => ({}), list: () => [], stop: async () => {} } as any,
+    herdr: { start: async () => ({}), listAsync: async () => [], stop: async () => {} } as any,
     beforeArchive: () => new Promise<void>(() => {}), // never resolves
     beforeArchiveTimeoutMs: 5, // tiny backstop so the test doesn't sleep 15s
   });
@@ -3098,7 +3103,11 @@ test("archive without a reaper just closes the session (no leftover handling)", 
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
     },
-    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [],
+      stop: async () => {},
+    } as any,
   });
   const s = store.create({
     name: "x",
@@ -3142,7 +3151,11 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
     },
-    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [],
+      stop: async () => {},
+    } as any,
     reaper: {
       detect: detect as any,
       reap: () => 0,
@@ -3192,7 +3205,11 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
     },
-    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [],
+      stop: async () => {},
+    } as any,
     reaper: {
       detect: () => detected as any,
       reap: (ls: any[]) => {
@@ -3239,7 +3256,11 @@ test("archive with no reap keys never calls the reaper", async () => {
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
     },
-    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [],
+      stop: async () => {},
+    } as any,
     reaper: {
       detect: () => {
         detectCalls++;
@@ -3286,7 +3307,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
         calls.start = { name, cwd, argv };
         return { terminalId: "term_new", cwd, agentStatus: "working" } as any;
       },
-      list: () => [], // old agent gone → respawn
+      listAsync: async () => [], // old agent gone → respawn
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3331,7 +3352,7 @@ test("resume omits --model when the session had none", async () => {
         calls.argv = argv;
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3376,7 +3397,7 @@ test("resume re-passes the full directive set, operator-language included, in on
           calls.argv = argv;
           return { terminalId: "term_new", agentStatus: "working" } as any;
         },
-        list: () => [],
+        listAsync: async () => [],
         stop: async () => {},
         send: () => {},
       } as any,
@@ -3434,7 +3455,7 @@ async function resumeArgv(
         argv = a;
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3478,7 +3499,7 @@ test("resume uses the exact pinned conversation for codex sessions", async () =>
         calls.start = { cwd, argv };
         return { terminalId: "term_codex_new", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3565,7 +3586,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
         calls.argv = argv;
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3610,7 +3631,7 @@ test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async
         calls.argv = argv;
         return { terminalId: "term_codex_new", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3654,7 +3675,7 @@ test("resume re-uses a still-live agent instead of spawning a duplicate", async 
         started++;
         return {} as any;
       },
-      list: () => [{ terminalId: "term_old" }] as any, // still attachable
+      listAsync: async () => [{ terminalId: "term_old" }] as any, // still attachable
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3686,7 +3707,7 @@ test("resume force=true stops the live husk agent and respawns claude", async ()
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
       // agent still listed (claude exited but its herdr tab survives as a shell)
-      list: () => [{ terminalId: "term_old", cwd: "/wt/x", name: "x" }] as any,
+      listAsync: async () => [{ terminalId: "term_old", cwd: "/wt/x", name: "x" }] as any,
       stop: async (id: string) => stopped.push(id),
       send: () => {},
     } as any,
@@ -3713,7 +3734,7 @@ test("resume returns null for unknown, archived, or pre-feature sessions", async
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -3822,7 +3843,7 @@ function makeRestoreSvc(
         if (opts.startFails) return null as any;
         return { terminalId: "term_new", cwd: "/wt/x", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -4206,7 +4227,7 @@ test("restore: spawn failure rolls back worktree and returns null", async () => 
     } as any,
     herdr: {
       start: async () => ({ terminalId: "t" }) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -4254,7 +4275,7 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [{ terminalId: "term_z" }], // pane is live
+      listAsync: async () => [{ terminalId: "term_z" }], // pane is live
       stop: async () => {},
       send: async (target: string, text: string) => {
         sent.push({ target, text });
@@ -4305,7 +4326,7 @@ test("reply returns false for a live-in-store session whose pane is dead (no thr
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [{ terminalId: "term_other" }], // session's pane is NOT listed → dead
+      listAsync: async () => [{ terminalId: "term_other" }], // session's pane is NOT listed → dead
       stop: async () => {},
       send: async () => {
         sent.push("sent");
@@ -4346,7 +4367,7 @@ test("broadcast fans the text out to known sessions, skips unknown ids", async (
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [
+      listAsync: async () => [
         { terminalId: "term_a", agentStatus: "idle" },
         { terminalId: "term_b", agentStatus: "idle" },
       ], // both panes live + idle
@@ -4395,7 +4416,7 @@ test("broadcast classifies working agents as queued, non-working as delivered", 
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [
+      listAsync: async () => [
         { terminalId: "term_idle", agentStatus: "idle" },
         { terminalId: "term_busy", agentStatus: "working" },
       ],
@@ -4439,7 +4460,7 @@ test("broadcast reports every target offline when no panes are live", async () =
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [], // herdr lists nothing live
+      listAsync: async () => [], // herdr lists nothing live
       stop: async () => {},
       send: (t: string, x: string) => sent.push({ t, x }),
     } as any,
@@ -4488,7 +4509,7 @@ test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouche
     events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [
+      listAsync: async () => [
         { terminalId: "term_a", agentStatus: "working", cwd: "/wt/a", name: "" },
         { terminalId: "term_b", agentStatus: "idle", cwd: "/wt/b", name: "" },
         { terminalId: "term_c", agentStatus: "blocked", cwd: "/wt/c", name: "" },
@@ -4543,7 +4564,7 @@ test("haltAll keeps interrupting after one pane's send throws; counts only the l
     events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [
+      listAsync: async () => [
         { terminalId: "term_a", agentStatus: "working", cwd: "/wt/a", name: "" },
         { terminalId: "term_b", agentStatus: "working", cwd: "/wt/b", name: "" },
         { terminalId: "term_c", agentStatus: "working", cwd: "/wt/c", name: "" },
@@ -4600,7 +4621,7 @@ test("haltAll, broadcast and retryHalted leave the Operator Assistant alone; the
     events: { emit: () => {} } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [
+      listAsync: async () => [
         { terminalId: "term_a", agentStatus: "working", cwd: "/wt/a", name: "" },
         { terminalId: "term_oa", agentStatus: "working", cwd: "/assistant", name: "" },
       ],
@@ -4660,7 +4681,7 @@ test("haltAll throws (no emit) when herdr can't be reached — never a silent no
     events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => {
+      listAsync: async () => {
         throw new Error("herdr down");
       },
       stop: async () => {},
@@ -4712,7 +4733,7 @@ function svcDeps(over: any = {}) {
         tabId: "",
         workspaceId: "",
       }),
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
       relabel: async (id: string, name: string) => relabelled.push({ id, name }),
@@ -4977,7 +4998,7 @@ test("archiveMany clears each session, reaping all its leftovers", async () => {
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async (t: string) => calls.stopped.push(t),
     } as any,
     reaper: {
@@ -5031,7 +5052,11 @@ test("archiveMany forces a probe refresh per detect, not once per batch (#1912)"
       branchExists: () => false,
       remove: () => {},
     } as any,
-    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [],
+      stop: async () => {},
+    } as any,
     reaper: {
       detect,
       reap: () => 0,
@@ -5079,7 +5104,11 @@ test("archiveMany skips the probe refresh when the backend can't produce leftove
       branchExists: () => false,
       remove: () => {},
     } as any,
-    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [],
+      stop: async () => {},
+    } as any,
     reaper: {
       detect: () => [],
       reap: () => 0,
@@ -5131,7 +5160,7 @@ function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated
         captured.argv = argv;
         return { terminalId: "t1" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   };
 }
@@ -5487,7 +5516,7 @@ test("resume adopts a live agent found by cwd under a new terminalId — no dupl
         startCalls++;
         return { terminalId: "term_should_not_happen" } as any;
       },
-      list: () => [
+      listAsync: async () => [
         {
           agent: "claude",
           agentStatus: "working",
@@ -5525,7 +5554,11 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
         if (p === "/wt/b") throw new Error("worktree locked");
       },
     } as any,
-    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [],
+      stop: async () => {},
+    } as any,
     reaper: {
       detect,
       reap: () => 0,
@@ -5599,7 +5632,7 @@ function mergeSvc(opts: { isolated?: boolean } = {}) {
         tabId: "x",
         workspaceId: "w",
       }),
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
     } as any,
     events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as any,
@@ -6180,7 +6213,7 @@ function buildQueueDeps(
         captured.argv = argv;
         return { terminalId: "t1" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   };
 }
@@ -6300,7 +6333,7 @@ test("resume of a research session re-passes no queue tools either (#2003)", asy
         calls.argv = argv;
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -6373,7 +6406,7 @@ test("resume re-passes --mcp-config so a compacted session keeps its tools (#200
         calls.argv = argv;
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -6619,7 +6652,7 @@ function makePreviewSvc(opts: {
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => opts.liveIds.map((id) => ({ terminalId: id })),
+      listAsync: async () => opts.liveIds.map((id) => ({ terminalId: id })),
       stop: async () => {},
       send: async (target: string, text: string) => {
         sent.push({ target, text });
@@ -6746,7 +6779,7 @@ function makeStopPreviewSvc(opts: {
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -6857,7 +6890,7 @@ test("stopPreview: does NOT call any release method on the preview dep", () => {
     } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -7221,7 +7254,7 @@ test("resume of an auto session re-applies the trim: plugin-off + skill overlay"
           calls.argv = argv;
           return { terminalId: "term_new", agentStatus: "working" } as any;
         },
-        list: () => [], // old agent gone → respawn
+        listAsync: async () => [], // old agent gone → respawn
         stop: async () => {},
         send: () => {},
       } as any,
@@ -7291,7 +7324,7 @@ function relaunchHarness(
         calls.order.push("start");
         return { terminalId: `term_${n}`, agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async (id: string) => {
         calls.stopped.push(id);
         calls.order.push(`stop:${id}`);
@@ -7680,7 +7713,7 @@ test("startComparison clamps a blocked Codex model while preserving intent and e
         calls.start = { name, cwd, argv };
         return { terminalId: "term_cmp", agentStatus: "working" } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     readCodexAuthMode: () => "chatgpt",
   });
@@ -8179,7 +8212,7 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
           calls.argv = argv;
           return { terminalId: "term_new", agentStatus: "working" } as any;
         },
-        list: () => [],
+        listAsync: async () => [],
         stop: async () => {},
         send: () => {},
       } as any,
@@ -8457,7 +8490,7 @@ function sandboxResearchDeps(store: SessionStore, captured: { argv?: string[] })
         captured.argv = argv;
         return { terminalId: "t1" };
       },
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     detectBackend: () => "bwrap" as const,
     detectEgressBackend: () => "slirp4netns" as const,
@@ -8721,7 +8754,7 @@ function baseUrlService(opts: {
         opts.record.env = env;
         return { terminalId: "term_x", cwd } as any;
       },
-      list: () => [],
+      listAsync: async () => [],
       stop: async () => {},
       send: () => {},
     } as any,
@@ -9229,7 +9262,7 @@ function makeFableGuardService(calls: { argv?: string[] }) {
             workspaceId: "w",
           };
         },
-        list: () => [],
+        listAsync: async () => [],
       } as any,
     }),
   };
@@ -9322,7 +9355,7 @@ function archiveHarness(isolated: boolean, beforeArchive?: () => Promise<void>) 
         workspaceId: "w",
       }),
       stop: async () => {},
-      list: () => [],
+      listAsync: async () => [],
     } as any,
     reapRunaway: (ids: Set<string>) => sweeps.push(ids),
   } as any);
@@ -9453,7 +9486,7 @@ test("#1144: a mid-batch throw still sweeps the ids already archived in that bat
 // ── interrupt(): the per-session counterpart to haltAll (#1993) ──────────────────────
 
 /** Minimal SessionService over an in-memory store with a scripted herdr, for interrupt().
- *  `agents` is what herdr.list() returns (or a thrower); `send` defaults to recording. */
+ *  `agents` is what herdr.listAsync() resolves (or a thrower); `send` defaults to recording. */
 function interruptHarness(opts: {
   agents: unknown[] | (() => never);
   send?: (target: string, text: string) => Promise<void>;
@@ -9484,7 +9517,7 @@ function interruptHarness(opts: {
     events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
     herdr: {
       start: async () => ({}) as any,
-      list: typeof opts.agents === "function" ? opts.agents : () => opts.agents,
+      listAsync: async () => (typeof opts.agents === "function" ? opts.agents() : opts.agents),
       stop: async () => {},
       send:
         opts.send ??
@@ -9827,7 +9860,7 @@ function nameSelectionHarness(store: SessionStore, repoPath: string) {
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      listAsync: async () => [],
     } as any,
   });
   return { service, calls };
@@ -9987,7 +10020,7 @@ test("Codex capacity: blocked automatic reply sends no partial paste or Enter", 
     namer: async () => "x",
     worktree: {} as any,
     herdr: {
-      list: () => [{ terminalId: "term_z" }],
+      listAsync: async () => [{ terminalId: "term_z" }],
       send: async (_id: string, text: string) => {
         sent.push(text);
       },
@@ -10025,7 +10058,7 @@ test("Codex capacity review: manual replies bypass automatic protection", async 
     namer: async () => "x",
     worktree: {} as any,
     herdr: {
-      list: () => [{ terminalId: "term_z" }],
+      listAsync: async () => [{ terminalId: "term_z" }],
       send: async (_id: string, t: string) => {
         sent.push(t);
       },

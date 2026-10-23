@@ -1,10 +1,10 @@
 /** The seams `resumeThenSteer` needs — a structural subset of both AutopilotDeps and
  *  PlanGateServiceDeps, so either can pass `this.deps` (or an adapter) straight through. */
 export interface ResumeThenSteerDeps {
-  /** Whether the session's herdr pane is currently a live agent. */
-  paneAlive: (id: string) => boolean;
+  /** Whether the session's herdr pane is currently a live agent. Async: it lists herdr (#3127). */
+  paneAlive: (id: string) => Promise<boolean>;
   /** Defer + re-drive first while a herdr-restored account pane still needs it (SessionService.shouldDeferSteer). */
-  deferSteer?: (id: string) => boolean;
+  deferSteer?: (id: string) => Promise<boolean>;
   /** Resume an exited session so it can be steered (SessionService.resume, async — the awaited
    *  result decides). Truthy resolved value = resumed and steerable. */
   resume: (id: string) => unknown;
@@ -27,7 +27,7 @@ export async function resumeThenSteer(
   text: string,
   deps: ResumeThenSteerDeps,
 ): Promise<boolean> {
-  if (!deps.paneAlive(id) || deps.deferSteer?.(id)) {
+  if (!(await deps.paneAlive(id)) || (await deps.deferSteer?.(id))) {
     // Not live, OR a herdr-restored account husk to re-drive first (Locus B), so the steer lands on
     // the re-driven pane rather than the wrong-account husk. resume() resolves falsy when it can't
     // (archived / no resumable session / a caller-refused provider) — then there's nothing to do.

@@ -136,6 +136,13 @@ struct IOSTerminalPane<Surface: View>: View {
             if connecting.isVisible && !locked {
                 statusCard(title: L.t("native_terminal_connecting"), message: nil) {
                     ProgressView().tint(IOSTerminalStyle.ink)
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let elapsed = connecting.since.map { context.date.timeIntervalSince($0) } ?? 0
+                        if elapsed >= ConnectingDetailCopy.threshold {
+                            IOSConnectingDetails(rows: ConnectingDetailCopy.terminalRows(
+                                model.session.connectAttempt, elapsed: elapsed))
+                        }
+                    }
                 }
             }
         case .superseded:

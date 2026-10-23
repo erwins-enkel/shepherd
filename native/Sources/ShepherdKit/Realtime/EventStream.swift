@@ -44,6 +44,12 @@ public actor EventStream {
   /// Reported in the reconnect log line, so a server that keeps refusing the
   /// upgrade is diagnosable after the fact. Reset by a healthy socket.
   private var consecutiveFailures = 0
+  /// Why the latest socket died, verbatim. Diagnostic only: see `reconnectState()`.
+  private var lastFailure: String?
+  /// The pause the pending reconnect sleeps, as decided by `scheduleReconnect`.
+  private var pendingDelay: Duration = .zero
+  /// Captured when the backoff starts, so a delayed observer sees its real end.
+  private var retryAt: Date?
 
   private nonisolated let eventStream: AsyncStream<ServerEvent>
   private nonisolated let lifecycleStream: AsyncStream<LifecycleEvent>
@@ -60,6 +66,26 @@ public actor EventStream {
     /// The socket is gone. The stream is already waiting out its backoff and
     /// will open another one unless `stop()` was called.
     case disconnected
+  }
+
+  /// Where a reconnect stands, for an operator asking why the app is still
+  /// connecting. Read it after `.disconnected`: by the time a caller's hop onto
+  /// this actor runs, `scheduleReconnect` has already settled the diagnostic values.
+  public struct ReconnectState: Sendable, Equatable {
+    /// Attempts in a row that never became healthy (see `connectionWasHealthy`).
+    public let failures: Int
+    /// The pause before the next attempt opens.
+    public let delay: Duration
+    /// The pending backoff's deadline; nil while a socket is opening or stopped.
+    public let retryAt: Date?
+    /// Why the latest socket died, verbatim: a refused upgrade's HTTP status,
+    /// the close code and the transport error.
+    public let lastFailure: String?
+  }
+
+  public func reconnectState() -> ReconnectState {
+    ReconnectState(
+      failures: consecutiveFailures, delay: pendingDelay, retryAt: retryAt, lastFailure: lastFailure)
   }
 
   /// Decoded frames, oldest first. Single-consumer: the `SessionStore` owns
@@ -187,6 +213,7 @@ public actor EventStream {
   /// will not tear the connection down.
   public func stop() {
     stopped = true
+    retryAt = nil
     pump?.cancel()
     pump = nil
     if task != nil {
@@ -240,6 +267,7 @@ public actor EventStream {
   }
 
   private func connect() {
+    retryAt = nil
     invalidateTerminalOwners()
     var request = URLRequest(url: baseURL)
     // Read the token afresh on every connect: a login that happened after
@@ -279,6 +307,9 @@ public actor EventStream {
       } catch {
         // Any receive failure means the socket is gone: a clean close, a
         // dropped network, or our own cancel(). `stopped` tells them apart.
+        // Only the current socket's reason is worth keeping: a pump that
+        // `reconnectNow()` replaced would report its own cancel.
+        if task === socket { lastFailure = Self.describeFailure(error, of: socket) }
         break
       }
     }
@@ -304,6 +335,21 @@ public actor EventStream {
 
   /// Largest `/events` frame the socket accepts.
   static let maximumFrameSize = 64 * 1024 * 1024
+
+  /// A refused upgrade's HTTP status, the close code and the transport error,
+  /// verbatim — the facts an operator needs to tell a dead VPN from a proxy
+  /// that answers 502. Never the token: that travels in a header.
+  static func describeFailure(_ error: any Error, of socket: URLSessionWebSocketTask) -> String {
+    var parts: [String] = []
+    // 101 is an upgrade that went through: only a refused one carries news.
+    if let status = (socket.response as? HTTPURLResponse)?.statusCode, status != 101 {
+      parts.append("HTTP \(status)")
+    }
+    if socket.closeCode != .invalid { parts.append("close \(socket.closeCode.rawValue)") }
+    let ns = error as NSError
+    parts.append("\(ns.domain) \(ns.code): \(ns.localizedDescription)")
+    return parts.joined(separator: " · ")
+  }
 
   private func connectionWasHealthy() -> Bool {
     if frameReceivedSinceConnect { return true }
@@ -347,6 +393,10 @@ public actor EventStream {
       ShepherdLog.realtime.notice(
         "events upgrade failed (\(self.consecutiveFailures, privacy: .public) in a row); retrying")
     }
+
+    pendingDelay = delay
+    let (seconds, attoseconds) = delay.components
+    retryAt = Date().addingTimeInterval(TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18)
 
     do {
       try await Task.sleep(for: delay)

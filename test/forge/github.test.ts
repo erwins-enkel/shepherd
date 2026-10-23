@@ -1562,6 +1562,36 @@ test("GithubForge.prStatus: a branch with no PR is re-looked up, so an agent's n
   }
 });
 
+test("GithubForge.prStatus: a reopened PR shows despite a cached closed branch (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let open: Array<{ ref: string; sha: string; number: number }> = [];
+    let ver = 1;
+    const { run } = etagRestFake({
+      open: () => open,
+      check: () => "success",
+      remaining: () => 4000,
+      version: () => ver,
+      lookup: () => [
+        { number: 60, state: "closed", merged_at: null, head: { ref: "feature", sha: "a" } },
+      ],
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.prStatus("feature")).state).toBe("closed");
+    // The agent runs `gh pr reopen 60`; the open-pulls list is still inside its 60s cache.
+    open = [{ ref: "feature", sha: "a", number: 60 }];
+    ver = 2;
+    setSystemTime(new Date("2026-10-01T12:00:10Z"));
+    expect(await forge.prStatus("feature")).toMatchObject({ state: "open", number: 60 });
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
 test("GithubForge.prStatus: open-pulls list revalidates with If-None-Match and reuses a 304 (#2834)", async () => {
   blockGraphql();
   restFallbackReserve.reset();

@@ -207,6 +207,10 @@ const REST_CHECK_LOOKUP_BUDGET = 40;
 /** How long the shared REST open-pulls list answers from its cache (#2834): every fallback
  *  `prStatus` of a repo reads it instead of a per-branch lookup. */
 const REST_OPEN_PULLS_TTL_MS = 60_000;
+/** How fresh the open-pulls list must be before a cached merged/closed branch is served: an
+ *  own `gh pr reopen` or a new PR from the branch must show (#2834). A revalidation of an
+ *  unchanged list is a free 304; reads this close together share one. */
+const REST_OPEN_PULLS_REVALIDATE_MS = 5_000;
 /** How long a branch's REST merged/closed lookup is reused (#2834). Leaving it takes a new or
  *  reopened PR, which an open-list hit (dropping the entry) usually shows first — but one opened
  *  and merged between two list reads doesn't, so it is still bounded. "No PR" is never cached:
@@ -1164,10 +1168,12 @@ export class GithubForge implements GitForge {
   }
 
   /** The repo's open PRs over REST, shared by every GraphQL-backoff fallback (#2834): cached
-   *  {@link REST_OPEN_PULLS_TTL_MS}, single-flight. */
-  private async listOpenPullsRest(): Promise<{ prs: RestPull[]; capped: boolean }> {
+   *  {@link REST_OPEN_PULLS_TTL_MS} (or `maxAgeMs`), single-flight. */
+  private async listOpenPullsRest(
+    maxAgeMs = REST_OPEN_PULLS_TTL_MS,
+  ): Promise<{ prs: RestPull[]; capped: boolean }> {
     const cached = this.restOpenPulls;
-    if (cached && Date.now() - cached.at < REST_OPEN_PULLS_TTL_MS) return cached;
+    if (cached && Date.now() - cached.at < maxAgeMs) return cached;
     if (this.restOpenPullsInflight) return this.restOpenPullsInflight;
     const gen = this.restOpenPullsGen;
     const p = this.fetchOpenPullsRest()
@@ -2300,17 +2306,19 @@ export class GithubForge implements GitForge {
   private async prStatusRest(headBranch: string, deployConfigured: boolean): Promise<PrStatus> {
     assertRestReserve();
     const owner = this.forkOwner ?? this.slug.split("/")[0];
-    const { prs: open } = await this.listOpenPullsRest();
-    const hit = open.find(
-      (p) => p.head?.ref === headBranch && p.head?.repo?.owner?.login === owner,
-    );
+    const find = (prs: RestPull[]) =>
+      prs.find((p) => p.head?.ref === headBranch && p.head?.repo?.owner?.login === owner);
+    let hit = find((await this.listOpenPullsRest()).prs);
+    const cached = this.restBranchCache.get(headBranch);
+    const terminal = cached && Date.now() - cached.at < REST_TERMINAL_BRANCH_TTL_MS;
+    // Serve a cached merged/closed only against a just-revalidated list, so a reopen shows.
+    if (!hit && terminal)
+      hit = find((await this.listOpenPullsRest(REST_OPEN_PULLS_REVALIDATE_MS)).prs);
     if (hit) {
       this.restBranchCache.delete(headBranch); // a new or reopened PR supersedes the terminal one
       return this.restPullStatus(hit, deployConfigured);
     }
-    const cached = this.restBranchCache.get(headBranch);
-    if (cached && Date.now() - cached.at < REST_TERMINAL_BRANCH_TTL_MS)
-      return { ...cached.status, deployConfigured };
+    if (terminal) return { ...cached.status, deployConfigured };
     const status = await this.lookupBranchPrRest(headBranch, owner!, deployConfigured);
     if (status.state === "merged" || status.state === "closed")
       this.restBranchCache.set(headBranch, { at: Date.now(), status });

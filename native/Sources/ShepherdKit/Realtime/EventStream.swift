@@ -248,6 +248,10 @@ public actor EventStream {
       request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
     let socket = urlSession.webSocketTask(with: request)
+    // URLSession's 1 MiB default fails the whole socket ("Message too long")
+    // on one bigger frame, and the server resends it after every reconnect: a
+    // busy server's `upnext:snapshot` alone is several MB.
+    socket.maximumMessageSize = Self.maximumFrameSize
     task = socket
     connectionGeneration += 1
     connectedAt = .now
@@ -297,6 +301,9 @@ public actor EventStream {
   /// shorter that never received a message — an instant reject, a dropped
   /// upgrade — counts as a failure and grows the delay.
   private static let healthyConnectionDuration: Duration = .seconds(5)
+
+  /// Largest `/events` frame the socket accepts.
+  static let maximumFrameSize = 64 * 1024 * 1024
 
   private func connectionWasHealthy() -> Bool {
     if frameReceivedSinceConnect { return true }

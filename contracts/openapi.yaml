@@ -2767,6 +2767,191 @@ components:
           x-shepherd-open-enum: true
           # LivenessState (src/types.ts), emitted by src/index.ts's onChange callback.
           enum: [alive, husk, stranded]
+    CompletedEpicChild:
+      type: object
+      additionalProperties: true
+      description: >-
+        One sub-issue of a completed epic (CompletedEpicChild in src/completed-epic.ts).
+        `integrated` is true when Shepherd merged its PR into the integration branch; a child closed
+        without such a PR is not in the landing PR. Its `title` is `#<number>` when the forge never
+        named it.
+      required: [number, title, url, prNumber, prUrl, mergedAt, integrated]
+      properties:
+        number: { type: integer }
+        title: { type: string }
+        url: { type: string }
+        prNumber: { type: [integer, "null"] }
+        prUrl: { type: [string, "null"] }
+        mergedAt: { type: [integer, "null"] }
+        integrated: { type: boolean }
+    EpicLandingState:
+      type: string
+      x-shepherd-open-enum: true
+      # EpicLandingState (src/completed-epic.ts): pending = not opened yet, open = opened or reused,
+      # merged = landed in the default branch, none = nothing to land, error = the last attempt to
+      # open it failed and is retried.
+      enum: [pending, open, merged, none, error]
+    LandingStageStatus:
+      type: string
+      x-shepherd-open-enum: true
+      # LandingStageStatus (src/completed-epic.ts): done = budget spent and still red, running = in
+      # flight, pending = Shepherd will still act, skipped = it will not, for `skipReason`.
+      enum: [done, running, pending, skipped]
+    LandingCiRerunStage:
+      type: object
+      additionalProperties: true
+      description: Shepherd's automatic reruns of a red landing PR's checks.
+      required: [status, used, cap, skipReason]
+      properties:
+        status: { $ref: "#/components/schemas/LandingStageStatus" }
+        used: { type: integer }
+        cap: { type: integer }
+        skipReason:
+          type: [string, "null"]
+          x-shepherd-open-enum: true
+          enum: [no-github, draft-mode, not-engaged, draft-pr, no-run, null]
+    LandingCiRepairStage:
+      type: object
+      additionalProperties: true
+      description: >-
+        Shepherd's agent repair of a red landing PR. `sessionId` is the live repair session, else
+        the last recorded one while it is still visible.
+      required: [status, used, cap, skipReason, sessionId, sessionStartedAt]
+      properties:
+        status: { $ref: "#/components/schemas/LandingStageStatus" }
+        used: { type: integer }
+        cap: { type: integer }
+        skipReason:
+          type: [string, "null"]
+          x-shepherd-open-enum: true
+          enum: [no-github, draft-mode, draft-pr, auto-drain-off, null]
+        sessionId: { type: [string, "null"] }
+        sessionStartedAt: { type: [integer, "null"] }
+    LandingCiAutomation:
+      type: object
+      additionalProperties: true
+      description: Where Shepherd's automatic handling of a red landing PR stands (#2872).
+      required: [reruns, repair]
+      properties:
+        reruns: { $ref: "#/components/schemas/LandingCiRerunStage" }
+        repair: { $ref: "#/components/schemas/LandingCiRepairStage" }
+    LandingCiFailedCheck:
+      type: object
+      additionalProperties: true
+      required: [name, url]
+      properties:
+        name: { type: string }
+        url: { type: [string, "null"] }
+    LandingCiChecks:
+      type: object
+      additionalProperties: true
+      description: The landing PR head's per-check breakdown — red checks with their log URL, plus the running and green counts.
+      required: [failed, running, passed]
+      properties:
+        failed:
+          type: array
+          items: { $ref: "#/components/schemas/LandingCiFailedCheck" }
+        running: { type: integer }
+        passed: { type: integer }
+    CompletedEpic:
+      type: object
+      additionalProperties: true
+      description: >-
+        One row of the "Epics to land" band (CompletedEpic in src/completed-epic.ts): every
+        sub-issue is done and their PRs sit on the epic's integration branch; one landing PR brings
+        that branch to the default branch. The `landingChecks` … `landingCiAutomation` gate signals
+        are live and exist ONLY on GET /api/epics/completed, and only for a row whose landing PR is
+        open and could be read — the epic:completed frame never carries them, and no frame fires
+        when CI turns green, so a client re-reads the GET while a row is open.
+      required:
+        [
+          repoPath,
+          parentIssueNumber,
+          parentTitle,
+          completedAt,
+          children,
+          landingPrNumber,
+          landingPrUrl,
+          landingState,
+          migrationPaths,
+          migrationsAckedAt,
+          landingRebasePauseReason,
+          landingConflictReworkCount,
+        ]
+      properties:
+        repoPath: { type: string }
+        parentIssueNumber: { type: integer }
+        parentTitle: { type: string }
+        completedAt: { type: integer }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/CompletedEpicChild" }
+        integrationBranch:
+          type: [string, "null"]
+          description: The pinned integration branch; null when none was recorded.
+        landingPrNumber: { type: [integer, "null"] }
+        landingPrUrl: { type: [string, "null"] }
+        landingState: { $ref: "#/components/schemas/EpicLandingState" }
+        migrationPaths:
+          type: array
+          items: { type: string }
+          description: Migration files detected in the landing PR; empty when none or not detected.
+        migrationsAckedAt:
+          type: [integer, "null"]
+          description: When the operator acknowledged `migrationPaths`; null until then.
+        landingRebasePauseReason:
+          type: [string, "null"]
+          x-shepherd-open-enum: true
+          description: Why the auto-rebase pass paused; null when it did not.
+          enum: [cap, conflict, driver, null]
+        landingRepairCount: { type: integer }
+        landingRepairHead: { type: [string, "null"] }
+        landingConflictReworkCount: { type: integer }
+        landingConflictSince:
+          type: [integer, "null"]
+          description: When the current conflict pause began; null outside one.
+        landingConflictStranded:
+          type: boolean
+          description: Live. The conflict pause has stood past the stranded threshold with no live repair session.
+        landingChecks: { $ref: "#/components/schemas/ChecksState" }
+        landingMergeable: { type: [boolean, "null"] }
+        landingReady:
+          type: boolean
+          description: Live. The landing PR is safe to merge from the app — what gates "Land epic".
+        landingNoCiHold:
+          type: boolean
+          description: Live. Ready and auto-merge is on, but auto-land holds it because the repo has no CI.
+        landingStranded:
+          type: boolean
+          description: Live. Open and ready, yet unlanded for longer than the stranded threshold.
+        landingCiFailing:
+          type: boolean
+          description: Live. CI is terminally red and nothing automatic is still acting on it.
+        landingRepairing:
+          type: boolean
+          description: Live. A repair session is driving this landing PR's CI or conflicts right now.
+        landingCiChecks: { $ref: "#/components/schemas/LandingCiChecks" }
+        landingCiAutomation: { $ref: "#/components/schemas/LandingCiAutomation" }
+    CompletedEpicList:
+      type: array
+      description: GET /api/epics/completed. Newest first.
+      items: { $ref: "#/components/schemas/CompletedEpic" }
+    CompletedEpicTarget:
+      type: object
+      additionalProperties: false
+      description: Names one completed epic for the band's actions.
+      required: [repo, parent]
+      properties:
+        repo: { type: string }
+        parent: { type: integer, minimum: 1 }
+    CompletedEpicClearedEvent:
+      type: object
+      additionalProperties: true
+      description: A completed epic left the band (dismissed, migrations acknowledged, or its parent issue closed).
+      required: [repoPath, parentIssueNumber]
+      properties:
+        repoPath: { type: string }
+        parentIssueNumber: { type: integer }
     # ── /stream: herd ──
     # ── stream: plan ──
     PlanDecision:
@@ -8184,6 +8369,200 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /api/epics/completed:
+    get:
+      operationId: listCompletedEpics
+      description: >-
+        The "Epics to land" band: every completed epic nobody removed, newest first. Live landing
+        signals ride only here (see CompletedEpic), so a client re-reads this while a row's landing
+        PR is open — the web every 60 s while visible. Never fails on a forge error: the row is
+        served without its live signals.
+      parameters:
+        - name: repo
+          in: query
+          required: false
+          description: Only this repo's rows.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The rows, possibly empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompletedEpicList" }
+        "400":
+          description: 'error is "invalid repo".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/epics/completed/land:
+    post:
+      operationId: landCompletedEpic
+      description: >-
+        Merge the epic's open landing PR with the repo's merge method, fail-closed: only when the
+        PR is green and mergeable right now. The merge runs before the answer; the row then arrives
+        as epic:completed with landingState merged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompletedEpicTarget" }
+      responses:
+        "200":
+          description: Landed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: 'Not landable: "no completed epic", "landing not open", "no forge", "no integration branch" or "landing PR not ready".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: 'The forge failed: "landing PR status check failed" or "landing merge failed".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/epics/completed/dismiss:
+    post:
+      operationId: dismissCompletedEpic
+      description: >-
+        Remove a row from the band. Hides it only — the landing PR, the integration branch and the
+        epic issue stay. Lands as epic:completed-cleared.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompletedEpicTarget" }
+      responses:
+        "200":
+          description: Removed (also for a row that was not there).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/epics/completed/ack-migrations:
+    post:
+      operationId: ackCompletedEpicMigrations
+      description: >-
+        Acknowledge the migrations detected in the landing PR and remove the row in one step.
+        Lands as epic:completed-cleared.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompletedEpicTarget" }
+      responses:
+        "200":
+          description: Acknowledged and removed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/epics/completed/resolve-conflicts:
+    post:
+      operationId: resolveCompletedEpicConflicts
+      description: >-
+        Start an agent that rebases the integration branch onto the default branch, resolves the
+        conflicts and updates the landing PR. Refused while a repair session already works it.
+        Error bodies carry the stable `reason` code beside `error`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompletedEpicTarget" }
+      responses:
+        "202":
+          description: The agent was started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: "reason is no-landing: there is no open landing PR."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: "reason is unsupported, busy, repairing or not-conflicting."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: "reason is spawn-failed: the agent could not be started."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/epics/completed/repair-ci:
+    post:
+      operationId: repairCompletedEpicCi
+      description: >-
+        Start an agent that fixes a red landing PR's checks and pushes the fix to the integration
+        branch (#2872). Refused while a repair session already works it. Error bodies carry the
+        stable `reason` code beside `error`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompletedEpicTarget" }
+      responses:
+        "202":
+          description: The agent was started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: "reason is no-landing: there is no open landing PR."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: "reason is unsupported, busy, repairing or not-red."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: "reason is spawn-failed: the agent could not be started."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   # ── /stream: herd ──
   # ── stream: plan ──
   /api/plan-gates:
@@ -11083,6 +11462,14 @@ x-shepherd-events:
   session:claude-alive:
     description: A session's coding-CLI liveness flipped. Flips only — bootstrap from GET /api/claude-alive.
     schema: { $ref: "#/components/schemas/SessionClaudeAliveEvent" }
+  epic:completed:
+    description: >-
+      A completed epic joined the band or its stored landing state changed. The whole row, but
+      never the live landing signals — those come from GET /api/epics/completed only.
+    schema: { $ref: "#/components/schemas/CompletedEpic" }
+  epic:completed-cleared:
+    description: A completed epic left the band. Drop the row with this repoPath and parentIssueNumber.
+    schema: { $ref: "#/components/schemas/CompletedEpicClearedEvent" }
   # ── /stream: herd ──
   # ── stream: plan ──
   session:plangate:

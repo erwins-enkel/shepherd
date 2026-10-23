@@ -10,6 +10,7 @@ import {
   restoreAuth,
   startContractServer,
   validateEvent,
+  validateRequest,
   validateResponse,
   withAuth,
   type ContractServer,
@@ -335,6 +336,202 @@ test("liveness fixture rejects a renamed production payload key", () => {
   expect(() => fx.assertClaudeAliveEmitterKeys(mutated, ["id", "claudeAlive", "liveness"])).toThrow(
     "liveness fixture keys differ from the production emitter",
   );
+});
+
+describe("completed epics", () => {
+  const LIST = "/api/epics/completed";
+
+  /** One completed epic in the store. `open` gives it a landing PR and an integration branch. Each
+   *  test uses its own parent: the server caches a landing PR's status per repo + branch. */
+  function seed(parent: number, open = false): void {
+    const store = s.deps.store;
+    store.recordEpicCompleted({
+      repoPath: s.validRepo,
+      parentIssueNumber: parent,
+      parentTitle: `Epic #${parent}`,
+      completedAt: Date.now() - 60_000,
+      childrenJson: JSON.stringify(fx.completedEpicChildren),
+    });
+    if (!open) return;
+    store.setEpicLandingPr(s.validRepo, parent, {
+      state: "open",
+      prNumber: 29,
+      prUrl: "https://github.com/acme/widgets/pull/29",
+      attempts: 1,
+    });
+    store.getOrInitEpicIntegrationBranch(s.validRepo, parent, `epic/${parent}-landing`);
+  }
+
+  /** A forge that answers the landing PR's status and merges; swapped in for one test. */
+  function forge(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      kind: "github",
+      mergeMethod: "squash",
+      prStatus: async () => fx.landingPrStatus(),
+      merge: async () => {},
+      ...overrides,
+    };
+  }
+
+  async function act(action: string, body: unknown, auth = true): Promise<Response> {
+    return fetch(`${s.baseUrl}${LIST}/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(auth ? bearer(token) : {}) },
+      body: JSON.stringify(body),
+    });
+  }
+
+  function target(parent: number): { repo: string; parent: number } {
+    return { repo: s.validRepo, parent };
+  }
+
+  test("GET lists rows with their live landing signals, 400 and 401", async () => {
+    seed(201, true);
+    s.stubs.resolveForge.forge = forge();
+    try {
+      const ok = await get(LIST);
+      expect(ok.status).toBe(200);
+      const rows = (await validateResponse("GET", LIST, ok)) as Record<string, any>[];
+      const row = rows.find((r) => r.parentIssueNumber === 201)!;
+      expect(row.landingState).toBe("open");
+      expect(row.integrationBranch).toBe("epic/201-landing");
+      expect(row.children).toHaveLength(2);
+      expect(row.landingChecks).toBe("failure");
+      expect(row.landingReady).toBe(false);
+      expect(row.landingCiChecks.failed).toEqual([
+        { name: "test", url: "https://github.com/acme/widgets/actions/runs/1" },
+      ]);
+      expect(row.landingCiAutomation.reruns.status).toBeString();
+      expect(row.landingCiAutomation.repair.status).toBeString();
+    } finally {
+      s.stubs.resolveForge.forge = null;
+    }
+
+    const bad = await get(`${LIST}?repo=${encodeURIComponent("../../etc")}`);
+    expect(bad.status).toBe(400);
+    await validateResponse("GET", LIST, bad);
+    const anon = await get(LIST, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", LIST, anon);
+  });
+
+  test("land merges a green landing PR and pushes the landed row", async () => {
+    const LAND = `${LIST}/land`;
+    seed(202, true);
+    validateRequest("POST", LAND, target(202));
+    s.stubs.resolveForge.forge = forge({
+      prStatus: async () => fx.landingPrStatus({ checks: "success", mergeStateStatus: "clean" }),
+    });
+    let ok: Response | undefined;
+    try {
+      const frames = await collectEvents(s, token, async () => {
+        ok = await act("land", target(202));
+      });
+      expect(ok!.status).toBe(200);
+      await validateResponse("POST", LAND, ok!);
+      const landed = frames.find((f) => f.event === "epic:completed")!;
+      expect((landed.data as { landingState: string }).landingState).toBe("merged");
+      validateEvent(landed.event, landed.data);
+    } finally {
+      s.stubs.resolveForge.forge = null;
+    }
+  });
+
+  test("land answers 400, 401, 409 and 502", async () => {
+    const LAND = `${LIST}/land`;
+    const bad = await act("land", { repo: s.validRepo, parent: 0 });
+    expect(bad.status).toBe(400);
+    await validateResponse("POST", LAND, bad);
+    const anon = await act("land", target(203), false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", LAND, anon);
+    const missing = await act("land", target(203));
+    expect(missing.status).toBe(409);
+    await validateResponse("POST", LAND, missing);
+
+    seed(204, true);
+    s.stubs.resolveForge.forge = forge({
+      prStatus: async () => fx.landingPrStatus({ checks: "success", mergeStateStatus: "clean" }),
+      merge: async () => {
+        throw new Error("405 merge method not allowed");
+      },
+    });
+    try {
+      const failed = await act("land", target(204));
+      expect(failed.status).toBe(502);
+      await validateResponse("POST", LAND, failed);
+    } finally {
+      s.stubs.resolveForge.forge = null;
+    }
+  });
+
+  test("dismiss and ack-migrations clear the row, 400 and 401", async () => {
+    for (const [action, parent] of [
+      ["dismiss", 205],
+      ["ack-migrations", 206],
+    ] as const) {
+      const path = `${LIST}/${action}`;
+      seed(parent);
+      validateRequest("POST", path, target(parent));
+      let ok: Response | undefined;
+      const frames = await collectEvents(s, token, async () => {
+        ok = await act(action, target(parent));
+      });
+      expect(ok!.status).toBe(200);
+      await validateResponse("POST", path, ok!);
+      const cleared = frames.find((f) => f.event === "epic:completed-cleared")!;
+      expect(cleared.data).toEqual({ repoPath: s.validRepo, parentIssueNumber: parent });
+      validateEvent(cleared.event, cleared.data);
+      expect(
+        s.deps.store.listEpicCompleted(s.validRepo).map((r) => r.parentIssueNumber),
+      ).not.toContain(parent);
+
+      const bad = await act(action, { repo: "../outside", parent });
+      expect(bad.status).toBe(400);
+      await validateResponse("POST", path, bad);
+      const anon = await act(action, target(parent), false);
+      expect(anon.status).toBe(401);
+      await validateResponse("POST", path, anon);
+    }
+  });
+
+  test("resolve-conflicts and repair-ci map every drain answer", async () => {
+    for (const [action, method] of [
+      ["resolve-conflicts", "resolveLandingConflict"],
+      ["repair-ci", "repairLandingCi"],
+    ] as const) {
+      const path = `${LIST}/${action}`;
+      validateRequest("POST", path, target(207));
+      // No drain wired: the route answers 503 before it looks at the epic.
+      const unavailable = await act(action, target(207));
+      expect(unavailable.status).toBe(503);
+      await validateResponse("POST", path, unavailable);
+
+      const saved = s.deps.drain;
+      for (const [answer, status] of [
+        [{ ok: true }, 202],
+        [{ ok: false, error: "no-landing" }, 404],
+        [{ ok: false, error: "busy" }, 409],
+        [{ ok: false, error: "spawn-failed" }, 502],
+      ] as const) {
+        s.deps.drain = { [method]: async () => answer } as never;
+        try {
+          const res = await act(action, target(207));
+          expect(res.status).toBe(status);
+          await validateResponse("POST", path, res);
+        } finally {
+          s.deps.drain = saved;
+        }
+      }
+
+      const bad = await act(action, { repo: s.validRepo, parent: -1 });
+      expect(bad.status).toBe(400);
+      await validateResponse("POST", path, bad);
+      const anon = await act(action, target(207), false);
+      expect(anon.status).toBe(401);
+      await validateResponse("POST", path, anon);
+    }
+  });
 });
 
 // Stays LAST in this file, like every other stream's gate.

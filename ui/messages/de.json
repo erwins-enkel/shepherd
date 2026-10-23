@@ -6878,5 +6878,7 @@
   "feat_ask_center_title": "Fragen zeigen, wer fragt",
   "feat_ask_center_body": "Wenn Claude eine Frage stellt, nennt der Antwortdialog jetzt Repo, Task und Session, dazu Agent, Modell, Branch und den ursprünglichen Prompt. Offene Fragen anderer Sessions stehen daneben, nach Repo gruppiert, und lassen sich nacheinander beantworten.",
   "status_in_merge_queue": "IN MERGE-QUEUE",
-  "status_in_merge_queue_tip": "Die Merge-Queue von GitHub hält diesen PR und merged ihn, sobald ihre Checks grün sind. Nichts zu tun."
+  "status_in_merge_queue_tip": "Die Merge-Queue von GitHub hält diesen PR und merged ihn, sobald ihre Checks grün sind. Nichts zu tun.",
+  "native_epics_waiting_on_you_one": "1 wartet auf dich",
+  "native_epics_load_failed": "Die Epics zum Landen konnten nicht geladen werden."
 }

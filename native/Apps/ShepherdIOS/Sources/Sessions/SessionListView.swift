@@ -17,7 +17,16 @@ struct SessionListView: View {
     @State private var explanationTitle = ""
     @State private var clearingMerged: [IOSMergedSessionPresentation.Row] = []
     @State private var clearMergedBusy = false
+    /// nil follows the band's default: open while an epic waits on the operator.
+    @State private var epicsBandCollapsed: Bool?
+    /// Cards the operator opened or closed; the rest follow the default (first waiting one open).
+    @State private var expandedEpicCards: [String: Bool] = [:]
+    @State private var expandedEpicChildren: Set<String> = []
+    @State private var pendingLand: PendingLand?
+    @State private var showingEpicsHelp = false
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     private var layout: IOSSessionListLayout { .init(sizeClass: sizeClass) }
 
     var body: some View {
@@ -47,6 +56,18 @@ struct SessionListView: View {
             }
         }
         .sheet(isPresented: $showingRepos) { IOSServerReposSheet(model: model) }
+        .sheet(isPresented: $showingEpicsHelp) { IOSCompletedEpicsHelpSheet() }
+        // Live landing signals (green CI, ready, stranded) ride only the GET and no frame fires when
+        // they change: re-read every 60 s while a landing PR is open and the app is in front.
+        .task(id: epicPollKey) {
+            guard epicPollKey == [true, true] else { return }
+            while !Task.isCancelled {
+                for owner in hub?.connected ?? [app] {
+                    await owner.extension(CompletedEpicsModel.self)?.refresh()
+                }
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
         .sheet(isPresented: Binding(get: { explainingStage != nil }, set: { if !$0 { explainingStage = nil } })) {
             if let stage = explainingStage, let explanation = IOSSessionListPresentation.groupHelp(stage) {
                 NavigationStack {
@@ -90,6 +111,11 @@ struct SessionListView: View {
                 owner.reconcileSelection(against: Self.listedSessions(of: owner).map(\.id))
             }
         }
+    }
+
+    private var epicPollKey: [Bool] {
+        [(hub?.connected ?? [app]).contains { $0.extension(CompletedEpicsModel.self)?.hasOpenLanding == true },
+         scenePhase == .active]
     }
 
     private var epicLoadIdentity: [String] {
@@ -142,6 +168,7 @@ struct SessionListView: View {
         let snapshot = presentation
         let groups = snapshot.groups
         let showCli = SessionBadges.showsCli(for: (snapshot.epicGroups.flatMap(\.rows) + groups.flatMap(\.rows)).map(\.session))
+        let band = epicsBand
         return VStack(spacing: 0) {
             HStack(spacing: 10) { header; Spacer(minLength: 0); settingsMenu }
                 .padding(.horizontal, 12).padding(.vertical, 5)
@@ -169,6 +196,8 @@ struct SessionListView: View {
                         .foregroundStyle(SessionListStyle.amber).accessibilityAddTraits(.isHeader)
                         .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
                 }
+                // An epic that waits on the operator leads the list; otherwise the band trails it.
+                if band.onTop, lens != .done, lens != .owed { completedEpicsSection(band, now: now) }
                 switch lens {
                 case .all, .ready:
                     if groups.isEmpty, snapshot.epicGroups.isEmpty, lens != .all || snapshot.machines.isEmpty,
@@ -229,6 +258,18 @@ struct SessionListView: View {
                     else { IOSUpNextRows(model: queues, repos: activeRepos) }
                 case .owed: IOSMergedOwedRows(rows: presentation.owed, owners: hub?.models ?? [:], fallback: app, showServers: (hub?.connected.count ?? 1) > 1, select: selectRow)
                 }
+                if !band.onTop, lens != .done, lens != .owed { completedEpicsSection(band, now: now) }
+            }
+            .confirmationDialog(Text(verbatim: pendingLand?.confirmation.prompt ?? ""),
+                isPresented: Binding(get: { pendingLand != nil }, set: { if !$0 { pendingLand = nil } }),
+                titleVisibility: .visible, presenting: pendingLand) { item in
+                Button(L.t("integrated_epics_land_confirm")) {
+                    item.owner.extension(CompletedEpicsModel.self)?.land(item.epic)
+                }
+                Button(L.t("common_cancel"), role: .cancel) {}
+            } message: { item in
+                Text(verbatim: [item.confirmation.message, item.confirmation.migrationWarning]
+                    .compactMap { $0 }.joined(separator: "\n\n"))
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -559,6 +600,7 @@ struct SessionListView: View {
 
     private func refresh() async {
         refreshError = nil
+        for owner in hub?.connected ?? [app] { owner.extension(CompletedEpicsModel.self)?.invalidate() }
         if let hub, hub.connected.count > 1 {
             hub.refreshServers()
             Task { await epicDirectory.load(presentation.epicGroups, owners: hub.models, fallback: app, force: true) }
@@ -579,5 +621,132 @@ struct SessionListView: View {
         }
         for task in tasks { if let error = await task.value { refreshError = error } }
         await epicDirectory.load(presentation.epicGroups, owners: hub?.models ?? [:], fallback: app, force: true)
+    }
+}
+
+// MARK: - Epics to land (#2857)
+
+extension SessionListView {
+    /// One epic to land and the server it belongs to: every action goes to that server.
+    fileprivate struct EpicToLand: Identifiable {
+        let owner: AppModel
+        let profile: ServerProfile?
+        let epic: CompletedEpic
+        let status: CompletedEpicStatus
+        var id: String { "\(profile?.id.uuidString ?? "-")|\(CompletedEpicsBand.key(epic))" }
+    }
+
+    fileprivate struct EpicsBand {
+        let rows: [EpicToLand]
+        let waiting: Int
+        var onTop: Bool { waiting > 0 }
+    }
+
+    /// The land confirmation, bound to the server and row it was opened for.
+    struct PendingLand: Identifiable {
+        let id: String
+        let owner: AppModel
+        let epic: CompletedEpic
+        let confirmation: CompletedEpicCard.Confirmation
+    }
+
+    /// Every connected server's rows in the repo filter: ready, then your turn, then quiet, then
+    /// done; each server's newest-first order breaks ties.
+    fileprivate var epicsBand: EpicsBand {
+        let repos = activeRepos
+        var rows: [EpicToLand] = []
+        for owner in hub?.connected ?? [app] {
+            guard let model = owner.extension(CompletedEpicsModel.self) else { continue }
+            for epic in model.epics where repos.isEmpty || repos.contains(epic.repoPath) {
+                rows.append(.init(owner: owner, profile: owner.activeProfile, epic: epic, status: model.status(epic)))
+            }
+        }
+        let sorted = rows.enumerated().sorted { a, b in
+            a.element.status.sortOrder != b.element.status.sortOrder
+                ? a.element.status.sortOrder < b.element.status.sortOrder : a.offset < b.offset
+        }.map(\.element)
+        return EpicsBand(rows: sorted, waiting: sorted.filter { $0.status.needsOperator }.count)
+    }
+
+    @ViewBuilder
+    fileprivate func completedEpicsSection(_ band: EpicsBand, now: Int) -> some View {
+        if !band.rows.isEmpty {
+            let collapsed = epicsBandCollapsed ?? !band.onTop
+            IOSCompletedEpicsHeader(count: band.rows.count, waiting: band.waiting, collapsed: collapsed,
+                toggle: { epicsBandCollapsed = !collapsed }, explain: { showingEpicsHelp = true })
+                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 10))
+                .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
+            if let error = epicsError {
+                Button { clearEpicsError() } label: {
+                    Text(verbatim: error).sessionFont(label: true).foregroundStyle(SessionListStyle.red)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("herd-epics-to-land-error")
+                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 10))
+                .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
+            }
+            if !collapsed {
+                let firstWaiting = band.rows.first(where: { $0.status.needsOperator })?.id
+                ForEach(band.rows) { row in
+                    epicCard(row, expanded: expandedEpicCards[row.id] ?? (row.id == firstWaiting), now: now)
+                }
+            }
+        }
+    }
+
+    private func epicCard(_ row: EpicToLand, expanded: Bool, now: Int) -> some View {
+        let model = row.owner.extension(CompletedEpicsModel.self)
+        let card = model?.card(row.epic, now: now) ?? CompletedEpicCard(row.epic, now: now)
+        let canAct = canWrite(row.owner)
+        return IOSCompletedEpicCardView(card: card,
+            serverName: row.profile.flatMap {
+                IOSMergedSessionPresentation.serverHint($0, connectedCount: hub?.connected.count ?? 1)
+            },
+            expanded: expanded, childrenExpanded: expandedEpicChildren.contains(row.id), canAct: canAct,
+            starting: model?.starting.contains(CompletedEpicsBand.key(row.epic)) ?? false,
+            toggle: { expandedEpicCards[row.id] = !expanded },
+            toggleChildren: {
+                if !expandedEpicChildren.insert(row.id).inserted { expandedEpicChildren.remove(row.id) }
+            },
+            perform: { performEpic($0, row: row, card: card) })
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if canAct {
+                    Button { model?.dismiss(row.epic) } label: {
+                        Label(L.t("integrated_epics_dismiss"), systemImage: "eye.slash")
+                    }
+                    .tint(SessionListStyle.slate)
+                }
+            }
+            .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
+            .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
+    }
+
+    private func performEpic(_ action: CompletedEpicCard.Action, row: EpicToLand, card: CompletedEpicCard) {
+        let model = row.owner.extension(CompletedEpicsModel.self)
+        switch action {
+        case .land:
+            guard let confirmation = card.confirmation else { return }
+            pendingLand = PendingLand(id: row.id, owner: row.owner, epic: row.epic, confirmation: confirmation)
+        case .repairCi: model?.repairCi(row.epic)
+        case .resolveConflicts: model?.resolveConflicts(row.epic)
+        case .ackMigrations: model?.ackMigrations(row.epic)
+        case .dismiss: model?.dismiss(row.epic)
+        case .openURL(let url): openURL(url)
+        case .openSession(let id):
+            if let profile = row.profile { selectRow(.init(profileID: profile.id, sessionID: id)) } else { select(id) }
+        }
+    }
+
+    /// The last failed action, else a failed re-read of rows already shown.
+    private var epicsError: String? {
+        let models = (hub?.connected ?? [app]).compactMap { $0.extension(CompletedEpicsModel.self) }
+        if let error = models.compactMap({ $0.actionError }).first { return error }
+        return models.contains { $0.loadFailed && !$0.epics.isEmpty } ? L.t("native_epics_load_failed") : nil
+    }
+
+    private func clearEpicsError() {
+        for owner in hub?.connected ?? [app] { owner.extension(CompletedEpicsModel.self)?.clearError() }
     }
 }

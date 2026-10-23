@@ -137,3 +137,46 @@ export const reviewerEnv = {
   model: "claude-opus-5",
   effort: "high",
 };
+
+/** Two sub-issues of a completed epic: one merged into the integration branch, one closed without a
+ *  PR — the two shapes a `CompletedEpicChild` takes. */
+export const completedEpicChildren = [
+  {
+    number: 5,
+    title: "angebote: Datenmodell und Migrationen",
+    url: "https://github.com/acme/widgets/issues/5",
+    prNumber: 20,
+    prUrl: "https://github.com/acme/widgets/pull/20",
+    mergedAt: 1_800_000_000_000,
+    integrated: true,
+  },
+  {
+    number: 4,
+    title: "#4",
+    url: "https://github.com/acme/widgets/issues/4",
+    prNumber: null,
+    prUrl: null,
+    mergedAt: null,
+    integrated: false,
+  },
+];
+
+/** A landing PR's status as the forge reports it. Red with per-check detail by default, so the GET
+ *  proves every live signal (`landingCiChecks`, `landingCiAutomation`) the contract declares. */
+export function landingPrStatus(overrides: Record<string, unknown> = {}) {
+  return {
+    state: "open",
+    number: 29,
+    url: "https://github.com/acme/widgets/pull/29",
+    checks: "failure",
+    mergeable: true,
+    mergeStateStatus: "unstable",
+    headSha: "89abcdef0123456789abcdef0123456789abcdef",
+    jobs: [
+      { name: "test", state: "failure", url: "https://github.com/acme/widgets/actions/runs/1" },
+      { name: "lint", state: "success" },
+      { name: "build", state: "pending" },
+    ],
+    ...overrides,
+  };
+}

@@ -5010,6 +5010,24 @@
         }
       }
     },
+    "epic_migrations_pending": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Migrationsdatei(en) — vor dem Merge prüfen (nicht im Harness ausgeführt)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ migration file(s) — verify before merge (not run in-harness)"
+          }
+        }
+      }
+    },
     "epic_model_label": {
       "extractionState": "manual",
       "localizations": {
@@ -8243,6 +8261,2211 @@
           "stringUnit": {
             "state": "translated",
             "value": "Merge train hit an error — needs you."
+          }
+        }
+      }
+    },
+    "integrated_epics_ack_migrations": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Migrationen bestätigen & schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acknowledge migrations & dismiss"
+          }
+        }
+      }
+    },
+    "integrated_epics_ack_migrations_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Migrationen konnten nicht bestätigt werden — erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't acknowledge the migrations — try again"
+          }
+        }
+      }
+    },
+    "integrated_epics_band_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Teilaufgaben fertig – ein letzter PR bringt die Arbeit nach main."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All sub-tasks done — one final PR brings the work into main."
+          }
+        }
+      }
+    },
+    "integrated_epics_band_title": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epics zum Landen (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epics to land (%1$@)"
+          }
+        }
+      }
+    },
+    "integrated_epics_body_checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sobald alle Checks grün sind, kannst du das Epic landen. Bis dahin musst du nichts tun."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Once all checks are green, you can land the epic. Until then, you do not need to do anything."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_ci_after_repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent hat einen Fix gepusht, aber ein Check ist noch rot. Sieh nach, was er versucht hat, oder starte einen neuen Versuch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent pushed a fix, but a check is still red. See what it tried, or start a new attempt."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_ci_drain_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd startet hier keinen Agenten von selbst – du entscheidest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd won't start an agent here on its own – it's your call."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_ci_exhausted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat alles Automatische versucht – jetzt bist du dran."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd has tried everything automatic – now it's your turn."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_ci_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens ein Check ist rot. Behebe das im Landing-PR – erst dann lässt sich das Epic landen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At least one check is red. Fix it in the landing PR before the epic can land."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_ci_retrying_repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Neustarts haben nicht gereicht. Du musst noch nichts tun."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The re-runs didn't fix it. Nothing for you to do yet."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_ci_retrying_reruns": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein roter Check ist oft nur ein Ausreißer. Du musst noch nichts tun."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A red check is often just a flake. Nothing for you to do yet."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_conflicts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Konflikte lösen“ startet einen Agenten: Er rebased den Integrationszweig auf main und aktualisiert den PR."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Resolve conflicts” starts an agent: it rebases the integration branch onto main and updates the PR."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd versucht automatisch erneut, den Landing-PR zu öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd will try opening the landing PR again automatically."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_landed": {
+      "comment": "%1$@ = pr, %2$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR #%1$@ ist gemergt, Epic #%2$@ geschlossen. Du kannst die Zeile jetzt entfernen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR #%1$@ is merged, epic #%2$@ is closed. You can remove this row now."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_landed_nonum": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Epic ist in main gelandet. Du kannst die Zeile jetzt entfernen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The epic has landed in main. You can remove this row now."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_landing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd mergt den [[landing-pr|Landing-PR]] in main. Das dauert ein paar Sekunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd is merging the [[landing-pr|landing PR]] into main. This takes a few seconds."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_not_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Checks sind grün, aber der Landing-PR ist noch nicht zum Mergen freigegeben. Öffne den PR und prüfe ausstehende Merge-Anforderungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks are green, but the landing PR is not cleared to merge yet. Open the PR to check outstanding merge requirements."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_nothing_left": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es gibt keinen offenen Landing-PR. Öffne das Epic auf GitHub oder entferne die Zeile."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no open landing PR. Open the epic on GitHub or remove this row."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_nothing_merged": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Teilaufgabe wurde mit einem PR abgeschlossen. Epic #%1$@ ist noch offen: Schließe es auf GitHub oder entferne die Zeile."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sub-task was completed with a PR. Epic #%1$@ is still open: close it on GitHub or remove this row."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne den Landing-PR und prüfe den pausierten Rebase. Der Grund oben zeigt, was Aufmerksamkeit braucht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the landing PR to review the paused rebase. The reason above explains what needs attention."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Teilaufgaben sind fertig. Gleich öffnet Shepherd einen [[landing-pr|Landing-PR]], der den [[integration-branch|Integrationszweig]] nach main bringt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All sub-tasks are done. Shepherd will open a [[landing-pr|landing PR]] to bring the [[integration-branch|integration branch]] into main."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_ready": {
+      "comment": "%1$@ = pr, %2$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Epic landen“ mergt den [[landing-pr|Landing-PR]] #%1$@ in main und schließt [[epic|Epic]] #%2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Land epic” merges [[landing-pr|landing PR]] #%1$@ into main and closes [[epic|epic]] #%2$@."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_repairing_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent behebt die fehlgeschlagenen Checks und aktualisiert den Landing-PR. Danach laufen die Checks neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent is fixing the failed checks and updating the landing PR. The checks then run again."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_repairing_conflicts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er rebased den [[integration-branch|Integrationszweig]] auf main und aktualisiert den [[landing-pr|Landing-PR]]. Danach laufen die Checks neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It rebases the [[integration-branch|integration branch]] onto main and updates the [[landing-pr|landing PR]]. The checks then run again."
+          }
+        }
+      }
+    },
+    "integrated_epics_body_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd prüft, ob der Landing-PR gemergt werden kann. Bis er bereit ist, bleibt Landen gesperrt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd is checking whether the landing PR can be merged. Landing stays locked until the PR is ready."
+          }
+        }
+      }
+    },
+    "integrated_epics_child_closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ohne PR · nicht enthalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "without PR · not included"
+          }
+        }
+      }
+    },
+    "integrated_epics_child_merged_ago": {
+      "comment": "%1$@ = ago",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %1$@ gemergt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "merged %1$@ ago"
+          }
+        }
+      }
+    },
+    "integrated_epics_children_heading": {
+      "comment": "%1$@ = included, %2$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Landing-PR · %1$@ von %2$@ Teilaufgaben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the landing PR · %1$@ of %2$@ sub-tasks"
+          }
+        }
+      }
+    },
+    "integrated_epics_collapse_aria": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ einklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse epic #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus Liste entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from list"
+          }
+        }
+      }
+    },
+    "integrated_epics_dismiss_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic konnte nicht aus der Liste entfernt werden — bitte erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't remove the epic from the list — try again"
+          }
+        }
+      }
+    },
+    "integrated_epics_dismiss_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "blendet nur aus · PR & Zweig bleiben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hides this row only · PR & branch stay"
+          }
+        }
+      }
+    },
+    "integrated_epics_expand_aria": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ ausklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand epic #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_finished_ago": {
+      "comment": "%1$@ = ago",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fertig vor %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finished %1$@ ago"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_checking": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI prüft den Landing-PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI is checking landing PR #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_ci_after_repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI ist nach der Reparatur weiter rot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI is still red after the repair"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_ci_failed": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI schlägt beim Landing-PR #%1$@ fehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI is failing on landing PR #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_ci_failed_nonum": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI schlägt beim Landing-PR fehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI is failing on the landing PR"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_ci_retrying_repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd startet gleich einen Reparatur-Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd is about to start a repair agent"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_ci_retrying_reruns": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd startet die roten Checks neu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd is re-running the red checks"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_conflicts": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR #%1$@ hat Konflikte mit main"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR #%1$@ conflicts with main"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_conflicts_nonum": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR hat Konflikte mit main"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The landing PR conflicts with main"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_landing": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR #%1$@ wird gemergt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merging landing PR #%1$@…"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts zu landen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to land"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_not_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR noch nicht merge-bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR is not merge-ready yet"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd bereitet den Landing-PR vor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd is preparing the landing PR"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles grün – du kannst das Epic landen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All green — you can land the epic"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_repairing_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent repariert den Landing-PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent is repairing the landing PR"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_repairing_conflicts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent löst die Konflikte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent is resolving the conflicts"
+          }
+        }
+      }
+    },
+    "integrated_epics_heading_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status des Landing-PR wird geprüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The landing PR status is being checked"
+          }
+        }
+      }
+    },
+    "integrated_epics_help_excluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Teilaufgabe, die ohne gemergten PR geschlossen wurde, steckt nicht im Landing-PR."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sub-task closed without a merged PR is not included in the landing PR."
+          }
+        }
+      }
+    },
+    "integrated_epics_help_excluded_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht enthalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not included"
+          }
+        }
+      }
+    },
+    "integrated_epics_help_landing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein einziger PR bringt den ganzen Integrationszweig nach main. Shepherd öffnet ihn selbst und hält ihn aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A single PR brings the entire integration branch into main. Shepherd opens it and keeps it up to date."
+          }
+        }
+      }
+    },
+    "integrated_epics_help_landing_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR"
+          }
+        }
+      }
+    },
+    "integrated_epics_help_remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet nur die Zeile aus. Landing-PR, Integrationszweig und Epic-Issue bleiben, wie sie sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides only this row. The landing PR, integration branch and epic issue stay as they are."
+          }
+        }
+      }
+    },
+    "integrated_epics_help_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier erscheint ein Epic, sobald alle Teilaufgaben erledigt sind. Ihre PRs hat Shepherd auf einem eigenen Integrationszweig gesammelt – in main ist davon noch nichts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An epic appears here once all its sub-tasks are done. Shepherd has collected their PRs on a dedicated integration branch. None of that work is in main yet."
+          }
+        }
+      }
+    },
+    "integrated_epics_help_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epics zum Landen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epics to land"
+          }
+        }
+      }
+    },
+    "integrated_epics_help_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ist der Landing-PR grün und konfliktfrei, klickst du „Epic landen“. Shepherd mergt ihn und schließt das Epic. Hakt es, steht auf der Karte, was zu tun ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the landing PR is green and conflict-free, click “Land epic”. Shepherd merges it and closes the epic. If something is blocking it, the card tells you what to do."
+          }
+        }
+      }
+    },
+    "integrated_epics_help_you_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Teil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your part"
+          }
+        }
+      }
+    },
+    "integrated_epics_how": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So funktioniert’s"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How it works"
+          }
+        }
+      }
+    },
+    "integrated_epics_identity": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPIC #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPIC #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_land": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic landen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Land epic"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ja, jetzt landen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes, land now"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_confirm_body": {
+      "comment": "%1$@ = count, %2$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das bringt %1$@ Teilaufgabe(n) nach main und schließt Epic #%2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This brings %1$@ sub-task(s) into main and closes epic #%2$@."
+          }
+        }
+      }
+    },
+    "integrated_epics_land_confirm_migration_warn": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Migration(en) erkannt — sie wurden nie ausgeführt; vor dem Landen prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ migration(s) detected — they were never run; verify before landing."
+          }
+        }
+      }
+    },
+    "integrated_epics_land_confirm_prompt": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR #%1$@ jetzt in main mergen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge landing PR #%1$@ into main now?"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_conflict_stranded": {
+      "comment": "%1$@ = ago",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikt seit %1$@ ungelöst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "conflict unresolved for %1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic konnte nicht gelandet werden — erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't land the epic — try again"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_in_progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gelandet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing…"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_no_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Landing angehalten: keine CI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-land held: no CI"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_not_ready_ci_failing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erst bei grüner CI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "green CI required"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_not_ready_computing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wartet auf Checks"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for checks"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_not_ready_conflicts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erst ohne Konflikte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "resolve conflicts first"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_not_ready_generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR ist noch nicht bereit zum Mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR is not ready to merge yet"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_not_ready_repairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparatur läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "repair in progress"
+          }
+        }
+      }
+    },
+    "integrated_epics_land_stranded": {
+      "comment": "%1$@ = ago",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet seit %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for %1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_landing_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR konnte nicht geöffnet werden — erneuter Versuch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the landing PR — retrying"
+          }
+        }
+      }
+    },
+    "integrated_epics_last_session": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzte Sitzung ansehen →"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View last session →"
+          }
+        }
+      }
+    },
+    "integrated_epics_next_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächster Schritt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next step"
+          }
+        }
+      }
+    },
+    "integrated_epics_open_issue": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Issue öffnen ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open epic issue ↗"
+          }
+        }
+      }
+    },
+    "integrated_epics_open_pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR öffnen ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open landing PR ↗"
+          }
+        }
+      }
+    },
+    "integrated_epics_open_session": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung öffnen →"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open session →"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_branch_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrationszweig unbekannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integration branch unknown"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_collected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Integrationszweig gesammelt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collected on the integration branch"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_counts": {
+      "comment": "%1$@ = included, %2$@ = excluded",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ mit PR · %2$@ ohne PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ with PR · %2$@ without PR"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weg nach main"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path to main"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_landed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In main gelandet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landed in main"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_landing": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR #%1$@ → main"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR #%1$@ → main"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_landing_nonum": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR → main"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR → main"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_pr_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ PR(s)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ PR(s)"
+          }
+        }
+      }
+    },
+    "integrated_epics_path_tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilaufgaben erledigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sub-tasks completed"
+          }
+        }
+      }
+    },
+    "integrated_epics_pr_ref": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_pr_ref_nonum": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR"
+          }
+        }
+      }
+    },
+    "integrated_epics_rebase_paused_cap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Rebase nach mehreren Versuchen fehlgeschlagen — du bist dran"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't auto-rebase after repeated tries — over to you"
+          }
+        }
+      }
+    },
+    "integrated_epics_rebase_paused_conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR hat einen echten Konflikt — du bist dran"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR has a real conflict — over to you"
+          }
+        }
+      }
+    },
+    "integrated_epics_rebase_paused_driver": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Treiber auf dem Server nicht verfügbar — du bist dran"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge driver unavailable on the server — over to you"
+          }
+        }
+      }
+    },
+    "integrated_epics_repair_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI-Fehler beheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix CI failures"
+          }
+        }
+      }
+    },
+    "integrated_epics_repair_ci_again": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nochmal versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again"
+          }
+        }
+      }
+    },
+    "integrated_epics_repair_ci_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparatur-Agent konnte nicht gestartet werden – erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the repair agent – try again"
+          }
+        }
+      }
+    },
+    "integrated_epics_repair_ci_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "startet einen Agenten · Fix geht in den Integrationszweig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "starts an agent · fix goes to the integration branch"
+          }
+        }
+      }
+    },
+    "integrated_epics_resolve_conflicts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikte lösen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve conflicts"
+          }
+        }
+      }
+    },
+    "integrated_epics_resolve_conflicts_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfliktlösungs-Agent konnte nicht gestartet werden — erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the conflict-resolution agent — try again"
+          }
+        }
+      }
+    },
+    "integrated_epics_short_checking": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks laufen am Landing-PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks running on landing PR #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_short_ci_failed": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI rot am Landing-PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI red on landing PR #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_short_conflicts": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikt im Landing-PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflict in landing PR #%1$@"
+          }
+        }
+      }
+    },
+    "integrated_epics_short_landing": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR #%1$@ wird gemergt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merging landing PR #%1$@…"
+          }
+        }
+      }
+    },
+    "integrated_epics_short_preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR wird vorbereitet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR is being prepared"
+          }
+        }
+      }
+    },
+    "integrated_epics_short_ready": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing-PR #%1$@ ist grün"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landing PR #%1$@ is green"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks laufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks running"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_ci_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI failed"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_ci_retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd versucht es"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd retrying"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_conflicts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konflikte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicts"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening failed"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_landing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gemergt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merging…"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_merged": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemergt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merged"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein offener Landing-PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No open landing PR"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_not_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht merge-bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not merge-ready yet"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase pausiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase paused"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird vorbereitet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-ready"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_repairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparatur läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair in progress"
+          }
+        }
+      }
+    },
+    "integrated_epics_status_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status wird geprüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking status"
+          }
+        }
+      }
+    },
+    "integrated_epics_turn_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERLEDIGT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DONE"
+          }
+        }
+      }
+    },
+    "integrated_epics_turn_nothing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NICHTS ZU TUN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOTHING TO DO"
+          }
+        }
+      }
+    },
+    "integrated_epics_turn_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BEREIT ZUM LANDEN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "READY TO LAND"
+          }
+        }
+      }
+    },
+    "integrated_epics_turn_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DU BIST DRAN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YOUR TURN"
+          }
+        }
+      }
+    },
+    "integrated_epics_view_checks": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks ansehen ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View checks ↗"
+          }
+        }
+      }
+    },
+    "integrated_epics_waiting_on_you": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ warten auf dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ waiting on you"
           }
         }
       }
@@ -12652,6 +14875,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "PR"
+          }
+        }
+      }
+    },
+    "native_epics_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Epics zum Landen konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load the epics to land."
+          }
+        }
+      }
+    },
+    "native_epics_waiting_on_you_one": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 wartet auf dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 waiting on you"
           }
         }
       }

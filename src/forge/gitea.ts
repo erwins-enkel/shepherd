@@ -158,6 +158,11 @@ export class GiteaForge implements GitForge {
     });
   }
 
+  async listClaimedIssues(): Promise<Issue[]> {
+    // PR reference evidence is unavailable on this host; diagnosis remains read-only/unknown.
+    return (await this.listIssues()).filter((issue) => issue.labels.includes("shepherd:active"));
+  }
+
   async getIssue(issueNumber: number): Promise<Issue | null> {
     // Fresh, uncached single-issue read for the drain's pre-spawn claim re-check
     // (see GitForge.getIssue). Best-effort: a gone/closed issue or a transient error

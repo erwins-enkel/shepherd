@@ -889,6 +889,13 @@ export interface AppDeps {
   /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
   drain?: {
     snapshot(): Promise<DrainStatus[]>;
+    resolveClaim?(
+      repoPath: string,
+      number: number,
+      action: "release" | "close",
+    ): Promise<
+      { ok: true } | { ok: false; error: "changed" | "unverified" | "unsupported" | "failed" }
+    >;
     queue(repoPath: string): Promise<QueuedItem[]>;
     /** One-shot: keep ACTIVE_LABEL on the next `session:archived` for this id (a
      *  relaunch is not a retire — the actively-worked issue stays claimed). */
@@ -2432,6 +2439,42 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
     })().catch((err) => console.warn("[up-next] post-start:", err));
   }
   return json({ created, held, errors }, created.length > 0 ? 201 : held.length > 0 ? 200 : 502);
+}
+
+async function handleDrainClaimResolve({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "drain" &&
+    parts[2] === "claims" &&
+    parts[3] === "resolve" &&
+    !parts[4]
+  ))
+    return null;
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  const dir =
+    typeof body.repoPath === "string" ? safeRepoDir(body.repoPath, config.repoRoot) : null;
+  if (
+    !dir ||
+    !Number.isSafeInteger(body.issueNumber) ||
+    (body.issueNumber as number) <= 0 ||
+    !["release", "close"].includes(body.action as string) ||
+    body.confirmUnknownOwnership !== true
+  )
+    return json({ error: "invalid claim resolution or missing ownership confirmation" }, 400);
+  if (!deps.drain?.resolveClaim) return json({ error: "drain unavailable" }, 503);
+  const result = await deps.drain.resolveClaim(
+    dir,
+    body.issueNumber as number,
+    body.action as "release" | "close",
+  );
+  if (!result.ok)
+    return json(
+      { error: result.error },
+      result.error === "changed" ? 409 : result.error === "unsupported" ? 501 : 502,
+    );
+  return json(result);
 }
 
 async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -11709,6 +11752,7 @@ const ROUTE_HANDLERS = [
   handleRecaps,
   handleAmendments,
   handleUpNext,
+  handleDrainClaimResolve,
   handleDrain,
   handleAutoMerge,
   handleEpicsList,

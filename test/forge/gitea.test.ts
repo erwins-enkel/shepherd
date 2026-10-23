@@ -1336,3 +1336,27 @@ test("GiteaForge.listDefaultBranchRuns: page cap drops the possibly-partial olde
   expect(runs.map((r) => r.id)).toEqual([100, 99, 98, 97, 96, 95, 94, 93, 92]);
   expect(calls.filter((c) => c.url.includes("/actions/tasks"))).toHaveLength(10);
 });
+
+test("GiteaForge.listClaimedIssues discovers claims even without PR reference capability", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
+      json: [
+        {
+          number: 133,
+          title: "claimed",
+          html_url: "https://git.example.com/team/proj/issues/133",
+          labels: [{ name: "shepherd:active" }],
+        },
+        {
+          number: 134,
+          title: "free",
+          html_url: "https://git.example.com/team/proj/issues/134",
+          labels: [],
+        },
+      ],
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect((await forge.listClaimedIssues()).map((i) => i.number)).toEqual([133]);
+  expect((forge as GitForge).issuePullRequestReferences).toBeUndefined();
+});

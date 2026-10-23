@@ -1,3 +1,4 @@
+import { classifyClaim, type ClaimDiagnostic } from "./drain-claims";
 import type { CapacityCheck } from "./codex-capacity";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EpicStructure, GitForge, GitState, Issue, PrStatus } from "./forge/types";
@@ -288,6 +289,8 @@ export interface DrainStatus {
   /** Read-only run picture (leading / winding-down epics, slot holders, next). Optional on the
    *  wire; the drain always sets it. */
   runSummary?: RunSummary;
+  claimDiagnostics?: ClaimDiagnostic[];
+  claimDiagnosticsFailed?: boolean;
 }
 
 /** True while the repo's epic run is running with the usage ceiling lifted. A paused or idle row
@@ -359,6 +362,9 @@ export interface DrainDeps {
     SessionStore,
     | "get"
     | "list"
+    | "getSetting"
+    | "setSetting"
+    | "deleteSetting"
     | "getRepoConfig"
     | "getRepoBootstrap"
     | "getReview"
@@ -1067,8 +1073,204 @@ export class DrainService {
     return Math.max(0, credits.spent - b.spent);
   }
 
+  private claimReads = new Map<
+    string,
+    { at: number; pending: boolean; value: Promise<ClaimDiagnostic[]> }
+  >();
+  private claimListingFailed = new Set<string>();
+  private resolvingClaims = new Set<string>();
+
+  private releaseKey(repoPath: string, number: number): string {
+    return `drain:released:${JSON.stringify([repoPath, number])}`;
+  }
+
+  /** An archived attempt whose claim the operator explicitly released (resolveClaim). Excluded
+   *  from {@link mappedIssues}: the release already verified no open PR, so it must not wait out
+   *  the archived grace or stay mapped fail-closed when open PRs are unknown (fork/capped). */
+  private releasedArchive(s: Session): boolean {
+    if (s.status !== "archived" || s.issueNumber == null) return false;
+    const ids: string[] = JSON.parse(
+      this.deps.store.getSetting(this.releaseKey(s.repoPath, s.issueNumber)) ?? "[]",
+    );
+    return ids.includes(s.id);
+  }
+
+  /** Claim scans share a five-minute cache (including failures) across status consumers. */
+  async claimDiagnostics(repoPath: string): Promise<ClaimDiagnostic[]> {
+    const hit = this.claimReads.get(repoPath);
+    const run = this.deps.store.getEpicRun(repoPath);
+    const managed =
+      this.deps.store.getRepoConfig(repoPath).autoDrainEnabled ||
+      run?.status === "running" ||
+      run?.status === "paused";
+    // Disabled repos retain known diagnostics without starting any forge reads.
+    if (!managed) return this.withoutLiveClaims(repoPath, (await hit?.value) ?? []);
+    if (hit && (hit.pending || this.now() - hit.at < 5 * 60_000))
+      return this.withoutLiveClaims(repoPath, await hit.value);
+    const forge = this.deps.resolveForge(repoPath);
+    // Unsupported hosts can explain already-known claims, but diagnostics must not add
+    // a backlog dependency to native epic runs or start reads for a disabled drain.
+    if (!forge?.issuePullRequestReferences && !forge?.listClaimedIssues) {
+      const rows = (this.issuesCache.get(repoPath)?.issues ?? []).flatMap((issue) => {
+        const row = classifyClaim(issue, false, null);
+        return row ? [row] : [];
+      });
+      return this.withoutLiveClaims(repoPath, rows);
+    }
+    const entry = { at: this.now(), pending: true, value: Promise.resolve<ClaimDiagnostic[]>([]) };
+    entry.value = this.readClaimDiagnostics(repoPath, forge, hit?.value).finally(() => {
+      entry.pending = false;
+      entry.at = this.now();
+    });
+    this.claimReads.set(repoPath, entry);
+    return this.withoutLiveClaims(repoPath, await entry.value);
+  }
+
+  private withoutLiveClaims(repoPath: string, rows: ClaimDiagnostic[]): ClaimDiagnostic[] {
+    if (rows.length === 0) return rows;
+    const live = new Set(
+      this.deps.store
+        .list()
+        .filter((s) => s.repoPath === repoPath && s.status !== "archived")
+        .map((s) => s.issueNumber),
+    );
+    return rows.filter((c) => !live.has(c.number));
+  }
+
+  private async readClaimDiagnostics(
+    repoPath: string,
+    forge: GitForge | null,
+    previous?: Promise<ClaimDiagnostic[]>,
+  ): Promise<ClaimDiagnostic[]> {
+    let issues: Issue[];
+    try {
+      issues = forge?.listClaimedIssues
+        ? await forge.listClaimedIssues()
+        : await this.listIssues(repoPath);
+      if (!forge?.listClaimedIssues && this.issueListingFailed(repoPath))
+        throw new Error("issue listing failed");
+      this.claimListingFailed.delete(repoPath);
+    } catch {
+      this.claimListingFailed.add(repoPath);
+      return ((await previous) ?? []).map((row) => ({
+        ...row,
+        evidence: "unknown",
+        mergedPrs: [],
+      }));
+    }
+    const live = new Set(
+      this.deps.store
+        .list()
+        .filter((s) => s.repoPath === repoPath && s.status !== "archived")
+        .map((s) => s.issueNumber),
+    );
+    const rows: ClaimDiagnostic[] = [];
+    // Serial to bound GraphQL pressure to one active claim read per repo.
+    for (const issue of issues) {
+      if (!issue.labels.includes(ACTIVE_LABEL) || live.has(issue.number)) continue;
+      const refs =
+        (await forge?.issuePullRequestReferences?.(issue.number).catch(() => null)) ?? null;
+      const nowLive = this.deps.store
+        .list()
+        .some(
+          (s) =>
+            s.repoPath === repoPath && s.issueNumber === issue.number && s.status !== "archived",
+        );
+      const row = classifyClaim(issue, nowLive, refs);
+      if (row) rows.push(row);
+    }
+    return rows;
+  }
+
+  async resolveClaim(
+    repoPath: string,
+    number: number,
+    action: "release" | "close",
+  ): Promise<
+    { ok: true } | { ok: false; error: "changed" | "unverified" | "unsupported" | "failed" }
+  > {
+    const key = this.releaseKey(repoPath, number);
+    if (this.resolvingClaims.has(key)) return { ok: false, error: "changed" };
+    this.resolvingClaims.add(key);
+    try {
+      const forge = this.deps.resolveForge(repoPath);
+      if (
+        !forge?.getIssue ||
+        !forge.issuePullRequestReferences ||
+        (action === "release" ? !forge.removeIssueLabel : !forge.closeIssue)
+      )
+        return { ok: false, error: "unsupported" };
+      const refs = await forge.issuePullRequestReferences(number);
+      // Read issue and local sessions AFTER the asynchronous evidence read, not from the displayed snapshot.
+      const issue = await forge.getIssue(number);
+      if (!issue || refs === null) return { ok: false, error: "unverified" };
+      if (
+        this.deps.store
+          .list()
+          .some(
+            (s) => s.repoPath === repoPath && s.issueNumber === number && s.status !== "archived",
+          ) ||
+        refs.some((p) => p.state === "open")
+      )
+        return { ok: false, error: "changed" };
+      const stateResult = this.claimStateResult(issue, action, key);
+      if (stateResult) return stateResult;
+      if (action === "close") {
+        if (!refs.some((p) => p.state === "merged")) return { ok: false, error: "changed" };
+        await forge.closeIssue!(number);
+      } else {
+        await this.releaseArchivedClaim(repoPath, number, key, forge);
+      }
+      this.claimReads.delete(repoPath);
+      this.issuesCache.delete(repoPath);
+      await this.refreshRunPicture(repoPath);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "failed" };
+    } finally {
+      this.resolvingClaims.delete(key);
+    }
+  }
+
+  private claimStateResult(issue: Issue, action: "release" | "close", key: string) {
+    if (issue.state === "closed" && action === "close") return { ok: true as const };
+    if (issue.state !== "open") return { ok: false as const, error: "unverified" as const };
+    if (!issue.labels.includes(ACTIVE_LABEL)) {
+      return action === "release" && this.deps.store.getSetting(key) !== null
+        ? { ok: true as const }
+        : { ok: false as const, error: "changed" as const };
+    }
+    return null;
+  }
+
+  private async releaseArchivedClaim(
+    repoPath: string,
+    number: number,
+    key: string,
+    forge: GitForge,
+  ): Promise<void> {
+    const ids = this.deps.store
+      .list()
+      .filter((s) => s.repoPath === repoPath && s.issueNumber === number && s.status === "archived")
+      .map((s) => s.id);
+    const previous = this.deps.store.getSetting(key);
+    // Persist before removing the remote label so a crash cannot strand local dedup.
+    this.deps.store.setSetting(key, JSON.stringify(ids));
+    try {
+      await forge.removeIssueLabel!(number, ACTIVE_LABEL);
+    } catch (error) {
+      if (previous === null) this.deps.store.deleteSetting(key);
+      else this.deps.store.setSetting(key, previous);
+      throw error;
+    }
+  }
+
   private async buildState(repoPath: string): Promise<{
-    state: DrainRepoState & { epicParent: number | null; runSummary: RunSummary };
+    state: DrainRepoState & {
+      epicParent: number | null;
+      runSummary: RunSummary;
+      claimDiagnostics?: ClaimDiagnostic[];
+    };
     epic: Epic | null;
   }> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
@@ -1159,13 +1361,17 @@ export class DrainService {
     // summaryCandidates ⊇ candidates: one check covers the decision and runSummary.next.
     const mappedIssueNumbers = await this.mappedIssues(
       repoPath,
-      [...allRepoSessions, ...routedHomeViews(allSessions, repoPath)],
+      [
+        ...allRepoSessions.filter((s) => !this.releasedArchive(s)),
+        ...routedHomeViews(allSessions, repoPath),
+      ],
       summaryCandidates,
     );
     // enabled reflects whether spawning (and retiring) is active — see drainEnabled.
     const enabled = drainEnabled(epicRun, cfg.autoDrainEnabled);
     const stall = this.epicStall(repoPath, epicActive, epicRun, builtEpic, epicParent);
 
+    const claimDiagnostics = await this.claimDiagnostics(repoPath);
     return {
       state: {
         enabled,
@@ -1184,6 +1390,7 @@ export class DrainService {
         creditSpendCeiling: config.extraCreditsDrainCeiling,
         autoSessions,
         mappedIssueNumbers,
+        claimDiagnostics,
         candidates,
         spawnAgentProvider,
         epicAttended,
@@ -1963,7 +2170,11 @@ export class DrainService {
 
   private toStatus(
     repoPath: string,
-    state: DrainRepoState & { epicParent: number | null; runSummary: RunSummary },
+    state: DrainRepoState & {
+      epicParent: number | null;
+      runSummary: RunSummary;
+      claimDiagnostics?: ClaimDiagnostic[];
+    },
     decision: DrainDecision,
   ): DrainStatus {
     const hold = decision.kind === "hold" ? decision.reason : null;
@@ -1993,7 +2204,16 @@ export class DrainService {
       repoPath,
       enabled: state.enabled,
       paused,
-      reason: hold?.code ?? null,
+      reason:
+        hold?.code === "empty" && state.epicParent == null && this.claimListingFailed.has(repoPath)
+          ? "claim_check_failed"
+          : hold?.code === "empty" &&
+              state.epicParent == null &&
+              state.claimDiagnostics?.some((c) => c.evidence === "complete")
+            ? "orphaned_claims"
+            : (hold?.code ?? null),
+      claimDiagnostics: state.claimDiagnostics ?? [],
+      claimDiagnosticsFailed: this.claimListingFailed.has(repoPath),
       detail: hold?.detail ?? null,
       queued,
       inFlight: slotHolders(state.autoSessions).length,
@@ -5321,7 +5541,7 @@ export class DrainService {
 
   /** Client bootstrap: a status per drain-enabled, epic-active or winding-down repo, WITHOUT
    *  applying side effects (no spawn/retire). A repo with the drain off and no active epic is
-   *  skipped unless an epic child is still in flight there (a superseded epic winding down). */
+   *  included when claim diagnostics or a winding-down epic needs operator attention. */
   async snapshot(): Promise<DrainStatus[]> {
     const out: DrainStatus[] = [];
     const epicChildRepos = this.reposWithEpicChildInFlight();
@@ -5331,7 +5551,9 @@ export class DrainService {
       if (
         !cfg.autoDrainEnabled &&
         !(er?.status === "running" || er?.status === "paused") &&
-        !epicChildRepos.has(repoPath)
+        !epicChildRepos.has(repoPath) &&
+        !(await this.claimDiagnostics(repoPath)).length &&
+        !this.claimListingFailed.has(repoPath)
       )
         continue;
       const { state } = await this.buildState(repoPath);
@@ -5355,7 +5577,7 @@ export class DrainService {
   /** The actual backlog issues behind {@link DrainStatus.queued}: the not-yet-
    *  mapped candidates, in drain order (priority-first per selectCandidates).
    *  No side effects. Empty for drain-disabled repos (buildState yields no
-   *  candidates there — and the forge is never hit). */
+   *  candidates there; claim diagnosis can still read the forge). */
   async queue(repoPath: string): Promise<QueuedItem[]> {
     const { state } = await this.buildState(repoPath);
     return state.candidates

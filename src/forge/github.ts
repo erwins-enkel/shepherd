@@ -70,6 +70,7 @@ import type {
   GitForge,
   Issue,
   IssueComment,
+  IssuePullRequestReference,
   LinkedPr,
   MergeInput,
   MergeMethod,
@@ -93,6 +94,49 @@ import type {
   WorkflowJob,
   WorkflowRun,
 } from "./types";
+
+type ClaimReferenceSubject = { __typename: string; number?: number; url?: string; state?: string };
+type ClaimReferenceTimeline = {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  nodes: ({
+    __typename?: string;
+    source: ClaimReferenceSubject | null;
+    subject?: ClaimReferenceSubject | null;
+  } | null)[];
+};
+
+function collectClaimReferences(
+  timeline: ClaimReferenceTimeline,
+  references: Map<string, IssuePullRequestReference>,
+): boolean {
+  for (const event of timeline.nodes) {
+    if (
+      !event?.source ||
+      !["Issue", "PullRequest"].includes(event.source.__typename) ||
+      (event.__typename === "ConnectedEvent" && !event.subject)
+    )
+      return false;
+    if (!collectClaimPullRequests([event.source, event.subject], references)) return false;
+  }
+  return true;
+}
+
+function collectClaimPullRequests(
+  subjects: (ClaimReferenceSubject | null | undefined)[],
+  references: Map<string, IssuePullRequestReference>,
+): boolean {
+  for (const pr of subjects) {
+    if (!pr || pr.__typename !== "PullRequest") continue;
+    if (!pr.number || !pr.url || !["OPEN", "MERGED", "CLOSED"].includes(pr.state ?? ""))
+      return false;
+    references.set(pr.url, {
+      number: pr.number,
+      url: pr.url,
+      state: pr.state!.toLowerCase() as IssuePullRequestReference["state"],
+    });
+  }
+  return true;
+}
 
 /** Poll cadence for GitHub's async merge API (#2059). Bounded by ATTEMPTS rather than wall
  *  clock so an injected no-op sleeper makes the budget-exhaustion path testable instantly.
@@ -3950,6 +3994,67 @@ export class GithubForge implements GitForge {
     if (response?.errors?.length || !Number.isSafeInteger(count) || count! < 0)
       throw new Error("open PR links could not be verified");
     return count! > 0;
+  }
+
+  async listClaimedIssues(): Promise<Issue[]> {
+    const issues: Issue[] = [];
+    for (let page = 1; ; page++) {
+      const rows = JSON.parse(
+        await this.run(
+          this.restGetArgs(`repos/${this.slug}/issues`, [
+            "state=open",
+            "labels=shepherd:active",
+            "per_page=100",
+            `page=${page}`,
+          ]),
+        ),
+      ) as RestIssue[];
+      for (const row of rows) if (!row.pull_request) issues.push(this.mapRestIssue(row));
+      if (rows.length < 100) return issues;
+    }
+  }
+
+  async issuePullRequestReferences(
+    issueNumber: number,
+  ): Promise<IssuePullRequestReference[] | null> {
+    if (graphRateLimit.blocked()) return null;
+    const [owner, name] = this.slug.split("/");
+    const fields = "__typename ... on PullRequest {number url state}";
+    const query = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){timelineItems(first:100,after:$cursor,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT]){pageInfo{hasNextPage endCursor}nodes{__typename ... on CrossReferencedEvent{source{${fields}}} ... on ConnectedEvent{source{${fields}} subject{${fields}}}}}}}`;
+    const references = new Map<string, IssuePullRequestReference>();
+    let cursor: string | null = null;
+    try {
+      for (let page = 0; page < 10; page++) {
+        const args = [
+          "api",
+          "graphql",
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-F",
+          `number=${issueNumber}`,
+          "-f",
+          `query=${withRateLimit(query)}`,
+        ];
+        if (cursor !== null) args.push("-f", `cursor=${cursor}`);
+        const result = JSON.parse(await this.run(args)) as {
+          errors?: unknown[];
+          data?: { repository?: { issue?: { timelineItems?: ClaimReferenceTimeline } } };
+        };
+        const timeline = result.data?.repository?.issue?.timelineItems;
+        if (result.errors?.length || !timeline?.pageInfo || !Array.isArray(timeline.nodes))
+          return null;
+        if (!collectClaimReferences(timeline, references)) return null;
+        if (timeline.pageInfo.hasNextPage === false) return [...references.values()];
+        const next = timeline.pageInfo.endCursor;
+        if (!next || next === cursor) return null;
+        cursor = next;
+      }
+    } catch {
+      return null;
+    }
+    return null; // Bounded work; exhausting the page budget is not proof of absence.
   }
 
   /** Numbers-only view of {@link listOpenPrLinkedIssues} for Up Next (#1169), which only needs

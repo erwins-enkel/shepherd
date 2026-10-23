@@ -306,3 +306,36 @@ test("GET /api/drain/queue returns [] when deps.drain is absent", async () => {
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual([]);
 });
+
+test("claim resolution validates confirmation and returns fresh-check conflicts", async () => {
+  const calls: unknown[] = [];
+  const { app } = harness({
+    snapshot: async () => [],
+    queue: async () => [],
+    resolveClaim: async (...args) => {
+      calls.push(args);
+      return { ok: false, error: "changed" };
+    },
+  });
+  async function resolve(body: unknown) {
+    return app.fetch(
+      new Request("http://x/api/drain/claims/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+  const body = {
+    repoPath: repoDir,
+    issueNumber: 133,
+    action: "release",
+    confirmUnknownOwnership: true,
+  };
+  expect((await resolve({ ...body, confirmUnknownOwnership: false })).status).toBe(400);
+  expect((await resolve({ ...body, issueNumber: -1 })).status).toBe(400);
+  expect((await resolve({ ...body, repoPath: "/etc" })).status).toBe(400);
+  expect(calls).toEqual([]);
+  expect((await resolve(body)).status).toBe(409);
+  expect(calls).toEqual([[repoDir, 133, "release"]]);
+});

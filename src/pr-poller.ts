@@ -1,3 +1,4 @@
+import { isEpicChild } from "./epic-branch";
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
@@ -237,6 +238,7 @@ export class PrPoller implements PrCache {
   private timer: ReturnType<typeof setInterval> | null = null;
   private fastTimer: ReturnType<typeof setInterval> | null = null;
   private cache = new Map<string, GitState>();
+  private issueLinks = new Map<string, string>();
   private debounce = new Map<string, ReturnType<typeof setTimeout>>();
   private inFlight = new Set<string>();
   /** Serializes every forge poll so at most one blocking `gh` runs at a time
@@ -492,6 +494,7 @@ export class PrPoller implements PrCache {
     const key = this.repoFreshness?.(s.repoPath);
     return (
       !prev ||
+      this.needsIssueLink(s, prev) ||
       key == null ||
       this.freshnessBySession.get(s.id) !== key ||
       s.mergingSince != null ||
@@ -718,6 +721,29 @@ export class PrPoller implements PrCache {
     return guardStaleTerminal(git, (headSha) => this.ownsPr(s, headSha));
   }
 
+  private needsIssueLink(s: Session, git: GitState): boolean {
+    return (
+      s.issueNumber != null &&
+      !isEpicChild(s) &&
+      git.state === "open" &&
+      git.number != null &&
+      !!this.resolveForge(s.repoPath)?.ensureIssueLink &&
+      this.issueLinks.get(s.id) !== `${git.number}:${s.issueNumber}`
+    );
+  }
+
+  private async linkIssue(s: Session, git: GitState, forge: GitForge): Promise<boolean> {
+    if (!this.needsIssueLink(s, git)) return true;
+    try {
+      await forge.ensureIssueLink!(git.number!, s.issueNumber!);
+      this.issueLinks.set(s.id, `${git.number}:${s.issueNumber}`);
+      return true;
+    } catch {
+      console.warn(`[pr-poller] ensureIssueLink failed for ${s.id}; retrying next poll`);
+      return false;
+    }
+  }
+
   /** Poll one session and emit `session:git` if its PR state moved. Shared by
    *  the full sweep (which passes the prefetched per-repo `batch`) and the
    *  targeted `pollSession`/`fastTick` paths (no batch → per-session). The
@@ -742,27 +768,11 @@ export class PrPoller implements PrCache {
         ? batch
         : null;
     const prefetched = fresh && fresh.revision === provenance.revision ? fresh.status : undefined;
-    const marked = s.mergingSince != null;
-    const markedNumber = s.mergingPrNumber ?? null;
-    const guard = (raw: GitState): GitState =>
-      trustsTerminal(prev, raw, marked, markedNumber, s.createdAt)
-        ? raw
-        : this.rejectStaleTerminal(s, raw);
-
-    const raw = currentBatch
-      ? await this.statusFromBatch(
-          s,
-          forge,
-          currentBatch.statuses,
-          prev,
-          marked,
-          recheckNone,
-          guard,
-          prefetched,
-        )
-      : await this.statusPerSession(s, forge, guard, prefetched);
+    const raw = await this.rawStatus(s, forge, prev, currentBatch, recheckNone, prefetched);
     if (raw === null) return; // transient gh failure → keep last cached value
     if (provenance.revision !== this.readProvenance(forge).revision) return;
+
+    const linked = await this.linkIssue(s, raw, forge);
 
     // Learn how long each green job usually takes on this repo, then stamp that on every job so
     // the status panel can tell "still within the usual time" from "unusually long".
@@ -781,7 +791,37 @@ export class PrPoller implements PrCache {
     if (gitStateChanged(prev, git) && this.set(s.id, git)) {
       this.onChange(s.id, git);
     }
-    this.rememberSessionRead(s, forge, fpKey, provenance, currentBatch?.at);
+    if (linked) this.rememberSessionRead(s, forge, fpKey, provenance, currentBatch?.at);
+  }
+
+  /** Raw status for {@link refresh}: from the current batch when one applies, else per session,
+   *  with stale terminal reads guarded. null = transient `gh` failure. */
+  private async rawStatus(
+    s: Session,
+    forge: GitForge,
+    prev: GitState | undefined,
+    currentBatch: PrBatch | null,
+    recheckNone: boolean,
+    prefetched: PrStatus | undefined,
+  ): Promise<GitState | null> {
+    const marked = s.mergingSince != null;
+    const markedNumber = s.mergingPrNumber ?? null;
+    const guard = (raw: GitState): GitState =>
+      trustsTerminal(prev, raw, marked, markedNumber, s.createdAt)
+        ? raw
+        : this.rejectStaleTerminal(s, raw);
+    return currentBatch
+      ? this.statusFromBatch(
+          s,
+          forge,
+          currentBatch.statuses,
+          prev,
+          marked,
+          recheckNone,
+          guard,
+          prefetched,
+        )
+      : this.statusPerSession(s, forge, guard, prefetched);
   }
 
   /** `pre`, unless a poll of `id` started at or after it — a turn-end pollSession queued on
@@ -1015,6 +1055,7 @@ export class PrPoller implements PrCache {
     this.forgetFreshness(id);
     if (!this.store.putSessionGitCache(id, git)) {
       this.cache.delete(id);
+      this.issueLinks.delete(id);
       this.transientSince.delete(id);
       this.persistTransient(id);
       return false;
@@ -1028,6 +1069,7 @@ export class PrPoller implements PrCache {
     this.lastPolledAt.delete(id);
     this.store.deleteSessionGitCache(id);
     this.cache.delete(id);
+    this.issueLinks.delete(id);
     this.transientSince.delete(id);
     this.persistTransient(id);
   }

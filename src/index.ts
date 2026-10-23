@@ -4137,6 +4137,7 @@ const appDeps: AppDeps = {
   drain: {
     snapshot: () => drain.snapshot(),
     queue: (repoPath) => drain.queue(repoPath),
+    resolveClaim: (repoPath, number, action) => drain.resolveClaim(repoPath, number, action),
     retainClaim: (id) => drain.retainClaim(id),
     buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
     issueListingFailed: (repoPath) => drain.issueListingFailed(repoPath),

@@ -1288,6 +1288,15 @@ export interface DraftReconcileStatus {
   detail: string | null;
 }
 
+export interface ClaimDiagnostic {
+  number: number;
+  title: string;
+  url: string;
+  ownership: "unknown";
+  evidence: "complete" | "unknown";
+  mergedPrs: { number: number; url: string; state: "open" | "merged" | "closed" }[];
+}
+
 export interface DrainStatus {
   repoPath: string;
   enabled: boolean;
@@ -1304,6 +1313,8 @@ export interface DrainStatus {
   usageCeilingIgnored?: boolean;
   /** Read-only run picture; optional on the wire (src/drain-core.ts → RunSummary). */
   runSummary?: DrainRunSummary;
+  claimDiagnostics?: ClaimDiagnostic[];
+  claimDiagnosticsFailed?: boolean;
 }
 
 /** A live drain session in the run summary — a slot holder or a landing repair. */

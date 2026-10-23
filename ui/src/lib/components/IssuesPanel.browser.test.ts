@@ -930,6 +930,37 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
         window.removeEventListener("keydown", onWindowKey);
       }
     });
+    it("Esc after picking an epic from the overview returns there (focus moves to the list)", async () => {
+      const onclose = vi.fn();
+      seed([plain(1, { title: "Epic parent" }), plain(2)], [summary(1)]);
+      mockEpic.mockResolvedValue({
+        repoPath: "/repo",
+        parentIssueNumber: 1,
+        parentTitle: "Epic 1",
+        source: "native",
+        children: [childOf(9)],
+        warnings: [],
+        run: { repoPath: "/repo", parentIssueNumber: 1, mode: "auto", status: "idle" },
+      });
+      const { container } = await render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      const trap = dialog(container.firstElementChild as HTMLElement, { onclose });
+      try {
+        const row = () =>
+          document.querySelector<HTMLElement>(".detail-col .overview [data-epic-row]");
+        await expect.poll(() => row()).not.toBeNull();
+        await page.elementLocator(row()!).click();
+        await expect.poll(() => option("e:1")?.getAttribute("aria-selected")).toBe("true");
+        // The clicked overview button unmounted; focus must not have fallen to <body>.
+        await expect
+          .poll(() => document.activeElement?.classList.contains("issue-options"))
+          .toBe(true);
+        await userKey("Escape");
+        await expect.poll(() => document.querySelector(".detail-col .overview")).not.toBeNull();
+        expect(onclose).not.toHaveBeenCalled();
+      } finally {
+        trap.destroy();
+      }
+    });
   });
 
   it("the task box starts a task with the changed run settings and keeps quick steers", async () => {

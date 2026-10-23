@@ -593,18 +593,24 @@
     const key = childKey(parent, child);
     expandEpicRow(parent);
     select(key);
-    tick().then(() =>
-      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
-    );
+    revealRow(key);
   }
 
   /** Select an entry from the detail — an epic child's "← Epic #n" or a repo-overview entry
    *  (#2622) — and bring its row into view. */
   function selectAndReveal(key: string) {
     select(key);
-    tick().then(() =>
-      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
-    );
+    revealRow(key);
+  }
+
+  /** Scroll the selected row into view and, on desktop, hand keyboard focus to the list: the
+   *  clicked control in the detail unmounts on the swap, which would drop focus to <body> —
+   *  out of reach of the panel's Esc (and ↑/↓). */
+  function revealRow(key: string) {
+    tick().then(() => {
+      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" });
+      if (!mobile) listEl?.focus({ preventScroll: true });
+    });
   }
 
   /** "Start as a task anyway" on an epic child: the New Task dialog, carrying the child's open

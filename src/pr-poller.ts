@@ -4,6 +4,7 @@ import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
+import { withGhCaller } from "./forge/gh-caller";
 
 type PrPollerStore = Pick<
   SessionStore,
@@ -16,6 +17,9 @@ type PrPollerStore = Pick<
   | "typicalCiJobDurations"
 >;
 
+/** Caller label (#2743) of the targeted polls — turn end, autopilot's re-check. */
+const SESSION_CALLER = "pr-poller:session";
+
 /** A base's merge queue: its PR numbers, null = no queue, "unknown" = the read failed. */
 type QueueRead = number[] | null | "unknown";
 /** How long one (repo, base) merge-queue read is reused across polls. */
@@ -27,6 +31,13 @@ interface ReadProvenance {
 }
 interface PrBatch extends ReadProvenance {
   statuses: Map<string, PrStatus>;
+  at: number;
+}
+/** A head status read ahead of the per-session loop, with the repo's cache revision and the
+ *  clock when the read started. */
+interface Prefetched {
+  status: PrStatus;
+  revision: number | undefined;
   at: number;
 }
 interface TransientWindow {
@@ -245,6 +256,8 @@ export class PrPoller implements PrCache {
   /** Per (repo, base) merge-queue read, cached for {@link MERGE_QUEUE_TTL_MS}. The promise is
    *  cached so the sessions of one sweep share a single forge read. */
   private readonly queueCache = new Map<string, { read: Promise<QueueRead>; at: number }>();
+  /** Epoch-ms of each session's last poll — gates {@link terminalPollMs}. */
+  private readonly lastPolledAt = new Map<string, number>();
 
   /** True when an open PR can still move without a human action — i.e. it is worth
    *  fast-polling. A PR that is fully settled (CI green, mergeable, clean) is parked. */
@@ -332,6 +345,9 @@ export class PrPoller implements PrCache {
     /** Current PR fingerprint content (plus own-write revision), or null without coverage. */
     private repoFreshness?: (repoPath: string) => string | null,
     private readCache?: GithubReadCache,
+    /** Background re-poll floor for a terminal session (merged/closed PR, or `done` with no PR)
+     *  (#2743). Fingerprint moves don't override it; turn-end polls and merge-train sessions do. */
+    private terminalPollMs = 600_000,
   ) {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
     this.hydrateTransientWindows();
@@ -434,11 +450,16 @@ export class PrPoller implements PrCache {
       const batches = graphqlLimited
         ? new Map<string, PrBatch | null>()
         : await this.buildBatches(due, !this.repoFreshness);
+      const pre = graphqlLimited
+        ? new Map<string, Prefetched>()
+        : await this.prefetchHeads(due, batches, recheckNone);
       const active = new Set<string>();
       for (const s of sessions) {
         active.add(s.id);
         if (!due.includes(s)) continue;
-        await this.withGh(() => this.refresh(s, this.batchFor(s, batches), recheckNone));
+        await this.withGh(() =>
+          this.refresh(s, this.batchFor(s, batches), recheckNone, pre.get(s.id)),
+        );
       }
       for (const id of [...this.cache.keys()]) {
         if (!active.has(id)) {
@@ -461,6 +482,7 @@ export class PrPoller implements PrCache {
 
   private shouldPoll(s: Session, recheckNone: boolean): boolean {
     const prev = this.cache.get(s.id);
+    if (this.terminalCapped(s, prev)) return false;
     if (
       this.readCache &&
       !this.readCache.canRefresh() &&
@@ -477,6 +499,60 @@ export class PrPoller implements PrCache {
       (prev.state === "none" && recheckNone) ||
       this.sessionReadStale(s)
     );
+  }
+
+  /** A terminal session polled less than {@link terminalPollMs} ago (#2743). */
+  private terminalCapped(s: Session, prev: GitState | undefined): boolean {
+    if (!prev || s.mergingSince != null) return false;
+    const terminal =
+      prev.state === "merged" ||
+      prev.state === "closed" ||
+      (prev.state === "none" && s.status === "done");
+    const last = this.lastPolledAt.get(s.id);
+    return terminal && last != null && this.now() - last < this.terminalPollMs;
+  }
+
+  /**
+   * Read ahead, in one batched query per 20 heads across repos (#2743), every stored head the
+   * per-session loop would otherwise look up one `prStatus` at a time: sessions without a usable
+   * batch, and batch misses that need confirming. Keyed by session id; a head the batch couldn't
+   * answer is absent, so `refresh` falls back to `prStatus` for it.
+   */
+  private async prefetchHeads(
+    sessions: Session[],
+    batches: Map<string, PrBatch | null>,
+    recheckNone: boolean,
+  ): Promise<Map<string, Prefetched>> {
+    const byRepo = new Map<string, { forge: GitForge; sessions: Session[] }>();
+    for (const s of sessions) {
+      const forge = s.branch ? this.resolveForge(s.repoPath) : null;
+      if (!forge?.prStatusMany || forge.slug == null) continue;
+      const batch = this.batchFor(s, batches);
+      if (batch?.statuses.has(s.branch!)) continue;
+      const prev = this.cache.get(s.id);
+      const needsConfirm =
+        s.mergingSince != null || prev == null || prev.state !== "none" || recheckNone;
+      if (batch && !needsConfirm) continue;
+      const e = byRepo.get(forge.slug) ?? { forge, sessions: [] };
+      e.sessions.push(s);
+      byRepo.set(forge.slug, e);
+    }
+    const out = new Map<string, Prefetched>();
+    if (byRepo.size === 0) return out;
+    await this.withGh(() =>
+      Promise.all(
+        [...byRepo.values()].map(async ({ forge, sessions: ss }) => {
+          const revision = this.readProvenance(forge).revision;
+          const at = this.now();
+          const found = await forge.prStatusMany!([...new Set(ss.map((s) => s.branch!))]);
+          for (const s of ss) {
+            const status = found.get(s.branch!);
+            if (status) out.set(s.id, { status, revision, at });
+          }
+        }),
+      ),
+    );
+    return out;
   }
 
   private sessionReadStale(s: Session): boolean {
@@ -621,11 +697,12 @@ export class PrPoller implements PrCache {
     this.sweeping = true;
     try {
       const batches = await this.buildBatches(sessions);
+      const pre = await this.prefetchHeads(sessions, batches, false);
       for (const s of sessions) {
         if (this.inFlight.has(s.id)) continue; // a targeted pollSession is already covering it
         this.inFlight.add(s.id);
         try {
-          await this.withGh(() => this.refresh(s, this.batchFor(s, batches)));
+          await this.withGh(() => this.refresh(s, this.batchFor(s, batches), false, pre.get(s.id)));
         } finally {
           this.inFlight.delete(s.id);
         }
@@ -646,9 +723,16 @@ export class PrPoller implements PrCache {
    *  targeted `pollSession`/`fastTick` paths (no batch → per-session). The
    *  post-processing (handoff / transient stamp / change-emit) is shared; only
    *  raw-status resolution differs (`statusFromBatch` vs `statusPerSession`). */
-  private async refresh(s: Session, batch?: PrBatch | null, recheckNone = false): Promise<void> {
+  private async refresh(
+    s: Session,
+    batch?: PrBatch | null,
+    recheckNone = false,
+    pre?: Prefetched,
+  ): Promise<void> {
     const forge = s.branch ? this.resolveForge(s.repoPath) : null;
     if (!forge || !s.branch) return; // no PR possible — leave uncached
+    const fresh = this.freshPrefetch(s.id, pre);
+    this.lastPolledAt.set(s.id, this.now());
     const me = (await forge.currentUser?.()) ?? null;
     const prev = this.cache.get(s.id);
     const fpKey = this.repoFreshness?.(s.repoPath);
@@ -657,6 +741,7 @@ export class PrPoller implements PrCache {
       batch && batch.contentKey === provenance.contentKey && batch.revision === provenance.revision
         ? batch
         : null;
+    const prefetched = fresh && fresh.revision === provenance.revision ? fresh.status : undefined;
     const marked = s.mergingSince != null;
     const markedNumber = s.mergingPrNumber ?? null;
     const guard = (raw: GitState): GitState =>
@@ -673,8 +758,9 @@ export class PrPoller implements PrCache {
           marked,
           recheckNone,
           guard,
+          prefetched,
         )
-      : await this.statusPerSession(s, forge, guard);
+      : await this.statusPerSession(s, forge, guard, prefetched);
     if (raw === null) return; // transient gh failure → keep last cached value
     if (provenance.revision !== this.readProvenance(forge).revision) return;
 
@@ -696,6 +782,13 @@ export class PrPoller implements PrCache {
       this.onChange(s.id, git);
     }
     this.rememberSessionRead(s, forge, fpKey, provenance, currentBatch?.at);
+  }
+
+  /** `pre`, unless a poll of `id` started at or after it — a turn-end pollSession queued on
+   *  withGh saw newer state than the prefetch did, so read live rather than roll it back. Read
+   *  before `refresh` stamps its own poll. */
+  private freshPrefetch(id: string, pre: Prefetched | undefined): Prefetched | undefined {
+    return pre && (this.lastPolledAt.get(id) ?? -Infinity) < pre.at ? pre : undefined;
   }
 
   /** `base`'s merge queue, cached per (repo, base). A failed read is "unknown". */
@@ -764,10 +857,11 @@ export class PrPoller implements PrCache {
     s: Session,
     forge: GitForge,
     guard: (raw: GitState) => GitState,
+    prefetched?: PrStatus,
   ): Promise<GitState | null> {
     let git: GitState;
     try {
-      git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch!)) });
+      git = guard({ kind: forge.kind, ...(prefetched ?? (await forge.prStatus(s.branch!))) });
     } catch {
       return null;
     }
@@ -802,6 +896,7 @@ export class PrPoller implements PrCache {
     marked: boolean,
     recheckNone: boolean,
     guard: (raw: GitState) => GitState,
+    prefetched?: PrStatus,
   ): Promise<GitState | null> {
     const hit = batch.get(s.branch!);
     if (hit) return guard({ kind: forge.kind, ...hit });
@@ -817,7 +912,7 @@ export class PrPoller implements PrCache {
     let git: GitState | null = null;
     if (needsConfirm) {
       try {
-        git = guard({ kind: forge.kind, ...(await forge.prStatus(s.branch!)) });
+        git = guard({ kind: forge.kind, ...(prefetched ?? (await forge.prStatus(s.branch!))) });
       } catch {
         return null;
       }
@@ -895,7 +990,7 @@ export class PrPoller implements PrCache {
     }
     const s = this.store.get(id);
     if (!s || s.status === "archived") return;
-    await this.withGh(() => this.refresh(s));
+    await withGhCaller(SESSION_CALLER, () => this.withGh(() => this.refresh(s)));
   }
 
   private async refreshOne(id: string): Promise<void> {
@@ -904,7 +999,7 @@ export class PrPoller implements PrCache {
     if (!s || s.status === "archived") return; // gone → the next tick prunes it
     this.inFlight.add(id);
     try {
-      await this.withGh(() => this.refresh(s));
+      await withGhCaller(SESSION_CALLER, () => this.withGh(() => this.refresh(s)));
     } finally {
       this.inFlight.delete(id);
     }
@@ -930,6 +1025,7 @@ export class PrPoller implements PrCache {
   }
   drop(id: string): void {
     this.forgetFreshness(id);
+    this.lastPolledAt.delete(id);
     this.store.deleteSessionGitCache(id);
     this.cache.delete(id);
     this.transientSince.delete(id);
@@ -945,8 +1041,14 @@ export class PrPoller implements PrCache {
   }
 
   start(): void {
-    this.timer = setInterval(() => void this.tick(), this.intervalMs);
-    this.fastTimer = setInterval(() => void this.fastTick(), this.fastIntervalMs);
+    this.timer = setInterval(
+      () => void withGhCaller("pr-poller:full", () => this.tick()),
+      this.intervalMs,
+    );
+    this.fastTimer = setInterval(
+      () => void withGhCaller("pr-poller:fast", () => this.fastTick()),
+      this.fastIntervalMs,
+    );
   }
   stop(): void {
     if (this.timer) clearInterval(this.timer);

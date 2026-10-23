@@ -259,6 +259,7 @@ import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
 import { graphRateLimit, restRateLimit, restWriteRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
+import { labelGhCalls, UNATTRIBUTED, withGhCaller } from "./forge/gh-caller";
 import { sharedGhRunner } from "./forge/github";
 import { fetchRepoFingerprints } from "./forge/github-fingerprint";
 import { graphqlSpend } from "./forge/github-spend";
@@ -668,7 +669,8 @@ let credentialBanner: string | null = null;
 // the end of boot; on a first-run boot it's registered via firstRun.onResolve and fires on root-pick.
 const deferredStarts: Array<() => void> = [];
 function startBackground(): void {
-  for (const start of deferredStarts) start();
+  // Each in its own caller scope, so a start's `labelGhCalls` covers only its own timers.
+  for (const start of deferredStarts) withGhCaller(UNATTRIBUTED, start);
 }
 
 // drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL — not
@@ -1623,9 +1625,9 @@ const presence = new Presence(() => {
   presenceCatchUp = setTimeout(() => {
     presenceCatchUp = null;
     if (firstRun.pending) return; // no background ticks until a root is picked
-    void prPoller.fastTick();
-    void backlogPoller.tick();
-    upNext.catchUp();
+    void withGhCaller("pr-poller:fast", () => prPoller.fastTick());
+    void withGhCaller("backlog", () => backlogPoller.tick());
+    withGhCaller("up-next", () => upNext.catchUp());
   }, 1_500);
 });
 // Native iOS push (#2665): credentials from Settings → Notifications, each field overridable by
@@ -1714,6 +1716,7 @@ const prPoller = new PrPoller(
   githubReadCache,
 );
 deferredStarts.push(() => {
+  labelGhCalls("pr-poller:full");
   setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
   prPoller.start();
 });
@@ -1850,6 +1853,7 @@ const branchPruner = new BranchPruner(
   () => fingerprint.backgroundReady(),
 );
 deferredStarts.push(() => {
+  labelGhCalls("branch-pruner");
   setTimeout(() => void branchPruner.tick(), 5 * 60_000); // leave the warm-restart window to the fingerprint
   branchPruner.start();
 });
@@ -2438,6 +2442,7 @@ const planStopTrigger = new PlanStopTrigger({
   considerPlan: (s) => planGate.consider(s),
 });
 deferredStarts.push(() => {
+  labelGhCalls("review");
   setInterval(() => {
     if (maintenance.active) return;
     void reviewService.tick().catch((err) => console.warn("[review] tick failed:", err));
@@ -2488,6 +2493,7 @@ deferredStarts.push(() => {
 let lastCriticSweepAt = 0;
 const criticIdleIntervalMs = 300_000;
 deferredStarts.push(() => {
+  labelGhCalls("critic");
   setInterval(() => {
     if (maintenance.active) return;
     if (graphRateLimit.blocked()) return;
@@ -2798,7 +2804,9 @@ const greenfield = new GreenfieldService({
   resolveForge,
   onChange: (dir) => {
     events.emit("repo-bootstrap:update", { repoPath: dir });
-    void drain.tick().catch((err) => console.warn("[greenfield] tick:", err));
+    void withGhCaller("drain", () => drain.tick()).catch((err) =>
+      console.warn("[greenfield] tick:", err),
+    );
   },
 });
 
@@ -2952,6 +2960,7 @@ events.subscribe((event, data) => {
 });
 // Slow sweep: catch newly-labeled issues and resumed-usage windows (~30s).
 deferredStarts.push(() => {
+  labelGhCalls("drain");
   setInterval(() => {
     if (maintenance.active) return;
     void drain.tick().catch((err) => console.warn("[drain] tick:", err));
@@ -2979,6 +2988,7 @@ const sessionArchiver = new SessionArchiver({
   emitArchived: (id) => events.emit("session:archived", { id }),
 });
 deferredStarts.push(() => {
+  labelGhCalls("session-archiver");
   // First sweep a minute in: late enough for the liveness sweep to have produced verdicts (without
   // them every candidate fails the husk gate and the tick is wasted), early enough that a restart
   // loop can still make progress on a backlog.
@@ -3039,6 +3049,7 @@ events.subscribe((event, data) => {
   }
 });
 deferredStarts.push(() => {
+  labelGhCalls("auto-merge");
   setInterval(() => {
     if (maintenance.active) return;
     void autoMerge.tick().catch((err) => console.warn("[automerge] tick:", err));
@@ -3048,6 +3059,7 @@ deferredStarts.push(() => {
 // re-fires on an UNCHANGED red head (the PR poller emits no `session:git` without a state change),
 // so this owns the sustained re-engagement that onGit/considerCi structurally cannot deliver.
 deferredStarts.push(() => {
+  labelGhCalls("autopilot");
   setInterval(() => {
     if (maintenance.active) return;
     void autopilot.tick().catch((err) => console.warn("[autopilot] tick:", err));
@@ -3090,6 +3102,7 @@ events.subscribe((event, data) => {
   }
 });
 deferredStarts.push(() => {
+  labelGhCalls("draft-reconcile");
   setInterval(() => {
     if (maintenance.active) return;
     void draftReconcile.tick().catch((err) => console.warn("[draft-reconcile] tick:", err));
@@ -3871,6 +3884,7 @@ const fingerprintCoversRepo = (repoPath: string): boolean => {
   return forge?.kind === "github" && !!forge.slug && fingerprint.covered(forge.slug);
 };
 deferredStarts.push(() => {
+  labelGhCalls("fingerprint");
   setTimeout(() => void fingerprint.tick(), 2_000);
   fingerprint.start();
 });
@@ -3907,6 +3921,7 @@ const backlogPoller = new BacklogPoller(
   fingerprintCoversRepo,
 );
 deferredStarts.push(() => {
+  labelGhCalls("backlog");
   setTimeout(() => void backlogPoller.tick(), 3_000);
   backlogPoller.start();
 });
@@ -3944,6 +3959,7 @@ const upNext = new UpNextService({
   },
 });
 deferredStarts.push(() => {
+  labelGhCalls("up-next");
   upNext.start();
 });
 
@@ -3980,8 +3996,8 @@ const appDeps: AppDeps = {
   codexReset,
   codexCapacity: codexReady,
   codexAccountId: () => codexReset.currentAccountId(),
-  // Live GitHub REST + GraphQL buckets for the usage view. `gh api rate_limit`
-  // is quota-exempt, so it works even when the GraphQL bucket is at zero.
+  // Live GitHub REST + GraphQL buckets for the usage view, from response headers and in-query
+  // readings — never `gh api rate_limit`, which misreports (#2743).
   githubRateLimit: () => fetchGithubRateLimit(ghRunnerAsync),
   // #2860: the agents' truthful budget — `self_status` reads these, never `gh api rate_limit`.
   githubBackoff: () => ({

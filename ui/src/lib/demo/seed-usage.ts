@@ -236,7 +236,6 @@ export function buildGithubRateLimit(): GithubRateLimit {
   return {
     rest: { limit: 5000, used: 1240, remaining: 3760, resetAt: NOW + 38 * 60_000 },
     graphql: { limit: 5000, used: 890, remaining: 4110, resetAt: NOW + 38 * 60_000 },
-    search: { limit: 30, used: 4, remaining: 26, resetAt: NOW + 60_000 },
     fetchedAt: NOW - 45_000,
     backoff: { remaining: 4110, resetAt: NOW + 38 * 60_000, pausedUntil: null, blocked: false },
     restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
@@ -251,6 +250,12 @@ export function buildGithubRateLimit(): GithubRateLimit {
       ownPerHour: 424,
       otherPerHour: 579,
     },
+    callers: [
+      { caller: "pr-poller:full", calls: 41, graphqlPoints: 52, restCalls: 0 },
+      { caller: "fingerprint", calls: 11, graphqlPoints: 11, restCalls: 0 },
+      { caller: "http:GET /api/issues", calls: 9, graphqlPoints: 18, restCalls: 0 },
+      { caller: "drain", calls: 14, graphqlPoints: 9, restCalls: 5 },
+    ],
   };
 }
 

@@ -2628,8 +2628,6 @@
   "github_lens_rest_desc": "CI-Status, Merges, Run-Logs",
   "github_lens_graphql_label": "GraphQL-API",
   "github_lens_graphql_desc": "PR-, Issue- & Backlog-Updates",
-  "github_lens_search_label": "Suche",
-  "github_lens_search_desc": "Issue- & Code-Suche",
   "github_lens_exhausted": "Erschöpft",
   "github_lens_graphql_paused": "GraphQL-Kontingent erschöpft — PR-, Issue- und Backlog-Updates pausieren noch ~{time}.",
   "github_lens_rest_paused": "REST-Kontingent erschöpft — CI-Status und Merge-Aktionen pausieren noch ~{time}.",
@@ -6900,5 +6898,12 @@
   "tooltip_claudeai_connectors_switch": "Beim Umschalten",
   "tooltip_claudeai_connectors_switch_body": "Laufende Claude-Sessions dieses Repos starten mit der neuen Einstellung neu: ruhende sofort, arbeitende nach ihrem aktuellen Turn. Die Unterhaltung bleibt, der Terminal-Verlauf nicht. Codex-Sessions sind nicht betroffen.",
   "feat_claudeai_connectors_title": "claude.ai-Connectoren je Repo",
-  "feat_claudeai_connectors_body": "Shepherd startet Claude-Sessions ohne deine claude.ai-Connectoren. In den Automatisierungseinstellungen eines Repos kannst du sie seinen Agenten jetzt freigeben – Claude Docs, Drive, Notion und die übrigen. Laufende Sessions starten mit der neuen Einstellung neu, sobald ihr aktueller Turn endet."
+  "feat_claudeai_connectors_body": "Shepherd startet Claude-Sessions ohne deine claude.ai-Connectoren. In den Automatisierungseinstellungen eines Repos kannst du sie seinen Agenten jetzt freigeben – Claude Docs, Drive, Notion und die übrigen. Laufende Sessions starten mit der neuen Einstellung neu, sobald ihr aktueller Turn endet.",
+  "github_lens_callers_title": "Wer GitHub in diesem Fenster aufgerufen hat",
+  "github_lens_callers_desc": "Die GitHub-Aufrufe des Shepherd-Servers selbst, nach dem Poller oder der Route, die sie ausgelöst hat. GraphQL-Punkte gehen vom selben Stundenkontingent ab wie die deiner Agenten.",
+  "github_lens_callers_caller": "Aufrufer",
+  "github_lens_callers_calls": "Aufrufe",
+  "github_lens_callers_points": "GraphQL-Pkt.",
+  "feat_github_callers_title": "GitHub-Aufrufe bis zur Quelle verfolgen",
+  "feat_github_callers_body": "Der GitHub-Tab im Verbrauch listet jetzt die GitHub-Aufrufe und GraphQL-Punkte des Shepherd-Servers in dieser Stunde, nach dem Poller oder der Route, die sie ausgelöst hat. Beide Kontingente stammen jetzt aus GitHubs Angaben zu echten Aufrufen, nicht aus dem unzuverlässigen rate_limit-Endpunkt."
 }

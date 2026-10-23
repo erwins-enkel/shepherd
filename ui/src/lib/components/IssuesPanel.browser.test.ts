@@ -328,13 +328,13 @@ describe("IssuesPanel rate-limit notice", () => {
     return {
       rest: { limit: 5000, used: 0, remaining: 5000, resetAt: Date.now() + 60 * MIN },
       graphql: { limit: 5000, used: 5000, remaining: 0, resetAt: graphqlResetAt },
-      search: null,
       fetchedAt: Date.now(),
       backoff: free,
       restBackoff:
         restPausedUntil === null ? free : { ...free, pausedUntil: restPausedUntil, blocked: true },
       restWriteBackoff: free,
       graphqlSplit: null,
+      callers: [],
     };
   }
   const at = (ts: number) => formatReset(ts, Date.now(), { withTime: true });

@@ -466,7 +466,7 @@ export function isRestBucketCall(args: string[]): boolean {
 const API_BODY_FLAGS = ["-f", "--raw-field", "-F", "--field", "--input"];
 
 /**
- * Returns true iff the call is a REST-bucket READ: a `gh api` GET (explicit, or
+ * Returns true iff the call is a REST-bucket READ: a `gh api` GET or HEAD (explicit, or
  * implied — `gh api` defaults to POST once fields or `--input` are passed) or
  * `gh run list` / `gh run view`. Only these may be skipped during a REST backoff;
  * writes always go through, and are tracked apart ({@link restWriteRateLimit}).
@@ -476,7 +476,10 @@ export function isRestReadCall(args: string[]): boolean {
   if (args[0] === "run") return args[1] === "list" || args[1] === "view";
   if (args[0] !== "api") return false;
   for (let i = 1; i < args.length; i++) {
-    if (args[i] === "-X" || args[i] === "--method") return args[i + 1]?.toUpperCase() === "GET";
+    if (args[i] === "-X" || args[i] === "--method") {
+      const method = args[i + 1]?.toUpperCase();
+      return method === "GET" || method === "HEAD";
+    }
   }
   return !args.some((a) => API_BODY_FLAGS.includes(a));
 }

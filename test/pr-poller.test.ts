@@ -3401,3 +3401,139 @@ test("fastTick keeps re-polling an idle session whose PR is merge-queued", async
   await poller.fastTick();
   expect(polls).toBe(1);
 });
+
+/** Poller over `forge` with a movable clock and a fingerprint key that moves every tick. */
+function churnPoller(store: SessionStore, forge: GitForge) {
+  let now = 1_000_000;
+  let key = 0;
+  const cache = new GithubReadCache(store, { now: () => now });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => `k${key}`,
+    cache,
+  );
+  return {
+    poller,
+    tick: async (advanceMs: number) => {
+      now += advanceMs;
+      key++;
+      await poller.tick();
+    },
+  };
+}
+
+test("#2743: heads without a batch are read in one prStatusMany, not per session", async () => {
+  const store = new SessionStore(":memory:");
+  for (const [i, branch] of ["a", "b", "c"].entries())
+    store.create({ ...baseSession, herdrAgentId: `term_${i}`, branch });
+  let single = 0;
+  const many: string[][] = [];
+  const forge = forgeReturning(() => {
+    single++;
+    return OPEN;
+  });
+  forge.prStatusMany = async (heads) => {
+    many.push(heads);
+    return new Map(heads.map((h) => [h, OPEN]));
+  };
+  const { poller } = churnPoller(store, forge);
+  await poller.tick();
+  expect(many).toEqual([["a", "b", "c"]]);
+  expect(single).toBe(0);
+});
+
+test("#2743: a head the batch couldn't answer falls back to prStatus", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, herdrAgentId: "term_1", branch: "a" });
+  store.create({ ...baseSession, herdrAgentId: "term_2", branch: "b" });
+  const single: string[] = [];
+  const forge = forgeReturning(() => OPEN);
+  forge.prStatus = async (branch) => {
+    single.push(branch);
+    return OPEN;
+  };
+  forge.prStatusMany = async () => new Map([["a", OPEN]]);
+  const { poller } = churnPoller(store, forge);
+  await poller.tick();
+  expect(single).toEqual(["b"]);
+});
+
+test("#2743: terminal sessions are re-polled at most every 10 min despite fingerprint churn", async () => {
+  const store = new SessionStore(":memory:");
+  const doneNone = store.create({ ...baseSession, herdrAgentId: "term_1", branch: "done-none" });
+  store.update(doneNone.id, { status: "done" });
+  store.create({ ...baseSession, herdrAgentId: "term_2", branch: "merged" });
+  store.create({ ...baseSession, herdrAgentId: "term_3", branch: "running" });
+  const polls: string[] = [];
+  const forge = forgeReturning(() => NONE);
+  forge.prStatus = async (branch) => {
+    polls.push(branch);
+    return branch === "merged" ? { ...OPEN, state: "merged" } : NONE;
+  };
+  const { poller, tick } = churnPoller(store, forge);
+  await tick(0);
+  expect(polls.sort()).toEqual(["done-none", "merged", "running"]);
+  polls.length = 0;
+  await tick(5 * 60_000);
+  expect(polls).toEqual(["running"]);
+  polls.length = 0;
+  await tick(5 * 60_000 + 1);
+  expect(polls.sort()).toEqual(["done-none", "merged", "running"]);
+  // A targeted poll (turn end) bypasses the cap.
+  polls.length = 0;
+  await poller.pollNow(doneNone.id);
+  expect(polls).toEqual(["done-none"]);
+});
+
+test("#2743: a merge-train session is never terminal-capped", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, herdrAgentId: "term_1", branch: "m" });
+  const polls: string[] = [];
+  const forge = forgeReturning(() => NONE);
+  forge.prStatus = async (branch) => {
+    polls.push(branch);
+    return { ...OPEN, state: "merged" };
+  };
+  const { tick } = churnPoller(store, forge);
+  await tick(0);
+  store.update(s.id, { mergingSince: 1, mergingPrNumber: 7 });
+  await tick(60_000);
+  expect(polls).toEqual(["m", "m"]);
+});
+
+test("#2743: a targeted poll queued during the prefetch wins over the older prefetched status", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, herdrAgentId: "term_1", branch: "a" });
+  store.update(s.id, { status: "done" });
+  let live = 0;
+  const forge = forgeReturning(() => OPEN);
+  forge.prStatus = async () => {
+    live++;
+    return OPEN; // the agent's `gh pr create` already landed
+  };
+  let pending: Promise<void> | undefined;
+  const { poller } = churnPoller(store, forge);
+  forge.prStatusMany = async (heads) => {
+    // A turn end lands mid-prefetch: its poll queues on withGh behind the prefetch.
+    pending = poller.pollNow(s.id);
+    return new Map(heads.map((h) => [h, NONE]));
+  };
+  await poller.tick();
+  await pending;
+  expect(poller.get(s.id)?.state).toBe("open");
+  expect(live).toBe(2); // the targeted poll, then the tick's live re-read instead of the stale prefetch
+});

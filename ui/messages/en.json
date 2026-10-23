@@ -2628,8 +2628,6 @@
   "github_lens_rest_desc": "CI status, merges, run logs",
   "github_lens_graphql_label": "GraphQL API",
   "github_lens_graphql_desc": "PR, issue & backlog updates",
-  "github_lens_search_label": "Search",
-  "github_lens_search_desc": "Issue & code search",
   "github_lens_exhausted": "Exhausted",
   "github_lens_graphql_paused": "GraphQL budget exhausted — PR, issue and backlog updates are paused for ~{time}.",
   "github_lens_rest_paused": "REST budget exhausted — CI status and merge actions are paused for ~{time}.",
@@ -6900,5 +6898,12 @@
   "tooltip_claudeai_connectors_switch": "When you switch it",
   "tooltip_claudeai_connectors_switch_body": "Running Claude sessions of this repo restart with the new setting: idle ones right away, busy ones after their current turn. The conversation stays, the terminal scrollback does not. Codex sessions are not affected.",
   "feat_claudeai_connectors_title": "claude.ai connectors per repo",
-  "feat_claudeai_connectors_body": "Shepherd starts Claude sessions without your claude.ai connectors. In a repo's automation settings you can now let its agents use them — Claude Docs, Drive, Notion and the rest. Running sessions restart with the new setting once their current turn ends."
+  "feat_claudeai_connectors_body": "Shepherd starts Claude sessions without your claude.ai connectors. In a repo's automation settings you can now let its agents use them — Claude Docs, Drive, Notion and the rest. Running sessions restart with the new setting once their current turn ends.",
+  "github_lens_callers_title": "Who called GitHub this window",
+  "github_lens_callers_desc": "The Shepherd server's own GitHub calls, by the poller or route that made them. GraphQL points come out of the same hourly budget as your agents'.",
+  "github_lens_callers_caller": "Caller",
+  "github_lens_callers_calls": "Calls",
+  "github_lens_callers_points": "GraphQL pts",
+  "feat_github_callers_title": "Trace GitHub calls to their source",
+  "feat_github_callers_body": "The GitHub tab in Usage now lists the Shepherd server's GitHub calls and GraphQL points this hour, by the poller or route that made them. Both budgets now come from what GitHub reports on real calls, not from its unreliable rate_limit endpoint."
 }

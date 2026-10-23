@@ -2147,8 +2147,8 @@ export type UsageProviderSnapshot =
 
 export type UsageRange = "24h" | "7d" | "30d" | "all";
 
-/** One GitHub rate-limit bucket (REST core / GraphQL / search). Mirrors the
- *  server `GhRateBucket`. */
+/** One GitHub rate-limit bucket (REST core / GraphQL). Mirrors the server
+ *  `GhRateBucket`. */
 export interface GhRateBucket {
   limit: number;
   used: number;
@@ -2172,7 +2172,6 @@ export interface GhBackoff {
 export interface GithubRateLimit {
   rest: GhRateBucket | null;
   graphql: GhRateBucket | null;
-  search: GhRateBucket | null;
   /** Epoch-ms when these readings were fetched. */
   fetchedAt: number;
   /** Shepherd's GraphQL backoff state — explains a polling pause even before a
@@ -2187,6 +2186,16 @@ export interface GithubRateLimit {
   /** The current GraphQL window split into the Shepherd server's own spend and
    *  everything else on the account (#2840); null before a reading of a live window. */
   graphqlSplit: GraphqlSpendSplit | null;
+  /** GitHub calls of the current GraphQL window per caller (#2743), most points first. */
+  callers: GhCallerTally[];
+}
+
+/** One caller's GitHub calls in the current window. Mirrors the server `GhCallerTally`. */
+export interface GhCallerTally {
+  caller: string;
+  calls: number;
+  graphqlPoints: number;
+  restCalls: number;
 }
 
 /** Mirrors the server `GraphqlSpendSplit`. Rates are null until the window's

@@ -982,10 +982,11 @@ describe("usage lens GETs never fall back to {} (#2295)", () => {
     expect((await get("/api/usage/breakdown?range=nonsense")).body.range).toBe("7d");
   });
 
-  it("GET /api/usage/github carries all three buckets and clear backoffs", async () => {
+  it("GET /api/usage/github carries both buckets, callers and clear backoffs", async () => {
     const { status, body } = await get("/api/usage/github");
     expect(status).toBe(200);
-    for (const bucket of ["rest", "graphql", "search"]) {
+    expect(Array.isArray(body.callers)).toBe(true);
+    for (const bucket of ["rest", "graphql"]) {
       expect(body[bucket]).toMatchObject({
         limit: expect.any(Number),
         remaining: expect.any(Number),

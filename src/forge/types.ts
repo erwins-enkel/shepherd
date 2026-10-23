@@ -673,6 +673,9 @@ export interface GitForge {
   /** Every failed step's full log lines, grouped by job + step in log order. Untrusted text. */
   failedRunStepLogs?(runId: number): Promise<{ job: string; step: string; lines: string[] }[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
+  /** {@link prStatus} for many heads in one batched read (#2743). A head missing from the result
+   *  is unknown — the caller falls back to `prStatus` for it. Never rejects. */
+  prStatusMany?(headBranches: string[]): Promise<Map<string, PrStatus>>;
   /** The operator's own login on this host (`gh api user`), cached. Drives the
    *  "is the configured reviewer/merger someone *other* than me" decision. Null
    *  when it can't be resolved. Optional: hosts without an identity API omit it. */

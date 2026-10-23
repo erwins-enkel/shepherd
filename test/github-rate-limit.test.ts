@@ -1,25 +1,30 @@
 /**
- * Tests for src/forge/github-rate-limit.ts — live `gh api rate_limit` parsing,
- * TTL caching, and bucket extraction.
+ * Tests for src/forge/github-rate-limit.ts — REST bucket from response headers, GraphQL bucket from
+ * the in-query reading (never `gh api rate_limit`, #2743), TTL caching and the callers tally.
  *
  * A deterministic clock (`now`) is injected so the TTL window is testable without
  * wall-clock dependence. The module cache is reset before each test.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { fetchGithubRateLimit, __resetGithubRateLimitCache } from "../src/forge/github-rate-limit";
+import {
+  fetchGithubRateLimit,
+  parseRestRateHeaders,
+  __resetGithubRateLimitCache,
+} from "../src/forge/github-rate-limit";
 import { restRateLimit, restWriteRateLimit } from "../src/forge/rate-limit";
-import { graphqlSpend } from "../src/forge/github-spend";
+import { GraphqlSpendLedger, graphqlSpend } from "../src/forge/github-spend";
 
-// A trimmed but realistic `gh api rate_limit` payload (epoch *seconds* for reset).
-const SAMPLE = JSON.stringify({
-  resources: {
-    core: { limit: 5000, used: 173, remaining: 4827, reset: 1782756461 },
-    graphql: { limit: 5000, used: 5002, remaining: 0, reset: 1782756188 },
-    search: { limit: 30, used: 0, remaining: 30, reset: 1782755499 },
-    integration_manifest: { limit: 5000, used: 0, remaining: 5000, reset: 1 },
-  },
-  rate: { limit: 5000, used: 173, remaining: 4827, reset: 1782756461 },
-});
+// `gh api -i --method HEAD user` output (epoch *seconds* for reset).
+const SAMPLE = [
+  "HTTP/2.0 200 OK",
+  "Access-Control-Expose-Headers: ETag, X-RateLimit-Limit, X-RateLimit-Remaining",
+  "X-Ratelimit-Limit: 5000",
+  "X-Ratelimit-Remaining: 4827",
+  "X-Ratelimit-Reset: 1782756461",
+  "X-Ratelimit-Resource: core",
+  "X-Ratelimit-Used: 173",
+  "",
+].join("\r\n");
 
 beforeEach(() => __resetGithubRateLimitCache());
 // The REST trackers are process singletons; clear any backoff a case engaged.
@@ -28,18 +33,71 @@ afterEach(() => {
   restWriteRateLimit.noteSuccess();
 });
 
-describe("fetchGithubRateLimit — parsing", () => {
-  it("extracts REST/core, GraphQL and search buckets with reset in epoch-ms", async () => {
+describe("fetchGithubRateLimit — sources (#2743)", () => {
+  it("reads REST from one HEAD /user's headers, never rate_limit", async () => {
+    const calls: string[][] = [];
     const out = await fetchGithubRateLimit(
-      async () => SAMPLE,
+      async (args) => {
+        calls.push(args);
+        return SAMPLE;
+      },
       () => 1000,
+      new GraphqlSpendLedger(),
     );
+    expect(calls).toEqual([["api", "-i", "--method", "HEAD", "user"]]);
     expect(out.rest).toEqual({ limit: 5000, used: 173, remaining: 4827, resetAt: 1782756461000 });
-    expect(out.graphql).toEqual({ limit: 5000, used: 5002, remaining: 0, resetAt: 1782756188000 });
-    expect(out.search).toEqual({ limit: 30, used: 0, remaining: 30, resetAt: 1782755499000 });
     expect(out.fetchedAt).toBe(1000);
   });
 
+  it("reads GraphQL from the ledger's latest in-query reading", async () => {
+    const resetAt = Date.now() + 3_000_000;
+    const spend = new GraphqlSpendLedger();
+    expect(
+      (
+        await fetchGithubRateLimit(
+          async () => SAMPLE,
+          () => 1000,
+          spend,
+        )
+      ).graphql,
+    ).toBeNull();
+    spend.noteReading({ used: 120, remaining: 4880, resetAt });
+    const out = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000,
+      spend,
+    );
+    expect(out.graphql).toEqual({ limit: 5000, used: 120, remaining: 4880, resetAt });
+  });
+
+  it("carries the window's callers", async () => {
+    const spend = new GraphqlSpendLedger();
+    spend.noteCall("drain", { graphqlPoints: 2, rest: false });
+    const out = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000,
+      spend,
+    );
+    expect(out.callers).toEqual([{ caller: "drain", calls: 1, graphqlPoints: 2, restCalls: 0 }]);
+  });
+
+  it("a failed probe leaves REST null instead of throwing", async () => {
+    const out = await fetchGithubRateLimit(
+      async () => {
+        throw new Error("gh boom");
+      },
+      () => 1000,
+    );
+    expect(out.rest).toBeNull();
+  });
+
+  it("parseRestRateHeaders rejects another resource or missing headers", () => {
+    expect(parseRestRateHeaders(SAMPLE.replace("core", "graphql"))).toBeNull();
+    expect(parseRestRateHeaders("HTTP/2.0 200 OK\r\n")).toBeNull();
+  });
+});
+
+describe("fetchGithubRateLimit — parsing", () => {
   it("includes the GraphQL backoff snapshot", async () => {
     const out = await fetchGithubRateLimit(
       async () => SAMPLE,
@@ -72,14 +130,13 @@ describe("fetchGithubRateLimit — parsing", () => {
     expect(out.restBackoff.blocked).toBe(false);
   });
 
-  it("returns null buckets when resources are absent", async () => {
+  it("returns null buckets when the headers are absent", async () => {
     const out = await fetchGithubRateLimit(
       async () => JSON.stringify({ resources: {} }),
       () => 1000,
     );
     expect(out.rest).toBeNull();
     expect(out.graphql).toBeNull();
-    expect(out.search).toBeNull();
   });
 });
 
@@ -149,16 +206,5 @@ describe("fetchGithubRateLimit — caching", () => {
     await fetchGithubRateLimit(run, () => 1000);
     await fetchGithubRateLimit(run, () => 1000 + 20_000); // past 15s TTL
     expect(calls).toBe(2);
-  });
-
-  it("propagates a gh failure (no stale cache to fall back on)", async () => {
-    await expect(
-      fetchGithubRateLimit(
-        async () => {
-          throw new Error("gh boom");
-        },
-        () => 1000,
-      ),
-    ).rejects.toThrow("gh boom");
   });
 });

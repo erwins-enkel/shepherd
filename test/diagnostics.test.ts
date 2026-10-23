@@ -2749,3 +2749,44 @@ describe("claude_model_cli advisory", () => {
     });
   });
 });
+
+describe("no_pr_ci per-repo rows (#3305)", () => {
+  it("adds one warning row per flagged repo", async () => {
+    const svc = new DiagnosticsService({ ...healthyDeps(), noPrCiRepos: () => ["alpha", "beta"] });
+    const snap = await svc.check(1000);
+    const rows = snap.checks.filter((c) => c.id.startsWith("no_pr_ci"));
+    expect(rows).toEqual([
+      {
+        id: "no_pr_ci:alpha",
+        state: "warning",
+        hintKey: "diagnostics_hint_no_pr_ci",
+        hintParams: { repo: "alpha" },
+      },
+      {
+        id: "no_pr_ci:beta",
+        state: "warning",
+        hintKey: "diagnostics_hint_no_pr_ci",
+        hintParams: { repo: "beta" },
+      },
+    ]);
+    for (const c of rows) assertPure(c);
+    expect(snap.overall).toBe("warning");
+  });
+
+  it("adds no rows when unwired", async () => {
+    const snap = await new DiagnosticsService(healthyDeps()).check(1000);
+    expect(snap.checks.some((c) => c.id.startsWith("no_pr_ci"))).toBe(false);
+  });
+
+  it("a throwing read adds no rows and the snapshot still resolves", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      noPrCiRepos: () => {
+        throw new Error("boom");
+      },
+    });
+    const snap = await svc.check(1000);
+    expect(snap.checks.some((c) => c.id.startsWith("no_pr_ci"))).toBe(false);
+    expect(snap.overall).toBe("ok");
+  });
+});

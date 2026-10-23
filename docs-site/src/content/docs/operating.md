@@ -464,6 +464,7 @@ or to fixed branch names such as `[main]`. A repo whose workflows only run on `s
 parse counts as CI.
 
 - The automation pane warns under **Merge without CI**.
+- **Settings → Diagnostics** lists the repo as **No PR CI** until you add CI or opt in.
 - The merge train holds the PR. The session banner says no workflow runs on pull requests.
 - To land it, add a CI workflow, use **Merge without CI** on the banner (one PR, with the usual
   merge confirmation), or turn on **Merge without CI** in the automation pane. The setting covers

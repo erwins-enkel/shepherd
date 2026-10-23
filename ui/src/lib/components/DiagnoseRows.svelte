@@ -59,8 +59,11 @@
   // interpolate their concrete values; param-less messages simply ignore the extra arg.
   const msg = keyedMessages(m, ["diagnostics_"]);
 
-  function label(id: string): string {
-    return msg(`diagnostics_label_${id}`)?.() ?? id;
+  // A per-instance row (`no_pr_ci:<repo>`, #3305) labels by the id's prefix and interpolates its
+  // hintParams; plain ids pass straight through.
+  function label(check: DiagnosticCheck): string {
+    const kind = check.id.split(":", 1)[0];
+    return msg(`diagnostics_label_${kind}`)?.(check.hintParams) ?? check.id;
   }
 
   // The optional params bag lets a row's own hint interpolate concrete host facts (claude_install
@@ -144,7 +147,7 @@
           <span class="glyph" style="color:{stateColor[check.state]}" aria-hidden="true">
             {#if check.state === "ok"}✓{:else if check.state === "optional"}–{:else if check.state === "warning"}⚠{:else}✗{/if}
           </span>
-          <span class="micro label">{label(check.id)}</span>
+          <span class="micro label">{label(check)}</span>
           <span class="state-word micro" style="color:{wordColor(check.state)}"
             >{stateWord(check.state)}</span
           >
@@ -192,7 +195,7 @@
             <button
               type="button"
               class="fix micro"
-              onclick={() => onask?.(label(check.id), stateWord(check.state))}
+              onclick={() => onask?.(label(check), stateWord(check.state))}
               >{m.operator_assistant_ask()}</button
             >
           </div>

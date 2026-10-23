@@ -230,6 +230,10 @@ export interface DiagnosticsDeps {
    *  a `warning`, else `optional`. Default `() => false`; wire in `index.ts` alongside
    *  `anyForgeRepo` once the repo setting exists. */
   anySharedBrowserEnabled?: () => boolean;
+  /** Names (dir basenames, never paths) of GitHub forge repos where no workflow runs on a PR and
+   *  "Merge without CI" is off, so auto-merge holds their PRs (#3305). One `no_pr_ci:<name>`
+   *  warning row each. Default `() => []`; wired in `index.ts`. */
+  noPrCiRepos?: () => string[];
 }
 
 /**
@@ -466,6 +470,23 @@ function resolveClaudeTrustDeps(deps: DiagnosticsDeps): {
  *  gate. */
 function resolvePreviewServeDenied(deps: DiagnosticsDeps): () => boolean | Promise<boolean> {
   return deps.previewServeDenied ?? (() => false);
+}
+
+/** Default `noPrCiRepos`: unwired ⇒ no repo flagged. Resolved here for the same ctor-complexity
+ *  reason as {@link resolvePreviewServeDenied}. */
+function resolveNoPrCiRepos(deps: DiagnosticsDeps): () => string[] {
+  return deps.noPrCiRepos ?? (() => []);
+}
+
+/** #3305: one `warning` row per repo whose PRs auto-merge holds for lack of PR CI. The id carries
+ *  the repo name so each row is distinct; the name also rides `hintParams` for the copy. */
+function noPrCiChecks(names: readonly string[]): DiagnosticCheck[] {
+  return names.map((repo) => ({
+    id: `no_pr_ci:${repo}`,
+    state: "warning",
+    hintKey: "diagnostics_hint_no_pr_ci",
+    hintParams: { repo },
+  }));
 }
 
 // ── host_capacity check (#1732) ──────────────────────────────────────────────
@@ -1182,6 +1203,7 @@ export class DiagnosticsService {
   private probeHealth: () => { state: "none" | "stale" | "fresh"; driven: boolean };
   private resolveChromium: () => Promise<string | null>;
   private anySharedBrowserEnabled: () => boolean;
+  private noPrCiRepos: () => string[];
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -1253,6 +1275,7 @@ export class DiagnosticsService {
     const chromium = resolveChromiumDeps(deps);
     this.resolveChromium = chromium.resolveChromium;
     this.anySharedBrowserEnabled = chromium.anySharedBrowserEnabled;
+    this.noPrCiRepos = resolveNoPrCiRepos(deps);
   }
 
   /**
@@ -1779,6 +1802,7 @@ export class DiagnosticsService {
       ]),
     ]);
     checks.splice(4, 0, ...agentCliChecks, ...membraneChecks);
+    checks.push(...this.noPrCiRows());
     // Annotate each non-ok, auto-fixable check with its verbatim Fix command. Only
     // attach the key when a command exists (guidance-only / ok stay absent), so
     // payload-purity expectations hold.
@@ -1795,6 +1819,15 @@ export class DiagnosticsService {
     this.last = snapshot;
     this.lastAt = now;
     return snapshot;
+  }
+
+  /** The per-repo no-PR-CI rows; a throwing read degrades to none rather than failing the batch. */
+  private noPrCiRows(): DiagnosticCheck[] {
+    try {
+      return noPrCiChecks(this.noPrCiRepos());
+    } catch {
+      return [];
+    }
   }
 
   /** TTL-cached read: returns the cached snapshot when fresh, else re-`check`s. */

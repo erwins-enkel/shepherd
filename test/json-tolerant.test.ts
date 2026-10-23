@@ -149,17 +149,16 @@ describe("isSpawnAlive", () => {
   const CWD = "/review-wt";
   const agent = (agentStatus: string) => ({ cwd: CWD, paneId: "p1", agentStatus });
 
-  test("agentStatus=working → alive (fast path, no paneForegroundProcs call)", async () => {
-    let procsCalled = false;
-    const herdr = {
-      listAsync: async () => [agent("working")],
-      paneForegroundProcs: async () => {
-        procsCalled = true;
-        return ["zsh"];
-      },
-    };
+  // #2664: a sandboxed spawn is registered `working` and herdr freezes that status, so `working`
+  // must NOT short-circuit — the pane's foreground decides, or a dead critic waits the deadline.
+  test("agentStatus=working + shell-only ['zsh'] (frozen sandboxed status) → dead (#2664)", async () => {
+    const herdr = makeHerdrStub({ agents: [agent("working")], procs: ["zsh"] });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(false);
+  });
+
+  test("agentStatus=working + non-shell ['bwrap'] → alive", async () => {
+    const herdr = makeHerdrStub({ agents: [agent("working")], procs: ["bwrap"] });
     expect(await isSpawnAlive(herdr, CWD)).toBe(true);
-    expect(procsCalled).toBe(false); // fast path skips the process-info call
   });
 
   test("idle + non-shell procs ['claude','node-MainThread'] → alive", async () => {

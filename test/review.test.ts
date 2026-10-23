@@ -1541,6 +1541,7 @@ test("#822 review gate: repaired + still-working critic → not finalized (no dr
         value: { decision: "request-changes", summary: "1 issue", body: "## findings" },
       },
       criticAgentStatus: "working",
+      criticProcs: ["claude"], // liveness comes from the pane's foreground procs (#2664)
     },
   );
   const svc = new ReviewService(d as any);
@@ -1623,6 +1624,28 @@ test("husk critic (shell-only) past grace: finalize-null error (fast-fail preser
   expect(reviews["s1"]?.decision).toBe("error"); // finalize-null: fast-fail preserved
   expect(stopped).not.toEqual([]); // reaped
   expect(removed).not.toEqual([]);
+});
+
+// #2664: a sandboxed critic is registered `working` and herdr freezes that status. Once its agent
+// exits the pane falls back to a shell; the critic must finalize past the boot grace, not wait out
+// the hard deadline.
+test("[#2664] frozen-working critic back at a shell: finalized past grace, before the deadline", async () => {
+  let t = 1000; // consider() sets startedAt=1000
+  const {
+    deps: d,
+    reviews,
+    stopped,
+  } = makeDeps(
+    { now: () => t, timeoutMs: 600_000 },
+    { verdictRead: { status: "absent" }, criticAgentStatus: "working", criticProcs: ["zsh"] },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  t = 1000 + STARTUP_GRACE_MS + 1000; // first tick past the grace, far from the deadline
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  expect(reviews["s1"]?.summaryCode).toBe("no-verdict-exited");
+  expect(stopped).not.toEqual([]);
 });
 
 // Overlapping-ticks regression: the second concurrent tick must skip an entry whose

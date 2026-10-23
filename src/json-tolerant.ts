@@ -84,7 +84,7 @@ export function isSpawnWorking(
  * (the same signal `tab-reaper.ts` uses) instead of the transient `agentStatus` field,
  * so a live-but-idle critic between API turns is never misclassified as finished.
  *
- * Decision table (applied only when `agentStatus !== "working"`):
+ * Decision table:
  *   - cwd absent from list              → **dead** — true absence under herdr 0.7.
  *   - `list()` throws                   → **alive** (fail-closed; never reap on read error).
  *   - `paneForegroundProcs` throws      → **alive** (fail-closed; transient herdr blip).
@@ -92,7 +92,9 @@ export function isSpawnWorking(
  *   - any non-shell proc present        → **alive** (claude/node/etc. still running).
  *   - shell-only (`procs.every(SHELLS)`) → **dead** (husk PTY; matches observed startup-death shape).
  *
- * Fast path: `agentStatus === "working"` → **alive** without a `paneForegroundProcs` call.
+ * No `agentStatus === "working"` fast path (#2664): a sandboxed spawn is externally registered
+ * `working` and herdr freezes that status, so a sandboxed agent that died at startup still reads
+ * `working` while its pane sits at a shell prompt. Only the foreground procs reveal it.
  *
  * Never throws — all `list()` and `paneForegroundProcs` errors are caught internally so a
  * transient herdr blip yields `finished=false → wait` rather than propagating and wedging
@@ -100,7 +102,7 @@ export function isSpawnWorking(
  */
 export async function isSpawnAlive(
   herdr: {
-    listAsync: () => Promise<{ cwd: string; paneId: string; agentStatus: string }[]>;
+    listAsync: () => Promise<{ cwd: string; paneId: string }[]>;
     paneForegroundProcs: (paneId: string) => Promise<string[]>;
   },
   cwd: string,
@@ -108,7 +110,6 @@ export async function isSpawnAlive(
   try {
     const agent = (await herdr.listAsync()).find((x) => x.cwd === cwd);
     if (!agent) return false; // absent from list → genuinely dead (herdr 0.7: husks persist in list)
-    if (agent.agentStatus === "working") return true; // fast path — skip process-info call
     try {
       const procs = await herdr.paneForegroundProcs(agent.paneId);
       if (procs.length === 0) return true; // undeterminable → fail-closed alive

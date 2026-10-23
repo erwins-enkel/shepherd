@@ -11963,7 +11963,8 @@
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
       "assertionChanges": [
-        "fixture: required NotificationEnvironment injected with fake center/focus and scratch defaults; original credentials, probes, actions and all assertions retained."
+        "fixture: required NotificationEnvironment injected with fake center/focus and scratch defaults; original credentials, probes, actions and all assertions retained.",
+        "current-module: #3266 closed bootstrap now explicitly asserts zero computations; open presentation demand before retaining the original accepted-computation, legacy-frame, cached-refresh and presentation assertions."
       ]
     },
     {

@@ -248,3 +248,13 @@ test("brief: a repo-scoped assistant names its repo, the scoped tools and the gl
   expect(b.indexOf("<assistant-scope>")).toBeLessThan(b.indexOf("<operator-language>"));
   expect(b.endsWith(operatorLanguageBlock("de")!)).toBe(true);
 });
+
+test("brief requires structured decision questions in both languages (#3179)", () => {
+  for (const language of ["en", "de"] as const) {
+    const text = brief(language);
+    expect(text).toContain("AskUserQuestion");
+    expect(text).toContain("multiSelect: false");
+    expect(text).toContain("not as a prose-only question");
+    expect(text).toContain("Ja/Nein");
+  }
+});

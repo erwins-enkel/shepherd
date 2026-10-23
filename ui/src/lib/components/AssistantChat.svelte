@@ -13,7 +13,7 @@
   import { answerAsk, getSessionMessages } from "#lib/api.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { clock } from "#lib/activity.js";
-  import { chatEntries, unsettled, type PendingSend } from "#lib/assistant-chat.js";
+  import { chatEntries, unsettled, yesNoQuestions, type PendingSend } from "#lib/assistant-chat.js";
   import { askToQuestionForm } from "#lib/askForm.js";
   import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
   import MarkdownBody from "./MarkdownBody.svelte";
@@ -125,6 +125,45 @@
     });
   });
 
+  const latest = $derived(rows.filter((row) => row.kind !== "event").at(-1));
+  // Key the local choices to the exact question, including session and streamed text changes.
+  const questionKey = $derived(
+    latest?.kind === "assistant" ? JSON.stringify([sessionId, latest.key, latest.text]) : "",
+  );
+  const questions = $derived(yesNoQuestions(latest?.kind === "assistant" ? latest.text : ""));
+  let choices = $state<{ key: string; answers: Record<number, string> }>({ key: "", answers: {} });
+  let answeredKey = $state("");
+  const answers = $derived(choices.key === questionKey ? choices.answers : {});
+  // A structured question (#3222) is answered through its own form, never these text replies.
+  const showReplies = $derived(
+    !working &&
+      !blocked &&
+      !composerLocked &&
+      waiting.length === 0 &&
+      questionKey !== answeredKey &&
+      questions.length > 0,
+  );
+
+  $effect(() => {
+    const key = questionKey;
+    if (untrack(() => choices.key) !== key) choices = { key, answers: {} };
+  });
+
+  function quickReply(index: number, value: string) {
+    if (!showReplies) return;
+    if (questions.length === 1) {
+      if (send(value)) answeredKey = questionKey;
+    } else {
+      choices = { key: questionKey, answers: { ...answers, [index]: value } };
+    }
+  }
+
+  function sendAnswers() {
+    if (!showReplies || !questions.every((_, i) => answers[i])) return;
+    const text = questions.map((q, i) => `${q.number}. ${answers[i]}`).join("\n");
+    if (send(text)) answeredKey = questionKey;
+  }
+
   // Poll faster while the agent works; a status change re-runs this and loads at once.
   let stick = true;
   let loadedFor = "";
@@ -186,17 +225,21 @@
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_PX)}px`;
   }
 
-  function submit() {
-    const text = draft.trim();
-    if (!text || composerLocked) return;
+  function send(text: string): boolean {
     if (!onsend(text)) {
       sendFailed = true;
-      return;
+      return false;
     }
     sendFailed = false;
     pending = [...pending, { text, at: Date.now() }];
-    draft = "";
     stick = true;
+    return true;
+  }
+
+  function submit() {
+    const text = draft.trim();
+    if (!text || composerLocked || !send(text)) return;
+    draft = "";
     queueMicrotask(autosize);
   }
 
@@ -253,6 +296,37 @@
         {#if e.kind === "assistant"}
           <div class="ac-msg">
             <MarkdownBody source={e.text} sessionDesigs={herdDesigs} onSessionLink={onnavigate} />
+            {#if showReplies && e.key === latest?.key}
+              <div class="ac-replies">
+                {#each questions as question, i (i)}
+                  <div role="group" aria-label={question.text} class="ac-answer">
+                    {#if questions.length > 1}<p>{question.number}. {question.text}</p>{/if}
+                    <button
+                      type="button"
+                      class="gbtn"
+                      aria-pressed={answers[i] === m.assistant_chat_yes()}
+                      onclick={() => quickReply(i, m.assistant_chat_yes())}
+                      >{m.assistant_chat_yes()}</button
+                    >
+                    <button
+                      type="button"
+                      class="gbtn"
+                      aria-pressed={answers[i] === m.assistant_chat_no()}
+                      onclick={() => quickReply(i, m.assistant_chat_no())}
+                      >{m.assistant_chat_no()}</button
+                    >
+                  </div>
+                {/each}
+                {#if questions.length > 1}
+                  <button
+                    type="button"
+                    class="gbtn primary"
+                    disabled={!questions.every((_, i) => answers[i])}
+                    onclick={sendAnswers}>{m.assistant_chat_send_answers()}</button
+                  >
+                {/if}
+              </div>
+            {/if}
             {#if e.ts}<span class="ac-meta">{clock(e.ts)}</span>{/if}
           </div>
         {:else if e.kind === "user"}
@@ -388,6 +462,27 @@
   }
   .ac-msg :global(.md-body) {
     line-height: 1.65;
+  }
+  .ac-replies {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .ac-answer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ac-answer p {
+    flex-basis: 100%;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .ac-answer .gbtn[aria-pressed="true"] {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    background: var(--color-inset);
   }
   .ac-mine {
     align-self: flex-end;

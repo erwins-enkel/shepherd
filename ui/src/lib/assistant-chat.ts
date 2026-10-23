@@ -69,14 +69,22 @@ export interface PendingSend {
 const ECHO_SKEW_MS = 60_000;
 
 /** The sends the transcript has not logged yet: no user row with the same text, stamped no
- *  earlier than the skew window before the send (an older identical message is not the echo). */
+ *  earlier than the skew window before the send (an older identical message is not the echo).
+ *  Each row settles one send, so a repeated answer ("Yes", then "Yes") waits for its own echo. */
 export function unsettled(pending: PendingSend[], entries: ChatEntry[]): PendingSend[] {
-  return pending.filter(
-    (p) =>
-      !entries.some(
-        (e) => e.kind === "user" && e.text.trim() === p.text.trim() && e.ts >= p.at - ECHO_SKEW_MS,
-      ),
-  );
+  const used = new Set<number>();
+  return pending.filter((p) => {
+    const i = entries.findIndex(
+      (e, j) =>
+        !used.has(j) &&
+        e.kind === "user" &&
+        e.text.trim() === p.text.trim() &&
+        e.ts >= p.at - ECHO_SKEW_MS,
+    );
+    if (i < 0) return true;
+    used.add(i);
+    return false;
+  });
 }
 
 /** What the assistant sees of the operator's window, for the panel's context line. Null when no
@@ -90,4 +98,73 @@ export function viewFocus(
   if (focus.kind === "remote") return { desig: focus.desig, tab: null, host: focus.host };
   const s = herd.find((h) => h.id === focus.id);
   return s ? { desig: s.desig, tab: focus.tab, host: null } : null;
+}
+
+type YesNoQuestion = { number: string | null; text: string };
+
+/** Explicit yes/no questions at the end of a reply, never examples in quotes or code. */
+export function yesNoQuestions(text: string): YesNoQuestion[] {
+  let fence: string | null = null;
+  let quoted = false;
+  const lines = text
+    .trimEnd()
+    .split("\n")
+    .map((line) => {
+      const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (marker) {
+        if (!fence) fence = marker;
+        else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+        return null;
+      }
+      if (!line.trim()) quoted = false;
+      if (/^\s*>/.test(line)) quoted = true;
+      if (fence || quoted || /^(?: {4}|\t)/.test(line)) return null;
+      return line.trim().replace(/^[*_]+|[*_]+$/g, "");
+    });
+  const candidates = trailingQuestionLines(lines);
+  const questions = [];
+  for (const line of candidates) {
+    if (line === "") continue;
+    if (!line) return [];
+    const question = parseYesNoQuestion(line);
+    if (!question) return [];
+    questions.push(question);
+  }
+  return questions;
+}
+
+/** Only the trailing list belongs to the answer; earlier status lists are context. */
+function trailingQuestionLines(lines: (string | null)[]): (string | null)[] {
+  const numberedLine = /^\d+[.)]\s/;
+  let start = lines.length - 1;
+  const numbered = numberedLine.test(lines[start] ?? "");
+  for (let i = start - 1; numbered && i >= 0; i--) {
+    if (lines[i] === "") {
+      const previous = lines.slice(0, i).findLastIndex((line) => line !== "");
+      // Blank lines join question items, but separate a preceding status list.
+      if (!/^\d+[.)]\s.*\?/.test(lines[previous] ?? "")) break;
+      i = previous;
+    }
+    const line = lines[i];
+    if (!line || !numberedLine.test(line)) break;
+    start = i;
+  }
+  const prefix = lines.slice(0, start);
+  const boundary = prefix.findLastIndex((line) => !line);
+  // A wrapped item in the same paragraph must not become a partial answer.
+  if (prefix.slice(boundary + 1).some((line) => line !== null && numberedLine.test(line)))
+    return [];
+  return lines.slice(start);
+}
+
+/** Validate one explicit question after its Markdown context has been checked. */
+function parseYesNoQuestion(line: string): YesNoQuestion | null {
+  const match = /^(\d+)[.)]\s+(.+)$/.exec(line);
+  const question = (match ? match[2] : line).replace(/^[*_]+|[*_]+$/g, "");
+  const plain = question.replace(/[*_]/g, "");
+  const marker = /\s*\(\s*(?:ja\s*\/\s*nein|yes\s*\/\s*no)\s*\)\s*(\?)?$/i.exec(plain);
+  if (!marker) return null;
+  const stem = plain.slice(0, marker.index).trim();
+  if ((!stem.endsWith("?") && !marker[1]) || !stem.replace(/\?$/, "").trim()) return null;
+  return { number: match?.[1] ?? null, text: question };
 }

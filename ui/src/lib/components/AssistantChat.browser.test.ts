@@ -4,6 +4,9 @@ import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { AnswerAskResult, SessionMessages } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
+
+const originalLocale = getLocale();
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -64,11 +67,13 @@ const composer = () => page.getByRole("textbox", { name: m.assistant_chat_input_
 beforeEach(() => {
   mockAnswer.mockReset();
   mockAnswer.mockResolvedValue("verified");
+  setLocale("en", { reload: false });
   mockMessages.mockReset();
   mockMessages.mockResolvedValue(reply([]));
 });
 
 afterEach(() => {
+  setLocale(originalLocale, { reload: false });
   document.body.innerHTML = "";
 });
 
@@ -514,5 +519,137 @@ describe("AssistantChat scroll following", () => {
     await atBottom(thread);
     target.style.height = "280px";
     await atBottom(thread);
+  });
+});
+
+describe("AssistantChat quick replies", () => {
+  const question = { role: "assistant" as const, text: "Soll ich fortfahren? (Ja/Nein)", ts: 2 };
+  const yes = () => page.getByRole("button", { name: "Yes", exact: true });
+  const no = () => page.getByRole("button", { name: "No", exact: true });
+
+  it.each(["Yes", "No"])("sends %s once without touching the draft on mobile", async (answer) => {
+    mockMessages.mockResolvedValue(reply([question]));
+    const p = props({ mobile: true, touch: true });
+    render(AssistantChat, p);
+    await composer().fill("Entwurf");
+    await page.getByRole("button", { name: answer, exact: true }).click();
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(answer);
+    await expect.element(composer()).toHaveValue("Entwurf");
+    await expect.element(yes()).not.toBeInTheDocument();
+    await expect.element(no()).not.toBeInTheDocument();
+  });
+
+  it.each(["Ja", "Nein"])("sends the German answer %s", async (answer) => {
+    setLocale("de", { reload: false });
+    mockMessages.mockResolvedValue(reply([question]));
+    const p = props();
+    render(AssistantChat, p);
+    await page.getByRole("button", { name: answer, exact: true }).click();
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(answer);
+  });
+
+  it("collects all numbered answers before sending one message", async () => {
+    mockMessages.mockResolvedValue(
+      reply([{ ...question, text: "1. Starten? (Ja/Nein)\n2. Stoppen? (Ja/Nein)" }]),
+    );
+    const p = props();
+    render(AssistantChat, p);
+    const send = page.getByRole("button", { name: "Send answers", exact: true });
+    await expect.element(send).toBeDisabled();
+    await yes().nth(0).click();
+    await expect.element(send).toBeDisabled();
+    expect(p.onsend).not.toHaveBeenCalled();
+    await no().nth(1).click();
+    await send.click();
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith("1. Yes\n2. No");
+  });
+
+  it("offers a retry after failed delivery", async () => {
+    mockMessages.mockResolvedValue(reply([question]));
+    const send = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    render(AssistantChat, props({ onsend: send }));
+    await yes().click();
+    await expect.element(page.getByRole("alert")).toBeVisible();
+    await yes().click();
+    expect(send).toHaveBeenCalledTimes(2);
+    await expect.element(yes()).not.toBeInTheDocument();
+  });
+
+  it.each(["running", "blocked"])("does not offer text answers while %s", async (status) => {
+    mockMessages.mockResolvedValue(reply([question]));
+    render(AssistantChat, props({ status }));
+    await expect.element(composer()).toBeVisible();
+    await expect.element(yes()).not.toBeInTheDocument();
+  });
+
+  it.each(["idle", "blocked"])(
+    "defers to a pending structured question while %s",
+    async (status) => {
+      mockMessages.mockResolvedValue(reply([question]));
+      render(AssistantChat, props({ status, ask }));
+      await expect.element(page.getByText(ask.questions[0].question)).toBeVisible();
+      await expect.element(yes()).not.toBeInTheDocument();
+      await expect.element(no()).not.toBeInTheDocument();
+    },
+  );
+
+  it("does not revive an answered question", async () => {
+    mockMessages.mockResolvedValue(reply([question, { role: "user", text: "No", ts: 1 }]));
+    render(AssistantChat, props());
+    await expect.element(page.getByText("No", { exact: true })).toBeVisible();
+    await expect.element(yes()).not.toBeInTheDocument();
+  });
+
+  it("ignores event rows when finding the latest question", async () => {
+    mockMessages.mockResolvedValue(
+      reply([
+        question,
+        {
+          role: "user",
+          ts: 3,
+          text: "<task-notification><summary>Event</summary></task-notification>",
+        },
+      ]),
+    );
+    render(AssistantChat, props());
+    await expect.element(yes()).toBeVisible();
+  });
+});
+
+describe("AssistantChat quick reply updates", () => {
+  const list = (text = "1. Starten? (Ja/Nein)\n2. Stoppen? (Ja/Nein)") =>
+    reply([{ role: "assistant", text, ts: 2 }]);
+
+  it("clears choices when the question changes or a new session loads", async () => {
+    mockMessages.mockResolvedValue(list());
+    const p = props();
+    const view = await render(AssistantChat, p);
+    const yes = () => page.getByRole("button", { name: "Yes", exact: true }).nth(0);
+    const send = () => page.getByRole("button", { name: "Send answers", exact: true });
+    await yes().click();
+    await expect.element(yes()).toHaveAttribute("aria-pressed", "true");
+    mockMessages.mockResolvedValue(list("1. Anders starten? (Ja/Nein)\n2. Stoppen? (Ja/Nein)"));
+    refresh!();
+    await expect
+      .element(page.getByRole("group", { name: "Anders starten? (Ja/Nein)", exact: true }))
+      .toBeVisible();
+    await expect.element(yes()).toHaveAttribute("aria-pressed", "false");
+    await expect.element(send()).toBeDisabled();
+    await yes().click();
+    await view.rerender({ ...p, sessionId: "a2" });
+    await expect.element(yes()).toHaveAttribute("aria-pressed", "false");
+    await expect.element(send()).toBeDisabled();
+  });
+
+  it("hides a question immediately when the composer sends", async () => {
+    mockMessages.mockResolvedValue(list("Starten? (Ja/Nein)"));
+    const p = props();
+    render(AssistantChat, p);
+    await expect.element(page.getByRole("button", { name: "Yes", exact: true })).toBeVisible();
+    await composer().fill("Später");
+    await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Yes", exact: true }))
+      .not.toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatEntries, unsettled, viewFocus } from "./assistant-chat";
+import { chatEntries, unsettled, viewFocus, yesNoQuestions } from "./assistant-chat";
 import type { AssistantViewReport } from "./operator-assistant-view";
 
 const user = (text: string, ts = 1000) => ({ role: "user" as const, text, ts });
@@ -73,6 +73,14 @@ describe("unsettled", () => {
       [],
     );
   });
+
+  it("settles each repeated send with its own echo", () => {
+    const first = { text: "Yes", at: 100_000 };
+    const second = { text: "Yes", at: 110_000 };
+    const echo = (ts: number) => ({ kind: "user" as const, text: "Yes", ts });
+    expect(unsettled([first, second], [echo(101_000)])).toEqual([second]);
+    expect(unsettled([first, second], [echo(101_000), echo(111_000)])).toEqual([]);
+  });
 });
 
 describe("viewFocus", () => {
@@ -104,5 +112,79 @@ describe("viewFocus", () => {
     expect(viewFocus(report({ kind: "none" }), herd)).toBeNull();
     expect(viewFocus(report({ kind: "session", id: "gone", tab: null }), herd)).toBeNull();
     expect(viewFocus(null, herd)).toBeNull();
+  });
+});
+
+describe("yesNoQuestions", () => {
+  it.each([
+    "Soll ich fortfahren? (Ja/Nein)",
+    "**Soll ich fortfahren ( ja / nein )?**  ",
+    "Context.\n\nContinue? **(YES/NO)**",
+  ])("recognizes an explicit final question: %s", (text) => {
+    expect(yesNoQuestions(text)).toHaveLength(1);
+    expect(yesNoQuestions(text)[0].number).toBeNull();
+  });
+
+  it("returns every numbered question, preserving its number", () => {
+    expect(yesNoQuestions("Entscheidungen:\n1. Starten? (Ja/Nein)\n2) Stoppen (Ja/Nein)?")).toEqual(
+      [
+        { number: "1", text: "Starten? (Ja/Nein)" },
+        { number: "2", text: "Stoppen (Ja/Nein)?" },
+      ],
+    );
+  });
+
+  it("recognizes a final standalone question after a separate status list", () => {
+    expect(
+      yesNoQuestions("1. PR gemergt\n2. Epic fortgesetzt\n\nSoll ich fortfahren? (Ja/Nein)"),
+    ).toEqual([{ number: null, text: "Soll ich fortfahren? (Ja/Nein)" }]);
+  });
+
+  it.each(["\n", "\n\n"])(
+    "recognizes the trailing question list after an earlier status list (%j)",
+    (separator) => {
+      expect(
+        yesNoQuestions(
+          "1. PR gemergt\n2. Epic fortgesetzt\n\n1. Starten? (Ja/Nein)" +
+            separator +
+            "2. Stoppen? (Ja/Nein)",
+        ),
+      ).toEqual([
+        { number: "1", text: "Starten? (Ja/Nein)" },
+        { number: "2", text: "Stoppen? (Ja/Nein)" },
+      ]);
+    },
+  );
+
+  it("includes blank-separated list items", () => {
+    expect(yesNoQuestions("1. Start? (Yes/No)\n\n2. Stop? (Yes/No)").map((q) => q.number)).toEqual([
+      "1",
+      "2",
+    ]);
+  });
+
+  it.each([
+    "> Example question:\nContinue? (Yes/No)",
+    "1. First question wraps\n   Continue? (Yes/No)",
+    "1. First question wraps\n   Continue? (Yes/No)\n2. Stop? (Yes/No)",
+    "(Ja/Nein)?",
+  ])("does not mistake partial lists or quote continuations for questions: %s", (text) => {
+    expect(yesNoQuestions(text)).toEqual([]);
+  });
+
+  it.each([
+    "Fortfahren?",
+    "Antworten sind Ja/Nein",
+    "(Ja/Nein)",
+    "Starten? (Ja/Nein)\nDanach geht es weiter.",
+    "> Starten? (Ja/Nein)",
+    "```\nStarten? (Ja/Nein)\n```",
+    "```text\nStarten? (Ja/Nein)",
+    "    Starten? (Ja/Nein)",
+    "1. Starten? (Ja/Nein)\n2. Welche Farbe?",
+    "1. Welche Farbe?\n2. Starten? (Ja/Nein)",
+    "1. Welche Farbe?\n\n2. Starten? (Ja/Nein)",
+  ])("ignores unsupported content: %s", (text) => {
+    expect(yesNoQuestions(text)).toEqual([]);
   });
 });

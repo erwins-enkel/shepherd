@@ -764,11 +764,11 @@ export const config = {
   // layer sends only `ready` notifications plus cost alerts (quieter devices).
   reducedPushMode: process.env.SHEPHERD_REDUCED_PUSH_MODE === "1",
   // Adopt herdr's native Unix-socket JSON-RPC API (issue #1529) instead of shelling out to
-  // the `herdr` CLI for every call. Default-off feature flag: the socket protocol is still
-  // preview-unstable (see HERDR_SOCKET_SUPPORTED_PROTOCOLS above), so this stays reversible
-  // until the socket driver has soaked. #1834 decided soak-first: stays default-off while the
-  // live instance runs it on; the default flip + its exit criteria live in #2602.
-  herdrSocket: process.env.SHEPHERD_HERDR_SOCKET === "1",
+  // the `herdr` CLI for every call. DEFAULT ON as of #2602, after the soak #1834 asked for.
+  // `selectHerdrDriver` still falls back to the CLI driver at boot when the socket is unreachable
+  // or speaks a protocol outside HERDR_SOCKET_SUPPORTED_PROTOCOLS (above).
+  // SHEPHERD_HERDR_SOCKET=0 is the kill switch.
+  herdrSocket: parseKillSwitch(process.env.SHEPHERD_HERDR_SOCKET),
   // Sub-flag gating ONLY the interactive terminal onto herdr's socket `terminal session control`
   // stream. Default-OFF interim gate: that stream is a screen-diff/redraw protocol, so xterm builds
   // no scrollback and never sees the app's mouse mode — which kills mobile swipe + desktop wheel

@@ -971,7 +971,7 @@ export interface IHerdrDriver {
    *  --state`, issue #1891). Used for externally-registered sandboxed 0.7.5 agents whose
    *  `agent_status` herdr cannot advance on its own. */
   reportAgentState(paneId: string, agentName: string, state: RequestPaneAgentState): Promise<void>;
-  /** Spawn an agent (issue #1553: async — socket-backed when `SHEPHERD_HERDR_SOCKET=1`,
+  /** Spawn an agent (issue #1553: async — socket-backed when the socket driver is active,
    *  else non-blocking CLI). Returns the started `HerdrAgent`. */
   start(
     name: string,
@@ -981,7 +981,7 @@ export interface IHerdrDriver {
     opts?: HerdrStartOptions,
   ): Promise<HerdrAgent>;
   /** Write literal text to an agent's PTY (issue #1567: async — socket-backed when
-   *  `SHEPHERD_HERDR_SOCKET=1`, else non-blocking CLI). Callers that deliver a multi-send
+   *  the socket driver is active, else non-blocking CLI). Callers that deliver a multi-send
    *  sequence (bracket-paste then CR) must serialize the pair — see `SessionService.sendSteerTo`. */
   send(target: string, text: string): Promise<void>;
   readAsync(target: string, source?: "visible" | "recent", lines?: number): Promise<string>;

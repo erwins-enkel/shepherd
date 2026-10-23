@@ -599,4 +599,39 @@ describe("selectHerdrDriver", () => {
     expect(driver).toBe(cliInstance);
     expect(client.close).toHaveBeenCalledTimes(1);
   });
+
+  // #2602: default-on — with `enabled` omitted the socket is probed, and a protocol mismatch or
+  // unreachable socket still falls back to the CLI driver.
+  it("default (enabled omitted), unsupported protocol falls back to the cli", async () => {
+    const cliInstance = fakeCli() as unknown as HerdrDriver;
+    const client = fakePingClient(() => Promise.resolve({ protocol: 99 }));
+    const makeClient = mock(() => client as unknown as HerdrSocketClient);
+
+    const driver = await selectHerdrDriver({
+      supportedProtocols: new Set([16]),
+      makeCli: () => cliInstance,
+      makeClient,
+      log: () => {},
+    });
+
+    expect(makeClient).toHaveBeenCalledTimes(1);
+    expect(driver).toBe(cliInstance);
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("default (enabled omitted), ping rejects falls back to the cli", async () => {
+    const cliInstance = fakeCli() as unknown as HerdrDriver;
+    const client = fakePingClient(() => Promise.reject(new Error("no socket")));
+    const makeClient = mock(() => client as unknown as HerdrSocketClient);
+
+    const driver = await selectHerdrDriver({
+      makeCli: () => cliInstance,
+      makeClient,
+      log: () => {},
+    });
+
+    expect(makeClient).toHaveBeenCalledTimes(1);
+    expect(driver).toBe(cliInstance);
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
 });

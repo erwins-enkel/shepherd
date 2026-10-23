@@ -573,7 +573,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
 
 /**
  * Boot-time driver selection (issue #1529), flag-gated behind `config.herdrSocket`
- * (default off). When enabled, pings herdr's socket once to confirm it speaks a
+ * (default on, #2602). When enabled, pings herdr's socket once to confirm it speaks a
  * protocol version we support before committing to `SocketHerdrDriver` — any
  * mismatch or connection failure falls back to the plain CLI driver so a stale/absent
  * herdr socket never blocks boot. Pure function of its (all-optional, injectable)

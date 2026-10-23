@@ -8,6 +8,7 @@ import {
   getBuildQueues,
   getCommands,
   getPlanDraft,
+  getUpNext,
 } from "./api";
 
 vi.mock("#lib/auth.svelte.js", () => ({
@@ -214,5 +215,37 @@ describe("resume transcript refusal", () => {
 
   it("keeps each caller's fallback for other failures", () => {
     expect(resumeFailureMessage(new ApiError(409, "cannot resume"), "fallback")).toBe("fallback");
+  });
+});
+
+describe("getUpNext conditional read", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("sends the validator and handles bodyless 304 before JSON parsing", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 304 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getUpNext({ peek: true, etag: '"cached"' })).resolves.toEqual({ modified: false });
+    expect(fetchMock).toHaveBeenCalledWith("/api/up-next?peek=1", {
+      headers: { "If-None-Match": '"cached"' },
+      cache: "no-cache",
+    });
+  });
+  it("retains a null representation and an ETag, and accepts an older server without ETag", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("null", { headers: { etag: '"null"' } })),
+    );
+    await expect(getUpNext()).resolves.toEqual({ modified: true, snapshot: null, etag: '"null"' });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("null")),
+    );
+    await expect(getUpNext()).resolves.toEqual({ modified: true, snapshot: null, etag: null });
+  });
+  it("preserves HTTP failure handling", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
+    await expect(getUpNext()).rejects.toThrow("401");
   });
 });

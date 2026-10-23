@@ -48,6 +48,33 @@ struct ShepherdClientQueuesTests {
         #expect(requests.first?.query == "peek=1")
     }
 
+    @Test func conditionalUpNextSendsValidatorAndPreservesBodyless304() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.on("GET", "/api/up-next") { request in
+            #expect(request.headers.first { $0.key.lowercased() == "if-none-match" }?.value == "W/\"cached\"")
+            #expect(request.query == "peek=1")
+            return FakeResponse(statusCode: 304, headers: ["ETag": "W/\"cached\""], body: Data())
+        }
+        let result = try await client(server).readUpNext(ifNoneMatch: "W/\"cached\"")
+        guard case .notModified = result else { Issue.record("304 must not decode a snapshot"); return }
+    }
+
+    @Test(arguments: [false, true])
+    func conditionalUpNextRetainsNullAndOptionalValidator(hasETag: Bool) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.on("GET", "/api/up-next") { _ in
+            FakeResponse(statusCode: 200,
+                         headers: hasETag ? ["Content-Type": "application/json", "ETag": "\"null\""]
+                                          : ["Content-Type": "application/json"], body: Data("null".utf8))
+        }
+        let result = try await client(server).readUpNext()
+        guard case .modified(let snapshot, let etag) = result else { Issue.record("200 is modified"); return }
+        #expect(snapshot == nil)
+        #expect(etag == (hasETag ? "\"null\"" : nil))
+    }
+
     @Test func peekUpNextMapsUnauthorized() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

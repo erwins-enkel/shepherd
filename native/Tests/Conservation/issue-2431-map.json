@@ -10084,7 +10084,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"bootstrapLoadsEverySnapshotAndSubscribes() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Closed bootstrap now leaves Up Next unfetched and unrecomputed; held/done/recap/stranded bootstrap assertions remain."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"burstDuringBootstrapCollapsesToOneFollowUpWithoutRecomputingUpNext() async throws\"]",
@@ -10092,7 +10094,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"burstDuringBootstrapCollapsesToOneFollowUpWithoutRecomputingUpNext() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Expect zero Up Next computations for closed bootstrap and held bursts, preserving held coalescing assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"failedReadPreservesItsSnapshotWithoutDiscardingSuccessfulReads() async throws\"]",
@@ -10148,7 +10152,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"malformedAndUnrelatedFramesDoNotChangeStateOrTriggerReads() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Include malformed upnext:changed in the ignored-frame cases while retaining the legacy snapshot sentinel."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"newerRefreshWinsWithoutKillingTheEventTap() async throws\"]",
@@ -10180,7 +10186,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"reconnectRereadsHeldAndRequestsUpNextEvenWithoutAFrame() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Reconnect still reconciles held rows twice; closed Up Next no longer computes. Visible reconnect revalidation is covered by the new multiple-consumer test."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"replacingConnectionWatcherKeepsTheReplacementAlive() async throws\"]",
@@ -10196,7 +10204,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"snapshotBeatsAnOlderUpNextRequestFailure() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Start the gated failing refresh explicitly because closed bootstrap no longer computes; a later legacy snapshot still clears failure."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"strandedGrowthRereadsIDsAndAutoRevivedKeepsItsOwnNotice() async throws\"]",
@@ -10228,7 +10238,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"upNextSnapshotReplacesWholesaleAndClearsFailure() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Trigger the failing refresh explicitly because closed bootstrap no longer computes; legacy snapshot replacement and failure recovery remain asserted."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesStreamTests\",\"installRegistersThreePanelsAndOneLifecycleManagedModel() async throws\"]",
@@ -12846,7 +12858,16 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/CompletedEpicsTests.swift\",\"CoreSeamTests.CompletedEpicStatusTests\",\"onlyAReadyRowCanLand() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/CompletedEpicsTests.swift\",\"CoreSeamTests.CompletedEpicStatusTests\",\"redCiOffersTheRepairAgentOnlyOnGitHub() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"yieldsFramesAboveDefaultLimit() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"archiveServerFailure() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"archiveServerFailure() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"acceptedComputationNeedsChangedAndHttpBeforeInstallingAResult() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"conditionalReadsAreDemandDrivenAnd304PreservesCachedNull() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"failedConditionalReadPreservesDataAndReopenRetries() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"invalidationsDuringAReadCoalesceAndClosingStopsFollowUps() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"multipleConsumersShareDemandAndReconnectRevalidatesOnlyVisibleQueues() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"recoveryAndHeldRefreshCannotDiscardTheOnlyUpNextResult() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"teardownFencesConditionalReadAndFinishesDemandLifetime() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextRetainsNullAndOptionalValidator(hasETag: Bool) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextSendsValidatorAndPreservesBodyless304() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

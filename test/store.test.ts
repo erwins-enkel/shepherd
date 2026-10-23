@@ -1767,6 +1767,7 @@ const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   output: 20,
   cacheRead: 30,
   cacheWrite: 40,
+  cacheWrite1h: 0,
   total: 100,
   messageCount: 1,
   lastActivity: 123,
@@ -1804,6 +1805,7 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     outputTokens: null,
     cacheReadTokens: null,
     cacheWriteTokens: null,
+    cacheWrite1hTokens: null,
     totalTokens: null,
     providerSessionId: null,
     outcome: null,
@@ -1826,6 +1828,8 @@ test("reviewer_spawns FRESH schema (DDL alone, no migration) already has provide
   expect(cols).toContain("outcome");
   // #2155: and for the plan-drift measurement that rides beside it.
   expect(cols).toContain("planDrift");
+  // #2929: and for the 1h cache-write share.
+  expect(cols).toContain("cacheWrite1hTokens");
 });
 
 test("reviewer_spawns migration: an old table without providerSessionId gains a NULL column", () => {
@@ -1851,6 +1855,8 @@ test("reviewer_spawns migration: an old table without providerSessionId gains a 
     expect(row!.providerSessionId).toBeNull();
     // #2155: a legacy row reads as "not measured", never as `none`.
     expect(row!.planDrift).toBeNull();
+    // #2929: a legacy row has no recorded split → NULL (priced at 5m).
+    expect(row!.cacheWrite1hTokens).toBeNull();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1919,13 +1925,14 @@ test("completeReviewerSpawn fills token totals + completedAt", () => {
     model: "opus",
     spawnedAt: 1000,
   });
-  s.completeReviewerSpawn("rev-1", usage(), 2000);
+  s.completeReviewerSpawn("rev-1", usage({ cacheWrite1h: 25 }), 2000);
   const row = s.listReviewerSpawns()[0]!;
   expect(row.completedAt).toBe(2000);
   expect(row.inputTokens).toBe(10);
   expect(row.outputTokens).toBe(20);
   expect(row.cacheReadTokens).toBe(30);
   expect(row.cacheWriteTokens).toBe(40);
+  expect(row.cacheWrite1hTokens).toBe(25);
   expect(row.totalTokens).toBe(100);
   expect(row.model).toBe("opus");
 });
@@ -1949,6 +1956,7 @@ test("completeReviewerSpawn with null usage → NULL token columns (unknown), no
   expect(row.totalTokens).toBeNull();
   expect(row.inputTokens).toBeNull();
   expect(row.cacheReadTokens).toBeNull();
+  expect(row.cacheWrite1hTokens).toBeNull();
   expect(row.model).toBe("gpt-5.6-sol"); // COALESCE keeps the recorded model
 });
 
@@ -2368,9 +2376,10 @@ test("backfillReviewerSpawnUsage fills unknown totals without touching completed
   });
   s.completeReviewerSpawn("rev-1", null, 2000);
 
-  expect(s.backfillReviewerSpawnUsage("rev-1", usage())).toBe(true);
+  expect(s.backfillReviewerSpawnUsage("rev-1", usage({ cacheWrite1h: 15 }))).toBe(true);
   const row = s.listReviewerSpawns()[0]!;
   expect(row.totalTokens).toBe(100);
+  expect(row.cacheWrite1hTokens).toBe(15);
   expect(row.completedAt).toBe(2000); // the run finished when it finished — NOT re-stamped
 
   // guarded: a second backfill can never overwrite real totals

@@ -14,7 +14,7 @@ import {
   resumeSignalFrom,
   type RollupSession,
 } from "../src/usage";
-import { sessionCost } from "../src/usage";
+import { sessionCost, spawnCacheCounts } from "../src/usage";
 
 function asst(opts: {
   model?: string;
@@ -871,4 +871,43 @@ test("fullRecaches — an ordinary warm turn appends a little and is NOT a recac
     asst({ requestId: "r2", input: 2, cacheRead: 150_000, w1h: 2_000 }),
   ]);
   expect(u.fullRecaches).toBe(0);
+});
+
+test("accumulate and sessionCost keep the 1h share of cacheWrite (#2929)", () => {
+  const lines = [
+    asst({ requestId: "r1", w5m: 100, w1h: 400 }),
+    asst({ requestId: "r2", w1h: 50 }),
+    asst({ requestId: "r2", w1h: 50 }), // dup requestId: counted once
+  ];
+  const u = accumulate(lines);
+  expect(u.cacheWrite).toBe(550);
+  expect(u.cacheWrite1h).toBe(450);
+  expect(sessionCost(lines).usage.cacheWrite1h).toBe(450);
+});
+
+test("spawnCacheCounts prices the recorded 1h share at 1h and the rest at 5m (#2929)", () => {
+  const row = { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 100 };
+  expect(spawnCacheCounts({ ...row, cacheWrite1hTokens: 70 })).toEqual({
+    input: 1,
+    output: 2,
+    cacheRead: 3,
+    cacheWrite5m: 30,
+    cacheWrite1h: 70,
+  });
+  // legacy row: no recorded split → all 5m, as before
+  expect(spawnCacheCounts({ ...row, cacheWrite1hTokens: null })).toMatchObject({
+    cacheWrite5m: 100,
+    cacheWrite1h: 0,
+  });
+  expect(spawnCacheCounts(row)).toMatchObject({ cacheWrite5m: 100, cacheWrite1h: 0 });
+  // NULL token columns read as 0
+  expect(
+    spawnCacheCounts({
+      inputTokens: null,
+      outputTokens: null,
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
+      cacheWrite1hTokens: null,
+    }),
+  ).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 });
 });

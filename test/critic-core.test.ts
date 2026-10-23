@@ -1646,6 +1646,7 @@ test("captureUsage passes real usage through unchanged", async () => {
     output: 2,
     cacheRead: 3,
     cacheWrite: 4,
+    cacheWrite1h: 0,
     total: 10,
     messageCount: 1,
     lastActivity: null,

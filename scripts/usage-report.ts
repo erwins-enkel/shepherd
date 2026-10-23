@@ -18,7 +18,14 @@
 import { Database } from "bun:sqlite";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { accumulate, dashify, jsonlPathFor, parseLine, type SessionUsage } from "../src/usage";
+import {
+  accumulate,
+  dashify,
+  jsonlPathFor,
+  parseLine,
+  spawnCacheCounts,
+  type SessionUsage,
+} from "../src/usage";
 import { weightedUnits, cacheWriteUnits } from "../src/pricing";
 import { isOperationalArchetype } from "../src/usage-archetype";
 import { config } from "../src/config";
@@ -60,6 +67,8 @@ interface ReviewerSpawnRow {
   outputTokens: number | null;
   cacheReadTokens: number | null;
   cacheWriteTokens: number | null;
+  /** Absent on a DB the server hasn't migrated yet (#2929) — read as no recorded split. */
+  cacheWrite1hTokens?: number | null;
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────--
@@ -496,6 +505,7 @@ async function attributeSatellites(
       output: sp.outputTokens ?? 0,
       cacheRead: sp.cacheReadTokens ?? 0,
       cacheWrite: sp.cacheWriteTokens ?? 0,
+      cacheWrite1h: sp.cacheWrite1hTokens ?? 0,
       total: sp.totalTokens,
       messageCount: 0,
       lastActivity: null,
@@ -503,23 +513,14 @@ async function attributeSatellites(
       fullRecaches: 0,
       sidechainCount: 0,
     };
-    // The 5m/1h cache-write split isn't persisted (the aggregate collapses it); attribute it to
-    // the 5m bucket, matching parseLine's default when the split is absent. Model: completion
+    // Cache writes price at their persisted 5m/1h split; a legacy row with no recorded split
+    // prices entirely at 5m (spawnCacheCounts, #2929). Model: completion
     // backfills the spawn row's true model (dominantModel of the transcript), so `sp.model` is
     // accurate for any completed spawn that named a real model. The task-model proxy is reached
     // only when both are null — spawn-time model "auto" AND a transcript that named no real model
     // (these are all completed spawns; the never-completed ones are filtered by totalTokens above).
     const model = sp.model ?? byId.get(sp.taskSessionId)!.row.model ?? "unknown";
-    const costUnits = weightedUnits(
-      {
-        input: usage.input,
-        output: usage.output,
-        cacheRead: usage.cacheRead,
-        cacheWrite5m: usage.cacheWrite,
-        cacheWrite1h: 0,
-      },
-      model,
-    );
+    const costUnits = weightedUnits(spawnCacheCounts(sp), model);
     add(sp.taskSessionId, {
       dir: `db:${sp.reviewerSessionId.slice(0, 8)}`,
       tag: "spawn",
@@ -914,7 +915,7 @@ async function main(): Promise<void> {
   try {
     spawns = db
       .query<ReviewerSpawnRow, []>(
-        "SELECT reviewerSessionId, taskSessionId, model, totalTokens, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens FROM reviewer_spawns",
+        "SELECT * FROM reviewer_spawns", // `*`: cacheWrite1hTokens may not exist yet (#2929)
       )
       .all();
   } catch {

@@ -1127,6 +1127,8 @@ export interface ReviewerSpawnRow {
   outputTokens: number | null;
   cacheReadTokens: number | null;
   cacheWriteTokens: number | null;
+  /** The 1h-TTL share of `cacheWriteTokens` (#2929); NULL on legacy rows and unresolved spawns. */
+  cacheWrite1hTokens: number | null;
   totalTokens: number | null;
   /** Codex-native rollout id, backfilled once the spawn's rollout resolves; NULL until then and for
    *  every claude spawn (issue #1816). Enables exact, restart-durable rollout resolution. */

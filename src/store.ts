@@ -1360,6 +1360,7 @@ export const REVIEWER_SPAWNS_DDL = `CREATE TABLE IF NOT EXISTS reviewer_spawns (
   outputTokens      INTEGER,
   cacheReadTokens   INTEGER,
   cacheWriteTokens  INTEGER,
+  cacheWrite1hTokens INTEGER,
   totalTokens       INTEGER,
   providerSessionId TEXT,
   outcome           TEXT,
@@ -5596,13 +5597,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // reserved for a resolved transcript that genuinely reports no tokens. (issue #1816)
     this.db.run(
       `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
-         cacheWriteTokens = ?, totalTokens = ?, completedAt = ?, model = COALESCE(?, model)
+         cacheWriteTokens = ?, cacheWrite1hTokens = ?, totalTokens = ?, completedAt = ?,
+         model = COALESCE(?, model)
          WHERE reviewerSessionId = ?`,
       [
         u?.input ?? null,
         u?.output ?? null,
         u?.cacheRead ?? null,
         u?.cacheWrite ?? null,
+        u?.cacheWrite1h ?? null,
         u?.total ?? null,
         completedAt,
         u ? dominantModel(u) : null,
@@ -5673,9 +5676,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   backfillReviewerSpawnUsage(reviewerSessionId: string, u: SessionUsage): boolean {
     this.db.run(
       `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
-         cacheWriteTokens = ?, totalTokens = ?, model = COALESCE(?, model)
+         cacheWriteTokens = ?, cacheWrite1hTokens = ?, totalTokens = ?, model = COALESCE(?, model)
          WHERE reviewerSessionId = ? AND totalTokens IS NULL`,
-      [u.input, u.output, u.cacheRead, u.cacheWrite, u.total, dominantModel(u), reviewerSessionId],
+      [
+        u.input,
+        u.output,
+        u.cacheRead,
+        u.cacheWrite,
+        u.cacheWrite1h,
+        u.total,
+        dominantModel(u),
+        reviewerSessionId,
+      ],
     );
     // `changes()` reports rows modified by the last INSERT/UPDATE/DELETE; a SELECT doesn't reset it.
     return (this.db.query<{ n: number }, []>(`SELECT changes() AS n`).get()?.n ?? 0) > 0;
@@ -6873,6 +6885,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Non-blocking plan-drift measurement (#2155). NULL on every legacy row and on every spawn that
     // was shown no plan — the delivery metrics exclude those rather than reading them as `none`.
     add("planDrift", `planDrift TEXT`);
+    // The 1h-TTL share of cacheWriteTokens, so spawns price each part at its own rate (#2929).
+    // Legacy rows stay NULL and price entirely at 5m, as before.
+    add("cacheWrite1hTokens", `cacheWrite1hTokens INTEGER`);
   }
 
   // ── build queue ──────────────────────────────────────────────────────────────

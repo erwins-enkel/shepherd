@@ -157,6 +157,7 @@ test("finalized reviewer spawns add units at floorHour(completedAt); unfinalized
       output: 150,
       cacheRead: 0,
       cacheWrite: 0,
+      cacheWrite1h: 0,
       total: 450,
       messageCount: 1,
       lastActivity: NOW - HOUR,
@@ -236,4 +237,42 @@ test("no data → empty hours, zero totals", async () => {
   expect(tl.peakHourUnits).toBe(0);
   expect(tl.range).toBe("7d");
   expect(tl.generatedAt).toBe(NOW);
+});
+
+test("reviewer spawn cache writes fold at their persisted 5m/1h split (#2929)", async () => {
+  const store = new SessionStore(":memory:");
+  store.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "task-a",
+    kind: "review",
+    worktreePath: "/wt",
+    model: MODEL,
+    spawnedAt: NOW - HOUR - 1000,
+  });
+  store.completeReviewerSpawn(
+    "rev-1",
+    {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 1000,
+      cacheWrite1h: 600,
+      total: 1000,
+      messageCount: 1,
+      lastActivity: NOW - HOUR,
+      byModel: { [MODEL]: 1000 },
+      fullRecaches: 0,
+      sidechainCount: 0,
+    },
+    NOW - HOUR,
+  );
+
+  const tl = await buildUsageTimeline({ store, range: "all", now: NOW });
+  expect(tl.totalUnits).toBeCloseTo(
+    weightedUnits(
+      { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 400, cacheWrite1h: 600 },
+      MODEL,
+    ),
+    9,
+  );
 });

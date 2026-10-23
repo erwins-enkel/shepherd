@@ -137,6 +137,17 @@ test("buildLanes: a code delta keeps tsc, root-tests, ui and ext", () => {
   expect(names).toEqual(["gates", "prettier", "eslint", "tsc", "root-tests", "ui", "ext"]);
 });
 
+test("buildLanes: root-tests runs bun test --parallel capped at maxWorkers (#2571)", () => {
+  const lane = buildLanes("/repo", {
+    delta: true,
+    changed: ["src/server.ts"],
+    tests: true,
+    maxWorkers: 3,
+  }).find((l) => l.name === "root-tests")!;
+  // A bare --parallel would break laneCap × maxWorkers ≤ cores; --randomize breaks the contract gates.
+  expect(lane.steps[0]!.args).toEqual(["test", "--parallel=3", "./test"]);
+});
+
 // ── Scheduler lifecycle (injected fakes — no real processes) ─────────────────
 
 function lane(name: string): LaneSpec {

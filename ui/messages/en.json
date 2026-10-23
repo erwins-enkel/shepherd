@@ -6869,6 +6869,7 @@
   "lazy_load_failed": "Couldn't load this panel. The connection dropped or Shepherd was updated.",
   "ask_center_hint": "Your answer is typed into the terminal of {task}. The question stays open there too — whoever answers first wins.",
   "ask_center_title": "Open questions",
+  "ask_center_submit": "Answer",
   "ask_center_submit_next": "Answer & next",
   "ask_center_skip": "Skip",
   "ask_center_open_session": "Open session",

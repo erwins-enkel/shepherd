@@ -3223,7 +3223,13 @@ export type AssistantShellLevel = (typeof ASSISTANT_SHELL_LEVELS)[number];
 /** Settings → Assistant: an action group's levels. */
 export const ASSISTANT_ACTION_LEVELS = ["off", "ask", "allow"] as const;
 export type AssistantActionLevel = (typeof ASSISTANT_ACTION_LEVELS)[number];
-export const ASSISTANT_ACTION_GROUPS = ["steer", "sessions", "approve", "automation"] as const;
+export const ASSISTANT_ACTION_GROUPS = [
+  "steer",
+  "start",
+  "sessions",
+  "approve",
+  "automation",
+] as const;
 export type AssistantActionGroup = (typeof ASSISTANT_ACTION_GROUPS)[number];
 /** What the Operator Assistant may do (Settings → Assistant). */
 export type AssistantPermissions = { shell: AssistantShellLevel } & Record<

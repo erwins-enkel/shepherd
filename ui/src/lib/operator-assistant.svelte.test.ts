@@ -184,6 +184,7 @@ describe("assistantMode", () => {
   const off = {
     shell: "ask",
     steer: "off",
+    start: "off",
     sessions: "off",
     approve: "off",
     automation: "off",
@@ -197,6 +198,7 @@ describe("assistantMode", () => {
   });
   it("acts when a group is allowed or the whole shell runs", () => {
     expect(assistantMode({ ...off, automation: "allow" })).toBe("acts");
+    expect(assistantMode({ ...off, start: "allow" })).toBe("acts");
     expect(assistantMode({ ...off, shell: "all" })).toBe("acts");
   });
 });

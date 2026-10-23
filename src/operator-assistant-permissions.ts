@@ -30,6 +30,7 @@ export const OPERATOR_DIAG_TOOL_NAMES = [
  *  Claude rules and the UI all read it. */
 export const ASSISTANT_ACTION_GROUPS = {
   steer: ["session_steer", "plan_answer"],
+  start: ["session_start"],
   sessions: ["session_interrupt", "session_resume", "session_relaunch", "session_archive"],
   approve: ["plan_release", "queue_approve", "pr_ready", "pr_merge"],
   automation: [
@@ -51,10 +52,12 @@ export type AssistantPermissions = { shell: AssistantShellLevel } & Record<
   AssistantActionLevel
 >;
 
-/** Reads run without a prompt, every action asks. Also what an install with nothing stored gets. */
+/** Reads run without a prompt and so does starting a session; every other action asks. Also what an
+ *  install with nothing stored gets — a stored set without `start` gets it on too. */
 export const DEFAULT_ASSISTANT_PERMISSIONS: AssistantPermissions = {
   shell: "read",
   steer: "ask",
+  start: "allow",
   sessions: "ask",
   approve: "ask",
   automation: "ask",

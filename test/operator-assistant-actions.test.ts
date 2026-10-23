@@ -59,6 +59,12 @@ function setup(
     },
     operatorActions: {
       permissions: () => permissions,
+      taskDefaults: (repoPath: string) => ({
+        baseBranch: repoPath === "/r/beta" ? "trunk" : "main",
+        agentProvider: "claude" as const,
+        model: "opus",
+        effort: null,
+      }),
       dispatch: async (req: OperatorActionRequest) => {
         requests.push(req);
         return opts.answer?.(req) ?? { status: 200, body: { ok: true } };
@@ -114,6 +120,88 @@ test("each session tool runs its operator route on the resolved session", async 
     const path = `/api/sessions/${worker.id}${sub ? `/${sub}` : ""}`;
     expect(requests).toEqual([{ ...expected, path }]);
   }
+});
+
+test("session_start creates a session in the resolved repo with New Task's defaults", async () => {
+  const { requests, run } = setup({
+    answer: () => ({
+      status: 201,
+      body: { id: crypto.randomUUID(), desig: "TASK-42", prompt: "fix the footer" },
+    }),
+  });
+  const res = await run("session_start", { repo: "beta", prompt: "fix the footer" });
+  expect(res).toEqual({
+    ok: true,
+    data: {
+      ok: true,
+      action: "session_start",
+      target: "beta",
+      baseBranch: "trunk",
+      desig: "TASK-42",
+    },
+  });
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: "/api/sessions",
+      body: {
+        repoPath: "/r/beta",
+        baseBranch: "trunk",
+        prompt: "fix the footer",
+        agentProvider: "claude",
+        model: "opus",
+        effort: null,
+      },
+    },
+  ]);
+  expect(JSON.stringify(res)).not.toMatch(UUID_RE);
+
+  // An explicit base branch wins over the repo default.
+  await run("session_start", { repo: "/r/alpha", prompt: "x", baseBranch: "epic/7-y" });
+  expect(requests[1]!.body).toMatchObject({ repoPath: "/r/alpha", baseBranch: "epic/7-y" });
+});
+
+test("session_start answers the held task's id when the usage hold queued it", async () => {
+  const { run } = setup({
+    answer: () => ({ status: 200, body: { held: true, id: "held-9", count: 2 } }),
+  });
+  const res = await run("session_start", { repo: "alpha", prompt: "later" });
+  expect(res.ok && res.data).toEqual({
+    ok: true,
+    action: "session_start",
+    target: "alpha",
+    baseBranch: "main",
+    held: true,
+    heldId: "held-9",
+  });
+});
+
+test("session_start refuses a missing prompt or repo and a blank base branch before dispatching", async () => {
+  const { requests, run } = setup();
+  for (const args of [
+    { repo: "alpha" },
+    { repo: "alpha", prompt: "  " },
+    { prompt: "x" },
+    { repo: "gamma", prompt: "x" },
+    { repo: "alpha", prompt: "x", baseBranch: "" },
+    { repo: "alpha", prompt: "x", baseBranch: 3 },
+  ]) {
+    expect((await run("session_start", args)).ok).toBe(false);
+  }
+  expect(requests).toEqual([]);
+});
+
+test("session_start is its own group: off refuses it, other groups off leave it running", async () => {
+  const off = setup({ permissions: { start: "off" } });
+  const res = await off.run("session_start", { repo: "alpha", prompt: "x" });
+  expect(res.ok).toBe(false);
+  if (!res.ok) expect(res.error).toContain("start actions are turned off");
+  expect(off.requests).toEqual([]);
+
+  const on = setup({
+    permissions: { steer: "off", sessions: "off", approve: "off", automation: "off" },
+  });
+  expect((await on.run("session_start", { repo: "alpha", prompt: "x" })).ok).toBe(true);
 });
 
 test("pr_merge never sends a takeover confirmation, and hands the refusal back with its code", async () => {
@@ -328,6 +416,15 @@ test("a scoped assistant's repo tools default to nothing but accept only its own
     expect(refusal(res)?.status).toBe(403);
     expect(refusal(res)?.error).toContain("outside this assistant's repo beta (/r/beta)");
   }
+  // session_start: only in its own repo.
+  expect((await runScoped("/r/beta", "session_start", { repo: "beta", prompt: "x" })).ok).toBe(
+    true,
+  );
+  const elsewhere = refusal(
+    await runScoped("/r/beta", "session_start", { repo: "alpha", prompt: "x" }),
+  );
+  expect(elsewhere?.status).toBe(403);
+  expect(elsewhere?.error).toContain("outside this assistant's repo beta (/r/beta)");
   // repo stays required for the action tools, scoped or not.
   expect(refusal(await runScoped("/r/beta", "repo_automation_set", { maxAuto: 2 }))?.status).toBe(
     400,
@@ -336,7 +433,9 @@ test("a scoped assistant's repo tools default to nothing but accept only its own
     "/api/repo-config?repo=%2Fr%2Fbeta",
     "/api/repo-config?repo=%2Fr%2Fbeta",
     "/api/epic?repo=%2Fr%2Fbeta&parent=3",
+    "/api/sessions",
   ]);
+  expect(requests[3]!.body).toMatchObject({ repoPath: "/r/beta" });
 });
 
 test("a scoped assistant's held_task reaches only its repo's held tasks", async () => {

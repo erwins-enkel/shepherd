@@ -6394,7 +6394,7 @@
   "operator_assistant_tip_may_body": "Eingestellt unter Einstellungen → Assistent. Er handelt nur auf deinen Auftrag; Datei-Änderungen sind immer gesperrt.",
   "operator_assistant_tip_open_settings": "Klick ändert das unter Einstellungen → Assistent.",
   "feat_assistant_permissions_title": "Leg fest, was der Operator-Assistent darf",
-  "feat_assistant_permissions_body": "Unter Einstellungen → Assistent stellst du seine Shell und vier Aktions-Gruppen — Steering, Sessions steuern, Freigaben & Merge, Automatik — auf Aus, Nachfragen oder Erlaubt. Standardmäßig laufen lesende Befehle ohne Rückfrage, jede Aktion fragt nach. Er handelt nur auf deinen Auftrag, und der Chip in seinem Panel zeigt den aktuellen Modus.",
+  "feat_assistant_permissions_body": "Unter Einstellungen → Assistent stellst du seine Shell und fünf Aktions-Gruppen — Steering, Sessions starten, Sessions steuern, Freigaben & Merge, Automatik — auf Aus, Nachfragen oder Erlaubt. Standardmäßig laufen lesende Befehle ohne Rückfrage, Sessions starten ist erlaubt, jede andere Aktion fragt nach. Er handelt nur auf deinen Auftrag, und der Chip in seinem Panel zeigt den aktuellen Modus.",
   "feat_assistant_view_title": "Der Assistent sieht, was du siehst",
   "feat_assistant_view_body": "Jede Nachricht an den [[operator-assistant|Operator-Assistenten]] trägt jetzt mit, was dein Fenster zeigt: den Repo-Filter und die Session im Blick, samt offenem Tab und Epic. Frag „Warum hängt die?“ oder „Was ist im aktuellen Repo falsch eingestellt?“, ohne sie zu benennen. Auf dem Handy gilt die Session, aus der du den Assistenten geöffnet hast.",
   "settings_house_stack_title": "House-Stack",
@@ -6880,5 +6880,9 @@
   "status_in_merge_queue": "IN MERGE-QUEUE",
   "status_in_merge_queue_tip": "Die Merge-Queue von GitHub hält diesen PR und merged ihn, sobald ihre Checks grün sind. Nichts zu tun.",
   "native_epics_waiting_on_you_one": "1 wartet auf dich",
-  "native_epics_load_failed": "Die Epics zum Landen konnten nicht geladen werden."
+  "native_epics_load_failed": "Die Epics zum Landen konnten nicht geladen werden.",
+  "settings_assistant_start_title": "Sessions starten",
+  "settings_assistant_start_hint": "Neue Session in einem Repo starten, wie mit Neue Aufgabe: eigener Worktree, dein Standard-Modell und das Plan-Gate des Repos.",
+  "feat_assistant_start_sessions_title": "Der Assistent startet Sessions",
+  "feat_assistant_start_sessions_body": "Bitte den Operator-Assistenten — oder einen Repo-Assistenten für sein Repo —, etwas erledigen zu lassen, und er startet dafür eine neue Session, genau wie Neue Aufgabe, und nennt dir ihre Bezeichnung. Unter Einstellungen → Assistent → Sessions starten schaltest du das ab oder lässt ihn vorher fragen; standardmäßig ist es erlaubt."
 }

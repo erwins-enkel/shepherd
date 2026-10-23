@@ -1,8 +1,8 @@
 /**
- * The Operator Assistant's action tools (Settings → Assistant): steering, session control,
- * approvals and merge, automation. Served on the assistant's own MCP endpoint and nobody else's
- * (`AgentCapabilities.operatorActions`, src/agent-control.ts) — no herd agent ever gets an approve
- * or merge tool.
+ * The Operator Assistant's action tools (Settings → Assistant): steering, starting sessions,
+ * session control, approvals and merge, automation. Served on the assistant's own MCP endpoint and
+ * nobody else's (`AgentCapabilities.operatorActions`, src/agent-control.ts) — no herd agent ever
+ * gets an approve or merge tool.
  *
  * Each tool is a thin, declarative mapping onto an EXISTING operator route, dispatched in-process
  * through the full app (`OperatorActionDeps.dispatch`, wired in src/server.ts). So an action runs
@@ -13,7 +13,8 @@
  *  - target resolution: sessions by desig, and only herd sessions (live, an agent, not the
  *    assistant itself, never another machine's); repos by path or unique basename;
  *  - the repo scope: a repo-scoped assistant reaches only its repo's sessions, held tasks and
- *    repo settings, and no herd-wide action (see HERD_WIDE_ACTIONS);
+ *    repo settings, starts sessions only there, and takes no herd-wide action (see
+ *    HERD_WIDE_ACTIONS);
  *  - bounded answers: never a route's body (session rows carry ids and prompts), only whitelisted
  *    scalars, and route errors redacted and clipped;
  *  - one audit line per action in Shepherd's log.
@@ -38,6 +39,7 @@ import {
   type AssistantScope,
 } from "./operator-assistant-tools";
 import { redactSecretText } from "./redact";
+import type { AgentProvider } from "./types";
 
 export interface OperatorActionRequest {
   method: "POST" | "PUT" | "DELETE";
@@ -47,10 +49,21 @@ export interface OperatorActionRequest {
   body?: unknown;
 }
 
-/** What the action tools need beyond the store: the operator's current settings, and a way to run
- *  an operator route in-process. Absent ⇒ every action answers "unavailable". */
+/** What New Task would preselect for a repo: its default branch and the operator's default
+ *  provider, model and effort. `session_start` sends it; the create route decides the rest. */
+export interface TaskDefaults {
+  baseBranch: string;
+  agentProvider: AgentProvider;
+  model: string | null;
+  effort: string | null;
+}
+
+/** What the action tools need beyond the store: the operator's current settings, a repo's New
+ *  Task defaults, and a way to run an operator route in-process. Absent ⇒ every action answers
+ *  "unavailable". */
 export interface OperatorActionDeps {
   permissions(): AssistantPermissions;
+  taskDefaults(repoPath: string): TaskDefaults;
   dispatch(req: OperatorActionRequest): Promise<{ status: number; body: unknown }>;
   /** The audit line sink; default `console.info` (Shepherd's log). */
   log?: (line: string) => void;
@@ -61,18 +74,21 @@ type ActionDeps = Pick<AgentControlDeps, "store" | "operatorActions" | "operator
 type Fail = { ok: false; status: number; error: string };
 const fail = (status: number, error: string): Fail => ({ ok: false, status, error });
 
-/** A built action: the request(s) to run in order, the target named in answers and the log, and
- *  any argument echo for the answer. */
+/** A built action: the request(s) to run in order, the target named in answers and the log, any
+ *  argument echo for the answer, and the fields its last route body may add (answerFields when
+ *  absent). */
 interface Built {
   requests: OperatorActionRequest[];
   target: string;
   echo?: Record<string, unknown>;
+  answer?: (body: unknown) => Record<string, unknown>;
 }
 
 interface Resolve {
   session(desig: unknown): { id: string; desig: string } | Fail;
   repo(repo: unknown): string | Fail;
   held(id: unknown): string | Fail;
+  taskDefaults(repoPath: string): TaskDefaults;
 }
 
 type Builder = (args: Record<string, unknown>, resolve: Resolve) => Built | Fail;
@@ -120,6 +136,14 @@ function nonEmptyText(value: unknown, name: string): string | Fail {
 
 const toggle = (v: unknown) => v === true || v === false || v === null;
 
+/** A create's answer: the new session's desig, or the held task's id when the usage hold queued
+ *  it — never the session row. */
+function startAnswer(body: unknown): Record<string, unknown> {
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  if (b.held === true && typeof b.id === "string") return { held: true, heldId: b.id };
+  return typeof b.desig === "string" ? { desig: b.desig } : {};
+}
+
 const ACTIONS: Record<AssistantActionTool, Builder> = {
   // ── steer ──
   session_steer: onSession("POST", "reply", (a) => {
@@ -131,6 +155,34 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
       ? { answers: a.answers }
       : fail(400, "answers must be a non-empty array"),
   ),
+
+  // ── start ──
+  // New Task's create with what New Task would preselect; plan gate, autopilot and sandbox follow
+  // the repo's settings, and the usage hold applies as for the operator.
+  session_start: (args, resolve) => {
+    const repo = resolve.repo(args.repo);
+    if (isFail(repo)) return repo;
+    const prompt = nonEmptyText(args.prompt, "prompt");
+    if (isFail(prompt)) return prompt;
+    if (args.baseBranch !== undefined) {
+      const base = nonEmptyText(args.baseBranch, "baseBranch");
+      if (isFail(base)) return base;
+    }
+    const defaults = resolve.taskDefaults(repo);
+    const baseBranch = (args.baseBranch as string | undefined) ?? defaults.baseBranch;
+    return {
+      requests: [
+        {
+          method: "POST",
+          path: "/api/sessions",
+          body: { ...defaults, repoPath: repo, baseBranch, prompt },
+        },
+      ],
+      target: basename(repo),
+      echo: { baseBranch },
+      answer: startAnswer,
+    };
+  },
 
   // ── sessions ──
   session_interrupt: onSession("POST", "interrupt"),
@@ -250,7 +302,8 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
  *  - every desig-targeted tool (steer, plan_answer, the sessions and approve groups,
  *    session_automation_set) and herd_retry (by desigs) resolve through `session()`, which refuses
  *    a session of another repo;
- *  - repo_automation_set and epic_run_set resolve through `repo()`, which refuses another repo;
+ *  - session_start, repo_automation_set and epic_run_set resolve through `repo()`, which refuses
+ *    another repo;
  *  - held_task resolves through `held()`, which refuses another repo's held task;
  *  - herd_halt interrupts every working session of every repo (`/api/halt` takes no target), so it
  *    is refused outright here — the global assistant halts the herd; a scoped one can interrupt
@@ -285,6 +338,7 @@ function resolver(deps: ActionDeps, scope: AssistantScope): Resolve {
       }
       return resolved[0]!;
     },
+    taskDefaults: (repoPath) => deps.operatorActions!.taskDefaults(repoPath),
     held(id) {
       const task =
         typeof id === "string" ? deps.store.listHeldTasks().find((h) => h.id === id) : undefined;
@@ -353,9 +407,10 @@ export async function applyOperatorAction(
     if (res.status >= 400) return fail(res.status, routeError(res.status, res.body));
     last = res.body;
   }
+  const answer = (built.answer ?? answerFields)(last);
   return {
     ok: true,
-    data: { ok: true, action: tool, target: built.target, ...built.echo, ...answerFields(last) },
+    data: { ok: true, action: tool, target: built.target, ...built.echo, ...answer },
   };
 }
 
@@ -422,6 +477,31 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
         },
       },
       required: ["desig", "answers"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "session_start",
+    description:
+      "[start] Start a new session (task) in a repo, as the operator's New Task: an agent in its " +
+      "own worktree works the prompt. Base branch: the repo's default unless given; model, " +
+      "effort, plan gate and autopilot: the operator's defaults. Answers the new session's desig — " +
+      `or heldId when the usage hold queued it.${NOTE}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: REPO,
+        prompt: {
+          type: "string",
+          description:
+            "The task for the new agent. Self-contained: it sees nothing of this conversation.",
+        },
+        baseBranch: {
+          type: "string",
+          description: "The branch to start from; default the repo's default branch.",
+        },
+      },
+      required: ["repo", "prompt"],
       additionalProperties: false,
     },
   },

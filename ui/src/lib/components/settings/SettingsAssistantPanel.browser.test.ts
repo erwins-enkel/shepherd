@@ -15,6 +15,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
 const DEFAULTS: AssistantPermissions = {
   shell: "read",
   steer: "ask",
+  start: "allow",
   sessions: "ask",
   approve: "ask",
   automation: "ask",
@@ -33,6 +34,7 @@ describe("SettingsAssistantPanel", () => {
     render(SettingsAssistantPanel, { payload: payload({ ...DEFAULTS, approve: "off" }) });
     await expect.element(select(m.settings_assistant_shell_title())).toHaveValue("read");
     await expect.element(select(m.settings_assistant_steer_title())).toHaveValue("ask");
+    await expect.element(select(m.settings_assistant_start_title())).toHaveValue("allow");
     await expect.element(select(m.settings_assistant_sessions_title())).toHaveValue("ask");
     await expect.element(select(m.settings_assistant_approve_title())).toHaveValue("off");
     await expect.element(select(m.settings_assistant_automation_title())).toHaveValue("ask");

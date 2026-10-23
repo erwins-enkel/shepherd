@@ -2147,8 +2147,8 @@ components:
         - allow
     AssistantPermissions:
       type: object
-      additionalProperties: false
-      description: What the Operator Assistant may do (Settings → Assistant) — the shell, and one level per action group.
+      additionalProperties: true
+      description: What the Operator Assistant may do (Settings → Assistant) — the shell, and one level per action group. `start` (starting new sessions) is absent from servers before the assistant could start them.
       required:
         - shell
         - steer
@@ -2159,6 +2159,8 @@ components:
         shell:
           $ref: "#/components/schemas/AssistantShellLevel"
         steer:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        start:
           $ref: "#/components/schemas/AssistantActionLevel"
         sessions:
           $ref: "#/components/schemas/AssistantActionLevel"
@@ -2175,6 +2177,8 @@ components:
         shell:
           $ref: "#/components/schemas/AssistantShellLevel"
         steer:
+          $ref: "#/components/schemas/AssistantActionLevel"
+        start:
           $ref: "#/components/schemas/AssistantActionLevel"
         sessions:
           $ref: "#/components/schemas/AssistantActionLevel"

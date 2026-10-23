@@ -5,6 +5,7 @@
  * and the agent ingress never reaching them.
  */
 import { afterEach, test, expect } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -637,6 +638,72 @@ test("an action of a group turned off never reaches its route, even with the rou
   expect(out.isError).toBe(true);
   expect(out.data.error).toContain("turned off in Settings → Assistant");
   expect(interrupts).toBe(0);
+});
+
+test("session_start runs New Task's create in-process: the repo's branch, the operator's model, the desig back", async () => {
+  const repos = withRepos();
+  const saved = { perms: config.assistantPermissions, model: config.defaultModel };
+  const cleanRepos = restore;
+  restore = () => {
+    cleanRepos?.();
+    config.assistantPermissions = saved.perms;
+    config.defaultModel = saved.model;
+  };
+  config.assistantPermissions = { ...saved.perms, start: "allow" };
+  config.defaultModel = "opus";
+  // A repo on `trunk` with no origin: the base falls back to its current branch, as in New Task.
+  execFileSync("git", ["init", "-q", "-b", "trunk", repos.beta]);
+  execFileSync("git", [
+    ...[
+      "-C",
+      repos.beta,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "commit.gpgsign=false",
+    ],
+    ...["commit", "-q", "--allow-empty", "-m", "init"],
+  ]);
+  const { deps, store, emitted } = setup();
+  const created: Record<string, unknown>[] = [];
+  deps.service = {
+    create: async (input: Record<string, unknown>) => {
+      created.push(input);
+      return { id: crypto.randomUUID(), desig: "TASK-77" };
+    },
+  } as unknown as SessionService;
+  const scoped = assistantRow(store, repos.beta);
+  const app = makeApp(deps);
+
+  const started = await callTool(app, scoped.id, "session_start", {
+    repo: "beta",
+    prompt: "fix the footer",
+  });
+  expect(started).toEqual({
+    isError: false,
+    data: {
+      ok: true,
+      action: "session_start",
+      target: "beta",
+      baseBranch: "trunk",
+      desig: "TASK-77",
+    },
+  });
+  expect(created).toHaveLength(1);
+  expect(created[0]).toMatchObject({
+    repoPath: repos.beta,
+    baseBranch: "trunk",
+    prompt: "fix the footer",
+    model: "opus",
+  });
+  expect(emitted.map((e) => e.event)).toContain("session:new");
+
+  // Out of its repo, the scoped assistant starts nothing.
+  const refused = await callTool(app, scoped.id, "session_start", { repo: "alpha", prompt: "x" });
+  expect(refused.isError).toBe(true);
+  expect(created).toHaveLength(1);
 });
 
 test("the agent ingress serves the assistant's actions only on the assistant's own MCP endpoint", async () => {

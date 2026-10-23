@@ -1,4 +1,7 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { repoHasNoCi, checksCleared, repoHasNoCiCached } from "../src/checks-gate";
 
 test("repoHasNoCi: github + zero workflows → true", () => {
@@ -50,4 +53,32 @@ test("repoHasNoCiCached: memoizes within the TTL window", () => {
   expect(repoHasNoCiCached("github", repo, now)).toBe(true);
   t = 120_000;
   expect(repoHasNoCiCached("github", repo, now)).toBe(true);
+});
+
+function repoWith(file: string, body: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "checks-gate-"));
+  mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(dir, ".github", "workflows", file), body);
+  return dir;
+}
+
+test("repoHasNoCiCached: schedule/dispatch-only workflows ⇒ no CI (#3221)", () => {
+  const dir = repoWith(
+    "db-backup.yml",
+    "on:\n  schedule:\n    - cron: '0 3 * * *'\n  workflow_dispatch:\n",
+  );
+  try {
+    expect(repoHasNoCiCached("github", dir)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repoHasNoCiCached: a pull_request workflow ⇒ has CI", () => {
+  const dir = repoWith("ci.yml", "on: [pull_request]\n");
+  try {
+    expect(repoHasNoCiCached("github", dir)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

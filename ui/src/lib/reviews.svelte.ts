@@ -399,6 +399,7 @@ class RepoConfigStore {
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
   preWarmEpicLandingCi = $state<Record<string, boolean>>({}); // pre-warm epic landing CI via early draft PR (default off, #1664)
   mergeWithoutCi = $state<Record<string, boolean>>({}); // autonomous merges in a no-CI repo (default off, #3104)
+  noPrCi = $state<Record<string, boolean>>({}); // derived: no workflow runs on PRs (read-only, #3221)
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
@@ -443,6 +444,7 @@ class RepoConfigStore {
       [repoPath]: c.preWarmEpicLandingCi,
     };
     this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: c.mergeWithoutCi };
+    this.noPrCi = { ...this.noPrCi, [repoPath]: c.noPrCi ?? false };
     this.epicStacks = { ...this.epicStacks, [repoPath]: c.epicStacksEnabled };
     this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: c.sharedBrowserEnabled };
     this.browserAllowedHosts = {
@@ -927,6 +929,10 @@ class RepoConfigStore {
 
   mergeWithoutCiOn(repoPath: string): boolean {
     return this.mergeWithoutCi[repoPath] ?? false;
+  }
+
+  noPrCiOn(repoPath: string): boolean {
+    return this.noPrCi[repoPath] ?? false;
   }
 
   epicStacksOn(repoPath: string): boolean {

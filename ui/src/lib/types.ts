@@ -1210,7 +1210,7 @@ export interface RepoConfig {
   /** Opens the epic's landing PR early as a draft during drain so each child merge re-runs
    *  landing CI against main (#1664). Default off — opt-in. */
   preWarmEpicLandingCi: boolean;
-  /** Let the merge train and epic auto-land merge in a GitHub repo with zero workflows (#3104).
+  /** Let the merge train and epic auto-land merge in a GitHub repo where no workflow runs on PRs (#3104).
    *  Default off — without CI those autonomous merges hold. */
   mergeWithoutCi: boolean;
   /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
@@ -1271,6 +1271,7 @@ export type MergeWaitCode =
   | "manual_steps"
   | "migrations"
   | "no_ci"
+  | "checks_absent"
   | "queued";
 
 /** One held full-auto PR on {@link AutoMergeStatus.waiting}. */
@@ -1621,7 +1622,7 @@ export interface QueuedItem {
 /** GET /api/sessions/:id/git payload: forge kind + current PR status. */
 export interface GitState extends PrStatus {
   kind: ForgeKind;
-  /** True when the repo has no CI to wait on (GitHub + zero workflows): a terminal `checks:"none"`
+  /** True when the repo has no CI to wait on (GitHub + no PR-triggered workflow): a terminal `checks:"none"`
    *  is treated as cleared (reviewed/merge-ready/awaiting-merge) rather than as a pre-CI race.
    *  Stamped server-side; mirror of the server GitState field. Absent ⇒ false. */
   noCi?: boolean;

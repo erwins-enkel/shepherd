@@ -452,6 +452,28 @@ default soft limit of 1024 a burst of tabs can stop herdr's API with
 `No file descriptors available`. A `herdr.service.d` drop-in of your own still
 overrides this value.
 
+## Auto-merge without PR CI
+
+Full auto-merge waits for green CI before it merges a PR. Two cases have no CI to wait for, and
+Shepherd reports both instead of waiting forever.
+
+**The repo has no PR CI.** Shepherd reads `.github/workflows` and counts only workflows that check a
+PR: `pull_request`, `pull_request_target`, `merge_group`, and `push` unless it is limited to tags
+or to fixed branch names such as `[main]`. A repo whose workflows only run on `schedule`,
+`workflow_dispatch`, `release` and similar counts as having no CI. A workflow file Shepherd cannot
+parse counts as CI.
+
+- The automation pane warns under **Merge without CI**.
+- The merge train holds the PR. The session banner says no workflow runs on pull requests.
+- To land it, add a CI workflow, use **Merge without CI** on the banner (one PR, with the usual
+  merge confirmation), or turn on **Merge without CI** in the automation pane. The setting covers
+  every PR in the repo and is off by default.
+
+**CI skips this PR.** A CI repo's workflow can skip a PR through a `paths` or `branches` filter. If
+the PR's latest commit has no checks for 10 minutes and GitHub reports it mergeable, the banner
+says CI apparently doesn't run for this PR and offers **Merge without CI**. Pushing a commit that
+triggers CI clears it.
+
 ## Operator Assistant
 
 The **Operator Assistant** is a Claude session that Shepherd runs for you and grounds

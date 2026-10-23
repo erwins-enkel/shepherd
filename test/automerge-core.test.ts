@@ -75,6 +75,14 @@ test("#3104: no-CI repo WITHOUT the opt-in → hold, waits as no_ci", () => {
   expect(mergeWaitReason(s, state([s]))).toBe("no_ci");
 });
 
+test("#3221: checksAbsent turns a CI repo's checks:none into checks_absent", () => {
+  const s = sess({ checks: "none", checksAbsent: true });
+  expect(mergeWaitReason(s, state([s]))).toBe("checks_absent");
+  expect(computeMerge(state([s])).kind).toBe("hold");
+  const t = sess({ checks: "none" });
+  expect(mergeWaitReason(t, state([t]))).toBe("checks_pending");
+});
+
 test("#3104: noCiHold never holds a green PR (repo gained CI)", () => {
   const d = computeMerge(state([sess({ checks: "success", noCi: true, noCiHold: true })]));
   expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });

@@ -319,7 +319,7 @@ export interface PrStatus {
  *  payload and the value cached/pushed for the list overview. */
 export interface GitState extends PrStatus {
   kind: ForgeKind;
-  /** True when the repo has no CI to wait on (GitHub + zero defined workflows), so a terminal
+  /** True when the repo has no CI to wait on (GitHub + no PR-triggered workflow), so a terminal
    *  `checks:"none"` should be treated as cleared for review/merge/surface rather than as a
    *  not-yet-green CI race. Stamped once in `annotateHandoff` (the poller + on-demand `/git`
    *  chokepoint); consumed via `checksCleared`. Absent ⇒ false. */

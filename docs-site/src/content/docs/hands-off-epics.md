@@ -31,10 +31,11 @@ Open the automation pane (the **⚙ automation** pill) and set:
 | **Plan gate**       | **On** (keep) | Adversarial plan review before each session executes — see below. This is the seeded default; keep it. |
 | **Epic mode**       | **Auto**    | On the Epic panel, "auto" drains without asking. "Attended" waits for **Approve next** on every spawn. |
 
-**Repos without CI.** In a GitHub repo with no workflows in `.github/workflows`, nothing checks a
-PR. So the merge train and epic auto-land **hold** those PRs instead of merging them. The session
+**Repos without CI.** In a GitHub repo where no workflow in `.github/workflows` runs on pull
+requests (none at all, or only scheduled or manual ones), nothing checks a PR. So the merge train and epic auto-land **hold** those PRs instead of merging them. The session
 banner says _no CI_ and the epic row shows **Auto-land held: no CI**. To lift the hold, add a CI
-workflow, merge yourself, or turn on **Merge without CI** in the automation pane. Child PRs still
+workflow, merge yourself, or turn on **Merge without CI** in the automation pane (see
+[Auto-merge without PR CI](/operating/#auto-merge-without-pr-ci)). Child PRs still
 merge into the epic branch, so a project can grow its own CI before anything reaches main.
 
 The Epic panel's **Apply hands-off defaults** button sets Autopilot, Full-auto merge (Draft off),

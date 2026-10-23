@@ -137,7 +137,7 @@ export const EPIC_LANDING_STRANDED_MS = 6 * 60 * 60_000;
  *    so we must NOT show an enabled CTA that fires a doomed merge call.
  *  - "behind", "dirty", "unstable", "draft", "unknown": also not mergeable.
  *  When mergeStateStatus is undefined (Gitea), we fall back to state+checks+mergeable alone.
- *  `noCi` (GitHub repo with zero workflows) lets a terminal checks:"none" count as cleared — a
+ *  `noCi` (GitHub repo with no PR-triggered workflow) lets a terminal checks:"none" count as cleared — a
  *  no-CI repo's landing PR is still mergeable (mergeStateStatus stays the authoritative gate). */
 export function computeLandingReady(
   pr: Pick<PrStatus, "state" | "checks" | "mergeable" | "mergeStateStatus">,

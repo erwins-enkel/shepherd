@@ -5425,6 +5425,7 @@ components:
         - hidden
         - pinned
         - defaultBranch
+        - faviconUrl
       properties:
         path:
           type: string
@@ -5466,6 +5467,9 @@ components:
           type: string
           nullable: true
           description: Local origin/HEAD branch name (no forge call); null when unset or unreadable.
+        faviconUrl:
+          type: string
+          nullable: true
     BacklogPrKinds:
       type: object
       additionalProperties: true

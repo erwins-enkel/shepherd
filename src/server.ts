@@ -9805,11 +9805,20 @@ export interface BacklogProject {
   pinned: boolean;
   /** Local `origin/HEAD` branch name (no forge call); null when unset or unreadable. */
   defaultBranch: string | null;
+  /** Repo mark image: the GitHub owner's avatar; null for other forges. */
+  faviconUrl: string | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
   projects: BacklogProject[];
   totals: { openIssues: number; openPRs: number };
+}
+
+/** The owner's avatar for a GitHub `owner/repo` slug — derived, so it costs no API call
+ *  and survives a failed counts fetch. 40px = the 20px repo mark at 2x. */
+function githubOwnerAvatarUrl(slug: string | null): string | null {
+  const owner = slug?.split("/")[0];
+  return owner ? `https://github.com/${encodeURIComponent(owner)}.png?size=40` : null;
 }
 
 /** What an empty/unconfigured backlog looks like — also the no-forge fast path. */
@@ -9906,6 +9915,7 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       hidden: hiddenSet.has(r.path),
       pinned: pinnedSet.has(r.path),
       defaultBranch: defaultBranches[i] ?? null,
+      faviconUrl: r.forge?.kind === "github" ? githubOwnerAvatarUrl(r.forge.slug) : null,
     };
   });
 

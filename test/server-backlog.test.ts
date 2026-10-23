@@ -351,6 +351,23 @@ test("buildBacklogPayload: defaultBranch from local origin/HEAD, null when unset
   expect(byPath[repoB]).toBeNull();
 });
 
+test("buildBacklogPayload: faviconUrl is the GitHub owner avatar, null for other forges", async () => {
+  // Null counts on purpose: the avatar is derived from the slug, not the counts fetch.
+  const app = makeApp(
+    makeDeps({}, {}, (path) => {
+      if (path === repoA) return fakeForge("some-org/alpha");
+      if (path === repoB) return fakeForge("org/beta", "gitea");
+      return null;
+    }),
+  );
+  const res = await app.fetch(new Request("http://x/api/backlog"));
+  const body = (await res.json()) as { projects: { path: string; faviconUrl: string | null }[] };
+  const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.faviconUrl]));
+  expect(byPath[repoA]).toBe("https://github.com/some-org.png?size=40");
+  expect(byPath[repoB]).toBeNull();
+  expect(byPath[repoNonForge]).toBeNull();
+});
+
 test("GET /api/backlog with deps.backlog absent → empty payload", async () => {
   const deps: AppDeps = {
     store: {

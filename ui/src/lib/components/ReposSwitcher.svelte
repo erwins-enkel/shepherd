@@ -225,7 +225,7 @@
   onclick={() => (open ? close(true) : openPanel())}
 >
   {#if selected && id}
-    <RepoMark path={selected.path} name={id.name} />
+    <RepoMark path={selected.path} name={id.name} favicon={selected.faviconUrl} />
   {/if}
   <span class="rs-id">
     {#if id?.owner}<span class="rs-owner">{id.owner}</span>{/if}
@@ -289,7 +289,7 @@
               onclick={() => pick(project.path)}
             >
               <span class="rs-tile-title">
-                <RepoMark path={project.path} {name} />
+                <RepoMark path={project.path} {name} favicon={project.faviconUrl} />
                 <span class="rs-tile-name">{name}</span>
               </span>
               <span class="rs-tile-counts">

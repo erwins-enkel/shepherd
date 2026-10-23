@@ -15,6 +15,7 @@ import {
   supersedeImpact,
   usageOverride,
   epicBaseActions,
+  overviewRunState,
 } from "./epic-panel";
 import { m } from "#lib/paraglide/messages.js";
 import type {
@@ -521,5 +522,73 @@ describe("epicBaseActions (#3101)", () => {
       }),
     ).toBeNull();
     expect(epicBaseActions(run("paused"), 42, drain({ reason: "epic_base_stale" }))).toBeNull();
+  });
+});
+
+describe("overviewRunState (#2639)", () => {
+  function run(over: Partial<DrainRunSummary> = {}, used = 0, max = 2): DrainRunSummary {
+    return {
+      leadingEpic: null,
+      windingDown: [],
+      slots: { used, max, holders: [] },
+      next: [],
+      after: [],
+      ...over,
+    };
+  }
+  const running = { kind: "running", tone: "run" } as const;
+
+  it("idle: no leader, no slot used → muted ring", () => {
+    expect(overviewRunState(run(), null)).toEqual({ kind: "idle", tone: "quiet", dot: "ring" });
+    expect(overviewRunState(null, null)).toEqual({ kind: "idle", tone: "quiet", dot: "ring" });
+  });
+
+  it("idle with used=0/max=0 (no cap) — never saturated", () => {
+    expect(overviewRunState(run({}, 0, 0), null).kind).toBe("idle");
+  });
+
+  it("leading: the leader's tone on a filled dot", () => {
+    expect(overviewRunState(run({ leadingEpic: 7 }, 1), running)).toEqual({
+      kind: "leading",
+      tone: "run",
+      dot: "filled",
+    });
+    expect(
+      overviewRunState(run({ leadingEpic: 7 }, 1), { kind: "paused", tone: "quiet" }).tone,
+    ).toBe("quiet");
+    // Record still loading: reads as running.
+    expect(overviewRunState(run({ leadingEpic: 7 }), null).tone).toBe("run");
+  });
+
+  it("leading without a leader while slot work or a landing repair runs", () => {
+    expect(overviewRunState(run({}, 1), null).kind).toBe("leading");
+    const repair = { sessionId: "s", desig: "TASK-1", issueNumber: null, epicParent: null };
+    expect(overviewRunState(run({ landingRepairs: [repair] }), null).kind).toBe("leading");
+  });
+
+  it("saturated: used >= max → filled amber without pulse, beats leading", () => {
+    expect(overviewRunState(run({ leadingEpic: 7 }, 2, 2), running)).toEqual({
+      kind: "saturated",
+      tone: "busy",
+      dot: "filled",
+    });
+    expect(overviewRunState(run({}, 3, 2), null).kind).toBe("saturated");
+    // A halted leader keeps its red.
+    expect(
+      overviewRunState(run({ leadingEpic: 7 }, 2, 2), { kind: "halted", tone: "halt" }).tone,
+    ).toBe("halt");
+  });
+
+  it("winding: half dot, beats saturated", () => {
+    expect(
+      overviewRunState(run({ leadingEpic: 7 }, 2, 2), { kind: "winding", tone: "run" }),
+    ).toEqual({
+      kind: "winding",
+      tone: "run",
+      dot: "half",
+    });
+    // A winding-down epic with no leader.
+    const solo = run({ windingDown: [{ epic: 3, inFlight: [4] }] }, 2, 2);
+    expect(overviewRunState(solo, null).kind).toBe("winding");
   });
 });

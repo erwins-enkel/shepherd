@@ -3,7 +3,7 @@
   import type { HTMLAttributes } from "svelte/elements";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import type { TooltipContent } from "#lib/tooltips/content.js";
-  import type { EpicRunTone } from "../epic-panel";
+  import type { EpicRunTone, RunDot } from "../epic-panel";
 
   // The set-apart run area at the top of the backlog reading detail (#2620, #2622): a caption,
   // the live state with its pulse, optional actions, then the content. The epic's
@@ -14,6 +14,7 @@
     stateText,
     tone,
     kind = undefined,
+    dot = undefined,
     stateTip = undefined,
     actions = undefined,
     children,
@@ -24,6 +25,9 @@
     tone: EpicRunTone;
     /** Exposed as `data-kind` on the state, for tests and styling hooks. */
     kind?: string;
+    /** Shape of the state dot (repo overview, #2639); exposed as `data-dot`. Omitted → the plain
+     *  tone-coloured dot the epic and child panels use. */
+    dot?: RunDot;
     /** Explanation shown on hovering the state. */
     stateTip?: TooltipContent;
     actions?: Snippet;
@@ -35,11 +39,15 @@
   <div class="run-head">
     <span class="caption">{label}</span>
     {#if stateTip}
-      <span class="run-state tone-{tone}" data-kind={kind} use:statusTip={{ text: stateTip }}
+      <span
+        class="run-state tone-{tone}"
+        data-kind={kind}
+        data-dot={dot}
+        use:statusTip={{ text: stateTip }}
         ><span class="pulse" aria-hidden="true"></span>{stateText}</span
       >
     {:else}
-      <span class="run-state tone-{tone}" data-kind={kind}
+      <span class="run-state tone-{tone}" data-kind={kind} data-dot={dot}
         ><span class="pulse" aria-hidden="true"></span>{stateText}</span
       >
     {/if}
@@ -98,6 +106,22 @@
   }
   .run-state.tone-halt {
     color: var(--status-blocked);
+  }
+  .run-state.tone-busy {
+    color: var(--color-amber);
+  }
+  /* Shaped dot (repo overview): a leading run reads in text colour, not amber — amber is kept
+     for "every slot taken" (busy) and a winding-down epic. */
+  .run-state[data-dot="filled"].tone-run {
+    color: var(--color-ink-bright);
+  }
+  .run-state[data-dot="ring"] .pulse {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+  .run-state[data-dot="half"] .pulse {
+    background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+    box-shadow: inset 0 0 0 1px currentColor;
   }
 
   .pulse {

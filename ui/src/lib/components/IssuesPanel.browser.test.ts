@@ -498,8 +498,8 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(row.querySelector(".issue-title")?.textContent).toBe("Compact issue row");
     expect(row.querySelector(".meta")?.textContent).toContain("#42 · enhancement · ");
     const overview = document.querySelector<HTMLElement>(".detail-col .overview")!;
-    expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title({ repo: "repo" }));
-    expect(overview.querySelector("[data-repo-run]")?.textContent).toContain(m.repooverview_hint());
+    expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title());
+    expect(overview.querySelector("[data-repo-run] .note")).toBeNull();
     // The overview doesn't repeat the list (#2638): no entry lists the issue.
     const entries = [...overview.querySelectorAll("li")].map((li) => li.textContent ?? "");
     expect(entries.some((t) => t.includes("Compact issue row"))).toBe(false);
@@ -1040,7 +1040,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(option("e:10")?.textContent).toContain(m.epic_role_winding());
     await expect.element(page.getByText(m.issuespanel_epics_one_leads())).toBeInTheDocument();
     // The list heading shows the bare "used/max" with −/+ (#2950); the way into Automation is
-    // the overview's "change agent slots".
+    // the overview's "Change" beside the slot value.
     const slots = document.querySelector<HTMLElement>(".epics-heading .count")!;
     expect(slots.textContent).toBe("1/1");
     expect(slots.getAttribute("aria-label")).toBe(m.issuespanel_slots_aria({ used: 1, max: 1 }));
@@ -1051,7 +1051,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect
       .poll(() => document.querySelector("[data-repo-run] .run-state")?.textContent)
       .toContain(m.repooverview_leading({ epic: 20, state: m.epic_run_state_waiting_slot() }));
-    await page.getByRole("button", { name: m.repooverview_change_slots(), exact: true }).click();
+    await page.getByRole("button", { name: m.repooverview_change(), exact: true }).click();
     expect(onopenautomation).toHaveBeenCalled();
 
     // A (#10) is expanded by default (topmost epic): its running child holds the slot.

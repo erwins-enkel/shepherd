@@ -895,9 +895,6 @@
       {:else}
         <RepoOverview
           {repoPath}
-          repoName={repos.nameFor(repoPath) ??
-            repoPath.split("/").filter(Boolean).pop() ??
-            repoPath}
           epics={overviewEpics}
           running={overviewRunning}
           labels={overviewLabels}

@@ -169,8 +169,9 @@ export type EpicRunKind =
   | "running";
 
 /** Indicator tone: `run` = amber pulse (work happening / waiting its turn), `halt` = blocked
- *  red, `quiet` = muted (paused, not started, nothing eligible). */
-export type EpicRunTone = "run" | "halt" | "quiet";
+ *  red, `quiet` = muted (paused, not started, nothing eligible), `busy` = amber without pulse
+ *  (every agent slot taken — the repo overview only). */
+export type EpicRunTone = "run" | "halt" | "quiet" | "busy";
 
 export interface EpicRunState {
   kind: EpicRunKind;
@@ -226,6 +227,42 @@ export function epicRunState(
   const inFlight = epic.children.some((c) => c.state === "running" || c.state === "in-review");
   if (reason === "empty" && !inFlight) return { ...base, kind: "nothing", tone: "quiet" };
   return { ...base, kind: "running", tone: "run" };
+}
+
+// ── repo overview run state (#2639) ────────────────────────────────────────────────────────
+
+/** Shape of the repo overview's state dot: hollow ring, filled, or half-filled. */
+export type RunDot = "ring" | "filled" | "half";
+
+export type OverviewRunKind = "idle" | "leading" | "saturated" | "winding";
+
+export interface OverviewRunState {
+  kind: OverviewRunKind;
+  tone: EpicRunTone;
+  dot: RunDot;
+}
+
+/** The repo overview's run indicator. `leaderRun` is the leading epic's {@link epicRunState},
+ *  null while its record loads or when no epic leads. A winding-down epic with no leader also
+ *  reads as winding; slot work without a leader (or a landing repair) reads as leading. */
+export function overviewRunState(
+  summary: DrainRunSummary | null | undefined,
+  leaderRun: Pick<EpicRunState, "kind" | "tone"> | null,
+): OverviewRunState {
+  const leads = summary?.leadingEpic != null;
+  const used = summary?.slots.used ?? 0;
+  const max = summary?.slots.max ?? 0;
+  const windingAlone = !leads && (summary?.windingDown.length ?? 0) > 0;
+  // Precedence winding > saturated > leading > idle: the more specific state wins the dot.
+  if (leaderRun?.kind === "winding" || windingAlone)
+    return { kind: "winding", tone: "run", dot: "half" };
+  // A halted leader keeps its red even with every slot taken.
+  if (max > 0 && used >= max)
+    return { kind: "saturated", tone: leaderRun?.tone === "halt" ? "halt" : "busy", dot: "filled" };
+  if (leads) return { kind: "leading", tone: leaderRun?.tone ?? "run", dot: "filled" };
+  if (used > 0 || summary?.landingRepairs?.length)
+    return { kind: "leading", tone: "run", dot: "filled" };
+  return { kind: "idle", tone: "quiet", dot: "ring" };
 }
 
 /** #3101: the operator actions on THIS running epic's base hold — `resolve` (dispatch a rework

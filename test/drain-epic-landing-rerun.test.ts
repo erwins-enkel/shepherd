@@ -63,6 +63,8 @@ function fakeForge(opts: {
   latestFailedRunForPr?: (prNumber: number) => Promise<number | null>;
   /** When false, omit rerunWorkflowRun/latestFailedRunForPr entirely (capability-missing case). */
   hasRerunCapability?: boolean;
+  /** When true, rerunWorkflowRun records the call and then rejects. */
+  rerunThrows?: boolean;
 }): ForgeSpy {
   const prStatusCalls: string[] = [];
   const rerunCalls: RerunCall[] = [];
@@ -106,6 +108,7 @@ function fakeForge(opts: {
           },
           rerunWorkflowRun: async (runId: number, o: { failedOnly: boolean }) => {
             rerunCalls.push({ runId, failedOnly: o.failedOnly });
+            if (opts.rerunThrows) throw new Error("gh run rerun: HTTP 403");
           },
         }
       : {}),
@@ -130,6 +133,7 @@ function makeHarness(opts: {
   /** When false, use a gitea forge (non-github). */
   github?: boolean;
   hasRerunCapability?: boolean;
+  rerunThrows?: boolean;
   /** #2805: the GitHub REST write backoff seam. */
   restWritesBlocked?: () => boolean;
   /** #2872: reuse a store (simulates a server restart: a fresh DrainService over the same DB). */
@@ -180,6 +184,7 @@ function makeHarness(opts: {
     prStatus: opts.prStatus,
     latestFailedRunForPr: opts.latestFailedRunForPr,
     hasRerunCapability: opts.hasRerunCapability,
+    rerunThrows: opts.rerunThrows,
   });
   const completedEmits: CompletedEpic[] = [];
 
@@ -449,6 +454,67 @@ describe("rerunRedLandingCiForRepo (C)", () => {
     await callRerunPass(restarted);
     expect(restarted.spy.rerunCalls).toHaveLength(0);
   });
+
+  test("#2657: a throwing rerun counts against the per-head cap → no endless per-tick retry", async () => {
+    const h = makeHarness({
+      autoMergeEnabled: true,
+      prStatus: async () => redPr(),
+      latestFailedRunForPr: async () => 42,
+      rerunThrows: true,
+    });
+    seedOpenLanding(h);
+    const row = () => h.store.listEpicCompleted(REPO)[0]!;
+
+    await callRerunPass(h);
+    expect(row().landingRerunHead).toBe("h1");
+    expect(row().landingRerunCount).toBe(1);
+    await callRerunPass(h);
+    expect(row().landingRerunCount).toBe(2);
+
+    // Budget spent on h1 → no more run lookups or reruns.
+    await callRerunPass(h);
+    expect(h.spy.latestFailedRunCalls).toHaveLength(2);
+    expect(h.spy.rerunCalls).toHaveLength(2);
+  });
+
+  // ── #2657: not-open landing PR reconciles the row ──────────────────────────
+
+  test("#2657: PR merged (auto-merge off) → row reconciled to merged, never read again", async () => {
+    const h = makeHarness({
+      autoDrainEnabled: true,
+      prStatus: async () => redPr({ state: "merged" }),
+    });
+    seedOpenLanding(h);
+
+    await callRerunPass(h);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("merged");
+    expect(row.landingPrNumber).toBe(LANDING_PR);
+    expect(row.landingPrUrl).toBe(`https://github.com/o/r/pull/${LANDING_PR}`);
+    expect(h.completedEmits.length).toBeGreaterThan(0);
+
+    await callRerunPass(h);
+    expect(h.spy.prStatusCalls).toHaveLength(1);
+  });
+
+  for (const state of ["closed", "none"] as const) {
+    test(`#2657: PR ${state} → row reconciled to none, never read again`, async () => {
+      const h = makeHarness({
+        autoDrainEnabled: true,
+        prStatus: async () => redPr({ state }),
+      });
+      seedOpenLanding(h);
+
+      await callRerunPass(h);
+      const row = h.store.listEpicCompleted(REPO)[0]!;
+      expect(row.landingState).toBe("none");
+      expect(row.landingPrNumber).toBeNull();
+      expect(row.landingPrUrl).toBeNull();
+
+      await callRerunPass(h);
+      expect(h.spy.prStatusCalls).toHaveLength(1);
+    });
+  }
 
   // ── skip cases (no rerun) ────────────────────────────────────────────────────
 

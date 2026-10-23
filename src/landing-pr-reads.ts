@@ -51,12 +51,14 @@ export interface LandingPrReadsDeps {
 export class LandingPrReads {
   private readonly known = new Map<string, Known>();
   private tickReads = new Map<string, Promise<PrStatus>>();
+  private tickOpened = new Set<string>();
 
   constructor(private readonly deps: LandingPrReadsDeps) {}
 
   /** A new drain tick: reads from here on are shared until the next call. */
   beginTick(): void {
     this.tickReads = new Map();
+    this.tickOpened = new Set();
   }
 
   /** The landing PR on `branch`, read at most once per tick. Rejects like `forge.prStatus`. */
@@ -74,6 +76,19 @@ export class LandingPrReads {
    *  passes keep the pre-write result, which is never more landable than the truth. */
   invalidate(repoPath: string, branch: string): void {
     this.known.set(`${repoPath}\0${branch}`, { at: this.deps.now(), key: null, status: null });
+  }
+
+  /** The drain recorded the landing PR on `branch` as open this tick. This tick's shared read may
+   *  predate the open ("none", or a closed draft), so the passes leave the branch to the next tick
+   *  rather than read that as the PR having gone away (#2657). */
+  markOpened(repoPath: string, branch: string): void {
+    this.invalidate(repoPath, branch);
+    this.tickOpened.add(`${repoPath}\0${branch}`);
+  }
+
+  /** True when {@link markOpened} ran for `branch` this tick. */
+  openedThisTick(repoPath: string, branch: string): boolean {
+    return this.tickOpened.has(`${repoPath}\0${branch}`);
   }
 
   private async resolve(

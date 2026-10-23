@@ -3472,3 +3472,26 @@ test("#2743: a merge-train session is never terminal-capped", async () => {
   await tick(60_000);
   expect(polls).toEqual(["m", "m"]);
 });
+
+test("#2743: a targeted poll queued during the prefetch wins over the older prefetched status", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, herdrAgentId: "term_1", branch: "a" });
+  store.update(s.id, { status: "done" });
+  let live = 0;
+  const forge = forgeReturning(() => OPEN);
+  forge.prStatus = async () => {
+    live++;
+    return OPEN; // the agent's `gh pr create` already landed
+  };
+  let pending: Promise<void> | undefined;
+  const { poller } = churnPoller(store, forge);
+  forge.prStatusMany = async (heads) => {
+    // A turn end lands mid-prefetch: its poll queues on withGh behind the prefetch.
+    pending = poller.pollNow(s.id);
+    return new Map(heads.map((h) => [h, NONE]));
+  };
+  await poller.tick();
+  await pending;
+  expect(poller.get(s.id)?.state).toBe("open");
+  expect(live).toBe(2); // the targeted poll, then the tick's live re-read instead of the stale prefetch
+});

@@ -33,10 +33,12 @@ interface PrBatch extends ReadProvenance {
   statuses: Map<string, PrStatus>;
   at: number;
 }
-/** A head status read ahead of the per-session loop, with the repo's cache revision at read time. */
+/** A head status read ahead of the per-session loop, with the repo's cache revision and the
+ *  clock when the read started. */
 interface Prefetched {
   status: PrStatus;
   revision: number | undefined;
+  at: number;
 }
 interface TransientWindow {
   since: number;
@@ -530,10 +532,11 @@ export class PrPoller implements PrCache {
       Promise.all(
         [...byRepo.values()].map(async ({ forge, sessions: ss }) => {
           const revision = this.readProvenance(forge).revision;
+          const at = this.now();
           const found = await forge.prStatusMany!([...new Set(ss.map((s) => s.branch!))]);
           for (const s of ss) {
             const status = found.get(s.branch!);
-            if (status) out.set(s.id, { status, revision });
+            if (status) out.set(s.id, { status, revision, at });
           }
         }),
       ),
@@ -717,6 +720,7 @@ export class PrPoller implements PrCache {
   ): Promise<void> {
     const forge = s.branch ? this.resolveForge(s.repoPath) : null;
     if (!forge || !s.branch) return; // no PR possible — leave uncached
+    const fresh = this.freshPrefetch(s.id, pre);
     this.lastPolledAt.set(s.id, this.now());
     const me = (await forge.currentUser?.()) ?? null;
     const prev = this.cache.get(s.id);
@@ -726,7 +730,7 @@ export class PrPoller implements PrCache {
       batch && batch.contentKey === provenance.contentKey && batch.revision === provenance.revision
         ? batch
         : null;
-    const prefetched = pre && pre.revision === provenance.revision ? pre.status : undefined;
+    const prefetched = fresh && fresh.revision === provenance.revision ? fresh.status : undefined;
     const marked = s.mergingSince != null;
     const markedNumber = s.mergingPrNumber ?? null;
     const guard = (raw: GitState): GitState =>
@@ -767,6 +771,13 @@ export class PrPoller implements PrCache {
       this.onChange(s.id, git);
     }
     this.rememberSessionRead(s, forge, fpKey, provenance, currentBatch?.at);
+  }
+
+  /** `pre`, unless a poll of `id` started at or after it — a turn-end pollSession queued on
+   *  withGh saw newer state than the prefetch did, so read live rather than roll it back. Read
+   *  before `refresh` stamps its own poll. */
+  private freshPrefetch(id: string, pre: Prefetched | undefined): Prefetched | undefined {
+    return pre && (this.lastPolledAt.get(id) ?? -Infinity) < pre.at ? pre : undefined;
   }
 
   /** `base`'s merge queue, cached per (repo, base). A failed read is "unknown". */

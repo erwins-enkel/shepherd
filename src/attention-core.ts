@@ -50,6 +50,7 @@ export type SignalCode =
   | "stalled"
   | "recap-attention"
   | "train-error"
+  | "epic-run-stopped"
   | "ready-merge"
   | "in-flight"
   | "merging";
@@ -73,6 +74,7 @@ const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   stalled: 2,
   "recap-attention": 2,
   "train-error": 2,
+  "epic-run-stopped": 2,
   "ready-merge": 3,
   "in-flight": 3,
   merging: 3,
@@ -97,6 +99,11 @@ export interface ClassifyCaches {
   block?: BlockReason | null;
   /** The session's open Login Request (#2882), supplied by the live HoldReasonService. */
   loginRequest?: { url: string } | null;
+  /** #2735: this auto epic child's PR passes the drain's retire gate, but the repo drain is not
+   *  acting (a paused epic leads, or none leads and label-drain is off), so nothing integrates it.
+   *  Precomputed by HoldReasonService (it reads the epic run + repo config). `leadEpic` is the
+   *  paused leader, null when no epic leads. */
+  epicHeld?: { epic: number; leadEpic: number | null } | null;
   /** Epoch ms the usage window resets — used ONLY by explainHold for the halted-usage
    *  param; classifyAttention ignores it. */
   resetAt?: number;
@@ -262,6 +269,12 @@ const ATTENTION_RULES: Array<{
   { signal: "stalled", when: (_s, c) => Boolean(c.stalled) },
   { signal: "recap-attention", when: (_s, c) => c.recap?.verdict === "needs_attention" },
   { signal: "train-error", when: (_s, c) => Boolean(c.train?.error) },
+  // epic-run-stopped: an epic child's ready PR that only a running drain integrates (#2735).
+  // Before ready-merge so the row names the actual blocker, not a generic "waiting on you".
+  {
+    signal: "epic-run-stopped",
+    when: (_s, c) => Boolean(c.epicHeld) && c.git?.state === "open",
+  },
   // Tier 3: NORMAL — routine in-flight / queued work.
   // ready-merge: PR is ready but not yet handed to a merger (Tier 2 takes over once it is).
   {
@@ -356,6 +369,13 @@ const SIGNAL_TO_HOLD: Record<
   "manual-steps": (session) => {
     const steps = session.manualSteps.filter((st) => !st.postMerge).length;
     return { code: "manual-steps", params: { steps } };
+  },
+  "epic-run-stopped": (_session, caches) => {
+    const held = caches.epicHeld!;
+    const params: HoldReason["params"] = { epic: held.epic };
+    if (caches.git?.number !== undefined) params.pr = caches.git.number;
+    if (held.leadEpic != null) params.leadEpic = held.leadEpic;
+    return { code: "epic-run-stopped", params };
   },
   stalled: () => ({ code: "stalled" }),
   "recap-attention": () => ({ code: "recap-attention" }),

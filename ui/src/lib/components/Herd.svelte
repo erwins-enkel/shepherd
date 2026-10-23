@@ -521,6 +521,7 @@
     liveness,
     quotaKindFor,
     holdFor,
+    epics,
     onackmanualsteps,
     onshowowed,
     showModel: modelMix,

@@ -37,6 +37,7 @@ const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {
   stalled: () => m.hold_stalled(),
   "recap-attention": () => m.hold_recap_attention(),
   "misrouted-target": ({ params: p = {} }) => m.hold_misrouted_target({ target: p.target ?? "" }),
+  "epic-run-stopped": ({ params: p = {} }) => m.hold_epic_run_stopped({ epic: p.epic ?? 0 }),
   merging: () => m.hold_merging(),
   "merge-rebasing": ({ params: p = {} }) =>
     m.hold_merge_rebasing({ rebaseCount: p.rebaseCount ?? 0 }),
@@ -93,6 +94,7 @@ const HOLD_AWAITS_OPERATOR: Record<HoldCode, boolean> = {
   "quota-error": false,
   "quota-plan": false,
   "critic-rework": false,
+  "epic-run-stopped": false,
   "ci-red": false,
   "pr-conflict": false,
   "awaiting-merge": false,

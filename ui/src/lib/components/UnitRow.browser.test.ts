@@ -25,12 +25,13 @@ vi.mock("#lib/api.js", async (importOriginal) => {
       async () => ({ ok: true }) as { ok: boolean; reason?: "unsupported" | "no-run" },
     ),
     mergePr: vi.fn(async () => ({ state: "merged" }) as never),
+    updateEpic: vi.fn(async () => ({}) as never),
     interruptSession: vi.fn(async () => {}),
   };
 });
 
 const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js");
-const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr, interruptSession } =
+const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr, interruptSession, updateEpic } =
   await import("#lib/api.js");
 const { toasts } = await import("#lib/toasts.svelte.js");
 const { buildQueues } = await import("#lib/buildQueues.svelte.js");
@@ -1362,6 +1363,65 @@ describe("UnitRow plan-gate hold CTA", () => {
     expect(retryCi).toHaveBeenCalledWith("/repo/z", 42);
     await vi.waitFor(() =>
       expect(toasts.items.some((t) => t.text === m.hold_cta_retry_ci_started())).toBe(true),
+    );
+  });
+
+  it("epic-run-stopped hold: Start epic arms then starts the child's epic (#2735)", async () => {
+    vi.mocked(updateEpic).mockClear();
+    render(UnitRow, {
+      session: session({
+        id: "hepic",
+        status: "idle",
+        planPhase: "executing",
+        repoPath: "/repo/e",
+      }),
+      hold: { code: "epic-run-stopped", params: { epic: 67, pr: 68 } },
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByText(m.hold_epic_run_stopped({ epic: 67 }))).toBeInTheDocument();
+    await page.getByRole("button", { name: m.hold_cta_epic_start() }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.hold_cta_epic_start_arm() }))
+      .toBeInTheDocument();
+    expect(updateEpic).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.hold_cta_epic_start_arm() }).click();
+    await vi.waitFor(() => expect(updateEpic).toHaveBeenCalledTimes(1));
+    expect(updateEpic).toHaveBeenCalledWith("/repo/e", 67, { status: "running" });
+  });
+
+  it("epic-run-stopped line still selects the row on click (#2735)", async () => {
+    const onselect = vi.fn();
+    render(UnitRow, {
+      session: session({ id: "hepic3", status: "idle", planPhase: "executing" }),
+      hold: { code: "epic-run-stopped", params: { epic: 67, pr: 68 } },
+      selected: false,
+      nowMs: Date.now(),
+      onselect,
+    });
+    await page.getByRole("button", { name: m.hold_epic_run_stopped({ epic: 67 }) }).click();
+    expect(onselect).toHaveBeenCalledWith("hepic3");
+  });
+
+  it("epic-run-stopped hold under a paused leader: Resume targets the leader (#2735)", async () => {
+    vi.mocked(updateEpic).mockClear();
+    render(UnitRow, {
+      session: session({
+        id: "hepic2",
+        status: "idle",
+        planPhase: "executing",
+        repoPath: "/repo/e",
+      }),
+      hold: { code: "epic-run-stopped", params: { epic: 67, pr: 68, leadEpic: 80 } },
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await page.getByRole("button", { name: m.hold_cta_epic_resume() }).click();
+    await page.getByRole("button", { name: m.hold_cta_epic_resume_arm() }).click();
+    await vi.waitFor(() =>
+      expect(updateEpic).toHaveBeenCalledWith("/repo/e", 80, { status: "running" }),
     );
   });
 

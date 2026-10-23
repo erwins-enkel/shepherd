@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import {
   computeNext,
+  drainEnabled,
   selectCandidates,
   buildRunSummary,
   mappedIssueSet,
@@ -1239,5 +1240,18 @@ describe("mappedIssueSet (#3238)", () => {
     expect(needsOpenPrCheck([archived(6), live(6)], [issue(6)], SINCE)).toBe(false);
     expect(needsOpenPrCheck([archived(6), archived(6, "x", SINCE)], [issue(6)], SINCE)).toBe(false);
     expect(needsOpenPrCheck([archived(6, null)], [issue(6)], SINCE)).toBe(false);
+  });
+});
+
+describe("drainEnabled (#2735)", () => {
+  test("a leading epic decides: running acts, paused does not, regardless of label-drain", () => {
+    expect(drainEnabled({ status: "running" }, false)).toBe(true);
+    expect(drainEnabled({ status: "paused" }, true)).toBe(false);
+  });
+  test("an idle run or no row defers to the label-drain toggle", () => {
+    expect(drainEnabled({ status: "idle" }, true)).toBe(true);
+    expect(drainEnabled({ status: "idle" }, false)).toBe(false);
+    expect(drainEnabled(null, true)).toBe(true);
+    expect(drainEnabled(null, false)).toBe(false);
   });
 });

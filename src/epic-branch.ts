@@ -28,6 +28,15 @@ export function epicParentFromBranch(branch: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** The epic a session is a child of: its persisted stamp, else (legacy unstamped row) the parent
+ *  its `epic/<#>-…` base branch names. Null for a non-epic session. */
+export function sessionEpicParent(s: {
+  epicParent?: number | null;
+  baseBranch: string;
+}): number | null {
+  return s.epicParent ?? epicParentFromBranch(s.baseBranch);
+}
+
 /** The facts {@link isEpicChild} answers from. Structural, not `Session`, so the standalone PR
  *  critic — which holds a PR and no session — can supply the same two fields. */
 export interface EpicChildFacts {

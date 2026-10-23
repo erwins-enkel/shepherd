@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rowState, rowHold, type RowState } from "./hold-row";
+import { rowState, rowHold, epicStartTarget, type RowState } from "./hold-row";
 import { holdLine } from "./hold";
 import { m } from "#lib/paraglide/messages.js";
 import type { HoldReason, PlanGate, Session } from "#lib/types.js";
@@ -349,7 +349,39 @@ const CASES: Array<{ state: RowState; args: Args }> = [
       hold("login-request", { host: "a.example" }),
     ],
   },
+  {
+    state: "epic-start",
+    args: [
+      sess({ planPhase: "executing", status: "idle" }),
+      undefined,
+      false,
+      hold("epic-run-stopped", { epic: 67, pr: 68 }),
+    ],
+  },
 ];
+
+describe("epic run stopped (#2735)", () => {
+  it("non-planning: epic-run-stopped -> epic-start, server line + Start epic CTA", () => {
+    const s = sess({ planPhase: "executing", status: "idle" });
+    const sh = hold("epic-run-stopped", { epic: 67, pr: 68 });
+    expect(rowState(s, undefined, false, sh)).toBe("epic-start");
+    const r = rowHold(s, undefined, false, sh);
+    expect(r.line).toBe(holdLine(sh));
+    expect(r.action?.kind).toBe("epic-start");
+    expect(r.action?.label).toBe(m.hold_cta_epic_start());
+    expect(epicStartTarget(sh)).toBe(67);
+  });
+  it("a paused leader turns the CTA into Resume, targeting the leader", () => {
+    const s = sess({ planPhase: "executing", status: "idle" });
+    const sh = hold("epic-run-stopped", { epic: 67, pr: 68, leadEpic: 80 });
+    expect(rowHold(s, undefined, false, sh).action?.label).toBe(m.hold_cta_epic_resume());
+    expect(epicStartTarget(sh)).toBe(80);
+  });
+  it("without an epic param -> passthrough, no action", () => {
+    const s = sess({ planPhase: "executing", status: "idle" });
+    expect(rowState(s, undefined, false, hold("epic-run-stopped"))).toBe("passthrough");
+  });
+});
 
 describe("login request (#2882)", () => {
   it("any phase: login-request hold -> login state, server line + Open browser CTA", () => {
@@ -380,6 +412,7 @@ describe("properties", () => {
       "server-answer",
       "ci-retry",
       "login",
+      "epic-start",
     ];
     expect(new Set(CASES.map((c) => c.state))).toEqual(new Set(allStates));
     for (const { state, args } of CASES) {

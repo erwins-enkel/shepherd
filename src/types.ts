@@ -1936,7 +1936,8 @@ export type HoldCode =
   | "ready-merge"
   | "manual-steps"
   | "login-request"
-  | "misrouted-target";
+  | "misrouted-target"
+  | "epic-run-stopped";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -1951,6 +1952,8 @@ export interface HoldParams {
   steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
   host?: string; // login-request: host of the page the agent wants logged in
   target?: string; // misrouted-target: the `owner/name` the ticket targets (#3245)
+  epic?: number; // epic-run-stopped: the epic the session is a child of (#2735)
+  leadEpic?: number; // epic-run-stopped: the paused epic that leads the repo, when one does
 }
 
 export interface HoldReason {

@@ -6,6 +6,9 @@
   import PrReviewRequestPopover from "../PrReviewRequestPopover.svelte";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { mergeIntoEpicExplanation } from "#lib/tooltips/explanations.js";
+  import type { RailEpicChild, RailEpicStopped } from "./epic-rail";
 
   let {
     git,
@@ -36,6 +39,8 @@
     toggleReview,
     doReview,
     doReviewPlan,
+    epicChild = null,
+    epicStopped = null,
   }: {
     git: GitState;
     issueNumber: number | null;
@@ -65,6 +70,10 @@
     toggleReview: (e?: Event) => void;
     doReview: () => Promise<void>;
     doReviewPlan: () => Promise<void>;
+    /** #2735: the epic this session is a child of — the Merge button then merges into its branch. */
+    epicChild?: RailEpicChild | null;
+    /** #2735: the epic run that is not integrating this child (null while the drain acts). */
+    epicStopped?: RailEpicStopped | null;
   } = $props();
 
   // CI status → short chip label (issue sketch: "CI passing"). Full status stays in title/aria.
@@ -160,8 +169,25 @@
     git.state !== "none" && git.state !== "open" && git.state !== "merged",
   );
   const reviewingSpan = $derived(chip.kind === "reviewing" && !chip.hasFindings);
+  const epicStoppedSpan = $derived(!!epicStopped);
   const hasPassive = $derived(
-    readyToMerge || plainPr || ciStatus || mergedSpan || closedSpan || reviewingSpan,
+    readyToMerge ||
+      plainPr ||
+      ciStatus ||
+      mergedSpan ||
+      closedSpan ||
+      reviewingSpan ||
+      epicStoppedSpan,
+  );
+  // An epic child's Merge explains where it lands — unless a block reason already titles it.
+  const mergeTip = $derived(
+    epicChild && !mergeBlocked
+      ? {
+          text: mergeIntoEpicExplanation({ branch: epicChild.branch, stopped: !!epicStopped }),
+          stopClickPropagation: false,
+          pinOnClick: false,
+        }
+      : null,
   );
 
   // tappable controls (<a>/<button> + ReadyToggle) — each maps 1:1 to a control:
@@ -223,6 +249,13 @@
       ><span class="dot" aria-hidden="true"></span>{m.gitrail_closed()}</span
     >
   {/if}
+  {#if epicStopped}
+    <span class="status-chip parked epic-stopped" title={m.gitrail_epic_stopped_title()}
+      ><span class="dot hollow" aria-hidden="true"></span>{epicStopped.paused
+        ? m.gitrail_epic_paused({ epic: epicStopped.epic })
+        : m.gitrail_epic_stopped({ epic: epicStopped.epic })}</span
+    >
+  {/if}
   {#if reviewingSpan}
     <span class="verdict-chip critic-reviewing" title={m.criticbadge_reviewing_title()}>
       <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
@@ -279,10 +312,13 @@
       type="button"
       disabled={mergeBlocked}
       title={mergeBlockedReason}
+      use:statusTip={mergeTip}
       onclick={() => doMerge()}
     >
       {#if local}
         {m.gitrail_merge_locally()}
+      {:else if epicChild}
+        {m.gitrail_merge_into_epic()}
       {:else}
         {m.gitrail_merge()}
       {/if}
@@ -539,6 +575,10 @@
   }
   .status-chip.parked .dot {
     background: var(--color-slate);
+  }
+  .status-chip .dot.hollow {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px currentColor;
   }
 
   /* verdict chip: 6px chip-row cohesion, colored by decision */

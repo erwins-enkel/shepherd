@@ -21,6 +21,7 @@
     SessionActivity,
     HoldReason,
     LivenessState,
+    Epic,
   } from "#lib/types.js";
   import { STATUS_COLOR, canResume, canRelaunch, isStrandedLiveness } from "#lib/format.js";
   import { displayStatus } from "#lib/display-status.js";
@@ -32,6 +33,7 @@
     isPlanReviewError,
     resumeQuota,
     retryCi,
+    updateEpic,
     mergePr,
     interruptSession,
     MergeRefusedError,
@@ -58,7 +60,8 @@
   import { formatUnits } from "#lib/components/usage/format.js";
   import { isColdResume } from "#lib/cold-resume.js";
   import { sessionEnvironment } from "#lib/session-env.js";
-  import { coldResumeExplanation } from "#lib/tooltips/explanations.js";
+  import { coldResumeExplanation, epicRunStoppedExplanation } from "#lib/tooltips/explanations.js";
+  import type { TooltipContent } from "#lib/tooltips/content.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { onDestroy, untrack } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
@@ -68,7 +71,7 @@
   import { steerLogs } from "#lib/steerLogs.svelte.js";
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import { remoteActionMessage } from "#lib/remote-sessions.js";
-  import { rowHold } from "#lib/hold-row.js";
+  import { rowHold, epicStartTarget } from "#lib/hold-row.js";
   import { holdAwaitsOperator } from "#lib/hold.js";
   import { checksCleared } from "#lib/checks-cleared.js";
   import {
@@ -109,6 +112,7 @@
     liveness = undefined,
     quotaKind = null,
     hold = undefined,
+    epics = {},
     onackmanualsteps,
     onshowowed,
     showModel = true,
@@ -172,6 +176,8 @@
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
     // hold reason for this session; when present renders a muted "why parked" subline
     hold?: HoldReason;
+    // live epics keyed `${repoPath}#${parentIssueNumber}` — the epic-run-stopped tooltip's tally
+    epics?: Record<string, Epic>;
     // when provided, the manual-steps chip gains an "Ack" CTA that clears the auto-merge gate (#1060)
     onackmanualsteps?: (id: string) => void;
     // when provided, the manual-steps chip becomes a button that opens the Owed lens (#1275)
@@ -416,6 +422,7 @@
     clearTimeout(tipTimer);
     clearTimeout(goArmTimer);
     clearTimeout(retryArmTimer);
+    clearTimeout(epicArmTimer);
     if (openRow === close) openRow = null;
   });
 
@@ -457,6 +464,14 @@
     retryArmed = false;
   }
 
+  // Start/Resume epic arms too (#2735): starting a run spawns agents and spends usage.
+  let epicArmed = $state(false);
+  let epicArmTimer: ReturnType<typeof setTimeout> | undefined;
+  function disarmEpic() {
+    clearTimeout(epicArmTimer);
+    epicArmed = false;
+  }
+
   let ctaBusy = $state(false);
 
   // Armed "Go?" / "Retry CI?" swaps in for the plain label; kept in the script so the .u-hold
@@ -466,7 +481,11 @@
       ? m.hold_cta_go_arm()
       : holdRow.action?.kind === "retry-ci" && retryArmed
         ? m.hold_cta_retry_ci_arm()
-        : (holdRow.action?.label ?? ""),
+        : holdRow.action?.kind === "epic-start" && epicArmed
+          ? hold?.params?.leadEpic != null
+            ? m.hold_cta_epic_resume_arm()
+            : m.hold_cta_epic_start_arm()
+          : (holdRow.action?.label ?? ""),
   );
 
   function onHoldCta(e: MouseEvent) {
@@ -491,7 +510,8 @@
       }
       disarmRetry();
       void doRetryCi();
-    } else if (a.kind === "rereview") void doReview();
+    } else if (a.kind === "epic-start") onEpicCta();
+    else if (a.kind === "rereview") void doReview();
     else if (a.kind === "resume") void doResume();
     else if (a.kind === "answer") openPlanPanel();
     else if (a.kind === "reply") onselect(session.id);
@@ -588,6 +608,50 @@
       ctaBusy = false;
     }
   }
+
+  // First click arms, the second starts the run.
+  function onEpicCta() {
+    if (!epicArmed) {
+      epicArmed = true;
+      clearTimeout(epicArmTimer);
+      epicArmTimer = setTimeout(disarmEpic, 4000);
+      return;
+    }
+    disarmEpic();
+    void doEpicStart();
+  }
+
+  // Start (or resume) the epic run that would integrate this child's ready PR. No optimistic hide:
+  // the hold clears when the WS epic:update / session:hold arrives.
+  async function doEpicStart() {
+    const epic = hold ? epicStartTarget(hold) : null;
+    if (ctaBusy || epic == null) return;
+    ctaBusy = true;
+    try {
+      await updateEpic(session.repoPath, epic, { status: "running" });
+    } catch {
+      toasts.info(m.hold_cta_epic_failed(), {
+        alert: true,
+        key: `hold-cta:epic:${session.id}`,
+      });
+    } finally {
+      ctaBusy = false;
+    }
+  }
+
+  // The epic-run-stopped line explains itself on hover (#2735).
+  const holdTip = $derived.by((): TooltipContent | null => {
+    const epic = hold?.code === "epic-run-stopped" ? hold.params?.epic : undefined;
+    if (epic == null) return null;
+    const live = epics[`${session.repoPath}#${epic}`];
+    return epicRunStoppedExplanation({
+      pr: hold?.params?.pr ?? null,
+      epic,
+      leadEpic: hold?.params?.leadEpic ?? null,
+      integrated: live?.children.filter((c) => c.state === "merged").length,
+      total: live?.children.length,
+    });
+  });
 
   let openPanelTick = $state(0);
   function openPlanPanel() {
@@ -720,7 +784,7 @@
           stranded: true,
         }
       : holdRow.line
-        ? { line: holdRow.line, actions: holdActions(), stranded: false }
+        ? { line: holdRow.line, actions: holdActions(), stranded: false, tip: holdTip }
         : null,
   );
   // Cold-resume marker (#2042). The Herd is where the operator PICKS which session to resume, so
@@ -1018,7 +1082,21 @@
 {#snippet holdSubline()}
   {#if sublineView}
     <div class="u-hold" class:u-stranded={sublineView.stranded}>
-      <span class="u-hold-text">{sublineView.line}</span>
+      {#if "tip" in sublineView && sublineView.tip}
+        <!-- An explained line sits above .unit-hit (statusTip raises it), so it must select the
+             row itself: `navigates` lets a click through (touch: first tap opens the tip). -->
+        <button
+          type="button"
+          class="u-hold-text u-hold-explained"
+          use:statusTip={{ text: sublineView.tip, placement: "right", navigates: true }}
+          onclick={(e) => {
+            e.stopPropagation();
+            onselect(session.id);
+          }}>{sublineView.line}</button
+        >
+      {:else}
+        <span class="u-hold-text">{sublineView.line}</span>
+      {/if}
       {#each sublineView.actions as a (a.cls)}
         <button
           type="button"
@@ -1709,6 +1787,17 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* An explained hold line is a button only so it can select the row; it still reads as text. */
+  .u-hold-explained {
+    appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
   }
   /* Stranded (herdr-restored husk): read as an attention state, not a quiet hold (#1630). */
   .u-stranded .u-hold-text {

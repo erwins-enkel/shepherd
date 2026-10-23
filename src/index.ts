@@ -3073,6 +3073,7 @@ const holdService = new HoldReasonService({
   reviewSnapshot: () => reviewService.snapshot(),
   gateSnapshot: () => planGate.snapshot(),
   recapSnapshot: () => recapService.snapshot(),
+  epicRetire: store,
   onChange: (id, hold) => events.emit("session:hold", { id, hold }),
 });
 

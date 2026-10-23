@@ -780,3 +780,37 @@ test("classifyAttention: a merge-queued PR is merging, never awaiting-merge", ()
   expect(r.signals).toContain("merging");
   expect(r.signals).not.toContain("awaiting-merge");
 });
+
+test("#2735: a held epic child is Tier-2 epic-run-stopped, outranking ready-merge", () => {
+  const s = session({ readyToMerge: true });
+  const caches: ClassifyCaches = {
+    git: git({ number: 68, checks: "success" }),
+    epicHeld: { epic: 67, leadEpic: null },
+  };
+  const r = classifyAttention(s, caches, NOW);
+  expect(r.tier).toBe(2);
+  expect(r.signals).toContain("ready-merge");
+  expect(explainHold(s, caches, NOW)).toEqual({
+    code: "epic-run-stopped",
+    params: { epic: 67, pr: 68 },
+  });
+  expect(explainHold(s, { ...caches, epicHeld: { epic: 67, leadEpic: 80 } }, NOW)?.params).toEqual({
+    epic: 67,
+    pr: 68,
+    leadEpic: 80,
+  });
+});
+
+test("#2735: epic-run-stopped yields to Tier-1, and needs an open PR", () => {
+  const s = session();
+  const held = { epic: 67, leadEpic: null };
+  expect(
+    explainHold(s, { git: git({ number: 68, checks: "failure" }), epicHeld: held }, NOW)?.code,
+  ).toBe("ci-red");
+  expect(
+    classifyAttention(s, { git: git({ state: "merged" }), epicHeld: held }, NOW).signals,
+  ).not.toContain("epic-run-stopped");
+  expect(
+    classifyAttention(s, { git: git({ number: 68 }), epicHeld: null }, NOW).signals,
+  ).not.toContain("epic-run-stopped");
+});

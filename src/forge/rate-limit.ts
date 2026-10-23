@@ -93,6 +93,9 @@ export class BucketRateLimit {
    */
   private _notifiedBlocked = false;
 
+  /** Counts backoff windows: bumped on every unblocked→blocked edge. */
+  private _window = 0;
+
   /**
    * @param opts.label         Bucket name for the edge logs ("GraphQL" by default).
    * @param opts.maxCooldownMs Ceiling for the escalating cooldown. Defaults to
@@ -201,6 +204,12 @@ export class BucketRateLimit {
     return this._pausedUntil != null && this._now() < this._pausedUntil;
   }
 
+  /** Identifies the current (or last) backoff window, so a read can be tied to the window it
+   *  was made in (#2834). */
+  window(): number {
+    return this._window;
+  }
+
   /** Returns an immutable snapshot of the current state. */
   snapshot(): RateLimitSnapshot {
     return {
@@ -268,6 +277,7 @@ export class BucketRateLimit {
     // re-engagement after natural expiry). `wasBlocked` is the authoritative
     // edge trigger — no secondary `_notifiedBlocked` guard needed here.
     if (!wasBlocked) {
+      this._window++;
       console.warn(
         `[rate-limit] ${this._label} backoff engaged until ${new Date(next).toISOString()}${cause ? ` — ${cause}` : ""}`,
       );

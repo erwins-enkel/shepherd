@@ -207,10 +207,12 @@ const REST_CHECK_LOOKUP_BUDGET = 40;
 /** How long the shared REST open-pulls list answers from its cache (#2834): every fallback
  *  `prStatus` of a repo reads it instead of a per-branch lookup. */
 const REST_OPEN_PULLS_TTL_MS = 60_000;
-/** How long a branch's REST "no PR" lookup is reused (#2834). A merged/closed result is kept
- *  for good: a branch absent from the open list can't leave that state without a new PR, which
- *  the open list shows first. */
+/** How long a branch's REST "no PR" lookup is reused (#2834). */
 const REST_NONE_TTL_MS = 10 * 60_000;
+/** How long a branch's REST merged/closed lookup is reused (#2834). Longer than "none": leaving
+ *  it takes a new or reopened PR, which an open-list hit (dropping the entry) usually shows
+ *  first — but one opened and merged between two list reads doesn't, so it is still bounded. */
+const REST_TERMINAL_BRANCH_TTL_MS = 30 * 60_000;
 /** How long {@link GithubForge.listWorkflowRuns} answers from its cache: the Actions tab polls
  *  every 12s and each fetch fans out to a `gh run view` per workflow (#2660). */
 const WORKFLOW_RUNS_CACHE_TTL_MS = 30_000;
@@ -1020,8 +1022,9 @@ export class GithubForge implements GitForge {
       structure: EpicStructure;
       contentKey: string | null;
       complete: boolean;
-      /** Read over REST: while GraphQL stays in backoff a complete one is not re-read (#2834). */
-      rest?: boolean;
+      /** The GraphQL backoff window a REST read was made in: a complete one is held for the
+       *  rest of that window (#2834). Undefined for a GraphQL read. */
+      restWindow?: number;
       retryAt?: number;
       failures?: number;
     }
@@ -1427,8 +1430,7 @@ export class GithubForge implements GitForge {
     this.restOpenPulls = null;
     this.restOpenPullsInflight = null;
     this.restOpenPullsGen++;
-    for (const [branch, e] of this.restBranchCache)
-      if (e.status.state === "none") this.restBranchCache.delete(branch);
+    this.restBranchCache.clear();
     this.readCache?.invalidate(this.slug, ["prs", "counts", "links", "session"]);
   }
 
@@ -2303,10 +2305,13 @@ export class GithubForge implements GitForge {
     const hit = open.find(
       (p) => p.head?.ref === headBranch && p.head?.repo?.owner?.login === owner,
     );
-    if (hit) return this.restPullStatus(hit, deployConfigured);
+    if (hit) {
+      this.restBranchCache.delete(headBranch); // a new or reopened PR supersedes the terminal one
+      return this.restPullStatus(hit, deployConfigured);
+    }
     const cached = this.restBranchCache.get(headBranch);
-    if (cached && (cached.status.state !== "none" || Date.now() - cached.at < REST_NONE_TTL_MS))
-      return { ...cached.status, deployConfigured };
+    const ttl = cached?.status.state === "none" ? REST_NONE_TTL_MS : REST_TERMINAL_BRANCH_TTL_MS;
+    if (cached && Date.now() - cached.at < ttl) return { ...cached.status, deployConfigured };
     const status = await this.lookupBranchPrRest(headBranch, owner!, deployConfigured);
     if (status.state !== "open") this.restBranchCache.set(headBranch, { at: Date.now(), status });
     return status;
@@ -2397,6 +2402,7 @@ export class GithubForge implements GitForge {
     const pr = this.forkOwner
       ? prs.find((p) => p.headRepositoryOwner?.login === this.forkOwner)
       : prs[0];
+    this.restBranchCache.delete(headBranch); // GraphQL answered: the REST lookup is superseded
     if (!pr) return { state: "none", checks: "none", deployConfigured };
     return this.mapGhPr(pr, deployConfigured);
   }
@@ -3644,8 +3650,13 @@ export class GithubForge implements GitForge {
         complete: true,
       });
     const hit = this.epicStructures.get(parentNumber);
-    // A complete REST read is held for the rest of the GraphQL backoff: one REST pass per window.
-    const restHeld = !!hit?.complete && hit.rest === true && graphRateLimit.blocked();
+    // A complete REST read of this backoff window is held for the rest of it — one REST pass per
+    // window — unless the issue content moved, then re-read at the normal TTL (#2834).
+    const restHeld =
+      !!hit?.complete &&
+      graphRateLimit.blocked() &&
+      hit.restWindow === graphRateLimit.window() &&
+      (fpKey === null || hit.contentKey === fpKey || now - hit.at < EPIC_STRUCTURE_TTL_MS);
     const fresh =
       restHeld ||
       (hit !== undefined &&
@@ -3674,7 +3685,7 @@ export class GithubForge implements GitForge {
     const gen = this.epicStructuresGen;
     const revision = this.readCache?.revision(this.slug);
     const p = this.fetchEpicStructure(parentNumber)
-      .then(({ structure, complete, rest }) => {
+      .then(({ structure, complete, restWindow }) => {
         if (gen !== this.epicStructuresGen || revision !== this.readCache?.revision(this.slug))
           return structure;
         const at = this.now();
@@ -3684,7 +3695,7 @@ export class GithubForge implements GitForge {
             structure,
             contentKey: fpKey,
             complete,
-            rest,
+            restWindow,
           });
           this.readCache?.put("epic", this.slug, fpKey, structure, String(parentNumber));
           return structure;
@@ -3708,7 +3719,7 @@ export class GithubForge implements GitForge {
   /** `complete` is false when a REST fallback call failed and was read as empty. */
   private async fetchEpicStructure(
     parentNumber: number,
-  ): Promise<{ structure: EpicStructure; complete: boolean; rest: boolean }> {
+  ): Promise<{ structure: EpicStructure; complete: boolean; restWindow?: number }> {
     if (!graphRateLimit.blocked()) {
       const [owner = "", repo = ""] = this.slug.split("/");
       try {
@@ -3726,12 +3737,13 @@ export class GithubForge implements GitForge {
             `query=${withRateLimit(EPIC_STRUCTURE_QUERY)}`,
           ]),
         );
-        return { structure, complete: true, rest: false };
+        return { structure, complete: true };
       } catch {
         // Any failure: read the parts over REST, as this path did before #2807.
       }
     }
     let complete = true;
+    const restWindow = graphRateLimit.window();
     // Below the REST reserve every part fails, so the last complete structure is kept (#2834).
     const settle = <T>(read: () => Promise<T>, empty: T): Promise<T> =>
       Promise.resolve()
@@ -3751,7 +3763,7 @@ export class GithubForge implements GitForge {
       },
       parentNumber,
     );
-    return { structure, complete, rest: true };
+    return { structure, complete, restWindow };
   }
 
   async listSubIssues(parentNumber: number): Promise<SubIssueRef[]> {

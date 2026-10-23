@@ -1386,6 +1386,7 @@ function etagRestFake(o: {
   check: (sha: string) => string;
   remaining: () => number;
   version?: () => number;
+  lookup?: (ref: string) => unknown[];
 }) {
   const calls: string[][] = [];
   const resetSec = () => Math.floor(Date.now() / 1000) + 3600;
@@ -1403,7 +1404,8 @@ function etagRestFake(o: {
     calls.push(args);
     const head = args.find((a) => a.startsWith("head="));
     if (args.includes("repos/o/r/pulls") && head) {
-      const ref = head.split(":")[1];
+      const ref = head.split(":")[1]!;
+      if (o.lookup) return http(o.lookup(ref));
       return http([
         {
           number: 900,
@@ -1481,9 +1483,53 @@ test("GithubForge.prStatus: merged branches are looked up once, then left alone 
     const forge = new GithubForge("o/r", {}, run);
     await forge.prStatus("gone");
     const after = calls.filter((c) => c.some((a) => a.startsWith("head="))).length;
-    setSystemTime(new Date("2026-10-01T13:00:00Z"));
+    setSystemTime(new Date("2026-10-01T12:20:00Z")); // within REST_TERMINAL_BRANCH_TTL_MS
     expect((await forge.prStatus("gone")).state).toBe("merged");
     expect(calls.filter((c) => c.some((a) => a.startsWith("head="))).length).toBe(after);
+  } finally {
+    setSystemTime();
+    unblockGraphql();
+    restFallbackReserve.reset();
+  }
+});
+
+test("GithubForge.prStatus: a cached terminal branch is dropped once a new PR shows on the open list (#2834)", async () => {
+  blockGraphql();
+  restFallbackReserve.reset();
+  setSystemTime(new Date("2026-10-01T12:00:00Z"));
+  try {
+    let open: Array<{ ref: string; sha: string; number: number }> = [];
+    let ver = 1;
+    let latest = {
+      number: 60,
+      state: "closed",
+      merged_at: null,
+      head: { ref: "feature", sha: "a" },
+    };
+    const { run } = etagRestFake({
+      open: () => open,
+      check: () => "success",
+      remaining: () => 4000,
+      version: () => ver,
+      lookup: () => [latest],
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.prStatus("feature")).number).toBe(60);
+    open = [{ ref: "feature", sha: "b", number: 61 }];
+    ver = 2;
+    setSystemTime(new Date("2026-10-01T12:01:01Z"));
+    expect((await forge.prStatus("feature")).number).toBe(61);
+    open = []; // #61 merged
+    ver = 3;
+    latest = {
+      number: 61,
+      state: "closed",
+      merged_at: "2026-10-01T12:01:30Z",
+      head: { ref: "feature", sha: "b" },
+    } as never;
+    setSystemTime(new Date("2026-10-01T12:02:02Z"));
+    const st = await forge.prStatus("feature");
+    expect(st).toMatchObject({ number: 61, state: "merged" });
   } finally {
     setSystemTime();
     unblockGraphql();
@@ -1602,7 +1648,8 @@ test("GithubForge.getEpicStructure: a REST read is held for the rest of the Grap
     await forge.getEpicStructure(1);
     expect(calls.length).toBe(first);
     unblockGraphql();
-    await forge.getEpicStructure(1); // backoff over → normal TTL rules re-read
+    blockGraphql(); // a later backoff window: the earlier window's read is not held
+    await forge.getEpicStructure(1);
     expect(calls.length).toBeGreaterThan(first);
   } finally {
     setSystemTime();

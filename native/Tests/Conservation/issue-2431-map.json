@@ -12859,7 +12859,8 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"spawnPhasesExplainWhyTheyCanTakeAWhile()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalModelReportsTheLatestAttemptAndAttachClearsIt() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalRowsNameTheSocketTheTryAndWhyTheLastOneDied()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"withoutAnAttemptOnlyTheWaitIsShown()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"withoutAnAttemptOnlyTheWaitIsShown()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"reconnectDeadlineTracksTheBackoff() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

@@ -449,14 +449,9 @@ public final class SessionStore {
         guard connection == .connecting else { continue }
         connectingDetail = ConnectingDetail(
           step: .events, attempt: state.failures + 1, lastFailure: state.lastFailure,
-          retryAt: Date().addingTimeInterval(Self.seconds(state.delay)))
+          retryAt: state.retryAt)
       }
     }
-  }
-
-  private static func seconds(_ duration: Duration) -> TimeInterval {
-    let (seconds, attoseconds) = duration.components
-    return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
   }
 
   /// `true` when the caller should try again, `false` when `stop()` or task

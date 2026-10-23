@@ -235,6 +235,36 @@ struct EventStreamTests {
     }
   }
 
+  @Test("a reconnect deadline survives delayed observation and clears on connect and stop")
+  func reconnectDeadlineTracksTheBackoff() async throws {
+    try await withStream(reconnectDelay: .seconds(30)) { server, stream in
+      let lifecycle = stream.lifecycle()
+      await stream.start()
+      try await awaitConnected(server)
+      #expect(await stream.reconnectState().retryAt == nil)
+
+      server.closeCurrentConnection()
+      #expect(try await firstEvent(from: lifecycle) == .connected)
+      #expect(try await firstEvent(from: lifecycle) == .disconnected)
+      let state = await stream.reconnectState()
+      let deadline = try #require(state.retryAt)
+      #expect(deadline > Date())
+      // A later reader sees the same deadline, not a fresh full delay.
+      try await Task.sleep(for: .milliseconds(100))
+      #expect(await stream.reconnectState().retryAt == deadline)
+
+      await stream.reconnectNow()
+      #expect(await stream.reconnectState().retryAt == nil)
+      try await awaitConnected(server, count: 2)
+      server.closeCurrentConnection()
+      #expect(try await firstEvent(from: lifecycle) == .connected)
+      #expect(try await firstEvent(from: lifecycle) == .disconnected)
+      #expect(await stream.reconnectState().retryAt != nil)
+      await stream.stop()
+      #expect(await stream.reconnectState().retryAt == nil)
+    }
+  }
+
   @Test("reconnectNow() opens a fresh socket without waiting out the delay")
   func reconnectNowIsImmediate() async throws {
     try await withStream(reconnectDelay: .seconds(60)) { server, stream in

@@ -1102,12 +1102,23 @@ extension SessionStoreTests {
     #expect(await eventually { store.connection == .live })
     #expect(await eventually { events.connectionCount() == 1 })
 
+    // Hold the lifecycle watcher in its reconnect refresh while the new socket
+    // drops. Reading the buffered disconnect must not restart the countdown.
+    http.on("GET", "/api/sessions") { _ in
+      FakeResponse(body: try Fixtures.json([Session]()), delay: 0.3)
+    }
+    await stream.reconnectNow()
+    #expect(await eventually {
+      events.connectionCount() == 2 && http.requests().filter { $0.path == "/api/sessions" }.count >= 2
+    })
     events.closeCurrentConnection()
-    #expect(await eventually { store.connectingDetail?.step == .events })
+    #expect(await eventually { store.connectingDetail?.retryAt != nil })
     let detail = try #require(store.connectingDetail)
     #expect(detail.attempt >= 1)
     #expect(detail.lastFailure != nil)
     #expect((detail.retryAt ?? .distantPast) > Date())
+    let reconnect = await stream.reconnectState()
+    #expect(detail.retryAt == reconnect.retryAt)
 
     await stream.reconnectNow()
     #expect(await eventually { store.connection == .live })

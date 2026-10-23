@@ -48,6 +48,8 @@ public actor EventStream {
   private var lastFailure: String?
   /// The pause the pending reconnect sleeps, as decided by `scheduleReconnect`.
   private var pendingDelay: Duration = .zero
+  /// Captured when the backoff starts, so a delayed observer sees its real end.
+  private var retryAt: Date?
 
   private nonisolated let eventStream: AsyncStream<ServerEvent>
   private nonisolated let lifecycleStream: AsyncStream<LifecycleEvent>
@@ -68,19 +70,22 @@ public actor EventStream {
 
   /// Where a reconnect stands, for an operator asking why the app is still
   /// connecting. Read it after `.disconnected`: by the time a caller's hop onto
-  /// this actor runs, `scheduleReconnect` has already settled all three values.
+  /// this actor runs, `scheduleReconnect` has already settled the diagnostic values.
   public struct ReconnectState: Sendable, Equatable {
     /// Attempts in a row that never became healthy (see `connectionWasHealthy`).
     public let failures: Int
     /// The pause before the next attempt opens.
     public let delay: Duration
+    /// The pending backoff's deadline; nil while a socket is opening or stopped.
+    public let retryAt: Date?
     /// Why the latest socket died, verbatim: a refused upgrade's HTTP status,
     /// the close code and the transport error.
     public let lastFailure: String?
   }
 
   public func reconnectState() -> ReconnectState {
-    ReconnectState(failures: consecutiveFailures, delay: pendingDelay, lastFailure: lastFailure)
+    ReconnectState(
+      failures: consecutiveFailures, delay: pendingDelay, retryAt: retryAt, lastFailure: lastFailure)
   }
 
   /// Decoded frames, oldest first. Single-consumer: the `SessionStore` owns
@@ -208,6 +213,7 @@ public actor EventStream {
   /// will not tear the connection down.
   public func stop() {
     stopped = true
+    retryAt = nil
     pump?.cancel()
     pump = nil
     if task != nil {
@@ -261,6 +267,7 @@ public actor EventStream {
   }
 
   private func connect() {
+    retryAt = nil
     invalidateTerminalOwners()
     var request = URLRequest(url: baseURL)
     // Read the token afresh on every connect: a login that happened after
@@ -388,6 +395,8 @@ public actor EventStream {
     }
 
     pendingDelay = delay
+    let (seconds, attoseconds) = delay.components
+    retryAt = Date().addingTimeInterval(TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18)
 
     do {
       try await Task.sleep(for: delay)

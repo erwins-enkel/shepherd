@@ -450,7 +450,7 @@ struct IOSComposeContent: View {
             ProgressView()
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 spawnStatus(elapsed: submission.startedAt.map { context.date.timeIntervalSince($0) } ?? 0)
-            }
+            }.textSelection(.enabled)
             Text(verbatim: L.t("native_compose_keep_app_open")).font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted)
                 .multilineTextAlignment(.center)
             Button(L.t("newtask_spawn_cancel")) {

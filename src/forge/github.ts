@@ -932,6 +932,10 @@ export class GithubForge implements GitForge {
    *  most once per forge instance (on transition into the capped regime). */
   private openPrCapLogged = false;
   private readonly restCheckCache = new Map<string, { at: number; state: ChecksState }>();
+  /** Bumped when own writes drop REST check/review entries, so a read already in flight can't
+   *  re-cache a pre-write state (e.g. a failure read before an own rerun). */
+  private restChecksGen = 0;
+  private restReviewsGen = 0;
   /** {@link listWorkflowRuns} cache + in-flight share; `workflowRunsGen` bumps on rerun/cancel. */
   private workflowRunsCache: { at: number; runs: WorkflowRun[] } | null = null;
   private workflowRunsInflight: Promise<WorkflowRun[]> | null = null;
@@ -1624,9 +1628,11 @@ export class GithubForge implements GitForge {
     this.workflowRunsInflight = null;
     this.completedRunJobs.delete(runId);
     this.restCheckCache.clear();
+    this.restChecksGen++;
   }
 
   private invalidateRestReviews(prNumber: number): void {
+    this.restReviewsGen++;
     for (const key of this.restReviewCache.keys())
       if (key.startsWith(`${prNumber}@`)) this.restReviewCache.delete(key);
   }
@@ -2038,8 +2044,9 @@ export class GithubForge implements GitForge {
     const key = headSha ? `${prNumber}@${headSha}` : null;
     const cached = key ? this.restReviewCache.get(key) : undefined;
     if (cached && Date.now() - cached.at < REST_REVIEW_CACHE_TTL_MS) return cached.value;
+    const gen = this.restReviewsGen;
     const value = await this.fetchRestReviewStatus(prNumber);
-    if (key) {
+    if (key && gen === this.restReviewsGen) {
       for (const [k, e] of this.restReviewCache)
         if (Date.now() - e.at >= REST_REVIEW_CACHE_TTL_MS) this.restReviewCache.delete(k);
       this.restReviewCache.set(key, { at: Date.now(), value });
@@ -2084,8 +2091,9 @@ export class GithubForge implements GitForge {
     if (!headSha) return this.restChecksForHead(headSha);
     const cached = this.cachedRestChecks(headSha);
     if (cached) return cached;
+    const gen = this.restChecksGen;
     const state = await this.restChecksForHead(headSha);
-    this.restCheckCache.set(headSha, { at: Date.now(), state });
+    if (gen === this.restChecksGen) this.restCheckCache.set(headSha, { at: Date.now(), state });
     return state;
   }
 
@@ -2107,9 +2115,10 @@ export class GithubForge implements GitForge {
         checks[i] = "pending";
       }
     }
+    const gen = this.restChecksGen;
     const freshChecks = await mapBounded(lookups, 6, async ({ sha }) => {
       const state = await this.restChecksForHeadStrict(sha);
-      this.restCheckCache.set(sha, { at: Date.now(), state });
+      if (gen === this.restChecksGen) this.restCheckCache.set(sha, { at: Date.now(), state });
       return state;
     });
     for (let i = 0; i < lookups.length; i++) checks[lookups[i]!.index] = freshChecks[i]!;

@@ -1290,6 +1290,68 @@ test("GithubForge.prStatus: own rerun/cancel and review drop the REST check/revi
   }
 });
 
+test("GithubForge.prStatus: a REST check read in flight across an own rerun is not cached", async () => {
+  blockGraphql();
+  try {
+    let release!: () => void;
+    let gate: Promise<void> | null = new Promise((r) => (release = r));
+    let reached!: () => void;
+    const statusReached = new Promise<void>((r) => (reached = r));
+    const inner = restPrRunner({ head: () => "abc", check: () => "failure" });
+    const run = async (args: string[]): Promise<string> => {
+      const out = await inner.run(args);
+      if (args.some((a) => a.endsWith("/status"))) reached();
+      if (
+        gate &&
+        (args.some((a) => a.endsWith("/status")) || args.some((a) => a.endsWith("/reviews")))
+      )
+        await gate;
+      return out;
+    };
+    const forge = new GithubForge("o/r", {}, run);
+    const first = forge.prStatus("feature");
+    await statusReached; // the check read is in flight
+    await forge.rerunWorkflowRun(9, { failedOnly: true });
+    gate = null;
+    release();
+    await first;
+    await forge.prStatus("feature");
+    expect(inner.count("/status")).toBe(2); // stale pre-rerun failure was not cached
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.prStatus: a REST review read in flight across an own review is not cached", async () => {
+  blockGraphql();
+  try {
+    let release!: () => void;
+    let gate: Promise<void> | null = new Promise((r) => (release = r));
+    let reached!: () => void;
+    const reviewsReached = new Promise<void>((r) => (reached = r));
+    const inner = restPrRunner({ head: () => "abc", check: () => "success" });
+    const run = async (args: string[]): Promise<string> => {
+      const out = await inner.run(args);
+      if (args.some((a) => a.endsWith("/reviews"))) {
+        reached();
+        if (gate) await gate;
+      }
+      return out;
+    };
+    const forge = new GithubForge("o/r", {}, run);
+    const first = forge.prStatus("feature");
+    await reviewsReached;
+    await forge.postReview(7, { event: "COMMENT", body: "x" });
+    gate = null;
+    release();
+    await first;
+    await forge.prStatus("feature");
+    expect(inner.count("/reviews")).toBe(2);
+  } finally {
+    unblockGraphql();
+  }
+});
+
 test("GithubForge.prStatus: REST fallback re-reads pending checks after 60s and reviews on a new head", async () => {
   blockGraphql();
   setSystemTime(new Date("2026-10-01T12:00:00Z"));

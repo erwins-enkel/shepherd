@@ -55,15 +55,18 @@ private final class QueueFixture {
     let store: SessionStore
     let model: QueuesModel
 
-    init(_ reads: QueuesReads, loadsListsOnDemand: Bool = false) throws {
+    init(_ reads: QueuesReads, loadsListsOnDemand: Bool = false, snapshotStore: SessionStore? = nil) throws {
         defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: CoreTestSupport.environment(defaults: defaults))
         app.loadsListsOnDemand = loadsListsOnDemand
-        store = try SessionStore(
-            profile: ServerProfile(name: "queues", baseURL: URL(string: "https://queues.invalid")!,
-                                   mode: .remote),
-            credentials: InMemoryCredentialStore())
+        if let snapshotStore { store = snapshotStore }
+        else {
+            store = try SessionStore(
+                profile: ServerProfile(name: "queues", baseURL: URL(string: "https://queues.invalid")!,
+                                       mode: .remote),
+                credentials: InMemoryCredentialStore())
+        }
         model = QueuesModel(store: store, app: app)
         // No suspension before replacing the live closures; no test starts the store/socket.
         model.reads = reads
@@ -98,14 +101,26 @@ struct QueuesModelTests {
     }
 
     @Test func freshStoreSessionRepairsMissedHaltClearWithoutAnotherRead() async throws {
-        let f = try QueueFixture(empty, loadsListsOnDemand: true)
-        defer { f.close() }
+        let server = SettingsFakeServer()
+        defer { server.tearDown() }
         let session = PreviewData.session(id: "s1")
-        f.store.apply(.sessionNew(session))
-        f.store.apply(try frame("session:halt", "{\"id\":\"s1\",\"haltReason\":\"operator\",\"haltedAt\":1}"))
-        #expect(await queueSettle { f.model.retrySessions.first?.haltReason?.rawValue == "operator" })
-        f.store.apply(.sessionNew(session))
-        #expect(await queueSettle { f.model.retrySessions.first?.haltReason == nil })
+        server.stub("GET", "/api/sessions", status: 200, json: try JSONEncoder().encode([session]))
+        server.stub("GET", "/api/settings", status: 200, json: Data(#"{"repoRoot":"/repo","repoRootDisplay":"repo","firstRunPending":false,"defaultModel":"opus","defaultEffort":"default","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"en"}"#.utf8))
+        server.stub("GET", "/api/repos", status: 200, json: Data(#"{"repos":[],"recentWindowDays":7}"#.utf8))
+        let client = try ShepherdClient(profile: .init(name: "snapshot", baseURL: server.baseURL, mode: .local),
+            credentials: InMemoryCredentialStore(), urlSession: server.urlSession())
+        let store = SessionStore(client: client, usesConditionalListReads: true)
+        try await store.bootstrap()
+        let f = try QueueFixture(empty, loadsListsOnDemand: true, snapshotStore: store)
+        defer { f.close() }
+        let revision = f.model.retrySelectionGeneration
+        store.apply(try frame("session:halt", "{\"id\":\"s1\",\"haltReason\":\"operator\",\"haltedAt\":1}"))
+        #expect(await queueSettle { f.model.retrySelectionGeneration > revision })
+        #expect(f.model.retrySessions.first?.haltReason?.rawValue == "operator")
+        // The REST snapshot missed the old halt frame and now reports its authoritative clear.
+        try await store.refresh()
+        #expect(f.model.retrySessions.first?.haltReason == nil)
+        #expect(server.requests().filter { $0.path == "/api/sessions" }.count == 2)
     }
 
     @Test func conditionalDoneRecoveryKeepsSnapshotOn304() async {

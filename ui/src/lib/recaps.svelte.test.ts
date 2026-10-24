@@ -3,6 +3,7 @@ import type { Recap } from "./types";
 
 vi.mock("./api", () => ({
   getRecaps: vi.fn(),
+  getSessionRecap: vi.fn(),
 }));
 
 import { recaps } from "./recaps.svelte";
@@ -84,4 +85,66 @@ test("recap upsert rejects a __proto__ id but still stores a real one", () => {
   const r = recap("sess-1");
   recaps.apply({ id: "sess-1", recap: r });
   expect(recaps.map["sess-1"]).toBe(r);
+});
+
+test("detail reads stay local and ignore a superseded session response", async () => {
+  const { RecapDetailState } = await import("./recaps.svelte");
+  const { getSessionRecap } = await import("./api");
+  let resolveA!: (value: Recap) => void;
+  vi.mocked(getSessionRecap).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveA = resolve;
+      }),
+  );
+  vi.mocked(getSessionRecap).mockResolvedValueOnce({ ...recap("b"), blocks: [] });
+  const detail = new RecapDetailState();
+  expect(getSessionRecap).not.toHaveBeenCalled();
+  const old = detail.load("a", recap("a"));
+  await detail.load("b", recap("b"));
+  resolveA({ ...recap("a"), blocks: [{ type: "rich-text", id: "old", markdown: "OLD" }] });
+  await old;
+  expect(detail.current("b", recap("b"))?.blocks).toEqual([]);
+  expect(detail.current("a", recap("a"))).toBeUndefined();
+  expect(recaps.map).toEqual({});
+});
+
+test("detail version changes hide old blocks; close invalidates pending reads; retry recovers", async () => {
+  const { RecapDetailState } = await import("./recaps.svelte");
+  const { getSessionRecap } = await import("./api");
+  const detail = new RecapDetailState();
+  vi.mocked(getSessionRecap).mockResolvedValueOnce({ ...recap("a"), blocks: [] });
+  await detail.load("a", recap("a"));
+  expect(detail.current("a", { ...recap("a"), updatedAt: 2000 })).toBeUndefined();
+  vi.mocked(getSessionRecap).mockRejectedValueOnce(new Error("404"));
+  await detail.load("a", recap("a"));
+  expect(detail.error).toBe(true);
+  expect(detail.loading).toBe(false);
+  vi.mocked(getSessionRecap).mockResolvedValueOnce(recap("a"));
+  await detail.load("a", recap("a"));
+  expect(detail.error).toBe(false);
+  expect(detail.current("a", recap("a"))?.headline).toBe("All done");
+  let resolve!: (value: Recap) => void;
+  vi.mocked(getSessionRecap).mockImplementationOnce(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  const pending = detail.load("a", recap("a"));
+  detail.clear();
+  resolve(recap("a"));
+  await pending;
+  expect(detail.current("a", recap("a"))).toBeUndefined();
+});
+
+test("a stale detail response is retryable instead of silently hiding the missing diff", async () => {
+  const { RecapDetailState } = await import("./recaps.svelte");
+  const { getSessionRecap } = await import("./api");
+  const summary = { ...recap("a"), updatedAt: 2000 };
+  vi.mocked(getSessionRecap).mockResolvedValueOnce(recap("a"));
+  const detail = new RecapDetailState();
+  await detail.load("a", summary);
+  expect(detail.error).toBe(true);
+  expect(detail.current("a", summary)).toBeUndefined();
 });

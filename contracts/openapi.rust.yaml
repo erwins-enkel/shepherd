@@ -3063,7 +3063,7 @@ components:
     Recap:
       type: object
       additionalProperties: true
-      description: The documented subset of src/types.ts Recap the native action bar reads. The server sends more; additionalProperties keeps the rest legal.
+      description: The documented subset of src/types.ts Recap. List snapshots and session:recap omit blocks; GET /api/sessions/{id}/recap returns the full persisted recap. Additional properties preserve other summary fields.
       required:
         - sessionId
         - state
@@ -3107,7 +3107,7 @@ components:
       type: object
       additionalProperties:
         $ref: "#/components/schemas/Recap"
-      description: GET /api/recaps. Session id -> recap. Absent means no recap exists for that session.
+      description: GET /api/recaps. Session id -> recap summary without blocks. Absent means no recap exists for that session.
     RecapRegenerateStatus:
       type: string
     RecapRegenerateResult:
@@ -10129,6 +10129,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/recap:
+    get:
+      operationId: getSessionRecap
+      description: Read the full persisted recap including blocks, without regeneration. Available for live and archived sessions.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full recap including grounded visual blocks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown session or no recap exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/recap/regenerate:
     parameters:
       - name: id
@@ -10163,7 +10188,7 @@ paths:
           description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
           schema:
             type: string
-      description: Bootstrap snapshot of every recap the server has cached.
+      description: Bootstrap snapshot of every recap summary, without blocks.
       responses:
         "200":
           description: Session id -> recap.
@@ -13731,7 +13756,7 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/SessionBackgroundBusyEvent"
   session:recap:
-    description: A session's recap was created, regenerated or changed state. Carries the whole recap, so no re-read is needed.
+    description: A session's recap was created, regenerated or changed state. Carries the summary without blocks; open detail views re-read GET /api/sessions/{id}/recap.
     schema:
       $ref: "#/components/schemas/SessionRecapEvent"
   session:amendments:

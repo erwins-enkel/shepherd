@@ -7,6 +7,26 @@ import ShepherdKit
 
 @MainActor
 final class IOSSessionActionsTests: XCTestCase {
+    func testRecapDetailFetchesOnlyWhenHosted() async throws {
+        let summary = try JSONDecoder().decode(Recap.self, from: Data(#"{"sessionId":"s1","state":"ready","headline":"Done","body":"Summary","openItems":[],"updatedAt":1000}"#.utf8))
+        var reads: [String] = []
+        let detail = IOSRecapDetail(sessionID: "s1", summary: summary) { id in
+            reads.append(id)
+            var full = summary
+            full.blocks = [.init(value2: .init(_type: .callout, id: "detail", tone: .init(known: .info), markdown: "Fetched block"))]
+            return full
+        }
+        XCTAssertTrue(reads.isEmpty)
+        let host = UIHostingController(rootView: detail)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while reads.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(reads, ["s1"])
+    }
+
     func testHeaderMenuKeepsEveryRailActionAcrossStatusesAndReadOnly() {
         let fixture = IOSActionFixture()
         defer { fixture.merge.teardown() }

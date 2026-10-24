@@ -1,3 +1,4 @@
+import { recapSummary } from "../../src/recap-core";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fx from "./actions-fixtures";
 import {
@@ -259,6 +260,22 @@ describe("recaps", () => {
     await validateResponse("GET", "/api/recaps", anon);
   });
 
+  test("detail recap preserves blocks and documents missing and unauthenticated reads", async () => {
+    const id = await createSession("recap detail");
+    const route = "/api/sessions/{id}/recap";
+    const url = `${s.baseUrl}/api/sessions/${id}/recap`;
+    const missing = await fetch(url, { headers: bearer(token) });
+    expect(missing.status).toBe(404);
+    await validateResponse("GET", route, missing);
+    s.deps.store.putRecap({ ...fx.recap, sessionId: id });
+    const ok = await fetch(url, { headers: bearer(token) });
+    expect(ok.status).toBe(200);
+    expect(((await validateResponse("GET", route, ok)) as any).blocks).toEqual(fx.recap.blocks);
+    const anon = await fetch(url);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", route, anon);
+  });
+
   test("regenerate answers 202 with a status, 404 for an unknown id", async () => {
     const id = await createSession("recap me");
     const ok = await post(`/api/sessions/${id}/recap/regenerate`);
@@ -286,12 +303,15 @@ describe("actions events", () => {
     const id = await createSession("event source");
     const frames = await collectEvents(s, token, async () => {
       await post(`/api/sessions/${id}/amendments`, { text: "Event-driving amendment." });
-      s.deps.events.emit("session:recap", { id, recap: fx.recap });
+      s.deps.events.emit("session:recap", { id, recap: recapSummary(fx.recap) });
     });
     const seen = new Set<string>();
     for (const frame of frames) {
       if (!EVENTS.includes(frame.event)) continue;
       validateEvent(frame.event, frame.data);
+      if (frame.event === "session:recap") {
+        expect(Object.hasOwn((frame.data as { recap: object }).recap, "blocks")).toBe(false);
+      }
       seen.add(frame.event);
     }
     expect([...seen].sort()).toEqual([...EVENTS].sort());

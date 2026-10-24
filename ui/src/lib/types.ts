@@ -1132,7 +1132,7 @@ export interface Recap {
   spawnedAt: number;
   generatedAt: number | null;
   updatedAt: number;
-  blocks?: VisualBlock[]; // arrives over session:recap WS payload; optional for back-compat
+  blocks?: VisualBlock[]; // loaded by the recap detail endpoint; omitted from lists and events
 }
 
 /** One operator amendment to a session's task (#2225) — mirrors the server's `TaskAmendment`.

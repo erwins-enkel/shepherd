@@ -144,7 +144,20 @@ extension ShepherdClient {
     } catch { throw ShepherdError.from(error, route: "regenerateRecap") }
   }
 
-  /// `GET /api/recaps` — the bootstrap snapshot. Every later change rides `session:recap`.
+  /// Full persisted recap, including blocks. Call only from an open detail surface.
+  public func recap(sessionID: String) async throws -> Recap {
+    do {
+      switch try await generated.getSessionRecap(.init(path: .init(id: sessionID))) {
+      case .ok(let ok): return try ok.body.json
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .undocumented(let statusCode, _):
+        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getSessionRecap")
+      }
+    } catch { throw ShepherdError.from(error, route: "getSessionRecap") }
+  }
+
+  /// `GET /api/recaps` — the summary snapshot without blocks. Every later summary change rides `session:recap`.
   public func recaps(host: String? = nil) async throws -> [String: Recap] {
     do {
       switch try await generated.listRecaps(.init(query: .init(host: host))) {

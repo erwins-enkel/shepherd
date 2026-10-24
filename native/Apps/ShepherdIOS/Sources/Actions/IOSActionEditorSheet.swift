@@ -129,11 +129,20 @@ struct IOSActionEditorContent: View {
 }
 
 struct IOSRecapSheet: View {
-    let recap: Recap?
+    let sessionID: String
+    @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            ScrollView { IOSRecapContent(recap: recap).padding(16) }
+            ScrollView {
+                if let client = app.store?.client {
+                    IOSRecapDetail(sessionID: sessionID,
+                        summary: app.extension(ActionsModel.self)?.recap(for: sessionID),
+                        read: { try await client.recap(sessionID: $0) })
+                        .id(app.activationGeneration)
+                        .padding(16)
+                } else { IOSRecapContent(recap: nil).padding(16) }
+            }
                 .background(SessionListStyle.background)
                 .navigationTitle(L.t("feat_visual_recap_title"))
                 .navigationBarTitleDisplayMode(.inline)
@@ -141,6 +150,30 @@ struct IOSRecapSheet: View {
                     Button(L.t("common_close")) { dismiss() }
                 } }
         }.preferredColorScheme(.dark).tint(SessionListStyle.amber)
+    }
+}
+
+struct IOSRecapDetail: View {
+    let sessionID: String
+    let summary: Recap?
+    let read: (String) async throws -> Recap
+    @State private var detail = RecapDetailState()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if detail.isLoading { ProgressView() }
+            if let error = detail.error {
+                Text(verbatim: error)
+                Button(L.t("common_retry")) { Task { await load() } }
+            }
+            IOSRecapContent(recap: detail.current(sessionID: sessionID, summary: summary) ?? summary)
+        }
+        .task(id: RecapDetailState.version(sessionID: sessionID, summary: summary)) { await load() }
+        .onDisappear { detail.close() }
+    }
+
+    private func load() async {
+        await detail.load(sessionID: sessionID, summary: summary, read: read)
     }
 }
 
@@ -156,6 +189,9 @@ struct IOSRecapContent: View {
                 if recap.state.known == .generating { Text(L.t("recap_generating")) }
                 else if recap.state.known == .failed { Text(L.t("recap_failed")) }
                 else if recap.state.known == .empty { Text(L.t("recap_empty_legacy")) }
+                if let blocks = recap.blocks, !blocks.isEmpty {
+                    IOSVisualBlocksView(blocks: blocks)
+                }
                 Text((try? AttributedString(markdown: recap.body)) ?? AttributedString(recap.body)).fixedSize(horizontal: false, vertical: true)
                 ForEach(Array(recap.openItems.enumerated()), id: \.offset) { _, item in
                     Label(item, systemImage: "circle").fixedSize(horizontal: false, vertical: true)

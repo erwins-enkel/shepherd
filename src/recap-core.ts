@@ -10,6 +10,13 @@ import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { visualBlockLanguageLine, type OperatorLanguage } from "./operator-language";
 
+/** List and event payloads retain the summary; grounded visual blocks are detail-only. */
+export function recapSummary(recap: Recap): Omit<Recap, "blocks"> {
+  const summary = { ...recap };
+  delete summary.blocks;
+  return summary;
+}
+
 export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "needs_attention"];
 export const RECAP_HEADLINE_MAX = 100;
 export const RECAP_DIGEST_MAX_CHARS = 4000;

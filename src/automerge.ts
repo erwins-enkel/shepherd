@@ -725,7 +725,8 @@ export class AutoMergeService {
   ): Promise<boolean | "enqueued"> {
     const forge = this.deps.resolveForge(repoPath);
     const s = this.deps.store.get(sessionId);
-    if (!forge || !s) return false;
+    // F09: the merge is bound to the head the CI + critic gate evaluated; no head, no merge.
+    if (!forge || !s || !headSha) return false;
     let stacked: boolean | null;
     try {
       stacked = await this.confirmIncrementalStack(forge, s, prNumber);
@@ -743,6 +744,7 @@ export class AutoMergeService {
       await forge.merge(prNumber, {
         method: forge.mergeMethod,
         deleteBranch: !this.hasLiveSuccessorOn(s),
+        expectedHeadSha: headSha,
         ...(stacked ? { allowStacked: true } : {}),
       });
     } catch (err) {

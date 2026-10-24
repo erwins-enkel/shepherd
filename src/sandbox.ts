@@ -728,6 +728,21 @@ export function autoHoldReason(
   return null;
 }
 
+/**
+ * Returns a hold reason when an auto=true spawn of `provider` must be refused under `profile` (the
+ * repo's configured profile, NOT the spawn's effective one), else null. A Codex task session always
+ * runs unconfined (`--dangerously-bypass-approvals-and-sandbox`, profile forced to trusted), so it
+ * may run unattended only where the operator chose `trusted` anyway — never silently in a repo set
+ * to a confining profile (F12).
+ */
+export function codexAutoHoldReason(
+  provider: string | null | undefined,
+  profile: SandboxProfile,
+): string | null {
+  if (provider !== "codex" || profile === "trusted") return null;
+  return `Autonomous Codex spawn refused: Codex runs unconfined and this repo's sandbox profile is ${profile}.`;
+}
+
 /** Thrown when an auto spawn is refused (auto hold reason present). */
 export class SandboxAutoRefused extends Error {
   readonly holdReason: string;

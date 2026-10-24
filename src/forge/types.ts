@@ -474,10 +474,12 @@ export interface MergeInput {
    *  contain the trunk's current tip is refused with {@link StackUntestedError} (#3192).
    *  No effect on hosts without a stack concept (Gitea, Local). */
   allowStacked?: boolean;
-  /** Bind the merge to the revision the operator confirmed (#2299): the host refuses the merge if
-   *  the PR's head moved since. Set by the manual merge endpoints from the confirmation dialog's
-   *  payload; autonomous callers leave it unset. Hosts without an optimistic-concurrency guard
-   *  (Gitea, Local) ignore it — there the server-side confirm check is the only binding. */
+  /** Bind the merge to the revision that was confirmed (#2299) or gated: the host refuses the
+   *  merge if the PR's head moved since. Set by the manual merge endpoints from the confirmation
+   *  dialog's payload, and by EVERY autonomous caller (merge train, epic retire/land) from the
+   *  head its CI + critic gate evaluated — they never merge without one (F09). GitHub enforces it
+   *  via the live-head probe and `--match-head-commit`, Gitea via `head_commit_id` (>= 1.17;
+   *  older Gitea ignores it), Local by comparing the branch tip before the squash. */
   expectedHeadSha?: string;
 }
 

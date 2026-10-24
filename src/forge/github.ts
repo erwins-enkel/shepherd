@@ -3082,6 +3082,14 @@ export class GithubForge implements GitForge {
 
   private async mergeAny(prNumber: number, o: MergeInput): Promise<void> {
     const probe = await this.probeStack(prNumber);
+    // The head moved since the caller's gate evaluated it (F09): refuse before any mutation, on
+    // both paths. `--match-head-commit` / merge-async's `sha` still bind it host-side when the
+    // probe could not read the head.
+    if (o.expectedHeadSha && probe.sha && probe.sha !== o.expectedHeadSha) {
+      throw new Error(
+        `pr#${prNumber} head moved: expected ${o.expectedHeadSha}, live ${probe.sha}`,
+      );
+    }
     if (probe.stacked) return this.mergeStacked(prNumber, o, probe);
     // A merge-queue base (#3219): gh rejects `--delete-branch` there, and the queue's own method
     // governs, so neither is sent — the repo's `delete_branch_on_merge` does the cleanup. Without a

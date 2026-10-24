@@ -551,6 +551,19 @@ test("GiteaForge.merge: POSTs merge with Do + delete_branch_after_merge", async 
   expect(post.body).toEqual({ Do: "squash", delete_branch_after_merge: true });
 });
 
+test("GiteaForge.merge: binds expectedHeadSha as head_commit_id (F09)", async () => {
+  const { fn, calls } = fakeFetch({
+    "POST /api/v1/repos/team/proj/pulls/9/merge": { status: 200 },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.merge(9, { method: "squash", deleteBranch: true, expectedHeadSha: "abc123" });
+  expect(calls[0]!.body).toEqual({
+    Do: "squash",
+    delete_branch_after_merge: true,
+    head_commit_id: "abc123",
+  });
+});
+
 test("GiteaForge.redeploy: dispatches workflow with ref", async () => {
   const { fn, calls } = fakeFetch({
     "POST /api/v1/repos/team/proj/actions/workflows/deploy.yaml/dispatches": { status: 204 },

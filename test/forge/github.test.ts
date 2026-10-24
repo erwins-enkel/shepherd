@@ -1725,6 +1725,27 @@ test("GithubForge.merge: invokes gh pr merge with squash + delete-branch", async
   expect(args).toContain("o/r");
 });
 
+test("GithubForge.merge: refuses before merging when the live head moved off expectedHeadSha (F09)", async () => {
+  const { run, calls } = fakeRunner({
+    "api repos/o/r/pulls/7": JSON.stringify({ stack: null, sha: "PUSHED", baseRef: "main" }),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  await expect(
+    forge.merge(7, { method: "squash", deleteBranch: true, expectedHeadSha: "REVIEWED" }),
+  ).rejects.toThrow(/head moved/);
+  expect(calls.some((c) => c[0] === "pr" && c[1] === "merge")).toBe(false);
+});
+
+test("GithubForge.merge: binds a matching expectedHeadSha via --match-head-commit", async () => {
+  const { run, calls } = fakeRunner({
+    "api repos/o/r/pulls/7": JSON.stringify({ stack: null, sha: "REVIEWED", baseRef: "main" }),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.merge(7, { method: "squash", deleteBranch: true, expectedHeadSha: "REVIEWED" });
+  const args = calls.find((c) => c[0] === "pr")!;
+  expect(args.slice(-2)).toEqual(["--match-head-commit", "REVIEWED"]);
+});
+
 test("GithubForge.redeploy: invokes gh workflow run with ref", async () => {
   const { run, calls } = fakeRunner({});
   const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);

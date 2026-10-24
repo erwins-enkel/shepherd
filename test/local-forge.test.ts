@@ -402,6 +402,39 @@ test("squashMergeLocal is exported and merges directly (base detached)", async (
   }
 });
 
+test("squashMergeLocal refuses when the branch tip moved off expectedHeadSha, moving no ref (F09)", async () => {
+  const repo = mkRepo();
+  try {
+    const baseTip = revParse(repo, "main");
+    featureBranch(repo, "feature/moved", 1);
+    const reviewed = revParse(repo, "feature/moved");
+    writeFileSync(join(repo, "late.txt"), "unreviewed\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "late push");
+    git(repo, "checkout", "-q", "--detach");
+    await expect(
+      squashMergeLocal(repo, "feature/moved", "main", undefined, reviewed),
+    ).rejects.toThrow(/head moved/);
+    expect(revParse(repo, "refs/heads/main")).toBe(baseTip);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("squashMergeLocal merges when the branch tip equals expectedHeadSha", async () => {
+  const repo = mkRepo();
+  try {
+    const baseTip = revParse(repo, "main");
+    featureBranch(repo, "feature/bound", 1);
+    const reviewed = revParse(repo, "feature/bound");
+    git(repo, "checkout", "-q", "--detach");
+    await squashMergeLocal(repo, "feature/bound", "main", undefined, reviewed);
+    expect(revParse(repo, "refs/heads/main^")).toBe(baseTip);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 // ── merge of an unknown number throws ───────────────────────────────────────
 
 test("merge of an unknown PR number throws a clear error", async () => {

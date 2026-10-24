@@ -4,6 +4,7 @@ import {
   isSandboxProfile,
   resolveProfile,
   autoHoldReason,
+  codexAutoHoldReason,
   isDegraded,
   isEgressDegraded,
   egressApplies,
@@ -88,6 +89,18 @@ describe("resolveProfile", () => {
   test("empty strings treated as unset", () => {
     expect(resolveProfile("", "", "trusted")).toBe("trusted");
     expect(resolveProfile("   ", "  ", "autonomous")).toBe("autonomous");
+  });
+});
+
+describe("codexAutoHoldReason (F12)", () => {
+  test("refuses codex under any confining profile", () => {
+    expect(codexAutoHoldReason("codex", "autonomous")).toMatch(/autonomous/);
+    expect(codexAutoHoldReason("codex", "standard")).toMatch(/standard/);
+  });
+  test("allows codex under trusted, and never holds other providers", () => {
+    expect(codexAutoHoldReason("codex", "trusted")).toBeNull();
+    expect(codexAutoHoldReason("claude", "autonomous")).toBeNull();
+    expect(codexAutoHoldReason(undefined, "autonomous")).toBeNull();
   });
 });
 

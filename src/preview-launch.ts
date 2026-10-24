@@ -141,13 +141,26 @@ exec env bash -lc "$COMMAND"
   return scriptPath;
 }
 
-export async function startPreviewScript(scriptPath: string, worktreePath: string): Promise<void> {
+/** How to launch the preview script: the argv (script first, or a bwrap wrapper around it) and
+ *  the exact child env. Built by SessionService.previewLaunch; absent ⇒ the script directly with
+ *  the server env (trusted repos). */
+export interface PreviewLaunch {
+  argv: string[];
+  env: Record<string, string>;
+}
+
+export async function startPreviewScript(
+  scriptPath: string,
+  worktreePath: string,
+  launch?: PreviewLaunch | null,
+): Promise<void> {
+  const argv = launch?.argv ?? [scriptPath];
   await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(scriptPath, {
+    const child = spawn(argv[0] ?? scriptPath, argv.slice(1), {
       cwd: worktreePath,
       detached: true,
       stdio: "ignore",
-      env: {
+      env: launch?.env ?? {
         ...process.env,
         SHEPHERD_WORKTREE_PATH: worktreePath,
       },

@@ -1,11 +1,13 @@
-import { test, expect } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { DrainService } from "../src/drain";
 import type { SandboxBackend } from "../src/sandbox";
 import type { EgressBackend } from "../src/egress";
 import { CLAUDEAI_CONNECTOR_EGRESS_HOST, egressTmpDir } from "../src/egress";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { startPreviewScript } from "../src/preview-launch";
 import { join } from "node:path";
 import type { StandardCreateInput, Session } from "../src/types";
 import type { GitForge, Issue, PrStatus } from "../src/forge/types";
@@ -54,6 +56,8 @@ function makeService(opts: {
   detectBackend: () => SandboxBackend;
   detectEgressBackend?: () => EgressBackend;
   egressProbed?: { called: boolean };
+  prepareMembraneState?: ConstructorParameters<typeof SessionService>[0]["prepareMembraneState"];
+  previewLogFile?: (sessionId: string) => string;
 }) {
   return new SessionService({
     transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
@@ -62,6 +66,8 @@ function makeService(opts: {
     worktree: worktreeStub(),
     herdr: herdrStub(opts.record),
     detectBackend: opts.detectBackend,
+    prepareMembraneState: opts.prepareMembraneState,
+    previewLogFile: opts.previewLogFile ?? ((id) => `/run/membrane/${id}/preview-start.log`),
     // Default the egress seam to null so an autonomous test never falls through to the real
     // (slow, host-dependent) self-test. Tests that want egress ON inject "slirp4netns".
     detectEgressBackend: () => {
@@ -104,6 +110,50 @@ test("create + standard + backend bwrap → wraps argv, records applied=standard
   expect(record.argv![sep + 1]).toBe("claude");
   expect(s.sandboxApplied).toBe("standard");
   expect(s.sandboxDegraded).toBe(false);
+});
+
+test("create + standard + bwrap → binds the per-spawn .claude.json copy, never the host file RW (F04)", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+  const record: { argv?: string[] } = {};
+  const seen: { sessionId?: string; cwd?: string; key?: string } = {};
+  const service = makeService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    prepareMembraneState: async (i) => {
+      Object.assign(seen, { sessionId: i.sessionId, cwd: i.cwd, key: i.key });
+      return "/run/membrane/copy.claude.json";
+    },
+  });
+  const s = await service.create(baseInput());
+  expect(seen).toEqual({ sessionId: s.id, cwd: "/wt/s", key: "session" });
+  const a = record.argv!;
+  const i = a.indexOf("/run/membrane/copy.claude.json");
+  expect(a[i - 1]).toBe("--bind");
+  expect(a[i + 1]).toMatch(/\.claude\.json$/);
+  for (let k = 0; k + 2 < a.length; k++) {
+    if (a[k] === "--bind" || a[k] === "--bind-try")
+      expect(a[k + 1]).not.toMatch(/\/\.claude\.json$/);
+  }
+});
+
+test("create + standard + bwrap: a failing state prep degrades to the RO host bind", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+  const record: { argv?: string[] } = {};
+  const service = makeService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    prepareMembraneState: async () => {
+      throw new Error("EACCES");
+    },
+  });
+  await service.create(baseInput());
+  const a = record.argv!;
+  const i = a.findIndex((x, k) => x === "--ro-bind-try" && /\.claude\.json$/.test(a[k + 1] ?? ""));
+  expect(i).toBeGreaterThan(0);
 });
 
 test("create + standard + backend null → passthrough but degraded", async () => {
@@ -815,4 +865,112 @@ test("F12 control: drain + autonomous repo + claude provider → claims and spaw
   const counts = await drainWith("claude");
   expect(counts.create).toBe(1);
   expect(counts.claims).toBeGreaterThan(0);
+});
+
+// ── audit F03: preview-start.sh never runs unconfined with the server env ─────
+describe("SessionService.previewLaunch (F03)", () => {
+  const script = "/repo/.git/shepherd/preview-start.sh";
+  const setup = (repoProfile: "trusted" | "standard" | "autonomous", backend: SandboxBackend) => {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: repoProfile });
+    const s = store.create({
+      name: "p",
+      prompt: "x",
+      repoPath: "/repo",
+      baseBranch: "main",
+      branch: "shepherd/p",
+      worktreePath: "/wt/p",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_p",
+    });
+    const service = makeService({ store, record: {}, detectBackend: () => backend });
+    return { store, service, s };
+  };
+
+  test("trusted repo + trusted session → null (unchanged direct launch)", () => {
+    const { service, s } = setup("trusted", "bwrap");
+    expect(service.previewLaunch(s, script)).toBeNull();
+  });
+
+  for (const profile of ["standard", "autonomous"] as const) {
+    test(`${profile} repo → bwrap membrane, --clearenv, creds masked, no --die-with-parent`, () => {
+      process.env.DUMMY_SERVER_SECRET = "dummy-not-real";
+      try {
+        const { service, s } = setup(profile, "bwrap");
+        const l = service.previewLaunch(s, script)!;
+        expect(l.argv[0]).toBe("bwrap");
+        expect(l.argv.slice(-2)).toEqual(["--", script]);
+        expect(l.argv).toContain("--clearenv");
+        expect(l.argv).not.toContain("--die-with-parent");
+        expect(l.argv).not.toContain("--unshare-net");
+        // git common dir = the script's grandparent, bound like the agent's.
+        expect(l.argv.join(" ")).toContain("--bind /repo/.git /repo/.git");
+        expect(l.argv.some((a) => a.endsWith("/.credentials.json"))).toBe(false);
+        const wi = l.argv.indexOf("SHEPHERD_WORKTREE_PATH");
+        expect(l.argv[wi - 1]).toBe("--setenv");
+        expect(l.argv[wi + 1]).toBe("/wt/p");
+        expect(JSON.stringify(l)).not.toContain("dummy-not-real");
+        // The script's log must be writable: <common>/shepherd is re-bound RO by the membrane.
+        const log = `/run/membrane/${s.id}/preview-start.log`;
+        const li = l.argv.indexOf("SHEPHERD_PREVIEW_LOG");
+        expect(l.argv[li - 1]).toBe("--setenv");
+        expect(l.argv[li + 1]).toBe(log);
+        const bi = l.argv.findIndex((x, k) => x === "--bind" && l.argv[k + 1] === log);
+        expect(l.argv[bi + 2]).toBe(log);
+        const roShepherd = l.argv.findIndex(
+          (x, k) => x === "--ro-bind-try" && l.argv[k + 1] === "/repo/.git/shepherd",
+        );
+        expect(roShepherd).toBeGreaterThan(0);
+        expect(bi).toBeGreaterThan(roShepherd);
+        expect(log.startsWith("/repo/.git/shepherd")).toBe(false);
+        expect(Object.keys(l.env)).toEqual(["PATH"]);
+      } finally {
+        delete process.env.DUMMY_SERVER_SECRET;
+      }
+    });
+  }
+
+  test("trusted repo but sandboxed SESSION → wrapped", () => {
+    const { service, s } = setup("trusted", "bwrap");
+    const sandboxed = { ...s, sandboxApplied: "standard" as const };
+    expect(service.previewLaunch(sandboxed, script)?.argv[0]).toBe("bwrap");
+  });
+
+  test("sandboxed repo, no backend → script directly with a minimal env", () => {
+    process.env.DUMMY_SERVER_SECRET = "dummy-not-real";
+    try {
+      const { service, s } = setup("standard", null);
+      const l = service.previewLaunch(s, script)!;
+      expect(l.argv).toEqual([script]);
+      expect(l.env.SHEPHERD_WORKTREE_PATH).toBe("/wt/p");
+      expect(l.env.DUMMY_SERVER_SECRET).toBeUndefined();
+      expect(typeof l.env.PATH).toBe("string");
+    } finally {
+      delete process.env.DUMMY_SERVER_SECRET;
+    }
+  });
+
+  test("startPreviewScript honors the launch env (server env not inherited)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preview-launch-"));
+    try {
+      const sh = join(dir, "preview-start.sh");
+      const marker = join(dir, "MARKER");
+      writeFileSync(
+        sh,
+        `#!/bin/sh\necho "secret=$DUMMY_SERVER_SECRET wt=$SHEPHERD_WORKTREE_PATH" > ${marker}\n`,
+      );
+      chmodSync(sh, 0o700);
+      process.env.DUMMY_SERVER_SECRET = "dummy-not-real";
+      await startPreviewScript(sh, dir, {
+        argv: [sh],
+        env: { PATH: "/usr/bin:/bin", SHEPHERD_WORKTREE_PATH: dir },
+      });
+      for (let i = 0; i < 100 && !existsSync(marker); i++) await Bun.sleep(20);
+      expect(readFileSync(marker, "utf8").trim()).toBe(`secret= wt=${dir}`);
+    } finally {
+      delete process.env.DUMMY_SERVER_SECRET;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

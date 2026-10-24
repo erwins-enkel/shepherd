@@ -2,10 +2,10 @@ import { test, expect } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { dashify } from "../src/claude-trust";
 import {
   accumulate,
   parseLine,
-  dashify,
   claudeTranscriptExists,
   jsonlPathFor,
   dominantModelOf,

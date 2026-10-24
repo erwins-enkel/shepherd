@@ -30,7 +30,7 @@ import type { GitForge } from "../src/forge/types";
 import { UpdateService } from "../src/update";
 import { config, USAGE_HISTORY_RETENTION_MS } from "../src/config";
 import { ACTIVE_LABEL } from "../src/drain-core";
-import { dashify } from "../src/usage";
+import { dashify } from "../src/claude-trust";
 
 // Create a real tmp dir inside config.repoRoot so validation passes
 let tmpRoot: string;

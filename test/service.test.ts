@@ -8,6 +8,8 @@ import {
   existsSync,
   utimesSync,
   rmSync,
+  readFileSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8287,6 +8289,36 @@ test("stageRelaunchImages copies worktree uploads into staging, caps at MAX_IMAG
     }
     // originals on disk untouched (all 12 still present)
     expect(readdirSync(uploads)).toHaveLength(12);
+  } finally {
+    config.repoRoot = prevRoot;
+  }
+});
+
+test("stageRelaunchImages never carries agent-planted symlinks (F11)", () => {
+  const store = new SessionStore(":memory:");
+  const root = mkdtempSync(join(tmpdir(), "relaunch-linkroot-"));
+  const wt = mkdtempSync(join(tmpdir(), "relaunch-linkwt-"));
+  const hostDir = mkdtempSync(join(tmpdir(), "relaunch-hostdir-"));
+  writeFileSync(join(hostDir, "id_dummy"), "DUMMY-PRIVATE-KEY");
+  const uploads = join(wt, ".shepherd-uploads");
+  mkdirSync(uploads, { recursive: true });
+  writeFileSync(join(uploads, "ok.png"), "PNGDATA");
+  symlinkSync(join(hostDir, "id_dummy"), join(uploads, "notes.txt"));
+
+  const prevRoot = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const { service } = relaunchHarness(store);
+    const orig = originalSession(store, { worktreePath: wt });
+    const staged = service.stageRelaunchImages(orig.id);
+    expect(staged).toHaveLength(1);
+    expect(readFileSync(staged[0]!.path, "utf8")).toBe("PNGDATA");
+
+    // Whole-dir variant: the uploads dir itself replaced by a symlink to a host dir.
+    rmSync(uploads, { recursive: true });
+    symlinkSync(hostDir, uploads);
+    const orig2 = originalSession(store, { worktreePath: wt });
+    expect(service.stageRelaunchImages(orig2.id)).toEqual([]);
   } finally {
     config.repoRoot = prevRoot;
   }

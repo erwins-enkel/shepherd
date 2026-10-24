@@ -197,6 +197,7 @@ import { PluginAgentService } from "./plugin-agents";
 import { FIRST_PASS_RANGE } from "./maintain-core";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
+import { prepareMembraneClaudeState } from "./membrane-state";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { HookIngest, toolUseSince, type HookEvent } from "./hooks-ingest";
@@ -974,6 +975,7 @@ const capacityInterrupted: CapacityInterruptionCheck = async (intent, worktreePa
 const service = new SessionService({
   capacity: (s) => (s.agentProvider !== "codex" ? Promise.resolve(true) : codexReady()),
   store,
+  prepareMembraneState: prepareMembraneClaudeState,
   readCodexAuthMode,
   worktree,
   herdr,
@@ -1892,6 +1894,7 @@ const docAgent = new DocAgentService({
   // Plugin onSpawn hooks fire for the doc-agent spawn too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
+  prepareClaudeState: prepareMembraneClaudeState,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   store,
   gitState: (id) => prPoller.get(id),
@@ -1938,6 +1941,7 @@ const reviewService = new ReviewService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
+  prepareClaudeState: prepareMembraneClaudeState,
   // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
@@ -1987,6 +1991,7 @@ const standaloneCritic = new StandalonePrCriticService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
+  prepareClaudeState: prepareMembraneClaudeState,
   // Same per-role critic environment as reviewService (read per spawn → live settings).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   timeoutMs: config.reviewTimeoutMs,
@@ -2021,6 +2026,7 @@ const planGate = new PlanGateService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
+  prepareClaudeState: prepareMembraneClaudeState,
   // Raw steer, delivered THROUGH resumeThenSteer (paneAlive/resume/deferSteer below): findings now
   // revive an exited planner before landing rather than holding the round on a dead pane. This is
   // what makes a Codex planner (which exits after its turn) actually receive the findings and revise.
@@ -2084,6 +2090,7 @@ const maintainService = new MaintainService({
   // Plugin onSpawn hooks + the membrane + the workspace-trust pre-accept, same as every aux spawn.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
+  prepareClaudeState: prepareMembraneClaudeState,
 });
 
 function realpathOrNull(p: string): string | null {
@@ -2111,6 +2118,7 @@ const pluginAgents = new PluginAgentService({
   },
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
+  prepareClaudeState: prepareMembraneClaudeState,
 });
 
 // Grace window for a recent uncompleted reviewer_spawns row: spares a plan-gate reviewer during

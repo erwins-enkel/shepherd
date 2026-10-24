@@ -188,6 +188,7 @@ test("preview/start: configured local script starts without steering the agent",
       startPreview: async () => {
         throw new Error("agent steer must not be used");
       },
+      previewLaunch: () => null,
     } as any,
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
@@ -504,4 +505,39 @@ describe("GET /api/sessions/:id/preview", () => {
     const { app } = reachApp();
     expect((await read(app, "ghost-id")).status).toBe(404);
   });
+});
+
+test("preview/start: the stored script is launched with the service's sandbox launch spec (F03)", async () => {
+  const { store } = harness();
+  const id = makeSession(store, "/wt/sandboxed");
+  store.setRepoConfig("/r", {
+    ...store.getRepoConfig("/r"),
+    previewStartScript: "/git/shepherd/preview-start.sh",
+  });
+  const spec = { argv: ["bwrap", "--clearenv", "--", "/git/shepherd/preview-start.sh"], env: {} };
+  const seen: unknown[] = [];
+  const app = makeApp({
+    store,
+    service: {
+      previewLaunch: (s: { id: string }, script: string) => {
+        seen.push([s.id, script]);
+        return spec;
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: { snapshot: () => ({}) },
+    previewLauncher: {
+      findDevPort: async () => null,
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => null,
+      startScript: async (_p, _w, launch) => {
+        seen.push(launch);
+      },
+    },
+  });
+  const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(200);
+  expect(seen).toEqual([[id, "/git/shepherd/preview-start.sh"], spec]);
 });

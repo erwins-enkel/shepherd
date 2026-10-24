@@ -7,6 +7,9 @@ import {
   existsSync,
   readFileSync,
   utimesSync,
+  symlinkSync,
+  readdirSync,
+  truncateSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +26,11 @@ import {
   uploadExtensionFromName,
   uploadFilename,
   handleUpload,
+  listRegularUploads,
+  assertUploadsDirSafe,
+  copyRegularFileNoFollow,
+  listRegularUploadEntries,
+  UploadsDirInvalid,
 } from "../src/uploads";
 import { SessionStore } from "../src/store";
 
@@ -424,4 +432,100 @@ test("handleUpload 400s when the file field is missing", async () => {
   const store = new SessionStore(":memory:");
   const res = await handleUpload(uploadReq(null), { store, repoRoot: root });
   expect(res.status).toBe(400);
+});
+
+// ── audit F11: never follow agent-planted symlinks in .shepherd-uploads ───────
+test("listRegularUploads skips symlinked entries, fifos and subdirs", () => {
+  const wt = join(root, "wt-links");
+  const dir = worktreeUploadsDir(wt);
+  mkdirSync(join(dir, "sub"), { recursive: true });
+  const secret = join(root, "host-secret");
+  writeFileSync(secret, "DUMMY-PRIVATE-KEY");
+  writeFileSync(join(dir, "a.png"), "PNG");
+  symlinkSync(secret, join(dir, "notes.txt"));
+  Bun.spawnSync(["mkfifo", join(dir, "pipe")]);
+  expect(listRegularUploads(wt)).toEqual([join(dir, "a.png")]);
+});
+
+test("listRegularUploads refuses an uploads dir that is itself a symlink", () => {
+  const wt = join(root, "wt-dirlink");
+  mkdirSync(wt);
+  const hostDir = join(root, "host-ssh");
+  mkdirSync(hostDir);
+  writeFileSync(join(hostDir, "id_dummy"), "DUMMY");
+  symlinkSync(hostDir, worktreeUploadsDir(wt));
+  expect(listRegularUploads(wt)).toEqual([]);
+  expect(() => assertUploadsDirSafe(wt)).toThrow(UploadsDirInvalid);
+  expect(() => copyStagedIntoWorktree([], wt)).toThrow(UploadsDirInvalid);
+});
+
+test("copyRegularFileNoFollow refuses a final-component symlink", () => {
+  const wt = join(root, "wt-swap-file");
+  const dir = worktreeUploadsDir(wt);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "a.txt"), "OK");
+  const [entry] = listRegularUploadEntries(wt);
+  rmSync(entry!.path);
+  const secret = join(root, "host-secret-2");
+  writeFileSync(secret, "DUMMY");
+  symlinkSync(secret, entry!.path);
+  expect(() => copyRegularFileNoFollow(entry!, join(root, "out"))).toThrow();
+  expect(existsSync(join(root, "out"))).toBe(false);
+});
+
+test("copyRegularFileNoFollow refuses an uploads DIR swapped for a host-dir symlink after listing", () => {
+  const wt = join(root, "wt-swap-dir");
+  const dir = worktreeUploadsDir(wt);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "id_ed25519"), "harmless");
+  const [entry] = listRegularUploadEntries(wt);
+  // The still-running agent races the server: same entry name, now resolving to a host file.
+  const hostDir = join(root, "host-ssh-swap");
+  mkdirSync(hostDir);
+  writeFileSync(join(hostDir, "id_ed25519"), "DUMMY-PRIVATE-KEY");
+  rmSync(dir, { recursive: true });
+  symlinkSync(hostDir, dir);
+  expect(() => copyRegularFileNoFollow(entry!, join(root, "out-swap"))).toThrow(UploadsDirInvalid);
+  expect(existsSync(join(root, "out-swap"))).toBe(false);
+});
+
+test("copyRegularFileNoFollow copies a listed file and refuses one over MAX_UPLOAD_BYTES", () => {
+  const wt = join(root, "wt-size");
+  const dir = worktreeUploadsDir(wt);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "a.txt"), "OK");
+  const big = join(dir, "b.bin");
+  writeFileSync(big, "");
+  truncateSync(big, MAX_UPLOAD_BYTES + 1); // sparse: no real disk/heap cost to plant
+  const [a, b] = listRegularUploadEntries(wt);
+  copyRegularFileNoFollow(a!, join(root, "out-ok"));
+  expect(readFileSync(join(root, "out-ok"), "utf8")).toBe("OK");
+  expect(() => copyRegularFileNoFollow(b!, join(root, "out-big"))).toThrow(UploadsDirInvalid);
+  expect(existsSync(join(root, "out-big"))).toBe(false);
+});
+
+test("handleUpload refuses to write through a symlinked session uploads dir", async () => {
+  const store = new SessionStore(":memory:");
+  const wt = join(root, "wt-upload-link");
+  mkdirSync(wt);
+  const hostDir = join(root, "host-target");
+  mkdirSync(hostDir);
+  symlinkSync(hostDir, worktreeUploadsDir(wt));
+  const s = store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/n",
+    worktreePath: wt,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+    claudeSessionId: "00000000-0000-0000-0000-000000000000",
+    model: null,
+  });
+  const file = new File([new Uint8Array([9])], "x.png", { type: "image/png" });
+  const res = await handleUpload(uploadReq(file, `?session=${s.id}`), { store, repoRoot: root });
+  expect(res.status).toBe(409);
+  expect(readdirSync(hostDir)).toEqual([]);
 });

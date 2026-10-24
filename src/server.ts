@@ -274,6 +274,7 @@ import {
   previewScriptExists,
   resolvePreviewStartScriptPath,
   startPreviewScript,
+  type PreviewLaunch,
 } from "./preview-launch";
 import { sessionActivity } from "./activity";
 import { steerLog } from "./steer-log";
@@ -733,7 +734,11 @@ export interface AppDeps {
     scriptExists(path: string | null | undefined): Promise<boolean>;
     scriptPath(worktreePath: string): Promise<string | null>;
     ensureScript(worktreePath: string, command: string): Promise<string | null>;
-    startScript(scriptPath: string, worktreePath: string): Promise<void>;
+    startScript(
+      scriptPath: string,
+      worktreePath: string,
+      launch?: PreviewLaunch | null,
+    ): Promise<void>;
   };
   /** Tailscale serve registration status per session slot; absent when auto-serve is
    *  disabled or tailscale is unavailable. Merged into /api/preview responses. `permissionDenied`
@@ -5201,6 +5206,7 @@ async function bindExistingPreviewServer(
 
 async function startStoredPreviewScript(
   s: Session,
+  service: Pick<AppDeps["service"], "previewLaunch">,
   launcher: PreviewLauncher,
   storedScript: string | null,
   command: string | null,
@@ -5211,7 +5217,13 @@ async function startStoredPreviewScript(
   const scriptStillExists = await launcher.scriptExists(storedScript);
   if (!scriptStillExists) return null;
   try {
-    await launcher.startScript(storedScript, s.worktreePath);
+    // The script lives in agent-writable storage: a sandboxed repo/session runs it inside the
+    // membrane with a cleared env, never on the host (audit F03).
+    await launcher.startScript(
+      storedScript,
+      s.worktreePath,
+      service.previewLaunch(s, storedScript),
+    );
     return json({
       ok: true,
       mode: "local",
@@ -5334,6 +5346,7 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
 
   const localStart = await startStoredPreviewScript(
     s,
+    deps.service,
     launcher,
     storedScript,
     detectedCommand,

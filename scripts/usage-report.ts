@@ -18,9 +18,9 @@
 import { Database } from "bun:sqlite";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { dashify } from "../src/claude-trust";
 import {
   accumulate,
-  dashify,
   jsonlPathFor,
   parseLine,
   spawnCacheCounts,

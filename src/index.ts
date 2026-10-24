@@ -1,4 +1,5 @@
 import { recapSummary } from "./recap-core";
+import { SessionActivityPublisher } from "./activity-publisher";
 import { enablePowerPaneJournal } from "./power-panes";
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
@@ -162,7 +163,7 @@ import {
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
-import { BacklogPoller, reposUsedSince } from "./backlog-poller";
+import { BacklogPoller, reposUsedSince, createBacklogBroadcast } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos, upNextChangePublisher } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
 import { GreenfieldService } from "./greenfield";
@@ -1436,6 +1437,17 @@ const tailscaleServe = new TailscaleServeService({
 // Phase-1 sink is wired below (only when `config.hooksSignals` is on).
 const hookIngest = new HookIngest();
 
+const activityPublisher = new SessionActivityPublisher(
+  (id, activity) => events.emit("session:activity", { id, activity }),
+  (id) => {
+    const session = store.get(id);
+    return session != null && session.status !== "archived";
+  },
+);
+events.subscribe((event, data) => {
+  if (event === "session:archived") activityPublisher.forget((data as { id: string }).id);
+});
+
 const poller = new StatusPoller(
   store,
   herdr,
@@ -1467,7 +1479,7 @@ const poller = new StatusPoller(
   undefined, // stallCfg
   undefined, // probeCheckMs
   (id, ready) => events.emit("session:ready", { id, ready }),
-  (id, activity) => events.emit("session:activity", { id, activity }),
+  (id, activity) => activityPublisher.publish(id, activity),
   {
     service: previewService,
     sweepMs: config.previewSweepMs,
@@ -1493,7 +1505,10 @@ const poller = new StatusPoller(
   (id, working) => events.emit("session:working-blocked", { id, working }),
   // Phase-1 (issue #704): prune dead sessions' hook ring buffers from the poller's
   // pruneInactive (so they don't grow unbounded by session count).
-  (ids) => hookIngest.prune(ids),
+  (ids) => {
+    hookIngest.prune(ids);
+    activityPublisher.prune(ids);
+  },
   undefined, // onStopWindow — use default logger
   // onHalt: a session's halt flag changed (usage-limit detected, or cleared on resume)
   // → push live so the UI updates the RetryDialog/chip/badge without a full refresh.
@@ -3825,10 +3840,9 @@ const starPrompt = new StarPromptService({
 // a long-open dashboard's issue/PR counts stay live instead of frozen at the
 // fetch-once snapshot the page loaded with. `counts` reads the just-warmed cache
 // (no extra gh round-trip), so this is the same payload GET /api/backlog returns.
-const broadcastBacklog = async () =>
-  events.emit(
-    "backlog:update",
-    await buildBacklogPayload({
+const broadcastBacklog = createBacklogBroadcast(
+  () =>
+    buildBacklogPayload({
       counts: (p) => backlog.counts(p, "api-read"),
       resolveForge,
       lastUsedByRepo: () => store.lastUsedByRepo(),
@@ -3836,7 +3850,8 @@ const broadcastBacklog = async () =>
       hiddenRepoPaths: () => store.hiddenRepoPaths(),
       repoRoot: config.repoRoot,
     }),
-  );
+  (payload) => events.emit("backlog:update", payload),
+);
 
 // Repo fingerprint (#2756): one ~1-point GraphQL query every 2 min says which GitHub repos
 // changed. Issue lists (via the forge cache), backlog counts and the completed-epics reconcile
@@ -4262,6 +4277,7 @@ process.on("exit", () => {
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();
+  activityPublisher.stop();
   pluginRegistry.teardown(); // best-effort plugin teardown (also covers the SIGTERM path)
 });
 // Registering ANY SIGTERM handler overrides Bun's default terminate-on-signal, so we

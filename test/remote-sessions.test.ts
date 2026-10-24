@@ -573,17 +573,29 @@ describe("routes of mirrored sessions (#2765)", () => {
     const t = setup();
     expect(t.mirror.machines()).toEqual([]); // never synced: nothing to reach
     await t.live();
-    expect(t.mirror.route(S1)).toEqual({ host, target });
+    expect(t.mirror.route(S1)).toEqual({
+      host,
+      target,
+      connection: t.mirror.session(S1)!.connection,
+    });
     expect(t.mirror.route("nope")).toBeNull();
-    expect(t.mirror.machines()).toEqual([{ host, target }]);
+    expect(t.mirror.machines()).toEqual([
+      { host, target, connection: t.mirror.session(S1)!.connection },
+    ]);
   });
 
   test("a disconnected machine keeps its route but without a target", async () => {
     const t = setup();
     const socket = await t.live();
     socket.on.close();
-    expect(t.mirror.route(S2)).toEqual({ host, target: null });
-    expect(t.mirror.machines()).toEqual([{ host, target: null }]);
+    expect(t.mirror.route(S2)).toEqual({
+      host,
+      target: null,
+      connection: t.mirror.session(S2)!.connection,
+    });
+    expect(t.mirror.machines()).toEqual([
+      { host, target: null, connection: t.mirror.session(S2)!.connection },
+    ]);
   });
 
   test("a session two machines both report routes nowhere", async () => {
@@ -724,4 +736,47 @@ describe("hostNames", () => {
       ]),
     );
   });
+});
+
+test("native session state and queue frames keep the owning machine", async () => {
+  const t = setup();
+  const socket = await t.live();
+  send(socket, "session:status", { id: S1, status: "running", runtimeModel: "owner-model" });
+  send(socket, "session:ready", { id: S1, ready: true });
+  send(socket, "session:autopilot", { id: S1, enabled: true, paused: true, complete: false });
+  send(socket, "session:automerge", { id: S1, enabled: true });
+  send(socket, "session:plangate", {
+    id: S1,
+    planPhase: "executing",
+    gate: { summary: "not a session field" },
+  });
+  send(socket, "session:manual-steps", { id: S1, manualSteps: [{ id: "m", text: "check" }] });
+  expect(t.mirror.session(S1)).toMatchObject({
+    runtimeModel: "owner-model",
+    readyToMerge: true,
+    autopilotEnabled: true,
+    autopilotPaused: true,
+    autoMergeEnabled: true,
+    planPhase: "executing",
+    manualSteps: [{ id: "m", text: "check" }],
+  });
+  expect(t.mirror.session(S1)).not.toHaveProperty("gate");
+  t.events.length = 0;
+  send(socket, "queue:update", { sessionId: S1, steps: [], approved: true });
+  send(socket, "queue:update", { sessionId: S3, steps: [], approved: false });
+  expect(t.events).toHaveLength(1);
+  expect(t.events[0]).toEqual([
+    "queue:update",
+    {
+      id: S1,
+      sessionId: S1,
+      steps: [],
+      approved: true,
+      host: t.mirror.session(S1)!.host,
+      connection: t.mirror.session(S1)!.connection,
+    },
+  ]);
+  const created = t.mirror.acceptSession(B, { ...s1, id: S3 });
+  expect(created?.host.instanceId).toBe(B);
+  expect(t.mirror.route(S3)?.host.instanceId).toBe(B);
 });

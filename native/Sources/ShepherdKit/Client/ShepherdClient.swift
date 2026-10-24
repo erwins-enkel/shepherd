@@ -143,9 +143,9 @@ public final class ShepherdClient: Sendable {
     } catch { throw ShepherdError.from(error, route: "getHealth") }
   }
 
-  public func settings() async throws -> Components.Schemas.Settings {
+  public func settings(host: String? = nil) async throws -> Components.Schemas.Settings {
     do {
-      switch try await generated.getSettings(.init()) {
+      switch try await generated.getSettings(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):
@@ -188,9 +188,9 @@ public final class ShepherdClient: Sendable {
     } catch { throw ShepherdError.from(error, route: "getSession") }
   }
 
-  public func repos() async throws -> Components.Schemas.RepoList {
+  public func repos(host: String? = nil) async throws -> Components.Schemas.RepoList {
     do {
-      switch try await generated.listRepos(.init()) {
+      switch try await generated.listRepos(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):

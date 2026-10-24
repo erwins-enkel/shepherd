@@ -2,6 +2,20 @@ import Foundation
 import OpenAPIRuntime
 
 extension ShepherdClient {
+  public func createSessionTerminal(sessionID: String) async throws -> Session {
+    do {
+      switch try await generated.createSessionTerminal(.init(path: .init(id: sessionID))) {
+      case .created(let result): return try result.body.json
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .conflict(let result): throw ShepherdError.fromConflict(try result.body.json)
+      case .notFound: throw ShepherdError.notFound
+      case .badGateway(let result): throw ShepherdError.fromUpstream(try result.body.json)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "createSessionTerminal")
+      }
+    } catch { throw ShepherdError.from(error, route: "createSessionTerminal") }
+  }
+
   /// `POST /api/sessions/{id}/reply` — steer a running session with operator
   /// free text.
   ///

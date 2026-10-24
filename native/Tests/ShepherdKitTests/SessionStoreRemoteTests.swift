@@ -4,8 +4,7 @@ import Testing
 @testable import ShepherdKit
 
 /// Sessions mirrored from connected machines (#2762, #2768): the store keeps them in
-/// `remoteSessions`, apart from this server's own `sessions`, and no tap ever sees a frame
-/// about one.
+/// `remoteSessions`, apart from this server's own `sessions`, and default taps keep local notifications separate.
 @MainActor
 @Suite("SessionStore mirrored sessions", .timeLimit(.minutes(1)))
 struct SessionStoreRemoteTests {
@@ -185,4 +184,107 @@ struct SessionStoreRemoteTests {
     #expect(store.sessions.isEmpty)
     #expect(store.remoteSessions.map(\.id) == ["remote"])
   }
+
+  @Test("remote parity applies ready state immediately")
+  func remoteReadyState() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [mirrored("remote")])
+    let store = try makeStore(server)
+    try await store.refresh()
+    let host = try #require(mirrored("remote").host)
+    store.apply(.mirrored(host: host, event: .sessionReady(.init(id: "remote", ready: true))))
+    #expect(store.remoteSession(id: "remote")?.readyToMerge == true)
+  }
+
+  @Test("presentation taps opt in and receive validated remote frames after state is updated")
+  func presentationTap() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "local"), mirrored("remote")])
+    let store = try makeStore(server)
+    try await store.refresh()
+    let local = store.events()
+    let presentation = store.events(includeMirrored: true)
+    let host = try #require(mirrored("remote").host)
+    store.apply(.mirrored(host: host, event: .sessionReady(.init(id: "remote", ready: true))))
+    store.apply(.mirrored(host: host, event: .sessionReady(.init(id: "local", ready: true))))
+    store.apply(.sessionReady(.init(id: "local", ready: false)))
+    var remoteIterator = presentation.makeAsyncIterator()
+    guard case .mirrored(_, .sessionReady(let ready)) = await remoteIterator.next() else {
+      Issue.record("missing remote event"); return
+    }
+    #expect(ready.id == "remote" && store.remoteSession(id: "remote")?.readyToMerge == true)
+    var localIterator = local.makeAsyncIterator()
+    guard case .sessionReady(let localReady) = await localIterator.next() else {
+      Issue.record("default tap received remote event"); return
+    }
+    #expect(localReady.id == "local" && !localReady.ready)
+    await store.stop()
+  }
+
+  @Test("remote snapshots preserve failed sources, clear empty sources and reject foreign IDs")
+  func remoteSnapshots() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "local"), mirrored("remote")])
+    let store = try makeStore(server)
+    try await store.refresh()
+    let populated = await store.mergingRemoteSnapshots(key: "test", local: ["local": "local"], previous: [:]) { host in
+      #expect(host == "mac")
+      return ["remote": "remote", "local": "wrong", "foreign": "wrong"]
+    }
+    #expect(populated == ["local": "local", "remote": "remote"])
+    let failed = await store.mergingRemoteSnapshots(key: "test", local: ["local": "new"], previous: populated) { _ in
+      throw ShepherdError.transport("disconnected")
+    }
+    #expect(failed == ["local": "new", "remote": "remote"])
+    #expect(store.remoteSnapshotFailures["test"] == ["mac"])
+    let empty = await store.mergingRemoteSnapshots(key: "test", local: ["local": "new"], previous: failed) { _ in [:] }
+    #expect(empty == ["local": "new"])
+    #expect(store.remoteSnapshotFailures["test"] == [])
+  }
+
+  @Test("archiving a remote session removes it immediately without waiting for the socket")
+  func archiveRemote() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "local"), mirrored("remote")])
+    server.stub("DELETE", "/api/sessions/remote", status: 200, json: Data(#"{"ok":true}"#.utf8))
+    let store = try makeStore(server)
+    try await store.refresh()
+    try await store.archive(id: "remote")
+    #expect(store.remoteSessions.isEmpty)
+    #expect(store.sessions.map(\.id) == ["local"])
+  }
+  @Test("HTTP session results preserve machine identity and ambiguous IDs stay inoperable")
+  func returnedSessionsAndCollisions() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "local"), mirrored("remote")])
+    let store = try makeStore(server)
+    try await store.refresh()
+    var updated = mirrored("remote"); updated.name = "replacement"
+    store.acceptSession(updated)
+    #expect(store.visibleSession(id: "remote")?.name == "replacement")
+    store.acceptSession(mirrored("new"))
+    #expect(store.visibleSession(id: "new")?.host?.instanceId == "mac")
+    #expect(store.sessions.map(\.id) == ["local"])
+    store.acceptSession(mirrored("remote", machine: "other"))
+    #expect(store.visibleSession(id: "remote") == nil)
+    #expect(!store.canOperateSession(id: "remote"))
+    store.acceptSession(mirrored("local"))
+    #expect(store.visibleSession(id: "local")?.host == nil)
+    let host = try #require(updated.host)
+    for (name, body) in [
+      ("session:autopilot", #"{"id":"new","enabled":true,"paused":true,"complete":false}"#),
+      ("session:plangate", #"{"id":"new","planPhase":"executing"}"#),
+      ("session:manual-steps", #"{"id":"new","manualSteps":[{"id":"step","text":"Do it"}]}"#)
+    ] { store.apply(.mirrored(host: host, event: .unknown(name: name, payload: Data(body.utf8)))) }
+    #expect(store.visibleSession(id: "new")?.autopilotEnabled == true)
+    #expect(store.visibleSession(id: "new")?.autopilotPaused == true)
+    #expect(store.visibleSession(id: "new")?.planPhase?.rawValue == "executing")
+    #expect(store.visibleSession(id: "new")?.manualSteps.count == 1)
+  }
+
 }

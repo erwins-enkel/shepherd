@@ -152,7 +152,7 @@ public final class DetailModel: AppExtension {
     /// itself came back unchanged.
     @ObservationIgnored private var annotationsFailed: Set<String> = []
     /// The `session:activity`/`session:git` tap. Ended by `teardown()`; also ends on its own once
-    /// `store.events()` finishes, which happens when the store's `stop()` runs.
+    /// `store.events(includeMirrored: true)` finishes, which happens when the store's `stop()` runs.
     @ObservationIgnored private var watcher: Task<Void, Never>?
     /// Watches `store.sessions` so a session that drops out of it (archived, removed, or simply
     /// never seen again after a reconnect) has its caches pruned instead of growing forever.
@@ -354,7 +354,7 @@ public final class DetailModel: AppExtension {
 
     /// Keeps `activity`/`git` current without a timer. `session:activity`/`session:git` are
     /// declared under this stream's own `x-shepherd-events` block but never added to `EventName`
-    /// (Decision 3), so they arrive through `store.events()` as
+    /// (Decision 3), so they arrive through `store.events(includeMirrored: true)` as
     /// `ServerEvent.unknown(name:payload:)`: match the raw name, decode `payload` into the schema
     /// this stream's own contract block names, and schedule a reload for exactly the session id
     /// the frame carries — never every open tab, and never a session this model has no cache
@@ -362,13 +362,19 @@ public final class DetailModel: AppExtension {
     /// coalesces a burst of frames for the same feed+session into at most one HTTP read at a
     /// time; `load(_:session:)`'s own `commit(_:_:_:_:)` already drops a write once `alive` is
     /// false, so this loop needs no liveness check beyond `weak self`, and it ends on its own once
-    /// `store.events()` finishes on `stop()`, or sooner if `teardown()` cancels it directly.
+    /// `store.events(includeMirrored: true)` finishes on `stop()`, or sooner if `teardown()` cancels it directly.
     private func subscribe(_ store: SessionStore) {
         watcher = Task { @MainActor [weak self] in
-            for await event in store.events() {
+            for await event in store.events(includeMirrored: true) {
                 guard let self else { return }
-                guard case .unknown(let name, let payload) = event, let payload else { continue }
+                guard case .unknown(let name, let payload) = event.sessionPresentationEvent, let payload else { continue }
                 switch name {
+                case "remote:sessions":
+                    for id in self.retainedSessionID.map({ [$0] }) ?? [] {
+                        self.schedulePushLoad(.activity, session: id)
+                        self.schedulePushLoad(.git, session: id)
+                        self.schedulePushLoad(.diff, session: id)
+                    }
                 case Self.activityEventName:
                     guard
                         let decoded = try? JSONDecoder().decode(
@@ -393,9 +399,9 @@ public final class DetailModel: AppExtension {
     /// mirroring `AppModel.watchConnection(_:profile:generation:)`.
     private func watchSessions(_ store: SessionStore) {
         beginSessionsWatch(
-            ids: { Set(store.sessions.map(\.id)) },
+            ids: { Set(store.visibleSessions.map(\.id)) },
             arm: { signal in
-                withObservationTracking { _ = store.sessions } onChange: { signal() }
+                withObservationTracking { _ = store.visibleSessions } onChange: { signal() }
             })
     }
 

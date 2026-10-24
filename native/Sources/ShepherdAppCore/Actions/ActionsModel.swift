@@ -205,6 +205,12 @@ public final class ActionsModel: AppExtension {
         recapIDsWrittenByEvents.removeAll()
         do {
             var loaded = try await reads.recaps()
+            if let store {
+                let client = store.client
+                loaded = await store.mergingRemoteSnapshots(key: "recaps", local: loaded, previous: recaps) {
+                    try await client.recaps(host: $0)
+                }
+            }
             guard mine == generation, sequence == readSequence else { return }
             for id in recapIDsWrittenByEvents { loaded[id] = recaps[id] }
             recapIDsWrittenByEvents.removeAll()
@@ -244,8 +250,8 @@ public final class ActionsModel: AppExtension {
     /// construction. Not pruning then costs nothing — whatever the caches hold is already
     /// bounded by what arrived before the first session did.
     private func pruneToLiveSessions() {
-        guard let store, !store.sessions.isEmpty else { return }
-        prune(to: Set(store.sessions.map(\.id)))
+        guard let store, store.hasLoadedSessions || !store.visibleSessions.isEmpty else { return }
+        prune(to: Set(store.visibleSessions.map(\.id)))
     }
 
     #if DEBUG
@@ -362,7 +368,7 @@ public final class ActionsModel: AppExtension {
 
     private func subscribe(to store: SessionStore) {
         isSubscribed = true
-        let events = store.events()
+        let events = store.events(includeMirrored: true)
         tap = Task { [weak self] in
             // `defer`, not a line after the loop: the guard below returns out of the middle of
             // the loop, and that path has to clear the flag too or a torn-down model keeps
@@ -384,7 +390,7 @@ public final class ActionsModel: AppExtension {
     /// `EventName` is an open enum and `ServerEvent.swift` is S0-owned, so a stream decodes its
     /// own payload with the generated schema its own contract block declares.
     func apply(_ event: ServerEvent) {
-        switch event {
+        switch event.sessionPresentationEvent {
         case .sessionArchived(let payload):
             recaps[payload.id] = nil
             // A removal is a write like any other: an in-flight read's snapshot still lists this
@@ -394,6 +400,10 @@ public final class ActionsModel: AppExtension {
         case .unknown(let name, let payload):
             guard let payload else { return }
             switch name {
+            case "remote:sessions":
+                pruneToLiveSessions()
+                bootstrap?.cancel()
+                bootstrap = Task { [weak self] in await self?.refresh() }
             case "session:recap":
                 guard let frame = decode(Components.Schemas.SessionRecapEvent.self, payload, name)
                 else { return }

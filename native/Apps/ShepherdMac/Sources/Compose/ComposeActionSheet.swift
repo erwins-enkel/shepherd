@@ -13,6 +13,7 @@ struct ComposeActionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var copiedPrompt: String?
     @State private var actions: ComposeActions
+    @State private var ownerSettings: ShepherdKit.Settings?
 
     init(mode: ComposeActions.Action, session: Session?, store: SessionStore, app: AppModel, activation: Int, issue: Issue? = nil) {
         self.issue = issue
@@ -52,7 +53,7 @@ struct ComposeActionSheet: View {
                             await actions.run(operation: { try await store.client.replySession(id: session.id, text: prompt) },
                                               apply: { _ in dismiss() }, isCurrent: { current })
                         }
-                    }.disabled(actions.busy)
+                    }.disabled(!canConfirm)
                     Button(L.t(copiedPrompt == prompt ? "recommend_copied" : "recommend_copy")) {
                         NSPasteboard.general.clearContents()
                         if NSPasteboard.general.setString(prompt, forType: .string) { copiedPrompt = prompt }
@@ -65,7 +66,7 @@ struct ComposeActionSheet: View {
             HStack {
                 Button(L.t("common_cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                if [.steers, .close].contains(mode) && !actions.loaded {
+                if !actions.loaded && ([.steers, .close].contains(mode) || session?.host != nil) {
                     Button(L.t("common_retry")) { Task { await load() } }.disabled(actions.busy || !current)
                 }
                 Button(confirmTitle) { Task { await confirm() } }
@@ -83,10 +84,11 @@ struct ComposeActionSheet: View {
 
     private var canConfirm: Bool {
         guard current, !actions.busy else { return false }
+        if mode != .steers, let session, !store.canOperateSession(id: session.id) { return false }
         switch mode {
         case .steers: return actions.loaded && actions.canSaveSteers
         case .close: return actions.loaded && session != nil
-        default: return session != nil
+        default: return session != nil && (session?.host == nil || actions.loaded)
         }
     }
     private var confirmTitle: String {
@@ -106,7 +108,7 @@ struct ComposeActionSheet: View {
             }
             Picker(L.t("newtask_model_label"), selection: $actions.model) {
                 if mode != .recommend { Text(verbatim: L.t("newtask_model_default")).tag("default") }
-                ForEach(ComposeRunConfig.providerModels(actions.provider).filter { ComposeRunConfig.available($0, provider: actions.provider, fableAvailable: store.settings?.additionalProperties.value["fableAvailable"] as? Bool ?? true) }, id: \.self) { model in
+                ForEach(ComposeRunConfig.providerModels(actions.provider).filter { ComposeRunConfig.available($0, provider: actions.provider, fableAvailable: (session?.host == nil ? store.settings : ownerSettings)?.additionalProperties.value["fableAvailable"] as? Bool ?? true) }, id: \.self) { model in
                     Text(verbatim: model).tag(model)
                 }
             }
@@ -148,6 +150,11 @@ struct ComposeActionSheet: View {
         if mode == .recommend { actions.model = actions.provider == .claude ? "opus" : "gpt-5.5" }
     }
     private func load() async {
+        if let host = session?.host, mode != .steers && mode != .close {
+            await actions.run(operation: { try await store.client.settings(host: host.instanceId) }, apply: {
+                ownerSettings = $0; actions.loaded = true
+            }, isCurrent: { current })
+        }
         switch mode {
         case .steers:
             await actions.run(operation: { try await store.client.steers() }, apply: {
@@ -184,14 +191,15 @@ struct ComposeActionSheet: View {
             }, isCurrent: { current })
         case .close:
             await actions.run(operation: { try await store.archive(id: session.id, reap: actions.reap.sorted()) }, apply: { _ in
-                store.apply(.sessionArchived(.init(id: session.id))); dismiss()
+                if session.host == nil { store.apply(.sessionArchived(.init(id: session.id))) }
+                dismiss()
             }, isCurrent: { current })
         case .steers: break
         }
     }
     private func select(_ session: Session) {
-        if mode == .variant { store.apply(.sessionNew(session)) }
-        app.selectedSessionID = store.session(id: session.id)?.id
+        store.acceptSession(session)
+        app.selectedSessionID = store.visibleSession(id: session.id)?.id
         dismiss()
     }
 }

@@ -6,6 +6,19 @@ import ShepherdKit
 /// `ui/src/lib/steer-scope.ts` plus SteerBar's `inSteerBar` filter: an empty or
 /// absent allowlist is universal; a non-empty one with an unknown repo name hides.
 public enum SteerScope {
+    /// A remote checkout belongs to a coordinator project only when its forge slug matches
+    /// exactly one project. Directory names alone are not identities across machines.
+    public static func repoNames(repos: [Repo], sessions: [Session]) -> [String: String] {
+        var names = Dictionary(repos.map { ($0.path, $0.name) }, uniquingKeysWith: { first, _ in first })
+        for session in sessions where session.host != nil {
+            names[session.repoPath] = nil
+            guard let slug = session.remoteSlug?.lowercased() else { continue }
+            let matches = repos.filter { $0.remoteSlug?.lowercased() == slug }
+            if Set(matches.map(\.name)).count == 1 { names[session.repoPath] = matches.first?.name }
+        }
+        return names
+    }
+
     public static func barSteers(_ steers: [ComposeSteer], repoName: String?, provider: String?) -> [ComposeSteer] {
         steers.filter { $0.inSteerBar && applies($0, repoName: repoName, provider: provider) }
     }

@@ -4,6 +4,9 @@ extension SessionStore {
   /// A live feed of every event this store applies, including the ones it does
   /// not model itself.
   ///
+  /// By default mirrored frames are excluded. Session presentation models opt in with
+  /// `includeMirrored: true`; ownership is validated before a frame reaches those taps.
+  ///
   /// One independent stream per call — several parallel streams tap the same
   /// store and each sees every frame. Buffered `.bufferingNewest(64)`: a tap
   /// consumer that stalls drops its own oldest frames rather than backing up
@@ -37,7 +40,7 @@ extension SessionStore {
   /// contract stays the only type source. Streams never add a case to
   /// `EventName` or edit `ServerEvent.swift`: that switch is exhaustive and
   /// S0-owned, so every stream that touched it would collide with every other.
-  public func events() -> AsyncStream<ServerEvent> {
+  public func events(includeMirrored: Bool = false) -> AsyncStream<ServerEvent> {
     let (stream, continuation) = AsyncStream<ServerEvent>.makeStream(
       bufferingPolicy: .bufferingNewest(64))
     // `stop()` already finished every continuation it knew about and will
@@ -53,20 +56,27 @@ extension SessionStore {
     // Runs on whatever executor ended the stream (a cancelled consumer, a
     // dropped iterator), so it hops back before touching main-actor state.
     continuation.onTermination = { [weak self] _ in
-      Task { @MainActor in self?.eventTaps[id] = nil }
+      Task { @MainActor in
+        self?.eventTaps[id] = nil
+        self?.mirroredEventTaps.remove(id)
+      }
     }
     eventTaps[id] = continuation
+    if includeMirrored { mirroredEventTaps.insert(id) }
     return stream
   }
 
   /// Fans one applied event out to every tap. Called by `applyNow(_:)`.
-  func broadcast(_ event: ServerEvent) {
-    for continuation in eventTaps.values { continuation.yield(event) }
+  func broadcast(_ event: ServerEvent, mirroredOnly: Bool = false) {
+    for (id, continuation) in eventTaps where !mirroredOnly || mirroredEventTaps.contains(id) {
+      continuation.yield(event)
+    }
   }
 
   /// Ends every tap. Called by `stop()`.
   func finishEventTaps() {
     for continuation in eventTaps.values { continuation.finish() }
     eventTaps.removeAll()
+    mirroredEventTaps.removeAll()
   }
 }

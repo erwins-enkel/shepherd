@@ -31,6 +31,32 @@ moves to another machine.
   the task waits on your Shepherd and starts there once the machine is back. It never starts on
   another machine by itself ([Waiting tasks](#waiting-tasks)).
 
+## macOS session controls
+
+Use the same compatible Shepherd release on the coordinator and the connected machine. The Mac
+app displays the same context menu, action bar and Terminal, Activity, Diff, Files, PR, Plan, Merge
+and Prompt tabs for both. Rename, resume, relaunch, variant, replacement, clean terminal, reviews,
+queue changes and archive execute on the session's machine. Closing still asks for confirmation
+and lets you choose which leftover processes to stop.
+
+Saved steering templates belong to the server selected in the app: when connected to Mo, both
+Mo and MacBook sessions use and edit Mo's templates. Sending a chip or its keyboard shortcut goes
+to the selected session's machine. Repository scopes match projects by their forge slug even if
+the checkout paths differ. Global merge and drain dashboards remain those of the selected server.
+
+While a machine is disconnected, its tabs and last known data remain visible. Session actions
+are disabled, while editing the selected server's steering templates stays available. Reconnection
+refreshes snapshots and reattaches the terminal. A failed snapshot read retains the previous data
+with a stale-data notice.
+
+To verify with two disposable sessions, select the local session, right-click the machine's card
+and rename it. Open all eight tabs, send a template by chip and by ⌘1, then cancel and confirm the
+close dialog. Check the machine received the mutations and the coordinator's session is unchanged.
+Disconnect and reconnect the machine before closing; the controls should disable and recover
+without selecting the session again. The automated fixture is
+`test/fixtures/remote-session-parity-ui-server.ts` with
+`native/Apps/ShepherdMac/UITests/RemoteSessionParityUITests.swift`.
+
 ## Prepare each machine
 
 Each machine needs everything its sessions use, under the user Shepherd runs as:

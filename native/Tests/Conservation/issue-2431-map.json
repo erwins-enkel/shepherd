@@ -12870,7 +12870,16 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"alwaysReassemblesToTheInput()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"attributedLinksOnlyTheURL()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.PlacementCopyTests\",\"loadExplainsDiversionAndWarnsWithoutChangingManualChoice() throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"loadPlacementDecodesHistoricalMeasurements() throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientPlacementTests.swift\",\"ShepherdClientPlacementTests\",\"loadPlacementDecodesHistoricalMeasurements() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionParityTests.swift\",\"CoreSeamTests.RemoteSessionParityTests\",\"ownerSnapshotsSurviveLocalRefreshReceiveEventsAndClearOnRemoval() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionParityTests.swift\",\"CoreSeamTests.RemoteSessionParityTests\",\"steeringMapsOwnerCheckoutToMosProjectBySlugOnly()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"archiveRemote() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"presentationTap() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"remoteReadyState() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"remoteSnapshots() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ActionBarTests.swift\",\"MacSeamTests.ActionBarTests\",\"remoteContextMenuSelectsItsOwnSessionAndOpensRename() async throws\"]",
+    "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/RemoteSessionParityUITests.swift\",\"RemoteSessionParityUITests\",\"testRemoteControlsSteeringAndReconnect() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"returnedSessionsAndCollisions() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

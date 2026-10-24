@@ -36,7 +36,7 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
   /// A `session:*` frame about a session mirrored from a connected machine (#2762): the
   /// coordinator relays that machine's own frame with `host` and `connection` added. `event` is
   /// the frame decoded exactly as any other. `SessionStore` applies it to `remoteSessions` and
-  /// hands it to no tap, so nothing that acts on this server's own sessions sees a remote id.
+  /// sends it only to explicitly opted-in presentation taps; local consumers stay separate.
   indirect case mirrored(host: SessionHost, event: ServerEvent)
 
   private enum CodingKeys: String, CodingKey {
@@ -101,10 +101,16 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
       self = .unknown(name: name.rawValue, payload: rawPayload())
     }
 
-    if name.rawValue.hasPrefix("session:"),
+    if name.rawValue.hasPrefix("session:") || name.rawValue == "queue:update",
        let mark = try? container.decode(MirrorMark.self, forKey: .data) {
       self = .mirrored(host: mark.host, event: self)
     }
+  }
+
+  /// Only use with a store tap that opted into (and validated) mirrored frames.
+  public var sessionPresentationEvent: ServerEvent {
+    if case .mirrored(_, let event) = self { return event }
+    return self
   }
 }
 

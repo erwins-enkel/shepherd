@@ -86,6 +86,7 @@ export interface TerminalClient {
 export interface MachineRoute {
   host: SessionHost;
   target: RemoteTarget | null;
+  connection?: SessionConnection;
 }
 
 /** A bridged terminal, as the `/pty/:id` socket handler drives it. */
@@ -285,6 +286,18 @@ export class RemoteSessionMirror {
     return [...this.links.values()].filter((link) => link.connection).map((l) => this.routeOf(l));
   }
 
+  /** An HTTP create can beat session:new. Register its route now without replacing a newer
+   * socket snapshot for an already-known ID. The normal mirror remains the authority. */
+  acceptSession(instanceId: string, session: RemoteRow): MirroredSession | undefined {
+    const link = this.links.get(instanceId);
+    if (!link?.connection) return undefined;
+    if (!link.sessions.has(session.id) && UUID_RE.test(session.id)) {
+      link.sessions.set(session.id, session);
+      this.publish(link);
+    }
+    return this.annotate(link, session);
+  }
+
   /** Every live machine's terminal owners, by session ID (session IDs are global UUIDs). */
   terminalOwners(): Record<string, TerminalClient> {
     return Object.assign({}, ...[...this.links.values()].map((link) => link.owners));
@@ -435,6 +448,15 @@ export class RemoteSessionMirror {
       link.owners = parseOwners(frame.data);
       return this.emitOwners();
     }
+    if (
+      frame.event === "queue:update" &&
+      isRecord(frame.data) &&
+      typeof frame.data.sessionId === "string" &&
+      link.sessions.has(frame.data.sessionId)
+    ) {
+      this.emit(frame.event, this.annotate(link, { ...frame.data, id: frame.data.sessionId }));
+      return;
+    }
     const data = frame.event.startsWith("session:") ? asRow(frame.data) : null;
     if (!data) return;
     if (link.buffer) link.buffer.push([frame.event, data]);
@@ -445,16 +467,54 @@ export class RemoteSessionMirror {
   /** Keep the held copy current for what `GET /api/sessions` serves. Other frames only relay; the
    *  next snapshot (every probe round) carries their effect. */
   private patch(link: Link, event: string, data: RemoteRow): void {
-    if (event === "session:new") link.sessions.set(data.id, data);
-    else if (event === "session:archived") {
-      link.sessions.delete(data.id);
-      link.git.delete(data.id);
-    } else if (event === "session:git") {
-      if (isRecord(data.git)) link.git.set(data.id, data.git);
-    } else if (event === "session:status" || event === "session:renamed") {
-      const current = link.sessions.get(data.id);
-      if (current) link.sessions.set(data.id, { ...current, ...data });
+    switch (event) {
+      case "session:new":
+        link.sessions.set(data.id, data);
+        return;
+      case "session:archived":
+        link.sessions.delete(data.id);
+        link.git.delete(data.id);
+        return;
+      case "session:git":
+        if (isRecord(data.git)) link.git.set(data.id, data.git);
+        return;
     }
+    const current = link.sessions.get(data.id);
+    if (!current) return;
+    let patch: Record<string, unknown>;
+    switch (event) {
+      case "session:ready":
+        patch = { readyToMerge: data.ready };
+        break;
+      case "session:automerge":
+        patch = { autoMergeEnabled: data.enabled };
+        break;
+      case "session:autopilot":
+        patch = {
+          autopilotEnabled: data.enabled,
+          autopilotPaused: data.paused,
+          autopilotComplete: data.complete,
+          autopilotQuestion: data.question,
+        };
+        break;
+      case "session:status":
+      case "session:renamed":
+        patch = data;
+        break;
+      case "session:plangate":
+      case "session:halt":
+      case "session:manual-steps":
+        // A gate verdict is not a Session field; copy only actual session state.
+        patch = Object.fromEntries(
+          Object.entries(data).filter(([key]) =>
+            ["planPhase", "haltReason", "haltedAt", "manualSteps"].includes(key),
+          ),
+        );
+        break;
+      default:
+        return;
+    }
+    link.sessions.set(data.id, { ...current, ...patch });
   }
 
   /** Socket gone — dropped by the machine, failed, or closed because the probe failed. The
@@ -515,7 +575,11 @@ export class RemoteSessionMirror {
 
   private routeOf(link: Link): MachineRoute {
     const row = link.open ? this.store.getRemoteInstance(link.instanceId) : null;
-    return { host: link.host, target: row ? { url: row.url, token: row.token } : null };
+    return {
+      host: link.host,
+      target: row ? { url: row.url, token: row.token } : null,
+      ...(link.connection ? { connection: link.connection } : {}),
+    };
   }
 
   private emitOwners(): void {

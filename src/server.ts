@@ -190,6 +190,8 @@ import {
   clearMergedAcross,
   clearMergedSummaryAcross,
   forwardSessionRequest,
+  MACHINE_READS,
+  forwardMachineRead,
 } from "./remote-instances/forward";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
@@ -580,7 +582,8 @@ export interface AppDeps {
   remoteSessions?: Pick<
     RemoteSessionMirror,
     "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal" | "route" | "machines"
-  >;
+  > &
+    Partial<Pick<RemoteSessionMirror, "acceptSession">>;
   /** Sends new tasks to connected machines (#2763), lists the ones no machine has confirmed and
    *  cancels them (#2774), keeps the ones waiting for their machine and redirects them (#2775).
    *  Same memo-slot contract as `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily
@@ -1865,7 +1868,42 @@ async function handleRemoteSessionRoute({
       409,
     );
   }
-  return forwardSessionRequest(req, url, parts, route);
+  return forwardSessionRequest(req, url, parts, route, {
+    annotateSession: deps.remoteSessions.acceptSession
+      ? (session) => deps.remoteSessions!.acceptSession!(route.host.instanceId, session)
+      : undefined,
+  });
+}
+
+async function handleMachineRead({
+  req,
+  url,
+  deps,
+  token,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  const host = url.searchParams.get("host");
+  if (!host || host === "local" || !MACHINE_READS.has(url.pathname)) return null;
+  if (req.method !== "GET" || agentIngress || (token && token.repoPaths !== null))
+    return json({ error: "not found" }, 404);
+  const route = deps.remoteSessions?.machines().find((machine) => machine.host.instanceId === host);
+  if (!route) return json({ error: "not found" }, 404);
+  return forwardMachineRead(url, route);
+}
+
+async function handleSessionTerminal({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "POST" ||
+    parts.length !== 4 ||
+    parts[0] !== "api" ||
+    parts[1] !== "sessions" ||
+    parts[3] !== "terminal"
+  )
+    return null;
+  const session = deps.store.get(parts[2]!);
+  if (!session) return json({ error: "not found" }, 404);
+  const value = { repoPath: session.repoPath, terminal: true as const };
+  return createValidatedSession(req, value, value, deps);
 }
 
 // POST /api/revive-stranded → operator-initiated "revive all": force-resume every currently-stranded
@@ -11767,6 +11805,8 @@ const ROUTE_HANDLERS = [
   // Before every handler that matches `/api/sessions/:id…`: a mirrored session's id must never
   // reach a local handler, which would act on a session this instance does not have (#2765).
   handleRemoteSessionRoute,
+  handleMachineRead,
+  handleSessionTerminal,
   handlePing,
   handleHealth,
   handleTerminalTransport,

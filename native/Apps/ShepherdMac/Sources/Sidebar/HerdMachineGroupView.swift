@@ -3,14 +3,13 @@ import ShepherdKit
 import SwiftUI
 
 /// One connected machine's mirrored sessions (#2768), after the local lifecycle groups: a header
-/// naming the machine, its platform and the state of the link, then its rows. Read-only — no
-/// menu, no plan badges, no row signals: none of this server's actions apply to them, and the
-/// machine badge on each row explains why. Its tasks that are not settled come first (#2776).
+/// naming the machine, its platform and the state of the link, then its rows. The shared card carries the same actions and signals as local sessions. Its tasks that are not settled come first (#2776).
 /// The web's machine groups before #3055, which now joins these rows into its lifecycle groups.
 struct HerdMachineGroupView: View {
     @Environment(AppModel.self) private var app
     let group: HerdMachineGroup
     let now: Int
+    let contextMenu: SessionContextController
 
     var body: some View {
         Section {
@@ -27,19 +26,9 @@ struct HerdMachineGroupView: View {
                 }
             }
             ForEach(group.sessions, id: \.id) { session in
-                SessionRow(session: session, content: SessionRowContent(session: session, now: now))
-                    .modifier(SettingsStatusShape(status: session.status))
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(app.selectedSessionID == session.id ? ShepherdPalette.sel : ShepherdPalette.panel,
-                        in: RoundedRectangle(cornerRadius: 6))
-                    .overlay { RoundedRectangle(cornerRadius: 6)
-                        .stroke(app.selectedSessionID == session.id ? ShepherdPalette.lineBright : ShepherdPalette.line,
-                            lineWidth: 1) }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
-                    .tag(session.id)
+                HerdSessionRow(session: session, now: now, display: { app.extension(SidebarModel.self)?.rendered($0) ?? $0 },
+                    block: { app.extension(SidebarModel.self)?.block(for: $0) },
+                    showCli: SessionBadges.showsCli(for: app.store?.visibleSessions ?? group.sessions), contextMenu: contextMenu)
             }
         } header: {
             HStack(spacing: 10) {

@@ -29,6 +29,12 @@ Use a server on your Mac or connect to a remote one. If your agents run on a Lin
 Mac app gives you a native place to follow and steer that work. Your existing Shepherd sessions
 are there when you connect.
 
+Sessions on a connected machine use the same cards, context menus, eight detail tabs and steering
+controls as sessions on your selected server. For example, when connected to Mo, a MacBook session
+uses Mo's saved steering templates and sends its actions to the MacBook. A lost machine connection
+keeps its last data visible and disables session actions until reconnection. See
+[connected machines](../docs/machines.md#macos-session-controls) for verification and version requirements.
+
 When closing the window or quitting, choose whether to keep the app-managed local backend
 running or stop it too. Keeping it running lets sessions and other clients continue; stopping
 it makes its web UI and client connections unavailable until it is started again and may

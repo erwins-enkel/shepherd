@@ -56,13 +56,14 @@ public enum RemoteSessionCopy {
     /// `terminalHere` is false where the app has no terminal for it (iOS), whose actions
     /// section says so instead of promising one.
     public static func explanation(
-        host: SessionHost, connection: SessionConnection, now: Int, terminalHere: Bool = true
+        host: SessionHost, connection: SessionConnection, now: Int, terminalHere: Bool = true,
+        actionsHere: Bool = false
     ) -> RemoteExplanation {
         let machine = host.name
         let link = isDisconnected(connection)
             ? L.t("tooltip_remote_disconnected_body", lastKnown(since: connection.since, now: now), machine)
             : L.t("tooltip_remote_connected_body")
-        let actions = terminalHere
+        let actions = actionsHere ? L.t("native_mac_remote_actions_body", machine) : terminalHere
             ? L.t("tooltip_remote_actions_body", machine)
             : L.t("native_ios_remote_actions_body", machine)
         return RemoteExplanation(

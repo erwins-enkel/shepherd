@@ -6,6 +6,11 @@ import SwiftUI
 struct RelaunchOptionsView: View {
     let session: Session
     let repos: [Repo]
+    var store: SessionStore? = nil
+    @State private var ownerRepos: [Repo]?
+    @State private var loadError: String?
+
+    private var choices: [Repo] { session.host == nil ? repos : ownerRepos ?? [] }
     let confirm: (RelaunchRequest) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var repo = ""
@@ -22,8 +27,12 @@ struct RelaunchOptionsView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(L.t("native_actions_relaunch_confirm_title")).font(.headline)
             Text(L.t("native_actions_relaunch_confirm_body"))
+            if let loadError {
+                Text(verbatim: loadError).foregroundStyle(.red)
+                Button(L.t("common_retry")) { Task { await loadOwnerRepos() } }
+            }
             Picker(L.t("newtask_repo_label"), selection: $repo) {
-                ForEach(repos.filter { !$0.hidden || $0.path == session.repoPath }, id: \.path) { repo in
+                ForEach(choices.filter { !$0.hidden || $0.path == session.repoPath }, id: \.path) { repo in
                     Text(verbatim: repo.name).tag(repo.path)
                 }
             }
@@ -35,10 +44,22 @@ struct RelaunchOptionsView: View {
                 Spacer()
                 Button(L.t("native_actions_relaunch_confirm_action"), role: .destructive) {
                     confirm(Self.request(session: session, repo: repo, branch: branch, prompt: prompt))
-                }.disabled(repo.isEmpty || branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }.disabled((session.host != nil && (ownerRepos == nil || store?.canOperateSession(id: session.id) != true)) || repo.isEmpty || branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || prompt.count > 8000)
             }
         }.padding(24).frame(width: 600)
+        .task(id: session.host?.instanceId) { await loadOwnerRepos() }
         .onAppear { repo = session.repoPath; branch = session.baseBranch; prompt = session.prompt }
+    }
+    private func loadOwnerRepos() async {
+        guard let host = session.host, let store else { return }
+        do {
+            let repos = try await store.client.repos(host: host.instanceId).repos
+            guard !Task.isCancelled else { return }
+            ownerRepos = repos; loadError = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadError = ShepherdErrorCopy.message(error)
+        }
     }
 }

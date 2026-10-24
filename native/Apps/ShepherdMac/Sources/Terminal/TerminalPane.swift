@@ -24,11 +24,8 @@ struct TerminalPane: View {
                         ?? L.t("native_terminal_tab_title"))
                 overlay
             }
-            // Saved steers go through this server's `/reply`, which a mirrored session has not.
-            if machine == nil {
-                Divider()
-                TerminalSteerFooter(store: store, sessionID: sessionID, app: app, activation: activation)
-            }
+            Divider()
+            TerminalSteerFooter(store: store, sessionID: sessionID, app: app, activation: activation)
         }
         // The tab-body identifier every other detail tab carries (`detail-tab-activity`,
         // `-diff`, `-files`, `-git`, `-prompt`). The tab BUTTONS carry no accessibility name on
@@ -86,12 +83,6 @@ struct TerminalPane: View {
                 body: L.t("native_remote_terminal_lost_body", machine.name),
                 action: (L.t("native_recovery_reopen"), { model.takeOver() }),
                 systemImage: "network.slash")
-        } else if let machine, closure == .gone {
-            // Resuming is that machine's to do; nothing here may start the agent instead.
-            statusCard(
-                title: L.t("native_terminal_ended_title"),
-                body: L.t("native_remote_terminal_ended_body", machine.name),
-                action: nil, systemImage: nil)
         } else {
             localEndedCard(for: closure)
         }

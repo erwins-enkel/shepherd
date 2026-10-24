@@ -7033,5 +7033,7 @@
   "placement_load_start": "At start",
   "placement_load_recheck": "Load is checked again when you start. Automatic may choose a different suitable machine.",
   "feat_machine_load_title": "Avoid busy machines when starting tasks",
-  "feat_machine_load_body": "Automatic keeps your machine preference. When that host is busy, a suitable machine with spare capacity can take the new task. The selection explains why; manual choices stay yours."
+  "feat_machine_load_body": "Automatic keeps your machine preference. When that host is busy, a suitable machine with spare capacity can take the new task. The selection explains why; manual choices stay yours.",
+  "native_mac_remote_actions_body": "Session actions run on {machine}. Steering templates are saved on the server you are connected to. When the machine is disconnected, session actions are disabled until it reconnects.",
+  "native_mac_remote_stale": "Some data from {machine} could not be refreshed. The last known state is shown."
 }

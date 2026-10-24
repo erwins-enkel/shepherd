@@ -20736,6 +20736,42 @@
         }
       }
     },
+    "native_mac_remote_actions_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session-Aktionen laufen auf %1$@. Steering-Vorlagen werden auf dem verbundenen Server gespeichert. Bei getrennter Verbindung sind die Aktionen bis zur Wiederverbindung deaktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session actions run on %1$@. Steering templates are saved on the server you are connected to. When the machine is disconnected, session actions are disabled until it reconnects."
+          }
+        }
+      }
+    },
+    "native_mac_remote_stale": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Daten von %1$@ konnten nicht aktualisiert werden. Angezeigt wird der letzte bekannte Stand."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some data from %1$@ could not be refreshed. The last known state is shown."
+          }
+        }
+      }
+    },
     "native_mac_steers_create": {
       "extractionState": "manual",
       "localizations": {

@@ -37,6 +37,33 @@ const FORWARD_TIMEOUT_MS = 60_000;
 
 /** `<METHOD> <leaf>` with leaf = the path after `/api/sessions/:id/` (empty for the session itself). */
 const FORWARDED: ReadonlySet<string> = new Set([
+  "GET ",
+  "POST resume",
+  "POST relaunch",
+  "POST variant",
+  "POST replace",
+  "POST terminal",
+  "POST recommend-prompt",
+  "POST recap/regenerate",
+  "GET git",
+  "GET git/reviewers",
+  "POST git/pr",
+  "POST git/merge",
+  "POST git/ready",
+  "POST git/draft",
+  "POST git/close",
+  "POST git/request-review",
+  "POST review-pr",
+  "POST review-hold",
+  "POST review-cancel",
+  "POST review-plan",
+  "POST quota/resume",
+  "POST quota/dismiss",
+  "GET queue",
+  "PUT queue",
+  "POST queue/approve",
+  "POST git/redeploy",
+  "POST ack-manual-steps",
   "POST reply",
   "POST interrupt",
   "DELETE ", // archive
@@ -66,12 +93,59 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "POST preview/stop",
 ]);
 
+/** The native session surfaces need these snapshots from the owning machine. This is not a
+ * general proxy: both the route and GET method must match before the stored token is used. */
+export const MACHINE_READS: ReadonlySet<string> = new Set([
+  "/api/git",
+  "/api/activity",
+  "/api/claude-alive",
+  "/api/working-blocked",
+  "/api/blocks",
+  "/api/reviews",
+  "/api/reviews/inflight",
+  "/api/recaps",
+  "/api/plan-gates",
+  "/api/plan-gates/inflight",
+  "/api/queues",
+  "/api/repos",
+  "/api/settings",
+]);
+
+const SESSION_ANSWERS = new Set([
+  "GET ",
+  "POST resume",
+  "POST variant",
+  "POST replace",
+  "POST terminal",
+  "PUT autopilot",
+  "PUT automerge",
+  "POST relaunch",
+  "POST rename",
+]);
+
+export async function forwardMachineRead(url: URL, route: MachineRoute): Promise<Response> {
+  if (!MACHINE_READS.has(url.pathname))
+    return Response.json({ error: "not found" }, { status: 404 });
+  if (!route.target) return machineFailure(route.host.name, "disconnected");
+  const query = new URLSearchParams(url.search);
+  query.set("host", "local");
+  const result = await requestRemote(route.target, `${url.pathname}?${query}`, { method: "GET" });
+  if (!result.ok) return machineFailure(route.host.name, result.failure.reason);
+  const answer = passBack("", result.response);
+  if (answer) return answer;
+  await result.response.body?.cancel().catch(() => {});
+  return machineFailure(route.host.name, "bad_response");
+}
+
 /** Request headers the machine needs to read the body and shape the answer; nothing else passes. */
 const REQUEST_HEADERS = ["content-type", "accept"] as const;
 
 export interface ForwardOptions {
   fetch?: FetchLike;
   timeoutMs?: number;
+  annotateSession?: (
+    session: Record<string, unknown> & { id: string },
+  ) => Record<string, unknown> | undefined;
 }
 
 /** Why a machine gave no usable answer: the client's failure vocabulary, or a link that was down. */
@@ -150,10 +224,47 @@ export async function forwardSessionRequest(
     { fetch: opts.fetch, timeoutMs: opts.timeoutMs ?? FORWARD_TIMEOUT_MS },
   );
   if (!res.ok) return machineFailure(machine, res.failure.reason);
+  if (res.response.ok && SESSION_ANSWERS.has(`${req.method} ${leaf}`)) {
+    return annotatedSessionAnswer(
+      res.response,
+      route,
+      opts,
+      leaf === "relaunch" || leaf === "rename",
+    );
+  }
   const answer = passBack(leaf, res.response);
   if (answer) return answer;
   await res.response.body?.cancel().catch(() => {});
   return machineFailure(machine, "bad_response");
+}
+
+async function annotatedSessionAnswer(
+  response: Response,
+  route: MachineRoute,
+  opts: ForwardOptions,
+  nested: boolean,
+): Promise<Response> {
+  const machine = route.host.name;
+  if (!/^application\/json(;|$)/i.test(response.headers.get("content-type") ?? "")) {
+    await response.body?.cancel().catch(() => {});
+    return machineFailure(machine, "bad_response");
+  }
+  const body: unknown = await response.json().catch(() => null);
+  const session = isRecord(body) && nested ? body.session : body;
+  if (!isRecord(body) || !isRecord(session) || typeof session.id !== "string")
+    return machineFailure(machine, "bad_response");
+  const annotated = opts.annotateSession
+    ? opts.annotateSession({ ...session, id: session.id })
+    : {
+        ...session,
+        host: route.host,
+        connection: route.connection ?? { state: "connected", since: Date.now() },
+      };
+  if (!annotated) return machineFailure(machine, "disconnected");
+  return Response.json(nested ? { ...body, session: annotated } : annotated, {
+    status: response.status,
+    headers: { "x-content-type-options": "nosniff" },
+  });
 }
 
 /**

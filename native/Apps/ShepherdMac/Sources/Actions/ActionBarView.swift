@@ -107,12 +107,12 @@ struct ActionBarView: View {
                     }.padding(.horizontal, 16)
                 }
             }
-            buttons
+            buttons.disabled(!store.canOperateSession(id: session.id))
         }
         .accessibilityIdentifier("action-bar")
         .accessibilityLabel(L.t("native_actions_bar_label"))
         .sheet(isPresented: $confirmingRelaunch) {
-            RelaunchOptionsView(session: session, repos: store.repos) { overrides in
+            RelaunchOptionsView(session: session, repos: store.repos, store: store) { overrides in
                 confirmingRelaunch = false
                 relaunch(overrides: overrides)
             }
@@ -311,6 +311,7 @@ struct ActionBarView: View {
                 // for: see `relaunchIsCurrent(session:store:app:)`.
                 isCurrent: { Self.relaunchIsCurrent(session: session, store: store, app: app) })
             guard ok, let outcome else { return }
+            store.acceptSession(outcome.session)
             let outcomeNote = Self.relaunchOutcomeNote(outcome)
             if outcome.archived {
                 // This bar is about to unmount — the archive event already moved, or is about

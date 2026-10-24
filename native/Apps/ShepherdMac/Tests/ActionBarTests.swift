@@ -13,6 +13,26 @@ extension MacSeamTests {
 struct ActionBarTests {
     init() { resetStreamSeams() }
 
+    @Test func remoteContextMenuSelectsItsOwnSessionAndOpensRename() async throws {
+        let defaults = Self.scratchDefaults()
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(),
+            notifications: MacTestSupport.environment(defaults: defaults))
+        defer { app.teardown() }
+        let profile = try app.addRemoteProfile(name: "context-remote", address: "https://context-remote.example.ts.net")
+        await app.activate(profile)
+        let store = try #require(app.store)
+        store.apply(.sessionNew(PreviewData.session(id: "local")))
+        var remote = PreviewData.session(id: "remote")
+        remote.host = .init(instanceId: "macbook", name: "MacBook", platform: .init(known: .macos))
+        remote.connection = .init(state: .init(known: .connected), since: 1)
+        store.apply(.mirrored(host: remote.host!, event: .sessionNew(remote)))
+        app.selectedSessionID = "local"
+        let controller = SessionContextController()
+        controller.perform(.rename, sessionID: "remote", app: app)
+        #expect(app.selectedSessionID == "remote")
+        #expect(controller.sheet == .rename("remote"))
+    }
+
     @Test func relaunchOverridesOnlyEditedFields() {
         let session = PreviewData.session()
         let inherited = RelaunchOptionsView.request(session: session, repo: session.repoPath,

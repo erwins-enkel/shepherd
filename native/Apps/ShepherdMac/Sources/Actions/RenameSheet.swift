@@ -22,6 +22,8 @@ struct RenameSheet: View {
         ActionBarView.isCurrent(session: session, store: store, app: app)
     }
 
+    private var canOperate: Bool { session.host == nil || store.canOperateSession(id: session.id) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(verbatim: L.t("viewport_rename_aria")).font(.headline)
@@ -41,7 +43,7 @@ struct RenameSheet: View {
                 Button(L.t("common_save"), action: submit)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!RenameSubmission.validate(name, current: session.name) || command.busy)
+                    .disabled(!RenameSubmission.validate(name, current: session.name) || command.busy || !canOperate)
                     .accessibilityIdentifier("rename-submit")
             }
         }
@@ -59,6 +61,7 @@ struct RenameSheet: View {
     }
 
     private func submit() {
+        guard canOperate else { return }
         // An unchanged name is a no-op, not a request: close without touching the server, the
         // same thing the web's `commitRename` does.
         guard RenameSubmission.validate(name, current: session.name) else {

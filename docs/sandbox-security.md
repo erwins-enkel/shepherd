@@ -439,15 +439,10 @@ credential lookup run from `/`).
 Server-made commits (doc agent, gitignore adoption, maintenance, plugin agents,
 repo bootstrap) no longer run repo hooks.
 
-**Residuals (not neutralized):**
-
-- `core.sshCommand`, credential helpers, and `filter.*`/`merge.*`/`diff.*`
-  drivers set in agent-writable config. Overriding them would break the
-  operator's global ssh, credential and LFS setup. It needs a trusted-config
-  snapshot.
-- Non-isolated sessions in a confining profile. The agent owns the whole repo,
-  so there is nothing safe to pin to.
-- `WorktreeMgr.remove` and the preview-script lookup are hardened but not pinned.
+**Scope:** the neutralized set is deliberately narrow — only keys the operator's
+own setup never needs from repo config. Non-isolated sessions in a confining
+profile have no pin anchor (the agent owns the whole repo), and
+`WorktreeMgr.remove` and the preview-script lookup are hardened but not pinned.
 
 ## See also
 

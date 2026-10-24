@@ -15,8 +15,8 @@
  *   from the worktree's agent-writable `.git` gitfile ({@link resolveWorktreePin});
  * - names Shepherd's own copy of the i18n union merge driver ({@link trustedUnionDriverConfig}).
  *
- * Not neutralized (documented residual in docs/sandbox-security.md): `core.sshCommand`,
- * credential helpers and filter/merge/diff drivers set in agent-writable config.
+ * The neutralized set is deliberately narrow (keys the operator's own global setup never needs
+ * from repo config); widening it is tracked separately.
  *
  * test/safe-git-guard.test.ts fails on any raw `execFile("git", …)` outside its allowlist.
  */

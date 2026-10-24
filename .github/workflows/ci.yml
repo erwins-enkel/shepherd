@@ -453,12 +453,8 @@ jobs:
   # reports blocks the PR from merging forever. It is gated by a job-level `if:` on the
   # `changes` job instead (#2568), which reports "skipped" (= passing).
   #
-  # NB the fonts pipeline reaches cdn.jsdelivr.net at BUILD time (the npm font provider
-  # fetches the woff2 for the lockfile-pinned @fontsource version), so this job needs
-  # network during `build`, not just during install. A fetch failure fails the build
-  # loudly. That is deliberately left unretried, matching every other build step here —
-  # `bun-install-retry` wraps installs only, and the repo adds retries in response to
-  # observed flakes (#944, #1134), not in anticipation of one.
+  # Font files resolve from the installed @fontsource packages, so build needs no
+  # font CDN access. Installs still use bun-install-retry for registry failures.
   site:
     name: site
     # Skip release-please's generated PR, mirroring the two jobs above.

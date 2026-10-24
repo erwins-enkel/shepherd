@@ -17,6 +17,7 @@
   import { backlogLayout, clampModalWidth, clampModalHeight } from "#lib/backlog-layout.svelte.js";
   import { createResizeDrag } from "#lib/resize-drag.js";
   import BacklogView from "./BacklogView.svelte";
+  import { swipeBack } from "./swipe-back";
 
   // Typing in a field must never trigger the `R` shortcut (mirrors +page's isTyping).
   function isTyping(el: EventTarget | null): boolean {
@@ -129,6 +130,11 @@
     view?.openSwitcher();
   }
 
+  // Phone: a rightward swipe over the repo list closes Backlog, back to the sessions (see
+  // swipeBack). An open repo/issue detail is its own swipe-back root, so it goes back first.
+  let cardX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const cardSwipe = swipeBack({ onback: () => onclose(), onoffset: (px) => (cardX = px) });
+
   const startModalResize = createResizeDrag<{ x: number; y: number; w: number; h: number }>({
     axis: "both",
     onActive: (a) => (modalResizing = a),
@@ -160,14 +166,17 @@
     class:mobile
     class:resized
     class:resizing={modalResizing}
+    class:swiping={cardX > 0}
     bind:this={cardEl}
     style={sizeStyle}
+    style:transform={cardX > 0 ? `translateX(${cardX}px)` : undefined}
     role="dialog"
     aria-modal="true"
     aria-label={m.actionbar_backlog()}
     tabindex="-1"
     use:dialog={{ onclose }}
     onkeydown={onCardKeydown}
+    {@attach mobile ? cardSwipe : undefined}
   >
     {#if mobile}
       <!-- desktop's title bar is BacklogView's repo-switcher header -->
@@ -271,6 +280,12 @@
     border: 0;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
+    transition: transform 0.18s ease-out;
+  }
+  /* Mid swipe-back: follows the finger 1:1, edge shadow over the uncovered sessions. */
+  .card.mobile.swiping {
+    transition: none;
+    box-shadow: var(--shadow-popover);
   }
   .chead {
     display: flex;

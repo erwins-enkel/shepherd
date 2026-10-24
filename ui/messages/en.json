@@ -475,6 +475,8 @@
   "feat_swipe_back_to_issues_body": "On your phone, swipe right across an open issue in the Backlog or the Next view to go back to the list, the same gesture as on a session. The issue follows your finger; let go past the threshold to return. The same swipe takes you back from the Owed view when you opened it from a card's Resolve steps chip.",
   "feat_swipe_back_repo_settings_title": "Swipe right to leave a repo or Settings",
   "feat_swipe_back_repo_settings_body": "On your phone, swipe right across a repo's details to return to the repo list, on every tab: Issues, PRs, Actions, Readiness and Automation. An open issue goes back to the issue list first. In Settings, the same swipe takes a section back to the section list, and from the list it closes Settings.",
+  "feat_swipe_back_backlog_title": "Swipe right to leave the Backlog",
+  "feat_swipe_back_backlog_body": "On your phone, swipe right across the Backlog repo list to go back to the session list. An open repo or issue goes back one level first, so repeated swipes walk you all the way out.",
   "viewport_back_button": "‹ Herd",
   "viewport_queue_prev_aria": "Previous waiting session",
   "viewport_queue_next_aria": "Next waiting session",

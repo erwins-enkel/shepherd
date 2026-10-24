@@ -32,6 +32,11 @@ public enum ProfileSetup {
     return "\(prefix)\(host))"
   }
 
+  /// The server's per-peer login budget is spent (429); retry after a minute.
+  public enum LoginError: Error, Equatable, Sendable {
+    case rateLimited
+  }
+
   /// Logs in with `password`, mints a full-scope token that never expires,
   /// stores it under `profile.credentialKey`, and discards the cookie.
   ///
@@ -89,10 +94,13 @@ public enum ProfileSetup {
       switch try await client.login(.init(body: .json(.init(password: password)))) {
       case .ok: break
       case .unauthorized: throw ShepherdError.unauthenticated
+      case .contentTooLarge(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .tooManyRequests: throw LoginError.rateLimited
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "login")
       }
-    } catch { throw ShepherdError.from(error, route: "login") }
+    } catch let error as LoginError { throw error }
+      catch { throw ShepherdError.from(error, route: "login") }
 
     if let sweepName = sweepPriorTokensNamed {
       await sweepTokens(named: sweepName, client: client)

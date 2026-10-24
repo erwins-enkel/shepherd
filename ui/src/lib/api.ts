@@ -325,8 +325,9 @@ export async function getMe(): Promise<boolean> {
 }
 
 /** POST the operator password; on success the server sets the session cookie (HttpOnly, so JS never
- *  sees it). Returns true on 200; false on a 401 (wrong password). Throws on other failures. */
-export async function login(password: string): Promise<boolean> {
+ *  sees it). Returns "ok" on 200, "invalid" on a 401 (wrong password), "rate_limited" on a 429
+ *  (per-peer attempt budget spent, #2105). Throws on other failures. */
+export async function login(password: string): Promise<"ok" | "invalid" | "rate_limited"> {
   const r = await fetch("/api/login", {
     method: "POST",
     headers: JSON_HEADERS,
@@ -334,9 +335,10 @@ export async function login(password: string): Promise<boolean> {
   });
   if (r.ok) {
     auth.unauthenticated = false;
-    return true;
+    return "ok";
   }
-  if (r.status === 401) return false;
+  if (r.status === 401) return "invalid";
+  if (r.status === 429) return "rate_limited";
   throw await failed(r, "login");
 }
 

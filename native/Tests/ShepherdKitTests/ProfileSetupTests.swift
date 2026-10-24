@@ -283,6 +283,22 @@ struct ProfileSetupTests {
     #expect(server.requests().count == 1)
   }
 
+  @Test("a spent login budget (429) is rateLimited and stores nothing")
+  func loginRateLimited() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("POST", "/api/login", status: 429, json: try Fixtures.errorJSON("login_rate_limited"))
+    let credentials = InMemoryCredentialStore()
+
+    await #expect(throws: ProfileSetup.LoginError.rateLimited) {
+      _ = try await ProfileSetup.login(
+        profile: profile(server), password: "nope", credentials: credentials,
+        urlSessionFactory: { _ in server.urlSession() })
+    }
+    #expect(try credentials.load(for: "k") == nil)
+    #expect(server.requests().count == 1)
+  }
+
   @Test("a 403 on the mint is forbidden and stores nothing")
   func mintForbidden() async throws {
     let server = FakeShepherdServer()

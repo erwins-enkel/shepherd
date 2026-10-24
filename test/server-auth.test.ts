@@ -179,15 +179,79 @@ test("login: correct password → 200 + HttpOnly SameSite=Strict cookie; conditi
   expect(setCookie).toContain("SameSite=Strict");
   expect(setCookie).not.toContain("Secure");
 
-  // HTTPS (via X-Forwarded-Proto) → Secure
-  const resHttps = await app.fetch(
+  // X-Forwarded-Proto from a non-loopback (here: unknown) peer is not trusted (#2109)
+  const resSpoofed = await app.fetch(
     new Request("http://x/api/login", {
       method: "POST",
       headers: { "content-type": "application/json", "x-forwarded-proto": "https" },
       body: JSON.stringify({ password: PASSWORD }),
     }),
   );
-  expect(resHttps.headers.get("set-cookie")).toContain("Secure");
+  expect(resSpoofed.status).toBe(200);
+  expect(resSpoofed.headers.get("set-cookie")).not.toContain("Secure");
+});
+
+test("login: X-Forwarded-Proto https from the loopback proxy → Secure cookie", async () => {
+  await withServer(async (port) => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-proto": "https" },
+      body: JSON.stringify({ password: PASSWORD }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toContain("Secure");
+  });
+});
+
+// ── login admission control (#2105) ─────────────────────────────────────────
+
+const loginReq = (body: BodyInit, headers: Record<string, string> = {}) =>
+  new Request("http://x/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body,
+  });
+
+test("login: 11th attempt per peer → 429 with Retry-After, before any verify", async () => {
+  const app = makeApp(makeDeps());
+  for (let i = 0; i < 10; i++) {
+    const res = await app.fetch(loginReq(JSON.stringify({ password: `wrong-${i}` })));
+    expect(res.status).toBe(401);
+  }
+  const res = await app.fetch(loginReq(JSON.stringify({ password: PASSWORD })));
+  expect(res.status).toBe(429);
+  expect(res.headers.get("retry-after")).toBe("60");
+  expect(await res.json()).toEqual({ error: "login_rate_limited" });
+  expect(res.headers.get("set-cookie")).toBeNull();
+});
+
+test("login: body over 4 KiB → 413 (declared Content-Length)", async () => {
+  const app = makeApp(makeDeps());
+  const res = await app.fetch(loginReq(JSON.stringify({ password: "x".repeat(5000) })));
+  expect(res.status).toBe(413);
+});
+
+test("login: streamed body over 4 KiB without Content-Length → 413", async () => {
+  const app = makeApp(makeDeps());
+  const chunk = new TextEncoder().encode("x".repeat(1024));
+  let sent = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent++ < 64) controller.enqueue(chunk);
+      else controller.close();
+    },
+  });
+  const req = loginReq(stream);
+  expect(req.headers.get("content-length")).toBeNull();
+  const res = await app.fetch(req);
+  expect(res.status).toBe(413);
+  expect(sent).toBeLessThan(64); // stopped reading at the cap, never buffered the whole body
+});
+
+test("login: body within the cap still parses (400 on bad json, 200 on the password)", async () => {
+  const app = makeApp(makeDeps());
+  expect((await app.fetch(loginReq("{not json"))).status).toBe(400);
+  expect((await app.fetch(loginReq(JSON.stringify({ password: PASSWORD })))).status).toBe(200);
 });
 
 test("login → cookie then authenticates a gated route", async () => {

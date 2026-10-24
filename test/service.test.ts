@@ -43,6 +43,7 @@ import {
   epicAuthoringDirective,
   detectEpicIntent,
   UntrustedIssueAuthorError,
+  sanitizeSteerText,
 } from "../src/service";
 import { BrowserTokenSigner } from "../src/browser-token";
 import type { SandboxProfile } from "../src/sandbox";
@@ -4410,6 +4411,22 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
   sent.length = 0;
   expect(await svc.reply(s.id, "a\x1b[201~b\x1b[200~c")).toBe(true);
   expect(sent[0]).toEqual({ target: "term_z", text: "\x1b[200~abc\x1b[201~" });
+
+  // Nested markers can't reassemble a live paste-end, and no other control byte escapes the
+  // paste (audit N09): exactly one start at 0, one end at the tail, no ESC/CR in between.
+  sent.length = 0;
+  expect(await svc.reply(s.id, "fix\x1b[201\x1b[201~~\rINJECTED\x1b\x03")).toBe(true);
+  const first = (sent[0] as { text: string }).text;
+  expect(first).toBe("\x1b[200~fix\nINJECTED\x1b[201~");
+  expect(first.split("\x1b").length - 1).toBe(2);
+});
+
+test("sanitizeSteerText: fixed-point marker strip, CR→LF, controls dropped, LF/TAB kept", () => {
+  expect(sanitizeSteerText("a\x1b[201\x1b[201~~b")).toBe("ab");
+  expect(sanitizeSteerText("\x1b[20\x1b[200~0~x\x1b[2\x1b[201~01~")).toBe("x");
+  expect(sanitizeSteerText("one\r\ntwo\rthree\n\tfour")).toBe("one\ntwo\nthree\n\tfour");
+  expect(sanitizeSteerText("a\x1b[31mred\x9b2J\x7f\x00\x08b")).toBe("a[31mred2Jb");
+  expect(sanitizeSteerText("plain ünïcode ✓")).toBe("plain ünïcode ✓");
 });
 
 test("reply returns false for a live-in-store session whose pane is dead (no throw, no send)", async () => {

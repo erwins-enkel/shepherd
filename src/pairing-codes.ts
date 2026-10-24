@@ -1,17 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
+import { AttemptBudget } from "./attempt-budget";
 
 export const PAIRING_TTL_MS = 5 * 60_000;
 const MAX_CODES = 5;
-const WINDOW_MS = 60_000;
-const MAX_ATTEMPTS = 10;
-const MAX_PEERS = 1024;
 const hash = (code: string) => createHash("sha256").update(code).digest("hex");
 
 /** Ephemeral, hashed invitations. Consumption is synchronous: no await can reuse a code. */
 export class PairingCodeService {
   private readonly codes = new Map<string, number>();
-  private readonly attempts = new Map<string, { until: number; count: number }>();
-  constructor(private readonly now: () => number = Date.now) {}
+  private readonly attempts: AttemptBudget;
+  constructor(private readonly now: () => number = Date.now) {
+    this.attempts = new AttemptBudget(now);
+  }
 
   mint(): { code: string; expiresAt: number } {
     this.purge();
@@ -30,19 +30,11 @@ export class PairingCodeService {
 
   /** Bound both attempts and memory; saturated buckets fail closed until the window ends. */
   allowAttempt(peer: string): boolean {
-    this.purge();
-    let bucket = this.attempts.get(peer);
-    if (!bucket) {
-      if (this.attempts.size >= MAX_PEERS) return false;
-      bucket = { until: this.now() + WINDOW_MS, count: 0 };
-      this.attempts.set(peer, bucket);
-    }
-    return ++bucket.count <= MAX_ATTEMPTS;
+    return this.attempts.allowAttempt(peer);
   }
 
   private purge(): void {
     const now = this.now();
     for (const [key, expiresAt] of this.codes) if (expiresAt <= now) this.codes.delete(key);
-    for (const [key, bucket] of this.attempts) if (bucket.until <= now) this.attempts.delete(key);
   }
 }

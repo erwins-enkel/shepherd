@@ -9145,6 +9145,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          description: Request body over 4 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many login attempts from this peer (login_rate_limited); retry after sixty seconds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/logout:
     post:
       operationId: logout

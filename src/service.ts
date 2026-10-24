@@ -2599,6 +2599,28 @@ function sessionIssueFields(input: StandardCreateInput, ownSlug: string | null) 
   };
 }
 
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+/** C0 controls except TAB/LF, DEL, and C1 (incl. the 8-bit CSI 0x9b). */
+// eslint-disable-next-line no-control-regex
+const STEER_CONTROL_RE = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
+
+/**
+ * Make steer text safe to deliver inside a bracketed paste (audit N09). Paste markers are stripped
+ * to a FIXED POINT — one pass would let nested input like `ESC[201ESC[201~~` reassemble a live
+ * paste-end — then CR/CRLF become LF and every other control byte is dropped, so nothing inside
+ * the paste can act as a raw keystroke (ESC, early submit, Ctrl-chords). Newlines and tabs stay:
+ * multi-line steers are the point of the paste wrap.
+ */
+export function sanitizeSteerText(text: string): string {
+  let out = text;
+  for (let prev = ""; prev !== out;) {
+    prev = out;
+    out = out.replaceAll(PASTE_START, "").replaceAll(PASTE_END, "");
+  }
+  return out.replace(/\r\n?/g, "\n").replace(STEER_CONTROL_RE, "");
+}
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
@@ -6721,9 +6743,7 @@ export class SessionService {
       kind: "reply",
       payload: signalPayload,
     });
-    const PASTE_START = "\x1b[200~";
-    const PASTE_END = "\x1b[201~";
-    const safe = text.replaceAll(PASTE_START, "").replaceAll(PASTE_END, "");
+    const safe = sanitizeSteerText(text);
     // The CR must reach the PTY only after the paste has landed, and no other steer may slip
     // between them — the paste-end marker is what makes this CR unambiguously Enter (#1567).
     await this.#serializeSteer(async () => {

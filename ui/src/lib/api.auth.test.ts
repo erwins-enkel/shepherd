@@ -38,16 +38,23 @@ describe("single-operator auth (issue #1079)", () => {
     expect(await getMe()).toBe(false);
   });
 
-  it("login: success clears the flag and returns true", async () => {
+  it("login: success clears the flag and returns ok", async () => {
     auth.unauthenticated = true;
     globalThis.fetch = mockFetch(200, { ok: true });
-    expect(await login("right")).toBe(true);
+    expect(await login("right")).toBe("ok");
     expect(auth.unauthenticated).toBe(false);
   });
 
-  it("login: wrong password returns false without throwing", async () => {
+  it("login: wrong password returns invalid without throwing", async () => {
     globalThis.fetch = mockFetch(401, { error: "invalid password" });
-    expect(await login("wrong")).toBe(false);
+    expect(await login("wrong")).toBe("invalid");
+  });
+
+  it("login: a spent attempt budget (429) returns rate_limited, not invalid", async () => {
+    auth.unauthenticated = true;
+    globalThis.fetch = mockFetch(429, { error: "login_rate_limited" });
+    expect(await login("right")).toBe("rate_limited");
+    expect(auth.unauthenticated).toBe(true);
   });
 
   it("logout: flips the flag to unauthenticated", async () => {

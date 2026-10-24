@@ -34,6 +34,11 @@ public enum ShepherdErrorCopy {
             case .malformedItem: return L.t("native_error_keychain")
             }
         }
+        if let login = error as? ProfileSetup.LoginError {
+            switch login {
+            case .rateLimited: return L.t("native_login_rate_limited")
+            }
+        }
         guard let shepherd = error as? ShepherdError else {
             // Anything not from the kit — a URLError from the local probe, say.
             return L.t("native_error_offline")

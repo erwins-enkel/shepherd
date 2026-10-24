@@ -6,23 +6,23 @@
 
   let password = $state("");
   let busy = $state(false);
-  let error = $state(false);
+  let error = $state<"invalid" | "rate_limited" | null>(null);
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (busy || password === "") return;
     busy = true;
-    error = false;
+    error = null;
     try {
-      const ok = await login(password);
-      if (ok) {
+      const result = await login(password);
+      if (result === "ok") {
         password = "";
         // success: auth.unauthenticated is cleared by login(); the layout re-renders the app.
       } else {
-        error = true;
+        error = result;
       }
     } catch {
-      error = true;
+      error = "invalid";
     } finally {
       busy = false;
     }
@@ -48,7 +48,9 @@
       />
     </label>
     {#if error}
-      <p class="error" role="alert">{m.login_error()}</p>
+      <p class="error" role="alert">
+        {error === "rate_limited" ? m.login_rate_limited() : m.login_error()}
+      </p>
     {/if}
     <button type="submit" class="gbtn submit" disabled={busy || password === ""}>
       {busy ? m.login_busy() : m.login_submit()}

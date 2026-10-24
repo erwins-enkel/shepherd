@@ -12132,7 +12132,7 @@ const ROUTE_HANDLERS = [
  *
  * `skipAuth` bypasses the human cookie/token gate (issue #1079) — used ONLY by the loopback
  * agent-ingress listener (makeAgentIngressApp), whose loopback bind + route allowlist + per-session
- * UUID IS the agent's auth. The `Origin` (CSRF) check still applies. The main server never sets it.
+ * ingress key (#3337) IS the agent's auth. The `Origin` (CSRF) check still applies. The main server never sets it.
  */
 export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
   const app = {
@@ -12236,8 +12236,8 @@ const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
  * lens is addressed (`GET /api/sessions/done` → every recently-archived session across every repo,
  * see handleSessionReads). A shape-only "no fourth segment ⇒ allow GET" rule would hand every
  * spawned agent that enumeration. Requiring a UUID excludes `done` — and any reserved literal added
- * later — structurally, and states in code what this file already claims in prose: the unguessable
- * per-session id IS the capability.
+ * later — structurally. The UUID is only the ADDRESS: since #3337 the capability is the per-session
+ * ingress key checked in ingressKeyAllowed.
  */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -12291,7 +12291,7 @@ export function makeAgentIngressApp(deps: AppDeps) {
 
 /** Start the agent-ingress listener bound to LOOPBACK ONLY (never config.host, which may be 0.0.0.0).
  *  slirp maps the netns's 10.0.2.2 to the host's 127.0.0.1, so loopback is the correct + safest bind.
- *  The `port` is PINNED (config.agentIngressPort) so the URL baked into a live agent's --settings argv
+ *  The `port` is PINNED (config.agentIngressPort) so the URL baked into a live agent's 0600 --settings file
  *  survives a restart/deploy (issue #1083); `0` falls back to an ephemeral port. We rely on Bun's
  *  default SO_REUSEADDR for clean-restart rebind and deliberately do NOT set reusePort (SO_REUSEPORT) —
  *  that is concurrent co-binding, which on this auth-exempt listener would let any same-UID local

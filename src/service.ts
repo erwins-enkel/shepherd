@@ -723,8 +723,8 @@ export function buildHooksFragment(input: HookTarget): Record<string, unknown> {
   };
 }
 
-/** Where a session's http hooks post. `ingressKey` (the Operator Assistant only, audit F08) is
- *  sent literally — its overlay reaches claude as a 0600 file, never argv (src/assistant-ingress.ts). */
+/** Where a session's http hooks post. `ingressKey` (every session — audit F08, #3337) is sent
+ *  literally — the overlay reaches claude as a 0600 file, never argv (src/assistant-ingress.ts). */
 type HookTarget = {
   sessionId: string;
   baseUrl: string;
@@ -733,7 +733,7 @@ type HookTarget = {
 };
 
 /** An http hook's auth: the `$SHEPHERD_TOKEN` placeholder, never the literal token (see
- *  buildHooksFragment); no token → no header at all. Plus the assistant's ingress key. */
+ *  buildHooksFragment); no token → no header at all. Plus the session's ingress key. */
 function hookAuthFields(token: string | null, ingressKey?: string): Record<string, unknown> {
   const key = ingressKey ? { [ASSISTANT_INGRESS_HEADER]: ingressKey } : {};
   if (token === null) return ingressKey ? { headers: key } : {};

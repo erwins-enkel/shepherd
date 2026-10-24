@@ -15,9 +15,9 @@
  *     events, or status semantics.
  *  2. **The read tools** (`sessions_list` / `sessions_show` / `self_status`, issue #2485) —
  *     read-all, write-own: an agent may read any live session but mutate only itself. They never
- *     return a session UUID (not even the caller's): on the unauthenticated ingress the UUID IS the
- *     write capability for `…/queue`, `…/epic-draft` and `…/rename`, so other sessions are keyed
- *     by desig. Issue/PR/critic-derived strings are fenced as untrusted data.
+ *     return a session UUID (not even the caller's): the UUID addresses the write routes `…/queue`,
+ *     `…/epic-draft` and `…/rename` (the ingress key bound to it, #3337, is the capability), so
+ *     other sessions are keyed by desig. Issue/PR/critic-derived strings are fenced as untrusted data.
  *     Plus `browser_request_login` (issue #2882), the one tool with no REST twin: it raises a
  *     Login Request (src/login-request.ts) and long-polls for the operator's answer. Only the
  *     operator app can resolve it — the agent cannot mark its own request done.
@@ -35,8 +35,9 @@
  *
  * Auth: none, by design and unchanged from the routes it mirrors. Agents reach Shepherd through
  * the restricted agent-ingress listener, which is exempt from the human cookie/password gate
- * (issue #1079) — the unguessable per-session id in the URL path IS the capability, exactly as
- * for `…/queue` and `…/epic-draft`. That is why no token needs to appear in prompt text.
+ * (issue #1079) — the per-session ingress key header (#3337, carried by the 0600 `--mcp-config`
+ * file) is the capability, exactly as for `…/queue` and `…/epic-draft`. That is why no token
+ * needs to appear in prompt text.
  *
  * Agent-facing English (tool descriptions are read by the model, never rendered as operator
  * chrome), so no i18n — same precedent as the spawn directives in src/service.ts.

@@ -524,6 +524,8 @@ export class GiteaForge implements GitForge {
     await this.req("POST", `/api/v1/repos/${this.slug}/pulls/${prNumber}/merge`, {
       Do: o.method,
       delete_branch_after_merge: o.deleteBranch,
+      // Gitea >= 1.17 aborts the merge when the PR head no longer matches (go-gitea/gitea#18032).
+      ...(o.expectedHeadSha ? { head_commit_id: o.expectedHeadSha } : {}),
     });
   }
 

@@ -431,7 +431,7 @@ describe("computeNext", () => {
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 
   test("retire: no-CI repo (noCi + checks:none + mergeable) → retire", () => {
@@ -441,7 +441,7 @@ describe("computeNext", () => {
         autoSessions: [autoSession({ id: "sX", git: noCiGit, reviewDecision: null })],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 
   test("retire: checks:none WITHOUT noCi → does NOT retire (CI repo pre-green)", () => {
@@ -484,7 +484,7 @@ describe("computeNext", () => {
         ],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "ok", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "ok", prNumber: 7, headSha: "abc" });
   });
 
   // #2070: a stacked layer waiting for the one below it must be skipped by the DECISION. Selecting
@@ -500,7 +500,7 @@ describe("computeNext", () => {
         stackHeldSessions: new Set(["held"]),
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "ready", prNumber: 8 });
+    expect(d).toEqual({ kind: "retire", sessionId: "ready", prNumber: 8, headSha: "abc" });
   });
 
   test("retire: every candidate stack-held → no retire decision at all", () => {
@@ -578,7 +578,7 @@ describe("computeNext", () => {
         ],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 
   test("critic on + verdict for an older head → hold (re-review pending)", () => {
@@ -605,7 +605,7 @@ describe("computeNext", () => {
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 
   test("full-auto session is left for the merge train; non-full-auto retires", () => {
@@ -621,6 +621,8 @@ describe("computeNext", () => {
       kind: "retire",
       sessionId: "s1",
       prNumber: 5,
+      // F09: the gated head rides on the decision so the merge can be bound to it.
+      headSha: "h",
     });
   });
 });
@@ -672,7 +674,7 @@ describe("computeNext — draftMode sign-off gate", () => {
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, humanApproved: true })],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 
   test("human authority + only a clean critic verdict → NO retire (authority mismatch)", () => {
@@ -712,7 +714,7 @@ describe("computeNext — draftMode sign-off gate", () => {
         ],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 
   test("critic authority + commented WITH findings → NO retire (advisory, not sign-off)", () => {
@@ -767,7 +769,7 @@ describe("computeNext — draftMode sign-off gate", () => {
       }),
     );
     // The signed one is retireable → retire wins over the cap/awaiting_signoff relabel.
-    expect(d).toEqual({ kind: "retire", sessionId: "signed", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "signed", prNumber: 7, headSha: "abc" });
   });
 
   test("cap, only an unsigned retireable session → awaiting_signoff", () => {
@@ -791,7 +793,7 @@ describe("computeNext — draftMode sign-off gate", () => {
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, humanApproved: false })],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 });
 
@@ -895,7 +897,7 @@ describe("computeNext: epic_unreadable", () => {
         autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
       }),
     );
-    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 });
 

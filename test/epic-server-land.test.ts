@@ -23,7 +23,12 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-type FakeMergeInput = { prNumber: number; method: string; deleteBranch: boolean };
+type FakeMergeInput = {
+  prNumber: number;
+  method: string;
+  deleteBranch: boolean;
+  expectedHeadSha?: string;
+};
 
 function makeForge(opts?: {
   prStatusResult?: PrStatus;
@@ -40,6 +45,7 @@ function makeForge(opts?: {
     mergeable: true,
     mergeStateStatus: "clean",
     deployConfigured: false,
+    headSha: "land-head",
   };
   const forge: any = {
     // Host-configured merge method — set to "squash" so the happy-path test proves the handler
@@ -49,9 +55,17 @@ function makeForge(opts?: {
       if (opts?.prStatusThrows) throw opts.prStatusThrows;
       return opts?.prStatusResult ?? defaultPrStatus;
     },
-    merge: async (prNumber: number, o: { method: string; deleteBranch: boolean }) => {
+    merge: async (
+      prNumber: number,
+      o: { method: string; deleteBranch: boolean; expectedHeadSha?: string },
+    ) => {
       if (opts?.mergeThrows) throw opts.mergeThrows;
-      mergeCalls.push({ prNumber, method: o.method, deleteBranch: o.deleteBranch });
+      mergeCalls.push({
+        prNumber,
+        method: o.method,
+        deleteBranch: o.deleteBranch,
+        expectedHeadSha: o.expectedHeadSha,
+      });
     },
   };
   return { forge, mergeCalls };
@@ -260,6 +274,30 @@ describe("POST /api/epics/completed/land", () => {
     expect(mergeCalls).toHaveLength(0);
   });
 
+  test("green PR with no readable head → 409, forge.merge NOT called (F09)", async () => {
+    const { forge, mergeCalls } = makeForge({
+      prStatusResult: {
+        state: "open",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "clean",
+        deployConfigured: false,
+      },
+    });
+    const { app, store } = landHarness(() => forge);
+    seedCompletedEpic(store, repoDir, 42, "open", 77);
+    store.getOrInitEpicIntegrationBranch(repoDir, 42, "epic/42-my-epic");
+    const res = await app.fetch(
+      new Request("http://x/api/epics/completed/land", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: repoDir, parent: 42 }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect(mergeCalls).toHaveLength(0);
+  });
+
   test("prStatus throws → 502 with a generic message, not the raw error (CodeQL #14)", async () => {
     const { forge } = makeForge({ prStatusThrows: new Error("network failure at 10.0.0.5:6443") });
     const { app, store } = landHarness(() => forge);
@@ -316,7 +354,12 @@ describe("POST /api/epics/completed/land", () => {
 
     // merge was called with the host-configured method (forge.mergeMethod = "squash"), not a hardcoded "merge"
     expect(mergeCalls).toHaveLength(1);
-    expect(mergeCalls[0]).toEqual({ prNumber: 77, method: "squash", deleteBranch: true });
+    expect(mergeCalls[0]).toEqual({
+      prNumber: 77,
+      method: "squash",
+      deleteBranch: true,
+      expectedHeadSha: "land-head", // bound to the head read as ready (F09)
+    });
 
     // store updated to merged
     const updated = store.listEpicCompleted(repoDir).find((r) => r.parentIssueNumber === 42);

@@ -516,10 +516,30 @@ test("merge: a failed ancestry read fails CLOSED (#3192)", async () => {
   expect(joined().some((c) => c.includes("merge-async"))).toBe(false);
 });
 
+test("merge: a stacked head that moved off the confirmed one is refused before any read (F09)", async () => {
+  const { forge, joined } = harness([
+    [PROBE, stackedProbe],
+    [PUT_PATH, () => JSON.stringify({ status: "merged" })],
+  ]);
+
+  await expect(
+    forge.merge(7, {
+      method: "squash",
+      deleteBranch: true,
+      allowStacked: true,
+      expectedHeadSha: "abcdef1234567",
+    }),
+  ).rejects.toThrow(/head moved/);
+  expect(joined().some((c) => c.includes("merge-async") || c.includes("compare"))).toBe(false);
+});
+
 test("merge: the ancestry read checks the operator-confirmed head (#3192, #2299)", async () => {
   const confirmed = "abcdef1234567";
+  // The probe could not read the head: the confirmed one is what gets checked and bound.
+  const shalessProbe = (): string =>
+    JSON.stringify({ stack: { size: 3, position: 2, base: { ref: TRUNK } } });
   const { forge, calls } = harness([
-    [PROBE, stackedProbe],
+    [PROBE, shalessProbe],
     [PUT_PATH, () => JSON.stringify({ status: "merged" })],
   ]);
 

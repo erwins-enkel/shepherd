@@ -72,7 +72,7 @@ export type DrainDecision =
        *  branch and lands on its own). Undefined for integration epics and label-drain. */
       incrementalEpicParent?: number;
     }
-  | { kind: "retire"; sessionId: string; prNumber: number }
+  | { kind: "retire"; sessionId: string; prNumber: number; headSha: string | null }
   | { kind: "hold"; reason: HoldReason };
 
 /** The slice of an auto session the decision core reasons over. */
@@ -308,7 +308,13 @@ function retireDecision(state: DrainRepoState): DrainDecision | null {
       readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
   );
   return toRetire
-    ? { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! }
+    ? {
+        kind: "retire",
+        sessionId: toRetire.id,
+        prNumber: toRetire.git!.number!,
+        // F09: the head the CI + critic gate just passed — the epic-child merge is bound to it.
+        headSha: toRetire.git!.headSha ?? null,
+      }
     : null;
 }
 

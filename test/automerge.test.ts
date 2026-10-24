@@ -101,7 +101,10 @@ test("ready PR → forge.merge called with squash + delete-branch, then archived
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
-  expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
+  expect((merge as any).mock.calls[0]).toEqual([
+    7,
+    { method: "squash", deleteBranch: true, expectedHeadSha: "h1" },
+  ]);
   expect(archive.mock.calls.length).toBe(1);
   expect((resolveMerging as any).mock.calls).toEqual([["s1", true]]);
   expect(noted).toEqual([{ sessionId: "s1", prNumber: 7, headSha: "h1" }]);
@@ -367,7 +370,10 @@ test("multi-session: merges ready A then steers rebase for behind B", async () =
 
   // A was merged
   expect(mergeA.mock.calls.length).toBe(1);
-  expect((mergeA as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
+  expect((mergeA as any).mock.calls[0]).toEqual([
+    7,
+    { method: "squash", deleteBranch: true, expectedHeadSha: "hA" },
+  ]);
   // B got a rebase steer
   expect(reply.mock.calls.length).toBe(1);
 });
@@ -1233,7 +1239,10 @@ test("#3104: no-CI repo without mergeWithoutCi → no merge, waiting no_ci", asy
 test("#3104: no-CI repo with mergeWithoutCi → merges", async () => {
   const merge = mock(async () => {});
   await new AutoMergeService(noCiDeps(true, merge)).pump("/r");
-  expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
+  expect((merge as any).mock.calls[0]).toEqual([
+    7,
+    { method: "squash", deleteBranch: true, expectedHeadSha: "h1" },
+  ]);
 });
 
 // ── #3221: a CI repo's PR with no checks for 10 min while clean → checks_absent ──
@@ -1497,7 +1506,7 @@ test("#3197 layer: the bottom-most unmerged layer merges with allowStacked and i
   await new AutoMergeService(d).pump("/r");
   expect(merge.mock.calls[0]).toEqual([
     7,
-    { method: "squash", deleteBranch: true, allowStacked: true },
+    { method: "squash", deleteBranch: true, allowStacked: true, expectedHeadSha: "h1" },
   ]);
   expect(markEpicStackLanded.mock.calls[0]).toEqual(["/r", 100, 9, 7]);
 });
@@ -1534,7 +1543,7 @@ test("#3197 layer: a foreign PR below is held for the window, then re-confirmed 
   await svc.pump("/r");
   expect(merge.mock.calls[0]).toEqual([
     7,
-    { method: "squash", deleteBranch: true, allowStacked: true },
+    { method: "squash", deleteBranch: true, allowStacked: true, expectedHeadSha: "h1" },
   ]);
   warn.mockRestore();
 });
@@ -1574,7 +1583,7 @@ test("#3197 keep-branch: a merged branch a live session is based on is not delet
   await new AutoMergeService(d).pump("/r");
   expect(merge.mock.calls[0]).toEqual([
     7,
-    { method: "squash", deleteBranch: false, allowStacked: true },
+    { method: "squash", deleteBranch: false, allowStacked: true, expectedHeadSha: "h1" },
   ]);
 });
 
@@ -1852,4 +1861,59 @@ test("#3223: an ejection claimed during its live read is counted once, not by bo
   release();
   await first;
   expect(rig.merged.filter((n) => n === 7).length).toBe(2); // one ejection → one re-enqueue
+});
+
+test("F09: a head pushed after the clean review is never merged (snapshot REVIEWED, live PUSHED)", async () => {
+  const { GithubForge } = await import("../src/forge/github");
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args[0] === "api" && args[1] === "repos/o/r/pulls/7")
+      return JSON.stringify({ stack: null, sha: "PUSHED", baseRef: "main" });
+    return "";
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  const archive = mock(() => 1);
+  const d = deps({
+    resolveForge: () => forge,
+    store: {
+      ...deps().store,
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: true, autopilotEnabled: true }) as any,
+      getReview: () => ({ decision: "commented", headSha: "REVIEWED", findings: [] }) as any,
+    } as any,
+    prCache: {
+      snapshot: () => ({
+        s1: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "REVIEWED" },
+      }),
+    } as any,
+    service: {
+      archive,
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+  });
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await new AutoMergeService(d).pump("/r");
+  } finally {
+    warn.mockRestore();
+  }
+  expect(calls.some((c) => c[0] === "api" && c[1] === "repos/o/r/pulls/7")).toBe(true); // gated
+  expect(calls.some((c) => c[0] === "pr" && c[1] === "merge")).toBe(false);
+  expect(archive.mock.calls.length).toBe(0);
+});
+
+test("F09: a ready PR with no known head is not merged", async () => {
+  const merge = mock(async () => {});
+  const d = deps({
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    prCache: {
+      snapshot: () => ({ s1: { state: "open", checks: "success", mergeable: true, number: 7 } }),
+    } as any,
+  });
+  await new AutoMergeService(d).pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
 });

@@ -701,7 +701,9 @@ repo's Settings panel or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`:
 
 Egress confinement is tied to the **profile**, not to `auto=true`. When no sandbox
 backend is available, manually spawned sessions degrade to unconfined **with an
-operator-visible banner**, and `auto=true` spawns are refused. The full residual
+operator-visible banner**, and `auto=true` spawns are refused. Codex task sessions always
+run unconfined, so an `auto=true` Codex spawn is refused unless the repo's profile is
+`trusted`; the drain holds those issues instead of claiming them. The full residual
 posture — the accepted in-membrane token-readability gap and the prompt-injection
 posture — is documented on the [Security](/reference/security/) page.
 

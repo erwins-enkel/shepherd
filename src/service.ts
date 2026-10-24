@@ -148,6 +148,7 @@ import {
   safeRealpath,
   collectPassthroughEnv,
   SandboxAutoRefused,
+  codexAutoHoldReason,
   type SandboxProfile,
   type SandboxBackend,
   type MembraneInputs,
@@ -2948,7 +2949,23 @@ export class SessionService {
     // autoHoldReason's 2-arg behavior holds (egress not considered).
     const egressBackend =
       egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
-    return autoHoldReason(profile, backend, egressBackend);
+    return (
+      autoHoldReason(profile, backend, egressBackend) ??
+      // F12: same check prepareSpawn makes, asked here so the refusal keeps the husk.
+      this.codexAutoHold(s.agentProvider, rc.sandboxProfile)
+    );
+  }
+
+  /** F12: a Codex spawn's profile is forced to trusted (resolveCreateLaunch), so an auto spawn is
+   *  judged by the repo's CONFIGURED profile — an unattended unconfined run there is refused. */
+  private codexAutoHold(
+    provider: string | undefined,
+    repoProfile: string | null | undefined,
+  ): string | null {
+    return codexAutoHoldReason(
+      provider,
+      resolveProfile(undefined, repoProfile, config.sandboxDefaultProfile),
+    );
   }
 
   /**
@@ -3119,7 +3136,10 @@ export class SessionService {
       ctx.profileOverride,
       repoConfig.sandboxProfile,
     );
-    if (ctx.auto && hold) return { ok: false, holdReason: hold };
+    const autoHold = ctx.auto
+      ? (hold ?? this.codexAutoHold(ctx.agentProvider, repoConfig.sandboxProfile))
+      : null;
+    if (autoHold) return { ok: false, holdReason: autoHold };
     const degraded = isDegraded(profile, backend);
     // egress WILL wrap iff autonomous + FS backend + egress backend all present (shared predicate).
     const egressOn = willEgressConfine(profile, backend, egressBackend ?? null);

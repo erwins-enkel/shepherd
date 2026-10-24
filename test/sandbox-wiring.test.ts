@@ -672,3 +672,147 @@ function makeForge(issues: Issue[]): GitForge {
     getIssue: async (n: number) => issues.find((i) => i.number === n) ?? null,
   } as unknown as GitForge;
 }
+
+// ── F12: unattended Codex never runs silently unconfined ─────────────────────
+
+async function withDefaultProvider<T>(provider: "claude" | "codex", fn: () => Promise<T>) {
+  const { config } = await import("../src/config");
+  const prev = config.defaultAgentProvider;
+  config.defaultAgentProvider = provider;
+  try {
+    return await fn();
+  } finally {
+    config.defaultAgentProvider = prev;
+  }
+}
+
+function autonomousService(record: { argv?: string[] }) {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
+  const service = makeService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+  });
+  return { store, service };
+}
+
+test("F12: create + auto + explicit codex + autonomous repo → refused, never spawned", async () => {
+  const record: { argv?: string[] } = {};
+  const { service } = autonomousService(record);
+  await expect(service.create(baseInput({ auto: true, agentProvider: "codex" }))).rejects.toThrow(
+    /Codex/,
+  );
+  expect(record.argv).toBeUndefined();
+});
+
+test("F12: create + auto + default provider codex + autonomous repo → refused, never spawned", async () => {
+  const record: { argv?: string[] } = {};
+  const { service } = autonomousService(record);
+  await withDefaultProvider("codex", async () => {
+    await expect(service.create(baseInput({ auto: true }))).rejects.toThrow(/Codex/);
+  });
+  expect(record.argv).toBeUndefined();
+});
+
+test("F12: create + INTERACTIVE codex + autonomous repo → still spawns (attended)", async () => {
+  const record: { argv?: string[] } = {};
+  const { service } = autonomousService(record);
+  await service.create(baseInput({ auto: false, agentProvider: "codex" }));
+  expect(record.argv?.[0]).toBe("codex");
+});
+
+test("F12: create + auto + codex + trusted repo → spawns (operator chose unconfined)", async () => {
+  const store = new SessionStore(":memory:");
+  const record: { argv?: string[] } = {};
+  const service = makeService({ store, record, detectBackend: () => "bwrap" });
+  await service.create(baseInput({ auto: true, agentProvider: "codex" }));
+  expect(record.argv?.[0]).toBe("codex");
+});
+
+test("F12: resume of an auto codex session in an autonomous repo → refused (returns null)", async () => {
+  const record: { argv?: string[] } = {};
+  const { store, service } = autonomousService(record);
+  const s = store.create({
+    name: "s",
+    prompt: "x",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/s",
+    worktreePath: "/wt/s",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "11111111-1111-1111-1111-111111111111",
+    auto: true,
+    agentProvider: "codex",
+    sandboxApplied: "trusted", // what every Codex task session records
+  });
+  // A resumable Codex conversation (launch provenance + captured rollout id).
+  store.update(s.id, {
+    codexLaunchId: "launch-1",
+    providerSessionId: "rollout-1",
+  });
+  expect(await service.resume(s.id, { force: true })).toBeNull();
+  expect(record.argv).toBeUndefined();
+});
+
+function drainWith(provider: "claude" | "codex") {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
+  const counts = { create: 0, claims: 0 };
+  const service = {
+    create: async (input: StandardCreateInput): Promise<Session> => {
+      counts.create++;
+      return store.create({
+        name: "auto",
+        prompt: input.prompt,
+        repoPath: input.repoPath,
+        baseBranch: input.baseBranch,
+        branch: "shepherd/auto",
+        worktreePath: "/wt",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "t",
+        auto: true,
+        issueNumber: input.issueRef?.number ?? null,
+      });
+    },
+    archive: async () => 1,
+  };
+  const forge = {
+    ...makeForge([issue(1)]),
+    addIssueLabel: async () => {
+      counts.claims++;
+    },
+  } as GitForge;
+  const drain = new DrainService({
+    store,
+    service,
+    resolveForge: () => forge,
+    prCache: { snapshot: () => ({}) },
+    usage: { limits: (): UsageLimits => NO_USAGE },
+    repos: () => ["/repo"],
+    emitStatus: () => {},
+    emitArchived: () => {},
+    dropPrCache: () => {},
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    rebaseCap: 5,
+  });
+  return withDefaultProvider(provider, async () => {
+    await drain.pump("/repo");
+    return counts;
+  });
+}
+
+test("F12: drain + autonomous repo + codex provider → held before claiming, create NOT called", async () => {
+  expect(await drainWith("codex")).toEqual({ create: 0, claims: 0 });
+});
+
+test("F12 control: drain + autonomous repo + claude provider → claims and spawns", async () => {
+  const counts = await drainWith("claude");
+  expect(counts.create).toBe(1);
+  expect(counts.claims).toBeGreaterThan(0);
+});

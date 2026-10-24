@@ -11708,7 +11708,8 @@ async function resolveLandTarget(
     return { error: json({ error: "landing PR status check failed" }, 502) };
   }
 
-  if (!computeLandingReady(pr, repoHasNoCiCached(forge.kind, dir)))
+  // No head to bind the merge to (F09) is as not-ready as red CI.
+  if (!pr.headSha || !computeLandingReady(pr, repoHasNoCiCached(forge.kind, dir)))
     return { error: json({ error: "landing PR not ready" }, 409) };
 
   return { dir, parent, row, forge, branch, pr };
@@ -11729,14 +11730,19 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
   const r = await resolveLandTarget(deps, body);
   if ("error" in r) return r.error;
-  const { dir, parent, row, forge } = r;
+  const { dir, parent, row, forge, pr } = r;
 
   try {
     // Use the host-configured merge method (mirrors AutoMergeService + the other merge routes) so
     // the merge respects whatever the repo actually allows. Hardcoding "merge" would 405 on a
     // squash-only repo even though computeLandingReady reports ready (mergeStateStatus reflects
     // branch state, not method availability), making the CTA fire a doomed merge there.
-    await forge.merge(row.landingPrNumber!, { method: forge.mergeMethod, deleteBranch: true });
+    await forge.merge(row.landingPrNumber!, {
+      method: forge.mergeMethod,
+      deleteBranch: true,
+      // Bound to the head just read as ready, so a push in between is never landed unchecked.
+      expectedHeadSha: pr.headSha!,
+    });
   } catch (err) {
     // Log the merge error server-side; return a generic message so raw error/stack text
     // never reaches the client (CodeQL js/stack-trace-exposure #14).

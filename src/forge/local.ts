@@ -7,6 +7,7 @@ import {
   EmptyDiffError,
   type GitForge,
   type Issue,
+  type MergeInput,
   type MergeMethod,
   type OpenPrInput,
   type PrStatus,
@@ -244,9 +245,21 @@ export async function squashMergeLocal(
   branch: string,
   base: string,
   versionProbe: GitVersionProbe = defaultVersionProbe,
+  expectedHeadSha?: string,
 ): Promise<void> {
   // 1. Capability guard — git >= 2.38 for `merge-tree --write-tree`.
   await assertGitCapable(versionProbe);
+
+  // 1b. Pin the branch tip once and squash THAT commit, so a commit landing on the branch
+  //     mid-merge cannot slip in. Refuse when it is not the gated/confirmed head (F09).
+  const head = await gitOrThrow(
+    repoPath,
+    ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`],
+    GIT_READ_TIMEOUT_MS,
+  );
+  if (expectedHeadSha && head !== expectedHeadSha) {
+    throw new Error(`${branch} head moved: expected ${expectedHeadSha}, live ${head}`);
+  }
 
   // 2. Snapshot the base tip (compare-and-swap anchor; nothing moved yet).
   const baseTip = await gitOrThrow(
@@ -258,7 +271,7 @@ export async function squashMergeLocal(
   // 3. Compute the merged tree off the working tree. Exit 1 ⇒ a real conflict;
   //    exit >1 ⇒ a genuine git failure (surfaced by mergeTreeWriteTree, NOT
   //    misreported as a conflict). NO refs touched either way.
-  const mt = await mergeTreeWriteTree(repoPath, base, branch);
+  const mt = await mergeTreeWriteTree(repoPath, base, head);
   if (mt.conflict) throw new MergeConflictError(branch, base);
   const tree = mt.tree;
   if (!tree) {
@@ -268,7 +281,7 @@ export async function squashMergeLocal(
   // 4. Deterministic squash commit message: subject = branch, body = the squashed
   //    commit subjects (base..branch), oldest-first.
   const subjects = (
-    await gitOrThrow(repoPath, ["log", "--reverse", "--format=%s", `${base}..${branch}`])
+    await gitOrThrow(repoPath, ["log", "--reverse", "--format=%s", `${base}..${head}`])
   )
     .split("\n")
     .map((s) => s.trim())
@@ -433,13 +446,18 @@ export class LocalForge implements GitForge {
     };
   }
 
-  /** No `MergeInput`: a local squash-merge has no host to negotiate a method with, and no
-   *  optimistic-concurrency guard to hand `expectedHeadSha` to — the server-side confirm check
-   *  (`validateMergeConfirm`) is the only binding of a manual merge to its confirmed revision here. */
-  async merge(prNumber: number): Promise<void> {
+  /** Only `expectedHeadSha` of the `MergeInput` matters: a local squash-merge has no host to
+   *  negotiate a method with. The branch tip is compared against it before the squash (F09). */
+  async merge(prNumber: number, o?: MergeInput): Promise<void> {
     const row = this.store.getLocalPrByNumber(prNumber);
     if (!row) throw new Error(`no local PR with number ${prNumber}`);
-    await squashMergeLocal(row.repoPath, row.branch, row.base, this.versionProbe);
+    await squashMergeLocal(
+      row.repoPath,
+      row.branch,
+      row.base,
+      this.versionProbe,
+      o?.expectedHeadSha,
+    );
     this.store.markLocalPrMerged(prNumber);
   }
 

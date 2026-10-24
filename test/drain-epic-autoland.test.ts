@@ -43,6 +43,7 @@ interface MergeCall {
   prNumber: number;
   method: string;
   deleteBranch: boolean | undefined;
+  expectedHeadSha?: string;
 }
 
 interface ForgeSpy {
@@ -75,7 +76,12 @@ function fakeForge(opts: {
     openPr: async () => ({ state: "open", checks: "none", deployConfigured: false }) as PrStatus,
     defaultBranch: async () => "main",
     merge: async (prNumber: number, o: MergeInput) => {
-      mergeCalls.push({ prNumber, method: o.method, deleteBranch: o.deleteBranch });
+      mergeCalls.push({
+        prNumber,
+        method: o.method,
+        deleteBranch: o.deleteBranch,
+        expectedHeadSha: o.expectedHeadSha,
+      });
       await opts.merge?.(prNumber, o);
     },
     redeploy: async () => {},
@@ -246,9 +252,23 @@ describe("auto-land of integrated epics (#1044)", () => {
       prNumber: LANDING_PR,
       method: "squash",
       deleteBranch: true,
+      expectedHeadSha: "deadbeef", // F09: bound to the head read as ready
     });
     expect(row(h).landingState).toBe("merged");
     expect(h.completedEmits.at(-1)!.landingState).toBe("merged");
+  });
+
+  test("ready landing PR with no readable head → no merge, row stays open (F09)", async () => {
+    const h = makeHarness({
+      autoMergeEnabled: true,
+      prStatus: async () => readyPr({ headSha: undefined }),
+    });
+    seedOpenLanding(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.mergeCalls).toHaveLength(0);
+    expect(row(h).landingState).toBe("open");
   });
 
   test("migrationPaths non-empty → epic is NEVER auto-landed (manual CTA only)", async () => {

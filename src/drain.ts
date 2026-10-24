@@ -249,6 +249,7 @@ import { homedir } from "node:os";
 import {
   resolveProfile,
   autoHoldReason,
+  codexAutoHoldReason,
   egressApplies,
   detectBackend,
   safeRealpath,
@@ -4338,10 +4339,16 @@ export class DrainService {
     // #3104: no CI ran on it — hold for the operator (Land CTA) unless the repo opts in.
     if (noCiMergeHeld(pr.checks, noCi, this.deps.store.getRepoConfig(repoPath).mergeWithoutCi))
       return;
+    // F09: bind the merge to the head just read as ready; without one there is nothing to bind.
+    if (!pr.headSha) return;
     const key = `${repoPath}#${parentIssueNumber}`;
-    if (this.landMergeBlocked(key, pr.headSha ?? "")) return; // backed off on this head
+    if (this.landMergeBlocked(key, pr.headSha)) return; // backed off on this head
     try {
-      await forge.merge(prNumber, { method: forge.mergeMethod, deleteBranch: true });
+      await forge.merge(prNumber, {
+        method: forge.mergeMethod,
+        deleteBranch: true,
+        expectedHeadSha: pr.headSha,
+      });
     } catch (err) {
       await this.handleAutoLandMergeError(forge, repoPath, parentIssueNumber, branch, key, pr, err);
       return;
@@ -4763,11 +4770,17 @@ export class DrainService {
     // FIRST so a held layer does no other work at all.
     const stacked = await this.stackedMergeAllowed(forge, repoPath, parent, s, decision);
     if (stacked === null) return; // held — a layer below has not landed; next tick re-checks.
+    // F09: bind the merge to the head the gate evaluated; without one there is nothing to bind.
+    if (!decision.headSha) {
+      console.warn(`[drain] epic child pr#${decision.prNumber} has no known head; not merging`);
+      return;
+    }
     const keepBranch = await this.keepBranchForStackedSuccessor(repoPath, parent, s.issueNumber!);
     try {
       await forge.merge(decision.prNumber, {
         method: "squash",
         deleteBranch: !keepBranch,
+        expectedHeadSha: decision.headSha,
         ...(stacked ? { allowStacked: true } : {}),
       });
     } catch (err) {
@@ -5038,6 +5051,32 @@ export class DrainService {
     };
   }
 
+  /** The sandbox auto-gate pre-check for a drain spawn: the reason create() would refuse it, or
+   *  null. Asked BEFORE claiming so a held issue doesn't churn the claim label every tick. */
+  private spawnSandboxHold(
+    repoProfile: string | null | undefined,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+  ): string | null {
+    const profile = resolveProfile(undefined, repoProfile, config.sandboxDefaultProfile);
+    // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
+    // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.
+    const backend = profile === "trusted" ? null : this.detectBackend();
+    // Probe egress only for an autonomous repo with an FS backend, so a drain-spawned
+    // autonomous session is also refused-loud (EGRESS_UNAVAILABLE_REASON) when egress is
+    // unavailable. Undefined elsewhere → autoHoldReason's 2-arg semantics (egress not considered).
+    const egressBackend =
+      egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
+    // F12: the provider that will actually run (epic's, else the global default) can be refused
+    // by create() regardless of backends — hold it here too, before claiming.
+    return (
+      autoHoldReason(profile, backend, egressBackend) ??
+      codexAutoHoldReason(
+        decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider,
+        profile,
+      )
+    );
+  }
+
   /** #2069: a STACKED child bases on its chain predecessor's live PR head. `ensureBranch` is
    *  deliberately NOT called: the branch already exists (an open PR implies it was pushed), and
    *  "ensuring" it would create it at the default branch's tip if it had since been deleted —
@@ -5103,16 +5142,7 @@ export class DrainService {
     // The session runs in spawnRepo, so ITS sandbox profile and model defaults apply.
     const rc = this.deps.store.getRepoConfig(spawnRepo);
     if (!(await this.spawnCapacity(repoPath, decision, rc.defaultModel))) return;
-    const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
-    // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
-    // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.
-    const backend = profile === "trusted" ? null : this.detectBackend();
-    // Probe egress only for an autonomous repo with an FS backend, so a drain-spawned
-    // autonomous session is also refused-loud (EGRESS_UNAVAILABLE_REASON) when egress is
-    // unavailable. Undefined elsewhere → autoHoldReason's 2-arg semantics (egress not considered).
-    const egressBackend =
-      egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
-    const hold = autoHoldReason(profile, backend, egressBackend);
+    const hold = this.spawnSandboxHold(rc.sandboxProfile, decision);
     if (hold) {
       console.warn(`[drain] issue #${number} held — ${hold}`);
       return;

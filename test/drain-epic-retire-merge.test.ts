@@ -23,7 +23,12 @@ const NO_USAGE: UsageLimitsType = {
 };
 
 interface ForgeRec {
-  merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];
+  merges: {
+    prNumber: number;
+    method: MergeMethod;
+    deleteBranch: boolean;
+    expectedHeadSha?: string;
+  }[];
   links: { prNumber: number; issueNumber: number }[];
 }
 
@@ -40,7 +45,12 @@ function fakeForge(rec: ForgeRec, opts: { merge?: () => Promise<void> } = {}): G
     openPr: async () => ({ state: "open", checks: "none", deployConfigured: false }) as PrStatus,
     defaultBranch: async () => "main",
     merge: async (prNumber, o) => {
-      rec.merges.push({ prNumber, method: o.method, deleteBranch: o.deleteBranch });
+      rec.merges.push({
+        prNumber,
+        method: o.method,
+        deleteBranch: o.deleteBranch,
+        ...(o.expectedHeadSha ? { expectedHeadSha: o.expectedHeadSha } : {}),
+      });
       if (opts.merge) await opts.merge();
     },
     redeploy: async () => {},
@@ -236,7 +246,10 @@ describe("epic child retire → squash-merge into integration branch", () => {
 
     await h.drain.pump(REPO);
 
-    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
+    // F09: bound to the head the CI + critic gate evaluated.
+    expect(h.forgeRec.merges).toEqual([
+      { prNumber: PR, method: "squash", deleteBranch: true, expectedHeadSha: `sha-${PR}` },
+    ]);
     expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
     // #645 (b): the branch the child squash-merged into is recorded for divergence detection.
     expect(
@@ -247,6 +260,23 @@ describe("epic child retire → squash-merge into integration branch", () => {
     expect(h.archived).toEqual([s.id]);
     // Epic child path does NOT auto-close-link the issue (no ensureIssueLink).
     expect(h.forgeRec.links).toHaveLength(0);
+  });
+
+  test("ready child with no known head: no merge, no record, session left live (F09)", async () => {
+    const h = makeHarness({ epicStatus: "running" });
+    const s = seedReadyChild(h, EPIC_BRANCH);
+    h.prCache[s.id] = { ...openGreen(PR), headSha: undefined };
+    (h as Harness & { setReview: (id: string, d: ReviewDecision, sha: string) => void }).setReview(
+      s.id,
+      "commented",
+      null as unknown as string, // a verdict whose head is as unknown as the PR's
+    );
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toHaveLength(0);
+    expect([...h.store.listEpicIntegrated(REPO, PARENT)]).not.toContain(CHILD);
+    expect(h.store.get(s.id)?.status).not.toBe("archived");
   });
 
   test("merge throws: does NOT record integrated and does NOT archive (session left live)", async () => {
@@ -328,7 +358,9 @@ describe("epic child retire routes on the persisted epicParent", () => {
 
     await h.drain.pump(REPO);
 
-    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
+    expect(h.forgeRec.merges).toEqual([
+      { prNumber: PR, method: "squash", deleteBranch: true, expectedHeadSha: `sha-${PR}` },
+    ]);
     expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
     expect(h.forgeRec.links).toHaveLength(0); // epic path never issue-links
     expect(h.store.get(s.id)?.status).toBe("archived");

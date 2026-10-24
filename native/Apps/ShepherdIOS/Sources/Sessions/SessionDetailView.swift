@@ -10,6 +10,7 @@ struct SessionDetailView: View {
     @AppStorage private var fontSize: Double
     @AppStorage private var steersIconOnly: Bool
     @Environment(AppModel.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var latency: IOSLatencyMonitor?
     @State private var steers = SteerLibrary()
@@ -37,6 +38,10 @@ struct SessionDetailView: View {
         .onAppear { configureGesture(); askFlow.sync(ask: ask) }
         .onChange(of: ask?.toolUseId) { _, _ in askFlow.sync(ask: ask) }
         .onChange(of: sizeClass) { _, _ in configureGesture() }
+        .task(id: scenePhase == .active ? app.extension(ActionsModel.self).map(ObjectIdentifier.init) : nil) {
+            guard scenePhase == .active else { return }
+            await app.extension(ActionsModel.self)?.observeRecaps()
+        }
         .task(id: session.id) {
             guard let client = app.store?.client else { latency = nil; return }
             let monitor = IOSLatencyMonitor.make(client: client, terminal: terminal, sessionID: session.id)

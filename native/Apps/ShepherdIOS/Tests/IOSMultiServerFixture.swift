@@ -5,6 +5,12 @@ import ShepherdKit
 
 /// Per-origin snapshots prevent background reconnection from erasing rendered fixture rows.
 final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
+    private static let listReads = Mutex<[String: [String]]>([:])
+    private static let blockedLists = Mutex<Set<String>>([])
+    private static let archived = Mutex<[String: Session]>([:])
+    static func requests(at url: URL) -> [String] { listReads.withLock { $0[url.host() ?? ""] ?? [] } }
+    static func blockOffscreenLists(at url: URL) { blockedLists.withLock { $0.insert(url.host() ?? "") } }
+    static func setArchive(_ session: Session, for url: URL) { archived.withLock { $0[url.host() ?? ""] = session } }
     private static let hanging = Mutex<Set<String>>([])
     private static let started = Mutex<Set<String>>([])
     static func setHanging(_ value: Bool, for url: URL) {
@@ -53,6 +59,9 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         guard let url = request.url else { return }
         Self.started.withLock { $0.insert(url.host() ?? "") }
+        Self.listReads.withLock { $0[url.host() ?? "", default: []].append(url.path) }
+        if Self.blockedLists.withLock({ $0.contains(url.host() ?? "") }),
+           ["/api/recaps", "/api/sessions/done", "/api/sessions/archived", "/api/up-next"].contains(url.path) { return }
         if Self.hanging.withLock({ $0.contains(url.host() ?? "") }) { return }
         if Self.unavailable.withLock({ $0.contains(url.host() ?? "") }) {
             client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
@@ -69,6 +78,8 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
                 Self.snapshots.withLock { $0[url.host() ?? "", default: []].append(session) }
             }
         case "/api/sessions": body = (try? JSONEncoder().encode(Self.snapshots.withLock { $0[url.host() ?? ""] ?? [] })) ?? Data("[]".utf8)
+        case let path where path == "/api/sessions/" + (Self.archived.withLock { $0[url.host() ?? ""]?.id } ?? ""):
+            body = (try? JSONEncoder().encode(Self.archived.withLock { $0[url.host() ?? ""] })) ?? Data("null".utf8)
         case "/api/settings":
             let json = Self.settings.withLock { $0[url.host() ?? ""] } ?? #"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultEffort":"medium","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de"}"#
             body = Data(json.utf8)

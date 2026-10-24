@@ -55,14 +55,18 @@ private final class QueueFixture {
     let store: SessionStore
     let model: QueuesModel
 
-    init(_ reads: QueuesReads) throws {
+    init(_ reads: QueuesReads, loadsListsOnDemand: Bool = false, snapshotStore: SessionStore? = nil) throws {
         defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: CoreTestSupport.environment(defaults: defaults))
-        store = try SessionStore(
-            profile: ServerProfile(name: "queues", baseURL: URL(string: "https://queues.invalid")!,
-                                   mode: .remote),
-            credentials: InMemoryCredentialStore())
+        app.loadsListsOnDemand = loadsListsOnDemand
+        if let snapshotStore { store = snapshotStore }
+        else {
+            store = try SessionStore(
+                profile: ServerProfile(name: "queues", baseURL: URL(string: "https://queues.invalid")!,
+                                       mode: .remote),
+                credentials: InMemoryCredentialStore())
+        }
         model = QueuesModel(store: store, app: app)
         // No suspension before replacing the live closures; no test starts the store/socket.
         model.reads = reads
@@ -79,6 +83,81 @@ private final class QueueFixture {
 extension CoreSeamTests {
 @MainActor
 struct QueuesModelTests {
+    @Test func closingDoneCancelsDemandBeforeSlowReadFinishes() async {
+        let gate = QueueReadGate()
+        let row = PreviewData.session(id: "late", status: .init(known: .archived))
+        let m = QueuesModel(reads: .init(held: { [] }, done: {
+            await gate.enter(); return [row]
+        }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {}), loadsListsOnDemand: true)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { await gate.calls == 1 })
+        visible.cancel()
+        await visible.value
+        await gate.open()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(m.finishedSessions.isEmpty)
+        #expect(!m.hasLoadedDone)
+        m.teardown()
+    }
+
+    @Test func freshStoreSessionRepairsMissedHaltClearWithoutAnotherRead() async throws {
+        let server = SettingsFakeServer()
+        defer { server.tearDown() }
+        let session = PreviewData.session(id: "s1")
+        server.stub("GET", "/api/sessions", status: 200, json: try JSONEncoder().encode([session]))
+        server.stub("GET", "/api/settings", status: 200, json: Data(#"{"repoRoot":"/repo","repoRootDisplay":"repo","firstRunPending":false,"defaultModel":"opus","defaultEffort":"default","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"en"}"#.utf8))
+        server.stub("GET", "/api/repos", status: 200, json: Data(#"{"repos":[],"recentWindowDays":7}"#.utf8))
+        let client = try ShepherdClient(profile: .init(name: "snapshot", baseURL: server.baseURL, mode: .local),
+            credentials: InMemoryCredentialStore(), urlSession: server.urlSession())
+        let store = SessionStore(client: client, usesConditionalListReads: true)
+        try await store.bootstrap()
+        let f = try QueueFixture(empty, loadsListsOnDemand: true, snapshotStore: store)
+        defer { f.close() }
+        let revision = f.model.retrySelectionGeneration
+        store.apply(try frame("session:halt", "{\"id\":\"s1\",\"haltReason\":\"operator\",\"haltedAt\":1}"))
+        #expect(await queueSettle { f.model.retrySelectionGeneration > revision })
+        #expect(f.model.retrySessions.first?.haltReason?.rawValue == "operator")
+        // The REST snapshot missed the old halt frame and now reports its authoritative clear.
+        try await store.refresh()
+        #expect(f.model.retrySessions.first?.haltReason == nil)
+        #expect(server.requests().filter { $0.path == "/api/sessions" }.count == 2)
+    }
+
+    @Test func conditionalDoneRecoveryKeepsSnapshotOn304() async {
+        let probe = UpNextReadProbe()
+        let row = PreviewData.session(id: "done", status: .init(known: .archived))
+        let m = QueuesModel(reads: .init(held: { [] }, done: { [] }, recaps: { [:] },
+            stranded: { [] }, refreshUpNext: {}, readDone: { tag in
+                _ = await probe.record(tag)
+                return tag == nil ? .modified(value: [row], etag: "W/\"done\"") : .notModified
+            }), loadsListsOnDemand: true)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { m.hasLoadedDone })
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(m.finishedSessions.map(\.id) == ["done"])
+        #expect(await probe.validators == [nil, "W/\"done\""])
+        visible.cancel(); await visible.value
+        m.teardown()
+    }
+
+    @Test func doneRequiresPresentation() async {
+        let probe = UpNextReadProbe()
+        let m = QueuesModel(reads: .init(held: { [] }, done: {
+            _ = await probe.record(nil)
+            return []
+        }, recaps: { Issue.record("iOS queues must not duplicate recap reads"); return [:] },
+            stranded: { [] }, refreshUpNext: {}), loadsListsOnDemand: true)
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(await probe.calls == 0)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { await probe.calls == 1 })
+        #expect(await queueSettle { m.hasLoadedDone })
+        visible.cancel(); await visible.value
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(await probe.calls == 1)
+        m.teardown()
+    }
+
     private var empty: QueuesReads {
         QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] },
                     refreshUpNext: {})

@@ -198,6 +198,8 @@ public final class AppModel {
     public let composerDefaults: UserDefaults
     public var liveRequestAudit: ReadOnlyRequestAudit?
     public var allowsQueueRecomputation = true
+    /// iOS opts in before activation; Mac retains eager list loading.
+    public var loadsListsOnDemand = false
     /// Emulator query replies are PTY input too, even when a live smoke test never types.
     public var allowsTerminalInput = true
     /// Opt-in for hosts with several independent AppModels. Mac keeps its global seams.
@@ -638,7 +640,8 @@ public final class AppModel {
         let store: SessionStore
         do {
             let client = try makeClient(profile, credentials, liveRequestAudit)
-            store = SessionStore(client: client, events: EventStream(client: client))
+            store = SessionStore(client: client, events: EventStream(client: client),
+                                 usesConditionalListReads: loadsListsOnDemand)
         } catch {
             // The only failure `SessionStore.init(profile:credentials:)` has is
             // ServerProfileError.insecureRemoteURL, and addRemoteProfile already

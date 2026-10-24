@@ -159,9 +159,22 @@ extension ShepherdClient {
 
   /// `GET /api/recaps` — the summary snapshot without blocks. Every later summary change rides `session:recap`.
   public func recaps(host: String? = nil) async throws -> [String: Recap] {
+    switch try await readRecaps(host: host) {
+    case .modified(let value, _): return value
+    case .notModified:
+      throw ShepherdError.contractMismatch(route: "listRecaps", underlying: "304 without a validator")
+    }
+  }
+
+  public func readRecaps(ifNoneMatch: String? = nil, host: String? = nil) async throws -> SnapshotReadResult<[String: Recap]> {
     do {
-      switch try await generated.listRecaps(.init(query: .init(host: host))) {
-      case .ok(let ok): return try ok.body.json.additionalProperties
+      switch try await generated.listRecaps(.init(query: .init(host: host), headers: .init(ifNoneMatch: ifNoneMatch))) {
+      case .ok(let ok): return .modified(value: try ok.body.json.additionalProperties, etag: ok.headers.eTag)
+      case .notModified:
+        guard ifNoneMatch != nil else {
+          throw ShepherdError.contractMismatch(route: "conditionalList", underlying: "304 without a validator")
+        }
+        return .notModified
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listRecaps")

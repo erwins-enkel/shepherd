@@ -444,7 +444,8 @@ final class IOSServerHub {
             // A server known to be another machine does not run this session.
             if let instance, !instance.isEmpty, let known = instanceOf(id), known != instance { return nil }
             guard let model = models[id], model.store?.session(id: sessionID) != nil ||
-                model.extension(QueuesModel.self)?.finishedSessions.contains(where: { $0.id == sessionID }) == true else { return nil }
+                model.extension(QueuesModel.self)?.finishedSessions.contains(where: { $0.id == sessionID }) == true ||
+                model.extension(QueuesModel.self)?.notificationSession?.id == sessionID else { return nil }
             return .init(profileID: id, sessionID: sessionID)
         }
     }

@@ -14,6 +14,8 @@ struct QueuesReads: Sendable {
     // Optional for previews/tests without a session snapshot source.
     var haltSnapshots: @Sendable () async throws -> [Session]? = { nil }
 
+    var readDone: (@Sendable (String?) async throws -> SnapshotReadResult<[Session]>)? = nil
+
     static func live(_ client: ShepherdClient) -> QueuesReads {
         QueuesReads(
             held: { try await client.heldTasks() },
@@ -22,7 +24,8 @@ struct QueuesReads: Sendable {
             stranded: { try await client.strandedSessions() },
             refreshUpNext: { try await client.refreshUpNext() },
             readUpNext: { try await client.readUpNext(ifNoneMatch: $0) },
-            haltSnapshots: { try await client.sessions() })
+            haltSnapshots: { try await client.sessions() },
+            readDone: { try await client.readDoneSessions(ifNoneMatch: $0) })
     }
 }
 
@@ -37,6 +40,21 @@ public final class QueuesModel: AppExtension {
     public private(set) var upNextLoadFailed = false
     private(set) var done: [Session] = []
     private(set) var recaps: [String: Recap] = [:]
+
+    /// A notification may target an archive older than the Done window.
+    public private(set) var notificationSession: Session?
+
+    public func resolveNotificationSession(id: String) async -> Bool {
+        if notificationSession?.id == id { return true }
+        guard let store else { return false }
+        let mine = generation
+        do {
+            let session = try await store.client.session(id: id)
+            guard isCurrent(mine), !Task.isCancelled, session.status.known == .archived else { return false }
+            notificationSession = session
+            return true
+        } catch { return false }
+    }
 
     /// Read-only consumers share the queue's reconciled snapshots, not extra requests.
     public var finishedSessions: [Session] { DonePresentation.sorted(done) }
@@ -57,7 +75,9 @@ public final class QueuesModel: AppExtension {
     /// also patches pushes; this overlay repairs missed frames from the queue's REST refresh.
     /// The sheet owns its selection throughout.
     public var retrySessions: [Session] {
-        (store?.sessions ?? []).map { session in
+        // iOS revalidates the store itself; a delayed tap must not overlay older halt flags.
+        if loadsListsOnDemand { return store?.sessions ?? [] }
+        return (store?.sessions ?? []).map { session in
             guard let flags = haltFlags[session.id] else { return session }
             var current = session
             current.haltReason = flags.haltReason.map {
@@ -102,7 +122,18 @@ public final class QueuesModel: AppExtension {
     /// Whether the bootstrap/event/reconnect reconciliation loop is active.
     public var isRefreshing: Bool { refreshTask != nil || upNextTask != nil }
 
+    @ObservationIgnored private let loadsListsOnDemand: Bool
+    @ObservationIgnored private var doneConsumers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    @ObservationIgnored private var doneTask: Task<Void, Never>?
+    @ObservationIgnored private var doneTaskToken = 0
+    @ObservationIgnored private var doneETag: String?
+    @ObservationIgnored private var doneRevision = 0
+    public private(set) var hasLoadedDone = false
+    public private(set) var doneLoadFailed = false
+    public private(set) var isLoadingDone = false
+
     public init(store: SessionStore, app: AppModel) {
+        loadsListsOnDemand = app.loadsListsOnDemand
         reads = .live(store.client)
         self.app = app
         self.store = store
@@ -121,7 +152,8 @@ public final class QueuesModel: AppExtension {
     }
 
     /// Test/preview seam: no app, socket or automatic bootstrap.
-    init(reads: QueuesReads) {
+    init(reads: QueuesReads, loadsListsOnDemand: Bool = false) {
+        self.loadsListsOnDemand = loadsListsOnDemand
         self.reads = reads
         activationGeneration = nil
     }
@@ -135,7 +167,7 @@ public final class QueuesModel: AppExtension {
     /// `readOnly` (the iOS recovery path) never recomputes Up Next and revalidates its cache
     /// only while a presentation consumes it, whatever the installing app allows.
     public func refresh(recomputeUpNext: Bool = true, readOnly: Bool = false) async {
-        await refreshSnapshots(recomputeUpNext: recomputeUpNext, readOnly: readOnly, includeUpNext: !readOnly || hasUpNextDemand)
+        await refreshSnapshots(recomputeUpNext: recomputeUpNext, readOnly: readOnly, includeUpNext: (!loadsListsOnDemand && !readOnly) || hasUpNextDemand)
     }
 
     private func refreshSnapshots(recomputeUpNext: Bool, readOnly: Bool = false, includeUpNext: Bool) async {
@@ -149,10 +181,20 @@ public final class QueuesModel: AppExtension {
         let haltVersion = retrySelectionGeneration
         let sources = reads
         async let heldResult = Self.load(sources.held)
-        async let doneResult = Self.load(sources.done)
-        async let recapsResult = Self.load(sources.recaps)
+        let deferred = loadsListsOnDemand
+        async let doneResult: Result<[Session], any Error> = Self.load {
+            if deferred { return [] }
+            return try await sources.done()
+        }
+        async let recapsResult: Result<[String: Recap], any Error> = Self.load {
+            if deferred { return [:] }
+            return try await sources.recaps()
+        }
         async let strandedResult = Self.load(sources.stranded)
-        async let haltResult = Self.load(sources.haltSnapshots)
+        async let haltResult: Result<[Session]?, any Error> = Self.load {
+            if deferred { return nil }
+            return try await sources.haltSnapshots()
+        }
         async let upNextResult: Void = reconcileUpNext(recompute: recomputeUpNext,
                                                        readOnly: readOnly, include: includeUpNext)
         let results = await (heldResult, doneResult, recapsResult, strandedResult, haltResult)
@@ -166,8 +208,8 @@ public final class QueuesModel: AppExtension {
             held = rows
             heldCount = rows.count
         }
-        if case .success(let rows) = results.1 { done = rows }
-        if case .success(let map) = results.2 { recaps = map }
+        if !deferred, case .success(let rows) = results.1 { done = rows; hasLoadedDone = true }
+        if !deferred, case .success(let map) = results.2 { recaps = map }
         if case .success(let ids) = results.3, strandedVersion == strandedRevision {
             reconcileStranded(ids)
         }
@@ -182,6 +224,74 @@ public final class QueuesModel: AppExtension {
                     haltedAt: session.haltedAt))
             })
         }
+        if deferred { await refreshDone() }
+    }
+
+    /// The presentation owns demand; hidden queue events cannot start a Done read.
+    public func observeDone() async {
+        guard isCurrent(generation), !Task.isCancelled else { return }
+        let id = UUID()
+        let (lifetime, signal) = AsyncStream<Void>.makeStream()
+        let first = doneConsumers.isEmpty
+        doneConsumers[id] = signal
+        defer {
+            doneConsumers.removeValue(forKey: id)
+            if doneConsumers.isEmpty {
+                doneTaskToken &+= 1
+                doneTask?.cancel()
+                doneTask = nil
+                isLoadingDone = false
+            }
+        }
+        if first { _ = startDoneRead() }
+        for await _ in lifetime {}
+    }
+
+    private func refreshDone() async {
+        guard !Task.isCancelled else { return }
+        await startDoneRead()?.value
+    }
+
+    private func startDoneRead() -> Task<Void, Never>? {
+        guard !doneConsumers.isEmpty, isCurrent(generation) else { return nil }
+        if let doneTask { return doneTask }
+        let mine = generation
+        doneTaskToken &+= 1
+        let token = doneTaskToken
+        isLoadingDone = true
+        doneTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.generation == mine, self.doneTaskToken == token {
+                    self.doneTask = nil
+                    self.isLoadingDone = false
+                }
+            }
+            repeat {
+                let revision = self.doneRevision
+                do {
+                    let result: SnapshotReadResult<[Session]>
+                    if let read = self.reads.readDone {
+                        result = try await read(self.hasLoadedDone ? self.doneETag : nil)
+                    } else { result = .modified(value: try await self.reads.done(), etag: nil) }
+                    guard self.isCurrent(mine), !Task.isCancelled, !self.doneConsumers.isEmpty else { return }
+                    if revision != self.doneRevision { continue }
+                    if case .modified(let rows, let etag) = result {
+                        self.done = rows
+                        self.doneETag = etag
+                        self.hasLoadedDone = true
+                    }
+                    self.doneLoadFailed = false
+                    return
+                } catch {
+                    guard self.isCurrent(mine), !Task.isCancelled else { return }
+                    if revision != self.doneRevision { continue }
+                    self.doneLoadFailed = true
+                    return
+                }
+            } while self.isCurrent(mine) && !Task.isCancelled && !self.doneConsumers.isEmpty
+        }
+        return doneTask
     }
 
     /// Up Next reads never depend on the other queues' read sequence: an unrelated held
@@ -306,6 +416,12 @@ public final class QueuesModel: AppExtension {
     public func teardown() {
         store = nil
         isTornDown = true
+        doneTask?.cancel()
+        doneTask = nil
+        for signal in doneConsumers.values { signal.finish() }
+        doneConsumers.removeAll()
+        doneETag = nil
+        isLoadingDone = false
         generation &+= 1
         watcher?.cancel()
         watcher = nil
@@ -370,6 +486,7 @@ public final class QueuesModel: AppExtension {
     private func apply(_ event: ServerEvent) {
         if case .sessionNew = event { hasSessionList = true }
         if case .sessionArchived(let frame) = event {
+            doneRevision &+= 1
             haltFlags[frame.id] = nil
             retrySelectionGeneration &+= 1
             archivedStrandedIDs.insert(frame.id)

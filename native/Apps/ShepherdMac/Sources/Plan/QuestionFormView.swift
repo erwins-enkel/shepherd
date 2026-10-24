@@ -53,7 +53,7 @@ struct QuestionFormBody: View {
         VStack(alignment: .leading, spacing: 16) {
             ForEach(Array(model.block.questions.enumerated()), id: \.offset) { _, question in
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(verbatim: question.prompt).font(.headline)
+                    Text(TextLinks.attributed(question.prompt)).font(.headline)
                     Text(verbatim: kindLabel(question.kind)).font(.caption).foregroundStyle(.secondary)
                     input(question).disabled(model.inputsDisabled)
                 }

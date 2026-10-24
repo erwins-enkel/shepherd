@@ -12860,7 +12860,15 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalModelReportsTheLatestAttemptAndAttachClearsIt() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalRowsNameTheSocketTheTryAndWhyTheLastOneDied()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"withoutAnAttemptOnlyTheWaitIsShown()\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"reconnectDeadlineTracksTheBackoff() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"reconnectDeadlineTracksTheBackoff() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"linksABareURLInsideProse()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"leavesTrailingPunctuationAndQuotesOutOfTheLink()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"dropsAnUnbalancedClosingBracketButKeepsABalancedOne()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"linksEveryURLInTheText()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"matchesTheSchemeCaseInsensitivelyKeepingTheURLAsWritten()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"linksNothingThatIsNotABareHTTPURL()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"alwaysReassemblesToTheInput()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TextLinksTests.swift\",\"CoreSeamTests.TextLinksTests\",\"attributedLinksOnlyTheURL()\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

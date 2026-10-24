@@ -20,7 +20,7 @@ struct IOSQuestionFormView: View {
                         Text(verbatim: header.uppercased()).sessionFont(label: true)
                             .foregroundStyle(SessionListStyle.amber)
                     }
-                    Text(verbatim: question.prompt).sessionFont(weight: .semibold)
+                    Text(TextLinks.attributed(question.prompt)).sessionFont(weight: .semibold)
                         .accessibilityAddTraits(.isHeader)
                     Text(verbatim: kindLabel(question.kind)).sessionFont(label: true)
                         .foregroundStyle(SessionListStyle.muted)
@@ -90,33 +90,44 @@ struct IOSQuestionFormView: View {
                 let selected = question.kind.known == .single
                     ? (model.single[question.id] ?? nil) == index
                     : model.multi[question.id, default: []].contains(index)
-                Button {
-                    if question.kind.known == .single { model.single[question.id] = .some(index) }
-                    else if selected { model.multi[question.id, default: []].remove(index) }
-                    else { model.multi[question.id, default: []].insert(index) }
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Image(systemName: question.kind.known == .single
-                            ? (selected ? "largecircle.fill.circle" : "circle")
-                            : (selected ? "checkmark.square" : "square"))
-                            .foregroundStyle(selected ? SessionListStyle.amber : SessionListStyle.muted)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 2) {
+                let icon = question.kind.known == .single
+                    ? (selected ? "largecircle.fill.circle" : "circle")
+                    : (selected ? "checkmark.square" : "square")
+                let description = optionDescription(question, index)
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        if question.kind.known == .single { model.single[question.id] = .some(index) }
+                        else if selected { model.multi[question.id, default: []].remove(index) }
+                        else { model.multi[question.id, default: []].insert(index) }
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: icon)
+                                .foregroundStyle(selected ? SessionListStyle.amber : SessionListStyle.muted)
+                                .accessibilityHidden(true)
                             Text(verbatim: option)
-                            if let description = optionDescription(question, index) {
-                                Text(verbatim: description).sessionFont(label: true)
-                                    .foregroundStyle(SessionListStyle.muted)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding([.horizontal, .top], 10).padding(.bottom, description == nil ? 10 : 2)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .padding(10).frame(minHeight: 44)
-                    .background(SessionListStyle.panel)
-                    .overlay { Rectangle().stroke(selected ? SessionListStyle.amber : SessionListStyle.line) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: question.prompt + ": " + option))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("question-option-\(model.block.id)-\(question.id)-\(index)")
+                    // Outside the Button, which would swallow a tap on a link in it. The hidden icon
+                    // keeps the description aligned under the option's label.
+                    if let description {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: icon).hidden().accessibilityHidden(true)
+                            Text(TextLinks.attributed(description)).sessionFont(label: true)
+                                .foregroundStyle(SessionListStyle.muted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding([.horizontal, .bottom], 10)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(verbatim: question.prompt + ": " + option))
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityIdentifier("question-option-\(model.block.id)-\(question.id)-\(index)")
+                .background(SessionListStyle.panel)
+                .overlay { Rectangle().stroke(selected ? SessionListStyle.amber : SessionListStyle.line) }
             }
             if model.allowsOther { other(question) }
         case .freeform:

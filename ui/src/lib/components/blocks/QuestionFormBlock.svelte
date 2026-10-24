@@ -2,6 +2,7 @@
   import type { VisualBlock, RawAnswer } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerPlanQuestions } from "#lib/api.js";
+  import { linkSegments } from "#lib/textLinks.js";
 
   // Three modes. `answerCtx` present → interactive, answers POST to the planning-phase plan gate.
   // `onanswer` present → interactive, answers are handed to the PARENT instead (the New Task
@@ -122,11 +123,24 @@
   }
 </script>
 
+<!-- Bare URLs in agent-written text open in a new tab. A link inside an option's <label> is
+     interactive content, so clicking it follows the link without picking the option. -->
+<!-- eslint-disable svelte/no-navigation-without-resolve -- external, http(s)-only URL -->
+{#snippet linked(text: string)}
+  {#each linkSegments(text) as seg, i (i)}{#if seg.href}<a
+        class="qf-link"
+        href={seg.href}
+        target="_blank"
+        rel="noopener noreferrer">{seg.text}</a
+      >{:else}{seg.text}{/if}{/each}
+{/snippet}
+<!-- eslint-enable svelte/no-navigation-without-resolve -->
+
 <div class="qf-form">
   {#each block.questions as q (q.id)}
     <div class="qf-question">
       {#if q.header}<span class="qf-header">{q.header}</span>{/if}
-      <p class="qf-prompt">{q.prompt}</p>
+      <p class="qf-prompt">{@render linked(q.prompt)}</p>
       <span class="qf-kind">{kindLabel(q.kind, !!q.allowOther)}</span>
       {#if (q.kind === "single" || q.kind === "multi") && q.options}
         <ul class="qf-options">
@@ -153,7 +167,7 @@
                 <span class="qf-option-text">
                   <span>{option}</span>
                   {#if q.optionDescriptions?.[i] && q.optionDescriptions[i] !== option}
-                    <span class="qf-option-desc">{q.optionDescriptions[i]}</span>
+                    <span class="qf-option-desc">{@render linked(q.optionDescriptions[i])}</span>
                   {/if}
                 </span>
               </label>
@@ -246,6 +260,11 @@
     color: var(--color-ink);
     line-height: 1.5;
     font-weight: 500;
+  }
+  .qf-link {
+    color: var(--color-amber);
+    text-decoration: underline;
+    overflow-wrap: anywhere;
   }
   .qf-kind {
     font-size: var(--fs-meta);

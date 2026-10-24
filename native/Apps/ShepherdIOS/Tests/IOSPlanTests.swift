@@ -633,8 +633,9 @@ final class IOSPlanTests: XCTestCase {
         try render("question-undelivered", IOSQuestionFormView(model: form, fixture: true).padding(16), height: 850)
 
         let ask = PendingAsk(toolUseId: "tu1", questions: [
-            .init(question: "Which mode?", header: "Mode", multiSelect: false,
-                  options: [.init(label: "Fast", description: "Skips the slow checks"), .init(label: "Safe", description: "Safe")]),
+            .init(question: "Which mode? Both are compared at https://example.com/modes.", header: "Mode", multiSelect: false,
+                  options: [.init(label: "Fast", description: "Skips the slow checks, see https://example.com/checks"),
+                            .init(label: "Safe", description: "Safe")]),
             .init(question: "Which parts?", header: "Parts", multiSelect: true,
                   options: [.init(label: "API", description: ""), .init(label: "UI", description: "")]),
         ])

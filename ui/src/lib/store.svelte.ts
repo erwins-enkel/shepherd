@@ -322,11 +322,11 @@ export class HerdStore {
   setHolds(map: Record<string, HoldReason>): void {
     this.holds = map;
   }
-  /** Seed (or replace) the open Login Requests after the bootstrap GET. */
+  /** Seed (or replace) the assistant's open Action Requests after the bootstrap GET. */
   setActionRequests(map: Record<string, ActionRequest>): void {
     this.actionRequests = map;
   }
-
+  /** Seed (or replace) the open Login Requests after the bootstrap GET. */
   setLoginRequests(map: Record<string, LoginRequest>): void {
     this.loginRequests = map;
   }

@@ -170,6 +170,42 @@ test("repo boundary: create and relaunch reject foreign targets before side effe
   expect(relaunch).not.toHaveBeenCalled();
 });
 
+test("repo boundary: a Target repo marker cannot route a create into an ungranted repo (F10)", async () => {
+  const create = spyOn(deps.service, "create").mockResolvedValue(sessions[0]!);
+  const slugs = new Map([
+    [a, "dummyorg/alpha"],
+    [b, "dummyorg/bravo"],
+  ]);
+  deps.resolveForge = ((p: string) => {
+    const slug = slugs.get(p);
+    return slug ? { slug, defaultBranch: async () => "main" } : null;
+  }) as never;
+  deps.usageLimits = { limits: () => ({}) } as never;
+  const routed = (token: string) =>
+    request(token, "/api/sessions", "POST", {
+      repoPath: a,
+      baseBranch: "main",
+      prompt: "x",
+      force: true,
+      issueRef: {
+        number: 8,
+        title: "t",
+        url: "https://example.invalid/8",
+        body: "**Target repo:** `dummyorg/bravo`",
+      },
+    });
+  for (const scope of ["submit", "full"] as const) {
+    const res = await routed(mint(scope).token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "repository_not_allowed" });
+  }
+  expect(create).not.toHaveBeenCalled();
+  expect(deps.store.countHeldTasks()).toBe(0);
+  // A grant covering the target still routes there.
+  expect((await routed(mint("full", [a, b]).token)).status).toBe(201);
+  expect(create.mock.calls[0]![0].repoPath).toBe(b);
+});
+
 test("repo boundary: symlink aliases work but cannot be retargeted to a foreign repository", async () => {
   const alias = join(root, "alias");
   symlinkSync(a, alias);

@@ -272,7 +272,7 @@ test("WS /events: rejected (401) without a credential", async () => {
 test("WS /events: with a valid cookie passes the gate + origin (not 401/403)", async () => {
   await withServer(async (port) => {
     const res = await fetch(`http://localhost:${port}/events`, {
-      headers: { Origin: "http://localhost", ...cookieHeader(signCookie(SECRET)) },
+      headers: { Origin: `http://localhost:${port}`, ...cookieHeader(signCookie(SECRET)) },
     });
     // a non-handshake fetch can't complete the upgrade (→ 500), but it cleared auth + origin
     expect(res.status).not.toBe(401);
@@ -286,6 +286,15 @@ test("WS /pty/:id: rejected (401) without a credential", async () => {
       headers: { Origin: `http://localhost:${port}` },
     });
     expect(res.status).toBe(401);
+  });
+});
+
+test("WS /events: a same-host page on another port is 403 even with the cookie (F13)", async () => {
+  await withServer(async (port) => {
+    const res = await fetch(`http://localhost:${port}/events`, {
+      headers: { Origin: `http://localhost:${port + 1}`, ...cookieHeader(signCookie(SECRET)) },
+    });
+    expect(res.status).toBe(403);
   });
 });
 
@@ -639,7 +648,7 @@ test("a cookie-authed operator is never scope-checked", async () => {
   );
   await withServer(async (port) => {
     const pty = await fetch(`http://localhost:${port}/pty/some-id`, {
-      headers: { Origin: "http://localhost", ...cookie },
+      headers: { Origin: `http://localhost:${port}`, ...cookie },
     });
     expect(pty.status).not.toBe(403);
   }, deps);
@@ -667,4 +676,111 @@ test("scope: a revoked read token is 401 (unauthorized), not 403 (insufficient_s
   const after = await app.fetch(new Request("http://x/api/sessions", { headers: bearer(token) }));
   expect(after.status).toBe(401);
   expect(await after.json()).toEqual({ error: "unauthorized" });
+});
+
+// ── F13: exact origin + JSON content-type on cookie-authenticated mutations ──
+
+function pluginDeps() {
+  const deps = makeDeps();
+  const activated: string[] = [];
+  deps.pluginsDir = "/nonexistent-plugins";
+  deps.pluginRegistry = {
+    list: () => [],
+    activateOne: async (folder: string) => {
+      activated.push(folder);
+      return { ok: true };
+    },
+  } as never;
+  return { deps, activated };
+}
+
+const activate = (headers: Record<string, string>, body = JSON.stringify({ folder: "evil" })) =>
+  new Request("http://127.0.0.1:7330/api/plugins/manage/activate", {
+    method: "POST",
+    headers: { ...cookieHeader(signCookie(SECRET)), ...headers },
+    body,
+  });
+
+test("F13: a same-host page on another port cannot forge a cookie mutation", async () => {
+  const { deps, activated } = pluginDeps();
+  const app = makeApp(deps);
+  for (const origin of ["http://127.0.0.1:5173", "http://127.0.0.1", "http://localhost:7330"]) {
+    const res = await app.fetch(
+      activate({ Origin: origin, Host: "127.0.0.1:7330", "content-type": "application/json" }),
+    );
+    expect(res.status).toBe(403);
+  }
+  expect(activated).toEqual([]);
+});
+
+test("F13: a cookie mutation with a text/plain body is 415, even from the HUD origin", async () => {
+  const { deps, activated } = pluginDeps();
+  const app = makeApp(deps);
+  for (const type of ["text/plain;charset=UTF-8", "application/x-www-form-urlencoded"]) {
+    const res = await app.fetch(
+      activate({ Origin: "http://127.0.0.1:7330", Host: "127.0.0.1:7330", "content-type": type }),
+    );
+    expect(res.status).toBe(415);
+  }
+  const install = await app.fetch(
+    new Request("http://127.0.0.1:7330/api/plugins/manage/install", {
+      method: "POST",
+      headers: {
+        ...cookieHeader(signCookie(SECRET)),
+        "content-type": "multipart/form-data; boundary=x",
+      },
+      body: "--x--",
+    }),
+  );
+  expect(install.status).toBe(415);
+  expect(activated).toEqual([]);
+});
+
+test("F13: the HUD's own origin (direct, proxied, ts.net) still mutates with JSON", async () => {
+  const cases: Record<string, string>[] = [
+    { Origin: "http://127.0.0.1:7330", Host: "127.0.0.1:7330" },
+    // vite dev proxy keeps the browser's Host
+    { Origin: "http://localhost:5174", Host: "localhost:5174" },
+    // tailscale serve: default https port elided on both sides
+    {
+      Origin: "https://box.tail1234.ts.net",
+      Host: "localhost:7330",
+      "X-Forwarded-Host": "box.tail1234.ts.net",
+    },
+  ];
+  const prev = [...config.allowedOriginHosts];
+  config.allowedOriginHosts.push("box.tail1234.ts.net");
+  try {
+    for (const headers of cases) {
+      const { deps, activated } = pluginDeps();
+      const res = await makeApp(deps).fetch(
+        activate({ ...headers, "content-type": "application/json" }),
+      );
+      expect(res.status).toBe(200);
+      expect(activated).toEqual(["evil"]);
+    }
+  } finally {
+    config.allowedOriginHosts.splice(0, config.allowedOriginHosts.length, ...prev);
+  }
+});
+
+test("F13: bodyless cookie POSTs and bearer callers are not content-type gated", async () => {
+  const { deps } = pluginDeps();
+  const app = makeApp(deps);
+  const bodyless = await app.fetch(
+    new Request("http://x/api/logout", {
+      method: "POST",
+      headers: { ...cookieHeader(signCookie(SECRET)), "content-length": "0" },
+    }),
+  );
+  expect(bodyless.status).not.toBe(415);
+  config.token = "operator-bearer";
+  const bearer = await app.fetch(
+    new Request("http://x/api/plugins/manage/activate", {
+      method: "POST",
+      headers: { Authorization: "Bearer operator-bearer", "content-type": "text/plain" },
+      body: JSON.stringify({ folder: "x" }),
+    }),
+  );
+  expect(bearer.status).not.toBe(415);
 });

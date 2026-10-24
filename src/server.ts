@@ -1280,6 +1280,7 @@ function checkOrigin(req: Request): Response | null {
     req.headers.get("Origin"),
     config.allowedOriginHosts,
     previewRange,
+    requestHosts(req),
   );
   // Distinct bodies so the client can show accurate copy (issue #1645 Fix 3): a preview-port
   // origin genuinely IS read-only; an un-allowlisted host should be pointed at
@@ -1288,6 +1289,13 @@ function checkOrigin(req: Request): Response | null {
   if (verdict === "host-not-allowed")
     return json({ error: "forbidden: origin host not allowed" }, 403);
   return null;
+}
+
+/** The host[:port] values a request was addressed to: `Host`, plus a fronting proxy's
+ *  `X-Forwarded-Host` (first hop). A browser cannot set either on a simple cross-origin request. */
+function requestHosts(req: Request): string[] {
+  const forwarded = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  return [req.headers.get("host") ?? new URL(req.url).host, ...(forwarded ? [forwarded] : [])];
 }
 
 // Shared `Content-Type: application/json` guard. Returns the 415 Response when
@@ -1374,9 +1382,36 @@ function resourceRepositoryError(
   return path && tokenRepoAllowed(token, path) ? null : json({ error: "not found" }, 404);
 }
 
+/** Routes whose cookie-authenticated mutations may carry `multipart/form-data`: the file uploads,
+ *  the project create with imported docs, and plugin routes (voice transcription). Never plugin
+ *  management (`/api/plugins/manage/*`). */
+function multipartAllowed(parts: string[]): boolean {
+  if (parts[0] !== "api") return false;
+  if (parts[1] === "uploads" || parts[1] === "projects") return parts.length === 2;
+  if (parts[1] === "sessions") return parts[3] === "scratchpad" && parts[4] === "upload";
+  return parts[1] === "plugins" && !!parts[2] && parts[2] !== "manage";
+}
+
+/**
+ * A cookie-carrying mutation with a body must be `application/json` (or multipart on the routes
+ * above). The three CORS-safelisted types (text/plain, form-urlencoded, multipart) are what a
+ * page can send cross-origin WITHOUT a preflight, so refusing them keeps a forged request off the
+ * handlers even if it gets past the origin check (audit F13). Bearer-authenticated callers (CLI,
+ * extension, native) cannot be forged by a page, and the agent ingress carries no cookie.
+ */
+function cookieContentTypeError({ req, parts, agentIngress }: Ctx): Response | null {
+  const m = req.method;
+  if (m !== "POST" && m !== "PUT" && m !== "PATCH" && m !== "DELETE") return null;
+  if (agentIngress || !req.headers.get("cookie") || req.headers.get("authorization")) return null;
+  if (req.body === null || req.headers.get("content-length") === "0") return null;
+  const type = req.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (type === "multipart/form-data" && multipartAllowed(parts)) return null;
+  return requireJsonContentType(req);
+}
+
 /** Shared HTTP/WebSocket boundary after authentication, before dispatch or upgrade. */
 function requestBoundaryError(ctx: Ctx): Response | null {
-  return checkOrigin(ctx.req) ?? repositoryRequestError(ctx);
+  return checkOrigin(ctx.req) ?? cookieContentTypeError(ctx) ?? repositoryRequestError(ctx);
 }
 
 /** Called on validated inputs BEFORE holds, spawns, forge calls or file writes. */
@@ -2344,7 +2379,7 @@ async function redirectWaitingTask(ctx: Ctx, id: string): Promise<Response> {
  *  fresh probe, its requirements — BEFORE it leaves its machine's queue, then started under its
  *  own client key. */
 async function redirectHere(
-  { req, deps }: Ctx,
+  { req, deps, token }: Ctx,
   row: RemoteDispatchRow,
   placement: Placement,
 ): Promise<Response> {
@@ -2360,7 +2395,7 @@ async function redirectHere(
   const claim = await remoteDispatcher(deps).claimForHere(row.id);
   if (claim.kind === "not_found") return json({ error: "not found" }, 404);
   if (claim.kind === "not_redirectable") return notRedirectable(claim.dispatch);
-  const create = () => createValidatedSession(req, body, value, deps);
+  const create = () => createValidatedSession(req, body, value, deps, token);
   const claimKey = { id: row.clientKey, payloadHash: row.payloadHash, repoPath: value.repoPath };
   const res = await runDispatch(deps.store, claimKey, create);
   remoteDispatcher(deps).announceRedirected(claim.row, placement.target);
@@ -4024,7 +4059,7 @@ async function routeCreate(
   if (repoErr) return repoErr;
   const placed = await placeCreate(ctx, result.value, { self: target.self, raw, dispatchId });
   if (placed instanceof Response) return placed;
-  const create = () => createValidatedSession(req, body, placed, deps);
+  const create = () => createValidatedSession(req, body, placed, deps, token);
   if (dispatchId === undefined) return create();
   // Keyed (#2761): reserved now — after validation and the repo grant, before the hold gate and
   // the spawn — so a retry or a concurrent duplicate replays this outcome instead of running again.
@@ -4385,6 +4420,7 @@ async function createValidatedSession(
   body: unknown,
   value: CreateSessionInput,
   deps: AppDeps,
+  token?: VerifiedToken | null,
 ): Promise<Response> {
   // Readiness (#2770) first, inside a keyed dispatch: a refusal settles the key like any failed
   // start, so a retry replays it (error and code intact) rather than re-checking a used key.
@@ -4407,6 +4443,9 @@ async function createValidatedSession(
   // #3245: a linked issue naming another `Target repo:` starts there (claim stays here).
   const routed = await routeIssueCreate(value, deps);
   if (routed instanceof Response) return routed;
+  // The routed repo needs the token's grant too — routing must not promote a body into authority.
+  const routedErr = repositoryInputError(token, routed);
+  if (routedErr) return routedErr;
   value = routed;
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
@@ -12514,10 +12553,12 @@ export function serve(deps: AppDeps, port: number) {
   // returns null for any other path, which falls through to the HTTP app.
   type Upgrader = Server<WsData>;
   const wsOriginRefusal = (req: Request): Response | null =>
-    originAllowed(req.headers.get("Origin"), config.allowedOriginHosts, {
-      base: config.previewPortBase,
-      count: config.previewPortCount,
-    })
+    originAllowed(
+      req.headers.get("Origin"),
+      config.allowedOriginHosts,
+      { base: config.previewPortBase, count: config.previewPortCount },
+      requestHosts(req),
+    )
       ? null
       : new Response("forbidden: origin not allowed", { status: 403 });
   const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined =>

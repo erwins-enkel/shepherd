@@ -26,7 +26,7 @@ function harness() {
 
 const post = (app: ReturnType<typeof makeApp>, path: string, body: unknown) =>
   app.fetch(
-    new Request("http://x" + path, {
+    new Request("http://localhost" + path, {
       method: "POST",
       headers: { "content-type": "application/json", Origin: "http://localhost" },
       body: JSON.stringify(body),
@@ -35,7 +35,7 @@ const post = (app: ReturnType<typeof makeApp>, path: string, body: unknown) =>
 
 test("GET /api/push/vapid returns the public key", async () => {
   const { app } = harness();
-  const res = await app.fetch(new Request("http://x/api/push/vapid"));
+  const res = await app.fetch(new Request("http://localhost/api/push/vapid"));
   expect(res.status).toBe(200);
   expect((await res.json()).publicKey).toBe("TESTPUB");
 });
@@ -97,14 +97,14 @@ test("POST /api/push/unsubscribe removes the subscription", async () => {
 
 test("GET /api/push/prefs defaults to all-on for an unknown endpoint", async () => {
   const { app } = harness();
-  const res = await app.fetch(new Request("http://x/api/push/prefs?endpoint=ghost"));
+  const res = await app.fetch(new Request("http://localhost/api/push/prefs?endpoint=ghost"));
   expect(res.status).toBe(200);
   expect((await res.json()).categories).toEqual({ agent: true, reviews: true, ci: true });
 });
 
 test("GET /api/push/prefs requires the endpoint query param", async () => {
   const { app } = harness();
-  const res = await app.fetch(new Request("http://x/api/push/prefs"));
+  const res = await app.fetch(new Request("http://localhost/api/push/prefs"));
   expect(res.status).toBe(400);
 });
 
@@ -117,7 +117,7 @@ test("POST /api/push/prefs persists the category selection", async () => {
   });
   expect(res.status).toBe(200);
   expect(store.getPushPrefs("e1")).toEqual({ agent: false, reviews: true, ci: false });
-  const read = await app.fetch(new Request("http://x/api/push/prefs?endpoint=e1"));
+  const read = await app.fetch(new Request("http://localhost/api/push/prefs?endpoint=e1"));
   expect((await read.json()).categories).toEqual({ agent: false, reviews: true, ci: false });
 });
 

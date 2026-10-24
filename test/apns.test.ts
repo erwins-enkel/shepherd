@@ -304,7 +304,7 @@ function appWith(apns: ApnsSender | null) {
 
 const register = (app: ReturnType<typeof makeApp>, body: unknown) =>
   app.fetch(
-    new Request("http://x/api/push/apns", {
+    new Request("http://localhost/api/push/apns", {
       method: "POST",
       headers: { "content-type": "application/json", Origin: "http://localhost" },
       body: JSON.stringify(body),

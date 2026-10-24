@@ -1137,11 +1137,19 @@ export type OriginVerdict = "allow" | "preview-port" | "host-not-allowed";
  * a preview app running on that port shares the HUD's hostname and could otherwise
  * forge `/api` mutations (CSRF via blind cross-origin POST). This check runs BEFORE
  * the hostname check so a previewed app can never be reclassified as an allowed host.
+ *
+ * When `requestHosts` is supplied (the request's `Host`, plus any `X-Forwarded-Host`), an
+ * http(s) Origin must also BE the origin it is talking to: its host[:port] must equal one of
+ * them. The session cookie is SameSite, which is per site, not per origin — so any other port on
+ * an allowlisted hostname (a dev server, another local user's service) is same-site and would
+ * otherwise ride the operator's cookie (audit F13). Non-http(s) origins (the Capture extension's
+ * `chrome-extension://<id>`) are already exact by their allowlisted id.
  */
 export function classifyOrigin(
   originHeader: string | null | undefined,
   allowedHosts: string[],
   previewRange?: { base: number; count: number },
+  requestHosts?: readonly string[],
 ): OriginVerdict {
   if (!originHeader) return "allow"; // no-browser client (curl, CLI)
   let parsed: URL;
@@ -1167,7 +1175,20 @@ export function classifyOrigin(
     }
   }
 
-  return allowedHosts.includes(parsed.hostname) ? "allow" : "host-not-allowed";
+  if (!allowedHosts.includes(parsed.hostname)) return "host-not-allowed";
+  if (requestHosts && /^https?:$/.test(parsed.protocol)) {
+    return requestHosts.some((h) => sameHost(parsed, h)) ? "allow" : "host-not-allowed";
+  }
+  return "allow";
+}
+
+/** True when a `Host`-style value names `origin`'s host[:port], default port elided as URL does. */
+function sameHost(origin: URL, host: string): boolean {
+  try {
+    return new URL(`${origin.protocol}//${host.trim()}`).host === origin.host;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1179,8 +1200,9 @@ export function originAllowed(
   originHeader: string | null | undefined,
   allowedHosts: string[],
   previewRange?: { base: number; count: number },
+  requestHosts?: readonly string[],
 ): boolean {
-  return classifyOrigin(originHeader, allowedHosts, previewRange) === "allow";
+  return classifyOrigin(originHeader, allowedHosts, previewRange, requestHosts) === "allow";
 }
 
 const STEER_LABEL_MAX = 60;

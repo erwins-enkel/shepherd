@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { DrainStatus, QueuedItem } from "#lib/types.js";
   import type { RepoChip } from "../queue-strip";
   import { m } from "#lib/paraglide/messages.js";
@@ -122,7 +123,7 @@
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
             <a
               class="rs-queue-item"
-              href={it.url}
+              href={firstSafeHttpUrl(it.url) ?? undefined}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={m.drain_queue_item_aria({ number: it.number })}

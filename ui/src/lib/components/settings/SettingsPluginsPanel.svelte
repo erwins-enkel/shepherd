@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { onMount } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
   import HighlightText from "./HighlightText.svelte";
@@ -556,7 +557,7 @@
         {#if row.inst.repository}
           <a
             class="plugin-repo-link"
-            href={row.inst.repository}
+            href={firstSafeHttpUrl(row.inst.repository) ?? undefined}
             target="_blank"
             rel="external noreferrer noopener"
           >

@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "#lib/store.svelte.js";
@@ -3061,7 +3062,8 @@
     if (!item) return;
     const a = item.action;
     if (a.kind === "url") {
-      window.open(a.href, "_blank", "noopener,noreferrer");
+      const url = firstSafeHttpUrl(a.href);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
     } else if (a.kind === "panel") {
       focusPluginId = id;
       settingsTab = "plugins";

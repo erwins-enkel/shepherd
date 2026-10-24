@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { CompletedEpic } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { formatAgo } from "#lib/format.js";
@@ -188,20 +189,29 @@
                     >{c.integrated ? "✓" : "–"}</span
                   >
                   {#if c.integrated && c.prUrl}
-                    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-                    <a class="ref" href={c.prUrl} target="_blank" rel="noopener noreferrer"
+                    <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+                    <a
+                      class="ref"
+                      href={firstSafeHttpUrl(c.prUrl) ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       >{c.prNumber != null
                         ? m.integrated_epics_pr_ref({ number: c.prNumber })
                         : m.integrated_epics_pr_ref_nonum()}</a
                     >
+                    <!-- eslint-enable svelte/no-navigation-without-resolve -->
                   {:else if c.integrated && c.prNumber != null}<span class="ref"
                       >{m.integrated_epics_pr_ref({ number: c.prNumber })}</span
                     >
                   {:else}
-                    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-                    <a class="ref" href={c.url} target="_blank" rel="noopener noreferrer"
-                      >#{c.number}</a
+                    <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+                    <a
+                      class="ref"
+                      href={firstSafeHttpUrl(c.url) ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer">#{c.number}</a
                     >
+                    <!-- eslint-enable svelte/no-navigation-without-resolve -->
                   {/if}
                   {#if c.integrated}<span class="child-ago"
                       >{m.integrated_epics_child_merged_ago({

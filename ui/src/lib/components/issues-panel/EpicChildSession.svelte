@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { DrainRunSummary, EpicChild, GitState, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { formatAgo } from "#lib/format.js";
@@ -56,10 +57,14 @@
   {#if agent}<span class="agent">{agent}</span>{/if}
   {#if started}<span class="faint">{started}</span>{/if}
   {#if prUrl}
-    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-    <a class="pr-link" href={prUrl} target="_blank" rel="noopener noreferrer"
-      >{m.childrun_pr_link({ number: child.prNumber ?? 0 })} ↗</a
+    <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+    <a
+      class="pr-link"
+      href={firstSafeHttpUrl(prUrl) ?? undefined}
+      target="_blank"
+      rel="noopener noreferrer">{m.childrun_pr_link({ number: child.prNumber ?? 0 })} ↗</a
     >
+    <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {/if}
   {#if child.sessionId && onopensession}
     <button class="link" type="button" onclick={() => onopensession(child.sessionId!)}

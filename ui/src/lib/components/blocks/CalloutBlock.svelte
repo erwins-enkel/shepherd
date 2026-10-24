@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import type { VisualBlock, CalloutTone } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   let { block }: { block: Extract<VisualBlock, { type: "callout" }> } = $props();
@@ -34,9 +35,9 @@
       return;
     }
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive) rendered = DOMPurify.sanitize(marked.parse(md, { async: false }) as string);
+    renderMarkdown(md)
+      .then((html) => {
+        if (alive) rendered = html;
       })
       .catch((err) => console.warn("CalloutBlock markdown render failed", err));
     return () => {
@@ -48,7 +49,7 @@
 <div class="callout" style:border-left-color={TONE_COLOR[block.tone]}>
   <span class="callout-tone" style:color={TONE_COLOR[block.tone]}>{toneLabel(block.tone)}</span>
   {#if rendered}
-    <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
     <div class="callout-md">{@html rendered}</div>
   {/if}
 </div>

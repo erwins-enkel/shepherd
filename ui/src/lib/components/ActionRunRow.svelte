@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { onDestroy } from "svelte";
   import type { WorkflowRun } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -137,7 +138,7 @@
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
     <a
       class="wf-link"
-      href={run.runUrl}
+      href={firstSafeHttpUrl(run.runUrl) ?? undefined}
       target="_blank"
       rel="noopener"
       title={m.actionspanel_run_link()}>↗</a
@@ -180,7 +181,7 @@
           <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
           <a
             class="job-name"
-            href={job.url}
+            href={firstSafeHttpUrl(job.url) ?? undefined}
             target="_blank"
             rel="noopener"
             title={m.actionspanel_job_link()}>{job.name}</a

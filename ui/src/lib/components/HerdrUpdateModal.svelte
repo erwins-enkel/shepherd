@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import { tick, untrack } from "svelte";
   import type { HerdrUpdateStatus, HerdrUpdateResult } from "#lib/types.js";
   import {
@@ -105,8 +106,8 @@
   const HERDR_RELEASES_URL = "https://github.com/herdrdev/herdr/releases";
 
   // Render the (GitHub release) notes as markdown, sanitized before @html.
-  // marked + DOMPurify are dynamically imported on first render so they stay
-  // off the critical path; the (browser-only) sanitizer never runs during SSR.
+  // The shared sanitizer loads on first render so it stays off the critical
+  // path; it never runs during SSR.
   let renderedNotes = $state("");
   $effect(() => {
     const body = status.notes;
@@ -115,30 +116,15 @@
       return;
     }
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
-        // External release-note links must open out-of-app, not navigate the
-        // SPA away; force target/rel on every anchor during sanitize.
-        DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-          if (node.tagName === "A") {
-            node.setAttribute("target", "_blank");
-            node.setAttribute("rel", "noopener noreferrer");
-          }
-        });
-        let html: string;
-        try {
-          html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
-        } finally {
-          // Always drop our hook, even if parse/sanitize throws, so it can't
-          // leak onto the next render. Scoped to this event so we don't wipe
-          // any persistent hooks registered elsewhere on the shared singleton.
-          DOMPurify.removeHook("afterSanitizeAttributes");
-        }
+    // The shared sanitizer forces target/rel on external links, so release-note
+    // links open out-of-app instead of navigating the SPA away.
+    renderMarkdown(body)
+      .then((html) => {
         if (alive) renderedNotes = html;
       })
       .catch((err) => {
         // Markdown render is progressive enhancement; warn so a broken
-        // marked/dompurify load isn't swallowed silently.
+        // sanitizer load isn't swallowed silently.
         console.warn("herdr release notes markdown render failed", err);
       });
     return () => {
@@ -424,7 +410,7 @@
     {#if showNotes}
       <div class="notes-label micro">{m.herdrupdate_notes_label()}</div>
       {#if renderedNotes}
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
         <div class="notes">{@html renderedNotes}</div>
       {:else}
         <!-- Fallback before the markdown imports resolve, or if they fail:

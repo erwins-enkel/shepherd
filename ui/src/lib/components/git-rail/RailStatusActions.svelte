@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { GitState, SessionStatus } from "#lib/types.js";
   import type { CriticChip } from "../critic-badge";
   import ReadyToggle from "../ReadyToggle.svelte";
@@ -142,8 +143,8 @@
 
   function openPr() {
     closePrMenu();
-    if (!git.url) return;
-    window.open(git.url, "_blank", "noopener,noreferrer");
+    const url = firstSafeHttpUrl(git.url);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function toggleDraftState() {
@@ -272,7 +273,7 @@
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
     <a
       class="status-chip"
-      href={git.issueUrl}
+      href={firstSafeHttpUrl(git.issueUrl) ?? undefined}
       target="_blank"
       rel="noopener"
       title={m.gitrail_issue_label({ number: issueNumber })}

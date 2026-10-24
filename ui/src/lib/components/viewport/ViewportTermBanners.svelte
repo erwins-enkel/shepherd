@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { terminalOwnerTitle } from "#lib/terminal-client.js";
   import type { LoginRequest, PendingAsk, TerminalClientInfo } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -68,7 +69,8 @@
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
   function openAuth() {
-    if (authUrl) window.open(authUrl, "_blank", "noopener,noreferrer");
+    const url = firstSafeHttpUrl(authUrl);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
   let answering = $state(false);
   async function answerLogin(outcome: "done" | "cancelled") {

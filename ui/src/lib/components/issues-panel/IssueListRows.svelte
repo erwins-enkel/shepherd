@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { relativeTimeAgo } from "#lib/format.js";
@@ -81,7 +82,8 @@
   function openIssue() {
     const d = menu;
     menu = null;
-    if (d) window.open(d.issue.url, "_blank", "noopener");
+    const url = firstSafeHttpUrl(d?.issue.url);
+    if (url) window.open(url, "_blank", "noopener");
   }
   function pickSteer(steer: Steer) {
     const d = menu;

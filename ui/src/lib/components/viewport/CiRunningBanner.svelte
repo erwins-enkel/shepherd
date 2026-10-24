@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { GitState } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { ciBannerState } from "#lib/ci-banner.js";
@@ -72,10 +73,14 @@
       {#if view.number != null}
         <span class="cb-sep" aria-hidden="true"> · </span>
         {#if view.url}
-          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-          <a class="cb-link" href={view.url} target="_blank" rel="noopener"
-            >{m.cibanner_pr({ number: view.number })}</a
+          <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+          <a
+            class="cb-link"
+            href={firstSafeHttpUrl(view.url) ?? undefined}
+            target="_blank"
+            rel="noopener">{m.cibanner_pr({ number: view.number })}</a
           >
+          <!-- eslint-enable svelte/no-navigation-without-resolve -->
         {:else}
           <span class="cb-link-plain">{m.cibanner_pr({ number: view.number })}</span>
         {/if}

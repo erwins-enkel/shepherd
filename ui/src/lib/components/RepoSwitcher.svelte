@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { tick } from "svelte";
   import type { RepoChip } from "./queue-strip";
   import { getRepoWeb } from "#lib/api.js";
@@ -527,7 +528,7 @@
         class="rs-menu-item"
         role="menuitem"
         tabindex="-1"
-        href={menuRepoWeb.webUrl}
+        href={firstSafeHttpUrl(menuRepoWeb.webUrl) ?? undefined}
         target="_blank"
         rel="noopener"
         onclick={() => closeMenu()}

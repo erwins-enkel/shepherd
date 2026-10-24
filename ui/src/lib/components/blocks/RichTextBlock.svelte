@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import type { VisualBlock } from "#lib/types.js";
   let { block }: { block: Extract<VisualBlock, { type: "rich-text" }> } = $props();
   let rendered = $state("");
@@ -8,15 +9,15 @@
    * a before/after of a component tree, file layout or control flow — inside a rich-text
    * block, and an untinted one reads as a wall of monospace.
    *
-   * Safety: this pass cannot reintroduce markup DOMPurify removed. It takes the sanitized DOM
-   * *fragment* rather than the HTML string, and every node it adds is one it created itself and
-   * filled via `textContent` — so a `<script>` inside a diff fence stays inert text. The result
-   * is still serialized here and re-parsed by `{@html}` below, exactly as before this pass
-   * existed; that round trip is unchanged, and it round-trips sanitized content either way.
+   * Safety: this pass cannot reintroduce markup the sanitizer removed. It re-parses the
+   * already-sanitized HTML into a detached element, and every node it adds is one it created
+   * itself and filled via `textContent` — so a `<script>` inside a diff fence stays inert text.
+   * The result is serialized and re-parsed by `{@html}` below; that round trip carries only
+   * sanitized content.
    */
-  function tintDiffFences(fragment: DocumentFragment): string {
+  function tintDiffFences(html: string): string {
     const host = document.createElement("div");
-    host.append(fragment);
+    host.innerHTML = html;
     for (const code of host.querySelectorAll("pre > code.language-diff")) {
       const lines = (code.textContent ?? "").split("\n");
       // A trailing newline from the fence would otherwise render as a blank tinted row.
@@ -47,14 +48,9 @@
       return;
     }
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive)
-          rendered = tintDiffFences(
-            DOMPurify.sanitize(marked.parse(md, { async: false }) as string, {
-              RETURN_DOM_FRAGMENT: true,
-            }),
-          );
+    renderMarkdown(md)
+      .then((html) => {
+        if (alive) rendered = tintDiffFences(html);
       })
       .catch((err) => console.warn("RichTextBlock markdown render failed", err));
     return () => {
@@ -64,7 +60,7 @@
 </script>
 
 {#if rendered}
-  <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
   <div class="rt-md">{@html rendered}</div>
 {/if}
 

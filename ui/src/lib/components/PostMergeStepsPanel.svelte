@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { onDestroy, tick } from "svelte";
   import type { PostMergeSteps, OwedFocusSnapshot } from "#lib/types.js";
   import { postMergeSteps, owedRecordsForRepo } from "#lib/post-merge-steps.svelte.js";
@@ -226,10 +227,14 @@
                 >{m.owed_merged_ago({ ago: formatAgo(clock.current - rec.createdAt) })}</span
               >
               {#if rec.trackingIssueUrl}
-                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-                <a class="ow-issue" href={rec.trackingIssueUrl} target="_blank" rel="noopener"
-                  >{m.owed_tracking_issue()}</a
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+                <a
+                  class="ow-issue"
+                  href={firstSafeHttpUrl(rec.trackingIssueUrl) ?? undefined}
+                  target="_blank"
+                  rel="noopener">{m.owed_tracking_issue()}</a
                 >
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
               {/if}
               <button
                 type="button"

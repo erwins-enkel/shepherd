@@ -57,18 +57,7 @@ import { mirroredPreviewChange, reduceRemoteSessions } from "./remote-sessions";
 import { machines } from "./machines.svelte";
 import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
 import { wakeMotionOn } from "./motion-settle";
-
-/** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
- *  (or other-scheme) value would be an open-redirect / script-execution vector
- *  (CodeQL js/client-side-unvalidated-url-redirection #3). */
-function isSafeHttpUrl(raw: string): boolean {
-  try {
-    const { protocol } = new URL(raw);
-    return protocol === "https:" || protocol === "http:";
-  } catch {
-    return false;
-  }
-}
+import { firstSafeHttpUrl } from "./url";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -942,7 +931,7 @@ export class HerdStore {
       const url = ev.data.url;
       // Only wire the "view PR" action for a validated http(s) URL — never open an
       // unvalidated event-carried value (CodeQL js/client-side-unvalidated-url-redirection #3).
-      const safeUrl = url != null && isSafeHttpUrl(url) ? url : null;
+      const safeUrl = firstSafeHttpUrl(url);
       toasts.info(m.docagent_toast_pr_opened({ repo }), {
         key,
         ...(safeUrl != null

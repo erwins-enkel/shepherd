@@ -162,6 +162,9 @@ so agent code never sees or overwrites it; the app's own cookies pass through un
 is `HttpOnly`/`SameSite=Strict` and the HUD rejects preview-range origins for writes, but full
 per-origin cookie isolation is tracked in
 [#398](https://github.com/erwins-enkel/shepherd/issues/398).
+Every HUD response carries `X-Frame-Options: SAMEORIGIN` and a CSP with `frame-ancestors 'self'`
+(a port-exact match), so a preview page can't frame the logged-in HUD to redress clicks; the same CSP
+limits `img-src` and `form-action` behind the markdown sanitizer (#2099).
 
 **Caveats:**
 

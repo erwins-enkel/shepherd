@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   // Delivery metrics (#2151 R1) — the OUTCOME counterpart to the cost lenses. Spend/Overhead say
   // what a task cost; this says whether the process is getting better: how often work lands
   // first try, how many rework rounds it takes, and how long it takes to get there.
@@ -309,8 +310,11 @@
                   <span class={stateClass(reading)}>{bandState(reading)}</span>
                   {#if run?.issueUrl}
                     <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
-                    <a class="issue-link" href={run.issueUrl} target="_blank" rel="noreferrer"
-                      >#{run.issueNumber}</a
+                    <a
+                      class="issue-link"
+                      href={firstSafeHttpUrl(run.issueUrl) ?? undefined}
+                      target="_blank"
+                      rel="noreferrer">#{run.issueNumber}</a
                     >
                   {/if}
                 </span>

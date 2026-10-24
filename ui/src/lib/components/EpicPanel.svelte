@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { DrainRunSummary, Epic } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { importEpic } from "#lib/api.js";
@@ -78,8 +79,14 @@
       {@const chip = chipFor(c.state)}
       {@const slot = slotHeldBy(runSummary, c.number)}
       <li class="epic-child">
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-        <a class="num" href={c.url} target="_blank" rel="noopener noreferrer">#{c.number}</a>
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+        <a
+          class="num"
+          href={firstSafeHttpUrl(c.url) ?? undefined}
+          target="_blank"
+          rel="noopener noreferrer">#{c.number}</a
+        >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
         <span class="title">{c.title}</span>
         <span class="chip chip-{chip.tone}">{stateLabel(c.state)}</span>
         {#if slot}

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import { untrack } from "svelte";
   import type {
     Session,
@@ -90,8 +92,8 @@
   const RECAP_FEATURE_EPOCH_MS = 1781423073000;
   const predatesRecapFeature = $derived(recap === undefined && finishedAt < RECAP_FEATURE_EPOCH_MS);
 
-  // Render the (LLM-authored) body as sanitized markdown. Dynamically imported so
-  // marked/DOMPurify stay off the first-paint critical path; gated on a ready recap
+  // Render the (LLM-authored) body as sanitized markdown. The sanitizer loads lazily, so
+  // it stays off the first-paint critical path; gated on a ready recap
   // body so the browser-only sanitizer never runs during SSR or for an empty body.
   let renderedBody = $state("");
   $effect(() => {
@@ -101,10 +103,9 @@
       return;
     }
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive)
-          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+    renderMarkdown(body)
+      .then((html) => {
+        if (alive) renderedBody = html;
       })
       .catch((err) => {
         console.warn("Recap body markdown render failed", err);
@@ -171,10 +172,14 @@
     {/if}
     {#if session.issueNumber != null}
       {#if session.issueUrl}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-        <a class="dr-issue dr-issue-link" href={session.issueUrl} target="_blank" rel="noopener"
-          >{m.recap_issue({ n: session.issueNumber })}</a
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+        <a
+          class="dr-issue dr-issue-link"
+          href={firstSafeHttpUrl(session.issueUrl) ?? undefined}
+          target="_blank"
+          rel="noopener">{m.recap_issue({ n: session.issueNumber })}</a
         >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
       {:else}
         <span class="dr-issue">{m.recap_issue({ n: session.issueNumber })}</span>
       {/if}
@@ -204,7 +209,7 @@
       {#if recap.blocks && recap.blocks.length > 0}
         <VisualReview blocks={recap.blocks} />
       {:else if renderedBody}
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
         <div class="dr-md">{@html renderedBody}</div>
       {/if}
       {#if recap.openItems.length > 0}

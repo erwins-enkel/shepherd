@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { CompletedEpic, LandingCiAutomation } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { formatAgo } from "#lib/format.js";
@@ -89,8 +90,13 @@
             <span class="lcs-x" aria-hidden="true">✕</span>
             <span class="lcs-name">{check.name}</span>
             {#if check.url}
-              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-              <a href={check.url} target="_blank" rel="noopener noreferrer">{m.landing_ci_log()}</a>
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+              <a
+                href={firstSafeHttpUrl(check.url) ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer">{m.landing_ci_log()}</a
+              >
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
             {/if}
           </li>
         {/each}

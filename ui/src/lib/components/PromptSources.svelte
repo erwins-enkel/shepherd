@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { Snippet } from "svelte";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -116,7 +117,8 @@
   function openIssue() {
     const i = menu?.issue;
     menu = null;
-    if (i) window.open(i.url, "_blank", "noopener");
+    const url = firstSafeHttpUrl(i?.url);
+    if (url) window.open(url, "_blank", "noopener");
   }
   function pickSteer(steer: Steer) {
     const i = menu?.issue;

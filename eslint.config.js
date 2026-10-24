@@ -86,12 +86,12 @@ export default [
             {
               name: "marked",
               message:
-                'Import dynamically — see SessionRecap.svelte: Promise.all([import("marked"), import("dompurify")]).',
+                "Use renderMarkdown/sanitizeSvg from ui/src/lib/sanitize-html.ts (loads it dynamically).",
             },
             {
               name: "dompurify",
               message:
-                'Import dynamically — see SessionRecap.svelte: Promise.all([import("marked"), import("dompurify")]).',
+                "Use renderMarkdown/sanitizeSvg from ui/src/lib/sanitize-html.ts (loads it dynamically).",
             },
           ],
           // `paths` matches the exact specifier only, so it would miss a deep import

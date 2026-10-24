@@ -161,7 +161,7 @@
       onpointercancel={onPointerUp}
     >
       <div class="canvas" style:width="{natW * scale}px" style:height="{natH * scale}px">
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -- mermaid securityLevel:"strict" output, already sanitized upstream -->
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- MermaidBlock passes sanitizeSvg output -->
         {@html svg}
       </div>
     </div>

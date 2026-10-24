@@ -9,6 +9,7 @@
   import { theme } from "#lib/theme.svelte.js";
   import InferredBadge from "./InferredBadge.svelte";
   import DiagramLightbox from "./DiagramLightbox.svelte";
+  import { sanitizeSvg } from "#lib/sanitize-html.js";
 
   let { block }: { block: Extract<VisualBlock, { type: "mermaid" }> } = $props();
 
@@ -62,9 +63,11 @@
         const safeId = block.id.replace(/[^a-zA-Z0-9_-]/g, "-");
         const id = `mm-${safeId}-${++renderCounter}`;
         const result = await mermaid.render(id, source);
+        // Defense in depth over securityLevel:"strict" (#2104); the lightbox reuses this svg.
+        const clean = await sanitizeSvg(result.svg);
 
         if (alive) {
-          svg = result.svg;
+          svg = clean;
           error = false;
         }
       } catch (e) {
@@ -101,7 +104,7 @@
       onclick={() => (zoomed = true)}
       aria-label={m.vblock_mermaid_expand()}
     >
-      <!-- eslint-disable-next-line svelte/no-at-html-tags -- mermaid securityLevel:"strict" sanitizes output -->
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -- mermaid strict output, re-sanitized via sanitizeSvg above -->
       {@html svg}
       <span class="mb-zoom" aria-hidden="true">⤢</span>
     </button>

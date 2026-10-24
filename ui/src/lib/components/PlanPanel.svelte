@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import type { Session, PlanSummaryCode } from "#lib/types.js";
   import { planGates, spawnNotices } from "#lib/reviews.svelte.js";
   import {
@@ -179,8 +180,8 @@
   // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
   // agent-authored — the planning agent and the reviewer ingest untrusted input (issue
   // bodies, repo contents), so their markdown is untrusted and must be scrubbed of any
-  // embedded HTML/scripts. Mirrors GitRail's critic-body render: marked + DOMPurify are
-  // dynamically imported on first render (off the critical path; the browser-only
+  // embedded HTML/scripts and remote fetches. Mirrors GitRail's critic-body render: the shared
+  // sanitizer (#lib/sanitize-html) loads on first render (off the critical path; the browser-only
   // sanitizer never runs during SSR).
   let planHtml = $state("");
   let bodyHtml = $state("");
@@ -193,11 +194,11 @@
       return;
     }
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
+    Promise.all([plan ? renderMarkdown(plan) : "", body ? renderMarkdown(body) : ""])
+      .then(([p, b]) => {
         if (!alive) return;
-        planHtml = plan ? DOMPurify.sanitize(marked.parse(plan, { async: false }) as string) : "";
-        bodyHtml = body ? DOMPurify.sanitize(marked.parse(body, { async: false }) as string) : "";
+        planHtml = p;
+        bodyHtml = b;
       })
       .catch((err) => {
         // Markdown render is progressive enhancement; warn so a broken load isn't swallowed.
@@ -501,7 +502,7 @@
           </div>
         {/if}
         {#if planHtml}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, DOMPurify-sanitized above -->
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, renderMarkdown-sanitized above -->
           <div class="md">{@html planHtml}</div>
         {:else}
           <p class="empty">
@@ -519,7 +520,7 @@
             </p>
           {/if}
           {#if bodyHtml}
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, DOMPurify-sanitized above -->
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, renderMarkdown-sanitized above -->
             <div class="md">{@html bodyHtml}</div>
           {/if}
           {#if gate.findings.length > 0}

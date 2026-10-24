@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { getFrameworkDrift, createUpgradeStory } from "#lib/api.js";
   import type { FrameworkDrift } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -48,12 +49,17 @@
         res.status === "created"
           ? m.readiness_drift_story_created({ number: res.number })
           : m.readiness_drift_story_exists({ number: res.number });
+      const storyUrl = firstSafeHttpUrl(res.url);
       toasts.info(msg, {
         key: "readiness-drift-story",
-        action: {
-          label: m.readiness_drift_view_story(),
-          run: () => window.open(res.url, "_blank", "noopener,noreferrer"),
-        },
+        ...(storyUrl != null
+          ? {
+              action: {
+                label: m.readiness_drift_view_story(),
+                run: () => window.open(storyUrl, "_blank", "noopener,noreferrer"),
+              },
+            }
+          : {}),
       });
     } catch {
       if (rp !== repoPath) return;
@@ -101,7 +107,7 @@
             <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
             <a
               class="story-link"
-              href={data.openStory.url}
+              href={firstSafeHttpUrl(data.openStory.url) ?? undefined}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -132,10 +138,16 @@
               {/if}
             </div>
             {#each r.dependabot as b (b.number)}
-              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-              <a class="row-hint" href={b.url} target="_blank" rel="noopener noreferrer">
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+              <a
+                class="row-hint"
+                href={firstSafeHttpUrl(b.url) ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 {m.readiness_drift_dependabot({ number: b.number, to: b.to })}
               </a>
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
             {/each}
           </div>
         </li>

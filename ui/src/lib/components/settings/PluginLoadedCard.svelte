@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { PluginInfo, PluginUIView } from "#lib/types.js";
   import PluginUIRoot from "#lib/plugin-ui/PluginUIRoot.svelte";
@@ -99,7 +100,7 @@
     {#if plugin.repository}
       <a
         class="plugin-repo-link"
-        href={plugin.repository}
+        href={firstSafeHttpUrl(plugin.repository) ?? undefined}
         target="_blank"
         rel="external noreferrer noopener"
       >

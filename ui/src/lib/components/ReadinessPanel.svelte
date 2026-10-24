@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { getReadiness, adoptGitignore } from "#lib/api.js";
   import type { GuardrailId, ReadinessReport } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -194,12 +195,13 @@
       if (rp !== repoPath) return;
       if (res.status === "applied") {
         const url = res.prUrl ?? "";
+        const safeUrl = firstSafeHttpUrl(url);
         toasts.info(m.readiness_adopt_gitignore_applied({ url }), {
           key: "adopt-gitignore-applied",
-          action: url
+          action: safeUrl
             ? {
                 label: m.readiness_adopt_gitignore_view_pr(),
-                run: () => window.open(url, "_blank", "noopener,noreferrer"),
+                run: () => window.open(safeUrl, "_blank", "noopener,noreferrer"),
               }
             : undefined,
         });

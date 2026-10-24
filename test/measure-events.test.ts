@@ -39,6 +39,33 @@ test("measures UTF-8 JSON frames without retaining payloads or credentials", asy
   }
 });
 
+test("tallies prototype-named events as ordinary rows", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: (req, server) => (server.upgrade(req) ? undefined : new Response(null, { status: 400 })),
+    websocket: {
+      open(ws) {
+        for (const event of ["__proto__", "constructor"]) ws.send(JSON.stringify({ event }));
+      },
+      message() {},
+    },
+  });
+  try {
+    const { stationary } = await measureEvents(
+      new URL(`http://127.0.0.1:${server.port}`),
+      "test-token",
+      20,
+      0,
+    );
+    expect(Object.getPrototypeOf(stationary.events)).toBe(Object.prototype);
+    expect(Object.keys(stationary.events).sort()).toEqual(["__proto__", "constructor"]);
+    expect(Object.hasOwn(stationary.events, "__proto__")).toBe(true);
+    expect(stationary.count).toBe(2);
+  } finally {
+    server.stop(true);
+  }
+});
+
 test("a failed WebSocket handshake rejects without disclosing its response", async () => {
   const server = Bun.serve({ port: 0, fetch: () => new Response("secret", { status: 401 }) });
   try {

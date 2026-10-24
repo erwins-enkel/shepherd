@@ -2,20 +2,28 @@
  * Usage: bun run scripts/measure-events.ts [stationary-seconds=180] [warmup-seconds=5]
  * Counts uncompressed JSON bytes, excluding WebSocket/TLS overhead; never logs payloads.
  */
+type Row = { count: number; bytes: number; maxBytes: number };
 interface Totals {
   count: number;
   bytes: number;
-  events: Record<string, { count: number; bytes: number; maxBytes: number }>;
+  events: Record<string, Row>;
 }
-const totals = (): Totals => ({ count: 0, bytes: 0, events: Object.create(null) });
+// Event names come off the wire, so tally them in a Map and only build the record on report.
+type Tally = Omit<Totals, "events"> & { events: Map<string, Row> };
+const tally = (): Tally => ({ count: 0, bytes: 0, events: new Map() });
+const report = ({ count, bytes, events }: Tally): Totals => ({
+  count,
+  bytes,
+  events: Object.fromEntries(events),
+});
 
 export function measureEvents(origin: URL, token: string, durationMs: number, warmupMs = 5_000) {
   const url = new URL("/events", origin);
   url.protocol = origin.protocol === "https:" ? "wss:" : "ws:";
   return new Promise<{ warmup: Totals; stationary: Totals; durationMs: number }>(
     (resolve, reject) => {
-      const warmup = totals();
-      const stationary = totals();
+      const warmup = tally();
+      const stationary = tally();
       let started = 0;
       let finished = false;
       let timer: ReturnType<typeof setTimeout>;
@@ -34,7 +42,7 @@ export function measureEvents(origin: URL, token: string, durationMs: number, wa
         timer = setTimeout(() => {
           finished = true;
           ws.close();
-          resolve({ warmup, stationary, durationMs });
+          resolve({ warmup: report(warmup), stationary: report(stationary), durationMs });
         }, warmupMs + durationMs);
       };
       ws.onmessage = ({ data }) => {
@@ -43,7 +51,8 @@ export function measureEvents(origin: URL, token: string, durationMs: number, wa
         const name = typeof frame.event === "string" ? frame.event : "<unknown>";
         const target = performance.now() - started < warmupMs ? warmup : stationary;
         const bytes = Buffer.byteLength(data);
-        const row = (target.events[name] ??= { count: 0, bytes: 0, maxBytes: 0 });
+        let row = target.events.get(name);
+        if (!row) target.events.set(name, (row = { count: 0, bytes: 0, maxBytes: 0 }));
         row.count++;
         row.bytes += bytes;
         row.maxBytes = Math.max(row.maxBytes, bytes);

@@ -321,3 +321,65 @@ describe("QuestionFormBlock — allowOther (AskUserQuestion, #3165)", () => {
     await expect.element(button).toBeEnabled();
   });
 });
+
+describe("QuestionFormBlock — links", () => {
+  const url = "https://claude.ai/artifact/GWC6c82ryRzbZfTmTKfhJK";
+  const prompt = `Drei Varianten ganz oben auf ${url} (Version 3). Welche nehmen wir?`;
+
+  it("renders a URL in the prompt as a new-tab link, keeping the prompt text intact", async () => {
+    const { container } = await render(QuestionFormBlock, {
+      block: {
+        type: "question-form",
+        id: "qfl1",
+        questions: [{ id: "q1", prompt, kind: "single", options: ["Yes", "No"] }],
+      },
+      onanswer: vi.fn(),
+    });
+    const p = container.querySelector(".qf-prompt")!;
+    expect(p.textContent).toBe(prompt);
+    const links = p.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    expect(links[0]!.getAttribute("href")).toBe(url);
+    expect(links[0]!.textContent).toBe(url);
+    expect(links[0]!.target).toBe("_blank");
+    expect(links[0]!.rel).toBe("noopener noreferrer");
+  });
+
+  it("links a URL in an option description but not in the option label", async () => {
+    const { container } = await render(QuestionFormBlock, {
+      block: {
+        type: "question-form",
+        id: "qfl2",
+        questions: [
+          {
+            id: "q1",
+            prompt: "Which one?",
+            kind: "single",
+            options: [`Take ${url}`, "Other one"],
+            optionDescriptions: [`Preview at ${url}.`, "No link"],
+          },
+        ],
+      },
+      onanswer: vi.fn(),
+    });
+    const descs = container.querySelectorAll(".qf-option-desc");
+    expect(descs[0]!.textContent).toBe(`Preview at ${url}.`);
+    expect(descs[0]!.querySelector("a")?.getAttribute("href")).toBe(url);
+    expect(descs[1]!.querySelector("a")).toBeNull();
+    const labels = container.querySelectorAll(".qf-option-text > span:first-child");
+    expect(labels[0]!.textContent).toBe(`Take ${url}`);
+    expect(container.querySelectorAll("a")).toHaveLength(1);
+  });
+
+  it("renders no link for a prompt without a URL", async () => {
+    const { container } = await render(QuestionFormBlock, {
+      block: {
+        type: "question-form",
+        id: "qfl3",
+        questions: [{ id: "q1", prompt: "Visit www.example.com?", kind: "freeform" }],
+      },
+    });
+    expect(container.querySelector(".qf-prompt")!.textContent).toBe("Visit www.example.com?");
+    expect(container.querySelector("a")).toBeNull();
+  });
+});

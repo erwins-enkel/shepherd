@@ -70,10 +70,13 @@ function rulePrefix(dir: string, home: string): string {
  *  allowed by Claude's own defaults. What the operator sets in Settings → Assistant (the shell, the
  *  action groups) lives in the assistant's `.claude/settings.local.json` instead, which Claude
  *  re-reads mid-session (assistantPermissionRules). `stateDir` is Shepherd's state dir (dirname of
- *  its db). */
+ *  its db). `spawnDir` holds every assistant's spawn files with its ingress key
+ *  (src/assistant-ingress.ts): all assistants share one uid, so without this rule a repo-scoped
+ *  assistant could read the global one's key and act herd-wide through its endpoint. */
 export function operatorAssistantPermissions(
   stateDir = "~/.shepherd",
   home = homedir(),
+  spawnDir = `${stateDir.replace(/\/+$/, "")}/assistant-spawn`,
 ): {
   defaultMode: "default";
   allow: string[];
@@ -92,6 +95,7 @@ export function operatorAssistantPermissions(
         "Write",
         "NotebookEdit",
         ...STATE_SECRETS.map((p) => `Read(${state}/${p})`),
+        `Read(${rulePrefix(spawnDir, home)}/**)`,
         ...CREDENTIAL_PATHS.map((p) => `Read(${p})`),
       ]),
     ],

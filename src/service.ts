@@ -4838,7 +4838,11 @@ export class SessionService {
     const files = await writeAssistantSpawnFiles(this.assistantSpawnDir(), s.id, {
       settings: spawnSettingsOverlay({
         hooks: hook,
-        permissions: operatorAssistantPermissions(dirname(config.dbPath)),
+        permissions: operatorAssistantPermissions(
+          dirname(config.dbPath),
+          homedir(),
+          this.assistantSpawnDir(),
+        ),
         assistantView: hook,
       }),
       mcpConfig: agentMcpConfigArg(

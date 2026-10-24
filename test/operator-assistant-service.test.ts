@@ -3,7 +3,7 @@
 // repo scopes (one global assistant plus one per repo).
 import { test, expect } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { BrowserTokenSigner } from "../src/browser-token";
 import { SessionStore } from "../src/store";
@@ -112,7 +112,7 @@ const fileAfter = (argv: string[], flag: string) =>
 const after = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
 
 test("ensure creates the assistant: 0700 dir, trust seeded, read-only argv, fenced row", async () => {
-  const { store, svc, dir, calls } = harness();
+  const { store, svc, dir, calls, spawnDir } = harness();
   const s = await svc.ensureOperatorAssistant();
 
   expect(statSync(dir).mode & 0o777).toBe(0o700);
@@ -130,7 +130,9 @@ test("ensure creates the assistant: 0700 dir, trust seeded, read-only argv, fenc
     `/api/sessions/${s.id}/mcp`,
   );
   expect(argv).not.toContain("--dangerously-skip-permissions");
-  expect(fileAfter(argv, "--settings").permissions).toEqual(operatorAssistantPermissions());
+  expect(fileAfter(argv, "--settings").permissions).toEqual(
+    operatorAssistantPermissions(dirname(config.dbPath), homedir(), spawnDir),
+  );
   // #3161: the operator's view rides each message through its UserPromptSubmit hook.
   expect(fileAfter(argv, "--settings").hooks.UserPromptSubmit[0].hooks[0].url).toEndWith(
     `/api/sessions/${s.id}/assistant-view`,

@@ -780,3 +780,71 @@ test("native session state and queue frames keep the owning machine", async () =
   expect(created?.host.instanceId).toBe(B);
   expect(t.mirror.route(S3)?.host.instanceId).toBe(B);
 });
+
+test("remote probes suppress identical sets, including reordered rows, but publish all changes", async () => {
+  const t = setup();
+  await t.live();
+  t.events.length = 0;
+  try {
+    t.mirror.sync(B);
+    await flush();
+    expect(t.events).toHaveLength(0);
+    t.state.snapshot = () => [s2, s1];
+    t.mirror.sync(B);
+    await flush();
+    expect(t.events).toHaveLength(0);
+    t.state.git = () => ({ [S1]: { state: "open" } });
+    t.mirror.sync(B);
+    await flush();
+    expect(t.events).toHaveLength(1);
+    t.state.machines[0] = machine({ name: "Renamed", label: "Renamed" });
+    t.mirror.sync(B);
+    await flush();
+    expect(t.events).toHaveLength(2);
+    t.state.snapshot = () => [];
+    t.mirror.sync(B);
+    await flush();
+    expect(t.events.at(-1)).toEqual(["remote:sessions", { instanceId: B, sessions: [] }]);
+    const n = t.events.length;
+    t.mirror.sync(B);
+    await flush();
+    expect(t.events).toHaveLength(n);
+    t.state.machines = [];
+    t.mirror.sync(B);
+    expect(t.events).toHaveLength(n + 1);
+  } finally {
+    t.mirror.stop();
+  }
+});
+
+test("remote snapshots correct relayed changes even when they match the previous full snapshot", async () => {
+  const t = setup();
+  const socket = await t.live();
+  send(socket, "session:renamed", { id: S1, name: "temporary name" });
+  t.events.length = 0;
+  t.mirror.sync(B);
+  await flush();
+  expect(t.events).toHaveLength(1);
+  expect(t.events[0]?.[0]).toBe("remote:sessions");
+  expect((t.events[0]?.[1] as { sessions: { name: string }[] }).sessions[0]?.name).toBe(s1.name);
+});
+
+test("an empty remote machine still announces rename, disconnect and reconnect", async () => {
+  const t = setup({ snapshot: () => [] });
+  const socket = await t.live();
+  t.events.length = 0;
+  t.mirror.sync(B);
+  await flush();
+  expect(t.events).toHaveLength(0);
+  t.state.machines[0] = machine({ name: "Studio", label: "Studio" });
+  t.mirror.sync(B);
+  await flush();
+  expect(t.events).toHaveLength(1);
+  socket.on.close();
+  expect(t.events).toHaveLength(2);
+  t.tick(1000);
+  t.mirror.sync(B);
+  t.sockets.at(-1)!.on.open();
+  await flush();
+  expect(t.events).toHaveLength(3);
+});

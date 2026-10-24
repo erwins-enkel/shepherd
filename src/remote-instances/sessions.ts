@@ -111,6 +111,7 @@ type Store = Pick<SessionStore, "getRemoteInstance">;
 type Instances = Pick<RemoteInstanceService, "list" | "check" | "repoSlugs">;
 
 interface Link {
+  publishedSessions?: string;
   instanceId: string;
   host: SessionHost;
   sessions: Map<string, RemoteRow>;
@@ -461,6 +462,10 @@ export class RemoteSessionMirror {
     if (!data) return;
     if (link.buffer) link.buffer.push([frame.event, data]);
     else this.patch(link, frame.event, data);
+    // A relayed row change can make the clients differ from the last full snapshot. Its next
+    // replacement must correct that even if the machine returns the old full snapshot again.
+    // Activity lives in a separate client map and never changes the mirrored session rows.
+    if (frame.event !== "session:activity") link.publishedSessions = undefined;
     this.emit(frame.event, this.annotate(link, data));
   }
 
@@ -587,7 +592,12 @@ export class RemoteSessionMirror {
   }
 
   private publish(link: Link): void {
-    this.emit("remote:sessions", { instanceId: link.instanceId, sessions: this.refs(link) });
+    const sessions = this.refs(link).sort((a, b) => a.id.localeCompare(b.id));
+    // Even an empty machine must invalidate the clients' machine list on name/connection changes.
+    const signature = JSON.stringify({ sessions, host: link.host, connection: link.connection });
+    if (signature === link.publishedSessions) return;
+    this.emit("remote:sessions", { instanceId: link.instanceId, sessions });
+    link.publishedSessions = signature;
   }
 
   private refs(link: Link): MirroredSession[] {

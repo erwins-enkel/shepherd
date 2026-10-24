@@ -382,6 +382,7 @@ import {
   type GithubBackoff,
 } from "./agent-control";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { ASSISTANT_INGRESS_HEADER } from "./assistant-ingress";
 import {
   parseAssistantViewFrame,
   renderAssistantView,
@@ -675,6 +676,9 @@ export interface AppDeps {
   loginWaitMs?: number;
   /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
   browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
+  /** Operator Assistant ingress-key verifier (audit F08); absent → the agent ingress refuses
+   *  every call addressed to an assistant. */
+  assistantIngress?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
   starPrompt?: {
@@ -12183,6 +12187,19 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   return method === "POST" && sub === "queue" && parts[4] === "steps" && !!parts[5] && !parts[6];
 }
 
+/** The Operator Assistant's ingress needs its key on top of the UUID (audit F08): the UUID rides
+ *  argv that any local user can read, and the assistant's MCP endpoint runs operator actions. A
+ *  still-spawning assistant has no row yet — its in-flight capabilities identify it. Every other
+ *  session passes (its UUID stays its capability). */
+function assistantIngressAllowed(deps: AppDeps, id: string, req: Request): boolean {
+  const row = deps.store.get(id);
+  const assistant = row
+    ? isOperatorAssistant(row)
+    : deps.service.spawningAgentCapabilities(id)?.operatorActions === true;
+  if (!assistant) return true;
+  return deps.assistantIngress?.verify(id, req.headers.get(ASSISTANT_INGRESS_HEADER)) === true;
+}
+
 /** Restricted ingress app: 404 unless the request is an allowlisted agent→server route; otherwise
  *  DELEGATE to the full app. Built with `skipAuth` (issue #1079): spawned agents carry neither a
  *  human session cookie nor (by default) a bearer token — autonomous agents run under `--clearenv`
@@ -12197,6 +12214,8 @@ export function makeAgentIngressApp(deps: AppDeps) {
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean);
       if (!isAgentIngressRoute(req.method, parts)) return json({ error: "not found" }, 404);
+      if (!assistantIngressAllowed(deps, parts[2]!, req))
+        return json({ error: "unauthorized" }, 401);
       return app.fetch(req); // delegate — preserves checkOrigin (CSRF) + the real handlers
     },
   };

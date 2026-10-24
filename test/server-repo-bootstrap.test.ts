@@ -46,11 +46,14 @@ function makeDeps(): AppDeps {
 
 function call(app: ReturnType<typeof makeApp>, method: string, path: string, body?: unknown) {
   return app.fetch(
-    new Request(`http://localhost:7330/api/repo-bootstrap${path}?repo=${encodeURIComponent(repo)}`, {
-      method,
-      headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    }),
+    new Request(
+      `http://localhost:7330/api/repo-bootstrap${path}?repo=${encodeURIComponent(repo)}`,
+      {
+        method,
+        headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+    ),
   );
 }
 

@@ -137,7 +137,9 @@ test("GET /api/codex-update/notes returns the on-demand service result", async (
     releaseNotes: async () => result,
   };
 
-  const res = await makeApp(deps).fetch(new Request("http://localhost:7330/api/codex-update/notes"));
+  const res = await makeApp(deps).fetch(
+    new Request("http://localhost:7330/api/codex-update/notes"),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(result);
 });
@@ -162,7 +164,9 @@ test("GET /api/usage/limits returns limits + projections", async () => {
 
 test("GET /api/commands rejects invalid provider", async () => {
   const res = await harness().fetch(
-    new Request(`http://localhost:7330/api/commands?repo=${encodeURIComponent(validRepo)}&provider=mixed`),
+    new Request(
+      `http://localhost:7330/api/commands?repo=${encodeURIComponent(validRepo)}&provider=mixed`,
+    ),
   );
   expect(res.status).toBe(400);
   expect(await res.json()).toEqual({ error: "invalid provider" });
@@ -250,7 +254,9 @@ test("POST /api/usage/refresh stays 200 for subscription-only even when scraped:
 });
 
 test("POST /api/usage/refresh without refreshUsage falls back to current limits snapshot", async () => {
-  const res = await harness().fetch(new Request("http://localhost:7330/api/usage/refresh", { method: "POST" }));
+  const res = await harness().fetch(
+    new Request("http://localhost:7330/api/usage/refresh", { method: "POST" }),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
     session5h: null,
@@ -268,7 +274,9 @@ test("GET /api/sessions/:id/usage is unavailable (not fake zero) for a session w
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
-  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${created.id}/usage`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${created.id}/usage`),
+  );
   expect(res.status).toBe(200);
   const u = await res.json();
   expect(u.available).toBe(false);
@@ -320,7 +328,9 @@ test("usage ladder: archived session serves its snapshot — raw fields, byModel
     archivedAt: s.createdAt + 1000,
     snapshotAt: s.createdAt + 1000,
   });
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u).toEqual({
     available: true,
     source: "snapshot",
@@ -379,7 +389,9 @@ test("usage ladder: restore drops the snapshot, so a codex re-archive can't serv
   // row is written. The read must report honest unavailability, not the pre-restore tokens.
   deps.store.update(s.id, { claudeSessionId: "", agentProvider: "codex" });
   deps.store.archive(s.id);
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -401,7 +413,9 @@ test("usage ladder: restore drops even a legacy blank-provenance snapshot before
   // snapshots nothing. The stale blank row is gone → honest unavailability.
   deps.store.update(s.id, { claudeSessionId: "c0ffee00-0000-4000-8000-00000000000c" });
   deps.store.archive(s.id);
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -417,7 +431,9 @@ test("usage ladder: a stamped snapshot from a different claude lineage is reject
   // Row stamped with a PRIOR lineage id while the session now carries a different one — the
   // provenance guard rejects it outright (independent of the unarchive drop above).
   deps.store.upsertSessionUsage(usageSnapFor(s, "c0ffee00-0000-4000-8000-00000000000f"));
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -431,7 +447,9 @@ test("usage ladder: legacy pre-provenance snapshot ('' claudeSessionId) on a nev
   });
   deps.store.update(s.id, { status: "archived" });
   deps.store.upsertSessionUsage(usageSnapFor(s, "")); // pre-migration row shape, never restored
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(true);
   expect(u.source).toBe("snapshot");
   expect(u.total).toBe(100);
@@ -445,7 +463,9 @@ test("usage ladder: snapshot-less archive falls back to the live source (here: u
     claudeSessionId: "c0ffee00-0000-4000-8000-000000000002",
   });
   deps.store.update(s.id, { status: "archived" });
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -467,7 +487,9 @@ test("usage ladder: live JSONL resolves under the spawn account dir (raw byModel
   writeFileSync(join(jsonlDir, `${sid}.jsonl`), `${line}\n`);
   const s = deps.store.create({ ...USAGE_SESSION, claudeSessionId: sid });
   deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(true);
   expect(u.source).toBe("live");
   expect(u.total).toBe(12);
@@ -487,7 +509,9 @@ test("usage ladder: readable-but-empty transcript is a true zero, not unavailabl
   writeFileSync(join(jsonlDir, `${sid}.jsonl`), "");
   const s = deps.store.create({ ...USAGE_SESSION, claudeSessionId: sid });
   deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(true); // the source exists — zero is a real reading
   expect(u.source).toBe("live");
   expect(u.total).toBe(0);
@@ -503,7 +527,9 @@ test("usage ladder: codex session is honestly unavailable — no state-DB or rol
   // issue). The exact all-null DTO below is the wire contract for that boundary; a future
   // scan would surface here as available:true / a non-"none" source.
   const s = deps.store.create({ ...USAGE_SESSION, agentProvider: "codex" as const });
-  const u = await (await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u).toEqual({
     available: false,
     source: "none",
@@ -522,7 +548,9 @@ test("GET /api/sessions/:id/activity returns [] for a session w/o JSONL", async 
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
-  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${created.id}/activity`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${created.id}/activity`),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual([]);
 });
@@ -570,7 +598,9 @@ test("GET /api/sessions/:id/activity resolves the transcript under spawnAccountD
     // Negative control: same worktree + transcript id, but no spawn account → resolves the
     // server's own (empty) projects dir. Pins the direction — a "search both dirs" read fails.
     const own = deps.store.create({ ...USAGE_SESSION, worktreePath, claudeSessionId });
-    const ownRes = await app.fetch(new Request(`http://localhost:7330/api/sessions/${own.id}/activity`));
+    const ownRes = await app.fetch(
+      new Request(`http://localhost:7330/api/sessions/${own.id}/activity`),
+    );
     expect(ownRes.status).toBe(200);
     expect(await ownRes.json()).toEqual([]);
   } finally {
@@ -727,7 +757,9 @@ test("GET /api/sessions/:id/messages reads a non-isolated Codex session's rollou
     ],
     async () => {
       const s = deps.store.create({ ...CODEX_SESSION, isolated: false });
-      const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/messages`));
+      const res = await app.fetch(
+        new Request(`http://localhost:7330/api/sessions/${s.id}/messages`),
+      );
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         messages: Array<{ text: string }>;
@@ -740,7 +772,9 @@ test("GET /api/sessions/:id/messages reads a non-isolated Codex session's rollou
 });
 
 test("GET /api/sessions/:id/activity 404s for unknown id", async () => {
-  const res = await harness().fetch(new Request("http://localhost:7330/api/sessions/nope/activity"));
+  const res = await harness().fetch(
+    new Request("http://localhost:7330/api/sessions/nope/activity"),
+  );
   expect(res.status).toBe(404);
 });
 
@@ -1038,7 +1072,9 @@ test("GET /api/sessions/:id/leftovers → [] and no caution without a reaper", a
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
-  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${created.id}/leftovers`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${created.id}/leftovers`),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ leftovers: [], probesUnavailable: false });
 });
@@ -1093,7 +1129,9 @@ test("DELETE /api/sessions/:id with no body archives without reaping", async () 
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  const del = await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}`, { method: "DELETE" }));
+  const del = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${s.id}`, { method: "DELETE" }),
+  );
   expect(del.status).toBe(200);
   expect(reaped).toEqual([]); // nothing selected → reaper untouched
   expect(store.get(s.id)?.status).toBe("archived");
@@ -1546,7 +1584,9 @@ test("POST /api/uploads saves a staged attachment and returns its path", async (
   const app = harness();
   const fd = new FormData();
   fd.append("file", new File([new Uint8Array([1, 2, 3])], "s.pdf", { type: "application/pdf" }));
-  const res = await app.fetch(new Request("http://localhost:7330/api/uploads", { method: "POST", body: fd }));
+  const res = await app.fetch(
+    new Request("http://localhost:7330/api/uploads", { method: "POST", body: fd }),
+  );
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.path.startsWith(stagingDir(config.repoRoot) + "/")).toBe(true);
@@ -1777,7 +1817,9 @@ test("GET /api/update returns the updater's current status", async () => {
 });
 
 test("POST /api/update with no updater → 503", async () => {
-  const res = await harness().fetch(new Request("http://localhost:7330/api/update", { method: "POST" }));
+  const res = await harness().fetch(
+    new Request("http://localhost:7330/api/update", { method: "POST" }),
+  );
   expect(res.status).toBe(503);
 });
 
@@ -2988,7 +3030,9 @@ test("GET /api/sessions/:id/preview/stop (wrong method) → falls through router
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/preview/stop`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${s.id}/preview/stop`),
+  );
   expect(res.status).not.toBe(200);
 });
 

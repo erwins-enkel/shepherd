@@ -104,9 +104,9 @@ export interface OperatorAssistantArgvOpts {
   /** false: a fresh conversation pinned to `claudeSessionId`; true: `--resume` it. */
   resume: boolean;
   claudeSessionId: string;
-  /** The `--settings` overlay JSON (see `spawnSettingsOverlay`). */
+  /** Path to the 0600 `--settings` overlay file (see `spawnSettingsOverlay`, src/assistant-ingress.ts). */
   settings: string;
-  /** The `--mcp-config` JSON wiring the session to its Shepherd MCP endpoint. */
+  /** Path to the 0600 `--mcp-config` file wiring the session to its Shepherd MCP endpoint. */
   mcpConfig: string;
   /** `operatorAssistantBrief(...)`. */
   brief: string;

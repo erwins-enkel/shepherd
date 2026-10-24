@@ -852,8 +852,13 @@ export async function handleMcpRequest(
  * resolve identically here. Deliberately NOT paired with `--strict-mcp-config`, which would
  * suppress the operator's own MCP servers for every Shepherd session.
  */
-export function agentMcpConfigArg(sessionId: string, baseUrl: string): string {
+export function agentMcpConfigArg(
+  sessionId: string,
+  baseUrl: string,
+  headers?: Record<string, string>,
+): string {
+  const url = `${baseUrl}/api/sessions/${sessionId}/mcp`;
   return JSON.stringify({
-    mcpServers: { shepherd: { type: "http", url: `${baseUrl}/api/sessions/${sessionId}/mcp` } },
+    mcpServers: { shepherd: { type: "http", url, ...(headers ? { headers } : {}) } },
   });
 }

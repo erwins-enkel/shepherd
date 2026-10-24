@@ -921,6 +921,15 @@ const browserToken = await loadOrCreateBrowserBrokerKey(config.browserBrokerKeyP
     return undefined;
   },
 );
+// Operator Assistant ingress key (audit F08). A broken key file leaves the assistant without its
+// tools (the ingress refuses every keyless call) instead of failing boot.
+const assistantIngress = await loadOrCreateBrowserBrokerKey(config.assistantIngressKeyPath).then(
+  (key) => new BrowserTokenSigner(key),
+  (err: unknown) => {
+    console.error("[operator-assistant] ingress key unavailable; assistant tools refused:", err);
+    return undefined;
+  },
+);
 const codexReset = new CodexResetCoordinator({
   store,
   enabled: () => config.codexResetAutoEnabled,
@@ -982,6 +991,7 @@ const service = new SessionService({
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   agentIngressPort: () => agentIngressState.port,
   browserToken,
+  assistantIngress,
   // Usage-aware model downgrade (#825 companion): once live usage crosses the (lower) downgrade
   // threshold, every spawn that flows through pushModelFlag — Claude main task agents (here) and the
   // role agents (via roleEnv) — runs on the cheap usageDowngradeModel instead of its configured
@@ -4008,6 +4018,7 @@ const appDeps: AppDeps = {
   netnsDevForward,
   loginRequests,
   browserToken,
+  assistantIngress,
   service,
   fingerprint: {
     ensureFresh: (slug) => fingerprint.ensureFresh(slug),

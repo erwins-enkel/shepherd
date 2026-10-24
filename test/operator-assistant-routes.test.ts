@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentIngressApp, makeApp, type AppDeps } from "../src/server";
+import { BrowserTokenSigner } from "../src/browser-token";
 import { AssistantViewRegistry, UNKNOWN_VIEW } from "../src/operator-assistant-view";
 import { config } from "../src/config";
 import { hashPassword } from "../src/operator-auth";
@@ -804,9 +805,15 @@ test("the view hook is the assistant's alone and still answers after /clear", as
   const cleared = await app.fetch(hook(assistant.id, { session_id: "claude-b" }));
   expect(cleared.status).toBe(200);
   expect((await cleared.json()).hookSpecificOutput.additionalContext).toBe(UNKNOWN_VIEW);
-  // The agent ingress serves it — that's where the assistant's claude posts its hooks.
+  // The agent ingress serves it — that's where the assistant's claude posts its hooks — but only
+  // with the assistant's ingress key (audit F08).
+  const signer = new BrowserTokenSigner(Buffer.alloc(32, 3));
+  deps.assistantIngress = signer;
   const ingress = makeAgentIngressApp(deps);
-  const viaIngress = await ingress.fetch(hook(assistant.id, { session_id: "claude-a" }));
+  expect((await ingress.fetch(hook(assistant.id, { session_id: "claude-a" }))).status).toBe(401);
+  const keyed = hook(assistant.id, { session_id: "claude-a" });
+  keyed.headers.set("x-shepherd-ingress-key", signer.sign(assistant.id));
+  const viaIngress = await ingress.fetch(keyed);
   expect(viaIngress.status).toBe(200);
   expect((await viaIngress.json()).hookSpecificOutput.additionalContext).toBe(UNKNOWN_VIEW);
 });
@@ -917,4 +924,45 @@ test("assistant drain operations round-trip through MCP and repo_automation with
     }),
   );
   expect((await denied.json()).error.code).toBe(-32602);
+});
+
+test("F08: the ingress refuses an assistant action carrying only the session UUID", async () => {
+  const saved = config.assistantPermissions;
+  restore = () => (config.assistantPermissions = saved);
+  config.assistantPermissions = { ...saved, sessions: "allow" };
+  const { deps, store } = setup();
+  const interrupted: string[] = [];
+  deps.service.interrupt = (async (id: string) => {
+    interrupted.push(id);
+  }) as never;
+  const signer = new BrowserTokenSigner(Buffer.alloc(32, 5));
+  const assistant = assistantRow(store);
+  const worker = workerRow(store);
+  const call = (key?: string) =>
+    makeAgentIngressApp({ ...deps, assistantIngress: signer }).fetch(
+      new Request(`http://127.0.0.1/api/sessions/${assistant.id}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(key ? { "x-shepherd-ingress-key": key } : {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "session_interrupt", arguments: { desig: worker.desig } },
+        }),
+      }),
+    );
+  expect((await call()).status).toBe(401);
+  expect((await call("0".repeat(64))).status).toBe(401);
+  expect((await call(signer.sign(worker.id))).status).toBe(401);
+  expect(interrupted).toEqual([]);
+  expect((await call(signer.sign(assistant.id))).status).toBe(200);
+  expect(interrupted).toEqual([worker.id]);
+  // A task session's own ingress is unchanged: its UUID stays its capability.
+  const own = await makeAgentIngressApp({ ...deps, assistantIngress: signer }).fetch(
+    new Request(`http://127.0.0.1/api/sessions/${worker.id}`),
+  );
+  expect(own.status).not.toBe(401);
 });

@@ -14,6 +14,7 @@ function draft(sessionId: string, status: EpicDraft["status"]): EpicDraft {
     parent: { title: "t", body: "b", acceptanceCriteria: [], nonGoals: [] },
     children: [{ key: "c1", title: "Child", body: "b", acceptanceCriteria: [], blockedBy: [] }],
     status,
+    revision: 1,
     materializedChildren: {},
     parentNumber: status === "approved" ? 13 : null,
     parentUrl: status === "approved" ? "https://example.test/13" : null,

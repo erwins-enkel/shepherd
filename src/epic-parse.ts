@@ -1,3 +1,5 @@
+import { stripUntrustedFences } from "./untrusted";
+
 export interface EpicEdge {
   dependent: number;
   blocker: number;
@@ -40,7 +42,9 @@ function parseFencedEpic(fenceBody: string): ParsedEpic {
   return { members: [...order], order, edges };
 }
 
-export function parseEpicBody(body: string): ParsedEpic {
+export function parseEpicBody(rawBody: string): ParsedEpic {
+  // #3325: membership is structure — read it from trusted text only, never a fenced span.
+  const body = stripUntrustedFences(rawBody);
   const fence = body.match(FENCE_RE);
   if (fence) return parseFencedEpic(fence[1] ?? "");
   const members: number[] = [];

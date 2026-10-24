@@ -3304,17 +3304,20 @@ export async function getEpicDraft(sessionId: string): Promise<EpicDraft | null>
 }
 
 /** Approve an epic draft — the HARD GATE that materializes it into GitHub issues + links.
- *  Returns the created parent number/url + child numbers. */
+ *  `revision` is the draft revision the operator reviewed (#3324): the server refuses any other
+ *  with a 409 whose {@link ApiError} `code` is `draft-changed`. Returns the created parent
+ *  number/url + child numbers. */
 export async function approveEpicDraft(
   sessionId: string,
+  revision: number,
   landing?: EpicLanding,
 ): Promise<{ parentNumber: number; parentUrl: string; childNumbers: Record<string, number> }> {
   const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/epic-draft/approve`, {
     method: "POST",
     headers: JSON_HEADERS,
-    ...(landing ? { body: JSON.stringify({ landing }) } : {}),
+    body: JSON.stringify(landing ? { revision, landing } : { revision }),
   });
-  if (!r.ok) throw await failed(r, "epic-draft approve");
+  if (!r.ok) throw await reasonFailed(r, "epic-draft approve");
   return r.json();
 }
 

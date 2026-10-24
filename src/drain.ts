@@ -5141,6 +5141,12 @@ export class DrainService {
     if (spawnRepo === null) return;
     // The session runs in spawnRepo, so ITS sandbox profile and model defaults apply.
     const rc = this.deps.store.getRepoConfig(spawnRepo);
+    // #3325: an auto spawn routed into another repo needs THAT repo's own auto-drain opt-in —
+    // a ticket in A must not start unattended work in a repo the operator never opted in.
+    if (spawnRepo !== repoPath && !rc.autoDrainEnabled) {
+      console.warn(`[drain] issue #${number} held — target repo ${spawnRepo} has auto-drain off`);
+      return;
+    }
     if (!(await this.spawnCapacity(repoPath, decision, rc.defaultModel))) return;
     const hold = this.spawnSandboxHold(rc.sandboxProfile, decision);
     if (hold) {

@@ -6344,28 +6344,32 @@ function resolveApproveContext(
   return { session, forge, value: semantic.value };
 }
 
-/** #3191: the approve's optional `{ landing }` body. An empty body, or one not sent as JSON, keeps
- *  today's behaviour (landing absent); a JSON body that is not an object or names an invalid
- *  landing is a 400. */
-async function parseApproveLanding(
+/** The approve body `{ revision, landing? }`. `revision` (#3324) is the draft revision the operator
+ *  reviewed and is required: an approve that names none is a 400, never "whatever is stored now".
+ *  `landing` (#3191): how the children land; absent = the server default. */
+async function parseApproveBody(
   req: Request,
-): Promise<{ landing: EpicLanding | undefined } | Response> {
-  if (requireJsonContentType(req)) return { landing: undefined };
-  const text = await req.text().catch(() => "");
-  if (text.trim() === "") return { landing: undefined };
+): Promise<{ landing: EpicLanding | undefined; revision: number } | Response> {
+  const invalid = json({ error: "invalid approve body" }, 400);
+  if (requireJsonContentType(req)) return invalid;
   let body: unknown;
   try {
-    body = JSON.parse(text);
+    body = JSON.parse(await req.text().catch(() => ""));
   } catch {
-    return json({ error: "invalid approve body" }, 400);
+    return invalid;
   }
-  if (typeof body !== "object" || body === null || Array.isArray(body))
-    return json({ error: "invalid approve body" }, 400);
-  const raw = (body as { landing?: unknown }).landing;
-  if (raw === undefined) return { landing: undefined };
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return invalid;
+  const { revision, landing: raw } = body as { revision?: unknown; landing?: unknown };
+  if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0)
+    return json({ error: "approve requires the reviewed draft revision" }, 400);
+  if (raw === undefined) return { landing: undefined, revision };
   const landing = parseEpicLanding(raw);
-  return landing ? { landing } : json({ error: "invalid landing" }, 400);
+  return landing ? { landing, revision } : json({ error: "invalid landing" }, 400);
 }
+
+/** 409 for an approve whose reviewed revision is no longer the stored one (#3324). */
+const draftChanged = () =>
+  json({ error: "the epic draft changed since it was reviewed", reason: "draft-changed" }, 409);
 
 /** Register the just-approved epic so buildEpic assembles it (mirrors handleEpicPut): it takes the
  *  repo's run row unless another epic leads — approving a draft must not silently stop the epic
@@ -6401,17 +6405,22 @@ function registerApprovedEpic(
 }
 
 async function approveEpicDraft(deps: AppDeps, id: string, req: Request): Promise<Response> {
-  const parsed = await parseApproveLanding(req);
+  const parsed = await parseApproveBody(req);
   if (parsed instanceof Response) return parsed;
   const ctx = resolveApproveContext(deps, id);
   if ("done" in ctx) return ctx.done;
   const { session, forge, value } = ctx;
   const draft = deps.store.getEpicDraft(id)!;
+  // #3324: publish only the revision the operator reviewed — first retry included.
+  if (draft.revision !== parsed.revision) return draftChanged();
 
-  // CAS draft → materializing BEFORE the first createIssue. Loser (a concurrent approve / WS retry)
-  // gets 409 — only the winner proceeds, so no duplicate issues.
-  if (!deps.store.beginEpicDraftMaterialize(id))
+  // CAS draft → materializing (at the reviewed revision) BEFORE the first createIssue. Loser (a
+  // concurrent approve / WS retry, or a PUT that landed in between) gets 409 — only the winner
+  // proceeds, so no duplicate issues and no unreviewed content.
+  if (!deps.store.beginEpicDraftMaterialize(id, parsed.revision)) {
+    if (deps.store.getEpicDraft(id)?.revision !== parsed.revision) return draftChanged();
     return json({ error: "epic materialize already in progress" }, 409);
+  }
 
   try {
     const result = await materializeEpicDraft(forge, value, {

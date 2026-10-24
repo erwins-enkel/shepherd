@@ -1467,6 +1467,9 @@ export type EpicDraftStatus = "draft" | "materializing" | "approved";
  *  route's server-side materializer, never by the shaping agent. */
 export interface EpicDraft extends EpicDraftContent {
   sessionId: string;
+  /** Bumped on every content write (#3324). Approve must echo the revision the operator reviewed;
+   *  the materialize CAS refuses any other, so a swapped draft is never published. */
+  revision: number;
   status: EpicDraftStatus;
   /** key → real issue number, persisted as each child issue is created (partial-failure resume). */
   materializedChildren: Record<string, number>;

@@ -155,6 +155,11 @@ export function applyQueueStep(
   return { ok: true, data: queue };
 }
 
+/** A materialize already created issues for this draft (a failed approve left it in `draft`). */
+function hasPartialMaterialize(d: EpicDraft): boolean {
+  return d.parentNumber != null || Object.keys(d.materializedChildren).length > 0;
+}
+
 /** Author/replace the epic draft (issue #1507). Structural then semantic (cycle/edge) validation
  *  before store; a draft that already left `draft` status is frozen, so a late re-submit cannot
  *  race a materializing/approved epic. */
@@ -166,6 +171,11 @@ export function applyEpicDraft(
   const existing = deps.store.getEpicDraft(sessionId);
   if (existing && existing.status !== "draft") {
     return { ok: false, status: 409, error: `epic draft is ${existing.status}, not editable` };
+  }
+  // #3324: once a materialize created any issue, the content is frozen — a rewrite would reset the
+  // created map and let the retry publish content the operator never reviewed.
+  if (existing && hasPartialMaterialize(existing)) {
+    return { ok: false, status: 409, error: "epic draft is partially materialized, not editable" };
   }
   const content = validateEpicDraftBody(body);
   if (content === null) return { ok: false, status: 400, error: "invalid epic draft" };

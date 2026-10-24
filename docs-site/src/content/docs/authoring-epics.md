@@ -89,6 +89,11 @@ merges.
 
 - **The target repo must be registered.** It needs a checkout under Shepherd's repo root whose
   remote matches. Otherwise Shepherd won't start the child and tells you why.
+- **Auto-drain must be on in the target repo.** The drain only starts a routed child there when
+  that repo has auto-drain enabled itself. Otherwise the child is held.
+- **The line must be in trusted text.** A `Target repo:` line inside untrusted, fenced content
+  (for example, an error report a plugin attached to the issue) is ignored, and so are epic
+  checklists or `epic-dag` blocks there.
 - **It never stacks.** Such a child bases on the target repo's default branch and skips this
   epic's integration branch. Children blocked by it wait until its PR merges.
 - **A session in the wrong repo can't finish it.** If a session for the child runs in this repo

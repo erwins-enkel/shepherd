@@ -82,6 +82,8 @@ export type EpicDraftStatus = "draft" | "materializing" | "approved";
  *  write. `materializedChildren`/`parentNumber` are populated by the server-side materializer. */
 export interface EpicDraft {
   sessionId: string;
+  /** Bumped on every content write; approve echoes the one the operator reviewed (#3324). */
+  revision: number;
   parent: EpicDraftParent;
   children: EpicDraftChild[];
   status: EpicDraftStatus;

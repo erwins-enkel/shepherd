@@ -985,6 +985,9 @@ describe("#3245 routed child: Target repo marker", () => {
   function bForge(rec: ForgeRec): GitForge {
     return { ...fakeForge([], rec), slug: "org/B", defaultBranch: async () => "trunk" };
   }
+  function enableAutoDrain(h: Harness, repoPath: string): void {
+    h.store.setRepoConfig(repoPath, { ...h.store.getRepoConfig(repoPath), autoDrainEnabled: true });
+  }
   function startEpic(h: Harness): void {
     h.store.setEpicRun({
       repoPath: REPO,
@@ -1000,6 +1003,7 @@ describe("#3245 routed child: Target repo marker", () => {
       ...epicOpts("Spec.\n**Target repo:** `org/b`"),
       otherRepos: { [B]: bForge(bRec) },
     });
+    enableAutoDrain(h, B);
     startEpic(h);
 
     await h.drain.pump(REPO);
@@ -1022,6 +1026,22 @@ describe("#3245 routed child: Target repo marker", () => {
     await h.drain.pump(REPO);
     expect(h.creates).toHaveLength(1); // the routed session still maps its A issue
     expect(h.epics.at(-1)?.children[0]?.sessionId).toBe(row.id);
+  });
+
+  test("#3325: target repo with auto-drain off holds the child: no spawn, no claim", async () => {
+    const bRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [], removed: [] };
+    const h = makeHarness({
+      ...epicOpts("Target repo: org/b"),
+      otherRepos: { [B]: bForge(bRec) },
+    });
+    startEpic(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.store.getRepoConfig(B).autoDrainEnabled).toBe(false);
+    expect(h.creates).toHaveLength(0);
+    expect(h.forgeRec.added).toHaveLength(0);
+    expect(bRec.added).toHaveLength(0);
   });
 
   test("an unregistered target repo is refused: no spawn, no claim, reported once", async () => {

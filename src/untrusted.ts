@@ -57,6 +57,55 @@ export function fenceUntrusted(
   return [`⟦UNTRUSTED:${label}:${nonce}⟧`, scrubbed, `⟦/UNTRUSTED:${label}:${nonce}⟧`].join("\n");
 }
 
+const FENCE_MARKER_RE = /⟦(\/?)UNTRUSTED:([^⟧]*)⟧/g;
+
+type FenceMarkers = {
+  opens: { id: string; at: number }[];
+  closes: Map<string, { at: number; end: number }[]>;
+};
+
+/** Every open marker in order, and every close marker grouped by its label:nonce. */
+function collectFenceMarkers(text: string): FenceMarkers {
+  const opens: FenceMarkers["opens"] = [];
+  const closes: FenceMarkers["closes"] = new Map();
+  for (const mk of text.matchAll(FENCE_MARKER_RE)) {
+    const id = mk[2] ?? "";
+    if (mk[1] === "") {
+      opens.push({ id, at: mk.index });
+      continue;
+    }
+    const list = closes.get(id) ?? [];
+    list.push({ at: mk.index, end: mk.index + mk[0].length });
+    closes.set(id, list);
+  }
+  return { opens, closes };
+}
+
+/** Remove every complete fenced span — an open marker through the next close marker with the SAME
+ *  label:nonce — from `text`, so structural parsers (`Target repo:` routing, epic membership) only
+ *  ever read the trusted, unfenced parts of a body (#3325). An unmatched marker is left as is: it
+ *  fences nothing. Linear in the markers (no backtracking regex): bodies can be untrusted and this
+ *  runs on the server's only loop. Pure. */
+export function stripUntrustedFences(text: string): string {
+  if (!text.includes("⟦")) return text;
+  const { opens, closes } = collectFenceMarkers(text);
+  const next = new Map<string, number>(); // per id: index of the first close not yet passed
+  let out = "";
+  let pos = 0; // everything before `pos` is already emitted or removed
+  for (const o of opens) {
+    if (o.at < pos) continue; // inside a span already removed
+    const list = closes.get(o.id) ?? [];
+    let i = next.get(o.id) ?? 0;
+    while (i < list.length && list[i]!.at < o.at) i++;
+    next.set(o.id, i);
+    const close = list[i];
+    if (!close) continue;
+    out += text.slice(pos, o.at);
+    pos = close.end;
+  }
+  return out + text.slice(pos);
+}
+
 /** Standing system-prompt block: establishes the instruction hierarchy for fenced content. Provider
  *  agnostic; rides every spawn via composeSystemPrompt. NOT UI chrome — never i18n'd. */
 export const UNTRUSTED_CONTENT_DIRECTIVE = [

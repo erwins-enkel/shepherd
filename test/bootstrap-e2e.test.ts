@@ -141,7 +141,15 @@ test("an empty project runs every bootstrap phase and the drain gate falls", asy
   expect(
     (await req("PUT", `/api/sessions/${epic.id}/epic-draft`, JSON.stringify(draft))).status,
   ).toBe(200);
-  expect((await req("POST", `/api/sessions/${epic.id}/epic-draft/approve`)).status).toBe(200);
+  expect(
+    (
+      await req(
+        "POST",
+        `/api/sessions/${epic.id}/epic-draft/approve`,
+        JSON.stringify({ revision: 1 }),
+      )
+    ).status,
+  ).toBe(200);
   expect(advances).toEqual([5]);
 
   // Exit: the re-scan finds every must-have green → done, the drain hold is gone.

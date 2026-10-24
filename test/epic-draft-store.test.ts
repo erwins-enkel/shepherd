@@ -59,8 +59,8 @@ test("CAS beginEpicDraftMaterialize wins once, then blocks concurrent approve", 
   const s = mk();
   const sess = s.create({ ...base });
   s.replaceEpicDraft(sess.id, content);
-  expect(s.beginEpicDraftMaterialize(sess.id)).toBe(true); // first wins
-  expect(s.beginEpicDraftMaterialize(sess.id)).toBe(false); // second sees 'materializing'
+  expect(s.beginEpicDraftMaterialize(sess.id, 1)).toBe(true); // first wins
+  expect(s.beginEpicDraftMaterialize(sess.id, 1)).toBe(false); // second sees 'materializing'
   expect(s.getEpicDraft(sess.id)?.status).toBe("materializing");
 });
 
@@ -68,7 +68,7 @@ test("resume: record children, revert on error, retry re-wins CAS retaining part
   const s = mk();
   const sess = s.create({ ...base });
   s.replaceEpicDraft(sess.id, content);
-  expect(s.beginEpicDraftMaterialize(sess.id)).toBe(true);
+  expect(s.beginEpicDraftMaterialize(sess.id, 1)).toBe(true);
   s.recordEpicDraftChild(sess.id, "c1", 100);
   // simulated error → revert
   s.revertEpicDraftToDraft(sess.id);
@@ -76,14 +76,14 @@ test("resume: record children, revert on error, retry re-wins CAS retaining part
   expect(afterRevert.status).toBe("draft");
   expect(afterRevert.materializedChildren).toEqual({ c1: 100 }); // retained
   // explicit retry re-wins the CAS
-  expect(s.beginEpicDraftMaterialize(sess.id)).toBe(true);
+  expect(s.beginEpicDraftMaterialize(sess.id, 1)).toBe(true);
 });
 
 test("boot sweep reverts orphaned materializing rows to draft, retaining partial map", () => {
   const s = mk();
   const sess = s.create({ ...base });
   s.replaceEpicDraft(sess.id, content);
-  s.beginEpicDraftMaterialize(sess.id);
+  s.beginEpicDraftMaterialize(sess.id, 1);
   s.recordEpicDraftChild(sess.id, "c1", 100);
   s.resetOrphanedEpicDraftMaterialize();
   const swept = s.getEpicDraft(sess.id)!;
@@ -95,7 +95,7 @@ test("setEpicDraftApproved records parent number/url and terminal status", () =>
   const s = mk();
   const sess = s.create({ ...base });
   s.replaceEpicDraft(sess.id, content);
-  s.beginEpicDraftMaterialize(sess.id);
+  s.beginEpicDraftMaterialize(sess.id, 1);
   s.setEpicDraftApproved(sess.id, 42, "https://example.test/issues/42");
   const d = s.getEpicDraft(sess.id)!;
   expect(d.status).toBe("approved");
@@ -105,4 +105,14 @@ test("setEpicDraftApproved records parent number/url and terminal status", () =>
   const reset = s.replaceEpicDraft(sess.id, content);
   expect(reset.status).toBe("draft");
   expect(reset.parentNumber).toBeNull();
+});
+
+test("#3324: replaceEpicDraft bumps revision; the CAS refuses any other revision", () => {
+  const s = mk();
+  const sess = s.create({ ...base });
+  expect(s.replaceEpicDraft(sess.id, content).revision).toBe(1);
+  expect(s.replaceEpicDraft(sess.id, content).revision).toBe(2);
+  expect(s.beginEpicDraftMaterialize(sess.id, 1)).toBe(false); // stale review
+  expect(s.getEpicDraft(sess.id)?.status).toBe("draft");
+  expect(s.beginEpicDraftMaterialize(sess.id, 2)).toBe(true);
 });

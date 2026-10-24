@@ -179,6 +179,7 @@ export const usageCases = [
  *  src/egress-watch.ts, src/server.ts handleSessionVariant). */
 const epicDraft: EpicDraft = {
   sessionId: "sess_fixture",
+  revision: 3,
   status: "draft",
   parent: { title: "Epic", body: "why", acceptanceCriteria: ["done"], nonGoals: [] },
   children: [

@@ -38,6 +38,7 @@ import type { BandReading, MaintainOutcome, MaintainRun, SignalKind } from "./ty
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { execGit } from "./safe-git";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import {
   STARTUP_GRACE_MS,
@@ -294,7 +295,7 @@ type FixAbort = { outcome: "skipped"; why: string } | { outcome: "error"; why: s
 const SWEEP_DAY_KEY = "maintain:last-sweep-day";
 
 async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileP("git", args, { cwd });
+  const { stdout } = await execGit(args, { cwd });
   return stdout;
 }
 

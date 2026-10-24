@@ -397,11 +397,16 @@ export interface ReviewServiceDeps extends MembraneSeams {
   computePatchId?: (
     worktreePath: string,
     base: string,
+    repoPath?: string,
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
   /** Injectable collector of the sibling work an epic child's tree is missing (default: real
    *  read-only git). Called ONLY for an epic child with a resolved baseSha; null on any git
    *  failure → the epic block degrades to telling the critic to run the commands itself. */
-  collectBaseDelta?: (worktreePath: string, baseSha: string) => Promise<EpicBaseDelta | null>;
+  collectBaseDelta?: (
+    worktreePath: string,
+    baseSha: string,
+    repoPath?: string,
+  ) => Promise<EpicBaseDelta | null>;
   /** Injectable reader for the critic's latest tool-use summary (default: parse its JSONL transcript
    *  via readActivitySignal for claude, or resolve its Codex rollout for codex). null = no parseable
    *  activity yet. */
@@ -433,7 +438,11 @@ export interface ReviewServiceDeps extends MembraneSeams {
    *  BASE COMMIT via read-only git). null when the repo has no policy on that base. MUST read the
    *  base object, NOT the worktree — the worktree is the UNTRUSTED PR head, and the policy rides the
    *  prompt unfenced (see defaultReadReviewPolicy). */
-  readReviewPolicy?: (worktreePath: string, baseSha: string) => Promise<string | null>;
+  readReviewPolicy?: (
+    worktreePath: string,
+    baseSha: string,
+    repoPath?: string,
+  ) => Promise<string | null>;
 }
 
 /** A PR no critic can act on any more: it merged, or it was closed unmerged. Either way the
@@ -484,10 +493,12 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   private computePatchId: (
     worktreePath: string,
     base: string,
+    repoPath?: string,
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
   private collectBaseDelta: (
     worktreePath: string,
     baseSha: string,
+    repoPath?: string,
   ) => Promise<EpicBaseDelta | null>;
   private readActivity: (
     worktreePath: string,
@@ -502,7 +513,11 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     model: string | null,
   ) => Promise<SessionUsage | null>;
   private readPlan: (worktreePath: string) => string | null;
-  private readReviewPolicy: (worktreePath: string, baseSha: string) => Promise<string | null>;
+  private readReviewPolicy: (
+    worktreePath: string,
+    baseSha: string,
+    repoPath?: string,
+  ) => Promise<string | null>;
   private worktreeExists: (p: string) => boolean;
 
   constructor(private deps: ReviewServiceDeps) {
@@ -823,14 +838,19 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // — i.e. still BEFORE the `starting` re-check below, so that re-check remains the LAST
     // await-gated step before the spawn and covers this suspension too (same reasoning as the
     // issue-body fetch above).
-    const epic = await this.resolveEpicContext(epicBase, wt.worktreePath, baseSha);
+    const epic = await this.resolveEpicContext(
+      epicBase,
+      wt.worktreePath,
+      baseSha,
+      session.repoPath,
+    );
 
     // #2154 slice 1: the repo's own `REVIEW.md`, read from the BASE COMMIT — never from
     // `wt.worktreePath`'s tree, which is the UNTRUSTED PR head (see defaultReadReviewPolicy for why
     // that distinction is the whole security argument). No resolved baseSha ⇒ no policy, rather than
     // a guess. Awaited, so it sits HERE with the issue-body / epic-delta fetches and BEFORE the
     // `starting` re-check below, which must remain the LAST await-gated step before the spawn.
-    const reviewPolicy = await this.resolveReviewPolicy(wt.worktreePath, baseSha);
+    const reviewPolicy = await this.resolveReviewPolicy(wt.worktreePath, baseSha, session.repoPath);
 
     // forget() (session archived) may have fired during any await above (author-notes, issue-body
     // fetch, or the epic base-delta collection); it clears our `starting` claim as a tombstone.
@@ -1066,7 +1086,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // manual re-review of an unchanged head actually RUN. `shouldSkipForPatchId` matches via its
     // `prior.patchId === patchId` OR-branch for any non-error prior, so clearing reviewedPatchIds
     // alone would not prevent the skip; bypassing the decision under force is what works.
-    const res = await this.computePatchId(worktreePath, base);
+    const res = await this.computePatchId(worktreePath, base, session.repoPath);
     const { baseSha, files } = res;
     const patchId = res.patchId ?? "";
     if (!force && shouldSkipForPatchId(prior, patchId)) {
@@ -1236,8 +1256,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   private async resolveReviewPolicy(
     worktreePath: string,
     baseSha: string | null,
+    repoPath: string,
   ): Promise<string | null> {
-    return baseSha ? await this.readReviewPolicy(worktreePath, baseSha) : null;
+    return baseSha ? await this.readReviewPolicy(worktreePath, baseSha, repoPath) : null;
   }
 
   private reviewerEnv(): RoleEnvironment {
@@ -1253,12 +1274,13 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     epicBase: string | null,
     worktreePath: string,
     baseSha: string | null,
+    repoPath: string,
   ): Promise<EpicContext | null> {
     if (!epicBase) return null;
     return {
       base: epicBase,
       baseSha,
-      delta: baseSha ? await this.collectBaseDelta(worktreePath, baseSha) : null,
+      delta: baseSha ? await this.collectBaseDelta(worktreePath, baseSha, repoPath) : null,
     };
   }
 

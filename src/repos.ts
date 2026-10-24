@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { execFileSync } from "./instrument";
+import { execGitSync } from "./safe-git";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { expandHome, safeRepoDir } from "./validate";
@@ -298,7 +298,7 @@ export function cloneRepo(
   }
 
   try {
-    execFileSync("git", ["clone", "--", url, target], {
+    execGitSync(["clone", "--", url, target], {
       stdio: "pipe",
       timeout: 120_000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
@@ -516,13 +516,13 @@ function gitIdentityPresent(): boolean {
     return true;
   }
   try {
-    const name = execFileSync("git", ["config", "--get", "user.name"], {
+    const name = execGitSync(["config", "--get", "user.name"], {
       stdio: "pipe",
       timeout: 5000,
     })
       .toString()
       .trim();
-    const email = execFileSync("git", ["config", "--get", "user.email"], {
+    const email = execGitSync(["config", "--get", "user.email"], {
       stdio: "pipe",
       timeout: 5000,
     })
@@ -663,11 +663,11 @@ function bootstrapLocalRepo(
 ): { ok: true } | { ok: false; error: string } {
   try {
     mkdirSync(target, { recursive: false });
-    execFileSync("git", ["init", "-b", "main"], { cwd: target, stdio: "pipe", timeout: 30_000 });
+    execGitSync(["init", "-b", "main"], { cwd: target, stdio: "pipe", timeout: 30_000 });
     writeBootstrapFiles(input, target);
     writeProjectDocs(target, docs);
-    execFileSync("git", ["add", "-A"], { cwd: target, stdio: "pipe", timeout: 30_000 });
-    execFileSync("git", ["commit", "-m", "chore: project bootstrap"], {
+    execGitSync(["add", "-A"], { cwd: target, stdio: "pipe", timeout: 30_000 });
+    execGitSync(["commit", "-m", "chore: project bootstrap"], {
       cwd: target,
       stdio: "pipe",
       timeout: 30_000,

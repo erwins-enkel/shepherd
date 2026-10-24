@@ -418,6 +418,21 @@ describe("buildMembraneFlags", () => {
     ).toBe(false);
   });
 
+  test("git store hooks/ + shepherd/ re-bound read-only AFTER the rw bind (audit F05)", () => {
+    const at = (f: string[], flag: string, p: string) =>
+      f.findIndex((x, i) => x === flag && f[i + 1] === p && f[i + 2] === p);
+    const iso = buildMembraneFlags(fakeMembrane({ isolated: true }), detDeps);
+    const rw = at(iso, "--bind", "/repos/proj/.git");
+    for (const sub of ["hooks", "shepherd"]) {
+      expect(at(iso, "--ro-bind-try", `/repos/proj/.git/${sub}`)).toBeGreaterThan(rw);
+    }
+    const non = buildMembraneFlags(fakeMembrane({ isolated: false }), detDeps);
+    const rwRepo = at(non, "--bind", "/repos/proj");
+    for (const sub of ["hooks", "shepherd"]) {
+      expect(at(non, "--ro-bind-try", `/repos/proj/.git/${sub}`)).toBeGreaterThan(rwRepo);
+    }
+  });
+
   test("node toolchain root derived from nodeBinReal (linuxbrew)", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     // linuxbrew root bound (prefix of nodeBinReal) — covers the bin dir, which is

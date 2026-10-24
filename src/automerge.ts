@@ -179,11 +179,15 @@ export class AutoMergeService {
   /** behindBase() shells out to `git fetch`; cache per (worktree,base) for a short TTL so a
    *  burst of poller events / client snapshots doesn't fan out one fetch per open PR each time.
    *  Cleared on a successful merge so siblings get a fresh read once main moves. */
-  private async cachedBehind(worktreePath: string, baseBranch: string): Promise<boolean | null> {
+  private async cachedBehind(
+    worktreePath: string,
+    baseBranch: string,
+    repoPath: string,
+  ): Promise<boolean | null> {
     const key = `${worktreePath}\0${baseBranch}`;
     const hit = this.behindCache.get(key);
     if (hit && this.now() - hit.ts < this.behindTtlMs) return hit.behind;
-    const behind = await this.deps.worktree.behindBase(worktreePath, baseBranch);
+    const behind = await this.deps.worktree.behindBase(worktreePath, baseBranch, repoPath);
     this.behindCache.set(key, { behind, ts: this.now() });
     return behind;
   }
@@ -347,7 +351,7 @@ export class AutoMergeService {
       git?.state === "open" && s.worktreePath && s.branch
         ? onQueueBase
           ? false
-          : await this.cachedBehind(s.worktreePath, s.baseBranch)
+          : await this.cachedBehind(s.worktreePath, s.baseBranch, s.repoPath)
         : null;
     return {
       id: s.id,

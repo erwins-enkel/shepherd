@@ -3193,7 +3193,7 @@ export class SessionService {
     const membrane: MembraneInputs = willWrap
       ? {
           worktreePath: ctx.worktreePath,
-          gitCommonDir: this.deps.worktree.gitCommonDir(ctx.worktreePath),
+          gitCommonDir: this.deps.worktree.gitCommonDir(ctx.worktreePath, ctx.repoPath),
           isolated: ctx.isolated,
           repoPath: ctx.repoPath,
           claudeDir: config.claudeDir,
@@ -5930,7 +5930,7 @@ export class SessionService {
   async syncWorktreeBranch(id: string): Promise<string | null> {
     const s = this.deps.store.get(id);
     if (!s || !s.isolated || !s.branch) return null;
-    const live = this.deps.worktree.currentBranch(s.worktreePath);
+    const live = this.deps.worktree.currentBranch(s.worktreePath, s.repoPath);
     if (!live || live === s.branch) return null;
     const nameMirrorsBranch = s.name === s.branch.replace(/^shepherd\//, "");
     const taken = nameMirrorsBranch ? await this.takenHerdrNames() : null;

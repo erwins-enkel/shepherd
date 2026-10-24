@@ -406,6 +406,44 @@ process to reach.
 
 Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.md).
 
+## Host-side git
+
+The Shepherd server itself runs unconfined, and it runs git over state that
+agents and PR authors control: worktree files, the shared `.git` config and
+hooks, the worktree's own `.git` gitfile, and integration-branch content. Plain
+git over that state would execute it as the operator. This is audit
+F01/F02/F05/F07. Every server-side git call therefore goes through
+`src/safe-git.ts`, and `test/safe-git-guard.test.ts` fails on any raw git
+launch outside a short allowlist (plugin checkouts, a version probe, the
+credential lookup run from `/`).
+
+- **Neutralized on every call** (command-line `-c` overrides beat repo,
+  worktree and included config): `core.hooksPath=/dev/null`,
+  `core.fsmonitor=false`, `protocol.ext.allow=never`. `diff`/`log`/`show` also
+  get `--no-ext-diff --no-textconv`.
+- **Gitdir pin.** Where the caller knows the trusted repo path (session diff,
+  recap, archive check, merge-train freshness, the critic and landing-rebase
+  worktrees, the membrane's own git-store bind), the worktree's admin dir is
+  found under `<repo>/.git/worktrees/` by its backlink, and `GIT_DIR` and
+  `GIT_WORK_TREE` are set explicitly. The worktree's `.git` gitfile is never
+  read. If no admin dir matches, the call fails closed.
+- **Merge driver.** The epic landing rebase pins `merge.i18n-union.driver` to
+  Shepherd's own `scripts/json-union-merge.mjs`, by absolute path. The driver
+  self-test and the driver registration also run Shepherd's own copies, never
+  the branch's.
+- **Membrane (defense in depth).** After the read-write git-store bind,
+  `buildMembraneFlags` re-binds `<git-store>/hooks` and `<git-store>/shepherd`
+  read-only. `config` stays read-write, because git rewrites it by lock and
+  rename.
+
+Server-made commits (doc agent, gitignore adoption, maintenance, plugin agents,
+repo bootstrap) no longer run repo hooks.
+
+**Scope:** the neutralized set is deliberately narrow — only keys the operator's
+own setup never needs from repo config. Non-isolated sessions in a confining
+profile have no pin anchor (the agent owns the whole repo), and
+`WorktreeMgr.remove` and the preview-script lookup are hardened but not pinned.
+
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,

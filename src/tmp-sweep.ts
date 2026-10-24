@@ -1,8 +1,7 @@
 import { promises as fsp, type Dirent } from "node:fs";
-import { execFile } from "node:child_process";
+import { execGit as safeExecGit } from "./safe-git";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { promisify } from "node:util";
 import {
   parseWorktrees,
   parseGitVersion,
@@ -11,8 +10,6 @@ import {
   MIN_GIT_MINOR,
 } from "./forge/local";
 import { WORKTREE_MARKER, isUnder } from "./process-reaper";
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Centralizes the "claude tmp directory" geometry and a threshold-gated inode-guard
@@ -1165,7 +1162,7 @@ export async function reapFallowCaches(opts?: ReapFallowOpts): Promise<ReapFallo
 type ExecGit = (cwd: string, args: string[]) => Promise<string>;
 
 const defaultExecGit: ExecGit = (cwd, args) =>
-  execFileAsync("git", ["-C", cwd, ...args], { timeout: 60_000 }).then((r) => r.stdout);
+  safeExecGit(["-C", cwd, ...args], { timeout: 60_000 }).then((r) => r.stdout);
 
 export interface ReapWorktreesOpts {
   /** Configured repo paths to enumerate worktrees for (`listRepos(...).map(r => r.path)`). */
@@ -1837,7 +1834,7 @@ export async function pruneRepoWorktrees(
 ): Promise<PruneResult> {
   const log = opts?.log ?? console.warn;
   const execGit =
-    opts?.execGit ?? ((repo: string, args: string[]) => execFileAsync("git", args).then(() => {}));
+    opts?.execGit ?? ((repo: string, args: string[]) => safeExecGit(args).then(() => {}));
   const isGitRepo =
     opts?.isGitRepo ??
     ((repo: string) =>

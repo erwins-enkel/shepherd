@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
+import { execGit } from "../safe-git";
 import type { SessionStore } from "../store";
 import {
   EMPTY_BACKLOG_COUNTS,
@@ -120,7 +121,7 @@ interface ExecResult {
 async function gitRun(cwd: string, args: string[], timeout = GIT_TIMEOUT_MS): Promise<ExecResult> {
   try {
     const { stdout, stderr } = await timedAsync(`git ${args[0]}`, () =>
-      execFileAsync("git", args, { cwd, timeout, maxBuffer: 64 * 1024 * 1024 }),
+      execGit(args, { cwd, timeout, maxBuffer: 64 * 1024 * 1024 }),
     );
     return { code: 0, stdout: stdout.toString(), stderr: stderr.toString() };
   } catch (err) {

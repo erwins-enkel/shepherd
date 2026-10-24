@@ -6,6 +6,12 @@ import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { WorktreeMgr } from "./worktree";
 import { execFileSync } from "./instrument";
+import {
+  execGit,
+  resolveWorktreePin,
+  TRUSTED_UNION_DRIVER,
+  trustedUnionDriverConfig,
+} from "./safe-git";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,7 +31,7 @@ const I18N_UNION_ATTRS = ["merge=i18n-union"] as const;
 export async function isUnionDriverReady(repoPath: string): Promise<boolean> {
   if ((await parseUnionGlobs(repoPath, I18N_UNION_ATTRS)).length === 0) return true;
   try {
-    const { stdout } = await execFileAsync("git", ["config", "--get", "merge.i18n-union.driver"], {
+    const { stdout } = await execGit(["config", "--get", "merge.i18n-union.driver"], {
       cwd: repoPath,
     });
     return stdout.trim().length > 0;
@@ -56,7 +62,8 @@ function validRef(ref: string): boolean {
 
 /**
  * Run the union merge driver self-test in a temp dir.
- * Writes base/ours/theirs JSON, runs json-union-merge.mjs,
+ * Writes base/ours/theirs JSON, runs Shepherd's own json-union-merge.mjs (the copy the rebase
+ * pins — never the repo's, which branch content controls),
  * and returns true iff exit 0 and the merged ours contains keys a, b, AND c.
  */
 async function driverSelfTest(repoPath: string): Promise<boolean> {
@@ -69,7 +76,7 @@ async function driverSelfTest(repoPath: string): Promise<boolean> {
     writeFileSync(ours, JSON.stringify({ a: "1", b: "2" }));
     writeFileSync(theirs, JSON.stringify({ a: "1", c: "3" }));
     // %O %A %B %P — base, ours/OUTPUT, theirs, pathname
-    const scriptPath = join(repoPath, "scripts", "json-union-merge.mjs");
+    const scriptPath = TRUSTED_UNION_DRIVER;
     if (!existsSync(scriptPath)) return false;
     await execFileAsync("node", [scriptPath, base, ours, theirs, "test.json"], { cwd: repoPath });
     const merged = JSON.parse(readFileSync(ours, "utf8"));
@@ -162,12 +169,22 @@ function isUnionManaged(filePath: string, unionGlobs: string[]): boolean {
   return unionGlobs.some((glob) => matchGlob(glob, filePath));
 }
 
-function makeDefaultGit(cwd: string, args: string[]): Promise<{ stdout: string }> {
-  return execFileAsync("git", args, { cwd }).then(({ stdout }) => ({ stdout }));
+/** Hardened git for `repoPath` and its detached rebase worktree (audit F02): hooks off, the
+ *  i18n-union driver pinned to Shepherd's own script, and the worktree's gitdir pinned from the
+ *  trusted repo path — integration-branch content is agent-authored and never runs. */
+function makeDefaultGit(repoPath: string) {
+  return async (cwd: string, args: string[]): Promise<{ stdout: string }> => {
+    const pin = cwd === repoPath ? null : await resolveWorktreePin(repoPath, cwd);
+    const { stdout } = await execGit(args, { cwd, pin, config: [trustedUnionDriverConfig()] });
+    return { stdout };
+  };
 }
 
+/** Shepherd's own registration script (not the repo's copy), run against `repoPath`. */
+const REGISTER_DRIVER_SCRIPT = join(import.meta.dir, "..", "scripts", "register-merge-driver.mjs");
+
 function makeDefaultRegisterDriver(repoPath: string): void {
-  execFileSync("node", ["scripts/register-merge-driver.mjs"], { cwd: repoPath, stdio: "pipe" });
+  execFileSync("node", [REGISTER_DRIVER_SCRIPT], { cwd: repoPath, stdio: "pipe" });
 }
 
 /**
@@ -323,7 +340,7 @@ export async function branchBehindDefault(
   deps?: Pick<Partial<LandingRebaseDeps>, "git">,
 ): Promise<BranchBehindResult> {
   if (!validRef(integrationBranch) || !validRef(defaultBranch)) return { kind: "transient" };
-  const git = deps?.git ?? ((cwd: string, args: string[]) => makeDefaultGit(cwd, args));
+  const git = deps?.git ?? makeDefaultGit(repoPath);
   const res = await fetchAndClassifyAncestor(repoPath, integrationBranch, defaultBranch, git);
   if ("shortCircuit" in res && res.shortCircuit.kind !== "current") return { kind: "transient" };
   try {
@@ -358,7 +375,7 @@ export async function rebaseLandingBranch(
     return { kind: "transient" };
   }
 
-  const git = deps?.git ?? ((cwd: string, args: string[]) => makeDefaultGit(cwd, args));
+  const git = deps?.git ?? makeDefaultGit(repoPath);
   const registerDriver = deps?.registerDriver ?? makeDefaultRegisterDriver;
 
   // Determine worktrees dep — use real WorktreeMgr by default

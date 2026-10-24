@@ -1,7 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { execGit } from "./safe-git";
 
 /** Result of a fast-forward attempt against the local default-branch checkout. */
 export type PullResult =
@@ -23,7 +20,7 @@ const gitOpts = (dir: string) =>
  *  Async (not sync) so even the local steps — `status`/`merge` can do real work
  *  on a large repo — never block the single-threaded event loop. */
 async function git(dir: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, gitOpts(dir));
+  const { stdout } = await execGit(args, gitOpts(dir));
   return stdout.trim();
 }
 

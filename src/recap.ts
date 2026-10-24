@@ -21,10 +21,8 @@ import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
 const RECAP_OVERSIZED = "recap prompt exceeds the OS argument limit";
 import { fitAssembledPrompt as fitFrom, describeClamps } from "./prompt-fit";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
-import { execFile } from "node:child_process";
 import { redactSecretText } from "./redact";
 import { isOperatorAssistant } from "./operator-assistant-core";
-import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type {
@@ -44,6 +42,7 @@ import type { ActivityEntry } from "./activity";
 import type { SessionUsage } from "./usage";
 import { readReviewerSpawnUsage } from "./reviewer-usage";
 import { computeDiff } from "./diff";
+import { execGit } from "./safe-git";
 import { parseActivity, readTranscriptTail } from "./activity";
 import { jsonlPathFor } from "./usage";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
@@ -68,8 +67,6 @@ import {
 } from "./json-tolerant";
 import type { VerdictAction, VerdictRead } from "./json-tolerant";
 import { cleanupHelperDir, makeHelperTmpDir } from "./transient-helper-lifecycle";
-
-const execFileAsync = promisify(execFile);
 
 /** The file the recap agent writes its JSON verdict to, in its temp cwd. */
 const RECAP_VERDICT_FILE = ".shepherd-recap.json";
@@ -101,18 +98,14 @@ function optional<T>(value: T | undefined, fallback: T): T {
 }
 
 async function defaultHeadSha(worktreePath: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
-    cwd: worktreePath,
-    encoding: "utf8",
-  });
+  const { stdout } = await execGit(["rev-parse", "HEAD"], { cwd: worktreePath });
   return stdout.trim();
 }
 
 async function defaultCurrentBranch(worktreePath: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+    const { stdout } = await execGit(["symbolic-ref", "--quiet", "--short", "HEAD"], {
       cwd: worktreePath,
-      encoding: "utf8",
     });
     return stdout.trim() || null;
   } catch {
@@ -125,10 +118,7 @@ async function defaultHeadContainedInBase(
   baseRef: string,
 ): Promise<AncestryResult> {
   try {
-    await execFileAsync("git", ["merge-base", "--is-ancestor", "HEAD", baseRef], {
-      cwd: worktreePath,
-      encoding: "utf8",
-    });
+    await execGit(["merge-base", "--is-ancestor", "HEAD", baseRef], { cwd: worktreePath });
     return "contained";
   } catch (err) {
     return (err as { code?: unknown }).code === 1 ? "not-contained" : "unknown";
@@ -327,7 +317,12 @@ export interface RecapServiceDeps {
   /** Resolve the base branch to diff against (the PR's real base when resolvable) plus whether
    *  that resolution was authoritative. Default: the session's stored baseBranch (non-authoritative). */
   resolveBase?: (session: Session) => Promise<{ base: string; resolved: boolean }>;
-  computeDiff?: (worktreePath: string, base: string, branch: string | null) => Promise<DiffResult>;
+  computeDiff?: (
+    worktreePath: string,
+    base: string,
+    branch: string | null,
+    repoPath?: string,
+  ) => Promise<DiffResult>;
   headSha?: (worktreePath: string) => Promise<string>;
   readTranscript?: (
     worktreePath: string,
@@ -369,6 +364,7 @@ export class RecapService {
     worktreePath: string,
     base: string,
     branch: string | null,
+    repoPath?: string,
   ) => Promise<DiffResult>;
   private _headSha: (worktreePath: string) => Promise<string>;
   private _readTranscript: (
@@ -530,7 +526,12 @@ export class RecapService {
   ): Promise<{ head: string; base: string; diff: DiffResult }> {
     const head = knownHead || (await this._headSha(session.worktreePath));
     const base = knownBase || (await this._resolveBase(session)).base;
-    const diff = await this._computeDiff(session.worktreePath, base, session.branch);
+    const diff = await this._computeDiff(
+      session.worktreePath,
+      base,
+      session.branch,
+      session.repoPath,
+    );
     return { head, base, diff };
   }
 

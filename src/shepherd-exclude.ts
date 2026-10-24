@@ -14,7 +14,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { execFileSync } from "./instrument";
+import { execGitSync } from "./safe-git";
 
 // ── public constants ──────────────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ export function upsertShepherdIgnoreBlock(existing: string): { content: string; 
  * Synchronous. Throws on `git rev-parse` failure (no git repo, etc.).
  */
 export function excludePath(repoPath: string): string {
-  const raw = execFileSync("git", ["rev-parse", "--git-common-dir"], {
+  const raw = execGitSync(["rev-parse", "--git-common-dir"], {
     cwd: repoPath,
     encoding: "utf8",
     stdio: "pipe",

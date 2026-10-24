@@ -16,11 +16,10 @@
  * rows, Codex provider and capacity admission are not a trivial fit.
  */
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execGit } from "./safe-git";
 import { constants } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import Ajv, { type ValidateFunction } from "ajv";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
@@ -135,10 +134,8 @@ interface ValidRun {
   timeoutMs: number;
 }
 
-const execFileP = promisify(execFile);
-
 async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileP("git", args, { cwd });
+  const { stdout } = await execGit(args, { cwd });
   return stdout;
 }
 

@@ -17,6 +17,7 @@ import type { RoleEnvironment } from "./default-model";
 import type { SessionUsage } from "./usage";
 import { readReviewerSpawnUsage } from "./reviewer-usage";
 import { apiKeyFailClosed } from "./spawn-auth";
+import { execGit } from "./safe-git";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import type { WorktreeMgr } from "./worktree";
 
@@ -25,7 +26,7 @@ const execFileP = promisify(execFile);
 /** Async git runner (returns stdout) — keeps the single-process event loop unblocked during the
  *  finalize stage/commit/push and the boot sweep (house rule: no blocking subprocess on the loop). */
 async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileP("git", args, { cwd });
+  const { stdout } = await execGit(args, { cwd });
   return stdout;
 }
 

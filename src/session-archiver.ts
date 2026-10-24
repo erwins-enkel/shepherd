@@ -1,15 +1,12 @@
 // src/session-archiver.ts
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { promisify } from "node:util";
 import { SESSION_AUTO_ARCHIVE_MS, config } from "./config";
 import { maintenance } from "./maintenance";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { execGit, resolveWorktreePin } from "./safe-git";
 import type { GitForge } from "./forge/types";
 import type { SessionStore } from "./store";
 import type { LivenessState, Session } from "./types";
-
-const execFileAsync = promisify(execFile);
 
 /** Why a candidate was passed over, for the per-tick log line. Ordered as the gates run. */
 type SkipReason =
@@ -183,11 +180,13 @@ export class SessionArchiver {
     );
   }
 
-  /** `git` in the session's worktree; `null` on any failure (missing binary, torn-down path,
-   *  not a repo), which every caller reads as "cannot tell" and therefore as a reason to skip. */
-  private async git(cwd: string, args: string[]): Promise<string | null> {
+  /** Hardened `git` in the session's worktree, gitdir pinned from the trusted repo path; `null`
+   *  on any failure (missing binary, torn-down path, not a repo, untrusted gitdir), which every
+   *  caller reads as "cannot tell" and therefore as a reason to skip. */
+  private async git(s: Session, args: string[]): Promise<string | null> {
     try {
-      const { stdout } = await execFileAsync("git", args, { cwd, encoding: "utf8" });
+      const pin = await resolveWorktreePin(s.repoPath, s.worktreePath);
+      const { stdout } = await execGit(args, { cwd: s.worktreePath, pin });
       return stdout;
     } catch {
       return null;
@@ -206,20 +205,16 @@ export class SessionArchiver {
    */
   private async hasUnsyncedWork(s: Session): Promise<boolean> {
     if (!s.isolated || !s.branch || !existsSync(s.worktreePath)) return false;
-    const dirty = await this.git(s.worktreePath, ["status", "--porcelain"]);
+    const dirty = await this.git(s, ["status", "--porcelain"]);
     if (dirty === null || dirty.trim() !== "") return true;
     // `@{upstream}` rather than a guessed `origin/<branch>`: it follows the branch's real tracking
     // ref. No upstream at all (never pushed) is itself unsynced — unless the branch has no commits
     // beyond its base, in which case there is nothing to push and nothing to lose.
-    const ahead = await this.git(s.worktreePath, ["rev-list", "--count", "@{upstream}..HEAD"]);
+    const ahead = await this.git(s, ["rev-list", "--count", "@{upstream}..HEAD"]);
     if (ahead !== null) return Number(ahead.trim()) > 0;
     // No upstream and no base to measure against — no evidence either way, so: unsynced.
     if (!s.baseBranch) return true;
-    const unpushed = await this.git(s.worktreePath, [
-      "rev-list",
-      "--count",
-      `${s.baseBranch}..HEAD`,
-    ]);
+    const unpushed = await this.git(s, ["rev-list", "--count", `${s.baseBranch}..HEAD`]);
     return unpushed === null || Number(unpushed.trim()) > 0;
   }
 

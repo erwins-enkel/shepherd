@@ -3,10 +3,9 @@
  * tracked packages up in the registries, runs the pure checks in `readiness-drift-core.ts`, and
  * files the upgrade story through the forge.
  */
-import { execFile } from "node:child_process";
+import { execGit } from "./safe-git";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { promisify } from "node:util";
 import type { GitForge } from "./forge/types";
 import type { HouseStack, HouseStackResolver } from "./house-stack";
 import { mapBounded } from "./map-bounded";
@@ -27,8 +26,6 @@ import {
   type DeclaredPackage,
   type FrameworkDrift,
 } from "./readiness-drift-core";
-
-const execFileP = promisify(execFile);
 
 /** Manifests read per scan; directories below the repo root searched. */
 const MAX_MANIFESTS = 50;
@@ -109,8 +106,7 @@ async function lookupLatest(
 
 async function gitEpicBranches(dir: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileP(
-      "git",
+    const { stdout } = await execGit(
       ["ls-remote", "--heads", "origin", "refs/heads/epic/*"],
       // No credential prompt: an auth-walled remote fails fast instead of hanging to the timeout.
       {

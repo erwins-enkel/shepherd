@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { timedAsync } from "./instrument";
+import { execGit, resolveWorktreePin, type GitPin } from "./safe-git";
 import type { DiffFile, DiffHunk, DiffResult } from "./types";
-
-const execFileAsync = promisify(execFile);
 
 /** Files with more than this many diff lines render as a stub ("view in terminal"). */
 const MAX_FILE_LINES = 2000;
@@ -227,10 +224,15 @@ export function toSessionDiff(result: DiffResult): DiffResult {
 const REMOTE = "origin";
 const MAX_BUFFER = 64 * 1024 * 1024; // 64 MiB — large diffs exceed the 1 MiB default
 
-async function refExists(cwd: string, ref: string): Promise<boolean> {
+/** Pin for git in a session worktree — from the trusted repo path when the caller has it. */
+async function pinFor(worktreePath: string, repoPath?: string): Promise<GitPin | null> {
+  return repoPath ? resolveWorktreePin(repoPath, worktreePath) : null;
+}
+
+async function refExists(cwd: string, ref: string, pin: GitPin | null): Promise<boolean> {
   try {
     await timedAsync("git rev-parse", () =>
-      execFileAsync("git", ["rev-parse", "--verify", "--quiet", ref], { cwd, encoding: "utf8" }),
+      execGit(["rev-parse", "--verify", "--quiet", ref], { cwd, pin }),
     );
     return true;
   } catch {
@@ -246,17 +248,16 @@ async function refExists(cwd: string, ref: string): Promise<boolean> {
 async function resolveBaseRef(
   cwd: string,
   base: string,
+  pin: GitPin | null,
 ): Promise<{ ref: string; fetchFailed: boolean }> {
   let fetchFailed = false;
   try {
-    await timedAsync("git fetch", () =>
-      execFileAsync("git", ["fetch", REMOTE, base], { cwd, encoding: "utf8" }),
-    );
+    await timedAsync("git fetch", () => execGit(["fetch", REMOTE, base], { cwd, pin }));
   } catch {
     fetchFailed = true;
   }
   const remoteRef = `${REMOTE}/${base}`;
-  if (await refExists(cwd, remoteRef)) return { ref: remoteRef, fetchFailed };
+  if (await refExists(cwd, remoteRef, pin)) return { ref: remoteRef, fetchFailed };
   return { ref: base, fetchFailed: true }; // no remote-tracking ref → local base
 }
 
@@ -274,23 +275,25 @@ async function resolveBaseRef(
  *
  * Non-isolated sessions (branch == null) have no branch and return false
  * immediately without invoking git.
+ *
+ * `repoPath` (the session's trusted repo) pins git's gitdir so an agent-rewritten worktree
+ * `.git` gitfile can't redirect it (see safe-git); a mismatch rejects.
  */
 export async function hasCommittedChanges(
   worktreePath: string,
   base: string,
   branch: string | null,
+  repoPath?: string,
 ): Promise<boolean> {
   if (branch === null) return false;
 
+  const pin = await pinFor(worktreePath, repoPath);
   const remoteRef = `${REMOTE}/${base}`;
-  const ref = (await refExists(worktreePath, remoteRef)) ? remoteRef : base;
+  const ref = (await refExists(worktreePath, remoteRef, pin)) ? remoteRef : base;
 
   try {
     await timedAsync("git diff --quiet", () =>
-      execFileAsync("git", ["diff", "--quiet", `${ref}...HEAD`], {
-        cwd: worktreePath,
-        encoding: "utf8",
-      }),
+      execGit(["diff", "--quiet", `${ref}...HEAD`], { cwd: worktreePath, pin }),
     );
     return false; // exit 0 → no diff
   } catch (err) {
@@ -304,21 +307,24 @@ export async function hasCommittedChanges(
  * Structured diff of a session's branch against its (freshly fetched) base.
  * Uses three-dot `<baseRef>...HEAD` = merge-base→HEAD = "what would merge".
  * Non-isolated sessions (no branch) return an empty result for the empty state.
+ * `repoPath` pins the gitdir as in {@link hasCommittedChanges}.
  */
 export async function computeDiff(
   worktreePath: string,
   base: string,
   branch: string | null,
+  repoPath?: string,
 ): Promise<DiffResult> {
   if (!branch) {
     return { base, baseRef: base, head: null, fetchFailed: false, truncated: false, files: [] };
   }
-  const { ref, fetchFailed } = await resolveBaseRef(worktreePath, base);
+  const pin = await pinFor(worktreePath, repoPath);
+  const { ref, fetchFailed } = await resolveBaseRef(worktreePath, base, pin);
   const { stdout } = await timedAsync("git diff", () =>
-    execFileAsync("git", ["diff", "--no-color", `${ref}...HEAD`], {
+    execGit(["diff", "--no-color", `${ref}...HEAD`], {
       cwd: worktreePath,
-      encoding: "utf8",
       maxBuffer: MAX_BUFFER,
+      pin,
     }),
   );
   const files = parseUnifiedDiff(stdout);

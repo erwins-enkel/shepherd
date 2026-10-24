@@ -3,7 +3,7 @@ import { handleApi } from "./router";
 import { demoState } from "./state";
 import { bus } from "./bus";
 import { deriveIntegratedEpicStatus } from "../integrated-epic-status";
-import type { CompletedEpic, DrainStatus } from "../types";
+import type { UpNextSnapshot, CompletedEpic, DrainStatus } from "../types";
 
 const REPO = "/demo/acme/storefront";
 const u = (path: string) => new URL(path, "http://localhost");
@@ -1423,4 +1423,19 @@ describe("recap details", () => {
     const { body } = await get("/api/recaps");
     expect(Object.hasOwn(body[id], "blocks")).toBe(false);
   });
+});
+
+it("demo up-next sends metadata and loads a selected body separately", async () => {
+  const { body: snapshot } = await get("/api/up-next");
+  for (const item of (snapshot as UpNextSnapshot).sections.flatMap((s) => s.items)) {
+    expect(item.issueRef).not.toHaveProperty("body");
+    const { status, body } = await get(
+      `/api/up-next/body?repo=${encodeURIComponent(item.repoPath)}&number=${item.number}`,
+    );
+    expect(status).toBe(200);
+    expect(body.body).toBe(
+      (await get(`/api/issues/${item.number}?repo=${encodeURIComponent(item.repoPath)}`)).body.issue
+        .body,
+    );
+  }
 });

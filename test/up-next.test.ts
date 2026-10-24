@@ -221,6 +221,7 @@ describe("UpNextService.refresh", () => {
   });
 
   test("epic is resolved via buildEpic + selectEpicCandidates and collapsed to one unit", async () => {
+    const inputs: unknown[] = [];
     const epic: Epic = {
       repoPath: "/r/a",
       parentIssueNumber: 100,
@@ -262,19 +263,26 @@ describe("UpNextService.refresh", () => {
     const s = svc({
       resolveForge: () =>
         fakeForge({
-          issues: [
-            issue(1),
-            issue(2),
-            issue(3),
-            issue(100, { body: "```epic-dag\n#2\n#3 <- #2\n```" }),
-          ],
+          issues: [issue(1), issue(100, { body: "```epic-dag\n#2\n#3 <- #2\n```" })],
         }),
       buildEpic: async () => epic,
+      readiness: {
+        enabled: () => true,
+        scorer: {
+          scoreLookup: (items, inputOf) => {
+            inputs.push(...items.map(inputOf));
+            return () => null;
+          },
+          scoreMissing: async () => 0,
+        },
+      },
     });
     const snap = await s.refresh();
     const items = snap.sections.find((x) => x.kind === "repo")!.items;
     const epicItems = items.filter((i) => i.kind === "epic");
     expect(epicItems).toHaveLength(1);
+    expect(inputs).toContainEqual({ title: "child-2", body: "b2", labels: [] });
+    expect(JSON.stringify(snap)).not.toContain("b2");
     expect(epicItems[0]!.number).toBe(2); // ready child is the unit's start target
     expect(epicItems[0]!.epicParent).toEqual({ number: 100, title: "t100" });
     // children #2,#3 and the parent #100 are all removed from the flat standalone list.
@@ -751,8 +759,8 @@ describe("UpNextService readiness rerank (#2535)", () => {
       readiness: {
         enabled: () => true,
         scorer: {
-          scoreLookup: (i) => scorer.scoreLookup(i),
-          scoreMissing: (i) => scorer.scoreMissing(i),
+          scoreLookup: (i, inputOf) => scorer.scoreLookup(i, inputOf),
+          scoreMissing: (i, inputOf) => scorer.scoreMissing(i, inputOf),
         },
       },
       onChange: (snap) => void emits.push(nums(snap)),
@@ -817,4 +825,43 @@ test("publication versions include content even when computedAt is unchanged", a
   expect(changes[0]!.version).toBe(changes[1]!.version);
   expect(changes[2]!.version).not.toBe(changes[0]!.version);
   expect(changes.map((c) => c.computedAt)).toEqual([1000, 1000, 1000]);
+});
+
+test("readiness republish uses newest bodies while older scoring retains its own input", async () => {
+  let body = "original private body";
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const lookups: string[] = [];
+  const runs: string[] = [];
+  let run = 0;
+  const s = svc({
+    resolveForge: () => fakeForge({ issues: [issue(1, { body })] }),
+    readiness: {
+      enabled: () => true,
+      scorer: {
+        scoreLookup: (items, inputOf) => {
+          lookups.push(inputOf(items[0]!).body);
+          return () => null;
+        },
+        scoreMissing: async (items, inputOf) => {
+          if (++run !== 1) return 0;
+          await gate;
+          runs.push(inputOf(items[0]!).body);
+          return 1;
+        },
+      },
+    },
+    onChange: (snapshot) => expect(JSON.stringify(snapshot)).not.toContain("private body"),
+  });
+  await s.refresh();
+  body = "updated private body";
+  await s.refresh();
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(runs).toEqual(["original private body"]);
+  expect(lookups).toEqual([
+    "original private body",
+    "updated private body",
+    "updated private body",
+  ]);
 });

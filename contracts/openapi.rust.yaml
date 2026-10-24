@@ -5010,7 +5010,46 @@ components:
     UpNextKind:
       type: string
     UpNextIssueRef:
-      $ref: "#/components/schemas/IssueRef"
+      type: object
+      additionalProperties: false
+      description: Issue identity for list and event snapshots; full text is loaded on demand.
+      required:
+        - number
+        - url
+        - title
+      properties:
+        number:
+          type: integer
+        url:
+          type: string
+        title:
+          type: string
+    UpNextStartIssueRef:
+      type: object
+      additionalProperties: false
+      description: Issue identity for Start. Omitted body is fetched before routing, holding or spawning; a supplied body is preserved for older clients.
+      required:
+        - number
+        - url
+        - title
+      properties:
+        number:
+          type: integer
+        url:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+    UpNextBody:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          description: Full untruncated issue Markdown.
     UpNextItem:
       type: object
       additionalProperties: true
@@ -5066,7 +5105,7 @@ components:
             title:
               type: string
         issueRef:
-          $ref: "#/components/schemas/IssueRef"
+          $ref: "#/components/schemas/UpNextIssueRef"
       description: For an epic, number/title/url/issueRef describe the next-actionable child; createdAt is the parent age.
     UpNextSection:
       type: object
@@ -5152,7 +5191,7 @@ components:
         repoPath:
           type: string
         issueRef:
-          $ref: "#/components/schemas/UpNextIssueRef"
+          $ref: "#/components/schemas/UpNextStartIssueRef"
     UpNextStartRequest:
       type: object
       additionalProperties: false
@@ -11242,6 +11281,56 @@ paths:
                 type: string
         "401":
           description: Missing or invalid credential.
+  /api/up-next/body:
+    get:
+      operationId: getUpNextBody
+      description: Read one complete issue body on demand without refreshing the Up Next list. Requires full access, like the list.
+      parameters:
+        - in: query
+          name: repo
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: number
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 999999999
+      responses:
+        "200":
+          description: Full issue text; an empty body is a valid result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpNextBody"
+        "400":
+          description: Invalid repository or issue number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Issue not found or unreadable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Forge read failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Forge or single-issue reads unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/up-next/refresh:
     post:
       operationId: refreshUpNext

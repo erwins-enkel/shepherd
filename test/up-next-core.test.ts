@@ -431,7 +431,7 @@ function makeItem(repoPath: string, num: number): UpNextItem {
     priority: false,
     createdAt: num,
     labels: [],
-    issueRef: { number: num, url: `https://x/${num}`, title: `t${num}`, body: "" },
+    issueRef: { number: num, url: `https://x/${num}`, title: `t${num}` },
   };
 }
 
@@ -600,4 +600,21 @@ describe("applyReadiness (#2535)", () => {
     applyReadiness(raw, scores({ 4: 0.9, 2: 0.1 }));
     expect(order(raw)).toEqual(before);
   });
+});
+
+test("snapshots omit bodies for priority, standalone and epic-child rows", () => {
+  const body = "PRIVATE-BODY-MARKER".repeat(300);
+  const snap = buildSnapshot(
+    [
+      repo({
+        openIssues: [issue(1, { body, labels: ["shepherd:priority"] }), issue(2, { body })],
+        epics: [epic({ candidate: issue(3, { body }), memberNumbers: [3] })],
+      }),
+    ],
+    NOW,
+  );
+  const items = snap.sections.flatMap((s) => s.items);
+  expect(items.map((i) => i.number).sort()).toEqual([1, 2, 3]);
+  for (const item of items) expect(Object.hasOwn(item.issueRef, "body")).toBe(false);
+  expect(JSON.stringify(snap)).not.toContain("PRIVATE-BODY-MARKER");
 });

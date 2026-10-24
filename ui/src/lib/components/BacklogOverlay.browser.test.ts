@@ -222,6 +222,67 @@ describe("BacklogOverlay (Repos) mobile", () => {
   });
 });
 
+// ── phone: swipe right on the repo list closes Backlog (back to the sessions) ─
+describe("BacklogOverlay (Repos) phone swipe back", () => {
+  // Synthetic touches: the attachment reads only clientX/clientY from `touches`. Each one lands
+  // 500ms after the last, so back-to-back dispatches never read as a flick.
+  let clock = 0;
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
+    return e;
+  }
+  function swipe(el: Element, from: [number, number], to: [number, number]) {
+    el.dispatchEvent(fakeTouch("touchstart", ...from));
+    el.dispatchEvent(fakeTouch("touchmove", ...to));
+    el.dispatchEvent(fakeTouch("touchend", ...to));
+  }
+  const card = () => document.querySelector<HTMLElement>(".card")!;
+  const detail = () => document.querySelector<HTMLElement>(".mobile-detail-overlay");
+
+  it("a rightward drag closes; it follows the finger; short, leftward and vertical stay", async () => {
+    await page.viewport(390, 844);
+    const onclose = vi.fn();
+    await render(BacklogOverlay, props({ mobile: true, onclose }));
+    card().dispatchEvent(fakeTouch("touchstart", 10, 300));
+    card().dispatchEvent(fakeTouch("touchmove", 60, 300));
+    await expect.poll(() => card().style.transform).toBe("translateX(50px)");
+    card().dispatchEvent(fakeTouch("touchend", 60, 300));
+    await expect.poll(() => card().style.transform).toBe("");
+    swipe(card(), [10, 300], [40, 300]);
+    swipe(card(), [300, 300], [10, 300]);
+    swipe(card(), [100, 100], [110, 500]);
+    expect(onclose).not.toHaveBeenCalled();
+    swipe(card(), [10, 300], [300, 300]);
+    expect(onclose).toHaveBeenCalledOnce();
+  });
+
+  it("an open repo detail goes back first, then Backlog closes", async () => {
+    await page.viewport(390, 844);
+    const onclose = vi.fn();
+    await render(BacklogOverlay, props({ mobile: true, onclose }));
+    await page.getByText("repo-0", { exact: true }).click();
+    await expect.poll(detail).not.toBeNull();
+    swipe(detail()!, [10, 300], [300, 300]);
+    await expect.poll(detail).toBeNull();
+    expect(onclose).not.toHaveBeenCalled();
+    swipe(card(), [10, 300], [300, 300]);
+    expect(onclose).toHaveBeenCalledOnce();
+  });
+
+  it("desktop: no swipe", async () => {
+    const onclose = vi.fn();
+    await render(BacklogOverlay, props({ onclose }));
+    swipe(card(), [10, 300], [300, 300]);
+    expect(onclose).not.toHaveBeenCalled();
+    expect(card().dataset.swipeBack).toBeUndefined();
+  });
+});
+
 // ── active filter chip picks the opened tab ─────────────────────────────────
 // The rule itself (which chip wins) is unit-tested in backlog-view.test.ts via
 // tabForFilters. These mount the real BacklogView to prove the WIRING: that the

@@ -475,6 +475,8 @@
   "feat_swipe_back_to_issues_body": "Auf dem Telefon bringt dich ein Wisch nach rechts über ein geöffnetes Issue im Backlog oder in der Ansicht „Nächstes“ zurück zur Liste, dieselbe Geste wie bei einer Sitzung. Das Issue folgt deinem Finger; lass hinter der Schwelle los, um zurückzukehren. Derselbe Wisch bringt dich auch aus der Ansicht „Offen“ zurück, wenn du sie über „Schritte erledigen“ auf einer Karte geöffnet hast.",
   "feat_swipe_back_repo_settings_title": "Nach rechts wischen schließt Repo und Einstellungen",
   "feat_swipe_back_repo_settings_body": "Auf dem Telefon bringt dich ein Wisch nach rechts über die Details eines Repos zurück zur Repo-Liste, auf jedem Tab: Issues, PRs, Actions, Reife und Automatisierung. Ein geöffnetes Issue geht zuerst zurück zur Issue-Liste. In den Einstellungen bringt derselbe Wisch einen Bereich zurück zur Bereichsliste und schließt die Einstellungen aus der Liste heraus.",
+  "feat_swipe_back_backlog_title": "Nach rechts wischen schließt das Backlog",
+  "feat_swipe_back_backlog_body": "Auf dem Telefon bringt dich ein Wisch nach rechts über die Repo-Liste im Backlog zurück zur Sitzungsliste. Ein geöffnetes Repo oder Issue geht zuerst eine Ebene zurück, so führen wiederholte Wische dich ganz hinaus.",
   "viewport_back_button": "‹ Herd",
   "viewport_queue_prev_aria": "Vorherige wartende Session",
   "viewport_queue_next_aria": "Nächste wartende Session",

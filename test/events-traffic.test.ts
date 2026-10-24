@@ -45,6 +45,9 @@ test("180 s stationary traffic falls by at least half while full changes remain 
       workflows: 4,
       ciStatus: "success",
       hidden: false,
+      pinned: false,
+      defaultBranch: "main",
+      faviconUrl: "https://github.com/organization.png?size=40",
     })),
     totals: { openIssues: 650, openPRs: 130 },
   };

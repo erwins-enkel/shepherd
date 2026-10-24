@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.3.0](https://github.com/erwins-enkel/shepherd/compare/v2.2.0...v2.3.0) (2026-10-24)
+
+
+### Features
+
+* **diagnostics:** per-repo row for repos without PR CI ([#3314](https://github.com/erwins-enkel/shepherd/issues/3314)) ([2b840b3](https://github.com/erwins-enkel/shepherd/commit/2b840b3728a393beea0064da82be33314d5afdc2))
+* **ios:** explain slow connects and task starts after one second ([#2719](https://github.com/erwins-enkel/shepherd/issues/2719)) ([231c957](https://github.com/erwins-enkel/shepherd/commit/231c95781d3b424a95b3159ffdb946d756fb3022))
+* **machines:** route new sessions away from overloaded hosts ([#3303](https://github.com/erwins-enkel/shepherd/issues/3303)) ([e49298b](https://github.com/erwins-enkel/shepherd/commit/e49298b7d24d431710d4d8b6fc8960c87a110508))
+* **ui:** swipe back from backlog to session list ([#3323](https://github.com/erwins-enkel/shepherd/issues/3323)) ([b1f59b4](https://github.com/erwins-enkel/shepherd/commit/b1f59b42eb30119bc2f485fc2f92f2f94399cfb7))
+* **ui:** swipe back on repo detail + settings ([#3320](https://github.com/erwins-enkel/shepherd/issues/3320)) ([7b18884](https://github.com/erwins-enkel/shepherd/commit/7b188849d5970645b7d6d11be0269233e3405e1a))
+
+
+### Bug Fixes
+
+* **macos:** restore full controls for connected-machine sessions ([#3310](https://github.com/erwins-enkel/shepherd/issues/3310)) ([e03de29](https://github.com/erwins-enkel/shepherd/commit/e03de29868859cb36ec389b4c2a74b09747346fb))
+* **questions:** make links in agent questions clickable on web, iOS and Mac ([#3317](https://github.com/erwins-enkel/shepherd/issues/3317)) ([ae5717f](https://github.com/erwins-enkel/shepherd/commit/ae5717f4391302827446bb49e0739778ecf013c8))
+
 ## [2.2.0](https://github.com/erwins-enkel/shepherd/compare/v2.1.0...v2.2.0) (2026-10-23)
 
 

@@ -225,6 +225,7 @@ export interface InstanceIdentity {
   arch: string;
   /** Last capability probe (#2770); null before the first one, absent from older servers. */
   capabilities?: CapabilityReport | null;
+  load?: HostLoadReport | null;
 }
 
 /** Mirrors CapabilityCheck in src/remote-instances/capabilities.ts (#2770). `id` is a vocabulary
@@ -301,6 +302,22 @@ export interface IncomingMirror {
   direction: "both" | "one" | "unknown";
 }
 
+export interface HostLoadReport {
+  sampledAt: number;
+  load1: number;
+  cpuCount: number;
+  runningSessions: number;
+  ageMs: number;
+  stale: boolean;
+}
+
+export interface PlacementLoad {
+  state: "normal" | "diverted" | "busy" | "unknown";
+  preferredHost: SessionHost;
+  preferredReport: HostLoadReport | null;
+  selectedReport: HostLoadReport | null;
+}
+
 /** Where a task was placed and why (#2772) — mirrors `Placement` in
  *  src/remote-instances/placement.ts. Language-neutral; `#lib/placement.ts` puts it into words. */
 export interface Placement {
@@ -308,12 +325,13 @@ export interface Placement {
   target: SessionHost;
   requirements: string[];
   /** What decided: the operator, the requirements (one platform fits), the platform order (several
-   *  fit, `preferred` set) or that only one machine can run the task. */
-  basis: "manual" | "requirements" | "preference" | "only_candidate";
+   *  fit, `preferred` set), spare host capacity, or that only one machine can run the task. */
+  basis: "manual" | "requirements" | "preference" | "only_candidate" | "load";
   preferred: string | null;
   /** The Shepherd that decided. */
   by: { instanceId: string; name: string };
   decidedAt: number;
+  load?: PlacementLoad;
 }
 
 /** Why the create would refuse a task (#2772): its `code` and `error`, plus the fields that code

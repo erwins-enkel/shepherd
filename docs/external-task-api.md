@@ -391,7 +391,7 @@ a new key to upload afresh.
 
 While a machine is connected, a create **without** `target` is placed by this
 Shepherd. The rules are the same for the web UI, the native apps and the API, and
-do not depend on which Shepherd the task is submitted to:
+give the same result from either Shepherd when preferences and fresh load observations agree:
 
 1. **Candidates** are this Shepherd and every connected machine whose platform is
    released (Linux, macOS), that has the project checked out (by forge slug) and
@@ -401,7 +401,13 @@ do not depend on which Shepherd the task is submitted to:
    order (`machinePlatformOrder` in `PATCH /api/settings`, **Settings → Machines**); a
    task lands on the same machine wherever it is submitted only while every
    connected Shepherd uses the same order.
-3. **The top machine** gets the task: here (a local create, as ever) or sent there
+3. **High host load:** the preferred connected machine is kept while its one-minute load per
+   logical CPU core is below 1.0. At 1.0 or above, the first fitting connected alternative in the
+   same preference order with load at or below 0.75 takes the new task. Measurements must be no
+   older than 15 seconds. Unknown/stale load never counts as spare capacity. Running session counts
+   are informational only. Without a proven spare alternative, the preferred machine still starts
+   the task and the UI warns about high load. Explicit targets remain binding.
+4. **The selected machine** gets the task: here (a local create, as ever) or sent there
    exactly as with `target`. It then runs there and is never placed again.
 
 | Outcome                                     | Answer                                                                                          |
@@ -422,7 +428,12 @@ The decision is recorded on the session as `launchMetadata.placement`
 machine that runs it as well, so every Shepherd shows why it runs where it runs.
 `basis` is `requirements` (only one platform fits), `preference` (the order
 decided, `preferred` names the platform), `only_candidate` or `manual` (named in
-`target`). A keyed retry (same `Idempotency-Key`) goes where its first submission
+`target`), or `load` (high load overrode the preference, `preferred` is null).
+An optional `load` record carries `state` (`normal`, `diverted`, `busy`, `unknown`),
+`preferredHost`, `preferredReport` and `selectedReport`. These are immutable observations at the
+selection time, not current telemetry. Reports include `sampledAt`, `ageMs`, `stale`, `load1`,
+`cpuCount` and `runningSessions`. Load is a system activity indicator, not CPU utilization percent;
+it is not a RAM, battery or cgroup capacity check. A keyed retry (same `Idempotency-Key`) goes where its first submission
 went, whatever the choice would say now.
 
 `POST /api/placement` with `{ repoPath, requirements?, target? }` answers what a
@@ -432,7 +443,17 @@ create with that body would do, without storing or sending anything:
 with the refusal's fields as above. `{ active: true, placement, wait: { status,
 alternatives } }` means the machine in `placement` is out of reach and the task
 would wait for it; `alternatives` are the connected machines that fit too. New Task
-shows it before you submit. Every `active` answer also lists `machines`: what `target`
+shows it before you submit. Load is checked again on create, so changed load may change the
+first submission's destination; the preview does not reserve capacity. Concurrent starts may
+choose the same host. Missing telemetry does not prevent a start, and there is no load queue.
+
+`GET /api/instance` includes a nullable `load` report. Placement refreshes stale remote load through
+that route with parallel, deduplicated reads bounded to 1.5 seconds each; it does not repeat the
+full connection probe. Federation API level **3** carries the new placement basis: connected
+servers need this level on both sides. Mixed levels are incompatible until both servers are
+updated; existing stored placement records without load remain readable.
+
+Every `active` answer also lists `machines`: what `target`
 may name for this repo right now — this Shepherd first, then each connected machine
 whose platform is released and that has the project checked out. The native apps
 offer these under **Run on**, since `GET /api/remote-instances` needs a signed-in

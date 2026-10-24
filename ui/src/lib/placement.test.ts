@@ -3,6 +3,7 @@ import { m } from "#lib/paraglide/messages.js";
 import {
   capabilityList,
   placementReason,
+  placementLoadObservation,
   placementRefusalText,
   placementWaitText,
 } from "./placement";
@@ -104,6 +105,45 @@ describe("placementWaitText (#2775)", () => {
     );
     expect(placementWaitText(xcode, { status: "timeout", alternatives: [linux] })).toBe(
       `${m.placement_waits_for({ machine: "MacBook", reason })} ${m.placement_refusal_alternatives({ machines: "moes-tavern" })}`,
+    );
+  });
+});
+
+describe("host load explanation", () => {
+  const report = {
+    sampledAt: 1,
+    load1: 9.6,
+    cpuCount: 8,
+    runningSessions: 4,
+    ageMs: 0,
+    stale: false,
+  };
+  it("explains diversion and keeps a manual choice alongside its high-load warning", () => {
+    const load = {
+      state: "diverted" as const,
+      preferredHost: linux,
+      preferredReport: report,
+      selectedReport: { ...report, load1: 2.4 },
+    };
+    expect(placementReason(placement({ target: mac, basis: "load", load }))).toBe(
+      m.placement_basis_load({ machine: linux.name }),
+    );
+    const manual = placement({ mode: "manual", basis: "manual", load: { ...load, state: "busy" } });
+    expect(placementReason(manual)).toBe(
+      `${m.placement_basis_manual()}. ${m.placement_load_busy()}`,
+    );
+    expect(placementReason(placement({ load: { ...load, state: "unknown" } }))).toContain(
+      m.placement_load_unknown(),
+    );
+  });
+  it("formats system load and session count, but never displays missing telemetry as zero", () => {
+    expect(placementLoadObservation("Linux", report)).toContain("4");
+    expect(placementLoadObservation("Linux", report)).not.toContain("%");
+    expect(placementLoadObservation("Mac", null)).toBe(
+      m.placement_load_unavailable({ machine: "Mac" }),
+    );
+    expect(placementLoadObservation("Mac", { ...report, stale: true })).toBe(
+      m.placement_load_unavailable({ machine: "Mac" }),
     );
   });
 });

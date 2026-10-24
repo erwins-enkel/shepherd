@@ -32,7 +32,8 @@
   <button
     type="button"
     class="nt-placement"
-    use:statusTip={{ text: placementExplanation(placement), wide: true }}
+    class:warn={placement.load?.state === "busy"}
+    use:statusTip={{ text: placementExplanation(placement, true), wide: true }}
   >
     {m.placement_runs_on({ machine, reason: placementReason(placement) })}
   </button>

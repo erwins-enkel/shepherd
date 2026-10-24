@@ -1,7 +1,13 @@
 import { m } from "#lib/paraglide/messages.js";
 import { getLocale } from "#lib/i18n.js";
 import { capabilityLabel, capabilityReasonLabel, platformLabel } from "#lib/machines.js";
-import type { Placement, PlacementRefusal, PlacementWait, SessionHost } from "#lib/types.js";
+import type {
+  HostLoadReport,
+  Placement,
+  PlacementRefusal,
+  PlacementWait,
+  SessionHost,
+} from "#lib/types.js";
 
 // The automatic machine choice (#2772) in words. The server decides and reports a language-neutral
 // record (`Placement`) or why it would refuse (`PlacementRefusal`); this module is the one place
@@ -37,10 +43,12 @@ export function capabilityList(ids: readonly string[]): string {
 
 /** Why the task runs where it runs: "Needs macOS and Xcode", "No special requirements – preferred:
  *  Linux", "Chosen manually", … */
-export function placementReason(p: Placement): string {
+function selectionReason(p: Placement): string {
   const list = capabilityList(p.requirements);
   const platform = platformLabel(p.preferred ?? p.target.platform);
   switch (p.basis) {
+    case "load":
+      return m.placement_basis_load({ machine: p.load?.preferredHost.name ?? "" });
     case "manual":
       return m.placement_basis_manual();
     case "requirements":
@@ -54,6 +62,25 @@ export function placementReason(p: Placement): string {
     default:
       return p.requirements.length > 0 ? m.placement_basis_requirements({ list }) : "";
   }
+}
+
+export function placementReason(p: Placement): string {
+  const reason = selectionReason(p);
+  const note =
+    p.load?.state === "busy"
+      ? m.placement_load_busy()
+      : p.load?.state === "unknown"
+        ? m.placement_load_unknown()
+        : "";
+  return note ? `${reason}. ${note}` : reason;
+}
+
+export function placementLoadObservation(machine: string, report: HostLoadReport | null): string {
+  if (!report || report.stale) return m.placement_load_unavailable({ machine });
+  const ratio = new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 2 }).format(
+    report.load1 / report.cpuCount,
+  );
+  return m.placement_load_detail({ machine, ratio, count: report.runningSessions });
 }
 
 const hostNames = (hosts: readonly SessionHost[] | undefined) =>

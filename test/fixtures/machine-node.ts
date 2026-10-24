@@ -232,6 +232,12 @@ const deps: AppDeps = {
   remoteSessions,
   remoteDispatch,
   hostPlatform: platform,
+  hostLoad: () => ({
+    sampledAt: Date.now(),
+    load1: 1,
+    cpuCount: 8,
+    runningSessions: store.countRunningSessions(),
+  }),
   capabilities,
   deriveTaskRequirements,
   resolveForge: ((path: string) => (path === checkout ? forge : null)) as AppDeps["resolveForge"],

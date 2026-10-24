@@ -12,6 +12,7 @@
  */
 import type { SessionStore } from "../store";
 import {
+  FEDERATION_API_VERSION,
   type InstanceIdentity,
   instanceIdentity,
   isSingleKeyBody,
@@ -35,6 +36,15 @@ import {
   probeRemote,
 } from "./client";
 import { type MachineSelfUpdate, parseSelfUpdate } from "./self-update";
+
+import {
+  type HostLoadSnapshot,
+  type HostLoadReport,
+  hostLoadReport,
+  parseRemoteLoad,
+  LOAD_FRESH_MS,
+  LOAD_TIMEOUT_MS,
+} from "./load";
 
 const REMOTE_PROBE_INTERVAL_MS = 60_000;
 
@@ -83,6 +93,7 @@ export interface RemoteInstanceSummary {
   /** The machine's verified capabilities (#2770) from the last successful probe, aged on this
    *  clock; null when it has not reported any. */
   capabilities: CapabilityReport | null;
+  load?: HostLoadReport | null;
   /** Whether the machine's platform is cleared to run tasks. Windows is listed but not released;
    *  pickers must offer only released machines. False while the platform is unknown. */
   released: boolean;
@@ -207,6 +218,11 @@ function machineInfo({ version, federationApi, platform, arch }: InstanceIdentit
 export class RemoteInstanceService {
   private readonly states = new Map<string, ProbeState>();
   private readonly inflight = new Map<string, Promise<void>>();
+  private readonly loads = new Map<
+    string,
+    { snapshot: HostLoadSnapshot | null; checkedAt: number }
+  >();
+  private readonly loadInflight = new Map<string, Promise<void>>();
   private readonly listeners = new Set<(instanceId: string) => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly store: Store;
@@ -278,6 +294,8 @@ export class RemoteInstanceService {
   remove(instanceId: string): boolean {
     const removed = this.store.deleteRemoteInstance(instanceId);
     this.states.delete(instanceId);
+    this.loads.delete(instanceId);
+    this.loadInflight.delete(instanceId);
     if (removed) this.notify(instanceId);
     return removed;
   }
@@ -289,6 +307,73 @@ export class RemoteInstanceService {
     await this.probe(row);
     const current = this.store.getRemoteInstance(instanceId);
     return current ? this.summary(current) : null;
+  }
+
+  /** Refresh only load, without repeating the full project/capability connection probe. */
+  async refreshLoads(instanceIds: readonly string[]): Promise<void> {
+    await Promise.all(instanceIds.map((id) => this.refreshLoad(id)));
+  }
+
+  private refreshLoad(id: string): Promise<void> {
+    const running = this.loadInflight.get(id);
+    if (running) return running;
+    const cached = this.loads.get(id);
+    const now = this.now();
+    if (
+      cached &&
+      (cached.snapshot
+        ? !hostLoadReport(cached.snapshot, now).stale
+        : now - cached.checkedAt <= LOAD_FRESH_MS)
+    )
+      return Promise.resolve();
+    const row = this.store.getRemoteInstance(id);
+    if (!row || this.states.get(id)?.status !== "connected") return Promise.resolve();
+    const run = this.readLoad(row, now).finally(() => {
+      if (this.loadInflight.get(id) === run) this.loadInflight.delete(id);
+    });
+    this.loadInflight.set(id, run);
+    return run;
+  }
+
+  private async readLoad(row: RemoteInstanceRow, requestedAt: number): Promise<void> {
+    const res = await getRemoteJson(row, "/api/instance", {
+      fetch: this.fetch,
+      timeoutMs: LOAD_TIMEOUT_MS,
+    });
+    const current = this.store.getRemoteInstance(row.instanceId);
+    if (
+      !current ||
+      current.createdAt !== row.createdAt ||
+      current.token !== row.token ||
+      current.url !== row.url ||
+      this.states.get(row.instanceId)?.status !== "connected"
+    )
+      return;
+    if ((this.loads.get(row.instanceId)?.checkedAt ?? -Infinity) > requestedAt) return;
+    const body = res.ok ? res.body : null;
+    if (!isRecord(body) || typeof body.instanceId !== "string") {
+      this.noteLoad(row.instanceId, null, requestedAt);
+      return;
+    }
+    if (body.instanceId !== row.instanceId) {
+      this.noteLoad(row.instanceId, null, requestedAt);
+      this.apply(row, { status: "identity_mismatch" }, null);
+      return;
+    }
+    if (body.federationApi !== FEDERATION_API_VERSION) {
+      this.noteLoad(row.instanceId, null, requestedAt);
+      this.apply(row, { status: "incompatible", reason: "api_version" });
+      return;
+    }
+    this.noteLoad(row.instanceId, parseRemoteLoad(body.load, requestedAt), requestedAt);
+  }
+
+  private noteLoad(id: string, snapshot: HostLoadSnapshot | null, checkedAt: number): void {
+    const previous = this.loads.get(id);
+    if (previous && previous.checkedAt > checkedAt) return;
+    // A slower periodic probe must not overwrite a more recent on-demand observation.
+    if (snapshot && previous?.snapshot && snapshot.sampledAt < previous.snapshot.sampledAt) return;
+    this.loads.set(id, { snapshot, checkedAt });
   }
 
   /** Record a capability report fetched outside the probe — the fresh check right before a waiting
@@ -376,6 +461,7 @@ export class RemoteInstanceService {
   }
 
   private async runProbe(row: RemoteInstanceRow): Promise<void> {
+    const before = this.states.get(row.instanceId);
     // Its self-update is read beside the probe, so a slow answer never lengthens the round; it
     // counts only from a machine that answered — compatible or not.
     const [outcome, fresh] = await Promise.all([
@@ -387,6 +473,8 @@ export class RemoteInstanceService {
     // Removed (or re-added) while the probe was out: its result belongs to nobody.
     const current = this.store.getRemoteInstance(row.instanceId);
     if (!current || current.createdAt !== row.createdAt) return;
+    const latest = this.states.get(row.instanceId);
+    if (latest !== before && latest?.status !== "connected") return;
     if (outcome.status === "connected" && outcome.info.instanceId !== current.instanceId) {
       this.apply(current, { status: "identity_mismatch" }, null);
       return;
@@ -413,6 +501,8 @@ export class RemoteInstanceService {
     update?: MachineSelfUpdate | null,
   ) {
     const prev = this.states.get(row.instanceId);
+    if (outcome.status === "connected")
+      this.noteLoad(row.instanceId, outcome.load, outcome.loadReadAt);
     const at = this.now();
     const knownUpdate = update === undefined ? (prev?.update ?? null) : update;
     const next: ProbeState =
@@ -447,6 +537,11 @@ export class RemoteInstanceService {
     for (const listener of this.listeners) listener(instanceId);
   }
 
+  private loadReport(instanceId: string): HostLoadReport | null {
+    const snapshot = this.loads.get(instanceId)?.snapshot;
+    return snapshot ? hostLoadReport(snapshot, this.now()) : null;
+  }
+
   private summary(row: RemoteInstanceRow): RemoteInstanceSummary {
     const state = this.states.get(row.instanceId);
     return {
@@ -464,6 +559,7 @@ export class RemoteInstanceService {
       info: state?.info ?? null,
       projects: state?.projects ?? null,
       capabilities: state?.capabilities ? capabilityReport(state.capabilities, this.now()) : null,
+      load: this.loadReport(row.instanceId),
       released: state?.info ? platformReleased(state.info.platform) : false,
     };
   }

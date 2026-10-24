@@ -635,6 +635,7 @@ describe("sessions", () => {
     s.deps.remoteInstances = {
       list: () => [machine],
       get: () => machine,
+      refreshLoads: async () => {},
     } as unknown as RemoteInstanceService;
     try {
       for (const outcome of outcomes) {
@@ -672,10 +673,30 @@ describe("sessions", () => {
       mode: "auto",
       target: { instanceId, name, platform: "linux" },
       requirements: [],
-      basis: "preference",
-      preferred: "linux",
+      basis: "load",
+      preferred: null,
       by: { instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d", name: "MacBook" },
       decidedAt: 1,
+      load: {
+        state: "diverted",
+        preferredHost: { instanceId: "other", name: "Busy host", platform: "linux" },
+        preferredReport: {
+          sampledAt: 1,
+          ageMs: 0,
+          stale: false,
+          load1: 9.6,
+          cpuCount: 8,
+          runningSessions: 4,
+        },
+        selectedReport: {
+          sampledAt: 1,
+          ageMs: 0,
+          stale: false,
+          load1: 2.4,
+          cpuCount: 8,
+          runningSessions: 1,
+        },
+      },
     };
     const body = { prompt: "placed here", target: { instanceId }, placement };
     validateRequest("POST", "/api/sessions", {
@@ -748,6 +769,7 @@ describe("sessions", () => {
     s.deps.remoteInstances = {
       list: () => [machine],
       get: () => machine,
+      refreshLoads: async () => {},
     } as unknown as RemoteInstanceService;
     s.stubs.resolveForge.forge = { slug: "acme/app" };
     try {
@@ -856,6 +878,7 @@ describe("sessions", () => {
     s.deps.remoteInstances = {
       list: () => [machine],
       get: () => machine,
+      refreshLoads: async () => {},
     } as unknown as RemoteInstanceService;
     s.stubs.resolveForge.forge = { slug: "acme/app" };
     s.deps.deriveTaskRequirements = async () => ({
@@ -1354,6 +1377,7 @@ describe("redirecting a waiting task", () => {
     s.deps.remoteInstances = {
       list: () => [machine],
       get: () => machine,
+      refreshLoads: async () => {},
     } as unknown as RemoteInstanceService;
     const send = (body: unknown, id = "wait-1") =>
       fetch(`${s.baseUrl}/api/remote-dispatches/${id}/redirect`, {

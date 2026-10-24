@@ -29117,6 +29117,24 @@
         }
       }
     },
+    "placement_basis_load": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bevorzugter Rechner %1$@ ist stark ausgelastet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferred machine %1$@ is under high load"
+          }
+        }
+      }
+    },
     "placement_basis_manual": {
       "extractionState": "manual",
       "localizations": {
@@ -29218,6 +29236,144 @@
           "stringUnit": {
             "state": "translated",
             "value": "Choosing a machine…"
+          }
+        }
+      }
+    },
+    "placement_load_busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hohe Rechnerlast; startet trotzdem hier"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High host load; starts here anyway"
+          }
+        }
+      }
+    },
+    "placement_load_detail": {
+      "comment": "%1$@ = machine, %2$@ = ratio, %3$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: Systemlast pro CPU-Kern im Minutenmittel %2$@; laufende Sessions: %3$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: one-minute load per CPU core %2$@; running sessions: %3$@"
+          }
+        }
+      }
+    },
+    "placement_load_observed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last bei der Auswahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load when selected"
+          }
+        }
+      }
+    },
+    "placement_load_preferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bevorzugter Rechner bei der Auswahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferred machine when selected"
+          }
+        }
+      }
+    },
+    "placement_load_recheck": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Last wird beim Start erneut geprüft. Automatisch kann dann einen anderen geeigneten Rechner wählen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load is checked again when you start. Automatic may choose a different suitable machine."
+          }
+        }
+      }
+    },
+    "placement_load_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Start"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At start"
+          }
+        }
+      }
+    },
+    "placement_load_unavailable": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: kein aktueller Lastmesswert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: no fresh load measurement"
+          }
+        }
+      }
+    },
+    "placement_load_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerlast ist unbekannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host load is unknown"
           }
         }
       }
@@ -36569,13 +36725,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisch: Unter den passenden Rechnern entscheidet die Plattform-Reihenfolge (standardmäßig Linux vor macOS), danach die Rechner-ID."
+            "value": "Automatisch: Passende Rechner folgen deiner Plattformpräferenz, danach der Rechner-ID. Bei hoher Last des bevorzugten verbundenen Rechners kann ein geeigneter Rechner mit aktuell gemessenen Reserven die neue Aufgabe übernehmen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatically: among the machines that fit, the platform order (Linux before macOS by default) and then the machine ID decide."
+            "value": "Automatically: suitable machines follow your platform preference, then machine ID. When the preferred connected machine is under high load, a suitable machine with fresh spare capacity can take the new task."
           }
         }
       }

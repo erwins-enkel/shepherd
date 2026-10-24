@@ -263,6 +263,26 @@ extension CoreSeamTests {
             """#)
     }
 
+    @Test func loadExplainsDiversionAndWarnsWithoutChangingManualChoice() throws {
+        let report = #"{"sampledAt":1,"ageMs":0,"stale":false,"load1":9.6,"cpuCount":8,"runningSessions":4}"#
+        let diverted: MachinePlacement = try wire(#"""
+            {"mode":"auto","target":\#(macJSON),"requirements":[],"basis":"load","preferred":null,
+             "by":{"instanceId":"linux","name":"moes-tavern"},"decidedAt":1,
+             "load":{"state":"diverted","preferredHost":\#(linuxJSON),"preferredReport":\#(report),"selectedReport":\#(report)}}
+            """#)
+        #expect(PlacementCopy.reason(diverted) == L.t("placement_basis_load", "moes-tavern"))
+        #expect(PlacementCopy.runsOn(diverted).contains(L.t("placement_load_recheck")))
+        let explained = PlacementCopy.explanation(diverted)
+        #expect(explained.sections.contains { $0.label == L.t("placement_load_observed") && $0.text.contains("4") })
+        #expect(explained.sections.contains { $0.label == L.t("placement_load_preferred") })
+        let manual: MachinePlacement = try wire(#"""
+            {"mode":"manual","target":\#(macJSON),"requirements":[],"basis":"manual","preferred":null,
+             "by":{"instanceId":"linux","name":"moes-tavern"},"decidedAt":1,
+             "load":{"state":"busy","preferredHost":\#(macJSON),"preferredReport":\#(report),"selectedReport":\#(report)}}
+            """#)
+        #expect(PlacementCopy.reason(manual) == "\(L.t("placement_basis_manual")). \(L.t("placement_load_busy"))")
+    }
+
     @Test func theReasonFollowsWhatDecided() throws {
         let xcode = PlacementCopy.capabilityList(["xcode"])
         #expect(try PlacementCopy.reason(placement(basis: "requirements", requirements: #"["xcode"]"#))

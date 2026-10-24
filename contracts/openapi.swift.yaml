@@ -85,9 +85,63 @@ components:
         pushRelay:
           type: boolean
           description: True when this server relays notifications for its connected machines' sessions and takes coveredInstances and relayRemote on a push registration. Absent on servers older than this field; a client sends those fields only where it is true.
+        load:
+          description: Current host load; null if it cannot be measured, absent on older servers.
+          $ref: "#/components/schemas/HostLoadReport"
         capabilities:
           description: The last capability probe; null until the first one finished. Absent on servers older than this field.
           $ref: "#/components/schemas/InstanceCapabilities"
+    HostLoadReport:
+      type: object
+      additionalProperties: true
+      required:
+        - sampledAt
+        - load1
+        - cpuCount
+        - runningSessions
+        - ageMs
+        - stale
+      description: Whole-host one-minute load, not CPU utilization percent. Measurements older than 15 seconds are stale.
+      properties:
+        sampledAt:
+          type: number
+        load1:
+          type: number
+          minimum: 0
+        cpuCount:
+          type: integer
+          minimum: 1
+        runningSessions:
+          type: integer
+          minimum: 0
+        ageMs:
+          type: number
+          minimum: 0
+        stale:
+          type: boolean
+    PlacementLoad:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+        - preferredHost
+      description: Immutable load observations when the machine was chosen, not current telemetry.
+      properties:
+        state:
+          anyOf:
+            - type: string
+              enum:
+                - normal
+                - diverted
+                - busy
+                - unknown
+            - type: string
+        preferredHost:
+          $ref: "#/components/schemas/SessionHost"
+        preferredReport:
+          $ref: "#/components/schemas/HostLoadReport"
+        selectedReport:
+          $ref: "#/components/schemas/HostLoadReport"
     InstancePlatform:
       anyOf:
         - $ref: "#/components/schemas/InstancePlatformKnown"
@@ -1210,7 +1264,7 @@ components:
           items:
             $ref: "#/components/schemas/Capability"
         basis:
-          description: "What decided: the operator (manual), the requirements — only one platform fits (requirements), the platform order among several fitting machines (preference, with `preferred`), or that only one machine can run the task at all (only_candidate)."
+          description: "What decided: the operator (manual), the requirements — only one platform fits (requirements), the platform order among several fitting machines (preference, with `preferred`), or that only one machine can run the task at all (only_candidate). load means the preferred machine was busy and another fitting connected machine had fresh spare capacity."
           anyOf:
             - type: string
               enum:
@@ -1218,6 +1272,7 @@ components:
                 - requirements
                 - preference
                 - only_candidate
+                - load
             - type: string
         preferred:
           type:
@@ -1238,6 +1293,8 @@ components:
               type: string
         decidedAt:
           type: integer
+        load:
+          $ref: "#/components/schemas/PlacementLoad"
     PlacementRequest:
       type: object
       additionalProperties: false
@@ -9068,7 +9125,7 @@ paths:
   /api/instance:
     get:
       operationId: getInstance
-      description: This instance's identity and verified capabilities for machine connections. Needs a full-scope credential without a repository restriction.
+      description: This instance's identity, verified capabilities and current host load for machine connections. Needs a full-scope credential without a repository restriction.
       responses:
         "200":
           description: Instance identity.
@@ -9275,7 +9332,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     post:
       operationId: createSession
-      description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. The choice is recorded on the session as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. When the chosen machine is out of reach (#2775) the task waits here for it: 200 with `waiting` (a HeldTask); nothing is sent or uploaded until that machine can take it, and nothing falls back to another machine. A keyed retry goes where its first submission went."
+      description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. When the preferred connected machine has fresh one-minute host load per logical CPU at or above 1.0, the first fitting connected alternative at or below 0.75 can take the task. Load older than 15 seconds is unknown. Without proven spare capacity the preferred machine still starts it; explicit targets are never overridden by load. The choice and load observations are recorded as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. When the chosen machine is out of reach (#2775) the task waits here for it: 200 with `waiting` (a HeldTask); nothing is sent or uploaded until that machine can take it, and nothing falls back to another machine. A keyed retry goes where its first submission went."
       parameters:
         - name: X-Shepherd-Spawn-Id
           in: header

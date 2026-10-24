@@ -1,3 +1,4 @@
+import { placementLoadObservation } from "#lib/placement.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
 import {
@@ -591,7 +592,7 @@ export function derivedRequirementsExplanation(): TooltipExplanation {
 
 /** Why a task runs where it runs (#2772): the reason, what it needed, who decided — in New Task
  *  before it starts and on its session afterwards. */
-export function placementExplanation(p: Placement): TooltipExplanation {
+export function placementExplanation(p: Placement, preview = false): TooltipExplanation {
   return {
     title: m.tooltip_placement_title({ machine: p.target.name }),
     summary: placementReason(p),
@@ -608,6 +609,28 @@ export function placementExplanation(p: Placement): TooltipExplanation {
         text:
           p.mode === "manual" ? m.tooltip_placement_how_manual() : m.tooltip_placement_how_auto(),
       },
+      ...(p.load
+        ? [
+            {
+              label: m.placement_load_observed(),
+              text: placementLoadObservation(p.target.name, p.load.selectedReport),
+            },
+            ...(p.load.state === "diverted"
+              ? [
+                  {
+                    label: m.placement_load_preferred(),
+                    text: placementLoadObservation(
+                      p.load.preferredHost.name,
+                      p.load.preferredReport,
+                    ),
+                  },
+                ]
+              : []),
+            ...(preview && p.mode === "auto"
+              ? [{ label: m.placement_load_start(), text: m.placement_load_recheck() }]
+              : []),
+          ]
+        : []),
       { label: m.tooltip_placement_by(), text: p.by.name },
     ],
   };

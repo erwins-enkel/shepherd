@@ -6147,7 +6147,7 @@
   "tooltip_placement_needs": "Anforderungen",
   "tooltip_placement_needs_none": "Keine – jeder verbundene Rechner mit dem Projekt passt.",
   "tooltip_placement_how": "Wie gewählt wurde",
-  "tooltip_placement_how_auto": "Automatisch: Unter den passenden Rechnern entscheidet die Plattform-Reihenfolge (standardmäßig Linux vor macOS), danach die Rechner-ID.",
+  "tooltip_placement_how_auto": "Automatisch: Passende Rechner folgen deiner Plattformpräferenz, danach der Rechner-ID. Bei hoher Last des bevorzugten verbundenen Rechners kann ein geeigneter Rechner mit aktuell gemessenen Reserven die neue Aufgabe übernehmen.",
   "tooltip_placement_how_manual": "Unter „Ausführen auf“ gewählt. Der Rechner passte: verbunden, Projekt ausgecheckt und jede Anforderung geprüft.",
   "tooltip_placement_by": "Entschieden von",
   "remote_detail_placement": "Rechnerwahl",
@@ -7020,5 +7020,16 @@
   "diagnostics_label_no_pr_ci": "Keine PR-CI · {repo}",
   "diagnostics_hint_no_pr_ci": "In {repo} läuft kein Workflow auf Pull Requests, daher hält Auto-Merge seine PRs zurück. Richte einen CI-Workflow ein oder aktiviere „Ohne CI mergen“ in den Automatisierungseinstellungen des Repos.",
   "feat_diagnostics_no_pr_ci_title": "Diagnose zeigt Repos ohne PR-CI",
-  "feat_diagnostics_no_pr_ci_body": "Einstellungen → Diagnose listet jetzt jedes GitHub-Repo, in dem kein Workflow auf Pull Requests läuft und Auto-Merge seine PRs deshalb zurückhält. Richte dort CI ein oder aktiviere „Ohne CI mergen“ in den Automatisierungseinstellungen des Repos."
+  "feat_diagnostics_no_pr_ci_body": "Einstellungen → Diagnose listet jetzt jedes GitHub-Repo, in dem kein Workflow auf Pull Requests läuft und Auto-Merge seine PRs deshalb zurückhält. Richte dort CI ein oder aktiviere „Ohne CI mergen“ in den Automatisierungseinstellungen des Repos.",
+  "placement_basis_load": "Bevorzugter Rechner {machine} ist stark ausgelastet",
+  "placement_load_busy": "Hohe Rechnerlast; startet trotzdem hier",
+  "placement_load_unknown": "Rechnerlast ist unbekannt",
+  "placement_load_observed": "Last bei der Auswahl",
+  "placement_load_preferred": "Bevorzugter Rechner bei der Auswahl",
+  "placement_load_detail": "{machine}: Systemlast pro CPU-Kern im Minutenmittel {ratio}; laufende Sessions: {count}",
+  "placement_load_unavailable": "{machine}: kein aktueller Lastmesswert",
+  "placement_load_start": "Beim Start",
+  "placement_load_recheck": "Die Last wird beim Start erneut geprüft. Automatisch kann dann einen anderen geeigneten Rechner wählen.",
+  "feat_machine_load_title": "Beim Aufgabenstart ausgelasteten Rechnern ausweichen",
+  "feat_machine_load_body": "Automatisch behält deine Rechnerpräferenz bei. Bei hoher Last kann ein geeigneter Rechner mit Reserven die neue Aufgabe übernehmen. Die Auswahl erklärt den Grund; manuelle Ziele bleiben verbindlich."
 }

@@ -11,10 +11,12 @@
  *   requirement is `ok` in its capability report. A connected machine's report must be fresh (not
  *   stale); a machine out of reach is judged on what it last reported, so it can still be the one a
  *   task is meant for.
+ * - Under high host load, a connected fitting machine with verified spare capacity can take the
+ *   new task instead. Unknown load and offline targets keep the preference.
  * - Fitting machines are ranked by platform (the order below, Linux first: it has the full sandbox
  *   and runs all the time), then by instance ID. Nothing in the ranking depends on which Shepherd
  *   decides, so a task lands on the same machine wherever it is submitted — as long as every
- *   Shepherd uses the same order.
+ *   Shepherd uses the same order and load observations.
  * - The top machine out of reach is never replaced by the next one: the task waits for it (#2775)
  *   and the connected machines that fit too are offered as a manual choice — no silent fallback.
  * - A machine named by the submitter must fit the same way, or it is refused with the reason.
@@ -30,6 +32,14 @@ import {
   missingRequirements,
   platformReleased,
 } from "./capabilities";
+import {
+  type HostLoadReport,
+  LOAD_BUSY,
+  LOAD_RESERVE,
+  normalizedLoad,
+  usableLoad,
+  parseHostLoadReport,
+} from "./load";
 import type { InstanceIdentity } from "./identity";
 import type { RemoteInstanceSummary } from "./service";
 import { type SessionHost, hostNames } from "./sessions";
@@ -62,14 +72,22 @@ export interface MachineView {
   released: boolean;
   hasProject: boolean;
   report: CapabilityReport | null;
+  load?: HostLoadReport | null;
 }
 
 /** What decided: the operator's choice, the requirements (only one platform fits), the platform
- *  order (several fit) or that only one machine can run the task at all. */
-export type PlacementBasis = "manual" | "requirements" | "preference" | "only_candidate";
+ *  order (several fit), spare host capacity, or that only one machine can run the task at all. */
+export type PlacementBasis = "manual" | "requirements" | "preference" | "only_candidate" | "load";
 
-/** Where a task was placed and why, as it is stored with the task and shown on its session.
- *  Language-neutral: clients put it into words. */
+/** Historical load observations that explained a new task's destination. */
+export interface PlacementLoad {
+  state: "normal" | "diverted" | "busy" | "unknown";
+  preferredHost: SessionHost;
+  preferredReport: HostLoadReport | null;
+  selectedReport: HostLoadReport | null;
+}
+
+/** Where a task was placed and why. Language-neutral; clients put it into words. */
 export interface Placement {
   mode: "auto" | "manual";
   target: SessionHost;
@@ -80,6 +98,8 @@ export interface Placement {
   /** The Shepherd that decided. */
   by: { instanceId: string; name: string };
   decidedAt: number;
+  /** Immutable observations at selection time, not current host telemetry. */
+  load?: PlacementLoad;
 }
 
 export type RemoteUnfitCode =
@@ -201,6 +221,7 @@ function missingOn(
 export function localMachine(
   identity: Pick<InstanceIdentity, "instanceId" | "name" | "platform">,
   report: CapabilityReport | null,
+  load?: HostLoadReport | null,
 ): MachineView {
   return {
     host: { instanceId: identity.instanceId, name: identity.name, platform: identity.platform },
@@ -211,6 +232,7 @@ export function localMachine(
     released: platformReleased(identity.platform),
     hasProject: true,
     report,
+    ...(load !== undefined && { load }),
   };
 }
 
@@ -234,6 +256,7 @@ export function remoteMachineViews(
     released: m.released,
     hasProject: project !== undefined && (m.projects?.includes(project) ?? false),
     report: m.capabilities,
+    ...(m.load !== undefined && { load: m.load }),
   }));
 }
 
@@ -269,7 +292,7 @@ export function readinessOf(
   return missing.length > 0 ? { state: "missing_capabilities", missing } : { state: "ready" };
 }
 
-function fits(machine: MachineView, requirements: readonly Capability[]): boolean {
+export function fits(machine: MachineView, requirements: readonly Capability[]): boolean {
   return machine.released && machine.hasProject && missingOn(machine, requirements).length === 0;
 }
 
@@ -289,7 +312,12 @@ function byPreference(order: readonly string[]) {
 export function placementRecord(
   machine: Pick<MachineView, "host">,
   req: Pick<PlacementRequest, "requirements" | "by" | "now">,
-  how: { mode: Placement["mode"]; basis: PlacementBasis; preferred: string | null },
+  how: {
+    mode: Placement["mode"];
+    basis: PlacementBasis;
+    preferred: string | null;
+    load?: PlacementLoad;
+  },
 ): Placement {
   return {
     mode: how.mode,
@@ -299,6 +327,7 @@ export function placementRecord(
     preferred: how.preferred,
     by: req.by,
     decidedAt: req.now,
+    ...(how.load && { load: how.load }),
   };
 }
 
@@ -355,12 +384,58 @@ function placeAutomatically(
   const ranked = machines.filter((m) => fits(m, req.requirements)).sort(byPreference(req.order));
   const top = ranked[0];
   if (!top) return { ok: false, refusal: noSuitableMachine(machines, req.requirements) };
-  const how = { mode: "auto" as const, ...basisOf(ranked, req.requirements) };
-  const placement = placementRecord(top, req, how);
-  if (top.connected) return { ok: true, placement };
+  const diverted =
+    top.connected && usableLoad(top.load, req.now) && normalizedLoad(top.load!) >= LOAD_BUSY
+      ? ranked.find(
+          (m) =>
+            m !== top &&
+            m.connected &&
+            usableLoad(m.load, req.now) &&
+            normalizedLoad(m.load!) <= LOAD_RESERVE,
+        )
+      : undefined;
+  const selected = diverted ?? top;
+  const how = {
+    mode: "auto" as const,
+    ...(diverted ? { basis: "load" as const, preferred: null } : basisOf(ranked, req.requirements)),
+    ...(top.connected && { load: loadDecision(top, selected, req.now) }),
+  };
+  const placement = placementRecord(selected, req, how);
+  if (selected.connected) return { ok: true, placement };
   // Out of reach: the task waits for it (#2775) — never for the next one in line.
   const alternatives = fittingNow(machines, req.requirements, req.order, top.host.instanceId);
   return { ok: true, placement, wait: { status: top.reason ?? top.status, alternatives } };
+}
+
+/** Capture what was observed, so session explanations never pretend it is live data. */
+export function loadDecision(
+  preferred: MachineView,
+  selected: MachineView,
+  now: number,
+): PlacementLoad | undefined {
+  if (preferred.load === undefined && selected.load === undefined) return undefined;
+  const state =
+    preferred.host.instanceId !== selected.host.instanceId
+      ? "diverted"
+      : !usableLoad(selected.load, now)
+        ? "unknown"
+        : normalizedLoad(selected.load!) >= LOAD_BUSY
+          ? "busy"
+          : "normal";
+  const observed = (report: HostLoadReport | null | undefined): HostLoadReport | null =>
+    report
+      ? {
+          ...report,
+          ageMs: Math.max(report.ageMs, now - report.sampledAt),
+          stale: !usableLoad(report, now),
+        }
+      : null;
+  return {
+    state,
+    preferredHost: preferred.host,
+    preferredReport: observed(preferred.load),
+    selectedReport: observed(selected.load),
+  };
 }
 
 function placeManually(machines: readonly MachineView[], req: PlacementRequest): PlacementDecision {
@@ -374,7 +449,12 @@ function placeManually(machines: readonly MachineView[], req: PlacementRequest):
   if (missing.length > 0) {
     return { ok: false, refusal: { code: "missing_capabilities", host: machine.host, missing } };
   }
-  const how = { mode: "manual" as const, basis: "manual" as const, preferred: null };
+  const how = {
+    mode: "manual" as const,
+    basis: "manual" as const,
+    preferred: null,
+    load: loadDecision(machine, machine, req.now),
+  };
   return { ok: true, placement: placementRecord(machine, req, how) };
 }
 
@@ -433,7 +513,39 @@ function isText(value: unknown, max: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= max;
 }
 
-const BASES: readonly string[] = ["manual", "requirements", "preference", "only_candidate"];
+const BASES: readonly string[] = ["manual", "requirements", "preference", "only_candidate", "load"];
+
+function parsePlacementLoad(
+  raw: unknown,
+  basis: unknown,
+  mode: unknown,
+): PlacementLoad | undefined | null {
+  if (raw === undefined) return basis === "load" ? null : undefined;
+  if (
+    !isRecord(raw) ||
+    typeof raw.state !== "string" ||
+    !["normal", "diverted", "busy", "unknown"].includes(raw.state)
+  )
+    return null;
+  if (raw.state === "diverted") {
+    if (basis !== "load" || mode !== "auto") return null;
+  } else if (basis === "load") return null;
+  const preferredHost = parseHost(raw.preferredHost);
+  const preferredReport = parseHostLoadReport(raw.preferredReport);
+  const selectedReport = parseHostLoadReport(raw.selectedReport);
+  if (
+    !preferredHost ||
+    (raw.preferredReport !== null && !preferredReport) ||
+    (raw.selectedReport !== null && !selectedReport)
+  )
+    return null;
+  return {
+    state: raw.state as PlacementLoad["state"],
+    preferredHost,
+    preferredReport,
+    selectedReport,
+  };
+}
 
 /** A create body's `placement`: the record a coordinator Shepherd sends along with a task it placed
  *  here. Absent ⇒ undefined; malformed ⇒ an error for a 400. Rebuilt field by field, so nothing
@@ -445,7 +557,15 @@ export function parsePlacementRecord(raw: unknown): Placement | undefined | { er
   const target = parseHost(raw.target);
   const by = isRecord(raw.by) ? parseHost({ ...raw.by, platform: "-" }) : null;
   const requirements = raw.requirements;
-  if (!target || !by || typeof raw.basis !== "string" || !BASES.includes(raw.basis)) return bad;
+  const load = parsePlacementLoad(raw.load, raw.basis, raw.mode);
+  if (
+    !target ||
+    !by ||
+    load === null ||
+    typeof raw.basis !== "string" ||
+    !BASES.includes(raw.basis)
+  )
+    return bad;
   if (!Array.isArray(requirements) || requirements.length > MAX_REQUIREMENTS) return bad;
   if (!requirements.every(isCapability)) return bad;
   if (raw.preferred !== null && !isText(raw.preferred, PLATFORM_MAX)) return bad;
@@ -458,5 +578,6 @@ export function parsePlacementRecord(raw: unknown): Placement | undefined | { er
     preferred: raw.preferred,
     by: { instanceId: by.instanceId, name: by.name },
     decidedAt: raw.decidedAt,
+    ...(load && { load }),
   };
 }

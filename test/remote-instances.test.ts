@@ -180,6 +180,8 @@ describe("probeRemote", () => {
         ["/Volumes/work/shepherd-fork", "erwins-enkel/shepherd"],
       ]),
       capabilities: null,
+      load: null,
+      loadReadAt: expect.any(Number),
     });
     expect(fetch.calls.map((c) => c.url)).toEqual([
       "http://mac.test:7330/api/me",
@@ -365,6 +367,7 @@ describe("RemoteInstanceService", () => {
       },
       projects: ["acme/app", "erwins-enkel/shepherd"],
       capabilities: null,
+      load: null,
       released: true,
     });
     expect(JSON.stringify(instance)).not.toContain(TOKEN);
@@ -676,5 +679,150 @@ describe("RemoteInstanceService", () => {
     } finally {
       for (const s of spies) s.mockRestore();
     }
+  });
+});
+
+describe("remote host load", () => {
+  const wireLoad = (load1 = 1, ageMs = 0) => ({
+    sampledAt: 999_999,
+    load1,
+    cpuCount: 8,
+    runningSessions: 2,
+    ageMs,
+    stale: false,
+  });
+  async function setupLoad() {
+    let now = 100_000;
+    const remote = fakeShepherd();
+    const instance = remote.instance as Record<string, unknown>;
+    instance.load = wireLoad();
+    const fetch = stubFetch(remote);
+    const store = new SessionStore(":memory:");
+    const svc = new RemoteInstanceService({ store, fetch, now: () => now });
+    await svc.connect({ ...TARGET, label: null });
+    return {
+      remote,
+      instance,
+      fetch,
+      store,
+      svc,
+      advance: (ms: number) => {
+        now += ms;
+      },
+    };
+  }
+
+  test("uses cached fresh data, refreshes only instance load, and throttles missing reports", async () => {
+    const { svc, fetch, instance, advance } = await setupLoad();
+    const initialCalls = fetch.calls.length;
+    await svc.refreshLoads([REMOTE_ID]);
+    expect(fetch.calls).toHaveLength(initialCalls);
+    advance(15_001);
+    instance.load = wireLoad(9.6);
+    await svc.refreshLoads([REMOTE_ID, REMOTE_ID]);
+    expect(fetch.calls).toHaveLength(initialCalls + 1);
+    expect(fetch.calls.at(-1)?.url).toEndWith("/api/instance");
+    expect(svc.get(REMOTE_ID)?.load).toMatchObject({
+      load1: 9.6,
+      sampledAt: 115_001,
+      stale: false,
+    });
+    advance(15_001);
+    instance.load = null;
+    await svc.refreshLoads([REMOTE_ID]);
+    expect(svc.get(REMOTE_ID)?.status).toBe("connected");
+    expect(svc.get(REMOTE_ID)?.load).toBeNull();
+    const calls = fetch.calls.length;
+    await svc.refreshLoads([REMOTE_ID]);
+    expect(fetch.calls).toHaveLength(calls);
+  });
+
+  test("bad identity, incompatible versions and HTTP failure never imply spare capacity", async () => {
+    for (const change of ["identity", "version", "http"] as const) {
+      const { svc, remote, instance, advance } = await setupLoad();
+      advance(15_001);
+      if (change === "identity") instance.instanceId = "different";
+      if (change === "version") instance.federationApi = FEDERATION_API_VERSION - 1;
+      if (change === "http") remote.status["/api/instance"] = 500;
+      await svc.refreshLoads([REMOTE_ID]);
+      expect(svc.get(REMOTE_ID)?.load).toBeNull();
+      expect(svc.get(REMOTE_ID)?.status).toBe(
+        change === "identity"
+          ? "identity_mismatch"
+          : change === "version"
+            ? "incompatible"
+            : "connected",
+      );
+    }
+  });
+
+  test("network delay ages the sample; a removed machine cannot receive a late read", async () => {
+    let now = 100_000;
+    const remote = fakeShepherd();
+    const instance = remote.instance as Record<string, unknown>;
+    instance.load = wireLoad();
+    const base = stubFetch(remote);
+    let deferred: ((r: Response) => void) | undefined;
+    let delay = false;
+    const svc = new RemoteInstanceService({
+      store: new SessionStore(":memory:"),
+      now: () => now,
+      fetch: async (url, init) => {
+        if (delay && url.endsWith("/api/instance"))
+          return new Promise<Response>((resolve) => {
+            deferred = resolve;
+          });
+        return base(url, init);
+      },
+    });
+    await svc.connect({ ...TARGET, label: null });
+    now += 15_001;
+    delay = true;
+    const read = svc.refreshLoads([REMOTE_ID]);
+    const duplicate = svc.refreshLoads([REMOTE_ID]);
+    now += 2_000;
+    deferred!(jsonRes({ ...instance, load: wireLoad(4, 1_000) }));
+    await Promise.all([read, duplicate]);
+    expect(svc.get(REMOTE_ID)?.load?.ageMs).toBe(3_000);
+    now += 15_001;
+    const late = svc.refreshLoads([REMOTE_ID]);
+    svc.remove(REMOTE_ID);
+    deferred!(jsonRes(instance));
+    await late;
+    expect(svc.get(REMOTE_ID)).toBeNull();
+  });
+
+  test("a slow older full probe does not replace a newer load read", async () => {
+    let now = 100_000;
+    const remote = fakeShepherd();
+    const instance = remote.instance as Record<string, unknown>;
+    instance.load = wireLoad(8);
+    const base = stubFetch(remote);
+    let finishRepos: ((r: Response) => void) | undefined;
+    let holdRepos = false;
+    const svc = new RemoteInstanceService({
+      store: new SessionStore(":memory:"),
+      now: () => now,
+      fetch: async (url, init) => {
+        if (holdRepos && url.endsWith("/api/repos"))
+          return new Promise<Response>((resolve) => {
+            finishRepos = resolve;
+          });
+        return base(url, init);
+      },
+    });
+    await svc.connect({ ...TARGET, label: null });
+    now += 15_001;
+    holdRepos = true;
+    const probe = svc.check(REMOTE_ID);
+    // Allow the full probe to reach its project read without real sleeps.
+    for (let i = 0; i < 50 && !finishRepos; i++) await Promise.resolve();
+    expect(finishRepos).toBeDefined();
+    now += 1_000;
+    instance.load = wireLoad(2);
+    await svc.refreshLoads([REMOTE_ID]);
+    finishRepos!(jsonRes(remote.repos));
+    await probe;
+    expect(svc.get(REMOTE_ID)?.load?.load1).toBe(2);
   });
 });

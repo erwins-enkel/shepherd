@@ -1,3 +1,4 @@
+import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { PairingCodeService } from "./pairing-codes";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
@@ -145,6 +146,8 @@ import {
   PLATFORM_ORDER_SETTING,
   choiceDependsOn,
   decidePlacement,
+  fits,
+  loadDecision,
   describeRefusal,
   localMachine,
   parsePlatformOrder,
@@ -590,6 +593,8 @@ export interface AppDeps {
   /** This host's platform as `GET /api/instance` reports it and the machine choice (#2772) ranks
    *  it. Absent ⇒ the real one; tests stand in for another platform. */
   hostPlatform?: string;
+  /** Host telemetry seam: tests supply fixed observations instead of developer-machine load. */
+  hostLoad?: () => HostLoadSnapshot | null;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -1590,11 +1595,19 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
 // It carries the last capability report (#2770): null before the first probe, and
 // `POST /api/instance/capabilities` re-probes on demand (also `full`-only by default).
 
+function localLoad(deps: AppDeps) {
+  const snapshot = deps.hostLoad
+    ? deps.hostLoad()
+    : readHostLoad(deps.store.countRunningSessions());
+  return snapshot ? hostLoadReport(snapshot, Date.now()) : null;
+}
+
 function instanceBody(deps: AppDeps) {
   return {
     ...instanceIdentity(deps.store, hostPlatform(deps)),
     // Push registrations here take coveredInstances/relayRemote (#3058).
     pushRelay: true,
+    load: localLoad(deps),
     capabilities: capabilities(deps).report(),
   };
 }
@@ -3961,6 +3974,7 @@ async function localMachineView(deps: AppDeps, refresh: boolean): Promise<Machin
   return localMachine(
     instanceIdentity(deps.store, hostPlatform(deps)),
     capabilities(deps).report(),
+    localLoad(deps),
   );
 }
 
@@ -3984,8 +3998,16 @@ async function decide(deps: AppDeps, input: PlaceInput): Promise<PlacementDecisi
   const self = instanceIdentity(deps.store).instanceId;
   const judgesHere = input.override === null || input.override === self;
   const local = await localMachineView(deps, judgesHere && input.requirements.length > 0);
-  const machines = remoteMachineViews(remoteInstances(deps).list(), input.project);
-  return decidePlacement([local, ...machines], {
+  const instances = remoteInstances(deps);
+  const candidates = remoteMachineViews(instances.list(), input.project).filter(
+    (m) =>
+      m.connected &&
+      fits(m, input.requirements) &&
+      (input.override === null || m.host.instanceId === input.override),
+  );
+  await instances.refreshLoads(candidates.map((m) => m.host.instanceId));
+  local.load = localLoad(deps);
+  return decidePlacement([local, ...remoteMachineViews(instances.list(), input.project)], {
     requirements: input.requirements,
     override: input.override,
     order: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
@@ -4093,7 +4115,12 @@ async function manualHere(
       by: { instanceId: here.host.instanceId, name: here.host.name },
       now: Date.now(),
     },
-    { mode: "manual", basis: "manual", preferred: null },
+    {
+      mode: "manual",
+      basis: "manual",
+      preferred: null,
+      load: loadDecision(here, here, Date.now()),
+    },
   );
 }
 

@@ -1509,6 +1509,7 @@
   "feat_epic_landing_pr_body": "Wenn alle Kind-Issues eines Epics integriert sind, öffnet Shepherd einen finalen PR, der das gesamte Epic landet und das Eltern-Issue schließt — als Link im Band 'Integrierte Epics'.",
   "integrated_epics_landing_pr_merged": "Landing-PR #{number} — gemergt",
   "recap_changed_files": "Geänderte Dateien",
+  "recap_detail_load_failed": "Die Recap-Details konnten nicht geladen werden.",
   "recap_unavailable": "Für diese Session existiert kein Recap-Datensatz; der Grund wurde nicht erfasst.",
   "recap_predates_feature": "Diese Sitzung wurde abgeschlossen, bevor Sitzungs-Zusammenfassungen verfügbar waren – daher wurde keine erstellt.",
   "recap_issue": "Issue #{n}",

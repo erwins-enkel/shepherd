@@ -12868,11 +12868,19 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"recoveryAndHeldRefreshCannotDiscardTheOnlyUpNextResult() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"teardownFencesConditionalReadAndFinishesDemandLifetime() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextRetainsNullAndOptionalValidator(hasETag: Bool) async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextSendsValidatorAndPreservesBodyless304(validator: String) async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextSendsValidatorAndPreservesBodyless304(validator: String) async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"detailSuccessEmptyBlocksAndRetry() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"lateReadCannotOverwriteAnotherSessionOrClosedPresentation() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"newerVersionAndServerLifetimeFencePendingReads() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapDetail() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapDetailErrors(status: Int) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"doneDetailFetchesItsSelectedRecapWhenMounted() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"staleResponseIsRetryableAndCancellationDoesNotInstallBlocks() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testChangedSettingsSendOnlyTheChangedField() throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testRecapDetailFetchesOnlyWhenHosted() async throws\"]"
   ]
 }

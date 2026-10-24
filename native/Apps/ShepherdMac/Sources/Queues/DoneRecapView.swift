@@ -7,6 +7,10 @@ import SwiftUI
 struct DoneRecapView: View {
     let session: Session
     let recap: Recap?
+    let loadRecap: (String) async throws -> Recap
+    @State private var detail = RecapDetailState()
+
+    private var displayedRecap: Recap? { detail.current(sessionID: session.id, summary: recap) ?? recap }
     let loadUsage: (String) async throws -> Components.Schemas.SessionUsage
     // The Done panel supplies the command; nil keeps the button disabled while it is busy.
     var bringBack: ((String) -> Void)?
@@ -18,7 +22,14 @@ struct DoneRecapView: View {
             header.padding()
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) { content }
+                VStack(alignment: .leading, spacing: 12) {
+                    if detail.isLoading { ProgressView() }
+                    if let error = detail.error {
+                        Text(verbatim: error)
+                        Button(L.t("common_retry")) { Task { await loadDetails() } }
+                    }
+                    content
+                }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
                     .textSelection(.enabled)
@@ -36,6 +47,9 @@ struct DoneRecapView: View {
         .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel(L.t("done_recap_panel_aria", session.desig))
         .accessibilityIdentifier("queues-done-recap")
+        .task(id: RecapDetailState.version(sessionID: session.id, summary: recap)) {
+            await loadDetails()
+        }
         .task(id: session.id) {
             confirmation.disarm()
             await usage.load(id: session.id, read: loadUsage)
@@ -45,7 +59,11 @@ struct DoneRecapView: View {
             do { try await Task.sleep(for: .milliseconds(3_000)) } catch { return }
             confirmation.disarm()
         }
-        .onDisappear { usage.close(); confirmation.disarm() }
+        .onDisappear { detail.close(); usage.close(); confirmation.disarm() }
+    }
+
+    private func loadDetails() async {
+        await detail.load(sessionID: session.id, summary: recap, read: loadRecap)
     }
 
     private var header: some View {
@@ -75,9 +93,9 @@ struct DoneRecapView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch recap?.state.known {
+        switch displayedRecap?.state.known {
         case .ready:
-            if let recap {
+            if let recap = displayedRecap {
                 if let verdict = DonePresentation.verdict(recap) { DoneVerdictChip(verdict: verdict) }
                 if !recap.headline.isEmpty { Text(verbatim: recap.headline).font(.title2) }
                 if let blocks = recap.blocks, !blocks.isEmpty {
@@ -104,7 +122,7 @@ struct DoneRecapView: View {
             ProgressView(L.t("recap_generating"))
                 .accessibilityIdentifier("queues-done-generating")
         case .failed:
-            if let recap { failure(recap) }
+            if let recap = displayedRecap { failure(recap) }
         case .empty, nil:
             Text(verbatim: DonePresentation.emptyCopy(session, recap: recap))
                 .foregroundStyle(.secondary)

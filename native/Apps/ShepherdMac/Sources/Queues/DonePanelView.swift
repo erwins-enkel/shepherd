@@ -73,6 +73,7 @@ struct DonePanelView: View {
                     if let selected = shownSessions.first(where: { $0.id == doneSelectedID }),
                        let client = app.store?.client {
                         DoneRecapView(session: selected, recap: recap(for: selected.id),
+                                      loadRecap: { try await client.recap(sessionID: $0) },
                                       loadUsage: { try await client.sessionUsage(id: $0) },
                                       bringBack: restore.gate.busy ? nil : restoreAction(selected, client: client))
                             .id(ObjectIdentifier(client))

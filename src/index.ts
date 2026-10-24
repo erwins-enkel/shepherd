@@ -1,3 +1,4 @@
+import { recapSummary } from "./recap-core";
 import { enablePowerPaneJournal } from "./power-panes";
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
@@ -730,7 +731,8 @@ const recapService: RecapService = new RecapService({
   env: () => roleEnv(config.recapCli, config.recapModel, config.recapEffort),
   // Live operator-language setting, read per spawn (#1586).
   operatorLanguage: () => config.operatorLanguage,
-  onChange: (id, recap) => events.emit("session:recap", { id, recap }),
+  onChange: (id, recap) =>
+    events.emit("session:recap", { id, recap: recap ? recapSummary(recap) : null }),
   // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
   // declared below; this closure only runs at recap time (well after init), like refreshPr above.
   resolveBase: (s) => resolveDiffBase(s, prPoller, resolveForge),

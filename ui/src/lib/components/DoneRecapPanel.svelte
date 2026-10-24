@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type {
     Session,
     SessionUsage,
@@ -6,7 +7,7 @@
     RecapVerdict,
     SessionArchiveReason,
   } from "#lib/types.js";
-  import { recaps } from "#lib/recaps.svelte.js";
+  import { recaps, RecapDetailState } from "#lib/recaps.svelte.js";
   import { formatAgo } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -43,7 +44,18 @@
   }
   $effect(() => () => clearTimeout(bringBackTimer));
 
-  const recap = $derived(recaps.map[session.id]);
+  const summary = $derived(recaps.map[session.id]);
+  const detail = new RecapDetailState();
+  const recap = $derived(detail.current(session.id, summary) ?? summary);
+
+  const detailVersion = $derived(
+    summary ? `${session.id}:${summary.updatedAt}:${summary.state}` : undefined,
+  );
+  $effect(() => {
+    if (detailVersion) untrack(() => void detail.load(session.id, summary));
+    else untrack(() => detail.clear());
+    return () => detail.clear();
+  });
 
   // Usage for the pinned status bar. The panel can be re-rendered onto a DIFFERENT archived
   // session without a remount, so the load is keyed on the derived id (a $derived only
@@ -170,6 +182,13 @@
   </header>
 
   <div class="dr-body">
+    {#if detail.loading}<p role="status">{m.common_loading()}</p>{/if}
+    {#if detail.error}
+      <p role="alert">{m.recap_detail_load_failed()}</p>
+      <button class="gbtn" onclick={() => detail.load(session.id, summary)}
+        >{m.common_retry()}</button
+      >
+    {/if}
     {#if recap?.state === "ready"}
       {#if recap.verdict}
         <span class="dr-verdict" style:color={VERDICT_COLOR[recap.verdict]}

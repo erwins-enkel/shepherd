@@ -6,6 +6,29 @@ import Testing
 @MainActor
 @Suite("SessionStore", .timeLimit(.minutes(1)))
 struct SessionStoreTests {
+  @Test("conditional refresh preserves an event-patched list on 304")
+  func conditionalRefreshPreservesSnapshot() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "a")])
+    let body = try Fixtures.json([Fixtures.session(id: "a")])
+    server.on("GET", "/api/sessions") { request in
+      #expect(request.headers.first { $0.key.lowercased() == "if-none-match" } == nil)
+      return FakeResponse(headers: ["Content-Type": "application/json", "ETag": "W/\"sessions\""], body: body)
+    }
+    let store = SessionStore(client: try makeClient(server), usesConditionalListReads: true)
+    try await store.bootstrap()
+    store.apply(.sessionArchived(.init(id: "a")))
+    server.on("GET", "/api/sessions") { request in
+      #expect(request.headers.first { $0.key.lowercased() == "if-none-match" }?.value == "W/\"sessions\"")
+      return FakeResponse(statusCode: 304)
+    }
+    try await store.refresh()
+    #expect(store.sessions.isEmpty)
+    #expect(store.hasLoadedSessions)
+    #expect(store.settings != nil)
+  }
+
   @Test("owner snapshots replace the complete map and invalidate independently of terminal state")
   func terminalOwners() throws {
     let http = FakeShepherdServer()

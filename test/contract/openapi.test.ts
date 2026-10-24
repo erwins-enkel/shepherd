@@ -929,6 +929,11 @@ describe("sessions", () => {
     const list = await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) });
     const sessions = (await validateResponse("GET", "/api/sessions", list)) as { id: string }[];
     expect(sessions.map((x) => x.id)).toContain(created.id);
+    const unchanged = await fetch(`${s.baseUrl}/api/sessions`, {
+      headers: { ...bearer(token), "if-none-match": list.headers.get("etag")! },
+    });
+    expect(unchanged.status).toBe(304);
+    await validateResponse("GET", "/api/sessions", unchanged);
 
     const one = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, { headers: bearer(token) });
     await validateResponse("GET", "/api/sessions/{id}", one);
@@ -1004,6 +1009,11 @@ describe("sessions", () => {
     const done = await fetch(`${s.baseUrl}/api/sessions/done`, { headers: bearer(token) });
     const list = (await validateResponse("GET", "/api/sessions/done", done)) as { id: string }[];
     expect(list.map((x) => x.id)).toContain(created.id);
+    const unchanged = await fetch(`${s.baseUrl}/api/sessions/done`, {
+      headers: { ...bearer(token), "if-none-match": done.headers.get("etag")! },
+    });
+    expect(unchanged.status).toBe(304);
+    await validateResponse("GET", "/api/sessions/done", unchanged);
     const archived = await fetch(`${s.baseUrl}/api/sessions/archived`, { headers: bearer(token) });
     const all = (await validateResponse("GET", "/api/sessions/archived", archived)) as {
       id: string;
@@ -1702,6 +1712,7 @@ describe("realtime /events", () => {
   test("real session:new and session:archived frames match the contract", async () => {
     const declared = new Set(declaredEvents());
     let id = "";
+    const manualSteps = [{ id: "ms1", text: "Restart worker", postMerge: true }];
     const frames = await collectEvents(s, token, async () => {
       const res = await fetch(`${s.baseUrl}/api/sessions`, {
         method: "POST",
@@ -1709,6 +1720,9 @@ describe("realtime /events", () => {
         body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "events" }),
       });
       id = ((await res.json()) as { id: string }).id;
+      // Relaunch/restore paths can emit a session read back from the store, not the create object.
+      s.deps.store.setSessionManualSteps(id, manualSteps);
+      s.deps.events.emit("session:new", s.deps.store.get(id));
       await fetch(`${s.baseUrl}/api/sessions/${id}`, {
         method: "DELETE",
         headers: bearer(token),
@@ -1717,6 +1731,16 @@ describe("realtime /events", () => {
     const names = frames.map((f) => f.event);
     expect(names).toContain("session:new");
     expect(names).toContain("session:archived");
+    const sessions = frames
+      .filter((frame) => frame.event === "session:new")
+      .map((frame) => frame.data as Record<string, unknown>);
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((session) => session.manualSteps)).toEqual([[], manualSteps]);
+    for (const session of sessions) {
+      expect(session.id).toBe(id);
+      expect(session.launchMetadata).toMatchObject({ sourceKind: "generated", prompt: "events" });
+      expect(Object.keys(session).filter((key) => key.endsWith("Json"))).toEqual([]);
+    }
     // Everything the real server pushed that the contract declares must match it; frames for
     // undeclared events (the native client ignores them) are not the contract's business.
     for (const f of frames) if (declared.has(f.event)) validateEvent(f.event, f.data);

@@ -1,9 +1,7 @@
 //! `up-next list|start`.
 //!
-//! The contract has no read route for the queue: `GET /api/up-next` answers a bare `null` when
-//! nothing is cached, so it is undeclared. Clients bootstrap the way the contract says — open
-//! `/events` FIRST, then `POST /api/up-next/refresh`, then take the first `upnext:snapshot` frame.
-//! The refresh is single-flight and always pushes a frame when it lands, so one always follows.
+//! Open `/events` before requesting a refresh, then fetch the cached snapshot over HTTP
+//! after `upnext:changed`. Older servers may still deliver `upnext:snapshot` directly.
 
 use std::time::Duration;
 
@@ -15,7 +13,10 @@ use super::intake::summary;
 use super::{VersionCheck, print_done};
 use crate::Ctx;
 use crate::api::Client;
-use crate::api::types::{UpNextItem, UpNextSnapshot, UpNextStartItem, UpNextStartResult};
+use crate::api::types::{
+    PeekUpNextPeek, UpNextItem, UpNextSnapshot, UpNextStartIssueRef, UpNextStartItem,
+    UpNextStartResult,
+};
 use crate::cli::{UpNextCmd, UpNextStartArgs};
 use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
 use crate::output::{self, Mode, ago};
@@ -58,7 +59,22 @@ async fn snapshot_from(
         while let Some(msg) = socket.next().await {
             let Ok(msg) = msg else { break };
             let Some(frame) = parse(msg) else { continue };
-            if frame.get("event").and_then(Value::as_str) != Some("upnext:snapshot") {
+            let event = frame.get("event").and_then(Value::as_str);
+            if event == Some("upnext:changed") {
+                let cached = match client.peek_up_next().peek(PeekUpNextPeek::X1).send().await {
+                    Ok(response) => response.into_inner(),
+                    Err(e) => return Err(api_error(e, op).await),
+                };
+                let Some(snap) = cached.0 else { continue };
+                return Ok(UpNextSnapshot {
+                    generated_at: snap.generated_at,
+                    sections: snap.sections,
+                    repo_count: snap.repo_count,
+                    fallback: snap.fallback,
+                    failed_repo_count: snap.failed_repo_count,
+                });
+            }
+            if event != Some("upnext:snapshot") {
                 continue;
             }
             let data = frame
@@ -197,7 +213,12 @@ async fn start(ctx: &mut Ctx<'_>, args: UpNextStartArgs) -> Result<()> {
         let item = pick(&all, key)?;
         picked.push(UpNextStartItem {
             repo_path: item.repo_path.clone(),
-            issue_ref: item.issue_ref.clone().into(),
+            issue_ref: UpNextStartIssueRef {
+                number: item.issue_ref.number,
+                url: item.issue_ref.url.clone(),
+                title: item.issue_ref.title.clone(),
+                body: None,
+            },
         });
     }
     let result = ctx

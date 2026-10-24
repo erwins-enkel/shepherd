@@ -5,7 +5,16 @@ import { readinessHash } from "../src/up-next-readiness-core";
 import type { Judge } from "../src/judge";
 import type { UpNextItem } from "../src/up-next-core";
 
-function item(n: number, over: Partial<UpNextItem> = {}): UpNextItem {
+type TestItem = Omit<UpNextItem, "issueRef"> & {
+  issueRef: UpNextItem["issueRef"] & { body: string };
+};
+const inputOf = (item: UpNextItem) => ({
+  title: item.issueRef.title,
+  body: (item as TestItem).issueRef.body,
+  labels: item.labels,
+});
+
+function item(n: number, over: Partial<TestItem> = {}): TestItem {
   const title = over.title ?? `t${n}`;
   return {
     repoPath: "/r/a",
@@ -75,7 +84,7 @@ describe("ReadinessScorer.scoreMissing", () => {
   test("scores misses, stores p with model + scoredAt, and returns the count", async () => {
     const { judge, calls } = stubJudge();
     const { s, store } = scorer({ judge: () => judge });
-    expect(await s.scoreMissing([item(1), item(2)])).toBe(2);
+    expect(await s.scoreMissing([item(1), item(2)], inputOf)).toBe(2);
     expect(calls).toHaveLength(2);
     const h = readinessHash("m", { title: "t1", body: "body 1", labels: [] });
     expect(store.rows.get(h)).toEqual({ hash: h, p: 0.8, model: "m", scoredAt: 42 });
@@ -85,7 +94,7 @@ describe("ReadinessScorer.scoreMissing", () => {
     const { judge, calls } = stubJudge();
     const h = readinessHash("m", { title: "t1", body: "body 1", labels: [] });
     const { s } = scorer({ judge: () => judge, store: memStore({ [h]: 0.5 }) });
-    expect(await s.scoreMissing([item(1)])).toBe(0);
+    expect(await s.scoreMissing([item(1)], inputOf)).toBe(0);
     expect(calls).toHaveLength(0);
   });
 
@@ -94,17 +103,20 @@ describe("ReadinessScorer.scoreMissing", () => {
     const { s } = scorer({ judge: () => judge });
     // Different numbers/repos, same scored content → same hash.
     expect(
-      await s.scoreMissing([
-        item(1, { title: "x" }),
-        item(2, { title: "x", issueRef: { number: 2, url: "u", title: "x", body: "body 1" } }),
-      ]),
+      await s.scoreMissing(
+        [
+          item(1, { title: "x" }),
+          item(2, { title: "x", issueRef: { number: 2, url: "u", title: "x", body: "body 1" } }),
+        ],
+        inputOf,
+      ),
     ).toBe(1);
     expect(calls).toHaveLength(1);
   });
 
   test("an unarmed judge makes no call", async () => {
     const { s } = scorer({ judge: () => null });
-    expect(await s.scoreMissing([item(1)])).toBe(0);
+    expect(await s.scoreMissing([item(1)], inputOf)).toBe(0);
   });
 
   test("spend.allow() === false stops before any call", async () => {
@@ -114,7 +126,7 @@ describe("ReadinessScorer.scoreMissing", () => {
       judge: () => judge,
       spend: { allow: () => false, record: () => void recorded++ },
     });
-    expect(await s.scoreMissing([item(1), item(2)])).toBe(0);
+    expect(await s.scoreMissing([item(1), item(2)], inputOf)).toBe(0);
     expect(calls).toHaveLength(0);
     expect(recorded).toBe(0);
   });
@@ -128,7 +140,7 @@ describe("ReadinessScorer.scoreMissing", () => {
       judge: () => judge,
       spend: { allow: () => true, record: (c) => void costs.push(c) },
     });
-    expect(await s.scoreMissing([item(1), item(2)])).toBe(1);
+    expect(await s.scoreMissing([item(1), item(2)], inputOf)).toBe(1);
     expect(costs).toEqual([0.001, 0.001]);
     // The out-of-range answer is NOT cached, so the next refresh retries it.
     expect(store.rows.size).toBe(1);
@@ -137,7 +149,7 @@ describe("ReadinessScorer.scoreMissing", () => {
   test("a throwing judge returns 0, warns once, never throws", async () => {
     const { judge, calls } = stubJudge(() => new Error("503"));
     const { s, warns } = scorer({ judge: () => judge, concurrency: 1 });
-    expect(await s.scoreMissing([item(1), item(2), item(3), item(4), item(5)])).toBe(0);
+    expect(await s.scoreMissing([item(1), item(2), item(3), item(4), item(5)], inputOf)).toBe(0);
     expect(warns).toHaveLength(1);
     // A systemic failure stops the run rather than being retried for every item.
     expect(calls.length).toBeLessThan(5);
@@ -152,7 +164,7 @@ describe("ReadinessScorer.scoreMissing", () => {
         record: () => {},
       },
     });
-    expect(await s1.scoreMissing([item(1)])).toBe(0);
+    expect(await s1.scoreMissing([item(1)], inputOf)).toBe(0);
     const { s: s2 } = scorer({
       store: {
         getReadiness: () => {
@@ -161,8 +173,8 @@ describe("ReadinessScorer.scoreMissing", () => {
         putReadiness: () => {},
       } as unknown as ReturnType<typeof memStore>,
     });
-    expect(await s2.scoreMissing([item(1)])).toBe(0);
-    expect(s2.scoreLookup([item(1)])(item(1))).toBeNull();
+    expect(await s2.scoreMissing([item(1)], inputOf)).toBe(0);
+    expect(s2.scoreLookup([item(1)], inputOf)(item(1))).toBeNull();
   });
 
   test("a throwing spend.record does not lose the score", async () => {
@@ -174,7 +186,7 @@ describe("ReadinessScorer.scoreMissing", () => {
         },
       },
     });
-    expect(await s.scoreMissing([item(1)])).toBe(1);
+    expect(await s.scoreMissing([item(1)], inputOf)).toBe(1);
     expect(store.rows.size).toBe(1);
   });
 
@@ -196,11 +208,11 @@ describe("ReadinessScorer.scoreMissing", () => {
     } as unknown as Judge;
     const { s } = scorer({ judge: () => judge, maxPerRefresh: 5, concurrency: 2 });
     const items = Array.from({ length: 12 }, (_, i) => item(i + 1));
-    expect(await s.scoreMissing(items)).toBe(5);
+    expect(await s.scoreMissing(items, inputOf)).toBe(5);
     expect(peak).toBe(2);
     // The rest converge over later refreshes.
-    expect(await s.scoreMissing(items)).toBe(5);
-    expect(await s.scoreMissing(items)).toBe(2);
+    expect(await s.scoreMissing(items, inputOf)).toBe(5);
+    expect(await s.scoreMissing(items, inputOf)).toBe(2);
   });
 
   test("overlapping runs never ask about the same hash twice", async () => {
@@ -220,8 +232,8 @@ describe("ReadinessScorer.scoreMissing", () => {
       },
     } as unknown as Judge;
     const { s } = scorer({ judge: () => judge });
-    const first = s.scoreMissing([item(1)]);
-    const second = s.scoreMissing([item(1)]);
+    const first = s.scoreMissing([item(1)], inputOf);
+    const second = s.scoreMissing([item(1)], inputOf);
     release();
     expect(await first).toBe(1);
     expect(await second).toBe(0);
@@ -234,11 +246,11 @@ describe("ReadinessScorer.scoreLookup", () => {
     const h1 = readinessHash("m", { title: "t1", body: "body 1", labels: [] });
     let model = "m";
     const { s } = scorer({ store: memStore({ [h1]: 0.7 }), model: () => model });
-    const look = s.scoreLookup([item(1), item(2)]);
+    const look = s.scoreLookup([item(1), item(2)], inputOf);
     expect(look(item(1))).toBe(0.7);
     expect(look(item(2))).toBeNull();
     model = "m2"; // a re-pin misses everything
-    expect(s.scoreLookup([item(1)])(item(1))).toBeNull();
+    expect(s.scoreLookup([item(1)], inputOf)(item(1))).toBeNull();
   });
 
   test("an epic row is scored on its child issueRef plus the parent's labels", () => {
@@ -250,7 +262,7 @@ describe("ReadinessScorer.scoreLookup", () => {
     });
     const h = readinessHash("m", { title: "child", body: "child body", labels: ["area/ui"] });
     const { s } = scorer({ store: memStore({ [h]: 0.2 }) });
-    expect(s.scoreLookup([epicRow])(epicRow)).toBe(0.2);
+    expect(s.scoreLookup([epicRow], inputOf)(epicRow)).toBe(0.2);
   });
 });
 

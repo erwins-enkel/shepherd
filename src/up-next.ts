@@ -4,13 +4,15 @@
 // fan-out shape (mapBounded, ~6 concurrent) and the REAL epic pipeline (drain.buildEpic +
 // selectEpicCandidates) so epic readiness gates on store session/integration/claim/PR facts,
 // never on raw listIssues (which lacks them and would mis-gate).
+import { createHash } from "node:crypto";
+import type { EventHub } from "./events";
 import { realpathSync } from "node:fs";
 import { mapBounded } from "./map-bounded";
 import { parseEpicBody } from "./epic-parse";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import type { GitForge } from "./forge/types";
 import { reconcileRealPathsToRaw, type RepoEntry } from "./repos";
-import type { ReadinessScorer } from "./up-next-readiness";
+import type { ReadinessScorer, ReadinessInputOf } from "./up-next-readiness";
 import {
   applyReadiness,
   buildSnapshot,
@@ -57,6 +59,16 @@ export function buildUpNextRepos(args: {
   return result;
 }
 
+export interface UpNextChanged {
+  version: string;
+  computedAt: number;
+}
+
+/** Shared by production wiring and the real-transport regression test. */
+export function upNextChangePublisher(events: Pick<EventHub, "emit">): UpNextDeps["onChange"] {
+  return (_snapshot, change) => events.emit("upnext:changed", change);
+}
+
 export interface UpNextDeps {
   /** Forge-backed repos only (the caller filters out non-forge / lightweight repos). */
   listForgeRepos: () => UpNextRepo[];
@@ -66,8 +78,8 @@ export interface UpNextDeps {
   /** The drain's on-demand epic assembler (pulls session/integration/claim/PR facts). */
   buildEpic: (repoPath: string, run: EpicRun) => Promise<Epic | null>;
   getEpicRun: (repoPath: string) => EpicRun | null;
-  /** Push the fresh snapshot to clients (a `upnext:snapshot` WS frame). */
-  onChange: (snap: UpNextSnapshot) => void;
+  /** Publication callback: snapshots stay in memory; clients receive only the change metadata. */
+  onChange: (snap: UpNextSnapshot, change: UpNextChanged) => void;
   now?: () => number;
   concurrency?: number;
   intervalMs?: number;
@@ -130,7 +142,7 @@ export class UpNextService {
   /** The latest compute's un-reranked snapshot. A background readiness run re-applies the cache to
    *  THIS, never to the snapshot it started from — so a slow judge can never publish stale items,
    *  and scores from a run that a newer compute overtook still land. */
-  private raw: UpNextSnapshot | null = null;
+  private raw: { snapshot: UpNextSnapshot; inputOf: ReadinessInputOf } | null = null;
 
   constructor(private deps: UpNextDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -163,20 +175,37 @@ export class UpNextService {
     const ok = resolved.filter((r): r is RepoInput => r !== null && r !== "fetch_failed");
     const failedRepoCount = resolved.filter((r) => r === "fetch_failed").length;
     const raw = buildSnapshot(ok, this.now(), null, failedRepoCount);
-    this.raw = raw;
+    // Keep the text in this compute's private context, never on a published row.
+    const bodies = new Map<string, Map<number, string>>();
+    for (const repo of ok) {
+      const issues = new Map(repo.openIssues.map((issue) => [issue.number, issue.body]));
+      for (const epic of repo.epics) {
+        if (epic.candidate) issues.set(epic.candidate.number, epic.candidate.body);
+      }
+      bodies.set(repo.repoPath, issues);
+    }
+    const inputOf: ReadinessInputOf = (item) => ({
+      title: item.issueRef.title,
+      body: bodies.get(item.repoPath)!.get(item.issueRef.number)!,
+      labels: item.labels,
+    });
+    this.raw = { snapshot: raw, inputOf };
     const readiness = this.activeReadiness();
     if (!readiness) return this.publish(raw);
     // Publish on cached scores NOW, then score the misses in the background — Up Next never
     // awaits the judge.
-    const snap = this.publish(this.rerank(raw, readiness));
-    this.scoreInBackground(raw, readiness);
+    const snap = this.publish(this.rerank(raw, readiness, inputOf));
+    this.scoreInBackground(raw, readiness, inputOf);
     return snap;
   }
 
   private publish(snap: UpNextSnapshot): UpNextSnapshot {
     this.snap = snap;
     try {
-      this.deps.onChange(snap);
+      this.deps.onChange(snap, {
+        version: createHash("sha256").update(JSON.stringify(snap)).digest("hex"),
+        computedAt: snap.generatedAt,
+      });
     } catch (err) {
       console.warn("[up-next] onChange:", err);
     }
@@ -199,9 +228,10 @@ export class UpNextService {
   private rerank(
     raw: UpNextSnapshot,
     readiness: NonNullable<UpNextDeps["readiness"]>,
+    inputOf: ReadinessInputOf,
   ): UpNextSnapshot {
     try {
-      return applyReadiness(raw, readiness.scorer.scoreLookup(allItems(raw)));
+      return applyReadiness(raw, readiness.scorer.scoreLookup(allItems(raw), inputOf));
     } catch (err) {
       console.warn("[up-next] readiness rerank failed (publishing today's order):", err);
       return raw;
@@ -213,12 +243,13 @@ export class UpNextService {
   private scoreInBackground(
     raw: UpNextSnapshot,
     readiness: NonNullable<UpNextDeps["readiness"]>,
+    inputOf: ReadinessInputOf,
   ): void {
     void (async () => {
-      const scored = await readiness.scorer.scoreMissing(allItems(raw));
+      const scored = await readiness.scorer.scoreMissing(allItems(raw), inputOf);
       const latest = this.raw;
       if (scored <= 0 || !latest || !this.activeReadiness()) return;
-      this.publish(this.rerank(latest, readiness));
+      this.publish(this.rerank(latest.snapshot, readiness, latest.inputOf));
     })().catch((err) => console.warn("[up-next] readiness background scoring:", err));
   }
 

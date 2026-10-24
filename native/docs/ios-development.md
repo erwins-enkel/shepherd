@@ -438,3 +438,45 @@ content, the test first rasterizes the production view in a private hosted test
 window and passes that image through ImageRenderer. It never screenshots a simulator
 or substitutes clipped key content. Real-device acceptance (iOS 18/26, DE/EN, AirPods, incoming call, offline and three-minute recording)
 is tracked in the draft PR checklist.
+
+## On-demand lists and foreground validation
+
+The iOS activation opts into `AppModel.loadsListsOnDemand`; Mac keeps eager loading.
+Sessions, settings and repos remain the bootstrap set. Recap summaries load when a
+session detail or Done is visible; Done loads its archived sessions only while open.
+Next keeps its existing presentation-owned, cache-only read. Recap blocks still load
+only in the recap sheet. Until summaries arrive, session cards use their existing
+session/activity text. Closing the last presentation cancels its list read.
+
+Foreground recovery revalidates sessions and visible optional lists using their
+in-memory ETags. A 304 keeps the snapshot and subsequent event patches; a server
+without validators still works through 200 responses. Caches belong to one server
+activation. An archived push target uses a single-session lookup, including archives
+older than the Done window, rather than loading the whole archive on startup.
+
+### Traffic acceptance run (#3268)
+
+Use a macOS host running the iPhone simulator and record the server revision, app
+version/build, number of connected profiles and the Network Link Conditioner profile.
+The automated `IOSCompositionTests.testBootstrapDoesNotRequestBlockedOffscreenLists`
+checks the actual activation's HTTP request trace with offscreen routes blocked;
+it does not establish a live 3G timing or wire-byte result.
+
+1. Connect only Moe, select All, terminate the app and capture a fresh activation
+   without in-memory snapshots. Use a named 3G profile and record its bandwidth,
+   latency and loss settings. Keep authentication and measurement credentials private.
+2. Capture all incoming HTTP responses and WebSocket frames from activation until
+   the populated Sessions list is first visible, without opening another view.
+   Record compressed application wire bytes separately from decoded payload sizes.
+3. Require less than 300,000 incoming application bytes and less than 3 seconds
+   to the visible populated list, with no unavailable banner. No requests to recaps,
+   Done, the full archive or Up Next should occur in that startup interval.
+4. Open Done, Next and a session's recap; verify content and loading/retry states.
+   Background and foreground each visible view: unchanged conditional resources
+   should return bodyless 304s, changed resources 200s. Closed optional views stay idle.
+5. Repeat on iPad and after a reconnect. Test an archived notification both with a
+   known server and with ambiguous server ownership; never silently choose a server.
+
+The Linux implementation workspace cannot run Swift, Xcode, a simulator or a
+TestFlight distribution. Live byte/timing measurements and release validation must
+be recorded from the macOS/device run; no acceptance numbers are inferred here.

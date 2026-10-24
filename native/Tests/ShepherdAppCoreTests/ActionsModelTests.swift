@@ -12,6 +12,57 @@ extension CoreSeamTests {
 struct ActionsModelTests {
     init() { resetStreamSeams() }
 
+    @Test func closingRecapsCancelsDemandBeforeSlowReadFinishes() async {
+        let gate = RecapGate()
+        let m = ActionsModel(reads: gate.reads, now: { 1 }, loadsListsOnDemand: true)
+        let visible = Task { await m.observeRecaps() }
+        #expect(await settle(until: { gate.parkedCount == 1 }))
+        visible.cancel()
+        await visible.value
+        gate.release(["late": Recap(sessionId: "late", state: .init(known: .ready), headline: "late", body: "", openItems: [], updatedAt: 1)])
+        for _ in 0..<20 { await Task.yield() }
+        #expect(m.recaps.isEmpty)
+        #expect(!m.hasLoadedRecaps)
+        m.teardown()
+    }
+
+    @Test func conditionalRecapRecoveryKeepsNewerEventOn304() async {
+        let probe = RecapDemandProbe()
+        let m = ActionsModel(reads: .init(recaps: { [:] }, readRecaps: { tag in
+            await probe.conditional(tag)
+        }), now: { 1 }, loadsListsOnDemand: true)
+        let visible = Task { await m.observeRecaps() }
+        #expect(await settle(until: { m.hasLoadedRecaps }))
+        m.apply(recapFrame("visible", headline: "new event"))
+        m.apply(.sessionArchived(.init(id: "visible")))
+        await m.refresh()
+        #expect(m.recap(for: "visible")?.headline == "new event")
+        #expect(await probe.validators == [nil, "W/\"recaps\""])
+        visible.cancel(); await visible.value
+        m.teardown()
+    }
+
+    @Test func recapsRequirePresentationAndShareDemand() async {
+        let probe = RecapDemandProbe()
+        let m = ActionsModel(reads: .init(recaps: { await probe.read() }), now: { 1 }, loadsListsOnDemand: true)
+        await m.refresh()
+        #expect(await probe.calls == 0)
+        let first = Task { await m.observeRecaps() }
+        #expect(await settle(until: { !m.recaps.isEmpty }))
+        let second = Task { await m.observeRecaps() }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(await probe.calls == 1)
+        first.cancel(); second.cancel()
+        await first.value; await second.value
+        await m.refresh()
+        #expect(await probe.calls == 1)
+        let reopened = Task { await m.observeRecaps() }
+        for _ in 0..<100 { if await probe.calls == 2 { break }; await Task.yield() }
+        #expect(await probe.calls == 2)
+        reopened.cancel(); await reopened.value
+        m.teardown()
+    }
+
     /// Driven through the injectable reads rather than the network: Task 2 proves the HTTP
     /// mapping, this suite is about state.
     private func model(_ reads: ActionReads = .stub) -> ActionsModel {
@@ -482,4 +533,17 @@ struct ActionsModelTapTests {
         #expect(model.recap(for: "s8") == nil)
     }
 }
+}
+
+private actor RecapDemandProbe {
+    private(set) var calls = 0
+    private(set) var validators: [String?] = []
+    func conditional(_ tag: String?) -> SnapshotReadResult<[String: Recap]> {
+        validators.append(tag)
+        return tag == nil ? .modified(value: read(), etag: "W/\"recaps\"") : .notModified
+    }
+    func read() -> [String: Recap] {
+        calls += 1
+        return ["visible": Recap(sessionId: "visible", state: .init(known: .ready), headline: "Visible", body: "", openItems: [], updatedAt: 1)]
+    }
 }

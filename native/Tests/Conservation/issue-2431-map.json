@@ -2944,7 +2944,9 @@
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"startUpNextPreservesOutcomeAndAllArrays(status: Int) async throws\"]"
       ],
       "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: #3262 asserts that metadata-only Start requests omit body while preserving outcome, mixed-result arrays and model choice assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"contractMismatch() async throws\"]",
@@ -10084,7 +10086,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"bootstrapLoadsEverySnapshotAndSubscribes() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Closed bootstrap now leaves Up Next unfetched and unrecomputed; held/done/recap/stranded bootstrap assertions remain."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"burstDuringBootstrapCollapsesToOneFollowUpWithoutRecomputingUpNext() async throws\"]",
@@ -10092,7 +10096,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"burstDuringBootstrapCollapsesToOneFollowUpWithoutRecomputingUpNext() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Expect zero Up Next computations for closed bootstrap and held bursts, preserving held coalescing assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"failedReadPreservesItsSnapshotWithoutDiscardingSuccessfulReads() async throws\"]",
@@ -10148,7 +10154,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"malformedAndUnrelatedFramesDoNotChangeStateOrTriggerReads() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Include malformed upnext:changed in the ignored-frame cases while retaining the legacy snapshot sentinel."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"newerRefreshWinsWithoutKillingTheEventTap() async throws\"]",
@@ -10180,7 +10188,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"reconnectRereadsHeldAndRequestsUpNextEvenWithoutAFrame() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Reconnect still reconciles held rows twice; closed Up Next no longer computes. Visible reconnect revalidation is covered by the new multiple-consumer test."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"replacingConnectionWatcherKeepsTheReplacementAlive() async throws\"]",
@@ -10196,7 +10206,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"snapshotBeatsAnOlderUpNextRequestFailure() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Start the gated failing refresh explicitly because closed bootstrap no longer computes; a later legacy snapshot still clears failure."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"strandedGrowthRereadsIDsAndAutoRevivedKeepsItsOwnNotice() async throws\"]",
@@ -10228,7 +10240,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"upNextSnapshotReplacesWholesaleAndClearsFailure() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: #3266 Trigger the failing refresh explicitly because closed bootstrap no longer computes; legacy snapshot replacement and failure recovery remain asserted."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesStreamTests\",\"installRegistersThreePanelsAndOneLifecycleManagedModel() async throws\"]",
@@ -11951,7 +11965,8 @@
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
       "assertionChanges": [
-        "fixture: required NotificationEnvironment injected with fake center/focus and scratch defaults; original credentials, probes, actions and all assertions retained."
+        "fixture: required NotificationEnvironment injected with fake center/focus and scratch defaults; original credentials, probes, actions and all assertions retained.",
+        "current-module: #3266 closed bootstrap now explicitly asserts zero computations; open presentation demand before retaining the original accepted-computation, legacy-frame, cached-refresh and presentation assertions."
       ]
     },
     {
@@ -11968,7 +11983,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextTests.swift\",\"CoreSeamTests.UpNextTests\",\"atMostThreeStartsImmediatelyButFourRequiresMatchingConfirmation() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: #3262 expects an omitted Start body because the server now hydrates full issue context; batch-size and matching-confirmation assertions are unchanged."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/UpNextTests.swift\",\"UpNextTests\",\"busyGateRejectsDuplicatesAndStaleCompletionsHaveNoNotices() async\"]",
@@ -12010,7 +12027,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextTests.swift\",\"CoreSeamTests.UpNextTests\",\"everyStatusProcessesAllThreeArraysAndPreservesIssuePayloadAndChoice() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: #3262 compares the explicit metadata-only UpNextStartIssueRef after splitting read and start DTOs; exact item identity, selected provider/model/effort and all outcome-array assertions are retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/UpNextTests.swift\",\"UpNextTests\",\"labelChipsDropOnlyExactPriorityAndEpicBadgeDuplicates()\"]",
@@ -12879,11 +12898,39 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"remoteSnapshots() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ActionBarTests.swift\",\"MacSeamTests.ActionBarTests\",\"remoteContextMenuSelectsItsOwnSessionAndOpensRename() async throws\"]",
     "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/RemoteSessionParityUITests.swift\",\"RemoteSessionParityUITests\",\"testRemoteControlsSteeringAndReconnect() throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"returnedSessionsAndCollisions() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"returnedSessionsAndCollisions() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"acceptedComputationNeedsChangedAndHttpBeforeInstallingAResult() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"conditionalReadsAreDemandDrivenAnd304PreservesCachedNull() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"failedConditionalReadPreservesDataAndReopenRetries() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"invalidationsDuringAReadCoalesceAndClosingStopsFollowUps() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"multipleConsumersShareDemandAndReconnectRevalidatesOnlyVisibleQueues() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"recoveryAndHeldRefreshCannotDiscardTheOnlyUpNextResult() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"teardownFencesConditionalReadAndFinishesDemandLifetime() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextRetainsNullAndOptionalValidator(hasETag: Bool) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"conditionalUpNextSendsValidatorAndPreservesBodyless304(validator: String) async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"detailSuccessEmptyBlocksAndRetry() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"lateReadCannotOverwriteAnotherSessionOrClosedPresentation() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"newerVersionAndServerLifetimeFencePendingReads() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapDetail() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapDetailErrors(status: Int) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"doneDetailFetchesItsSelectedRecapWhenMounted() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"staleResponseIsRetryableAndCancellationDoesNotInstallBlocks() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"metadataOnlyUpNextSnapshotDecodesOverHTTPAndEvents() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionsModelTests.swift\",\"CoreSeamTests.ActionsModelTests\",\"closingRecapsCancelsDemandBeforeSlowReadFinishes() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionsModelTests.swift\",\"CoreSeamTests.ActionsModelTests\",\"conditionalRecapRecoveryKeepsNewerEventOn304() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionsModelTests.swift\",\"CoreSeamTests.ActionsModelTests\",\"recapsRequirePresentationAndShareDemand() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"closingDoneCancelsDemandBeforeSlowReadFinishes() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"conditionalDoneRecoveryKeepsSnapshotOn304() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"doneRequiresPresentation() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"freshStoreSessionRepairsMissedHaltClearWithoutAnotherRead() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"conditionalRefreshPreservesSnapshot() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsDecodeEmptySnapshots(hasETag: Bool) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsPreserveValidators(validator: String) async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testChangedSettingsSendOnlyTheChangedField() throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testRecapDetailFetchesOnlyWhenHosted() async throws\"]"
   ]
 }

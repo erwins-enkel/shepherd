@@ -48,6 +48,47 @@ struct ShepherdClientQueuesTests {
         #expect(requests.first?.query == "peek=1")
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["W/\"cached\"", "\"strong%2Ftag\"", "\"first\", W/\"second\"", "*"])
+    func conditionalUpNextSendsValidatorAndPreservesBodyless304(validator: String) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.on("GET", "/api/up-next") { request in
+            #expect(request.headers.first { $0.key.lowercased() == "if-none-match" }?.value == validator)
+            #expect(request.query == "peek=1")
+            return FakeResponse(statusCode: 304, headers: ["ETag": "W/\"cached\""], body: Data())
+        }
+        let result = try await client(server).readUpNext(ifNoneMatch: validator)
+        guard case .notModified = result else { Issue.record("304 must not decode a snapshot"); return }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func conditionalUpNextRetainsNullAndOptionalValidator(hasETag: Bool) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.on("GET", "/api/up-next") { _ in
+            FakeResponse(statusCode: 200,
+                         headers: hasETag ? ["Content-Type": "application/json", "ETag": "\"null\""]
+                                          : ["Content-Type": "application/json"], body: Data("null".utf8))
+        }
+        let result = try await client(server).readUpNext()
+        guard case .modified(let snapshot, let etag) = result else { Issue.record("200 is modified"); return }
+        #expect(snapshot == nil)
+        #expect(etag == (hasETag ? "\"null\"" : nil))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func metadataOnlyUpNextSnapshotDecodesOverHTTPAndEvents() async throws {
+        let json = #"{"generatedAt":42,"sections":[{"kind":"repo","repoPath":"/repo","repoSlug":null,"repoLabel":"Repo","items":[{"repoPath":"/repo","repoSlug":null,"repoLabel":"Repo","number":7,"title":"Issue","url":"https://example.test/7","kind":"feature","priority":false,"createdAt":1,"labels":[],"issueRef":{"number":7,"url":"https://example.test/7","title":"Issue"}}],"totalCount":1}],"repoCount":1,"fallback":null,"failedRepoCount":0}"#
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("GET", "/api/up-next", status: 200, json: Data(json.utf8))
+        let response = try await client(server).peekUpNext()
+        let snapshot = try #require(response)
+        #expect(snapshot.sections.first?.items.first?.issueRef.number == 7)
+        let event = try JSONDecoder().decode(Components.Schemas.UpNextSnapshotEvent.self,
+            from: Data("{\"snapshot\":\(json)}".utf8))
+        #expect(event.snapshot.sections.first?.items.first?.issueRef.number == 7)
+    }
+
     @Test(.timeLimit(.minutes(1))) func peekUpNextMapsUnauthorized() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }
@@ -87,7 +128,7 @@ extension ShepherdClientQueuesTests {
 
     private var startItem: UpNextStartItem {
         .init(repoPath: "/repo", issueRef: .init(number: 42, url: "https://example.test/42",
-                                               title: "Queue", body: "Implement"))
+                                               title: "Queue"))
     }
 
     @Test(arguments: [false, true])
@@ -150,6 +191,7 @@ extension ShepherdClientQueuesTests {
         let items = try #require(sent["items"] as? [[String: Any]])
         #expect(items.count == 1 && items[0]["repoPath"] as? String == "/repo")
         #expect((items[0]["issueRef"] as? [String: Any])?["number"] as? Int == 42)
+        #expect((items[0]["issueRef"] as? [String: Any])?["body"] == nil)
         #expect(server.requests().count == 1)
     }
 

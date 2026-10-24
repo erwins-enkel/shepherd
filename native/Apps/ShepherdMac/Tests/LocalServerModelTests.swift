@@ -256,6 +256,16 @@ extension MacSeamTests {
         return condition()
     }
 
+    /// URLSession callbacks run outside the main actor; a yield count cannot bound their wait.
+    private func settleNetwork(until condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
     /// `act()` drains the supervisor's captured password once, when its
     /// lifecycle turn ends; a boot line still on the pump then only surfaces
     /// through a later `refresh()` → `pullLog()`. Polls that, bounded by
@@ -1601,12 +1611,12 @@ extension MacSeamTests {
         await model.connect(app)
         #expect(model.pendingPassword != nil)
         await gate.open()
-        #expect(await settle(until: { app.store != nil }))
-        #expect(await settle(until: { LocalCredentialFixtureProtocol.waitingCount >= 3 }))
+        #expect(await settleNetwork(until: { app.store != nil }))
+        #expect(await settleNetwork(until: { LocalCredentialFixtureProtocol.waitingCount >= 3 }))
         #expect(!(await settle(until: { model.pendingPassword == nil })))
         LocalCredentialFixtureProtocol.release()
-        #expect(await settle(until: { app.store?.hasLoadedSessions == true }))
-        #expect(await settle(until: { model.pendingPassword == nil }))
+        #expect(await settleNetwork(until: { app.store?.hasLoadedSessions == true }))
+        #expect(await settleNetwork(until: { model.pendingPassword == nil }))
         #expect(app.sheet == nil)
     }
 

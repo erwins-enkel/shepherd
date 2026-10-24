@@ -90,7 +90,9 @@ public final class ShepherdClient: Sendable {
       transport: URLSessionTransport(configuration: .init(session: longRunningURLSession)),
       middlewares: middlewares
     )
-    var ordinaryMiddlewares: [any ClientMiddleware] = [auth, RetryingMiddleware(maxAttempts: requestAttempts)]
+    var ordinaryMiddlewares: [any ClientMiddleware] = [
+      auth, UpNextConditionalHeaderMiddleware(), RetryingMiddleware(maxAttempts: requestAttempts)
+    ]
     if let readOnlyAudit { ordinaryMiddlewares.insert(ReadOnlyRequestMiddleware(audit: readOnlyAudit), at: 0) }
     generated = Client(
       serverURL: validated.baseURL,
@@ -155,9 +157,22 @@ public final class ShepherdClient: Sendable {
   }
 
   public func sessions() async throws -> [Components.Schemas.Session] {
+    switch try await readSessions() {
+    case .modified(let value, _): return value
+    case .notModified:
+      throw ShepherdError.contractMismatch(route: "listSessions", underlying: "304 without a validator")
+    }
+  }
+
+  public func readSessions(ifNoneMatch: String? = nil) async throws -> SnapshotReadResult<[Components.Schemas.Session]> {
     do {
-      switch try await generated.listSessions(.init()) {
-      case .ok(let ok): return try ok.body.json
+      switch try await generated.listSessions(.init(headers: .init(ifNoneMatch: ifNoneMatch))) {
+      case .ok(let ok): return .modified(value: try ok.body.json, etag: ok.headers.eTag)
+      case .notModified:
+        guard ifNoneMatch != nil else {
+          throw ShepherdError.contractMismatch(route: "conditionalList", underlying: "304 without a validator")
+        }
+        return .notModified
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listSessions")
@@ -166,9 +181,22 @@ public final class ShepherdClient: Sendable {
   }
 
   public func doneSessions() async throws -> [Components.Schemas.Session] {
+    switch try await readDoneSessions() {
+    case .modified(let value, _): return value
+    case .notModified:
+      throw ShepherdError.contractMismatch(route: "listDoneSessions", underlying: "304 without a validator")
+    }
+  }
+
+  public func readDoneSessions(ifNoneMatch: String? = nil) async throws -> SnapshotReadResult<[Components.Schemas.Session]> {
     do {
-      switch try await generated.listDoneSessions(.init()) {
-      case .ok(let ok): return try ok.body.json
+      switch try await generated.listDoneSessions(.init(headers: .init(ifNoneMatch: ifNoneMatch))) {
+      case .ok(let ok): return .modified(value: try ok.body.json, etag: ok.headers.eTag)
+      case .notModified:
+        guard ifNoneMatch != nil else {
+          throw ShepherdError.contractMismatch(route: "conditionalList", underlying: "304 without a validator")
+        }
+        return .notModified
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listDoneSessions")

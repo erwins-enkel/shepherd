@@ -40,11 +40,11 @@ struct ReadOnlySidebarRecoveryTests {
 
     @Test func teardownDuringRecoveryDropsSuspendedQueueSnapshot() async {
         let gate = LoadGate()
-        let queues = QueuesModel(reads: .init(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] },
-            refreshUpNext: { Issue.record("read-only recovery must not recompute") }, peekUpNext: {
+        let queues = QueuesModel(reads: .init(held: { [] }, done: {
                 await gate.wait()
-                return UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0)
-            }))
+                return [PreviewData.session(id: "stale", status: .init(known: .archived))]
+            }, recaps: { [:] }, stranded: { [] },
+            refreshUpNext: { Issue.record("read-only recovery must not recompute") }))
         let recovery = ReadOnlySidebarRecovery {
             await ReadOnlySidebarRecovery.readSnapshots(sidebar: nil, herd: nil, plan: nil,
                 queues: queues, merge: nil, actions: nil)
@@ -55,6 +55,7 @@ struct ReadOnlySidebarRecoveryTests {
         gate.open()
         await work.value
         #expect(queues.upNext == nil)
+        #expect(queues.finishedSessions.isEmpty)
     }
 
     @Test func recoveryRepairsAllInstalledSnapshotsWithoutQueueComputation() async {
@@ -66,7 +67,10 @@ struct ReadOnlySidebarRecoveryTests {
         let done = PreviewData.session(id: "archived", status: .init(known: .archived))
         let cache = UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0)
         let queues = QueuesModel(reads: .init(held: { [] }, done: { [done] }, recaps: { [:] }, stranded: { [] },
-            refreshUpNext: { Issue.record("read-only recovery must not recompute") }, peekUpNext: { cache }))
+            refreshUpNext: { Issue.record("read-only recovery must not recompute") }, readUpNext: { _ in
+                Issue.record("closed recovery must not fetch Up Next")
+                return .modified(snapshot: cache, etag: nil)
+            }))
         let owed = PostMergeSteps(sessionId: "s1", desig: "TASK-1", repoPath: "/repo", prNumber: 1,
             prTitle: "Owed", steps: [], trackingIssueUrl: nil, trackingIssueNumber: nil,
             createdAt: 1, updatedAt: 1, clearedAt: nil)
@@ -81,7 +85,7 @@ struct ReadOnlySidebarRecoveryTests {
         #expect(herd.git["s1"] == git)
         #expect(plan.hasLoadedSnapshot)
         #expect(queues.finishedSessions.map(\.id) == ["archived"])
-        #expect(queues.upNext == cache)
+        #expect(queues.upNext == nil) // Closed Next waits until a presentation needs it.
         #expect(merge.snapshot.owed.map(\.sessionId) == ["s1"])
     }
 }

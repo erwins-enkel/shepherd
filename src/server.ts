@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
 import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
+import { jsonResponse as json, compressJsonResponse } from "./json-response";
+import { recapSummary } from "./recap-core";
 import { PairingCodeService } from "./pairing-codes";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
@@ -1075,12 +1078,6 @@ async function sessionUsageDto(s: Session, store: SessionStore): Promise<Session
   };
 }
 
-const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-
 /** 409 while the first-run gate is pending — nothing may spawn or scaffold until a repo root
  *  is picked. Returns null (proceed) once resolved. */
 function firstRunBlock(): Response | null {
@@ -2009,11 +2006,29 @@ function handlePlanGates({ req, parts, deps, token }: Ctx): Response | null {
   return null;
 }
 
+/** Conditional snapshots hash the final, authorized representation, independent of compression. */
+function conditionalSnapshot(req: Request, value: unknown): Response {
+  const etag = `W/"${createHash("sha256").update(JSON.stringify(value)).digest("hex")}"`;
+  const headers = { etag, "cache-control": "private, no-cache", vary: "Accept-Encoding" };
+  if (etagMatches(req.headers.get("if-none-match"), etag))
+    return new Response(null, { status: 304, headers });
+  return json(value, 200, headers);
+}
+
 // GET /api/recaps — bootstrap snapshot of session recaps keyed by session id.
 // Mirrors handleReviews / handlePlanGates; absent dep returns {}.
 function handleRecaps({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "recaps") {
-    if (!parts[2]) return json(deps.recapCache?.snapshot() ?? {});
+    if (!parts[2])
+      return conditionalSnapshot(
+        req,
+        Object.fromEntries(
+          Object.entries(deps.recapCache?.snapshot() ?? {}).map(([id, recap]) => [
+            id,
+            recapSummary(recap),
+          ]),
+        ),
+      );
   }
   return null;
 }
@@ -2078,11 +2093,11 @@ async function handleManualSteps({ req, parts, deps }: Ctx): Promise<Response | 
 const UP_NEXT_OPEN_MIN_AGE_MS = 60_000;
 
 /** GET /api/up-next — paint the cached snapshot. The default (lens-open) path also kicks a
- *  single-flight recompute that lands in place via WS, unless the snapshot is younger than
- *  {@link UP_NEXT_OPEN_MIN_AGE_MS}; `?peek` (app-load) paints cached only so a session that never
+ *  single-flight recompute announced via upnext:changed, unless the snapshot is younger than
+ *  {@link UP_NEXT_OPEN_MIN_AGE_MS}; `?peek` (invalidation/read-only) reads cached only so a session that never
  *  opens the lens costs zero cross-repo `gh` fan-out (the presence-gated 15-min loop + lens-open
  *  keep it fresh). */
-function handleUpNextGet(url: URL, deps: AppDeps): Response {
+function handleUpNextGet(req: Request, url: URL, deps: AppDeps): Response {
   const cached = deps.upNext?.snapshot() ?? null;
   // Apply a read-time hidden filter so a repo hidden after the last background compute is
   // excluded on the very next GET without waiting for the next recompute cycle (≤15 min).
@@ -2092,14 +2107,43 @@ function handleUpNextGet(url: URL, deps: AppDeps): Response {
       : cached;
   if (!url.searchParams.has("peek") && deps.upNext)
     deps.upNext.refreshIfStale(UP_NEXT_OPEN_MIN_AGE_MS);
-  return json(snap);
+  const etag = `W/"${createHash("sha256").update(JSON.stringify(snap)).digest("hex")}"`;
+  const headers = { etag, "cache-control": "private, no-cache", vary: "Accept-Encoding" };
+  if (etagMatches(req.headers.get("if-none-match"), etag))
+    return new Response(null, { status: 304, headers });
+  return json(snap, 200, headers);
+}
+
+/** Full issue text for an intentional read or a metadata-only start. */
+async function loadUpNextBody(
+  forge: GitForge | null,
+  number: number,
+): Promise<{ body: string } | { error: string; status: number }> {
+  if (!forge?.getIssue) return { error: "issue reads unavailable for repo", status: 503 };
+  try {
+    const issue = await forge.getIssue(number);
+    return issue ? { body: issue.body } : { error: "issue not found or unreadable", status: 404 };
+  } catch {
+    return { error: "issue read failed", status: 502 };
+  }
+}
+
+async function handleUpNextBody(url: URL, deps: AppDeps): Promise<Response> {
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const number = url.searchParams.get("number") ?? "";
+  if (!/^[1-9][0-9]{0,8}$/.test(number)) return json({ error: "invalid issue number" }, 400);
+  const result = await loadUpNextBody(deps.resolveForge?.(dir) ?? null, Number(number));
+  return "error" in result ? json({ error: result.error }, result.status) : json(result);
 }
 
 async function handleUpNext(ctx: Ctx): Promise<Response | null> {
   const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "up-next")) return null;
 
-  if (req.method === "GET" && !parts[2]) return handleUpNextGet(url, deps);
+  if (req.method === "GET" && !parts[2]) return handleUpNextGet(req, url, deps);
+
+  if (req.method === "GET" && parts[2] === "body" && !parts[3]) return handleUpNextBody(url, deps);
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);
@@ -2117,7 +2161,7 @@ async function handleUpNext(ctx: Ctx): Promise<Response | null> {
 
 interface UpNextStartItem {
   dir: string;
-  issueRef: { number: number; url: string; title: string; body: string };
+  issueRef: { number: number; url: string; title: string; body?: string };
 }
 
 interface UpNextStartChoice {
@@ -2145,7 +2189,8 @@ function parseUpNextStartItem(raw: unknown): UpNextStartItem | null {
     !ir ||
     typeof ir.number !== "number" ||
     typeof ir.url !== "string" ||
-    typeof ir.title !== "string"
+    typeof ir.title !== "string" ||
+    (ir.body !== undefined && typeof ir.body !== "string")
   )
     return null;
   return {
@@ -2154,7 +2199,7 @@ function parseUpNextStartItem(raw: unknown): UpNextStartItem | null {
       number: ir.number,
       url: ir.url,
       title: ir.title,
-      body: typeof ir.body === "string" ? ir.body : "",
+      body: typeof ir.body === "string" ? ir.body : undefined,
     },
   };
 }
@@ -2410,6 +2455,15 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       return;
     }
     try {
+      const loaded =
+        it.issueRef.body === undefined
+          ? await loadUpNextBody(forge, it.issueRef.number)
+          : { body: it.issueRef.body };
+      if ("error" in loaded) {
+        errors.push({ number: it.issueRef.number, error: loaded.error });
+        return;
+      }
+      const issueRef = { ...it.issueRef, body: loaded.body };
       // Base + prompt = the drain auto-prompt for a plain issue (issue title on the default
       // branch, via the same issueSpawnPrompt guard). Manual epic-child starts also base on
       // default here; integration-branch orchestration stays the auto epic-runner's job
@@ -2446,7 +2500,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
               ),
         images: [],
         auto: false,
-        issueRef: it.issueRef,
+        issueRef,
       };
       const input = await routeIssueCreate(draft, deps);
       if (input instanceof Response) {
@@ -4533,11 +4587,14 @@ function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: s
 
 // GET reads on /api/sessions[/:id[/usage|/activity|/messages|/diff|/leftovers]].
 /** Literal `GET /api/sessions/<name>` lists. Neither is in the read-scope allowlist (`full`-only). */
-const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
+const SESSION_LISTS = new Map<string, (ctx: Ctx) => Response>([
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
-  ["done", doneSessionsWithIssueUrl],
+  ["done", ({ req, deps }) => conditionalSnapshot(req, doneSessionsWithIssueUrl(deps))],
   // Every archived session, newest-first (`shepherd sessions list --all`, #2590).
-  ["archived", (deps) => deps.store.listArchivedSessions().filter((s) => !isOperatorAssistant(s))],
+  [
+    "archived",
+    ({ deps }) => json(deps.store.listArchivedSessions().filter((s) => !isOperatorAssistant(s))),
+  ],
 ]);
 
 /** GET /api/sessions/:id/steer-log — who typed into the session and when (Shepherd's steers vs
@@ -4577,7 +4634,7 @@ async function sessionListRead({ req, url, deps, token }: Ctx): Promise<Response
       ),
   );
   const remote = mirroredSessions(url, deps, token);
-  return json(remote.length > 0 ? [...local, ...remote] : local);
+  return conditionalSnapshot(req, remote.length > 0 ? [...local, ...remote] : local);
 }
 
 async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
@@ -4586,7 +4643,7 @@ async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
   if (!parts[2]) return sessionListRead(ctx);
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
   const list = parts[3] ? undefined : SESSION_LISTS.get(parts[2]);
-  if (list) return json(list(deps));
+  if (list) return list(ctx);
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
   if (parts[3] === "messages") return sessionMessagesRead(parts[2], url, deps);
@@ -5419,6 +5476,14 @@ async function handleSessionReviewPr({ req, parts, deps }: Ctx): Promise<Respons
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
   }
+}
+
+// GET /api/sessions/:id/recap — full persisted recap, including grounded blocks.
+function handleSessionRecap({ req, parts, deps }: Ctx): Response | null {
+  if (req.method !== "GET" || !parts[2] || parts[3] !== "recap" || parts[4]) return null;
+  if (!deps.store.get(parts[2])) return json({ error: "not found" }, 404);
+  const recap = deps.store.getRecap(parts[2]);
+  return recap ? json(recap) : json({ error: "not found" }, 404);
 }
 
 // POST /api/sessions/:id/recap/regenerate — force-regenerate the session recap on demand.
@@ -6653,6 +6718,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReviewPr,
     handleSessionReviewHold,
     handleSessionReviewCancel,
+    handleSessionRecap,
     handleSessionRecapRegenerate,
     handlePreviewStart,
     handlePreviewStop,
@@ -12004,6 +12070,8 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
       const started = timed ? performance.now() : 0;
       return (
         withGhCaller(routeCaller(req.method, pathname), () => app.fetch(req))
+          .catch((e) => json({ error: e instanceof Error ? e.message : "internal error" }, 500))
+          .then((res) => compressJsonResponse(req, res))
           .then((res) => (timed ? withServerTiming(res, performance.now() - started) : res))
           // Sliding re-stamp at this single HTTP seam (never on the skipAuth ingress app — agents
           // carry no cookie — and never on WS upgrades, which return before reaching makeApp).
@@ -12380,6 +12448,7 @@ export function serve(deps: AppDeps, port: number) {
           owners: tokenMap(token, deps, { ...remote, ...terminalOwners().owners }),
         },
       }),
+      true,
     );
   };
 
@@ -12431,7 +12500,7 @@ export function serve(deps: AppDeps, port: number) {
       else if (!filterRepositoryEvent(event, data, (id) => tokenSessionAllowed(token, deps, id)))
         return;
     }
-    ws.send(JSON.stringify({ event, data }));
+    ws.send(JSON.stringify({ event, data }), true);
   }
   // ── WebSocket upgrades: /events, /pty/<id>, /browser-view/<id> ──────────────
   // Each returns the upgrade outcome (undefined = upgraded, a Response = refused); upgradeSocket
@@ -12596,7 +12665,7 @@ export function serve(deps: AppDeps, port: number) {
     // client's lands with its first `\x00view:` frame, which it sends on open — after this claim.
     if (isOperatorAssistant(cur)) deps.assistantView?.set(cur.id, null);
     const sock = {
-      send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
+      send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d, true) : 0),
       close: () => ws.close(),
     };
     const kind = pickTerminalBridgeKind({
@@ -12672,7 +12741,7 @@ export function serve(deps: AppDeps, port: number) {
     const { id, cols, rows, resume, client } = ws.data;
     const sink = {
       send: (data: string | Uint8Array) => {
-        if (socketAuthorized(ws)) ws.send(data);
+        if (socketAuthorized(ws)) ws.send(data, true);
       },
       close: (code?: number, reason?: string) => ws.close(code, reason),
     };
@@ -12820,6 +12889,7 @@ export function serve(deps: AppDeps, port: number) {
     // Each handler is registered with the loop watchdog, like HTTP requests and timer ticks, so a
     // stall report names socket work instead of "in flight: none" (#3170).
     websocket: {
+      perMessageDeflate: true,
       open: (ws) => withOp(`WS open ${ws.data.kind}`, () => onSocketOpen(ws)),
       message: (ws, msg) => withOp(`WS message ${ws.data.kind}`, () => onSocketMessage(ws, msg)),
       close: (ws) => withOp(`WS close ${ws.data.kind}`, () => onSocketClose(ws)),

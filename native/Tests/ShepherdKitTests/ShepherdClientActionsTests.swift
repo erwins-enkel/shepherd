@@ -21,6 +21,32 @@ struct ShepherdClientActionsTests {
     return try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
   }
 
+  @Test("detail recap is a per-session GET preserving blocks")
+  func recapDetail() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("GET", "/api/sessions/s1/recap", status: 200,
+      json: Data(#"{"sessionId":"s1","state":"ready","headline":"Done","body":"Summary","openItems":[],"updatedAt":1000,"blocks":[{"type":"callout","id":"detail","tone":"info","markdown":"Fetched detail"}]}"#.utf8))
+    let recap = try await makeClient(server).recap(sessionID: "s1")
+    #expect(recap.blocks?.first?.value2?.markdown == "Fetched detail")
+    #expect(server.requests().count == 1)
+    #expect(server.requests().first?.method == "GET")
+  }
+
+  @Test(arguments: [401, 404, 418])
+  func recapDetailErrors(status: Int) async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("GET", "/api/sessions/s1/recap", status: status,
+      json: Data(#"{"error":"missing"}"#.utf8))
+    let expected: ShepherdError = switch status {
+    case 401: .unauthenticated
+    case 404: .notFound
+    default: .contractMismatch(route: "getSessionRecap", underlying: "undocumented status 418")
+    }
+    await #expect(throws: expected) { _ = try await makeClient(server).recap(sessionID: "s1") }
+  }
+
   // MARK: - resume
 
   @Test("resume returns the session it resumed")

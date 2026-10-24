@@ -1,3 +1,4 @@
+import type { BacklogPayload } from "./server";
 import type { RepoCounts } from "./backlog";
 
 /**
@@ -113,4 +114,37 @@ export function reposUsedSince(lastUsedByRepo: Record<string, number>, since: nu
       .filter(([, t]) => t >= since)
       .map(([path]) => path),
   );
+}
+
+/** Keep warm-cache refreshes off /events unless the complete overview changed. */
+export function createBacklogBroadcast(
+  build: () => Promise<BacklogPayload>,
+  emit: (payload: BacklogPayload) => void,
+): () => Promise<void> {
+  let published: string | undefined;
+  let flight: Promise<void> | undefined;
+  let invalidated = false;
+  return () => {
+    if (flight) {
+      invalidated = true;
+      return flight;
+    }
+    flight = Promise.resolve().then(async () => {
+      try {
+        do {
+          invalidated = false;
+          const payload = await build();
+          const signature = JSON.stringify(payload);
+          if (signature !== published) {
+            emit(payload);
+            published = signature;
+          }
+          // A change arriving during an async build needs one fresh read before settling.
+        } while (invalidated);
+      } finally {
+        flight = undefined;
+      }
+    });
+    return flight;
+  };
 }

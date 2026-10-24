@@ -109,7 +109,8 @@ struct RootView: View {
             IOSRemoteSessionDetailView(session: remote)
                 .id(id)
         } else if let id = app.selectedSessionID,
-           let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id }),
+           let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id })
+                ?? (app.extension(QueuesModel.self)?.notificationSession).flatMap({ $0.id == id ? $0 : nil }),
            let detail = app.extension(DetailModel.self),
            let terminals = app.extension(IOSTerminalController.self) {
             SessionDetailView(session: session, model: detail,

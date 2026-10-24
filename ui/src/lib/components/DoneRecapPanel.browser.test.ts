@@ -19,6 +19,7 @@ vi.mock(import("#lib/api.js"), async (importOriginal) => {
   const mod = await importOriginal();
   return {
     ...mod,
+    getSessionRecap: vi.fn(async (id: string) => recaps.map[id]),
     getSessionUsage: vi.fn(
       (id: string) => new Promise<SessionUsage>((resolve) => usageResolvers.set(id, resolve)),
     ),
@@ -545,4 +546,54 @@ describe("DoneRecapPanel parked verdict contrast", () => {
       expectQuietLegible(document.querySelector<HTMLElement>(".dr-verdict")!);
     });
   }
+});
+
+describe("DoneRecapPanel detail fetch", () => {
+  it("loads blocks absent from the summary without putting them in the list cache", async () => {
+    const { getSessionRecap } = await import("#lib/api.js");
+    recaps.map = { lazy: recap({ sessionId: "lazy" }) };
+    vi.mocked(getSessionRecap).mockResolvedValueOnce({
+      ...recaps.map.lazy,
+      blocks: [
+        { type: "callout", id: "lazy-block", tone: "risk", markdown: "Fetched detail only" },
+      ],
+    });
+    render(DoneRecapPanel, { session: session({ id: "lazy" }) });
+    await expect.element(page.getByText("Fetched detail only")).toBeVisible();
+    expect(getSessionRecap).toHaveBeenCalledWith("lazy");
+    expect(recaps.map.lazy.blocks).toBeUndefined();
+  });
+});
+
+describe("DoneRecapPanel lazy diff hunks", () => {
+  it("renders grounded hunk lines fetched from the detail route", async () => {
+    const { getSessionRecap } = await import("#lib/api.js");
+    const summary = recap({ sessionId: "hunks", changedFiles: ["src/limiter.ts"] });
+    recaps.map = { hunks: summary };
+    vi.mocked(getSessionRecap).mockResolvedValueOnce({
+      ...summary,
+      blocks: [
+        {
+          type: "diff",
+          id: "hunk",
+          path: "src/limiter.ts",
+          summary: "Limiter diff",
+          file: {
+            path: "src/limiter.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            hunks: [
+              { header: "@@ -1,0 +1 @@", lines: [{ kind: "add", content: "limit();", newNo: 1 }] },
+            ],
+          },
+        },
+      ],
+    });
+    render(DoneRecapPanel, { session: session({ id: "hunks" }) });
+    await page.getByRole("button", { name: /src\/limiter.ts/ }).click();
+    await expect.element(page.getByText("limit();", { exact: true })).toBeVisible();
+    expect(summary.blocks).toBeUndefined();
+  });
 });

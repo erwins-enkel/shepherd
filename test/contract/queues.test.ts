@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { UpNextService, upNextChangePublisher } from "../../src/up-next";
+import type { GitForge } from "../../src/forge/types";
 import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { SandboxAutoRefused } from "../../src/sandbox";
@@ -8,6 +10,7 @@ import {
   WorktreeOccupiedError,
   WorktreeRestoreError,
 } from "../../src/worktree";
+import { buildSnapshot, type RepoInput } from "../../src/up-next-core";
 import type { RepoCounts } from "../../src/forge/types";
 import * as fx from "./queues-fixtures";
 import {
@@ -208,6 +211,30 @@ describe("backlog", () => {
 });
 
 describe("Up Next", () => {
+  test("full body read validates success and each declared failure", async () => {
+    const saved = s.deps.resolveForge;
+    const path = `/api/up-next/body?repo=${encodeURIComponent(s.validRepo)}&number=42`;
+    try {
+      await check("GET", "/api/up-next/body", 400, "/api/up-next/body?number=0");
+      s.deps.resolveForge = () => null;
+      await check("GET", "/api/up-next/body", 503, path);
+      s.deps.resolveForge = () => ({ getIssue: async () => null }) as never;
+      await check("GET", "/api/up-next/body", 404, path);
+      s.deps.resolveForge = () =>
+        ({
+          getIssue: async () => {
+            throw new Error("offline");
+          },
+        }) as never;
+      await check("GET", "/api/up-next/body", 502, path);
+      const body = "Private ü😀 text".repeat(400);
+      s.deps.resolveForge = () => ({ getIssue: async () => ({ ...fx.issueRef, body }) }) as never;
+      expect(await check("GET", "/api/up-next/body", 200, path)).toEqual({ body });
+    } finally {
+      s.deps.resolveForge = saved;
+    }
+  });
+
   test("peek returns null or the cached snapshot without recomputation", async () => {
     expect(await check("GET", "/api/up-next", 200, "/api/up-next?peek=1")).toBeNull();
     let refreshes = 0;
@@ -447,7 +474,7 @@ describe("restore and usage", () => {
 
 test("all queue operations require authentication", async () => {
   const ops = OPERATIONS.filter((op) => op.endsWith(" 401"));
-  expect(ops).toHaveLength(15);
+  expect(ops).toHaveLength(16);
   for (const op of ops) {
     const [method, template] = op.split(" ") as [string, string, string];
     const res = await request(method, template.replace("{id}", "missing"), undefined, false);
@@ -480,8 +507,120 @@ test("six queue events travel over the real websocket, including cleared nullabl
     expect(frames).toContainEqual({ event: name, data: payload });
     validateEvent(name, payload);
   }
-  expect(EVENTS).toHaveLength(6);
+  expect(EVENTS).toHaveLength(7);
   expect(() => validateEvent("upnext:snapshot", { snapshot: null })).toThrow();
+});
+
+test("Up Next publication stays below 64 KB and the full snapshot is read conditionally", async () => {
+  const service = new UpNextService({
+    listForgeRepos: () => [{ repoPath: s.validRepo, repoSlug: "o/r", repoLabel: "r" }],
+    resolveForge: () =>
+      ({
+        kind: "github",
+        listIssues: async () =>
+          Array.from({ length: 200 }, (_, index) => ({
+            number: index + 1,
+            title: `large metadata ${index}: ` + "issue title ".repeat(10),
+            body: "🦙".repeat(40_000),
+            url: `https://example.test/${index + 1}`,
+            labels: [],
+            createdAt: 1,
+            assignees: [],
+          })),
+      }) as unknown as GitForge,
+    lastUsedByRepo: () => ({}),
+    buildEpic: async () => null,
+    getEpicRun: () => null,
+    onChange: upNextChangePublisher(s.deps.events),
+    now: () => 42,
+  });
+  s.deps.upNext = {
+    snapshot: () => service.snapshot(),
+    refresh: () => service.refresh(),
+    refreshIfStale: (age) => service.refreshIfStale(age),
+    recomputeUntilCleared: (items) => service.recomputeUntilCleared(items),
+    hiddenRepoPathsRaw: () => new Set(),
+  };
+  try {
+    const frames = await collectEvents(s, token, async () => {
+      await service.refresh();
+    });
+    expect(Buffer.byteLength(JSON.stringify(service.snapshot()))).toBeGreaterThan(65_536);
+    const upNextFrames = frames.filter((frame) => frame.event.startsWith("upnext:"));
+    expect(upNextFrames).toHaveLength(1);
+    for (const frame of upNextFrames) {
+      expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThanOrEqual(65_536);
+      expect(frame.event).toBe("upnext:changed");
+      expect(Object.keys(frame.data as object).sort()).toEqual(["computedAt", "version"]);
+      validateEvent(frame.event, frame.data);
+    }
+    const first = await request("GET", "/api/up-next?peek=1");
+    expect(await validateResponse("GET", "/api/up-next", first)).toEqual(service.snapshot());
+    const unchanged = await fetch(`${s.baseUrl}/api/up-next?peek=1`, {
+      headers: { ...bearer(token), "If-None-Match": first.headers.get("etag")! },
+    });
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe("");
+    await validateResponse("GET", "/api/up-next", unchanged);
+  } finally {
+    delete s.deps.upNext;
+  }
+});
+
+test("1,319 items across 42 repos stay below 1 MiB over HTTP and WebSocket", async () => {
+  const repos: RepoInput[] = Array.from({ length: 42 }, (_, repo) => ({
+    repoPath: `/repo/${repo}`,
+    repoSlug: `org/repo-${repo}`,
+    repoLabel: `repo-${repo}`,
+    lastUsedAt: 1,
+    viewer: null,
+    epics: [],
+    subIssueNumbers: [],
+    linkedIssueNumbers: [],
+    openIssues: Array.from({ length: repo < 17 ? 32 : 31 }, (_, index) => ({
+      number: index + 1,
+      title: `Issue ${index + 1}: preserve all metadata`,
+      url: `https://example.test/org/repo-${repo}/issues/${index + 1}`,
+      body: "LARGE-PRIVATE-BODY ü😀".repeat(200),
+      labels: index % 3 === 0 ? ["shepherd:priority"] : ["feature"],
+      assignees: [],
+      createdAt: index,
+    })),
+  }));
+  const snapshot = buildSnapshot(repos, 123);
+  const items = snapshot.sections.flatMap((section) => section.items);
+  expect(items).toHaveLength(1319);
+  for (const item of items) expect(item.issueRef).not.toHaveProperty("body");
+  const saved = s.deps.upNext;
+  s.deps.upNext = {
+    snapshot: () => snapshot,
+    refresh: async () => snapshot,
+    refreshIfStale: () => {},
+    recomputeUntilCleared: async () => {},
+    hiddenRepoPathsRaw: () => new Set(),
+  };
+  try {
+    const response = await request("GET", "/api/up-next?peek=1");
+    const text = await response.clone().text();
+    expect(response.status).toBe(200);
+    expect(await validateResponse("GET", "/api/up-next", response)).toEqual(snapshot);
+    expect(text).not.toContain("LARGE-PRIVATE-BODY");
+    expect(Buffer.byteLength(text)).toBeLessThan(1_048_576);
+    const frames = await collectEvents(s, token, async () => {
+      s.deps.events.emit("upnext:snapshot", { snapshot });
+    });
+    const frame = frames.find((frame) => frame.event === "upnext:snapshot")!;
+    expect(frame).toEqual({ event: "upnext:snapshot", data: { snapshot } });
+    validateEvent(frame.event, frame.data);
+    const eventText = JSON.stringify(frame);
+    expect(eventText).not.toContain("LARGE-PRIVATE-BODY");
+    expect(Buffer.byteLength(eventText)).toBeLessThan(1_048_576);
+    console.info(
+      `[up-next payload] HTTP ${Buffer.byteLength(text)} bytes; WS ${Buffer.byteLength(eventText)} bytes`,
+    );
+  } finally {
+    s.deps.upNext = saved;
+  }
 });
 
 // Stays LAST: independently police every status/event declared by this stream.

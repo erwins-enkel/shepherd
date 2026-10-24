@@ -73,6 +73,7 @@ final class IOSLaunchEnvironment {
             try ShepherdClient(profile: profile, credentials: credentials,
                 readOnlyAudit: audit, requestAttempts: 1, readURLSession: session)
         }
+        app.loadsListsOnDemand = true
         app.register(BackendRecoveryModel.self)
         CoreStreamInstallers.installReadOnlySidebar(into: app)
         IOSPlanStream.install(into: app)

@@ -35,6 +35,44 @@ final class IOSServerHubTests: XCTestCase {
     }
     private func stop(_ hub: IOSServerHub) { for id in hub.connectedIDs { hub.disconnect(id) } }
 
+    func testFailedArchiveNotificationLookupCanRetry() async throws {
+        let (_, hub, a, _) = try fixture()
+        defer { stop(hub) }
+        IOSMultiServerFixtureTransport.set([], for: a.baseURL)
+        await hub.connect(a)
+        await settle { hub.models[a.id]?.store?.hasLoadedSessions == true }
+        let registration = IOSPushRegistration()
+        registration.attach(hub, enabled: false)
+        registration.open("retry-archive", server: a.baseURL.absoluteString)
+        await settle { !registration.isResolvingNotification }
+        XCTAssertNil(hub.selection)
+        IOSMultiServerFixtureTransport.setArchive(PreviewData.session(id: "retry-archive", status: .init(known: .archived)), for: a.baseURL)
+        registration.routePendingNotification()
+        await settle { hub.selection?.sessionID == "retry-archive" }
+        XCTAssertEqual(hub.selection?.sessionID, "retry-archive")
+    }
+
+    func testNotificationLooksUpArchiveWithoutLoadingDoneList() async throws {
+        let (_, hub, a, _) = try fixture()
+        defer { stop(hub) }
+        IOSMultiServerFixtureTransport.set([], for: a.baseURL)
+        let archived = PreviewData.session(id: "archived-push", status: .init(known: .archived))
+        IOSMultiServerFixtureTransport.setArchive(archived, for: a.baseURL)
+        IOSMultiServerFixtureTransport.blockOffscreenLists(at: a.baseURL)
+        await hub.connect(a)
+        await settle { hub.models[a.id]?.store?.hasLoadedSessions == true }
+        let registration = IOSPushRegistration()
+        registration.attach(hub, enabled: false)
+        registration.open(archived.id, server: a.baseURL.absoluteString)
+        await settle { hub.selection?.sessionID == archived.id }
+        XCTAssertEqual(hub.selection?.sessionID, archived.id)
+        XCTAssertEqual(hub.models[a.id]?.extension(QueuesModel.self)?.notificationSession?.id, archived.id)
+        let reads = IOSMultiServerFixtureTransport.requests(at: a.baseURL)
+        XCTAssertTrue(reads.contains("/api/sessions/archived-push"))
+        XCTAssertFalse(reads.contains("/api/sessions/done"))
+        XCTAssertFalse(reads.contains("/api/sessions/archived"))
+    }
+
     func testUnavailableFirstServerDoesNotOwnHealthyFocusOrCompose() async throws {
         let (_, hub, dead, live) = try fixture(restored: true)
         defer { stop(hub) }

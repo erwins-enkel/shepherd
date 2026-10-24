@@ -1,33 +1,105 @@
+import { SvelteSet } from "svelte/reactivity";
 import type { UpNextSnapshot } from "./types";
-import { getUpNext } from "./api";
+import { getUpNext, type UpNextRead } from "./api";
 
-/** Client holder for the latest Up Next snapshot (#1169). Loaded once on app start;
- *  live updates arrive via the `upnext:snapshot` WS event (see store.svelte.ts). The
- *  server only ever pushes the current snapshot, so newest simply replaces. */
-class UpNextStore {
+/** One cache per page/auth lifetime. Consumers register demand while the lens is mounted. */
+export class UpNextStore {
   snapshot = $state<UpNextSnapshot | null>(null);
   loaded = $state(false);
-  /** The GET itself failed (herdr down / non-2xx). Distinct from an empty snapshot so the lens
-   *  surfaces a load error rather than hanging on "loading" or implying an empty queue (#1221). */
   loadError = $state(false);
+  private etag: string | null = null;
+  private cached = false;
+  private consumers = new SvelteSet<symbol>();
+  private dirty = false;
+  private openRead = false;
+  private revision = 0;
+  private generation = 0;
+  private task: Promise<void> | null = null;
 
-  /** Load the snapshot. `peek` (app-load) paints the cached snapshot only; the default
-   *  (lens-open) lets the server kick a recompute that lands in place via WS. */
-  async load(opts?: { peek?: boolean }) {
-    this.loadError = false;
-    try {
-      this.snapshot = await getUpNext(opts);
-    } catch {
-      // best-effort; live events may still populate, but flag it so the lens shows the failure
-      this.loadError = true;
-    } finally {
-      this.loaded = true;
+  constructor(private read = getUpNext) {}
+
+  open(): () => void {
+    const consumer = Symbol();
+    this.consumers.add(consumer);
+    this.openRead = true;
+    this.changed();
+    return () => {
+      this.consumers.delete(consumer);
+    };
+  }
+
+  changed() {
+    this.revision++;
+    this.dirty = true;
+    this.startRead();
+  }
+
+  reconnected() {
+    this.changed();
+  }
+
+  private startRead() {
+    if (this.task || !this.consumers.size) return;
+    const generation = this.generation;
+    this.task = this.revalidate(generation).finally(() => {
+      if (generation === this.generation) this.task = null;
+    });
+  }
+
+  private async revalidate(generation: number) {
+    while (this.dirty && this.consumers.size && generation === this.generation) {
+      const revision = this.revision;
+      const peek = !this.openRead;
+      this.openRead = false;
+      this.dirty = false;
+      try {
+        const result = await this.read({ peek, etag: this.cached ? this.etag : null });
+        if (generation !== this.generation || revision !== this.revision) continue;
+        this.applyRead(result);
+      } catch {
+        if (generation !== this.generation || revision !== this.revision) continue;
+        this.loadError = true;
+        this.loaded = true;
+        this.dirty = true;
+        // Retry on the next signal/open/reconnect, not in a tight failure loop.
+        return;
+      }
     }
   }
 
+  private applyRead(result: UpNextRead) {
+    if (result.modified) {
+      this.snapshot = result.snapshot;
+      this.etag = result.etag;
+      this.cached = true;
+    }
+    this.loadError = false;
+    this.loaded = true;
+  }
+
+  /** Older servers may still push data. Its validator cannot describe that payload. */
   apply(d: { snapshot: UpNextSnapshot }) {
+    this.revision++;
     this.snapshot = d.snapshot;
-    this.loadError = false; // a fresh server push supersedes a prior failed fetch
+    this.etag = null;
+    this.cached = true;
+    this.dirty = false;
+    this.loaded = true;
+    this.loadError = false;
+  }
+
+  reset() {
+    this.generation++;
+    this.revision++;
+    this.task = null;
+    this.consumers.clear();
+    this.snapshot = null;
+    this.etag = null;
+    this.cached = false;
+    this.loaded = false;
+    this.loadError = false;
+    this.dirty = false;
+    this.openRead = false;
   }
 }
 export const upNext = new UpNextStore();

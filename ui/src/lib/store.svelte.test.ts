@@ -1879,3 +1879,17 @@ test("remote:sessions replaces one machine's sessions and leaves the others (#27
   expect(s.remoteSessions.map((x) => x.id)).toEqual(["b"]);
   expect(s.sessions.map((x) => x.id)).toEqual(["local"]);
 });
+
+test("upnext:changed dispatches an invalidation without changing other queues", async () => {
+  const { upNext } = await import("./up-next.svelte");
+  const changed = vi.spyOn(upNext, "changed").mockImplementation(() => {});
+  try {
+    new HerdStore().apply({
+      event: "upnext:changed",
+      data: { version: "a".repeat(64), computedAt: 1 },
+    });
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    changed.mockRestore();
+  }
+});

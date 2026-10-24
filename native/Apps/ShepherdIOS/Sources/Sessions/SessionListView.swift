@@ -33,6 +33,29 @@ struct SessionListView: View {
         TimelineView(.periodic(from: .now, by: 20)) { context in
             content(now: Int(context.date.timeIntervalSince1970 * 1_000))
         }
+        .task(id: upNextModels.map(ObjectIdentifier.init)) {
+            let models = upNextModels
+            await withTaskGroup(of: Void.self) { group in
+                for queues in models {
+                    group.addTask { await queues.observeUpNext() }
+                }
+                await group.waitForAll()
+            }
+        }
+        .task(id: doneModels.map(ObjectIdentifier.init)) {
+            let models = doneModels
+            await withTaskGroup(of: Void.self) { group in
+                for queues in models { group.addTask { await queues.observeDone() } }
+                await group.waitForAll()
+            }
+        }
+        .task(id: recapModels.map(ObjectIdentifier.init)) {
+            let models = recapModels
+            await withTaskGroup(of: Void.self) { group in
+                for actions in models { group.addTask { await actions.observeRecaps() } }
+                await group.waitForAll()
+            }
+        }
         .background(SessionListStyle.background)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if layout.bottomBar { bottomBar }
@@ -141,6 +164,18 @@ struct SessionListView: View {
     }
     private func toggleCollapsed(_ stage: HerdStage) { if let hub { hub.toggleCollapsed(stage) } else { model.toggleCollapsed(stage) } }
     private func selectRow(_ id: IOSSessionIdentity) { if let hub { hub.select(id) } else { select(id.sessionID) } }
+    private var doneModels: [QueuesModel] {
+        guard lens == .done, scenePhase == .active else { return [] }
+        return (hub?.connected ?? [app]).compactMap { $0.extension(QueuesModel.self) }
+    }
+    private var recapModels: [ActionsModel] {
+        guard lens == .done, scenePhase == .active else { return [] }
+        return (hub?.connected ?? [app]).compactMap { $0.extension(ActionsModel.self) }
+    }
+    private var upNextModels: [QueuesModel] {
+        guard lens == .next, scenePhase == .active else { return [] }
+        return (hub?.connected ?? [app]).compactMap { $0.extension(QueuesModel.self) }
+    }
     private var queues: QueuesModel? { app.extension(QueuesModel.self) }
     private var herd: HerdSignals? { app.extension(HerdSignals.self) }
     private var merge: MergeModel? { app.extension(MergeModel.self) }
@@ -160,6 +195,7 @@ struct SessionListView: View {
         var sessions: [Session] = owner.store?.sessions ?? []
         sessions += owner.store?.remoteSessions ?? []
         sessions += owner.extension(QueuesModel.self)?.finishedSessions ?? []
+        if let session = owner.extension(QueuesModel.self)?.notificationSession { sessions.append(session) }
         return sessions
     }
 
@@ -250,8 +286,12 @@ struct SessionListView: View {
                     }
                 case .done:
                     let sessions = presentation.finished
-                    if (hub?.connected ?? [app]).contains(where: { $0.extension(QueuesModel.self)?.isRefreshing == true }), sessions.isEmpty { ProgressView(L.t("common_loading")) }
-                    else if sessions.isEmpty { empty(L.t("herd_done_empty")) }
+                    if doneModels.contains(where: { $0.isLoadingDone || (!$0.hasLoadedDone && !$0.doneLoadFailed) }), sessions.isEmpty {
+                        ProgressView(L.t("common_loading"))
+                    } else if doneModels.contains(where: { $0.doneLoadFailed }) {
+                        Text(L.t("native_error_offline")).foregroundStyle(SessionListStyle.red)
+                        Button(L.t("common_retry")) { Task { await refresh() } }
+                    } else if sessions.isEmpty { empty(L.t("herd_done_empty")) }
                     ForEach(sessions) { row in card(row, showCli: SessionBadges.showsCli(for: sessions.map(\.session)), now: now) }
                 case .next:
                     if let hub, hub.connected.count > 1 { IOSMergedNextRows(hub: hub, repos: activeRepos) }

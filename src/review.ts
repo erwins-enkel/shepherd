@@ -69,6 +69,7 @@ import {
 } from "./spawn-membrane";
 import type { PluginSpawnAborted } from "./plugins/types";
 import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
+import { redactSecretText } from "./redact";
 import { OversizedArgvError } from "./argv-limit";
 import {
   fitAssembledPrompt,
@@ -1780,7 +1781,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
         try {
           await forge.comment(
             f.prNumber,
-            `_Critic review completed after this PR merged — recording the findings here for a follow-up._\n\n${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+            `_Critic review completed after this PR merged — recording the findings here for a follow-up._\n\n${redactSecretText(verdict.body)}\n\n${CRITIC_REVIEW_MARKER}`,
           );
         } catch (err) {
           console.warn(`[review] post-merge comment failed for ${f.sessionId}:`, err);
@@ -1793,7 +1794,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       const event = verdict.decision === "changes_requested" ? "REQUEST_CHANGES" : "COMMENT";
       const { url } = await forge.postReview(f.prNumber, {
         event,
-        body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+        body: `${redactSecretText(verdict.body)}\n\n${CRITIC_REVIEW_MARKER}`,
       });
       verdict.url = url;
     } catch (err) {

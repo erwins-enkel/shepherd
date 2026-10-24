@@ -15,5 +15,6 @@ export function redactSecretText(s: string): string {
     )
     .replace(/\bbearer\s+[^\s,;]+/gi, "Bearer <redacted>")
     .replace(/\b(?:sk|gh[pousr]|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/gi, "<redacted>")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "<redacted>")
     .replace(/:\/\/([^\s/:@]+):([^\s/@]+)@/g, "://$1:<redacted>@");
 }

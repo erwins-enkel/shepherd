@@ -512,6 +512,19 @@ describe("act gate", () => {
     expect(run.issueNumber).toBe(100);
   });
 
+  it("N10: redacts token shapes from the drafted title and body before filing", async () => {
+    const h = harness({ repoDelivery: collapsing, act: true });
+    await h.svc.sweep();
+    h.draft.current = JSON.stringify({
+      ...JSON.parse(GOOD_DRAFT),
+      title: "Token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 leaked",
+      evidence: "GH_TOKEN=supersecretvalue in env",
+    });
+    await h.svc.tick();
+    expect(h.created[0]!.title).toBe("Token <redacted> leaked");
+    expect(h.created[0]!.body).not.toContain("supersecretvalue");
+  });
+
   it("still files when labelling fails — the label is a filter, the issue is the deliverable", async () => {
     const h = harness({ repoDelivery: collapsing, act: true });
     // A repo whose labels the token cannot write: addIssueLabel throws, createIssue does not.

@@ -53,8 +53,14 @@ import {
 import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import type { VerdictRead } from "./json-tolerant";
 import { reapTransientByLabel } from "./transient-tab-reaper";
-import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import {
+  resolveAuxPatch,
+  assembleAuxSpawn,
+  resolveBackend,
+  type MembraneSeams,
+} from "./spawn-membrane";
 import { spawnBudget } from "./spawn-budget";
+import { redactSecretText } from "./redact";
 import { fitAssembledPrompt, describeClamps } from "./prompt-fit";
 
 /** One PR critic run between its spawn (begin) and its verdict (finalize). Carries everything
@@ -144,6 +150,9 @@ export class StandalonePrCriticService {
   // sweep from re-selecting an in-flight PR: its pr_reviews row isn't written until finalize,
   // minutes later. Same role as ReviewService.starting. Keyed identically to inFlight.
   private starting = new Set<string>();
+  // `key@headSha` of fork PRs already logged as refused for lack of a sandbox backend, so a
+  // refusal that repeats every sweep logs once per head.
+  private unsandboxedForkLogged = new Set<string>();
   // Rotating offset for round-robin repo fairness: advanced each sweep so one busy repo (whose
   // candidates keep filling the concurrency cap) can't perpetually starve the others.
   private rrOffset = 0;
@@ -357,6 +366,26 @@ export class StandalonePrCriticService {
     return { integrationBranch: pr.headRefName!, childCount };
   }
 
+  /** Audit N10: a fork PR is untrusted input, and with no sandbox backend its critic would run
+   *  unconfined with the operator's real HOME (gh token, gitconfig). Refuse it; same-repo PRs
+   *  still review unconfined, as every other reviewer role does on such a host. */
+  private refuseUnsandboxedFork(
+    repoPath: string,
+    pr: PullRequest,
+    meta: PrReviewMeta,
+    key: string,
+  ): boolean {
+    if (!meta.isCrossRepository || resolveBackend(this.deps) !== null) return false;
+    const logKey = `${key}@${pr.headSha}`;
+    if (!this.unsandboxedForkLogged.has(logKey)) {
+      this.unsandboxedForkLogged.add(logKey);
+      this.log(
+        `[pr-critic] ${repoPath}#${pr.number}: fork PR not reviewed — no sandbox backend to confine its critic`,
+      );
+    }
+    return true;
+  }
+
   private async admittedMetadata(
     repoPath: string,
     pr: PullRequest,
@@ -402,6 +431,7 @@ export class StandalonePrCriticService {
     try {
       const meta = await this.admittedMetadata(repoPath, pr, forge, key);
       if (!meta) return;
+      if (this.refuseUnsandboxedFork(repoPath, pr, meta, key)) return;
       // Fork PR: its head sha lives off-branch on the contributor's fork, not the base origin.
       // GitHub exposes it on the base repo under refs/pull/<n>/head, which createDetached fetches.
       const pullRef = meta.isCrossRepository ? `refs/pull/${pr.number}/head` : undefined;
@@ -782,7 +812,7 @@ export class StandalonePrCriticService {
         try {
           await forge.postReview(f.prNumber, {
             event: "COMMENT",
-            body: `${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+            body: `${redactSecretText(verdict.body)}\n\n${CRITIC_REVIEW_MARKER}`,
           });
         } catch (err) {
           this.log(`[pr-critic] postReview failed for ${f.repoPath}#${f.prNumber}: ${String(err)}`);
@@ -794,7 +824,7 @@ export class StandalonePrCriticService {
         try {
           await forge.comment(
             f.prNumber,
-            `_Critic review completed after this PR merged — recording the findings here for a follow-up._\n\n${verdict.body}\n\n${CRITIC_REVIEW_MARKER}`,
+            `_Critic review completed after this PR merged — recording the findings here for a follow-up._\n\n${redactSecretText(verdict.body)}\n\n${CRITIC_REVIEW_MARKER}`,
           );
         } catch (err) {
           this.log(

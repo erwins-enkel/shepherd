@@ -5188,3 +5188,22 @@ test("behind: a non-forced consider while a FORCED run is mid-startup keeps its 
   expect(await forced).toBe("started");
   expect(started).toHaveLength(1);
 });
+
+test("N10: posted review body is secret-redacted; stored verdict body is untouched", async () => {
+  const leaked =
+    "leak: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 and github_pat_11ABCDEFG0123456789_abcdefghijklmnop";
+  const {
+    deps: d,
+    rec,
+    reviews,
+  } = makeDeps({
+    readVerdict: () => ({ decision: "comment", summary: "s", body: leaked, findings: [] }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(rec.body).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+  expect(rec.body).not.toContain("github_pat_");
+  expect(rec.body).toContain("<redacted>");
+  expect(reviews["s1"]?.body).toBe(leaked);
+});

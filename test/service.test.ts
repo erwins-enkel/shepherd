@@ -55,6 +55,7 @@ import { composeDocker } from "./helpers/compose-docker";
 import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
 import { stubBaseRef } from "./helpers/base-ref";
+import { inlineSpawnFiles } from "./helpers/spawn-files";
 
 /** The read tools (#2485) ride every non-plain Claude session, so its argv carries this pair. */
 const mcpArgs = (sessionId: string) => [
@@ -83,7 +84,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     } as any,
     herdr: {
       start: async (name: string, cwd: string, argv: string[]) => {
-        calls.start = { name, cwd, argv };
+        calls.start = { name, cwd, argv: inlineSpawnFiles(argv) };
         return {
           terminalId: "term_z",
           cwd,
@@ -382,7 +383,7 @@ function codexHarness(
     } as any,
     herdr: {
       start: async (name: string, cwd: string, argv: string[]) => {
-        calls.start = { name, cwd, argv };
+        calls.start = { name, cwd, argv: inlineSpawnFiles(argv) };
         return {
           terminalId: "term_codex",
           cwd,
@@ -869,7 +870,7 @@ for (const alias of ["opus[1m]", "sonnet[1m]", "claude-opus-5", "claude-opus-5[1
       } as any,
       herdr: {
         start: async (name: string, cwd: string, argv: string[]) => {
-          calls.argv = argv;
+          calls.argv = inlineSpawnFiles(argv);
           return {
             terminalId: "term_z",
             cwd,
@@ -1836,7 +1837,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "term_z", cwd: "/wt/x", agentStatus: "working" };
       },
       listAsync: async () => [],
@@ -1883,7 +1884,7 @@ test("createSession: copies attachments into worktree and appends paths to the p
     } as any,
     herdr: {
       start: async (name: string, cwd: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return {
           terminalId: "term_y",
           cwd,
@@ -1934,7 +1935,7 @@ test("createSession: a video attachment appends the ffmpeg consumption note", as
     } as any,
     herdr: {
       start: async (name: string, cwd: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return {
           terminalId: "term_y",
           cwd,
@@ -1987,7 +1988,7 @@ test("createSession: a dropped (swept) attachment still spawns, notes the loss, 
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return {
           terminalId: "term_y",
           cwd: "/wt/repo-x",
@@ -2116,7 +2117,7 @@ test("createSession: issue content tripping an injection signature emits a signa
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return {
           terminalId: "term_y",
           cwd: "/wt/repo-x",
@@ -2173,7 +2174,7 @@ test("createSession: no attachments leaves the prompt argv unchanged", async () 
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return {
           terminalId: "t",
           cwd: "/wt/x",
@@ -2211,7 +2212,7 @@ test("createSession: appends the issueRef body out-of-band, keeps the stored pro
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return {
           terminalId: "t",
           cwd: "/wt/x",
@@ -2269,7 +2270,7 @@ test("createSession: appends the issue's comment thread after the body when the 
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
       },
       listAsync: async () => [],
@@ -2327,7 +2328,7 @@ test("createSession: a throwing listIssueComments degrades to a body-only prompt
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "t", cwd: "/wt/x", agentStatus: "working" };
       },
       listAsync: async () => [],
@@ -3415,7 +3416,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
     } as any,
     herdr: {
       start: async (name: string, cwd: string, argv: string[]) => {
-        calls.start = { name, cwd, argv };
+        calls.start = { name, cwd, argv: inlineSpawnFiles(argv) };
         return { terminalId: "term_new", cwd, agentStatus: "working" } as any;
       },
       listAsync: async () => [], // old agent gone → respawn
@@ -3460,7 +3461,7 @@ test("resume omits --model when the session had none", async () => {
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
       listAsync: async () => [],
@@ -3505,7 +3506,7 @@ test("resume re-passes the full directive set, operator-language included, in on
       } as any,
       herdr: {
         start: async (_n: string, _c: string, argv: string[]) => {
-          calls.argv = argv;
+          calls.argv = inlineSpawnFiles(argv);
           return { terminalId: "term_new", agentStatus: "working" } as any;
         },
         listAsync: async () => [],
@@ -3694,7 +3695,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
       listAsync: async () => [],
@@ -3739,7 +3740,7 @@ test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "term_codex_new", agentStatus: "working" } as any;
       },
       listAsync: async () => [],
@@ -5268,7 +5269,7 @@ function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        captured.argv = argv;
+        captured.argv = inlineSpawnFiles(argv);
         return { terminalId: "t1" };
       },
       listAsync: async () => [],
@@ -6334,7 +6335,7 @@ function buildQueueDeps(
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        captured.argv = argv;
+        captured.argv = inlineSpawnFiles(argv);
         return { terminalId: "t1" };
       },
       listAsync: async () => [],
@@ -6454,7 +6455,7 @@ test("resume of a research session re-passes no queue tools either (#2003)", asy
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
       listAsync: async () => [],
@@ -6527,7 +6528,7 @@ test("resume re-passes --mcp-config so a compacted session keeps its tools (#200
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
       listAsync: async () => [],
@@ -7375,7 +7376,7 @@ test("resume of an auto session re-applies the trim: plugin-off + skill overlay"
       } as any,
       herdr: {
         start: async (_n: string, _c: string, argv: string[]) => {
-          calls.argv = argv;
+          calls.argv = inlineSpawnFiles(argv);
           return { terminalId: "term_new", agentStatus: "working" } as any;
         },
         listAsync: async () => [], // old agent gone → respawn
@@ -7442,7 +7443,7 @@ test("resume re-reads the repo's claude.ai connector opt-in", async () => {
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        calls.argv = argv;
+        calls.argv = inlineSpawnFiles(argv);
         return { terminalId: "term_new", agentStatus: "working" } as any;
       },
       list: () => [],
@@ -7504,7 +7505,7 @@ function relaunchHarness(
     herdr: {
       start: async (name: string, cwd: string, argv: string[]) => {
         if (failStart) throw new Error("spawn failed");
-        calls.started.push({ name, cwd, argv });
+        calls.started.push({ name, cwd, argv: inlineSpawnFiles(argv) });
         calls.order.push("start");
         return { terminalId: `term_${n}`, agentStatus: "working" } as any;
       },
@@ -7894,7 +7895,7 @@ test("startComparison clamps a blocked Codex model while preserving intent and e
     } as any,
     herdr: {
       start: async (name: string, cwd: string, argv: string[]) => {
-        calls.start = { name, cwd, argv };
+        calls.start = { name, cwd, argv: inlineSpawnFiles(argv) };
         return { terminalId: "term_cmp", agentStatus: "working" } as any;
       },
       listAsync: async () => [],
@@ -8423,7 +8424,7 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
       } as any,
       herdr: {
         start: async (_n: string, _c: string, argv: string[]) => {
-          calls.argv = argv;
+          calls.argv = inlineSpawnFiles(argv);
           return { terminalId: "term_new", agentStatus: "working" } as any;
         },
         listAsync: async () => [],
@@ -8701,7 +8702,7 @@ function sandboxResearchDeps(store: SessionStore, captured: { argv?: string[] })
     } as any,
     herdr: {
       start: async (_n: string, _c: string, argv: string[]) => {
-        captured.argv = argv;
+        captured.argv = inlineSpawnFiles(argv);
         return { terminalId: "t1" };
       },
       listAsync: async () => [],
@@ -8970,7 +8971,7 @@ function baseUrlService(opts: {
     } as any,
     herdr: {
       start: async (_name: string, cwd: string, argv: string[], env: Record<string, string>) => {
-        opts.record.argv = argv;
+        opts.record.argv = inlineSpawnFiles(argv);
         opts.record.env = env;
         return { terminalId: "term_x", cwd } as any;
       },
@@ -9471,7 +9472,7 @@ function makeFableGuardService(calls: { argv?: string[] }) {
       } as any,
       herdr: {
         start: async (_name: string, _cwd: string, argv: string[]) => {
-          calls.argv = argv;
+          calls.argv = inlineSpawnFiles(argv);
           return {
             terminalId: "term_fa",
             cwd: "/wt/repo-fable",

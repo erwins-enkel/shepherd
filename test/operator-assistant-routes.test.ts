@@ -740,12 +740,16 @@ test("the agent ingress serves the assistant's actions only on the assistant's o
   let interrupts = 0;
   deps.service = { interrupt: async () => (interrupts++, true) } as unknown as SessionService;
   const worker = workerRow(store);
-  const ingress = makeAgentIngressApp(deps);
-  // A herd agent calling an action tool on its own endpoint: the entitlement error.
+  const signer = new BrowserTokenSigner(Buffer.alloc(32, 5));
+  const ingress = makeAgentIngressApp({ ...deps, assistantIngress: signer });
+  // A herd agent calling an action tool on its own endpoint (with its own key): the entitlement error.
   const res = await ingress.fetch(
     new Request(`http://localhost/api/sessions/${worker.id}/mcp`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-shepherd-ingress-key": signer.sign(worker.id),
+      },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
@@ -988,9 +992,13 @@ test("F08: the ingress refuses an assistant action carrying only the session UUI
   expect(interrupted).toEqual([]);
   expect((await call(signer.sign(assistant.id))).status).toBe(200);
   expect(interrupted).toEqual([worker.id]);
-  // A task session's own ingress is unchanged: its UUID stays its capability.
-  const own = await makeAgentIngressApp({ ...deps, assistantIngress: signer }).fetch(
-    new Request(`http://127.0.0.1/api/sessions/${worker.id}`),
-  );
-  expect(own.status).not.toBe(401);
+  // #3337: a task session's ingress needs its own key too — the UUID alone is refused.
+  const own = (key?: string) =>
+    makeAgentIngressApp({ ...deps, assistantIngress: signer }).fetch(
+      new Request(`http://127.0.0.1/api/sessions/${worker.id}`, {
+        headers: key ? { "x-shepherd-ingress-key": key } : {},
+      }),
+    );
+  expect((await own()).status).toBe(401);
+  expect((await own(signer.sign(worker.id))).status).not.toBe(401);
 });

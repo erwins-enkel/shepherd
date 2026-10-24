@@ -151,7 +151,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Security",
     path: "/reference/security/",
     keywords:
-      "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) shared claude state and agent-written files attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture shared browser host-side git see also",
+      "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) reviewer roles (audit n10) agent-ingress key (#3337) shared claude state and agent-written files attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture shared browser host-side git see also",
   },
   {
     title: "Sentry",

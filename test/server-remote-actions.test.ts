@@ -8,6 +8,8 @@ import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeAgentIngressApp, makeApp, serve, type AppDeps } from "../src/server";
 import { config } from "../src/config";
+import { BrowserTokenSigner } from "../src/browser-token";
+import { ASSISTANT_INGRESS_HEADER } from "../src/assistant-ingress";
 import { AccessTokenService } from "../src/access-tokens";
 import { RemoteInstanceService } from "../src/remote-instances/service";
 import { MACHINE_READS } from "../src/remote-instances/forward";
@@ -551,11 +553,16 @@ describe("the coordinator's gates hold for forwarded routes", () => {
 
   test("the agent ingress never reaches a mirrored session", async () => {
     const { a, remote } = await pair();
-    const ingress = makeAgentIngressApp(a.deps);
+    // Even with a valid ingress key for the mirrored id (#3337), the gate never forwards it.
+    const signer = new BrowserTokenSigner(Buffer.alloc(32, 6));
+    const ingress = makeAgentIngressApp({ ...a.deps, assistantIngress: signer });
     const res = await ingress.fetch(
       new Request(`http://127.0.0.1/api/sessions/${remote.id}/rename`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          [ASSISTANT_INGRESS_HEADER]: signer.sign(remote.id),
+        },
         body: JSON.stringify({ name: "hijacked" }),
       }),
     );

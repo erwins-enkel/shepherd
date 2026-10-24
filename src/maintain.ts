@@ -39,6 +39,7 @@ import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { execGit } from "./safe-git";
+import { redactSecretText } from "./redact";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import {
   STARTUP_GRACE_MS,
@@ -1181,7 +1182,12 @@ export class MaintainService {
     try {
       created = await createIssueWithLabels(
         forge,
-        { title, body, labels: [MAINTAIN_ISSUE_LABEL] },
+        // Agent-authored text bound for a (possibly public) issue — scrub token shapes (audit N10).
+        {
+          title: redactSecretText(title),
+          body: redactSecretText(body),
+          labels: [MAINTAIN_ISSUE_LABEL],
+        },
         (msg) => this.log(`[maintain] ${run.bandKey}: ${msg}`),
       );
     } catch (err) {

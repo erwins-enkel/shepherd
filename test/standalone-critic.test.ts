@@ -974,14 +974,54 @@ test("closed PR: silent (no review, no comment)", async () => {
 
 // ── 7. fork ──────────────────────────────────────────────────────────────────
 
-test("cross-repository PR: createDetached is called with the pull ref", async () => {
-  const local = makeDeps({}, { forge: undefined });
+const SANDBOXED = {
+  detectBackend: () => "bwrap" as const,
+  membraneLaunch: async () => ({ state: "ok" }) as const,
+};
+
+function forkDeps(over: Record<string, unknown> = {}) {
+  const local = makeDeps(over, { forge: undefined });
   local.deps.resolveForge = () =>
     makeForge(local.spies, { meta: async () => ({ ...OPEN_META, isCrossRepository: true }) });
+  return local;
+}
+
+test("cross-repository PR: createDetached is called with the pull ref", async () => {
+  const local = forkDeps(SANDBOXED);
   const svc = new StandalonePrCriticService(local.deps as any);
   await svc.sweep();
   expect(local.spies.created).toHaveLength(1);
   expect(local.spies.created[0]!.pullRef).toBe("refs/pull/7/head");
+});
+
+test("N10: fork PR + no sandbox backend → refused before any worktree, logged once per head", async () => {
+  const local = forkDeps({ detectBackend: () => null });
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  await svc.sweep();
+  expect(local.spies.created).toHaveLength(0);
+  expect(local.spies.started).toHaveLength(0);
+  expect(local.spies.logs.filter((l) => l.includes("no sandbox backend"))).toHaveLength(1);
+});
+
+test("N10: same-repo PR + no sandbox backend still reviews", async () => {
+  const { deps, spies } = makeDeps({ detectBackend: () => null });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  expect(spies.started).toHaveLength(1);
+});
+
+test("N10: fork PR + bwrap → wrapped in the reviewer membrane (no gh token, RO git store)", async () => {
+  const local = forkDeps({
+    ...SANDBOXED,
+    membraneEnv: () => ({ claudeDir: "/fake/.claude", home: "/fake/home", nodeBinReal: "/n/node" }),
+  });
+  const svc = new StandalonePrCriticService(local.deps as any);
+  await svc.sweep();
+  const argv = local.spies.started[0]!.argv;
+  expect(argv[0]).toBe("bwrap");
+  expect(argv.some((a) => a.includes(".config/gh") || a.endsWith("/.gitconfig"))).toBe(false);
+  expect(argv[argv.indexOf("/fake-git-common") - 1]).toBe("--ro-bind");
 });
 
 // ── 8. dedup persistence ─────────────────────────────────────────────────────
@@ -1400,4 +1440,20 @@ test("Codex capacity: standalone critic waits and remains eligible", async () =>
   free = true;
   await svc.sweep();
   expect(spies.started).toHaveLength(1);
+});
+
+test("N10: posted standalone critic body is secret-redacted", async () => {
+  const { deps, spies } = makeDeps({
+    readVerdict: () => ({
+      decision: "comment",
+      summary: "s",
+      body: "found ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345 in hosts.yml",
+      findings: [],
+    }),
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  await svc.tick();
+  expect(spies.posted[0]!.body).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+  expect(spies.posted[0]!.body).toContain("<redacted>");
 });

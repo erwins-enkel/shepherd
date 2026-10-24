@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.3.0](https://github.com/erwins-enkel/shepherd/compare/v2.2.0...v2.3.0) (2026-10-24)
+
+
+### Features
+
+* datenverkehr verschlanken – iOS flüssig bei schlechter Verbindung, kein Frame… (epic [#3269](https://github.com/erwins-enkel/shepherd/issues/3269)) ([#3321](https://github.com/erwins-enkel/shepherd/issues/3321)) ([ff8e2a2](https://github.com/erwins-enkel/shepherd/commit/ff8e2a22c779ee1641c35336c893f0bb2c91b6ee))
+* **diagnostics:** per-repo row for repos without PR CI ([#3314](https://github.com/erwins-enkel/shepherd/issues/3314)) ([2b840b3](https://github.com/erwins-enkel/shepherd/commit/2b840b3728a393beea0064da82be33314d5afdc2))
+* **ios:** explain slow connects and task starts after one second ([#2719](https://github.com/erwins-enkel/shepherd/issues/2719)) ([231c957](https://github.com/erwins-enkel/shepherd/commit/231c95781d3b424a95b3159ffdb946d756fb3022))
+* **machines:** route new sessions away from overloaded hosts ([#3303](https://github.com/erwins-enkel/shepherd/issues/3303)) ([e49298b](https://github.com/erwins-enkel/shepherd/commit/e49298b7d24d431710d4d8b6fc8960c87a110508))
+* **security:** harden all server-side git via safe-git helper ([#3330](https://github.com/erwins-enkel/shepherd/issues/3330)) ([55f69c5](https://github.com/erwins-enkel/shepherd/commit/55f69c57c9271f212d2f645b884050f9998a4b2b))
+* **ui:** swipe back from backlog to session list ([#3323](https://github.com/erwins-enkel/shepherd/issues/3323)) ([b1f59b4](https://github.com/erwins-enkel/shepherd/commit/b1f59b42eb30119bc2f485fc2f92f2f94399cfb7))
+* **ui:** swipe back on repo detail + settings ([#3320](https://github.com/erwins-enkel/shepherd/issues/3320)) ([7b18884](https://github.com/erwins-enkel/shepherd/commit/7b188849d5970645b7d6d11be0269233e3405e1a))
+
+
+### Bug Fixes
+
+* **auth:** rotate cookie secret when SHEPHERD_PASSWORD changes ([#3328](https://github.com/erwins-enkel/shepherd/issues/3328)) ([c62fc99](https://github.com/erwins-enkel/shepherd/commit/c62fc994bbfed3dc56cecc4d3fd119a1fbc2e4ee)), closes [#2106](https://github.com/erwins-enkel/shepherd/issues/2106)
+* **macos:** restore full controls for connected-machine sessions ([#3310](https://github.com/erwins-enkel/shepherd/issues/3310)) ([e03de29](https://github.com/erwins-enkel/shepherd/commit/e03de29868859cb36ec389b4c2a74b09747346fb))
+* **questions:** make links in agent questions clickable on web, iOS and Mac ([#3317](https://github.com/erwins-enkel/shepherd/issues/3317)) ([ae5717f](https://github.com/erwins-enkel/shepherd/commit/ae5717f4391302827446bb49e0739778ecf013c8))
+* **sandbox:** tighten membrane binds + agent-written-file handling ([#3327](https://github.com/erwins-enkel/shepherd/issues/3327)) ([92490c7](https://github.com/erwins-enkel/shepherd/commit/92490c78ce45b9990cd1b93da2cf55dfbdd5283d))
+* **security:** assistant ingress key, server-side ask, repo grant + CSRF origin (F08/F10/F13) ([#3329](https://github.com/erwins-enkel/shepherd/issues/3329)) ([5ccb380](https://github.com/erwins-enkel/shepherd/commit/5ccb38088a254cc841942b87ec14a4e0e51f0af5))
+* **security:** bind autonomous merges to gated head; refuse unconfined auto Codex ([#3326](https://github.com/erwins-enkel/shepherd/issues/3326)) ([41dc438](https://github.com/erwins-enkel/shepherd/commit/41dc438055f166d87536534d6a5a5d421803aec0))
+
 ## [2.2.0](https://github.com/erwins-enkel/shepherd/compare/v2.1.0...v2.2.0) (2026-10-23)
 
 

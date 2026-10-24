@@ -366,7 +366,7 @@ test("restorability is asked of the service, not re-derived", async () => {
 
 test("a clean, pushed worktree passes the unsynced gate", async () => {
   const wt = mkWorktree();
-  const h = harness([session({ isolated: true, worktreePath: wt, branch: "main" })]);
+  const h = harness([session({ isolated: true, repoPath: wt, worktreePath: wt, branch: "main" })]);
   await h.archiver.tick();
   expect(h.archived).toEqual(["s1"]);
 });
@@ -374,7 +374,7 @@ test("a clean, pushed worktree passes the unsynced gate", async () => {
 test("uncommitted edits block", async () => {
   const wt = mkWorktree();
   writeFileSync(join(wt, "f.txt"), "edited\n");
-  const h = harness([session({ isolated: true, worktreePath: wt, branch: "main" })]);
+  const h = harness([session({ isolated: true, repoPath: wt, worktreePath: wt, branch: "main" })]);
   await h.archiver.tick();
   expect(h.archived).toEqual([]);
 });
@@ -382,7 +382,7 @@ test("uncommitted edits block", async () => {
 test("an untracked file blocks", async () => {
   const wt = mkWorktree();
   writeFileSync(join(wt, "scratch.txt"), "notes\n");
-  const h = harness([session({ isolated: true, worktreePath: wt, branch: "main" })]);
+  const h = harness([session({ isolated: true, repoPath: wt, worktreePath: wt, branch: "main" })]);
   await h.archiver.tick();
   expect(h.archived).toEqual([]);
 });
@@ -392,7 +392,7 @@ test("unpushed commits block", async () => {
   writeFileSync(join(wt, "f.txt"), "more\n");
   git(wt, "add", "-A");
   git(wt, "commit", "-q", "-m", "local only");
-  const h = harness([session({ isolated: true, worktreePath: wt, branch: "main" })]);
+  const h = harness([session({ isolated: true, repoPath: wt, worktreePath: wt, branch: "main" })]);
   await h.archiver.tick();
   expect(h.archived).toEqual([]);
 });
@@ -404,7 +404,7 @@ test("a branch that was never pushed blocks", async () => {
   git(wt, "add", "-A");
   git(wt, "commit", "-q", "-m", "no upstream");
   const h = harness([
-    session({ isolated: true, worktreePath: wt, branch: "shepherd/never-pushed" }),
+    session({ isolated: true, repoPath: wt, worktreePath: wt, branch: "shepherd/never-pushed" }),
   ]);
   await h.archiver.tick();
   expect(h.archived).toEqual([]);
@@ -516,7 +516,13 @@ test("no upstream and no base to measure against reads as unsynced", async () =>
   const wt = mkWorktree();
   git(wt, "checkout", "-q", "-b", "shepherd/orphan");
   const h = harness([
-    session({ isolated: true, worktreePath: wt, branch: "shepherd/orphan", baseBranch: "" }),
+    session({
+      isolated: true,
+      repoPath: wt,
+      worktreePath: wt,
+      branch: "shepherd/orphan",
+      baseBranch: "",
+    }),
   ]);
   await h.archiver.tick();
   expect(h.archived).toEqual([]);

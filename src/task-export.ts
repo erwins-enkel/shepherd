@@ -179,7 +179,7 @@ async function readDiff(
     // Same base the /diff tab uses: the PR's actual target when known, else the stored baseBranch.
     const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
     return {
-      diff: toSessionDiff(await computeDiff(s.worktreePath, base, s.branch)),
+      diff: toSessionDiff(await computeDiff(s.worktreePath, base, s.branch, s.repoPath)),
       diffUnavailable: null,
     };
   } catch (e) {

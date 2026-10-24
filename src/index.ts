@@ -1682,7 +1682,8 @@ attachBadgePush(events, store, push);
 // reject a merged/closed PR that `gh pr list --head <name>` matched only by a
 // reused branch name — its head commit won't be reachable from this branch's tip.
 // Shared by the background poller and the on-demand git endpoint so they agree.
-const ownsPr = (s: Session, headSha: string) => worktree.containsCommit(s.worktreePath, headSha);
+const ownsPr = (s: Session, headSha: string) =>
+  worktree.containsCommit(s.worktreePath, headSha, s.repoPath);
 
 // ── Poller cadence gate (#1230) ───────────────────────────────────────────────
 // The background pollers + critic sweep run at full cadence only while *warm*;
@@ -2750,7 +2751,7 @@ const autopilot = new AutopilotService({
     const s = store.get(id);
     if (!s) return true;
     try {
-      return await hasCommittedChanges(s.worktreePath, s.baseBranch, s.branch);
+      return await hasCommittedChanges(s.worktreePath, s.baseBranch, s.branch, s.repoPath);
     } catch (err) {
       console.warn("[autopilot] hasDiff:", err);
       return true;

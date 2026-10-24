@@ -1,7 +1,14 @@
 /** Real-git fixtures for the safe-git tests: a bare origin, an operator clone configured like a
  *  husky repo (RELATIVE core.hooksPath), and marker scripts that record whether git ran them. */
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 

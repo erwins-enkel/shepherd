@@ -4502,7 +4502,7 @@ async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
     // Diff against the PR's actual base (so it matches the PR's "Files changed" even when
     // the PR targets a non-default branch), falling back to the session's stored baseBranch.
     const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
-    return json(toSessionDiff(await computeDiff(s.worktreePath, base, s.branch)));
+    return json(toSessionDiff(await computeDiff(s.worktreePath, base, s.branch, s.repoPath)));
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
   }
@@ -4519,7 +4519,7 @@ async function sessionDiffAnnotationsRead(id: string, deps: AppDeps): Promise<Re
   if (!s) return json({ error: "not found" }, 404);
   try {
     const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
-    const diff = await computeDiff(s.worktreePath, base, s.branch); // structured hunks (not toSessionDiff)
+    const diff = await computeDiff(s.worktreePath, base, s.branch, s.repoPath); // structured hunks (not toSessionDiff)
     // spawnAccountDir MUST be passed: a spawn-account session writes its JSONL under
     // <account>/projects (see src/usage.ts) — omitting it resolves a nonexistent path and
     // silently yields no agent notes. Matches poller/recap/reaper.

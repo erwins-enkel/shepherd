@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { promisify } from "node:util";
 import { spawn } from "node:child_process";
 import {
   ProcessReaper,
@@ -10,9 +8,8 @@ import {
   type WorktreeListeners,
 } from "./process-reaper";
 import { resolveDevPort } from "./preview";
+import { execGit } from "./safe-git";
 import { agentTmpDir } from "./tmp-sweep";
-
-const execFileAsync = promisify(execFile);
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -20,9 +17,8 @@ function shellQuote(value: string): string {
 
 async function gitCommonDir(worktreePath: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--git-common-dir"], {
+    const { stdout } = await execGit(["rev-parse", "--git-common-dir"], {
       cwd: worktreePath,
-      encoding: "utf8",
       timeout: 5000,
     });
     const raw = stdout.trim();

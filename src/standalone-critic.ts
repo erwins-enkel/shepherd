@@ -123,6 +123,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
   computePatchId?: (
     worktreePath: string,
     base: string,
+    repoPath?: string,
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
   /** Injectable collector of an epic child's missing sibling work (default: real read-only git).
    *  Same contract as ReviewService — see critic-core's defaultCollectBaseDelta. */
@@ -427,7 +428,7 @@ export class StandalonePrCriticService {
         patchId: rawPatchId,
         baseSha,
         files,
-      } = await this.computePatchId(wt.worktreePath, meta.baseRefName);
+      } = await this.computePatchId(wt.worktreePath, meta.baseRefName, repoPath);
       const patchId = rawPatchId ?? "";
 
       const prior = this.deps.store.getPrReview(repoPath, pr.number);
@@ -471,7 +472,7 @@ export class StandalonePrCriticService {
         ? {
             base: meta.baseRefName,
             baseSha,
-            delta: baseSha ? await this.collectBaseDelta(wt.worktreePath, baseSha) : null,
+            delta: baseSha ? await this.collectBaseDelta(wt.worktreePath, baseSha, repoPath) : null,
           }
         : null;
       // Epic LANDING PR (#1761): the aggregate landing of a draining epic — head is the integration
@@ -532,7 +533,9 @@ export class StandalonePrCriticService {
     }
     // #2154: repo policy from the BASE COMMIT (never the checked-out PR head — this is the site
     // where the head may be a fork nobody vetted). Null ⇒ the composed prompt is unchanged.
-    const reviewPolicy = fp.baseSha ? await this.readReviewPolicy(worktreePath, fp.baseSha) : null;
+    const reviewPolicy = fp.baseSha
+      ? await this.readReviewPolicy(worktreePath, fp.baseSha, repoPath)
+      : null;
     // ONE pinned id for every argv this spawn builds (#1944): buildTransientAgentArgv falls back to
     // `randomUUID()`, so the budget probe and the clamped rebuild would otherwise each mint their
     // own `--session-id` and the verdict would land where readVerdict never looks.

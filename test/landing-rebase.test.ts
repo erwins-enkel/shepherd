@@ -309,16 +309,16 @@ test("append-only union conflict auto-resolves with pinned merge backend", async
   // Register the BROKEN driver so it's registered but non-functional
   registerDriverIn(noDriverRepo);
 
-  // The rebaseLandingBranch with the broken driver should return driver-broken
-  // (not rebased), showing the driver is load-bearing for union file resolution
+  // The injected raw git runs the broken registered driver, so the union conflict stays
+  // unresolved (the driver is load-bearing). The self-test runs Shepherd's OWN driver copy
+  // (audit F02: never the repo's), which is healthy → a genuine "conflict", not driver-broken.
   const noDrvWt = new WorktreeMgr();
   const noDrvResult = await rebaseLandingBranch(noDriverRepo, "epic/nodrv-test", "main", {
     worktrees: noDrvWt,
     git: makeGit(),
     registerDriver: registerDriverIn,
   });
-  // With a broken driver, the union conflict can't be resolved
-  expect(noDrvResult.kind).toBe("driver-broken");
+  expect(noDrvResult.kind).toBe("conflict");
 });
 
 // ── TEST: conflict — non-union path ──────────────────────────────────────────
@@ -407,11 +407,12 @@ test("conflict: returns conflict on a genuine same-key clash in a union catalog"
 
 // ── TEST: driver-broken — union-only conflict + self-test fails ───────────────
 
-test("driver-broken: returns driver-broken when union-only conflict + broken driver", async () => {
+test("a broken repo-side driver script is never self-tested: conflict, not driver-broken", async () => {
   // Use a setup where the seed has a BROKEN json-union-merge.mjs committed.
   // The worktree is a checkout of the integration branch, so it also gets the broken script.
-  // The rebase will conflict on the JSON catalog (broken driver can't merge it),
-  // and the self-test (which also runs the broken script from repoPath) will fail.
+  // The rebase (injected raw git) conflicts on the JSON catalog (broken driver can't merge it).
+  // The self-test runs Shepherd's OWN driver copy (audit F02), never the repo's, so it passes
+  // and the result is a genuine conflict hand-off; driver-broken now means Shepherd's copy broke.
   const { origin, seed } = setupBaseRepo({ broken: true });
   track(origin, seed);
 
@@ -467,7 +468,7 @@ test("driver-broken: returns driver-broken when union-only conflict + broken dri
     registerDriver: registerDriverIn,
   });
 
-  expect(result.kind).toBe("driver-broken");
+  expect(result.kind).toBe("conflict");
 });
 
 // ── TEST: driver-absent — registerDriver is a no-op ─────────────────────────

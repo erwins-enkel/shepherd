@@ -8,9 +8,8 @@
 import { readRoleResultText, codexLastMessageFile } from "./codex-last-message";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { execFileSync, timedAsync } from "./instrument";
+import { timedAsync } from "./instrument";
+import { execGit, execGitSync, resolveWorktreePin, type GitPin } from "./safe-git";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import type {
   CriticFinding,
@@ -26,7 +25,11 @@ import type { VerdictRead } from "./json-tolerant";
 import { clampBlock } from "./prompt-fit";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 
-const execFileAsync = promisify(execFile);
+/** Gitdir pin for the critic's disposable worktree, from the trusted repo path when known.
+ *  Throws (UntrustedGitDirError) on a mismatch — every caller is best-effort and degrades. */
+async function criticPin(worktreePath: string, repoPath?: string): Promise<GitPin | null> {
+  return repoPath ? resolveWorktreePin(repoPath, worktreePath) : null;
+}
 
 /** The sibling work that landed on an epic integration branch AFTER the child under review forked
  *  from it — collected server-side (see {@link defaultCollectBaseDelta}) and embedded in the epic
@@ -125,16 +128,24 @@ export const REVIEW_POLICY_MAX_BYTES = 8000;
 export async function defaultReadReviewPolicy(
   worktreePath: string,
   baseSha: string,
+  repoPath?: string,
 ): Promise<string | null> {
   // Same guard as defaultCollectBaseDelta: the SHA comes from `git rev-parse`, but validating it
   // before it reaches argv keeps a hostile ref from ever being smuggled into a git invocation.
   if (!/^[0-9a-f]{7,40}$/.test(baseSha)) return null;
+  let pin: GitPin | null;
+  try {
+    pin = await criticPin(worktreePath, repoPath);
+  } catch {
+    return null;
+  }
   for (const file of REVIEW_POLICY_FILES) {
     let text: string;
     try {
       const { stdout } = await timedAsync("git show review-policy", () =>
-        execFileAsync("git", ["show", `${baseSha}:${file}`], {
+        execGit(["show", `${baseSha}:${file}`], {
           cwd: worktreePath,
+          pin,
           // Well past the cap below, so an oversized policy is CLAMPED with a visible marker
           // rather than lost to a maxBuffer kill that would look like "no policy at all".
           maxBuffer: 4 * 1024 * 1024,
@@ -162,14 +173,17 @@ export async function defaultReadReviewPolicy(
 export async function defaultCollectBaseDelta(
   worktreePath: string,
   baseSha: string,
+  repoPath?: string,
 ): Promise<EpicBaseDelta | null> {
   if (!/^[0-9a-f]{7,40}$/.test(baseSha)) return null;
   try {
+    const pin = await criticPin(worktreePath, repoPath);
     // Three-dot: merge base = the fork point, so this is exactly the base-side content the
     // child's tree cannot see (the completeness property the epic block leans on).
     const { stdout: names } = await timedAsync("git diff --name-only", () =>
-      execFileAsync("git", ["diff", "--name-only", "-z", `HEAD...${baseSha}`], {
+      execGit(["diff", "--name-only", "-z", `HEAD...${baseSha}`], {
         cwd: worktreePath,
+        pin,
         maxBuffer: 64 * 1024 * 1024,
         encoding: "utf8",
       }),
@@ -180,8 +194,9 @@ export async function defaultCollectBaseDelta(
     let commits: string[] = [];
     try {
       const { stdout: log } = await timedAsync("git log --oneline", () =>
-        execFileAsync("git", ["log", "--oneline", "--no-decorate", `HEAD..${baseSha}`], {
+        execGit(["log", "--oneline", "--no-decorate", `HEAD..${baseSha}`], {
           cwd: worktreePath,
+          pin,
           maxBuffer: 16 * 1024 * 1024,
           encoding: "utf8",
         }),
@@ -1029,8 +1044,10 @@ export interface RawVerdict {
 export async function defaultComputePatchId(
   worktreePath: string,
   base: string,
+  repoPath?: string,
 ): Promise<{ patchId: string | null; baseSha: string | null; files: string[] }> {
   try {
+    const pin = await criticPin(worktreePath, repoPath);
     // Diff against the CURRENT base, not a possibly-stale local ref. createDetached fetches
     // only the head branch, so local `main` can lag behind origin; on a rebase onto newer
     // main the three-dot merge-base would then sit at the OLD main and fold everyone else's
@@ -1044,7 +1061,7 @@ export async function defaultComputePatchId(
       // `--` blocks flag-smuggling via a hostile branch name (mirrors createDetached).
       // Async so the fetch doesn't block the Bun event loop (and freeze the web terminal).
       await timedAsync("git fetch", () =>
-        execFileAsync("git", ["fetch", "origin", "--", base], { cwd: worktreePath }),
+        execGit(["fetch", "origin", "--", base], { cwd: worktreePath, pin }),
       );
       ref = "FETCH_HEAD";
     } catch {
@@ -1058,8 +1075,9 @@ export async function defaultComputePatchId(
     let baseSha: string | null = null;
     try {
       const { stdout } = await timedAsync("git rev-parse", () =>
-        execFileAsync("git", ["rev-parse", "--verify", "--end-of-options", ref], {
+        execGit(["rev-parse", "--verify", "--end-of-options", ref], {
           cwd: worktreePath,
+          pin,
           encoding: "utf8",
         }),
       );
@@ -1078,8 +1096,9 @@ export async function defaultComputePatchId(
     // context around them — see the docstring. The critic's actual review diff is computed
     // separately with full context; this `-U0` diff feeds patch-id only.
     const { stdout: diff } = await timedAsync("git diff", () =>
-      execFileAsync("git", ["diff", "-U0", `${diffRef}...HEAD`], {
+      execGit(["diff", "-U0", `${diffRef}...HEAD`], {
         cwd: worktreePath,
+        pin,
         maxBuffer: 64 * 1024 * 1024,
         encoding: "utf8",
       }),
@@ -1095,8 +1114,9 @@ export async function defaultComputePatchId(
       // delimiting is also robust to newlines in paths. Split on \0 and drop the trailing
       // empty element git emits after the final entry.
       const { stdout: names } = await timedAsync("git diff --name-only", () =>
-        execFileAsync("git", ["diff", "--name-only", "-z", `${diffRef}...HEAD`], {
+        execGit(["diff", "--name-only", "-z", `${diffRef}...HEAD`], {
           cwd: worktreePath,
+          pin,
           maxBuffer: 64 * 1024 * 1024,
           encoding: "utf8",
         }),
@@ -1111,8 +1131,9 @@ export async function defaultComputePatchId(
     // multi-MB diff would block the loop here. It's routed through the ./instrument timed
     // wrapper, so if loop-lag profiling ever flags "git patch-id", convert it to a spawn with
     // an async stdin write at that point — not worth the extra plumbing speculatively.
-    const out = execFileSync("git", ["patch-id", "--stable"], {
+    const out = execGitSync(["patch-id", "--stable"], {
       cwd: worktreePath,
+      pin,
       input: diff,
       maxBuffer: 1024 * 1024,
       stdio: ["pipe", "pipe", "ignore"],

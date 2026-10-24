@@ -1,15 +1,17 @@
-import { execFile } from "node:child_process";
-import { execFileSync } from "./instrument";
 import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, basename, resolve } from "node:path";
-import { promisify } from "node:util";
 import { timedAsync } from "./instrument";
+import {
+  execGit,
+  execGitSync,
+  resolveWorktreePin,
+  resolveWorktreePinSync,
+  type GitPin,
+} from "./safe-git";
 import { ensureShepherdExclude } from "./shepherd-exclude";
 import { removeWorktreeScratch } from "./tmp-sweep";
 import { upstreamStatus } from "./upstream-status";
 import { ProcessReaper } from "./process-reaper";
-
-const execFileAsync = promisify(execFile);
 
 export interface WorktreeResult {
   worktreePath: string;
@@ -95,7 +97,7 @@ export class WorktreeMgr {
 
   private isGit(repoPath: string): boolean {
     try {
-      execFileSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: repoPath, stdio: "pipe" });
+      execGitSync(["rev-parse", "--is-inside-work-tree"], { cwd: repoPath, stdio: "pipe" });
       return true;
     } catch {
       return false;
@@ -119,7 +121,7 @@ export class WorktreeMgr {
 
     try {
       mkdirSync(parent, { recursive: true });
-      execFileSync("git", ["worktree", "add", "-b", branch, worktreePath, baseBranch], {
+      execGitSync(["worktree", "add", "-b", branch, worktreePath, baseBranch], {
         cwd: repoPath,
         stdio: "pipe",
       });
@@ -136,7 +138,7 @@ export class WorktreeMgr {
    *  checked out. Never throws — an unreadable HEAD is recorded as unknown (null). */
   private withBaseCommit(wt: WorktreeResult): WorktreeResult {
     try {
-      const out = execFileSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+      const out = execGitSync(["rev-parse", "--verify", "HEAD^{commit}"], {
         cwd: wt.worktreePath,
         stdio: "pipe",
         encoding: "utf8",
@@ -155,15 +157,14 @@ export class WorktreeMgr {
   async ensureCommit(repoPath: string, sha: string): Promise<void> {
     if (!FULL_COMMIT_RE.test(sha)) return;
     try {
-      await execFileAsync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: repoPath });
+      await execGit(["cat-file", "-e", `${sha}^{commit}`], { cwd: repoPath });
       return;
     } catch {
       // not present locally — fetch it below
     }
     try {
       await timedAsync("git fetch", () =>
-        execFileAsync(
-          "git",
+        execGit(
           [
             "-c",
             "http.lowSpeedLimit=1000",
@@ -184,7 +185,7 @@ export class WorktreeMgr {
 
   private baseRefResolvesToCommit(repoPath: string, baseRef: string): boolean {
     try {
-      execFileSync("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], {
+      execGitSync(["rev-parse", "--verify", `${baseRef}^{commit}`], {
         cwd: repoPath,
         stdio: "pipe",
       });
@@ -271,7 +272,7 @@ export class WorktreeMgr {
         : ["worktree", "add", "-b", branch, worktreePath, baseBranch]; // fresh branch
 
     try {
-      execFileSync("git", retryArgs, { cwd: repoPath, stdio: "pipe" });
+      execGitSync(retryArgs, { cwd: repoPath, stdio: "pipe" });
       console.info(
         `[worktree] create: retry succeeded — branch=${branch} worktreePath=${worktreePath}`,
       );
@@ -305,7 +306,7 @@ export class WorktreeMgr {
     };
     let out: string;
     try {
-      out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      out = execGitSync(["worktree", "list", "--porcelain"], {
         cwd: repoPath,
         stdio: "pipe",
         encoding: "utf8",
@@ -336,7 +337,7 @@ export class WorktreeMgr {
       /* best-effort */
     }
     try {
-      execFileSync("git", ["worktree", "prune"], { cwd: repoPath, stdio: "pipe" });
+      execGitSync(["worktree", "prune"], { cwd: repoPath, stdio: "pipe" });
     } catch {
       /* best-effort */
     }
@@ -347,7 +348,7 @@ export class WorktreeMgr {
   branchExists(repoPath: string, branch: string): boolean {
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) return false;
     try {
-      execFileSync("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+      execGitSync(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
         cwd: repoPath,
         stdio: "pipe",
       });
@@ -364,19 +365,22 @@ export class WorktreeMgr {
     for (const b of [oldBranch, newBranch]) {
       if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(b)) throw new Error("invalid branch");
     }
-    execFileSync("git", ["branch", "-m", oldBranch, newBranch], { cwd: repoPath, stdio: "pipe" });
+    execGitSync(["branch", "-m", oldBranch, newBranch], { cwd: repoPath, stdio: "pipe" });
   }
 
   /** The branch currently checked out in `worktreePath`, or null when HEAD is
    *  detached or the path isn't a readable git worktree. This is the source of
    *  truth for which branch a session's PR will come from — an agent that runs
-   *  `git checkout -b` / `git branch -m` moves it out from under the stored value. */
-  currentBranch(worktreePath: string): string | null {
+   *  `git checkout -b` / `git branch -m` moves it out from under the stored value.
+   *  `repoPath` (trusted) pins the gitdir; an untrusted gitdir reads as null. */
+  currentBranch(worktreePath: string, repoPath?: string): string | null {
     try {
-      const out = execFileSync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+      const pin = repoPath ? resolveWorktreePinSync(repoPath, worktreePath) : null;
+      const out = execGitSync(["symbolic-ref", "--quiet", "--short", "HEAD"], {
         cwd: worktreePath,
         stdio: "pipe",
         encoding: "utf8",
+        pin,
       });
       return out.trim() || null;
     } catch {
@@ -393,7 +397,7 @@ export class WorktreeMgr {
       if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(b)) return Number.MAX_SAFE_INTEGER;
     }
     try {
-      const out = execFileSync("git", ["rev-list", "--count", `${baseBranch}..${branch}`], {
+      const out = execGitSync(["rev-list", "--count", `${baseBranch}..${branch}`], {
         cwd: repoPath,
         stdio: "pipe",
         encoding: "utf8",
@@ -502,7 +506,7 @@ export class WorktreeMgr {
     // Is baseBranch currently checked out in repoPath?
     let checkedOutHere = false;
     try {
-      const { stdout } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"], {
+      const { stdout } = await execGit(["symbolic-ref", "--short", "HEAD"], {
         cwd: repoPath,
       });
       checkedOutHere = stdout.trim() === baseBranch;
@@ -514,7 +518,7 @@ export class WorktreeMgr {
       // Check working tree cleanliness — treat any error as dirty (safe default).
       let dirty = true;
       try {
-        const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+        const { stdout } = await execGit(["status", "--porcelain"], {
           cwd: repoPath,
         });
         dirty = stdout.trim().length > 0;
@@ -531,7 +535,7 @@ export class WorktreeMgr {
 
       // Clean + checked out → merge --ff-only
       try {
-        await execFileAsync("git", ["merge", "--ff-only", upstreamSha], { cwd: repoPath });
+        await execGit(["merge", "--ff-only", upstreamSha], { cwd: repoPath });
         return "applied";
       } catch (err) {
         console.warn(`[worktree] ensureBaseRef: ff-only merge failed for ${baseBranch}:`, err);
@@ -542,7 +546,7 @@ export class WorktreeMgr {
     // Not checked out in repoPath — use `git branch -f` (works for create + ff,
     // fails when the branch is HEAD in another worktree).
     try {
-      await execFileAsync("git", ["branch", "-f", baseBranch, upstreamSha], { cwd: repoPath });
+      await execGit(["branch", "-f", baseBranch, upstreamSha], { cwd: repoPath });
       return "applied";
     } catch (err) {
       // git refuses to move a ref that is HEAD in any worktree → skipped-checked-out-elsewhere
@@ -560,13 +564,24 @@ export class WorktreeMgr {
    *  base ref when offline. Returns:
    *    false → base is an ancestor of HEAD (up-to-date, safe to merge)
    *    true  → base has commits HEAD lacks (stale, rebase needed)
-   *    null  → unknowable (bad worktree / git error) → caller treats as "do not merge"
+   *    null  → unknowable (bad worktree / git error / untrusted gitdir) → "do not merge"
+   *  `repoPath` (trusted) pins the gitdir against a rewritten worktree `.git` gitfile.
    */
-  async behindBase(worktreePath: string, baseBranch: string): Promise<boolean | null> {
+  async behindBase(
+    worktreePath: string,
+    baseBranch: string,
+    repoPath?: string,
+  ): Promise<boolean | null> {
     if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return null;
+    let pin: GitPin | null;
+    try {
+      pin = repoPath ? await resolveWorktreePin(repoPath, worktreePath) : null;
+    } catch {
+      return null;
+    }
     try {
       await timedAsync("git fetch", () =>
-        execFileAsync("git", ["fetch", "origin", "--", baseBranch], { cwd: worktreePath }),
+        execGit(["fetch", "origin", "--", baseBranch], { cwd: worktreePath, pin }),
       );
     } catch {
       /* offline / no origin — compare against whatever base ref is local */
@@ -575,17 +590,19 @@ export class WorktreeMgr {
     const candidates = [`origin/${baseBranch}`, baseBranch];
     for (const ref of candidates) {
       try {
-        execFileSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+        execGitSync(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
           cwd: worktreePath,
           stdio: "pipe",
+          pin,
         });
       } catch {
         continue; // ref doesn't exist locally; try the next
       }
       try {
-        execFileSync("git", ["merge-base", "--is-ancestor", ref, "HEAD"], {
+        execGitSync(["merge-base", "--is-ancestor", ref, "HEAD"], {
           cwd: worktreePath,
           stdio: "pipe",
+          pin,
         });
         return false; // ref is an ancestor of HEAD → up-to-date
       } catch (err) {
@@ -619,13 +636,22 @@ export class WorktreeMgr {
    *    longer an ancestor of HEAD, so a genuine MERGED is dropped to `none`. Rare
    *    (a session usually archives once its PR lands) and self-heals once the PR
    *    head returns to the history; acceptable versus the false-MERGED it prevents.
+   *
+   *  `repoPath` (trusted) pins the gitdir; an untrusted gitdir is unknowable → null.
    */
-  containsCommit(worktreePath: string, sha: string): boolean | null {
+  containsCommit(worktreePath: string, sha: string, repoPath?: string): boolean | null {
     if (!/^[0-9a-fA-F]{7,64}$/.test(sha)) return null;
+    let pin: GitPin | null;
     try {
-      execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
+      pin = repoPath ? resolveWorktreePinSync(repoPath, worktreePath) : null;
+    } catch {
+      return null;
+    }
+    try {
+      execGitSync(["cat-file", "-e", `${sha}^{commit}`], {
         cwd: worktreePath,
         stdio: "pipe",
+        pin,
       });
     } catch (err) {
       // git ran and reported the object missing (numeric exit) → a clean miss, the
@@ -635,9 +661,10 @@ export class WorktreeMgr {
       return typeof (err as { status?: number }).status === "number" ? false : null;
     }
     try {
-      execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
+      execGitSync(["merge-base", "--is-ancestor", sha, "HEAD"], {
         cwd: worktreePath,
         stdio: "pipe",
+        pin,
       });
       return true; // reachable from HEAD → this session's own commit
     } catch (err) {
@@ -651,15 +678,18 @@ export class WorktreeMgr {
    *  --git-common-dir`, resolved against the worktree). A worktree's own `.git` is a
    *  file pointing here; the bwrap membrane must bind this store rw so the agent's
    *  git ops reach the real refs/objects. Falls back to `<worktreePath>/.git` on any
-   *  git error so a non-worktree (isolated:false) still yields a usable path. */
-  gitCommonDir(worktreePath: string): string {
+   *  git error so a non-worktree (isolated:false) still yields a usable path.
+   *  With `repoPath` (trusted) the store is read from the repo, never from the worktree's
+   *  agent-writable `.git` gitfile — else a repointed gitfile would pick the RW bind. */
+  gitCommonDir(worktreePath: string, repoPath?: string): string {
+    const from = repoPath ?? worktreePath;
     try {
-      const out = execFileSync("git", ["rev-parse", "--git-common-dir"], {
-        cwd: worktreePath,
+      const out = execGitSync(["rev-parse", "--git-common-dir"], {
+        cwd: from,
         stdio: "pipe",
         encoding: "utf8",
       });
-      return resolve(worktreePath, out.trim());
+      return resolve(from, out.trim());
     } catch {
       return join(worktreePath, ".git");
     }
@@ -680,7 +710,7 @@ export class WorktreeMgr {
     if (existsSync(worktreePath)) {
       try {
         // git worktree remove requires cwd in the main repo; find it via --git-common-dir
-        const gitCommonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], {
+        const gitCommonDir = execGitSync(["rev-parse", "--git-common-dir"], {
           cwd: worktreePath,
           stdio: "pipe",
         })
@@ -688,7 +718,7 @@ export class WorktreeMgr {
           .trim();
         // --git-common-dir may be relative to the worktree; resolve before taking its parent
         mainRepo = dirname(resolve(worktreePath, gitCommonDir));
-        execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
+        execGitSync(["worktree", "remove", "--force", worktreePath], {
           cwd: mainRepo,
           stdio: "pipe",
         });
@@ -701,7 +731,7 @@ export class WorktreeMgr {
     if (mainRepo) {
       // drop any stale worktree registration left behind
       try {
-        execFileSync("git", ["worktree", "prune"], { cwd: mainRepo, stdio: "pipe" });
+        execGitSync(["worktree", "prune"], { cwd: mainRepo, stdio: "pipe" });
       } catch {
         /* best-effort */
       }
@@ -771,7 +801,7 @@ export class WorktreeMgr {
     try {
       // best-effort: pull the PR head into the local object store (no-op if local)
       await timedAsync("git fetch", () =>
-        execFileAsync("git", ["fetch", "origin", "--", branch], { cwd: repoPath }),
+        execGit(["fetch", "origin", "--", branch], { cwd: repoPath }),
       );
     } catch {
       /* offline / no origin — the sha may already be local; let worktree add decide */
@@ -782,7 +812,7 @@ export class WorktreeMgr {
         // base origin), so fetch the PR's pull ref too. Best-effort like the branch fetch — a
         // failure just leaves `worktree add` to surface a missing-object error the caller catches.
         await timedAsync("git fetch", () =>
-          execFileAsync("git", ["fetch", "origin", "--", pullRef], { cwd: repoPath }),
+          execGit(["fetch", "origin", "--", pullRef], { cwd: repoPath }),
         );
       } catch {
         /* offline / no origin / ref gone — let worktree add decide */
@@ -796,9 +826,9 @@ export class WorktreeMgr {
     // `worktree add --detach` is a full working-tree checkout — the heaviest local git op
     // here — and createDetached runs on the plan-gate / critic background-poll path, so run
     // it async to keep the checkout off the Bun event loop. (No stdin constraint, unlike
-    // patch-id, so execFileAsync works directly.)
+    // patch-id, so execGit works directly.)
     await timedAsync("git worktree add", () =>
-      execFileAsync("git", ["worktree", "add", "--detach", worktreePath, sha], { cwd: repoPath }),
+      execGit(["worktree", "add", "--detach", worktreePath, sha], { cwd: repoPath }),
     );
     return { worktreePath, branch: null, isolated: true };
   }
@@ -827,7 +857,7 @@ export class WorktreeMgr {
     }
     // Pre-check: branch ref must exist
     try {
-      execFileSync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
+      execGitSync(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
         cwd: repoPath,
         stdio: "pipe",
       });
@@ -836,7 +866,7 @@ export class WorktreeMgr {
     }
     mkdirSync(dirname(worktreePath), { recursive: true });
     try {
-      execFileSync("git", ["worktree", "add", worktreePath, branch], {
+      execGitSync(["worktree", "add", worktreePath, branch], {
         cwd: repoPath,
         stdio: "pipe",
       });
@@ -854,7 +884,7 @@ export class WorktreeMgr {
   private pruneMergedBranch(mainRepo: string, branch: string, baseBranch: string): void {
     try {
       // exits 0 when branch's tip is an ancestor of base (i.e. nothing would be lost)
-      execFileSync("git", ["merge-base", "--is-ancestor", branch, baseBranch], {
+      execGitSync(["merge-base", "--is-ancestor", branch, baseBranch], {
         cwd: mainRepo,
         stdio: "pipe",
       });
@@ -862,7 +892,7 @@ export class WorktreeMgr {
       return; // unmerged (or check failed) → keep the branch and its commits
     }
     try {
-      execFileSync("git", ["branch", "-D", branch], { cwd: mainRepo, stdio: "pipe" });
+      execGitSync(["branch", "-D", branch], { cwd: mainRepo, stdio: "pipe" });
     } catch {
       /* best-effort */
     }

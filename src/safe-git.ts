@@ -20,7 +20,12 @@
  *
  * test/safe-git-guard.test.ts fails on any raw `execFile("git", …)` outside its allowlist.
  */
-import { execFile, type ExecFileOptions, type ExecFileSyncOptions } from "node:child_process";
+import {
+  execFile,
+  type ExecFileOptions,
+  type ExecFileSyncOptions,
+  type ExecFileSyncOptionsWithStringEncoding,
+} from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -105,10 +110,21 @@ export async function execGit(
  *  synchronous — never add new sync git to the server loop. */
 export function execGitSync(
   args: readonly string[],
+  opts: ExecFileSyncOptionsWithStringEncoding & SafeGitOptions,
+): string;
+export function execGitSync(
+  args: readonly string[],
+  opts?: ExecFileSyncOptions & SafeGitOptions,
+): Buffer;
+export function execGitSync(
+  args: readonly string[],
   opts: ExecFileSyncOptions & SafeGitOptions = {},
 ): string | Buffer {
   const { pin, config, ...rest } = opts;
-  return execFileSync("git", safeGitArgs(args, config), { ...rest, env: safeEnv(rest.env, pin) });
+  return execFileSync("git", safeGitArgs(args, config), {
+    ...rest,
+    env: safeEnv(rest.env, pin),
+  }) as string | Buffer;
 }
 
 /** The worktree's `.git` gitfile can't be trusted to name its admin dir, and no admin dir under

@@ -113,7 +113,7 @@ export function resolveSpawnMembrane(args: {
   argv: string[];
   worktreePath: string;
   repoPath: string;
-  worktree: { gitCommonDir(p: string): string };
+  worktree: { gitCommonDir(p: string, repoPath?: string): string };
   seams: MembraneSeams;
   /** Plugin SpawnPatch env (issue #1205), merged LAST over the membrane's passthrough extraEnv
    *  so a patched CLAUDE_CONFIG_DIR rides the bwrap --setenv (carried THROUGH --clearenv), not
@@ -141,7 +141,7 @@ export function resolveSpawnMembrane(args: {
 
   const membrane: MembraneInputs = {
     worktreePath: args.worktreePath,
-    gitCommonDir: args.worktree.gitCommonDir(args.worktreePath),
+    gitCommonDir: args.worktree.gitCommonDir(args.worktreePath, args.repoPath),
     isolated: true,
     repoPath: args.repoPath,
     claudeDir: redirecting ? (patchedDir as string) : env.claudeDir,
@@ -257,7 +257,7 @@ export interface AuxSpawnArgs {
   argv: string[];
   worktreePath: string;
   repoPath: string;
-  worktree: { gitCommonDir(p: string): string };
+  worktree: { gitCommonDir(p: string, repoPath?: string): string };
   seams: MembraneSeams;
   descriptor: {
     sessionId: string;

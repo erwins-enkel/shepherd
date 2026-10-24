@@ -20,6 +20,7 @@ function draft(sessionId: string, status: EpicDraft["status"]): EpicDraft {
     parent: { title: "t", body: "b", acceptanceCriteria: [], nonGoals: [] },
     children: [{ key: "c1", title: "Child", body: "b", acceptanceCriteria: [], blockedBy: [] }],
     status,
+    revision: 1,
     materializedChildren: {},
     parentNumber: status === "approved" ? 13 : null,
     parentUrl: status === "approved" ? "https://example.test/13" : null,
@@ -57,7 +58,7 @@ describe("approveEpic", () => {
       childNumbers: {},
     } as never);
 
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
     expect(last()).toBe(m.epicdraft_approve_success({ n: 13 }));
   });
 
@@ -72,7 +73,7 @@ describe("approveEpic", () => {
     vi.mocked(api.approveEpicDraft).mockRejectedValue(thrown());
     vi.mocked(api.getEpicDraft).mockResolvedValue(draft(s1, "approved"));
 
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
     expect(last()).toBe(m.epicdraft_approve_success({ n: 13 }));
   });
 
@@ -88,7 +89,7 @@ describe("approveEpic", () => {
     vi.mocked(api.approveEpicDraft).mockRejectedValue(thrown());
     vi.mocked(api.getEpicDraft).mockResolvedValue(draft(s1, "draft"));
 
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
     expect(last()).toBe(m.epicdraft_approve_failed());
     expect(last()).not.toContain(raw);
   });
@@ -106,8 +107,25 @@ describe("approveEpic", () => {
     );
     vi.mocked(api.getEpicDraft).mockResolvedValue(draft(s1, "draft"));
 
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
     expect(last()).toBe(msg);
+  });
+
+  // #3324: a 409 draft-changed created nothing — refresh to the new revision and ask for a re-review,
+  // never the server's raw string or the generic failure.
+  it("draft-changed refreshes the draft and asks for a fresh review", async () => {
+    const s1 = nextSid();
+    vi.mocked(api.approveEpicDraft).mockRejectedValue(
+      new api.ApiError(409, "the epic draft changed since it was reviewed", "draft-changed", true),
+    );
+    vi.mocked(api.getEpicDraft).mockResolvedValue({ ...draft(s1, "draft"), revision: 2 });
+
+    await approveEpic(s1, 1);
+    expect(api.approveEpicDraft).toHaveBeenCalledWith(s1, 1, undefined);
+    expect(api.getEpicDraft).toHaveBeenCalledWith(s1);
+    expect(epicDrafts.get(s1)?.revision).toBe(2);
+    expect(last()).toBe(m.epicdraft_approve_stale());
+    expect(text()).not.toContain(m.epicdraft_approve_failed());
   });
 
   // An empty `{error: ""}` is NOT a server message — honouring it would render a blank toast.
@@ -116,7 +134,7 @@ describe("approveEpic", () => {
     vi.mocked(api.approveEpicDraft).mockRejectedValue(new api.ApiError(500, "", undefined, false));
     vi.mocked(api.getEpicDraft).mockResolvedValue(draft(s1, "draft"));
 
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
     expect(last()).toBe(m.epicdraft_approve_failed());
   });
 
@@ -128,7 +146,7 @@ describe("approveEpic", () => {
     vi.mocked(api.approveEpicDraft).mockRejectedValue(proxy502());
     (arrange as () => void)();
 
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
     expect(last()).toBe(m.epicdraft_approve_failed());
     expect(last()).not.toContain("failed: ");
   });
@@ -140,7 +158,7 @@ describe("approveEpic", () => {
     const s1 = nextSid();
     vi.mocked(api.approveEpicDraft).mockRejectedValue(proxy502());
     vi.mocked(api.getEpicDraft).mockResolvedValue(draft(s1, "draft"));
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
     expect(last()).toBe(m.epicdraft_approve_failed());
 
     vi.mocked(api.approveEpicDraft).mockResolvedValue({
@@ -148,7 +166,7 @@ describe("approveEpic", () => {
       parentUrl: "u",
       childNumbers: {},
     } as never);
-    await approveEpic(s1);
+    await approveEpic(s1, 1);
 
     expect(toasts.items).toHaveLength(1); // superseded in place, not stacked
     expect(last()).toBe(m.epicdraft_approve_success({ n: 13 }));
@@ -171,7 +189,7 @@ describe("approveEpic", () => {
       ["success", "approved" as const, () => m.epicdraft_approve_success({ n: 13 })],
     ])("resolves into a %s toast when the WS event lands", async (_l, terminal, expected) => {
       const s1 = pendingSid;
-      await approveEpic(s1);
+      await approveEpic(s1, 1);
       expect(last()).toBe(m.epicdraft_approve_in_progress());
 
       epicDrafts.upsert(draft(s1, terminal)); // the WS `session:epic-draft` event
@@ -184,7 +202,7 @@ describe("approveEpic", () => {
     it("keys the outcome to the approving session, not another one", async () => {
       const s1 = pendingSid;
       epicDrafts.upsert(draft(nextSid(), "draft")); // an unrelated session sitting in `draft`
-      await approveEpic(s1);
+      await approveEpic(s1, 1);
 
       // s2 must not be told its (never-attempted) approve failed.
       expect(text()).not.toContain(m.epicdraft_approve_failed());

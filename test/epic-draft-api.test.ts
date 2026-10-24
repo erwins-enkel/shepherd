@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
-function fakeForge(opts: { failCreate?: boolean } = {}) {
+function fakeForge(opts: { failCreate?: boolean; failAfter?: number } = {}) {
   let next = 100;
   const created: number[] = [];
   const subIssues = new Map<number, number[]>();
@@ -26,7 +26,8 @@ function fakeForge(opts: { failCreate?: boolean } = {}) {
   const forge = {
     kind: "github",
     async createIssue({ title }: { title: string; body: string }) {
-      if (opts.failCreate) throw new Error("boom");
+      if (opts.failCreate || (opts.failAfter != null && created.length >= opts.failAfter))
+        throw new Error("boom");
       const number = next++;
       created.push(number);
       return { number, url: `https://example.test/issues/${number}`, title };
@@ -104,8 +105,21 @@ async function putDraft(app: ReturnType<typeof makeApp>, id: string, body: unkno
     }),
   );
 }
-const approve = (app: ReturnType<typeof makeApp>, id: string) =>
-  app.fetch(new Request(`http://x/api/sessions/${id}/epic-draft/approve`, { method: "POST" }));
+const getDraft = async (app: ReturnType<typeof makeApp>, id: string) =>
+  (await (await app.fetch(new Request(`http://x/api/sessions/${id}/epic-draft`))).json()) as {
+    revision: number;
+  };
+const approveAt = (app: ReturnType<typeof makeApp>, id: string, revision: number) =>
+  app.fetch(
+    new Request(`http://x/api/sessions/${id}/epic-draft/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revision }),
+    }),
+  );
+/** The operator flow: GET the draft (what the modal shows), approve the revision it showed. */
+const approve = async (app: ReturnType<typeof makeApp>, id: string) =>
+  approveAt(app, id, (await getDraft(app, id)).revision);
 
 test("PUT rejects a malformed draft (missing children)", async () => {
   const { app, store } = harness(fakeForge().forge);
@@ -235,7 +249,7 @@ test("approve 409s when a materialize is already in progress", async () => {
   const s = makeSession(store);
   await putDraft(app, s.id);
   // Simulate an in-flight materialize by winning the CAS out-of-band.
-  expect(store.beginEpicDraftMaterialize(s.id)).toBe(true);
+  expect(store.beginEpicDraftMaterialize(s.id, 1)).toBe(true);
   const res = await approve(app, s.id);
   expect(res.status).toBe(409);
 });
@@ -271,7 +285,7 @@ test("approve with {landing:'incremental'} persists it on the registered run (#3
   const { app, store } = harness(fakeForge().forge);
   const s = makeSession(store);
   await putDraft(app, s.id);
-  const res = await approveWith(app, s.id, JSON.stringify({ landing: "incremental" }));
+  const res = await approveWith(app, s.id, JSON.stringify({ revision: 1, landing: "incremental" }));
   expect(res.status).toBe(200);
   expect(store.getEpicRun(repoDir)).toMatchObject({
     parentIssueNumber: 102,
@@ -285,26 +299,91 @@ test("approve with {landing:'incremental'} behind a leader persists it as settin
   store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 7, mode: "auto", status: "running" });
   const s = makeSession(store);
   await putDraft(app, s.id);
-  const res = await approveWith(app, s.id, JSON.stringify({ landing: "incremental" }));
+  const res = await approveWith(app, s.id, JSON.stringify({ revision: 1, landing: "incremental" }));
   expect(res.status).toBe(200);
   expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 7, status: "running" });
   expect(store.getEpicSettings(repoDir, 102)).toMatchObject({ landing: "incremental" });
 });
 
-test("approve with no body or an empty JSON body keeps the default landing (#3191)", async () => {
-  for (const send of [
-    (app: ReturnType<typeof makeApp>, id: string) => approve(app, id),
-    (app: ReturnType<typeof makeApp>, id: string) => approveWith(app, id, ""),
-    (app: ReturnType<typeof makeApp>, id: string) => approveWith(app, id, "{}"),
-  ]) {
-    const { app, store } = harness(fakeForge().forge);
-    const s = makeSession(store);
-    await putDraft(app, s.id);
-    expect((await send(app, s.id)).status).toBe(200);
-    const run = store.getEpicRun(repoDir);
-    expect(run?.parentIssueNumber).toBe(102);
-    expect(run?.landing ?? "integration").toBe("integration");
-  }
+test("approve with no landing keeps the default landing (#3191)", async () => {
+  const { app, store } = harness(fakeForge().forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  expect((await approve(app, s.id)).status).toBe(200);
+  const run = store.getEpicRun(repoDir);
+  expect(run?.parentIssueNumber).toBe(102);
+  expect(run?.landing ?? "integration").toBe("integration");
+});
+
+// ── #3324: approve is bound to the reviewed draft revision ─────────────────────────────────────
+
+test("PUT bumps the revision and GET returns it", async () => {
+  const { app, store } = harness(fakeForge().forge);
+  const s = makeSession(store);
+  expect(((await (await putDraft(app, s.id)).json()) as { revision: number }).revision).toBe(1);
+  await putDraft(app, s.id);
+  expect((await getDraft(app, s.id)).revision).toBe(2);
+});
+
+test("approve without a revision 400s and creates nothing", async () => {
+  const fk = fakeForge();
+  const { app, store } = harness(fk.forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  const bare = new Request(`http://x/api/sessions/${s.id}/epic-draft/approve`, { method: "POST" });
+  expect((await app.fetch(bare)).status).toBe(400);
+  for (const body of [
+    "",
+    "{}",
+    JSON.stringify({ revision: "1" }),
+    JSON.stringify({ revision: 1.5 }),
+  ])
+    expect((await approveWith(app, s.id, body)).status).toBe(400);
+  expect(fk.created).toEqual([]);
+  expect(store.getEpicDraft(s.id)?.status).toBe("draft");
+});
+
+test("a draft swapped after review 409s draft-changed and creates nothing", async () => {
+  const fk = fakeForge();
+  const { app, store } = harness(fk.forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  const reviewed = (await getDraft(app, s.id)).revision;
+  const swapped = { ...draftBody, children: [{ ...draftBody.children[0]!, body: "SWAPPED" }] };
+  expect((await putDraft(app, s.id, swapped)).status).toBe(200); // the agent swaps it
+  const res = await approveAt(app, s.id, reviewed);
+  expect(res.status).toBe(409);
+  expect(((await res.json()) as { reason: string }).reason).toBe("draft-changed");
+  expect(fk.created).toEqual([]);
+  expect(store.getEpicDraft(s.id)?.status).toBe("draft");
+});
+
+test("after a partial materialize the agent cannot rewrite the draft; the retry resumes", async () => {
+  const fk = fakeForge({ failAfter: 1 });
+  const { app, store } = harness(fk.forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  const reviewed = (await getDraft(app, s.id)).revision;
+  expect((await approveAt(app, s.id, reviewed)).status).toBe(500);
+  const partial = store.getEpicDraft(s.id)!;
+  expect(partial.status).toBe("draft");
+  expect(partial.materializedChildren).toEqual({ c1: 100 });
+
+  const swapped = { ...draftBody, children: [{ ...draftBody.children[0]!, body: "SWAPPED" }] };
+  expect((await putDraft(app, s.id, swapped)).status).toBe(409);
+  const after = store.getEpicDraft(s.id)!;
+  expect(after.materializedChildren).toEqual({ c1: 100 });
+  expect(after.revision).toBe(reviewed);
+  expect(after.children[0]?.body).toBe("endpoint");
+});
+
+test("a retry is bound to the reviewed revision too", async () => {
+  const { app, store } = harness(fakeForge({ failCreate: true }).forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  expect((await approveAt(app, s.id, 1)).status).toBe(500); // nothing created → still editable
+  await putDraft(app, s.id); // revision 2
+  expect((await approveAt(app, s.id, 1)).status).toBe(409);
 });
 
 test("approve 400s on an invalid landing before materializing anything (#3191)", async () => {

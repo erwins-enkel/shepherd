@@ -90,13 +90,26 @@ async function reconcile(sessionId: string, e: unknown) {
   failed(sessionId, authored ? e.message : undefined);
 }
 
-/** Approve a session's epic draft and toast the outcome. Never throws. `landing`: how the epic's
- *  children land (#3191); omitted = the server default (integration branch). */
-export async function approveEpic(sessionId: string, landing?: EpicLanding): Promise<void> {
+/** The draft changed after the operator reviewed it (#3324): nothing was created. Show the new
+ *  revision and ask for a fresh review — never the generic failure. */
+async function stale(sessionId: string) {
+  await epicDrafts.refresh(sessionId).catch(() => undefined);
+  toasts.info(m.epicdraft_approve_stale(), { key: toastKey(sessionId), sticky: true, alert: true });
+}
+
+/** Approve a session's epic draft and toast the outcome. Never throws. `revision`: the draft
+ *  revision the operator reviewed (#3324). `landing`: how the epic's children land (#3191);
+ *  omitted = the server default (integration branch). */
+export async function approveEpic(
+  sessionId: string,
+  revision: number,
+  landing?: EpicLanding,
+): Promise<void> {
   try {
-    const r = await approveEpicDraft(sessionId, landing);
+    const r = await approveEpicDraft(sessionId, revision, landing);
     succeeded(sessionId, r.parentNumber);
   } catch (e) {
+    if (e instanceof ApiError && e.code === "draft-changed") return stale(sessionId);
     await reconcile(sessionId, e);
   }
 }

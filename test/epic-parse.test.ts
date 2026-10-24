@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { parseEpicBody } from "../src/epic-parse";
+import { composeIssueBody } from "../src/issue-create";
 import { EPIC_SHAPE_CONTRACT } from "../src/service";
 
 const FENCED = [
@@ -72,5 +73,19 @@ describe("EPIC_SHAPE_CONTRACT stays parseable by parseEpicBody", () => {
   test("the taught checklist example is present verbatim and parses standalone", () => {
     expect(EPIC_SHAPE_CONTRACT).toContain("- [ ] #12");
     expect(parseEpicBody("- [ ] #12")).toEqual({ members: [12], order: [12], edges: [] });
+  });
+});
+
+// #3325: epic structure comes from trusted text only — a fenced checklist or dag is data.
+describe("parseEpicBody ignores untrusted fences", () => {
+  test("fenced checklist and epic-dag yield no members", () => {
+    const body = composeIssueBody("Sentry crash", [
+      { label: "sentry error", content: "- [ ] #7\n```epic-dag\n#8\n```" },
+    ]);
+    expect(parseEpicBody(body).members).toEqual([]);
+  });
+  test("trusted checklist beside a fence still parses", () => {
+    const body = composeIssueBody("- [ ] #5", [{ label: "x", content: "- [ ] #7" }]);
+    expect(parseEpicBody(body).members).toEqual([5]);
   });
 });

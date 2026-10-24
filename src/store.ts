@@ -1779,7 +1779,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       materializedChildren TEXT NOT NULL DEFAULT '{}',
       parentNumber INTEGER,
       parentUrl TEXT,
-      updatedAt INTEGER NOT NULL)`);
+      updatedAt INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 0)`);
+    this.addMissingColumns("epic_draft", { revision: "INTEGER NOT NULL DEFAULT 0" });
     // Crash recovery: any row left 'materializing' at boot is orphaned (no materialize survives a
     // restart — single-process ownership), so revert it to 'draft' (retaining materializedChildren)
     // so the operator can re-approve and resume. See src/epic-author.ts + the approve route.
@@ -7157,10 +7159,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       materializedChildren: string;
       parentNumber: number | null;
       parentUrl: string | null;
+      revision: number;
     } | null;
     if (!r) return null;
     return {
       sessionId: r.sessionId,
+      revision: r.revision,
       parent: {
         title: r.parentTitle,
         body: r.parentBody,
@@ -7175,19 +7179,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
   }
 
-  /** Author/replace a session's draft CONTENT. Resets the materialize lifecycle to `draft` and
-   *  clears any prior materialized state (the amend loop re-drafts before approval). */
+  /** Author/replace a session's draft CONTENT and bump its `revision` (#3324). Resets the
+   *  materialize lifecycle to `draft` and clears any prior materialized state (the amend loop
+   *  re-drafts before approval). Callers refuse this once a partial materialize exists. */
   replaceEpicDraft(sessionId: string, content: EpicDraftContent): EpicDraft {
     this.db.run(
       `INSERT INTO epic_draft
          (sessionId, parentTitle, parentBody, acceptanceCriteria, nonGoals, children,
-          status, materializedChildren, parentNumber, parentUrl, updatedAt)
-       VALUES (?,?,?,?,?,?, 'draft', '{}', NULL, NULL, ?)
+          status, materializedChildren, parentNumber, parentUrl, updatedAt, revision)
+       VALUES (?,?,?,?,?,?, 'draft', '{}', NULL, NULL, ?, 1)
        ON CONFLICT(sessionId) DO UPDATE SET
          parentTitle = excluded.parentTitle, parentBody = excluded.parentBody,
          acceptanceCriteria = excluded.acceptanceCriteria, nonGoals = excluded.nonGoals,
          children = excluded.children, status = 'draft', materializedChildren = '{}',
-         parentNumber = NULL, parentUrl = NULL, updatedAt = excluded.updatedAt`,
+         parentNumber = NULL, parentUrl = NULL, updatedAt = excluded.updatedAt,
+         revision = epic_draft.revision + 1`,
       [
         sessionId,
         content.parent.title,
@@ -7202,13 +7208,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** CAS `draft → materializing`, run BEFORE the first createIssue. Returns true when this call
-   *  won the transition (the caller proceeds); false when the row is absent or not `draft`
-   *  (already materializing/approved — the caller 409s or returns the stored result). */
-  beginEpicDraftMaterialize(sessionId: string): boolean {
+   *  won the transition (the caller proceeds); false when the row is absent, not `draft`
+   *  (already materializing/approved — the caller 409s or returns the stored result), or no
+   *  longer at the `revision` the operator reviewed (#3324). */
+  beginEpicDraftMaterialize(sessionId: string, revision: number): boolean {
     const { changes } = this.db.run(
       `UPDATE epic_draft SET status = 'materializing', updatedAt = ?
-       WHERE sessionId = ? AND status = 'draft'`,
-      [Date.now(), sessionId],
+       WHERE sessionId = ? AND status = 'draft' AND revision = ?`,
+      [Date.now(), sessionId, revision],
     );
     return changes > 0;
   }

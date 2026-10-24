@@ -1900,6 +1900,9 @@ components:
       properties:
         sessionId:
           type: string
+        revision:
+          type: integer
+          description: Bumped on every draft content write; approve must echo the reviewed revision.
         status:
           type: string
         parent:

@@ -94,14 +94,16 @@
   let amendText = $state("");
 
   async function approve() {
-    if (approving) return;
+    if (approving || !draft) return;
     // Capture the session: this dialog can close (and Viewport closes it on a session switch) long
     // before a ~25s materialize returns. approveEpic owns the outcome from here — it lives outside
     // the component tree precisely so the result is still reported if this modal is gone.
     const sid = sessionId;
+    // #3324: bind the approve to the revision on screen — a draft swapped since is refused.
+    const revision = draft.revision;
     approving = true;
     try {
-      await approveEpic(sid, landing === "incremental" ? landing : undefined);
+      await approveEpic(sid, revision, landing === "incremental" ? landing : undefined);
     } finally {
       approving = false;
     }

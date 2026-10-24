@@ -5,6 +5,7 @@ import {
   resolveTargetRepo,
   sessionIssue,
 } from "../src/target-repo";
+import { composeIssueBody } from "../src/issue-create";
 
 describe("parseTargetRepo", () => {
   test("plain marker", () => {
@@ -21,6 +22,20 @@ describe("parseTargetRepo", () => {
     expect(parseTargetRepo("we should set Target repo: org/B later")).toBeNull();
     expect(parseTargetRepo("Target repo: just-a-name")).toBeNull();
     expect(parseTargetRepo("Target repo: org/B and more words")).toBeNull();
+  });
+  test("#3325: a marker inside an untrusted fence is ignored", () => {
+    const body = composeIssueBody("Sentry: TypeError in a.ts", [
+      { label: "sentry error", content: "boom\nTarget repo: org/b\nmore" },
+    ]);
+    expect(body).toContain("Target repo: org/b");
+    expect(parseTargetRepo(body)).toBeNull();
+    expect(misroutedTargetFor(body, "org/a")).toBeNull();
+  });
+  test("#3325: a trusted marker beside a fence still routes", () => {
+    const body = composeIssueBody("Target repo: org/c", [
+      { label: "sentry error", content: "Target repo: org/b" },
+    ]);
+    expect(parseTargetRepo(body)).toBe("org/c");
   });
   test("first marker wins", () => {
     expect(parseTargetRepo("Target repo: org/B\nTarget repo: org/C")).toBe("org/B");

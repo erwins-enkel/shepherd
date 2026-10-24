@@ -34,6 +34,7 @@ function longDraft(sessionId: string): EpicDraft {
       blockedBy: i === 0 ? [] : [`child-${i}`],
     })),
     status: "draft",
+    revision: 1,
     materializedChildren: {},
     parentNumber: null,
     parentUrl: null,
@@ -221,6 +222,7 @@ function shapedDraft(sessionId: string): EpicDraft {
       },
     ],
     status: "draft",
+    revision: 1,
     materializedChildren: {},
     parentNumber: null,
     parentUrl: null,
@@ -322,6 +324,7 @@ describe("EpicDraftModal — resumed draft", () => {
     const sessionId = "epic-draft-modal-resume";
     epicDrafts.upsert({
       ...shapedDraft(sessionId),
+      revision: 1,
       materializedChildren: { c1: 101, c2: 102 },
       parentNumber: 4242,
       parentUrl: "https://example.invalid/issues/4242",
@@ -402,7 +405,7 @@ describe("EpicDraftModal landing choice (#3191)", () => {
       .element(page.getByRole("radio", { name: m.epic_landing_integration() }))
       .toBeChecked();
     await page.getByRole("button", { name: m.epicdraft_approve_count({ count: 13 }) }).click();
-    expect(approve.approveEpic).toHaveBeenCalledWith(sessionId, undefined);
+    expect(approve.approveEpic).toHaveBeenCalledWith(sessionId, 1, undefined);
     unmount();
   });
 
@@ -417,7 +420,7 @@ describe("EpicDraftModal landing choice (#3191)", () => {
 
     await page.getByRole("radio", { name: m.epic_landing_incremental() }).click();
     await page.getByRole("button", { name: m.epicdraft_approve_count({ count: 13 }) }).click();
-    expect(approve.approveEpic).toHaveBeenCalledWith(sessionId, "incremental");
+    expect(approve.approveEpic).toHaveBeenCalledWith(sessionId, 1, "incremental");
     unmount();
   });
 });

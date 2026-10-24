@@ -28,6 +28,7 @@ function longDraft(sessionId: string): EpicDraft {
       blockedBy: i === 0 ? [] : [`child-${i}`],
     })),
     status: "draft",
+    revision: 1,
     materializedChildren: {},
     parentNumber: null,
     parentUrl: null,

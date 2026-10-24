@@ -9,15 +9,17 @@
  */
 import type { GitForge } from "./forge/types";
 import type { Session } from "./types";
+import { stripUntrustedFences } from "./untrusted";
 
 /** Line-anchored; tolerates markdown decoration (`**Target repo:** \`org/B\``). */
 const MARKER_RE =
   /^[\s>*_-]*target[ -]repo[*_]*\s*:[*_]*\s*[`*_]*([A-Za-z0-9][\w.-]*\/[\w.-]+?)[`*_]*\s*$/im;
 
-/** The `owner/name` a ticket body targets, or null when it declares none. First marker wins. */
+/** The `owner/name` a ticket body targets, or null when it declares none. First marker wins.
+ *  Untrusted fenced spans are stripped first: only trusted text may route a ticket (#3325). */
 export function parseTargetRepo(body: string | null | undefined): string | null {
   if (!body) return null;
-  return body.match(MARKER_RE)?.[1] ?? null;
+  return stripUntrustedFences(body).match(MARKER_RE)?.[1] ?? null;
 }
 
 export type TargetRepoResolution =

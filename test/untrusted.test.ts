@@ -4,6 +4,7 @@ import {
   isTrustedAssociation,
   randomFenceToken,
   scanForInjection,
+  stripUntrustedFences,
   TRUSTED_ASSOCIATIONS,
   UNTRUSTED_CONTENT_DIRECTIVE,
 } from "../src/untrusted";
@@ -156,5 +157,40 @@ describe("#2002 fence ⇒ directive invariant", () => {
       "hello",
       "⟦/UNTRUSTED:issue body:abc123def456⟧",
     ]);
+  });
+});
+
+// #3325: structural parsers read only trusted text.
+describe("stripUntrustedFences", () => {
+  it("removes a complete fence and keeps the surrounding text", () => {
+    const body = `before\n${fenceUntrusted("sentry error", "Target repo: org/b")}\nafter`;
+    const out = stripUntrustedFences(body);
+    expect(out).not.toContain("org/b");
+    expect(out).toContain("before");
+    expect(out).toContain("after");
+  });
+  it("removes every fence", () => {
+    const body = [fenceUntrusted("a", "one"), "keep", fenceUntrusted("b", "two")].join("\n");
+    expect(stripUntrustedFences(body).trim()).toBe("keep");
+  });
+  it("leaves a span whose close marker names another nonce", () => {
+    const body = "⟦UNTRUSTED:x:aaa⟧\nTarget repo: org/b\n⟦/UNTRUSTED:x:bbb⟧";
+    expect(stripUntrustedFences(body)).toBe(body);
+  });
+  it("an unmatched open marker does not shield a later real fence", () => {
+    const body = `⟦UNTRUSTED:x:stray⟧\nkeep\n${fenceUntrusted("e", "Target repo: org/b")}`;
+    const out = stripUntrustedFences(body);
+    expect(out).toContain("keep");
+    expect(out).not.toContain("org/b");
+  });
+  it("stays fast on a body of many unmatched markers", () => {
+    const body = Array.from({ length: 5000 }, (_, i) => `⟦UNTRUSTED:x:${i}⟧ filler`).join("\n");
+    const t0 = performance.now();
+    expect(stripUntrustedFences(body)).toBe(body);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+  it("leaves an unclosed open marker (strips nothing to the end)", () => {
+    const body = "⟦UNTRUSTED:x:aaa⟧\nTarget repo: org/b";
+    expect(stripUntrustedFences(body)).toBe(body);
   });
 });

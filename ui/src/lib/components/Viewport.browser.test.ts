@@ -2008,6 +2008,7 @@ describe("Viewport epic-draft review dialog", () => {
         },
       ],
       status: "draft",
+      revision: 1,
       materializedChildren: {},
       parentNumber: null,
       parentUrl: null,

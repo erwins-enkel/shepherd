@@ -7018,5 +7018,6 @@
   "diagnostics_label_no_pr_ci": "No PR CI · {repo}",
   "diagnostics_hint_no_pr_ci": "No workflow runs on pull requests in {repo}, so auto-merge holds its PRs. Set up a CI workflow, or turn on Merge without CI in the repo's automation settings.",
   "feat_diagnostics_no_pr_ci_title": "Diagnostics flags repos without PR CI",
-  "feat_diagnostics_no_pr_ci_body": "Settings → Diagnostics now lists each GitHub repo where no workflow runs on pull requests, so auto-merge holds its PRs. Set up CI there, or turn on Merge without CI in the repo's automation settings."
+  "feat_diagnostics_no_pr_ci_body": "Settings → Diagnostics now lists each GitHub repo where no workflow runs on pull requests, so auto-merge holds its PRs. Set up CI there, or turn on Merge without CI in the repo's automation settings.",
+  "recap_detail_load_failed": "Recap details could not be loaded."
 }

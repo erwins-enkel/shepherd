@@ -7018,5 +7018,6 @@
   "diagnostics_label_no_pr_ci": "Keine PR-CI · {repo}",
   "diagnostics_hint_no_pr_ci": "In {repo} läuft kein Workflow auf Pull Requests, daher hält Auto-Merge seine PRs zurück. Richte einen CI-Workflow ein oder aktiviere „Ohne CI mergen“ in den Automatisierungseinstellungen des Repos.",
   "feat_diagnostics_no_pr_ci_title": "Diagnose zeigt Repos ohne PR-CI",
-  "feat_diagnostics_no_pr_ci_body": "Einstellungen → Diagnose listet jetzt jedes GitHub-Repo, in dem kein Workflow auf Pull Requests läuft und Auto-Merge seine PRs deshalb zurückhält. Richte dort CI ein oder aktiviere „Ohne CI mergen“ in den Automatisierungseinstellungen des Repos."
+  "feat_diagnostics_no_pr_ci_body": "Einstellungen → Diagnose listet jetzt jedes GitHub-Repo, in dem kein Workflow auf Pull Requests läuft und Auto-Merge seine PRs deshalb zurückhält. Richte dort CI ein oder aktiviere „Ohne CI mergen“ in den Automatisierungseinstellungen des Repos.",
+  "recap_detail_load_failed": "Die Recap-Details konnten nicht geladen werden."
 }

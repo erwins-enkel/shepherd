@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
+import { recapSummary } from "./recap-core";
 import { PairingCodeService } from "./pairing-codes";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
@@ -1958,7 +1959,15 @@ function handlePlanGates({ req, parts, deps, token }: Ctx): Response | null {
 // Mirrors handleReviews / handlePlanGates; absent dep returns {}.
 function handleRecaps({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "recaps") {
-    if (!parts[2]) return json(deps.recapCache?.snapshot() ?? {});
+    if (!parts[2])
+      return json(
+        Object.fromEntries(
+          Object.entries(deps.recapCache?.snapshot() ?? {}).map(([id, recap]) => [
+            id,
+            recapSummary(recap),
+          ]),
+        ),
+      );
   }
   return null;
 }
@@ -5356,6 +5365,14 @@ async function handleSessionReviewPr({ req, parts, deps }: Ctx): Promise<Respons
   }
 }
 
+// GET /api/sessions/:id/recap — full persisted recap, including grounded blocks.
+function handleSessionRecap({ req, parts, deps }: Ctx): Response | null {
+  if (req.method !== "GET" || !parts[2] || parts[3] !== "recap" || parts[4]) return null;
+  if (!deps.store.get(parts[2])) return json({ error: "not found" }, 404);
+  const recap = deps.store.getRecap(parts[2]);
+  return recap ? json(recap) : json({ error: "not found" }, 404);
+}
+
 // POST /api/sessions/:id/recap/regenerate — force-regenerate the session recap on demand.
 // 404 unknown id; 202 with {status} = "started" | "empty" | "error" so the UI can explain the outcome.
 // NOTE: unlike the auto-fire sweep (which skips drain sessions), on-demand regenerate is
@@ -6588,6 +6605,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReviewPr,
     handleSessionReviewHold,
     handleSessionReviewCancel,
+    handleSessionRecap,
     handleSessionRecapRegenerate,
     handlePreviewStart,
     handlePreviewStop,

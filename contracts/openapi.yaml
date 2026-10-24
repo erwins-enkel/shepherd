@@ -2501,7 +2501,7 @@ components:
     Recap:
       type: object
       additionalProperties: true
-      description: The documented subset of src/types.ts Recap the native action bar reads. The server sends more; additionalProperties keeps the rest legal.
+      description: The documented subset of src/types.ts Recap. List snapshots and session:recap omit blocks; GET /api/sessions/{id}/recap returns the full persisted recap. Additional properties preserve other summary fields.
       required: [sessionId, state, headline, body, openItems, updatedAt]
       properties:
         sessionId: { type: string }
@@ -2522,7 +2522,7 @@ components:
     RecapMap:
       type: object
       additionalProperties: { $ref: "#/components/schemas/Recap" }
-      description: GET /api/recaps. Session id -> recap. Absent means no recap exists for that session.
+      description: GET /api/recaps. Session id -> recap summary without blocks. Absent means no recap exists for that session.
     # What the on-demand regenerate did (src/server.ts handleSessionRecapRegenerate). `error` is
     # also the answer when the recap service is unwired.
     RecapRegenerateStatus:
@@ -8313,6 +8313,27 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/recap:
+    get:
+      operationId: getSessionRecap
+      description: Read the full persisted recap including blocks, without regeneration. Available for live and archived sessions.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Full recap including grounded visual blocks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recap" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Unknown session or no recap exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/sessions/{id}/recap/regenerate:
     parameters:
       - name: id
@@ -8337,7 +8358,7 @@ paths:
   /api/recaps:
     get:
       operationId: listRecaps
-      description: Bootstrap snapshot of every recap the server has cached.
+      description: Bootstrap snapshot of every recap summary, without blocks.
       responses:
         "200":
           description: Session id -> recap.
@@ -11637,7 +11658,7 @@ x-shepherd-events:
   # ── /stream: sidebar ──
   # ── stream: actions ──
   session:recap:
-    description: A session's recap was created, regenerated or changed state. Carries the whole recap, so no re-read is needed.
+    description: A session's recap was created, regenerated or changed state. Carries the summary without blocks; open detail views re-read GET /api/sessions/{id}/recap.
     schema: { $ref: "#/components/schemas/SessionRecapEvent" }
   session:amendments:
     description: A session's amendment list changed. Always the FULL current list, so an empty array is a genuine all-clear.

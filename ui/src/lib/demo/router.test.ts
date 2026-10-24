@@ -1414,3 +1414,13 @@ it("completed epic demo includes ready, failing CI and checking landings", async
   expect(situations).toEqual(expect.arrayContaining(["ready", "ci-failed", "checking"]));
   expect((body as CompletedEpic[]).every((epic) => !!epic.integrationBranch)).toBe(true);
 });
+
+describe("recap details", () => {
+  it("serves a full seeded recap separately from its summary and returns 404 for a missing one", async () => {
+    const [id, full] = Object.entries(demoState.recaps())[0];
+    expect(await get(`/api/sessions/${id}/recap`)).toEqual({ status: 200, body: full });
+    expect((await get("/api/sessions/missing/recap")).status).toBe(404);
+    const { body } = await get("/api/recaps");
+    expect(Object.hasOwn(body[id], "blocks")).toBe(false);
+  });
+});

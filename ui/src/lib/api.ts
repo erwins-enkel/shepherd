@@ -2689,6 +2689,11 @@ export async function getRecaps(): Promise<Record<string, Recap>> {
   return getJson("/api/recaps", "recaps");
 }
 
+/** Full persisted recap; only detail surfaces should call this. */
+export async function getSessionRecap(id: string): Promise<Recap> {
+  return getJson(`/api/sessions/${encodeURIComponent(id)}/recap`, "recap detail");
+}
+
 // ── operator task amendments (#2225) ────────────────────────────────────────
 
 /** Snapshot of every active session's task amendments, keyed by session id (bootstrap). */

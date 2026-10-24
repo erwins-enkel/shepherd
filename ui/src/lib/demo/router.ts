@@ -170,7 +170,16 @@ const lensGetRoutes: Record<string, GetHandler> = {
   "/api/reviews/inflight": () => json([]),
   "/api/plan-gates": () => json(demoState.planGates()),
   "/api/plan-gates/inflight": () => json([]),
-  "/api/recaps": () => json(demoState.recaps()),
+  "/api/recaps": () =>
+    json(
+      Object.fromEntries(
+        Object.entries(demoState.recaps()).map(([id, recap]) => {
+          const summary = { ...recap };
+          delete summary.blocks;
+          return [id, summary];
+        }),
+      ),
+    ),
   "/api/up-next": () => json(demoState.upNext()),
   "/api/steers": () => json(demoState.steers()),
   "/api/project-icons": () => json(demoState.projectIcons()),
@@ -326,6 +335,10 @@ const exactGetRoutes: Record<string, GetHandler> = {
 // shape per endpoint. Must run after the exact-match table above — "done" (etc.)
 // isn't a session id, so the exact routes take priority.
 function handleSessionDetailGet(path: string, url: URL): Response | null {
+  if (/^\/api\/sessions\/[^/]+\/recap$/.test(path)) {
+    const recap = demoState.recaps()[seg(path, 3)];
+    return recap ? json(recap) : json({ error: "not found" }, 404);
+  }
   if (/^\/api\/sessions\/[^/]+\/git$/.test(path)) {
     const git = demoState.gitState(seg(path, 3));
     return git ? json(git) : new Response(null, { status: 404 });

@@ -24,7 +24,8 @@ enum ActionsStream {
             // the actions themselves need the model's rules.
             guard let model = app.extension(ActionsModel.self) else { return AnyView(EmptyView()) }
             return AnyView(
-                ActionBarView(session: session, store: store, model: model, app: app))
+                ActionBarView(session: session, store: store, model: model, app: app)
+                    .id(app.activationGeneration))
         }
         Log.app.info("actions stream installed")
     }

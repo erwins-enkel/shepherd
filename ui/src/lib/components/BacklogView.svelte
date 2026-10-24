@@ -24,6 +24,7 @@
   import AddRepoButton from "./AddRepoButton.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
   import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
+  import { swipeBack } from "./swipe-back";
   import {
     actionsTabState,
     filterProjects,
@@ -390,6 +391,11 @@
   function dismissDetail() {
     selectedPath = null;
   }
+
+  // Phone: a rightward swipe over the detail goes back to the list (see swipeBack), on every
+  // tab. An open issue detail is its own swipe-back root, so it goes back first.
+  let detailX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const detailSwipe = swipeBack({ onback: dismissDetail, onoffset: (px) => (detailX = px) });
 </script>
 
 <div class="backlog-view" class:mobile class:flow>
@@ -474,7 +480,14 @@
       />
     </div>
     {#if selectedPath !== null}
-      <div class="mobile-detail-overlay" role="dialog" aria-modal="true">
+      <div
+        class="mobile-detail-overlay"
+        class:swiping={detailX > 0}
+        role="dialog"
+        aria-modal="true"
+        {@attach detailSwipe}
+        style:transform={detailX > 0 ? `translateX(${detailX}px)` : undefined}
+      >
         <div class="overlay-head">
           <button
             class="overlay-close"
@@ -673,6 +686,12 @@
     display: flex;
     flex-direction: column;
     background: var(--color-inset);
+    transition: transform 0.18s ease-out;
+  }
+  /* Mid swipe-back: follows the finger 1:1, edge shadow over the uncovered list. */
+  .mobile-detail-overlay.swiping {
+    transition: none;
+    box-shadow: var(--shadow-popover);
   }
 
   /* BacklogView must be position:relative so the overlay is contained */

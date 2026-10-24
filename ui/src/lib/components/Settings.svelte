@@ -40,6 +40,7 @@
   import SettingsPluginsPanel from "#lib/components/settings/SettingsPluginsPanel.svelte";
   import SteersEditor from "#lib/components/SteersEditor.svelte";
   import { dialog } from "#lib/a11yDialog.js";
+  import { swipeBack } from "#lib/components/swipe-back.js";
   import { openFeedback } from "#lib/feedback-dialog.svelte.js";
   import type { FeedbackKind } from "#lib/feedback-link.js";
   import { theme } from "#lib/theme.svelte.js";
@@ -138,6 +139,12 @@
     const onChange = () => (isNarrow = mq.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
+  });
+  // Phone: a rightward swipe goes back like ‹ (section page → list), then closes from the list.
+  let cardX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const cardSwipe = swipeBack({
+    onback: () => (mobileList ? onclose?.() : (mobileList = true)),
+    onoffset: (px) => (cardX = px),
   });
   function panelShape(node: HTMLElement, narrow: boolean) {
     const apply = (n: boolean) => {
@@ -434,10 +441,13 @@
 >
   <div
     class="card"
+    class:swiping={cardX > 0}
     role="dialog"
     aria-modal="true"
     aria-label={m.settings_title()}
     use:dialog={{ onclose: () => onclose?.() }}
+    {@attach isNarrow ? cardSwipe : undefined}
+    style:transform={cardX > 0 ? `translateX(${cardX}px)` : undefined}
   >
     <SettingsShell
       {sections}
@@ -755,6 +765,12 @@
       max-height: none;
       border: 0;
       box-shadow: none;
+      transition: transform 0.18s ease-out;
+    }
+    /* Mid swipe-back: follows the finger 1:1, edge shadow over what it uncovers. */
+    .card.swiping {
+      transition: none;
+      box-shadow: var(--shadow-popover);
     }
   }
 </style>

@@ -5,13 +5,16 @@ import { lockAxis, paneSwipeOutcome, resistOffset, PANE_SWIPE_THRESHOLD, type Ax
  * Phone: a rightward swipe over a detail pane goes back, like the session viewport and iOS
  * back. The pane follows the finger (`onoffset`, rubber-banded px ≥ 0); a release past the
  * threshold (or a flick) calls `onback`. Vertical and leftward drags, and drags from text
- * fields or sideways-scrolling content (flow graph, wide code), stay native.
+ * fields or sideways-scrolling content (flow graph, wide code), stay native. Nested roots
+ * (an issue detail inside the repo detail) go innermost first: each root only takes touches
+ * whose nearest `[data-swipe-back]` is itself.
  */
 export function swipeBack(opts: {
   onback: () => void;
   onoffset: (px: number) => void;
 }): Attachment<HTMLElement> {
   return (root) => {
+    root.dataset.swipeBack = "";
     let startX = 0;
     let startY = 0;
     let armed = false;
@@ -36,6 +39,7 @@ export function swipeBack(opts: {
       const t = e.target as Element | null;
       if (!t || t.closest("input, textarea, select, [contenteditable], [data-swipe-ignore]"))
         return;
+      if (t.closest("[data-swipe-back]") !== root) return;
       if (scrollsSideways(t)) return;
       startX = lastX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
@@ -89,6 +93,7 @@ export function swipeBack(opts: {
       root.removeEventListener("touchmove", onMove, { capture: true });
       root.removeEventListener("touchend", onEnd);
       root.removeEventListener("touchcancel", onEnd);
+      delete root.dataset.swipeBack;
       opts.onoffset(0);
     };
   };

@@ -764,14 +764,17 @@ function portOf(s: Upstream): number {
 /** Stand up a plain-HTTP upstream returning `body`/`status`/`headers`; tracked for cleanup. */
 function httpUpstream(opts: {
   status?: number;
-  headers?: Record<string, string>;
+  headers?: HeadersInit;
   body?: string;
   echoPath?: boolean;
+  /** Receives each request's headers as the upstream saw them. */
+  seen?: Headers[];
 }): Upstream {
   const s = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     fetch(req) {
+      opts.seen?.push(req.headers);
       const url = new URL(req.url);
       const body = opts.echoPath ? url.pathname + url.search : (opts.body ?? "ok");
       return new Response(body, {
@@ -967,6 +970,93 @@ test("PreviewService: HTTP proxy strips X-Frame-Options + CSP frame-ancestors, k
   expect(csp).toContain("default-src 'self'");
   expect(csp).toContain("img-src *");
   expect(await res.text()).toBe("<html>hi</html>");
+});
+
+test("PreviewService: HTTP proxy strips shepherd_session from Cookie, keeps other cookies", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ seen })));
+  await fetch(`http://127.0.0.1:${port}/`, {
+    headers: { cookie: "a=1; shepherd_session=SECRET; b=2" },
+  });
+  expect(seen[0]!.get("cookie")).toBe("a=1; b=2");
+});
+
+test("PreviewService: HTTP proxy drops Cookie entirely when only shepherd_session was sent", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ seen })));
+  await fetch(`http://127.0.0.1:${port}/`, { headers: { cookie: "shepherd_session=SECRET" } });
+  expect(seen[0]!.get("cookie")).toBeNull();
+});
+
+test("PreviewService: HTTP proxy adds no Cookie header when none was sent", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ seen })));
+  await fetch(`http://127.0.0.1:${port}/`);
+  expect(seen[0]!.get("cookie")).toBeNull();
+});
+
+test("PreviewService: HTTP proxy strips shepherd_session from comma-joined duplicate Cookie headers", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ seen })));
+  const headers = new Headers();
+  headers.append("cookie", "a=1");
+  headers.append("cookie", "shepherd_session=SECRET");
+  await fetch(`http://127.0.0.1:${port}/`, { headers });
+  expect(seen[0]!.get("cookie") ?? "").not.toContain("SECRET");
+});
+
+test("PreviewService: HTTP proxy drops upstream Set-Cookie for shepherd_session, keeps app cookies", async () => {
+  const headers = new Headers();
+  headers.append("set-cookie", "shepherd_session=attacker; Path=/");
+  headers.append("set-cookie", "shepherd_session=; Path=/; Max-Age=0");
+  headers.append("set-cookie", "app=1; Path=/");
+  const port = service!.ensure("s1", portOf(httpUpstream({ headers })));
+  const res = await fetch(`http://127.0.0.1:${port}/`);
+  expect(res.headers.getSetCookie()).toEqual(["app=1; Path=/"]);
+});
+
+test("PreviewService: HTTP proxy keeps cookies whose names merely resemble shepherd_session", async () => {
+  const seen: Headers[] = [];
+  const headers = new Headers();
+  headers.append("set-cookie", "xshepherd_session=1");
+  headers.append("set-cookie", "shepherd_session2=1");
+  const port = service!.ensure("s1", portOf(httpUpstream({ headers, seen })));
+  const res = await fetch(`http://127.0.0.1:${port}/`, {
+    headers: { cookie: "xshepherd_session=1; shepherd_session2=1" },
+  });
+  expect(seen[0]!.get("cookie")).toBe("xshepherd_session=1; shepherd_session2=1");
+  expect(res.headers.getSetCookie()).toEqual(["xshepherd_session=1", "shepherd_session2=1"]);
+});
+
+test("PreviewService: WS relay does not forward the client's shepherd_session to the upstream", async () => {
+  const seen: Headers[] = [];
+  const up = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req, srv) {
+      seen.push(req.headers);
+      if (srv.upgrade(req)) return undefined;
+      return new Response("not a ws", { status: 426 });
+    },
+    websocket: {
+      open(ws) {
+        ws.send("hi");
+      },
+      message() {},
+    },
+  });
+  upstreams.push(up);
+  const port = service!.ensure("s1", portOf(up));
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/`, {
+    headers: { cookie: "shepherd_session=SECRET" },
+  } as unknown as string[]);
+  await new Promise<void>((resolve, reject) => {
+    ws.onmessage = () => resolve();
+    ws.onerror = () => reject(new Error("ws error"));
+  });
+  ws.close();
+  expect(seen).toHaveLength(1);
+  expect(seen[0]!.get("cookie") ?? "").not.toContain("SECRET");
 });
 
 test("PreviewService: HTTP proxy strips content-encoding/content-length (Bun decodes the body)", async () => {

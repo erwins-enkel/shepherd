@@ -805,6 +805,57 @@ describe("Settings responsive navigation", () => {
   });
 });
 
+describe("Settings phone swipe back", () => {
+  // Synthetic touches: the attachment reads only clientX/clientY from `touches`. Each one lands
+  // 500ms after the last, so back-to-back dispatches never read as a flick.
+  let clock = 0;
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
+    return e;
+  }
+  function drag(el: Element, from: [number, number], to: [number, number]) {
+    el.dispatchEvent(fakeTouch("touchstart", ...from));
+    el.dispatchEvent(fakeTouch("touchmove", ...to));
+    el.dispatchEvent(fakeTouch("touchend", ...to));
+  }
+  const card = () => document.querySelector<HTMLElement>(".card")!;
+
+  afterEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  it("narrow: a section page swipes back to the list, the list swipes closed", async () => {
+    await page.viewport(360, 900);
+    const onclose = vi.fn();
+    render(Settings, { onclose, onsaved: noop });
+    const deviceRow = page.getByRole("button", { name: m.settings_tab_device(), exact: false });
+    await deviceRow.click();
+    await expect.element(deviceRow).not.toBeInTheDocument();
+    drag(card(), [10, 300], [300, 300]);
+    await expect.element(deviceRow).toBeVisible();
+    expect(onclose).not.toHaveBeenCalled();
+    drag(card(), [10, 300], [40, 300]); // short: stays
+    expect(onclose).not.toHaveBeenCalled();
+    drag(card(), [10, 300], [300, 300]);
+    expect(onclose).toHaveBeenCalledOnce();
+  });
+
+  it("desktop: no swipe", async () => {
+    await page.viewport(1280, 900);
+    const onclose = vi.fn();
+    render(Settings, { onclose, onsaved: noop });
+    await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+    drag(card(), [10, 300], [300, 300]);
+    expect(onclose).not.toHaveBeenCalled();
+    expect(card().dataset.swipeBack).toBeUndefined();
+  });
+});
+
 describe("Settings dialog layout stability", () => {
   afterEach(async () => {
     await page.viewport(1280, 900);

@@ -186,6 +186,74 @@ describe("mobile backlog issue scrolling", () => {
   );
 });
 
+describe("mobile repo detail — swipe right back to the list", () => {
+  // Synthetic touches: the attachment reads only clientX/clientY from `touches`. Each one lands
+  // 500ms after the last, so back-to-back dispatches never read as a flick.
+  let clock = 0;
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
+    return e;
+  }
+  function drag(el: Element, from: [number, number], to: [number, number]) {
+    el.dispatchEvent(fakeTouch("touchstart", ...from));
+    el.dispatchEvent(fakeTouch("touchmove", ...to));
+    el.dispatchEvent(fakeTouch("touchend", ...to));
+  }
+  const overlay = () => document.querySelector<HTMLElement>(".mobile-detail-overlay");
+  async function open() {
+    await page.viewport(390, 844);
+    await render(BacklogView, props(1));
+    await page.getByText("repo-0", { exact: true }).click();
+    await expect.poll(overlay).not.toBeNull();
+    return overlay()!;
+  }
+
+  it.each(["issues", "readiness", "automation"] as const)(
+    "a rightward drag on the %s tab closes the detail",
+    async (tab) => {
+      const detail = await open();
+      const label = {
+        issues: m.backlog_tab_issues,
+        readiness: m.backlog_tab_readiness,
+        automation: m.backlog_tab_automation,
+      }[tab]();
+      if (tab !== "issues") await page.getByText(label, { exact: true }).click();
+      drag(detail, [10, 300], [300, 300]);
+      await expect.poll(overlay).toBeNull();
+    },
+  );
+
+  it("follows the finger mid-drag; short, leftward and vertical drags stay", async () => {
+    const detail = await open();
+    detail.dispatchEvent(fakeTouch("touchstart", 10, 300));
+    detail.dispatchEvent(fakeTouch("touchmove", 60, 300));
+    await expect.poll(() => detail.style.transform).toBe("translateX(50px)");
+    detail.dispatchEvent(fakeTouch("touchend", 60, 300));
+    await expect.poll(() => detail.style.transform).toBe("");
+    drag(detail, [10, 300], [40, 300]);
+    drag(detail, [300, 300], [10, 300]);
+    drag(detail, [100, 100], [110, 500]);
+    expect(overlay()).not.toBeNull();
+  });
+
+  it("an open issue detail goes back first, then the repo detail closes", async () => {
+    await open();
+    await expect.poll(() => document.getElementById("issue-opt-s:50")).not.toBeNull();
+    await page.elementLocator(document.getElementById("issue-opt-s:50")!).click();
+    const issueDetail = document.querySelector<HTMLElement>(".detail-col.overlay")!;
+    drag(issueDetail, [10, 300], [300, 300]);
+    await expect.poll(() => document.querySelector(".detail-col.overlay")).toBeNull();
+    expect(overlay()).not.toBeNull();
+    drag(document.querySelector(".issues-list")!, [10, 300], [300, 300]);
+    await expect.poll(overlay).toBeNull();
+  });
+});
+
 // ── desktop entry: the dashboard filter decides between a repo and the grid ──
 describe("desktop entry", () => {
   const desktop = (over: Record<string, unknown> = {}) => ({

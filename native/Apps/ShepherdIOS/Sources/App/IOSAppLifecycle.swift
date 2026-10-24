@@ -12,6 +12,7 @@ final class IOSAppLifecycle {
     private weak var store: SessionStore?
     private var phase: IOSScenePhase?
     private var connection: ConnectionState?
+    private var hasBeenLive = false
     private var pending: Task<Void, Never>?
     private var generation = 0
     private var watcher: Task<Void, Never>?
@@ -38,6 +39,7 @@ final class IOSAppLifecycle {
         connectionSignal?.finish()
         self.store = store
         connection = nil
+        hasBeenLive = false
         if let store {
             let (changes, signal) = AsyncStream<Void>.makeStream()
             connectionSignal = signal
@@ -56,7 +58,7 @@ final class IOSAppLifecycle {
                 }
             }
         }
-        if let phase { enqueuePresence(phase == .active, recover: phase == .active) }
+        if let phase { enqueuePresence(phase == .active, recover: false) }
     }
 
     func update(_ phase: IOSScenePhase) async {
@@ -65,19 +67,21 @@ final class IOSAppLifecycle {
         self.phase = phase
         let active = phase == .active
         guard !hadPhase || active != wasActive else { return }
-        enqueuePresence(active, recover: active)
+        enqueuePresence(active, recover: active && hadPhase)
         await pending?.value
     }
 
     func connectionDidChange(_ state: ConnectionState?) async {
         guard state != connection else { return }
+        let wasLiveBefore = hasBeenLive
         connection = state
+        if state == .live { hasBeenLive = true }
         guard phase == .active, state == .live else { return }
-        enqueuePresence(true, recover: true)
+        enqueuePresence(true, recover: wasLiveBefore, reloadStore: false)
         await pending?.value
     }
 
-    private func enqueuePresence(_ active: Bool, recover: Bool) {
+    private func enqueuePresence(_ active: Bool, recover: Bool, reloadStore: Bool = true) {
         let previous = pending
         let generation = generation
         let target = store
@@ -91,7 +95,9 @@ final class IOSAppLifecycle {
             }
             guard generation == self.generation else { return }
             if recover, self.phase == .active {
-                self.app?.retry()
+                if let target, !target.hasLoadedSessions,
+                   target.connection == .idle || target.connection == .connecting { return }
+                if reloadStore { self.app?.retry() }
                 await self.onForegroundRecovery()
             }
         }

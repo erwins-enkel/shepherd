@@ -48,7 +48,7 @@ export const snapshot: UpNextSnapshot = {
           labels: ["priority"],
           labelColors: { priority: "ff0000" },
           epicParent: { number: 10, title: "Native" },
-          issueRef,
+          issueRef: { number: issueRef.number, url: issueRef.url, title: issueRef.title },
         },
       ],
     },

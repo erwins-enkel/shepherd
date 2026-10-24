@@ -470,3 +470,16 @@ test("repo boundary: bare session reads resolve permitted task designations like
   }
   expect((await request(token, `/api/sessions/${sessions[1]!.desig}`)).status).toBe(404);
 });
+
+test("repo boundary: full token may fetch own recap but never foreign recap", async () => {
+  const { recap } = await import("./contract/actions-fixtures");
+  for (const session of sessions) deps.store.putRecap({ ...recap, sessionId: session.id });
+  const { token } = mint("full");
+  const own = await request(token, `/api/sessions/${sessions[0]!.id}/recap`);
+  expect((await request(mint("read").token, `/api/sessions/${sessions[0]!.id}/recap`)).status).toBe(
+    403,
+  );
+  expect(own.status).toBe(200);
+  expect((await own.json()).blocks).toEqual(recap.blocks);
+  expect((await request(token, `/api/sessions/${sessions[1]!.id}/recap`)).status).toBe(404);
+});

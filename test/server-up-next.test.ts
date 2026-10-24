@@ -6,6 +6,9 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import type { UpNextSnapshot, UpNextSection } from "../src/up-next-core";
+import type { Issue } from "../src/forge/types";
+import { repositoryRoutePolicy } from "../src/token-repositories";
+import { scopeAllows } from "../src/token-scopes";
 import type { StandardCreateInput, Session } from "../src/types";
 
 let tmpRoot: string;
@@ -55,6 +58,8 @@ const SNAP: UpNextSnapshot = {
 function harness(
   opts: {
     snapshot?: UpNextSnapshot | null;
+    getIssue?: (number: number) => Promise<Issue | null>;
+    noForge?: boolean;
     hiddenRepoPathsRaw?: () => Set<string>;
     create?: (input: StandardCreateInput) => Promise<Session>;
     defaultBranch?: () => Promise<string>;
@@ -101,13 +106,16 @@ function harness(
     events: new EventHub(),
     usageLimits: { limits: opts.limits ?? (() => ({})) } as unknown as AppDeps["usageLimits"],
     resolveForge: (repoPath: string) =>
-      ({
-        slug: opts.slugOf?.(repoPath) ?? null,
-        defaultBranch: opts.defaultBranch ?? (async () => "main"),
-        addIssueLabel: async (num: number) => {
-          labelCalls.push(num);
-        },
-      }) as unknown as ReturnType<NonNullable<AppDeps["resolveForge"]>>,
+      opts.noForge
+        ? null
+        : ({
+            getIssue: opts.getIssue,
+            slug: opts.slugOf?.(repoPath) ?? null,
+            defaultBranch: opts.defaultBranch ?? (async () => "main"),
+            addIssueLabel: async (num: number) => {
+              labelCalls.push(num);
+            },
+          } as unknown as ReturnType<NonNullable<AppDeps["resolveForge"]>>),
     upNext: {
       snapshot: () => opts.snapshot ?? null,
       refresh: async () => {
@@ -443,17 +451,18 @@ test("GET /api/up-next?peek strips hidden-repo sections via hiddenRepoPathsRaw",
   expect(repoPaths).toContain(visiblePath);
 });
 
-test("#3245: an issue naming another registered Target repo starts there; claim stays home", async () => {
+test("#3245: a bodyless issue naming another registered Target repo starts there; claim stays home", async () => {
   const bDir = mkdtempSync(join(config.repoRoot, "shepherd-upnext-target-"));
   try {
     const { app, createCalls, labelCalls } = harness({
       slugOf: (p) => (p.includes("shepherd-upnext-target-") ? "org/B" : "org/A"),
+      getIssue: async (n) => loadedIssue(n, "Target repo: org/B"),
     });
     const res = await app.fetch(
       startReq([
         {
           repoPath: repoDir,
-          issueRef: { number: 7, url: "u", title: "t", body: "Target repo: org/B" },
+          issueRef: { number: 7, url: "u", title: "t" },
         },
       ]),
     );
@@ -484,4 +493,192 @@ test("#3245: an unregistered Target repo is refused per item, nothing spawned", 
   expect(createCalls).toHaveLength(0);
   await new Promise((r) => setTimeout(r, 5));
   expect(labelCalls).toHaveLength(0);
+});
+
+test("Up Next conditional reads preserve null, filtering and recompute semantics", async () => {
+  for (const snapshot of [undefined, SNAP]) {
+    const { app, staleRefreshCalls } = harness({ snapshot });
+    const first = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^W\/"[a-f0-9]{64}"$/);
+    expect(first.headers.get("cache-control")).toBe("private, no-cache");
+    for (const validator of [etag!, etag!.slice(2), `"other", ${etag}`, "*"]) {
+      const res = await app.fetch(
+        new Request("http://x/api/up-next", {
+          headers: { "If-None-Match": validator },
+        }),
+      );
+      expect(res.status).toBe(304);
+      expect(await res.text()).toBe("");
+      expect(res.headers.get("etag")).toBe(etag);
+    }
+    expect(staleRefreshCalls).toHaveLength(4);
+    const different = await app.fetch(
+      new Request("http://x/api/up-next?peek=1", {
+        headers: { "If-None-Match": '"other"' },
+      }),
+    );
+    expect(different.status).toBe(200);
+    expect(await different.json()).toEqual(snapshot ?? null);
+  }
+});
+
+test("Up Next ETag changes when the read-time hidden filter changes", async () => {
+  const hidden = new Set<string>();
+  const snapshot = {
+    ...SNAP,
+    sections: [
+      {
+        kind: "repo" as const,
+        repoPath: "/r",
+        repoSlug: null,
+        repoLabel: "r",
+        items: [],
+        totalCount: 0,
+      },
+    ],
+  };
+  const { app } = harness({ snapshot, hiddenRepoPathsRaw: () => hidden });
+  const first = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+  hidden.add("/r");
+  const second = await app.fetch(
+    new Request("http://x/api/up-next?peek=1", {
+      headers: { "If-None-Match": first.headers.get("etag")! },
+    }),
+  );
+  expect(second.status).toBe(200);
+  expect(second.headers.get("etag")).not.toBe(first.headers.get("etag"));
+  expect(await second.json()).toMatchObject({ sections: [] });
+});
+
+test("Up Next conditional read changes validator when content changes at the same timestamp", async () => {
+  const snapshot = { ...SNAP };
+  const { app } = harness({ snapshot });
+  const first = await app.fetch(new Request("http://x/api/up-next?peek=1"));
+  snapshot.failedRepoCount = 1;
+  const next = await app.fetch(
+    new Request("http://x/api/up-next?peek=1", {
+      headers: { "If-None-Match": first.headers.get("etag")! },
+    }),
+  );
+  expect(next.status).toBe(200);
+  expect(next.headers.get("etag")).not.toBe(first.headers.get("etag"));
+  expect(await next.json()).toEqual(snapshot);
+});
+
+const fullBody = "## Complete issue\n\n" + "ü😀 private text\n".repeat(400);
+const loadedIssue = (number: number, body = fullBody): Issue => ({
+  number,
+  body,
+  title: `Issue ${number}`,
+  url: `https://example.test/${number}`,
+  labels: [],
+  assignees: [],
+  createdAt: 1,
+});
+const bodyReq = (repo = repoDir, number = "7") =>
+  new Request(`http://x/api/up-next/body?repo=${encodeURIComponent(repo)}&number=${number}`);
+
+test("up-next body returns untruncated Unicode text without refreshing the list", async () => {
+  const h = harness({ getIssue: async (number) => loadedIssue(number) });
+  const res = await h.app.fetch(bodyReq());
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ body: fullBody });
+  expect(h.refreshCalls()).toBe(0);
+  expect(h.staleRefreshCalls).toEqual([]);
+});
+
+test("up-next body handles empty text, invalid parameters and unavailable issues", async () => {
+  const empty = harness({ getIssue: async (n) => loadedIssue(n, "") });
+  expect(await (await empty.app.fetch(bodyReq())).json()).toEqual({ body: "" });
+  for (const number of ["", "0", "-1", "NaN", "1.5", "1000000000"]) {
+    expect((await empty.app.fetch(bodyReq(repoDir, number))).status).toBe(400);
+  }
+  expect((await empty.app.fetch(bodyReq("/outside/root"))).status).toBe(400);
+  expect((await harness({ noForge: true }).app.fetch(bodyReq())).status).toBe(503);
+  expect((await harness().app.fetch(bodyReq())).status).toBe(503);
+  expect((await harness({ getIssue: async () => null }).app.fetch(bodyReq())).status).toBe(404);
+  expect(
+    (
+      await harness({
+        getIssue: async () => {
+          throw new Error("transport failed");
+        },
+      }).app.fetch(bodyReq())
+    ).status,
+  ).toBe(502);
+});
+
+test("up-next body preserves full-only scope and repository default deny", () => {
+  for (const scope of ["read", "submit", "full"] as const) {
+    expect(scopeAllows(scope, "GET", "/api/up-next/body")).toBe(scope === "full");
+  }
+  expect(repositoryRoutePolicy("GET", new URL(bodyReq().url))).toBeNull();
+});
+
+test("bodyless up-next starts and holds hydrate full context before creating", async () => {
+  for (const hold of [false, true]) {
+    config.usageHoldEnabled = hold;
+    const inputs: StandardCreateInput[] = [];
+    const h = harness({
+      limits: () => ({ session5h: { pct: 100 } }),
+      getIssue: async (n) => loadedIssue(n),
+      create: async (input) => {
+        inputs.push(input);
+        return { id: "s1" } as Session;
+      },
+    });
+    const res = await h.app.fetch(
+      startReq([
+        {
+          repoPath: repoDir,
+          issueRef: { number: 7, url: "https://example.test/7", title: "Issue 7" },
+        },
+      ]),
+    );
+    expect(res.status).toBe(hold ? 200 : 201);
+    const input = hold ? h.store.listHeldTasks()[0]!.input : inputs[0]!;
+    expect(input.issueRef?.body).toBe(fullBody);
+  }
+});
+
+test("bodyless batch start reports failed reads and continues without creating or claiming them", async () => {
+  const h = harness({ getIssue: async (n) => (n === 7 ? null : loadedIssue(n)) });
+  const refs = [7, 8].map((number) => ({
+    repoPath: repoDir,
+    issueRef: { number, url: `https://example.test/${number}`, title: `Issue ${number}` },
+  }));
+  const res = await h.app.fetch(startReq(refs));
+  const result = await res.json();
+  expect(result.errors).toEqual([{ number: 7, error: expect.any(String) }]);
+  expect(result.created).toHaveLength(1);
+  expect(h.createCalls.map((c) => c.number)).toEqual([8]);
+  expect(h.labelCalls).toEqual([8]);
+  expect(h.store.listHeldTasks()).toEqual([]);
+});
+
+test("up-next start preserves an explicitly supplied empty body without a forge read", async () => {
+  const inputs: StandardCreateInput[] = [];
+  let reads = 0;
+  const h = harness({
+    getIssue: async () => {
+      reads++;
+      throw new Error("must not read");
+    },
+    create: async (input) => {
+      inputs.push(input);
+      return { id: "s1" } as Session;
+    },
+  });
+  const res = await h.app.fetch(
+    startReq([
+      {
+        repoPath: repoDir,
+        issueRef: { number: 7, url: "https://example.test/7", title: "Issue 7", body: "" },
+      },
+    ]),
+  );
+  expect(res.status).toBe(201);
+  expect(inputs[0]?.issueRef?.body).toBe("");
+  expect(reads).toBe(0);
 });

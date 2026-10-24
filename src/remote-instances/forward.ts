@@ -44,6 +44,7 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "POST replace",
   "POST terminal",
   "POST recommend-prompt",
+  "GET recap",
   "POST recap/regenerate",
   "GET git",
   "GET git/reviewers",

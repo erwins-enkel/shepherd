@@ -162,6 +162,9 @@ public final class SessionStore {
   /// overlap (the reconnect watcher and a `resolveFirstRun`, say), and the one
   /// that started earlier holds the older lists by construction.
   @ObservationIgnored private var snapshotGeneration = 0
+  @ObservationIgnored private let usesConditionalListReads: Bool
+  @ObservationIgnored private var sessionsETag: String?
+  @ObservationIgnored private var refreshTask: Task<Void, any Error>?
   /// How many `refresh()` calls are between "fetches issued" and "snapshot
   /// installed". While it is non-zero, `apply(_:)` buffers instead of mutating.
   @ObservationIgnored private var loadsInFlight = 0
@@ -182,9 +185,11 @@ public final class SessionStore {
     client: ShepherdClient,
     events: EventStream? = nil,
     reconnectDelay: Duration = .seconds(1),
-    maxReconnectDelay: Duration = .seconds(30)
+    maxReconnectDelay: Duration = .seconds(30),
+    usesConditionalListReads: Bool = false
   ) {
     self.client = client
+    self.usesConditionalListReads = usesConditionalListReads
     self.eventStream = events
     self.reconnectDelay = reconnectDelay
     self.maxReconnectDelay = maxReconnectDelay
@@ -402,6 +407,8 @@ public final class SessionStore {
   /// `SessionStore` (and `EventStream`) instead. To go quiet temporarily, use
   /// `setActive(false)` and keep the socket.
   public func stop() {
+    refreshTask?.cancel()
+    snapshotGeneration &+= 1
     terminalOwners = nil
     running = false
     stopped = true
@@ -602,6 +609,16 @@ public final class SessionStore {
   ///   has installed its snapshot in the meantime, this one's lists are stale
   ///   by construction and are dropped instead of installed.
   public func refresh() async throws {
+    if usesConditionalListReads {
+      if let refreshTask { try await refreshTask.value; return }
+      let task = Task { try await self.loadSnapshot() }
+      refreshTask = task
+      defer { refreshTask = nil }
+      try await task.value
+    } else { try await loadSnapshot() }
+  }
+
+  private func loadSnapshot() async throws {
     snapshotGeneration += 1
     let generation = snapshotGeneration
     loadsInFlight += 1
@@ -616,17 +633,30 @@ public final class SessionStore {
       // (rather than a blanket "bootstrap"), so a diagnostic names the right
       // call. `ShepherdError.from` is idempotent on an already-mapped error,
       // so the outer catch below just passes it through.
-      async let sessions = fetchOrMap(route: "sessions") { try await client.sessions() }
+      async let sessions: SnapshotReadResult<[Session]> = fetchOrMap(route: "sessions") {
+        if usesConditionalListReads {
+          return try await client.readSessions(ifNoneMatch: hasLoadedSessions ? sessionsETag : nil)
+        }
+        return .modified(value: try await client.sessions(), etag: nil)
+      }
       async let settings = fetchOrMap(route: "settings") { try await client.settings() }
       async let repos = fetchOrMap(route: "repos") { try await client.repos() }
       let (loadedSessions, loadedSettings, loadedRepos) = try await (sessions, settings, repos)
       // A refresh that started later already installed a newer snapshot;
       // these three lists are the older read of the same server.
-      guard generation == snapshotGeneration else { return }
+      guard generation == snapshotGeneration, !stopped, !Task.isCancelled else { return }
       // `GET /api/sessions` appends the mirrored references after the local sessions.
-      self.sessions = loadedSessions.filter { $0.host == nil }
-      self.remoteSessions = loadedSessions.filter { $0.host != nil }
-      hasLoadedSessions = true
+      switch loadedSessions {
+      case .modified(let rows, let etag):
+        self.sessions = rows.filter { $0.host == nil }
+        self.remoteSessions = rows.filter { $0.host != nil }
+        sessionsETag = etag
+        hasLoadedSessions = true
+      case .notModified:
+        guard hasLoadedSessions else {
+          throw ShepherdError.contractMismatch(route: "listSessions", underlying: "304 without a snapshot")
+        }
+      }
       self.settings = loadedSettings
       self.repos = loadedRepos.repos
       lastError = nil

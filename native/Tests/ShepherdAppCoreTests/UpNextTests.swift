@@ -13,7 +13,7 @@ struct UpNextTests {
               url: "https://example.test/\(number)", kind: .init(known: kind == "epic" ? .epic : .feature),
               priority: priority, createdAt: age, labels: labels,
               issueRef: .init(number: number, url: "https://example.test/\(number)",
-                              title: title, body: "Full issue body"))
+                              title: title))
     }
 
     private func section(_ items: [UpNextItem], priority: Bool = false,
@@ -47,6 +47,15 @@ struct UpNextTests {
         var deadline = ContinuousClock.now + .seconds(10)
         while model.isRefreshing, ContinuousClock.now < deadline { await Task.yield() }
         #expect(!model.isRefreshing && !model.upNextLoadFailed)
+        #expect(await probe.calls == 0) // Closed bootstrap must not compute recommendations.
+        let presentation = Task { await model.observeUpNext() }
+        defer { presentation.cancel() }
+        deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            if await probe.calls == 1, !model.isRefreshing { break }
+            await Task.yield()
+        }
+        #expect(model.hasUpNextDemand && !model.isRefreshing && !model.upNextLoadFailed)
         #expect(await probe.calls == 1)
         #expect(UpNextPresentation.phase(model.upNext, failed: false, groups: []) == .computing)
         let snap = snapshot([section([item(1)]), section([item(2, repo: "/b")], repo: "/b")])
@@ -181,7 +190,7 @@ struct UpNextTests {
         #expect(await state.requestStart(changed, commands: commands, gate: gate, isCurrent: { true }) == false)
         #expect(calls.count == 1)
         #expect(await state.requestStart(changed, commands: commands, gate: gate, isCurrent: { true }))
-        #expect(calls.count == 2 && calls.last?.first?.issueRef.body == "Full issue body")
+        #expect(calls.count == 2 && calls.last?.first?.issueRef.body == nil)
         #expect(state.confirmation == nil)
     }
 
@@ -208,7 +217,8 @@ struct UpNextTests {
             state.toggle(row)
             let choice = UpNextStartChoice(agentProvider: .codex, model: "test", effort: "high")
             let commands = UpNextCommands(start: { items, sentChoice in
-                #expect(items == [.init(repoPath: row.repoPath, issueRef: row.issueRef)])
+                #expect(items == [.init(repoPath: row.repoPath, issueRef: .init(
+                    number: row.issueRef.number, url: row.issueRef.url, title: row.issueRef.title))])
                 #expect(sentChoice == choice)
                 return .init(outcome: outcome, body: .init(created: [PreviewData.session(id: "new")],
                     held: [.init(id: "held", repoPath: "/a", number: 2)],

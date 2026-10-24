@@ -93,7 +93,7 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         func item(_ number: Int, at: Int, repo: String = "/a", priority: Bool = false) -> UpNextItem {
             .init(repoPath: repo, repoSlug: nil, repoLabel: repo, number: number, title: "Task \(number)",
                 url: "https://fixture.invalid/\(number)", kind: .init(known: .feature), priority: priority,
-                createdAt: at, labels: [], issueRef: .init(number: number, url: "https://fixture.invalid/\(number)", title: "Task", body: ""))
+                createdAt: at, labels: [], issueRef: .init(number: number, url: "https://fixture.invalid/\(number)", title: "Task"))
         }
         func snapshot(_ items: [UpNextItem]) -> UpNextSnapshot {
             .init(generatedAt: 1, sections: [.init(kind: .init(known: .repo), repoPath: "/a", repoSlug: nil, repoLabel: "A", items: items, totalCount: items.count)], repoCount: 1, fallback: nil, failedRepoCount: 0)
@@ -116,7 +116,7 @@ final class IOSMergedServerPresentationTests: XCTestCase {
     func testRecommendedMergeRanksAcrossServersBeforeDisplayCap() {
         let a = profile("studio"), b = profile("laptop")
         func item(_ number: Int, kind: String, at: Int) -> UpNextItem {
-            .init(repoPath: "/app", repoSlug: nil, repoLabel: "App", number: number, title: "Task", url: "https://fixture.invalid", kind: .init(unknown: kind), priority: false, createdAt: at, labels: [], issueRef: .init(number: number, url: "https://fixture.invalid", title: "Task", body: ""))
+            .init(repoPath: "/app", repoSlug: nil, repoLabel: "App", number: number, title: "Task", url: "https://fixture.invalid", kind: .init(unknown: kind), priority: false, createdAt: at, labels: [], issueRef: .init(number: number, url: "https://fixture.invalid", title: "Task"))
         }
         func source(_ profile: ServerProfile, _ items: [UpNextItem]) -> IOSMergedQueuePresentation.Source {
             .init(profile: profile, snapshot: .init(generatedAt: 1, sections: [.init(kind: .init(known: .repo), repoPath: "/app", repoSlug: nil, repoLabel: "App", items: items, totalCount: items.count)], repoCount: 1, fallback: nil, failedRepoCount: 0))

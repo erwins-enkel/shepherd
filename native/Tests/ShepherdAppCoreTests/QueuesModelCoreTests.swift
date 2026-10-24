@@ -23,6 +23,15 @@ private actor QueueReadGate {
     }
 }
 
+private actor UpNextReadProbe {
+    private(set) var validators: [String?] = []
+    var calls: Int { validators.count }
+    func record(_ etag: String?) -> Int {
+        validators.append(etag)
+        return validators.count
+    }
+}
+
 @MainActor @Observable
 private final class QueueConnectionBox {
     var state: ConnectionState = .idle
@@ -46,14 +55,18 @@ private final class QueueFixture {
     let store: SessionStore
     let model: QueuesModel
 
-    init(_ reads: QueuesReads) throws {
+    init(_ reads: QueuesReads, loadsListsOnDemand: Bool = false, snapshotStore: SessionStore? = nil) throws {
         defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: CoreTestSupport.environment(defaults: defaults))
-        store = try SessionStore(
-            profile: ServerProfile(name: "queues", baseURL: URL(string: "https://queues.invalid")!,
-                                   mode: .remote),
-            credentials: InMemoryCredentialStore())
+        app.loadsListsOnDemand = loadsListsOnDemand
+        if let snapshotStore { store = snapshotStore }
+        else {
+            store = try SessionStore(
+                profile: ServerProfile(name: "queues", baseURL: URL(string: "https://queues.invalid")!,
+                                       mode: .remote),
+                credentials: InMemoryCredentialStore())
+        }
         model = QueuesModel(store: store, app: app)
         // No suspension before replacing the live closures; no test starts the store/socket.
         model.reads = reads
@@ -70,6 +83,81 @@ private final class QueueFixture {
 extension CoreSeamTests {
 @MainActor
 struct QueuesModelTests {
+    @Test func closingDoneCancelsDemandBeforeSlowReadFinishes() async {
+        let gate = QueueReadGate()
+        let row = PreviewData.session(id: "late", status: .init(known: .archived))
+        let m = QueuesModel(reads: .init(held: { [] }, done: {
+            await gate.enter(); return [row]
+        }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {}), loadsListsOnDemand: true)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { await gate.calls == 1 })
+        visible.cancel()
+        await visible.value
+        await gate.open()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(m.finishedSessions.isEmpty)
+        #expect(!m.hasLoadedDone)
+        m.teardown()
+    }
+
+    @Test func freshStoreSessionRepairsMissedHaltClearWithoutAnotherRead() async throws {
+        let server = SettingsFakeServer()
+        defer { server.tearDown() }
+        let session = PreviewData.session(id: "s1")
+        server.stub("GET", "/api/sessions", status: 200, json: try JSONEncoder().encode([session]))
+        server.stub("GET", "/api/settings", status: 200, json: Data(#"{"repoRoot":"/repo","repoRootDisplay":"repo","firstRunPending":false,"defaultModel":"opus","defaultEffort":"default","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"en"}"#.utf8))
+        server.stub("GET", "/api/repos", status: 200, json: Data(#"{"repos":[],"recentWindowDays":7}"#.utf8))
+        let client = try ShepherdClient(profile: .init(name: "snapshot", baseURL: server.baseURL, mode: .local),
+            credentials: InMemoryCredentialStore(), urlSession: server.urlSession())
+        let store = SessionStore(client: client, usesConditionalListReads: true)
+        try await store.bootstrap()
+        let f = try QueueFixture(empty, loadsListsOnDemand: true, snapshotStore: store)
+        defer { f.close() }
+        let revision = f.model.retrySelectionGeneration
+        store.apply(try frame("session:halt", "{\"id\":\"s1\",\"haltReason\":\"operator\",\"haltedAt\":1}"))
+        #expect(await queueSettle { f.model.retrySelectionGeneration > revision })
+        #expect(f.model.retrySessions.first?.haltReason?.rawValue == "operator")
+        // The REST snapshot missed the old halt frame and now reports its authoritative clear.
+        try await store.refresh()
+        #expect(f.model.retrySessions.first?.haltReason == nil)
+        #expect(server.requests().filter { $0.path == "/api/sessions" }.count == 2)
+    }
+
+    @Test func conditionalDoneRecoveryKeepsSnapshotOn304() async {
+        let probe = UpNextReadProbe()
+        let row = PreviewData.session(id: "done", status: .init(known: .archived))
+        let m = QueuesModel(reads: .init(held: { [] }, done: { [] }, recaps: { [:] },
+            stranded: { [] }, refreshUpNext: {}, readDone: { tag in
+                _ = await probe.record(tag)
+                return tag == nil ? .modified(value: [row], etag: "W/\"done\"") : .notModified
+            }), loadsListsOnDemand: true)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { m.hasLoadedDone })
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(m.finishedSessions.map(\.id) == ["done"])
+        #expect(await probe.validators == [nil, "W/\"done\""])
+        visible.cancel(); await visible.value
+        m.teardown()
+    }
+
+    @Test func doneRequiresPresentation() async {
+        let probe = UpNextReadProbe()
+        let m = QueuesModel(reads: .init(held: { [] }, done: {
+            _ = await probe.record(nil)
+            return []
+        }, recaps: { Issue.record("iOS queues must not duplicate recap reads"); return [:] },
+            stranded: { [] }, refreshUpNext: {}), loadsListsOnDemand: true)
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(await probe.calls == 0)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { await probe.calls == 1 })
+        #expect(await queueSettle { m.hasLoadedDone })
+        visible.cancel(); await visible.value
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(await probe.calls == 1)
+        m.teardown()
+    }
+
     private var empty: QueuesReads {
         QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] },
                     refreshUpNext: {})
@@ -98,16 +186,17 @@ struct QueuesModelTests {
         await computes.open()
         let cached = UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0)
         var reads = empty
-        reads.peekUpNext = { await peeks.enter(); return cached }
+        reads.readUpNext = { _ in await peeks.enter(); return .modified(snapshot: cached, etag: nil) }
         reads.refreshUpNext = { await computes.enter() }
         let fixture = try QueueFixture(reads)
         fixture.app.allowsQueueRecomputation = false
         defer { fixture.close() }
         #expect(await queueSettle { !fixture.model.isRefreshing })
-        #expect(fixture.model.upNext == cached)
-        let initial = await peeks.calls
+        #expect(fixture.model.upNext == nil)
+        #expect(await peeks.calls == 0)
         await fixture.model.refresh(recomputeUpNext: false)
-        #expect(await peeks.calls == initial + 1)
+        #expect(fixture.model.upNext == cached)
+        #expect(await peeks.calls == 1)
         #expect(await computes.calls == 0)
     }
 
@@ -118,10 +207,10 @@ struct QueuesModelTests {
         await peeks.open()
         await computes.open()
         var reads = empty
-        reads.peekUpNext = {
+        reads.readUpNext = { _ in
             await peeks.enter()
             if peekFails { throw ShepherdError.unauthenticated }
-            return UpNextSnapshot(generatedAt: 1, sections: [], repoCount: 0, fallback: nil, failedRepoCount: 0)
+            return .modified(snapshot: UpNextSnapshot(generatedAt: 1, sections: [], repoCount: 0, fallback: nil, failedRepoCount: 0), etag: nil)
         }
         reads.refreshUpNext = { await computes.enter() }
         let fixture = try QueueFixture(reads)
@@ -155,19 +244,227 @@ struct QueuesModelTests {
     @Test func peekDoesNotOverwriteSnapshotPushedDuringRead() async throws {
         let gate = QueueReadGate()
         var reads = empty
-        reads.peekUpNext = {
+        reads.readUpNext = { _ in
             await gate.enter()
-            return UpNextSnapshot(generatedAt: 1, sections: [], repoCount: 0, fallback: nil, failedRepoCount: 0)
+            return .modified(snapshot: UpNextSnapshot(generatedAt: 1, sections: [], repoCount: 0, fallback: nil, failedRepoCount: 0), etag: nil)
         }
         let fixture = try QueueFixture(reads)
         fixture.app.allowsQueueRecomputation = false
         defer { fixture.close() }
+        let read = Task { await fixture.model.refresh() }
         #expect(await queueSettle { await gate.calls == 1 })
         fixture.store.apply(try snapshot(99))
         #expect(await queueSettle { fixture.model.upNext?.generatedAt == 99 })
         await gate.open()
+        await read.value
         #expect(await queueSettle { !fixture.model.isRefreshing })
         #expect(fixture.model.upNext?.generatedAt == 99)
+    }
+
+    private func changed() throws -> ServerEvent {
+        try frame("upnext:changed", "{\"version\":\"\(String(repeating: "a", count: 64))\",\"computedAt\":42}")
+    }
+
+    /// A later frame is a deterministic fence proving the changed event was consumed.
+    private func changedAndConsumed(_ f: QueueFixture) async throws {
+        let revision = f.model.retrySelectionGeneration
+        f.store.apply(try changed())
+        f.store.apply(try frame("session:halt", "{\"id\":\"sentinel\",\"haltReason\":null,\"haltedAt\":null}"))
+        #expect(await queueSettle { f.model.retrySelectionGeneration > revision })
+    }
+
+    @Test func conditionalReadsAreDemandDrivenAnd304PreservesCachedNull() async throws {
+        let probe = UpNextReadProbe()
+        var reads = empty
+        reads.readUpNext = { etag in
+            let count = await probe.record(etag)
+            return count == 1 ? .modified(snapshot: nil, etag: "\"null\"") : .notModified
+        }
+        let f = try QueueFixture(reads)
+        f.app.allowsQueueRecomputation = false
+        defer { f.close() }
+        #expect(await queueSettle { !f.model.isRefreshing })
+        try await changedAndConsumed(f)
+        #expect(await probe.calls == 0)
+        let demand = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await probe.calls == 1 && !f.model.isRefreshing })
+        try await changedAndConsumed(f)
+        #expect(await queueSettle { await probe.calls == 2 && !f.model.isRefreshing })
+        #expect(await probe.validators == [nil, "\"null\""])
+        #expect(f.model.upNext == nil && !f.model.upNextLoadFailed)
+        demand.cancel()
+        await demand.value
+        #expect(!f.model.hasUpNextDemand)
+        try await changedAndConsumed(f)
+        #expect(await probe.calls == 2)
+        let reopened = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await probe.calls == 3 && !f.model.isRefreshing })
+        #expect(await probe.validators.last == "\"null\"")
+        reopened.cancel()
+        await reopened.value
+    }
+
+    @Test func invalidationsDuringAReadCoalesceAndClosingStopsFollowUps() async throws {
+        let probe = UpNextReadProbe()
+        let first = QueueReadGate()
+        let second = QueueReadGate()
+        var reads = empty
+        reads.readUpNext = { etag in
+            let count = await probe.record(etag)
+            if count == 1 { await first.enter() } else { await second.enter() }
+            return .modified(snapshot: nil, etag: "\"null\"")
+        }
+        let f = try QueueFixture(reads)
+        f.app.allowsQueueRecomputation = false
+        defer { f.close() }
+        let demand = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await first.calls == 1 })
+        for _ in 0..<10 { f.store.apply(try changed()) }
+        try await changedAndConsumed(f)
+        await first.open()
+        #expect(await queueSettle { await second.calls == 1 })
+        try await changedAndConsumed(f)
+        demand.cancel()
+        await demand.value
+        await second.open()
+        #expect(await queueSettle { !f.model.isRefreshing })
+        #expect(await probe.calls == 2)
+    }
+
+    @Test func failedConditionalReadPreservesDataAndReopenRetries() async throws {
+        let probe = UpNextReadProbe()
+        let cached = UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0)
+        var reads = empty
+        reads.readUpNext = { etag in
+            let count = await probe.record(etag)
+            if count == 2 { throw ShepherdError.unauthenticated }
+            return count == 1 ? .modified(snapshot: cached, etag: "\"cached\"") : .notModified
+        }
+        let f = try QueueFixture(reads)
+        f.app.allowsQueueRecomputation = false
+        defer { f.close() }
+        let demand = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { f.model.upNext == cached && !f.model.isRefreshing })
+        try await changedAndConsumed(f)
+        #expect(await queueSettle { f.model.upNextLoadFailed && !f.model.isRefreshing })
+        #expect(f.model.upNext == cached)
+        demand.cancel()
+        await demand.value
+        let reopened = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await probe.calls == 3 && !f.model.isRefreshing })
+        #expect(!f.model.upNextLoadFailed && f.model.upNext == cached)
+        #expect(await probe.validators == [nil, "\"cached\"", "\"cached\""])
+        reopened.cancel()
+        await reopened.value
+    }
+
+    @Test func acceptedComputationNeedsChangedAndHttpBeforeInstallingAResult() async throws {
+        let probe = UpNextReadProbe()
+        let compute = QueueReadGate()
+        let cached = UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0)
+        var reads = empty
+        reads.readUpNext = { etag in
+            let count = await probe.record(etag)
+            return .modified(snapshot: count == 1 ? nil : cached, etag: "\"\(count)\"")
+        }
+        reads.refreshUpNext = { await compute.enter() }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        let demand = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await compute.calls == 1 })
+        #expect(f.model.upNext == nil && !f.model.upNextLoadFailed)
+        try await changedAndConsumed(f)
+        await compute.open()
+        #expect(await queueSettle { f.model.upNext == cached && !f.model.isRefreshing })
+        #expect(await probe.calls == 2)
+        #expect(await compute.calls == 1)
+        demand.cancel()
+        await demand.value
+    }
+
+    @Test func recoveryAndHeldRefreshCannotDiscardTheOnlyUpNextResult() async throws {
+        let firstRead = QueueReadGate()
+        let recoveryHeld = QueueReadGate()
+        let heldReads = UpNextReadProbe()
+        let upNextReads = UpNextReadProbe()
+        let cached = UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0)
+        var reads = empty
+        reads.held = {
+            let count = await heldReads.record(nil)
+            if count == 2 { await recoveryHeld.enter() }
+            return []
+        }
+        reads.readUpNext = { etag in
+            let count = await upNextReads.record(etag)
+            if count == 1 { await firstRead.enter() }
+            return .modified(snapshot: cached, etag: "\"cached\"")
+        }
+        let f = try QueueFixture(reads)
+        f.app.allowsQueueRecomputation = false
+        defer { f.close() }
+        #expect(await queueSettle { !f.model.isRefreshing })
+        let demand = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await firstRead.calls == 1 })
+        let recovery = Task { await f.model.refresh(recomputeUpNext: false, readOnly: true) }
+        #expect(await queueSettle { await recoveryHeld.calls == 1 })
+        f.store.apply(try frame("held:changed", "{\"count\":1}"))
+        #expect(await queueSettle { await heldReads.calls == 3 })
+        await recoveryHeld.open()
+        await firstRead.open()
+        await recovery.value
+        #expect(await queueSettle { f.model.upNext == cached && !f.model.isRefreshing })
+        #expect(await upNextReads.calls == 2)
+        demand.cancel()
+        await demand.value
+    }
+
+    @Test func teardownFencesConditionalReadAndFinishesDemandLifetime() async throws {
+        let gate = QueueReadGate()
+        var reads = empty
+        reads.readUpNext = { _ in
+            await gate.enter()
+            return .modified(snapshot: UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0), etag: "\"old\"")
+        }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        let demand = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await gate.calls == 1 })
+        f.model.teardown()
+        await demand.value
+        await gate.open()
+        for _ in 0..<30 { await Task.yield() }
+        #expect(f.model.upNext == nil && !f.model.hasUpNextDemand && !f.model.upNextLoadFailed)
+    }
+
+    @Test func multipleConsumersShareDemandAndReconnectRevalidatesOnlyVisibleQueues() async throws {
+        let probe = UpNextReadProbe()
+        var reads = empty
+        reads.readUpNext = { etag in
+            _ = await probe.record(etag)
+            return .modified(snapshot: nil, etag: "\"null\"")
+        }
+        let f = try QueueFixture(reads)
+        f.app.allowsQueueRecomputation = false
+        defer { f.close() }
+        let first = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await probe.calls == 1 && !f.model.isRefreshing })
+        let second = Task { await f.model.observeUpNext() }
+        #expect(await queueSettle { await probe.calls == 2 && !f.model.isRefreshing })
+        first.cancel()
+        await first.value
+        #expect(f.model.hasUpNextDemand)
+        let box = QueueConnectionBox()
+        f.model.watchConnection { box.state }
+        for _ in 0..<30 { await Task.yield() }
+        box.state = .live
+        #expect(await queueSettle { await probe.calls == 3 && !f.model.isRefreshing })
+        second.cancel()
+        await second.value
+        box.state = .idle
+        for _ in 0..<30 { await Task.yield() }
+        box.state = .live
+        for _ in 0..<30 { await Task.yield() }
+        #expect(await probe.calls == 3)
     }
 
     private func held(_ id: String) throws -> HeldQueueEntry {
@@ -214,7 +511,7 @@ struct QueuesModelTests {
         #expect(f.model.held == [row] && f.model.heldCount == 1)
         #expect(f.model.done == [session] && f.model.recaps == ["done": recap])
         #expect(f.model.stranded == ["stranded"])
-        #expect(await computed.calls == 1)
+        #expect(await computed.calls == 0)
         #expect(f.model.upNext == nil && !f.model.upNextLoadFailed)
     }
 
@@ -241,8 +538,7 @@ struct QueuesModelTests {
         let calls = QueueReadGate()
         await calls.open()
         let row = try held("reconnected")
-        f.model.reads.held = { [row] }
-        f.model.reads.refreshUpNext = { await calls.enter() }
+        f.model.reads.held = { await calls.enter(); return [row] }
         f.model.watchConnection { box.state }
         // Let the observation arm while idle.
         for _ in 0..<30 { await Task.yield() }
@@ -260,7 +556,8 @@ struct QueuesModelTests {
         reads.refreshUpNext = { throw ShepherdError.unauthenticated }
         let f = try QueueFixture(reads)
         defer { f.close() }
-        #expect(await queueSettle { f.model.upNextLoadFailed })
+        await f.model.refresh()
+        #expect(f.model.upNextLoadFailed)
         f.store.apply(try snapshot(1, populated: true))
         #expect(await queueSettle { f.model.upNext?.generatedAt == 1 })
         #expect(f.model.upNext?.sections.first?.repoLabel == "Old")
@@ -489,7 +786,7 @@ struct QueuesModelTests {
         await gate.open()
         #expect(await queueSettle { !f.model.isRefreshing })
         #expect(await gate.calls == 2)
-        #expect(await computed.calls == 1)
+        #expect(await computed.calls == 0)
     }
 
     @Test func teardownDropsAlreadyBufferedFramesAndEndsTheWatcher() async throws {
@@ -564,10 +861,12 @@ struct QueuesModelTests {
         reads.refreshUpNext = { await gate.enter(); throw ShepherdError.unauthenticated }
         let f = try QueueFixture(reads)
         defer { f.close() }
+        let read = Task { await f.model.refresh() }
         #expect(await queueSettle { await gate.calls == 1 })
         f.store.apply(try snapshot(1))
         #expect(await queueSettle { f.model.upNext != nil })
         await gate.open()
+        await read.value
         #expect(await queueSettle { !f.model.isRefreshing })
         #expect(!f.model.upNextLoadFailed)
     }
@@ -639,7 +938,7 @@ struct QueuesModelTests {
         let calls = QueueReadGate()
         await calls.open()
         f.model.reads.held = { await calls.enter(); return [] }
-        for name in ["held:changed", "upnext:snapshot", "session:halt", "halt:done",
+        for name in ["held:changed", "upnext:snapshot", "upnext:changed", "session:halt", "halt:done",
                      "app:sessions-stranded", "app:auto-revived", "unrelated"] {
             f.store.apply(try frame(name, "{}"))
         }

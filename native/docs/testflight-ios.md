@@ -182,3 +182,17 @@ archive job succeeded (a gated-off nightly also concludes "success"). For a buil
 merge, dispatch it manually (`-f dry_run=false`). Its build number is main's first-parent commit count. A manual
 dispatch of any other ref (a feature branch preview) uploads `<count>.<run number>` instead, so a
 preview never takes the number the next main build needs. Concurrent runs queue rather than cancel.
+
+## Lazy-list regression checks (#3268)
+
+For the build containing the lazy-list change, prepare **What to Test** from the
+actual changes since the previous distributed build, including these checks:
+
+- Cold launch over a slow connection: Sessions should appear before opening other views.
+- Open Done, Next and a session recap; check content and retry after a failed read.
+- Background/foreground and reconnect with each view open, then with it closed.
+- Open a notification for an archived session, including after a failed first lookup.
+
+Prefix the notes with the actual marketing version/build and verify that exact
+build in App Store Connect and TestFlight using the release-notes checklist above.
+This checklist is a release handoff, not proof that a build was uploaded or notes saved.

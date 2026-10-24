@@ -191,7 +191,9 @@ const INVENTORY: readonly Entry[] = [
   get("/api/plan-gates"),
   get("/api/plan-gates/inflight"),
   get("/api/recaps"),
+  get("/api/sessions/:p/recap", `/api/sessions/${PROBE}/recap`),
   get("/api/up-next"),
+  get("/api/up-next/body", `/api/up-next/body?repo=${r}&number=121`),
   get("/api/steers"),
   get("/api/project-icons"),
 

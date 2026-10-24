@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -160,6 +168,78 @@ describe("native iOS acceptance tools", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stdout.toString()).toBe("");
   });
+  for (const bootExit of [0, 17]) {
+    test(`simulator readiness gates test launch (boot exit ${bootExit})`, () => {
+      const scripts = join(directory, "native/scripts");
+      const bin = join(directory, "bin");
+      mkdirSync(scripts, { recursive: true });
+      mkdirSync(join(directory, "native/Apps/ShepherdIOS"), { recursive: true });
+      mkdirSync(bin);
+      for (const script of ["test-ios-app.sh", "select-ios-simulator.py"]) {
+        cpSync(resolve("native/scripts", script), join(scripts, script));
+      }
+      // Result validation has its own fixture tests; preserve xcodebuild's exit here.
+      writeFileSync(join(scripts, "check-ios-results.py"), "pass\n");
+      const log = join(directory, "commands.log");
+      writeFileSync(log, "");
+      const devices = json("devices.json", {
+        devices: {
+          "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
+            { name: "iPad (A16)", udid: "PAD", state: "Shutdown", isAvailable: true },
+          ],
+        },
+      });
+      const executables = {
+        xcodegen: "#!/bin/bash\nexit 0\n",
+        xcrun: `#!/bin/bash
+if [[ "$1 $2" == "simctl list" ]]; then cat "$IOS_DEVICE_FILE"
+elif [[ "$1 $2" == "simctl bootstatus" ]]; then
+  echo "bootstatus $3 $4" >> "$IOS_TEST_LOG"
+  exit "$IOS_BOOT_EXIT"
+else echo '{}'
+fi
+`,
+        xcodebuild: `#!/bin/bash
+echo xcodebuild >> "$IOS_TEST_LOG"
+mkdir -p "$IOS_TEST_RESULT"
+exit 23
+`,
+      };
+      for (const [name, source] of Object.entries(executables)) {
+        const executable = join(bin, name);
+        writeFileSync(executable, source);
+        chmodSync(executable, 0o755);
+      }
+      const resultPath = join(directory, "result.xcresult");
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          join(scripts, "test-ios-app.sh"),
+          "ui",
+          "--family",
+          "iPad",
+          "--result-bundle-path",
+          resultPath,
+        ],
+        {
+          env: {
+            ...process.env,
+            PATH: `${bin}:${process.env.PATH}`,
+            TMPDIR: directory,
+            IOS_DEVICE_FILE: devices,
+            IOS_TEST_LOG: log,
+            IOS_TEST_RESULT: resultPath,
+            IOS_BOOT_EXIT: String(bootExit),
+          },
+        },
+      );
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(
+        bootExit === 0 ? ["bootstatus PAD -b", "xcodebuild"] : ["bootstatus PAD -b"],
+      );
+      expect(result.exitCode).toBe(bootExit || 23);
+    });
+  }
+
   test("ui/messages-only PRs don't start the iOS workflow; contract and native edits still do", () => {
     const workflow = Bun.YAML.parse(readFileSync(".github/workflows/native-ios.yml", "utf8")) as {
       on: Record<"pull_request" | "push", { paths: string[] }>;

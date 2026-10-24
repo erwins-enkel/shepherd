@@ -15,6 +15,24 @@ export const recap: Recap = {
   body: "Adds the token bucket and its tests. Two call sites still bypass it.",
   openItems: ["wire the admin route through the limiter", "document the burst window"],
   changedFiles: ["src/limiter.ts", "test/limiter.test.ts"],
+  blocks: [
+    {
+      type: "diff",
+      id: "diff-1",
+      path: "src/limiter.ts",
+      summary: "Add limiter",
+      file: {
+        path: "src/limiter.ts",
+        status: "modified",
+        additions: 1,
+        deletions: 0,
+        binary: false,
+        hunks: [
+          { header: "@@ -1,0 +1 @@", lines: [{ kind: "add", content: "limit();", newNo: 1 }] },
+        ],
+      },
+    },
+  ],
   spawnSessionId: "sess_recap_agent",
   cwd: "/tmp/wt",
   model: "claude-opus-5",

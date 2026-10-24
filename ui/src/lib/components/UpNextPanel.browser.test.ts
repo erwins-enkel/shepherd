@@ -15,12 +15,16 @@ import { upNextUi } from "#lib/up-next-ui.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
 import { getUpNext, startUpNext } from "#lib/api.js";
 
-// Mock the API so mounting (which kicks upNext.load()) makes no real network call.
+// Mock the API so mounting the demand-driven lens makes no real network call.
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
-    getUpNext: vi.fn(async (): Promise<UpNextSnapshot | null> => upNext.snapshot),
+    getUpNext: vi.fn(async () => ({
+      modified: true as const,
+      snapshot: upNext.snapshot,
+      etag: null,
+    })),
     refreshUpNext: vi.fn(async () => {}),
     startUpNext: vi.fn(async () => ({ created: [], held: [], errors: [] })),
   };
@@ -55,7 +59,6 @@ const item = (
     number,
     url: `https://example.test/${number}`,
     title: opts.title ?? `issue ${number}`,
-    body: "",
   },
 });
 
@@ -184,6 +187,7 @@ beforeEach(() => {
   localStorage.removeItem("shepherd.upnext.sort");
   localStorage.removeItem("shepherd.upnext.collapsed");
   upNextUi.reset();
+  upNext.reset();
   upNext.snapshot = SNAPSHOT;
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
@@ -843,4 +847,16 @@ describe("UpNextPanel preview and folding", () => {
     // The previous band has scrolled past, taking its heading with it.
     expect(priority.getBoundingClientRect().bottom).toBeLessThanOrEqual(top() + 1);
   });
+});
+
+it("unmount releases demand and remount revalidates changes missed while closed", async () => {
+  const first = await render(UpNextPanel, {});
+  await expect.poll(() => vi.mocked(getUpNext).mock.calls.length).toBe(1);
+  await first.unmount();
+  upNext.changed();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(getUpNext).toHaveBeenCalledTimes(1);
+  const second = await render(UpNextPanel, {});
+  await expect.poll(() => vi.mocked(getUpNext).mock.calls.length).toBe(2);
+  await second.unmount();
 });

@@ -2689,6 +2689,11 @@ export async function getRecaps(): Promise<Record<string, Recap>> {
   return getJson("/api/recaps", "recaps");
 }
 
+/** Full persisted recap; only detail surfaces should call this. */
+export async function getSessionRecap(id: string): Promise<Recap> {
+  return getJson(`/api/sessions/${encodeURIComponent(id)}/recap`, "recap detail");
+}
+
 // ── operator task amendments (#2225) ────────────────────────────────────────
 
 /** Snapshot of every active session's task amendments, keyed by session id (bootstrap). */
@@ -2726,8 +2731,31 @@ export async function getDoneSessions(): Promise<Session[]> {
 
 /** Up Next snapshot. By default (lens-open) the server also kicks a background recompute;
  *  pass `peek` to paint the cached snapshot only (app-load), costing zero cross-repo `gh`. */
-export async function getUpNext(opts?: { peek?: boolean }): Promise<UpNextSnapshot | null> {
-  return getJson(opts?.peek ? "/api/up-next?peek=1" : "/api/up-next", "up next");
+export type UpNextRead =
+  { modified: false } | { modified: true; snapshot: UpNextSnapshot | null; etag: string | null };
+
+export async function getUpNext(opts?: {
+  peek?: boolean;
+  etag?: string | null;
+}): Promise<UpNextRead> {
+  const response = await fetch(opts?.peek ? "/api/up-next?peek=1" : "/api/up-next", {
+    headers: opts?.etag ? { "If-None-Match": opts.etag } : {},
+    cache: "no-cache",
+  });
+  if (response.status === 304) return { modified: false };
+  if (!response.ok) {
+    flagIfUnauthorized(response.status);
+    throw new Error(`up next failed: ${response.status}`);
+  }
+  return { modified: true, snapshot: await response.json(), etag: response.headers.get("etag") };
+}
+
+/** Load the full issue text only when it is needed. */
+export async function getUpNextBody(repoPath: string, number: number): Promise<{ body: string }> {
+  return getJson(
+    `/api/up-next/body?repo=${encodeURIComponent(repoPath)}&number=${number}`,
+    "up next body",
+  );
 }
 
 /** Force an Up Next recompute (the manual refresh button). */

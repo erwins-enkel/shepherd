@@ -7,6 +7,7 @@ import SwiftUI
 /// Mounted by the queues registry/integration lane. Cached snapshots are filtered locally;
 /// a refresh's 202 only starts computation and never stands in for an empty snapshot.
 struct UpNextView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppModel.self) private var app
     @State private var state = UpNextPanelState()
     @State private var command = SessionCommandState()
@@ -57,8 +58,9 @@ struct UpNextView: View {
         }
         .padding(16)
         .accessibilityIdentifier("queues-upnext-panel")
-        .task(id: app.activationGeneration) {
-            if let model, !model.isRefreshing { await model.refresh() }
+        .task(id: scenePhase == .active ? model.map(ObjectIdentifier.init) : nil) {
+            guard scenePhase == .active, let model else { return }
+            await model.observeUpNext()
         }
         .onChange(of: model?.upNext) { _, _ in state.reconcile(items) }
         .onChange(of: repos) { _, _ in state.reconcile(items) }

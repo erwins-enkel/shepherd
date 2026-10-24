@@ -5,7 +5,7 @@ import ShepherdKit
 /// Render contract members in wire order. Unknown members and untrusted HTML stay inert.
 struct IOSVisualBlocksView: View {
     let blocks: [VisualBlock]
-    let presentation: IOSPlanPresentation
+    var presentation: IOSPlanPresentation? = nil
     var fixture = false
 
     var body: some View {
@@ -105,8 +105,17 @@ struct IOSVisualBlocksView: View {
             if let caption = value.caption { heading(caption) }
             Text(verbatim: L.t("vblock_native_wireframe_omitted")).foregroundStyle(SessionListStyle.muted)
         } else if let value = block.value13 {
-            IOSQuestionFormView(model: presentation.form(at: index, block: value),
-                answered: presentation.answered(value), fixture: fixture)
+            if let presentation {
+                IOSQuestionFormView(model: presentation.form(at: index, block: value),
+                    answered: presentation.answered(value), fixture: fixture)
+            } else {
+                ForEach(Array(value.questions.enumerated()), id: \.offset) { _, question in
+                    heading(question.prompt)
+                    ForEach(Array((question.options ?? []).enumerated()), id: \.offset) { _, option in
+                        Text(verbatim: option)
+                    }
+                }
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
+import { recap as diffRecap } from "./contract/actions-fixtures";
 import type { Session, Recap } from "../src/types";
 
 let tmpRoot: string;
@@ -230,4 +231,79 @@ test("POST /api/sessions/:id/recap/regenerate → status:error when recap dep is
   );
   expect(res.status).toBe(202);
   expect(await res.json()).toEqual({ ok: true, status: "error" });
+});
+
+test("recap list omits blocks without changing cached detail", async () => {
+  const { app } = harness({ recapCache: { snapshot: () => ({ s1: diffRecap }) } });
+  const response = await app.fetch(new Request("http://x/api/recaps"));
+  const rows = await response.json();
+  const { blocks, ...summary } = diffRecap;
+  expect(rows.s1).toEqual(summary);
+  expect(Object.hasOwn(rows.s1, "blocks")).toBe(false);
+  expect(diffRecap.blocks).toBe(blocks);
+});
+
+test("recap detail reads archived sessions with grounded hunks; missing recap is 404", async () => {
+  const { app, store } = harness();
+  const session = store.create({
+    name: "detail",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "detail",
+    worktreePath: repoDir,
+    isolated: true,
+    herdrSession: "detail",
+    herdrAgentId: "detail",
+  });
+  const url = `http://x/api/sessions/${session.id}/recap`;
+  expect((await app.fetch(new Request(url))).status).toBe(404);
+  store.putRecap({ ...diffRecap, sessionId: session.id });
+  store.archive(session.id);
+  const response = await app.fetch(new Request(url));
+  expect(response.status).toBe(200);
+  expect((await response.json()).blocks).toEqual(diffRecap.blocks);
+  expect((await app.fetch(new Request("http://x/api/sessions/nope/recap"))).status).toBe(404);
+});
+
+test("visible list snapshots revalidate empty bodies and invalidate on content changes", async () => {
+  const { app, store } = harness();
+  for (const path of ["/api/sessions", "/api/sessions/done", "/api/recaps"]) {
+    const first = await app.fetch(new Request(`http://x${path}`));
+    expect(first.status).toBe(200);
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^W\/".+"$/);
+    expect(first.headers.get("cache-control")).toBe("private, no-cache");
+    const unchanged = await app.fetch(
+      new Request(`http://x${path}`, {
+        headers: { "if-none-match": etag! },
+      }),
+    );
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe("");
+    expect(unchanged.headers.get("etag")).toBe(etag);
+  }
+  const before = await app.fetch(new Request("http://x/api/sessions/done"));
+  const session = store.create({
+    name: "etag",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "etag",
+    worktreePath: repoDir,
+    isolated: true,
+    herdrSession: "etag",
+    herdrAgentId: "etag",
+    claudeSessionId: "etag",
+    model: null,
+  });
+  store.archive(session.id);
+  const after = await app.fetch(
+    new Request("http://x/api/sessions/done", {
+      headers: { "if-none-match": before.headers.get("etag")! },
+    }),
+  );
+  expect(after.status).toBe(200);
+  expect(after.headers.get("etag")).not.toBe(before.headers.get("etag"));
+  expect(((await after.json()) as Session[]).map((s) => s.id)).toContain(session.id);
 });

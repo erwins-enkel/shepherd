@@ -62,7 +62,7 @@ struct IOSSessionActionBarContent: View {
             default: IOSActionEditorSheet(session: session, state: state, repos: repos, kind: sheet)
             }
         }
-        .sheet(isPresented: $showsRecap) { IOSRecapSheet(recap: recap) }
+        .sheet(isPresented: $showsRecap) { IOSRecapSheet(sessionID: session.id) }
         .onDisappear { state.detailDidDisappear() }
     }
 

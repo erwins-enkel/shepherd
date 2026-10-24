@@ -1132,7 +1132,7 @@ export interface Recap {
   spawnedAt: number;
   generatedAt: number | null;
   updatedAt: number;
-  blocks?: VisualBlock[]; // arrives over session:recap WS payload; optional for back-compat
+  blocks?: VisualBlock[]; // loaded by the recap detail endpoint; omitted from lists and events
 }
 
 /** One operator amendment to a session's task (#2225) — mirrors the server's `TaskAmendment`.
@@ -3084,7 +3084,7 @@ export interface UpNextItem {
   /** Forge label name → source color. Optional/partial; labels without a color render neutral. */
   labelColors?: Record<string, string>;
   epicParent?: { number: number; title: string };
-  issueRef: { number: number; url: string; title: string; body: string };
+  issueRef: { number: number; url: string; title: string };
 }
 export interface UpNextSection {
   kind: "priority" | "repo";
@@ -3204,6 +3204,7 @@ export type WsEvent =
   | { event: "repo-bootstrap:update"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
+  | { event: "upnext:changed"; data: { version: string; computedAt: number } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import ShepherdKit
@@ -69,6 +70,29 @@ private final class QueueFixture {
 
 @MainActor
 struct QueuesModelTests {
+    @Test func doneDetailFetchesItsSelectedRecapWhenMounted() async throws {
+        let session = PreviewData.session()
+        let summary = try JSONDecoder().decode(Recap.self, from: Data("""
+        {"sessionId":"\(session.id)","state":"ready","headline":"Done","body":"Summary","openItems":[],"updatedAt":1000}
+        """.utf8))
+        var reads: [String] = []
+        let view = DoneRecapView(session: session, recap: summary, loadRecap: { id in
+            reads.append(id)
+            var full = summary
+            full.blocks = [.init(value2: .init(_type: .callout, id: "detail", tone: .init(known: .info), markdown: "Fetched block"))]
+            return full
+        }, loadUsage: { _ in throw ShepherdError.notFound })
+        #expect(reads.isEmpty)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = NSHostingView(rootView: view)
+        window.orderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while reads.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(reads == [session.id])
+    }
+
     private var empty: QueuesReads {
         QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] },
                     refreshUpNext: {})

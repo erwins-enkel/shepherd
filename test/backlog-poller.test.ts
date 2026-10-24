@@ -5,8 +5,9 @@
  * memory. It only warms forge-backed repos (resolveForge non-null) and must
  * never throw, even if a warm call rejects — backlog freshness is best-effort.
  */
-import { test, expect } from "bun:test";
-import { BacklogPoller, reposUsedSince } from "../src/backlog-poller";
+import { test, expect, describe } from "bun:test";
+import type { BacklogPayload } from "../src/server";
+import { BacklogPoller, reposUsedSince, createBacklogBroadcast } from "../src/backlog-poller";
 
 test("warms only forge-backed repos", async () => {
   const warmed: string[] = [];
@@ -331,4 +332,85 @@ test("reposUsedSince keeps only repos with a session at or after the cutoff", ()
   expect(reposUsedSince({ "/new": 500, "/edge": 400, "/old": 399 }, 400)).toEqual(
     new Set(["/new", "/edge"]),
   );
+});
+
+describe("changed backlog broadcasts", () => {
+  const empty = { projects: [], pinnedPath: null, totals: { openIssues: 0, openPRs: 0 } };
+
+  test("sends full changes, suppresses repeats and shares overlapping builds", async () => {
+    let payload: BacklogPayload = structuredClone(empty);
+    let builds = 0;
+    const sent: BacklogPayload[] = [];
+    const broadcast = createBacklogBroadcast(
+      async () => {
+        builds++;
+        return payload;
+      },
+      (p) => sent.push(structuredClone(p)),
+    );
+    await Promise.all([broadcast(), broadcast()]);
+    expect(builds).toBe(1);
+    await broadcast();
+    expect(sent).toHaveLength(1);
+    payload = { ...payload, pinnedPath: "/repo" };
+    await broadcast();
+    expect(sent.at(-1)).toEqual(payload);
+    payload = structuredClone(empty);
+    await broadcast();
+    expect(sent).toHaveLength(3);
+  });
+
+  test("build and publication failures release the flight and do not mark data sent", async () => {
+    let failBuild = true;
+    let failEmit = true;
+    let sent = 0;
+    const broadcast = createBacklogBroadcast(
+      async () => {
+        if (failBuild) throw new Error("build");
+        return empty;
+      },
+      () => {
+        if (failEmit) throw new Error("emit");
+        sent++;
+      },
+    );
+    await expect(broadcast()).rejects.toThrow("build");
+    failBuild = false;
+    await expect(broadcast()).rejects.toThrow("emit");
+    failEmit = false;
+    await broadcast();
+    await broadcast();
+    expect(sent).toBe(1);
+  });
+});
+
+test("a backlog invalidation during a build is not lost until the next poll", async () => {
+  const initial: BacklogPayload = {
+    projects: [],
+    pinnedPath: null,
+    totals: { openIssues: 0, openPRs: 0 },
+  };
+  let current = initial;
+  let release!: (p: BacklogPayload) => void;
+  let builds = 0;
+  const sent: BacklogPayload[] = [];
+  const broadcast = createBacklogBroadcast(
+    () => {
+      builds++;
+      return builds === 1
+        ? new Promise((resolve) => {
+            release = resolve;
+          })
+        : Promise.resolve(current);
+    },
+    (p) => sent.push(p),
+  );
+  const flight = broadcast();
+  await Promise.resolve();
+  current = { ...initial, pinnedPath: "/new-project" };
+  const overlapping = broadcast();
+  release(initial);
+  await Promise.all([flight, overlapping]);
+  expect(sent.at(-1)).toEqual(current);
+  expect(builds).toBe(2);
 });

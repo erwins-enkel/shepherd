@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { Session } from "#lib/types.js";
   import type { RecapVerdict } from "#lib/types.js";
-  import { recaps } from "#lib/recaps.svelte.js";
+  import { recaps, RecapDetailState } from "#lib/recaps.svelte.js";
   import { regenerateRecap } from "#lib/api.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
@@ -19,12 +20,23 @@
     autoMergeOwned?: boolean;
   } = $props();
 
-  const recap = $derived(recaps.map[session.id]);
+  const summary = $derived(recaps.map[session.id]);
+  const detail = new RecapDetailState();
+  const recap = $derived(detail.current(session.id, summary) ?? summary);
 
   let expanded = $state(false);
   const showBody = $derived(inline || expanded);
   let regenerating = $state(false);
   let regenFailed = $state(false);
+
+  const detailVersion = $derived(
+    summary ? `${session.id}:${summary.updatedAt}:${summary.state}` : undefined,
+  );
+  $effect(() => {
+    if (showBody && detailVersion) untrack(() => void detail.load(session.id, summary));
+    else untrack(() => detail.clear());
+    return () => detail.clear();
+  });
 
   // Render the (LLM-authored) body as sanitized markdown.
   // Dynamically imported so marked/DOMPurify stay off the first-paint critical path;
@@ -117,6 +129,13 @@
     {/if}
     {#if showBody}
       <div class="recap-body">
+        {#if detail.loading}<p role="status">{m.common_loading()}</p>{/if}
+        {#if detail.error}
+          <p role="alert">{m.recap_detail_load_failed()}</p>
+          <button class="gbtn" onclick={() => detail.load(session.id, summary)}
+            >{m.common_retry()}</button
+          >
+        {/if}
         {#if recap.blocks && recap.blocks.length > 0}
           <VisualReview blocks={recap.blocks} />
         {:else if renderedBody}

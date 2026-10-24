@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getUpNextBody } from "#lib/api.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { Steer } from "#lib/types.js";
   import { steers } from "#lib/steers.svelte.js";
@@ -30,6 +31,31 @@
   const starter = new UpNextStarter(() => launchContext);
   const item = $derived(findUpNextItem(upNext.snapshot, upNextUi.previewKey));
   const key = $derived(item ? upNextKey(item) : null);
+  const previewRepo = $derived(item?.repoPath ?? null);
+  const previewNumber = $derived(item?.issueRef.number ?? null);
+  let body = $state<string | null>(null);
+  let bodyError = $state(false);
+  let bodyRetry = $state(0);
+  $effect(() => {
+    const repo = previewRepo;
+    const number = previewNumber;
+    void bodyRetry;
+    body = null;
+    bodyError = false;
+    if (repo === null || number === null) return;
+    let current = true;
+    void getUpNextBody(repo, number).then(
+      (result) => {
+        if (current) body = result.body;
+      },
+      () => {
+        if (current) bodyError = true;
+      },
+    );
+    return () => {
+      current = false;
+    };
+  });
   const index = $derived(key ? upNextUi.order.indexOf(key) : -1);
   const total = $derived(upNextUi.order.length);
   const tag = $derived(
@@ -254,7 +280,16 @@
           <span>{m.upnext_preview_select()}</span>
         </label>
       </div>
-      <MarkdownBody source={item.issueRef.body} />
+      {#if bodyError}
+        <div role="alert">
+          <p>{m.issuepeek_unavailable()}</p>
+          <button type="button" class="gbtn" onclick={() => bodyRetry++}>{m.common_retry()}</button>
+        </div>
+      {:else if body === null}
+        <p role="status">{m.common_loading()}</p>
+      {:else}
+        <MarkdownBody source={body} />
+      {/if}
     </div>
   {:else}
     <p class="unp-empty">{m.upnext_preview_empty()}</p>

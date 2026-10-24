@@ -304,26 +304,28 @@ shepherd --json sessions list | jq -r '.[] | select(.status == "done") | .desig'
 
 A `--repo <path>` flag defaults to the current directory's git toplevel, as it does for `new`.
 
-| Command                                  | Route                                             | Scope    |
-| ---------------------------------------- | ------------------------------------------------- | -------- |
-| `shepherd backlog`                       | `GET /api/backlog`                                | `full`   |
-| `shepherd issues [--repo]`               | `GET /api/issues?repo=`                           | `full`   |
-| `shepherd drain status`                  | `GET /api/drain`                                  | `full`   |
-| `shepherd drain queue [--repo]`          | `GET /api/drain/queue?repo=`                      | `full`   |
-| `shepherd drain start\|stop [--repo]`    | `PUT /api/repo-config?repo=` (`autoDrainEnabled`) | `full`   |
-| `shepherd up-next list`                  | `POST /api/up-next/refresh`, then `/events`       | `full`   |
-| `shepherd up-next start <item>… [flags]` | same, then `POST /api/up-next/start`              | `full`   |
-| `shepherd held list`                     | `GET /api/held`                                   | `submit` |
-| `shepherd held spawn <id> [--provider]`  | `POST /api/held/:id/spawn`                        | `submit` |
-| `shepherd held discard <id>`             | `DELETE /api/held/:id`                            | `submit` |
+| Command                                  | Route                                                       | Scope    |
+| ---------------------------------------- | ----------------------------------------------------------- | -------- |
+| `shepherd backlog`                       | `GET /api/backlog`                                          | `full`   |
+| `shepherd issues [--repo]`               | `GET /api/issues?repo=`                                     | `full`   |
+| `shepherd drain status`                  | `GET /api/drain`                                            | `full`   |
+| `shepherd drain queue [--repo]`          | `GET /api/drain/queue?repo=`                                | `full`   |
+| `shepherd drain start\|stop [--repo]`    | `PUT /api/repo-config?repo=` (`autoDrainEnabled`)           | `full`   |
+| `shepherd up-next list`                  | `POST /api/up-next/refresh`, then `GET /api/up-next?peek=1` | `full`   |
+| `shepherd up-next start <item>… [flags]` | same, then `POST /api/up-next/start`                        | `full`   |
+| `shepherd held list`                     | `GET /api/held`                                             | `submit` |
+| `shepherd held spawn <id> [--provider]`  | `POST /api/held/:id/spawn`                                  | `submit` |
+| `shepherd held discard <id>`             | `DELETE /api/held/:id`                                      | `submit` |
 
 `backlog` hides repos hidden in the UI from its table. Its JSON carries every repo with a `hidden`
 flag. `drain start` and `drain stop` flip the repo's auto-drain setting, the same one the UI
 toggles.
 
-The server has no read route for Up Next. So `up-next` opens `/events`, asks the server to
-recompute the queue, and prints the first `upnext:snapshot` frame. The recompute lists every repo
-on its forge, so it can take a while; the CLI waits up to 90 s and then exits `1`.
+`up-next` opens `/events` before asking the server to recompute the queue. After an
+`upnext:changed` signal, it reads `GET /api/up-next?peek=1` and prints that snapshot. This
+cache-only read does not trigger another recomputation. Older servers can still send a legacy
+`upnext:snapshot` frame directly. The recompute lists every repo on its forge, so it can take a
+while; the CLI waits up to 90 s and then exits `1`.
 
 `up-next start` takes items as `<repo>#<number>`, where `<repo>` is the slug (`owner/repo`), the
 repo name or its label. A bare `<number>` works when only one queued item has it. An unknown or

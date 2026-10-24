@@ -23,6 +23,8 @@ final class IOSPushRegistration {
     @ObservationIgnored private weak var hub: IOSServerHub?
     @ObservationIgnored private var enabled = false
     @ObservationIgnored private var pending: (sessionID: String, server: String?, instance: String?)?
+    @ObservationIgnored private var notificationLookup: Task<Void, Never>?
+    var isResolvingNotification: Bool { notificationLookup != nil }
     @ObservationIgnored private var registeredFor: [ObjectIdentifier: Registration] = [:]
     private final class Registration {
         weak var store: SessionStore?
@@ -219,6 +221,8 @@ final class IOSPushRegistration {
     /// `instance` names the machine that runs the session (#3058).
     func open(_ sessionID: String, server: String? = nil, instance: String? = nil) {
         guard !sessionID.isEmpty else { return }
+        notificationLookup?.cancel()
+        notificationLookup = nil
         pending = (sessionID, server, instance)
         routePendingNotification()
     }
@@ -238,18 +242,58 @@ final class IOSPushRegistration {
         }
         if targets.count == 1, let target = targets.first {
             guard let store = hub.models[target.profileID]?.store, store.hasLoadedSessions, store.connection != .needsLogin else { return }
-            chooseNotification(target)
+            if store.session(id: pending.sessionID) != nil || store.remoteSession(id: pending.sessionID) != nil ||
+                hub.models[target.profileID]?.extension(QueuesModel.self)?.finishedSessions.contains(where: { $0.id == pending.sessionID }) == true ||
+                hub.models[target.profileID]?.extension(QueuesModel.self)?.notificationSession?.id == pending.sessionID {
+                chooseNotification(target)
+            } else { lookupNotification(pending, targets: targets) }
         }
         else if targets.count > 1 { notificationChoices = targets }
+        else { lookupNotification(pending, targets: []) }
+    }
+
+    private func lookupNotification(_ target: (sessionID: String, server: String?, instance: String?), targets: [IOSSessionIdentity]) {
+        guard let hub, notificationLookup == nil else { return }
+        let candidates = targets.isEmpty ? hub.connectedIDs.filter { id in
+            guard let model = hub.models[id], model.store?.hasLoadedSessions == true else { return false }
+            if let server = target.server, !server.isEmpty {
+                guard let profile = model.activeProfile else { return false }
+                return server == id.uuidString || URL(string: server) == profile.baseURL
+            }
+            if let instance = target.instance, let known = model.extension(IOSInstanceIdentity.self)?.instanceID {
+                return instance == known
+            }
+            return true
+        } : targets.map(\.profileID)
+        guard !candidates.isEmpty else { return }
+        notificationLookup = Task { [weak self, weak hub] in
+            guard let hub else { return }
+            for id in candidates {
+                guard !Task.isCancelled else { return }
+                _ = await hub.models[id]?.extension(QueuesModel.self)?.resolveNotificationSession(id: target.sessionID)
+            }
+            guard let self, !Task.isCancelled, self.hub === hub, self.pending?.sessionID == target.sessionID,
+                  self.pending?.server == target.server, self.pending?.instance == target.instance else { return }
+            self.notificationLookup = nil
+            let resolved = hub.notificationTargets(sessionID: target.sessionID, server: target.server, instance: target.instance)
+                .filter { hub.models[$0.profileID]?.extension(QueuesModel.self)?.notificationSession?.id == target.sessionID }
+            if resolved.count == 1, let identity = resolved.first { self.chooseNotification(identity) }
+            else { self.notificationChoices = resolved }
+        }
     }
 
     func chooseNotification(_ identity: IOSSessionIdentity) {
         hub?.select(identity)
         hub?.managingServers = false
+        notificationLookup?.cancel()
+        notificationLookup = nil
         pending = nil
         notificationChoices = []
     }
-    func cancelNotification() { pending = nil; notificationChoices = [] }
+    func cancelNotification() {
+        notificationLookup?.cancel(); notificationLookup = nil
+        pending = nil; notificationChoices = []
+    }
 
 }
 

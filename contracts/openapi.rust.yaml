@@ -3063,7 +3063,7 @@ components:
     Recap:
       type: object
       additionalProperties: true
-      description: The documented subset of src/types.ts Recap the native action bar reads. The server sends more; additionalProperties keeps the rest legal.
+      description: The documented subset of src/types.ts Recap. List snapshots and session:recap omit blocks; GET /api/sessions/{id}/recap returns the full persisted recap. Additional properties preserve other summary fields.
       required:
         - sessionId
         - state
@@ -3107,7 +3107,7 @@ components:
       type: object
       additionalProperties:
         $ref: "#/components/schemas/Recap"
-      description: GET /api/recaps. Session id -> recap. Absent means no recap exists for that session.
+      description: GET /api/recaps. Session id -> recap summary without blocks. Absent means no recap exists for that session.
     RecapRegenerateStatus:
       type: string
     RecapRegenerateResult:
@@ -5067,7 +5067,46 @@ components:
     UpNextKind:
       type: string
     UpNextIssueRef:
-      $ref: "#/components/schemas/IssueRef"
+      type: object
+      additionalProperties: false
+      description: Issue identity for list and event snapshots; full text is loaded on demand.
+      required:
+        - number
+        - url
+        - title
+      properties:
+        number:
+          type: integer
+        url:
+          type: string
+        title:
+          type: string
+    UpNextStartIssueRef:
+      type: object
+      additionalProperties: false
+      description: Issue identity for Start. Omitted body is fetched before routing, holding or spawning; a supplied body is preserved for older clients.
+      required:
+        - number
+        - url
+        - title
+      properties:
+        number:
+          type: integer
+        url:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+    UpNextBody:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          description: Full untruncated issue Markdown.
     UpNextItem:
       type: object
       additionalProperties: true
@@ -5123,7 +5162,7 @@ components:
             title:
               type: string
         issueRef:
-          $ref: "#/components/schemas/IssueRef"
+          $ref: "#/components/schemas/UpNextIssueRef"
       description: For an epic, number/title/url/issueRef describe the next-actionable child; createdAt is the parent age.
     UpNextSection:
       type: object
@@ -5177,7 +5216,7 @@ components:
         failedRepoCount:
           type: integer
           description: Repos whose listing failed. Non-zero with an empty sections is the panel's "could not load" state.
-      description: The Up Next queue, delivered through upnext:snapshot and the cached snapshot read.
+      description: The Up Next queue, fetched after upnext:changed invalidates the cached snapshot read.
     UpNextCachedSnapshot:
       type: object
       nullable: true
@@ -5209,7 +5248,7 @@ components:
         repoPath:
           type: string
         issueRef:
-          $ref: "#/components/schemas/UpNextIssueRef"
+          $ref: "#/components/schemas/UpNextStartIssueRef"
     UpNextStartRequest:
       type: object
       additionalProperties: false
@@ -5401,7 +5440,20 @@ components:
           type: integer
         total:
           type: integer
+    UpNextChangedEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - computedAt
+      properties:
+        version:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        computedAt:
+          type: integer
     UpNextSnapshotEvent:
+      deprecated: true
       type: object
       additionalProperties: true
       required:
@@ -8571,15 +8623,30 @@ paths:
     get:
       operationId: listSessions
       description: Active (non-archived) sessions, oldest first. No pagination.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Sessions.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionList"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Missing or invalid credential.
     post:
       operationId: createSession
       description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. When the preferred connected machine has fresh one-minute host load per logical CPU at or above 1.0, the first fitting connected alternative at or below 0.75 can take the task. Load older than 15 seconds is unknown. Without proven spare capacity the preferred machine still starts it; explicit targets are never overridden by load. The choice and load observations are recorded as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. When the chosen machine is out of reach (#2775) the task waits here for it: 200 with `waiting` (a HeldTask); nothing is sent or uploaded until that machine can take it, and nothing falls back to another machine. A keyed retry goes where its first submission went."
@@ -8651,15 +8718,30 @@ paths:
     get:
       operationId: listDoneSessions
       description: Recently archived sessions for the Done lens.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Sessions.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionList"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Missing or invalid credential.
   /api/sessions/archived:
     get:
       operationId: listArchivedSessions
@@ -10116,6 +10198,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/recap:
+    get:
+      operationId: getSessionRecap
+      description: Read the full persisted recap including blocks, without regeneration. Available for live and archived sessions.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full recap including grounded visual blocks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown session or no recap exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/recap/regenerate:
     parameters:
       - name: id
@@ -10150,16 +10257,30 @@ paths:
           description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
           schema:
             type: string
-      description: Bootstrap snapshot of every recap the server has cached.
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
+      description: Bootstrap snapshot of every recap summary, without blocks.
       responses:
         "200":
           description: Session id -> recap.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RecapMap"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Missing or invalid credential.
   /api/git:
     get:
       operationId: gitStates
@@ -11346,24 +11467,90 @@ paths:
       parameters:
         - in: query
           name: peek
-          required: true
+          required: false
           schema:
             type: string
             enum:
               - "1"
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Cached snapshot, or JSON null when nothing is cached.
+          headers:
+            ETag:
+              description: Representation validator; absent on older servers.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UpNextCachedSnapshot"
+        "304":
+          description: Cached representation unchanged; no response body.
+          headers:
+            ETag:
+              description: Representation validator; absent on older servers.
+              schema:
+                type: string
+        "401":
+          description: Missing or invalid credential.
+  /api/up-next/body:
+    get:
+      operationId: getUpNextBody
+      description: Read one complete issue body on demand without refreshing the Up Next list. Requires full access, like the list.
+      parameters:
+        - in: query
+          name: repo
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: number
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 999999999
+      responses:
+        "200":
+          description: Full issue text; an empty body is a valid result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpNextBody"
+        "400":
+          description: Invalid repository or issue number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Issue not found or unreadable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Forge read failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Forge or single-issue reads unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/up-next/refresh:
     post:
       operationId: refreshUpNext
-      description: Fire-and-forget refresh; the snapshot arrives through upnext:snapshot.
+      description: Fire-and-forget refresh; upnext:changed signals when to re-read the cached snapshot.
       responses:
         "202":
           description: Accepted; computation runs in the background.
@@ -13702,7 +13889,7 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/SessionBackgroundBusyEvent"
   session:recap:
-    description: A session's recap was created, regenerated or changed state. Carries the whole recap, so no re-read is needed.
+    description: A session's recap was created, regenerated or changed state. Carries the summary without blocks; open detail views re-read GET /api/sessions/{id}/recap.
     schema:
       $ref: "#/components/schemas/SessionRecapEvent"
   session:amendments:
@@ -13773,8 +13960,12 @@ x-shepherd-events:
   drain:status:
     schema:
       $ref: "#/components/schemas/DrainStatus"
+  upnext:changed:
+    description: Up Next changed. Visible consumers revalidate GET /api/up-next?peek=1 with their cached ETag. Version is an opaque publication hash; computedAt is epoch milliseconds.
+    schema:
+      $ref: "#/components/schemas/UpNextChangedEvent"
   upnext:snapshot:
-    description: A freshly computed Up Next queue. Also available through the cache-only peek read — see UpNextSnapshot.
+    description: Legacy event for older servers; current servers emit upnext:changed and serve snapshots over HTTP.
     schema:
       $ref: "#/components/schemas/UpNextSnapshotEvent"
   halt:done:

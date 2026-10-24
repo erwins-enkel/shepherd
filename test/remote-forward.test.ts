@@ -83,6 +83,7 @@ describe("allowlist", () => {
       ["POST", "terminal"],
       ["GET", ""],
       ["POST", "recommend-prompt"],
+      ["GET", "recap"],
       ["POST", "recap/regenerate"],
       ["GET", "git/reviewers"],
       ["POST", "git/pr"],

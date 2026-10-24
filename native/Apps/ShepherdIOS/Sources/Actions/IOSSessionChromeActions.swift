@@ -84,7 +84,7 @@ struct IOSSessionChromeActionContent: View {
                 }.buttonStyle(.plain)
                     .accessibilityLabel(L.t("feat_visual_recap_title"))
                     .accessibilityIdentifier("actions-recap")
-                    .sheet(isPresented: $showsRecap) { IOSRecapSheet(recap: recap) }
+                    .sheet(isPresented: $showsRecap) { IOSRecapSheet(sessionID: session.id) }
             }
         }
     }

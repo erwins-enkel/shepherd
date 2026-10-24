@@ -15,7 +15,8 @@ contract until a native or CLI feature needs it.
 `replySession` (steer), `interruptSession`, `archiveSession` (`DELETE /api/sessions/{id}`) and
 `resumeSession`, plus every `session:*` frame on `/events` for `shepherd events tail`.
 The follow-up verbs (#2486) add `getBacklog`, `listIssues`, `listDrain`, `listDrainQueue`,
-`putRepoConfig` (drain and merge-train toggles), `refreshUpNext` plus the `upnext:snapshot` frame,
+`putRepoConfig` (drain and merge-train toggles), `refreshUpNext`, `peekUpNext` (cache-only HTTP
+read after `upnext:changed`; legacy `upnext:snapshot` frames remain receive-compatible),
 `startUpNext`, `listHeld`, `spawnHeld`, `discardHeld`, `reviewPr`, `reviewPlan`,
 `mergePullRequest`, `listAutomerge` and `setSessionAutomerge`.
 `sessions list --all` (#2590) adds `listArchivedSessions`.

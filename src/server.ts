@@ -674,6 +674,13 @@ export interface AppDeps {
   >;
   /** Test seam: one `browser_request_login` call's wait window (ms); default LOGIN_WAIT_MS. */
   loginWaitMs?: number;
+  /** Operator approvals for the assistant's `ask` actions (audit F08); absent ⇒ those refuse. */
+  actionRequests?: Pick<
+    import("./action-request").ActionRequestService,
+    "request" | "wait" | "resolve" | "snapshot"
+  >;
+  /** Test seam: one `ask` action call's wait window (ms); default ACTION_WAIT_MS. */
+  actionWaitMs?: number;
   /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
   browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** Operator Assistant ingress-key verifier (audit F08); absent → the agent ingress refuses
@@ -6735,6 +6742,41 @@ async function handleSessionLoginRequest({ req, parts, deps }: Ctx): Promise<Res
   return json({ ok: true });
 }
 
+// GET /api/action-requests — every open Action Request (audit F08), keyed by assistant session id
+// (bootstrap). A repo-restricted token sees none: no assistant lives in a repo.
+function handleActionRequestsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "action-requests" && !parts[2]) {
+    return json(tokenMap(token, deps, deps.actionRequests?.snapshot() ?? {}));
+  }
+  return null;
+}
+
+// POST /api/sessions/:id/action-request {requestId, outcome: "approved"|"denied"} — the operator
+// answers the assistant's Action Request. Operator app only: deliberately NOT an AGENT_LEAF_ROUTES
+// leaf, so the assistant can never approve its own action.
+async function handleSessionActionRequest({
+  req,
+  parts,
+  deps,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "action-request"))
+    return null;
+  const id = parts[2];
+  if (!id || parts[4] || req.method !== "POST") return null;
+  // The assistant's in-process route calls share this app; they must not answer for the operator.
+  if (agentIngress) return json({ error: "not found" }, 404);
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => ({}))) as { requestId?: unknown; outcome?: unknown };
+  if (body.outcome !== "approved" && body.outcome !== "denied")
+    return json({ error: "outcome must be approved or denied" }, 400);
+  if (typeof body.requestId !== "string") return json({ error: "requestId required" }, 400);
+  if (!deps.actionRequests?.resolve(id, body.requestId, body.outcome))
+    return json({ error: "no open action request" }, 404);
+  return json({ ok: true });
+}
+
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
 // preserving the original inner guard order. Returns null for anything those
 // don't claim (e.g. `…/git` sub-routes), so handleSessionGit can pick it up.
@@ -11982,7 +12024,9 @@ const ROUTE_HANDLERS = [
   handleAssistantViewHook,
   handleSessionMcp,
   handleSessionLoginRequest,
+  handleSessionActionRequest,
   handleLoginRequestsSnapshot,
+  handleActionRequestsSnapshot,
   handleOperatorAssistant,
   handleBuildQueue,
   handleEpicDraft,

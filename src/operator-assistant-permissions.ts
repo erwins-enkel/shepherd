@@ -159,7 +159,9 @@ export function assistantPermissionRules(p: AssistantPermissions): {
   else rules.allow.push("Bash");
   for (const group of ASSISTANT_ACTION_GROUP_NAMES) {
     const level = p[group];
-    const bucket = level === "off" ? rules.deny : level === "ask" ? rules.ask : rules.allow;
+    // `ask` is the server's prompt (an Action Request in the HUD, src/action-request.ts), not
+    // Claude's: asking here too would make the operator approve every action twice.
+    const bucket = level === "off" ? rules.deny : rules.allow;
     bucket.push(...ASSISTANT_ACTION_GROUPS[group].map(shepherdToolRule));
   }
   return rules;

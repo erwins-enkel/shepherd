@@ -9,7 +9,10 @@
  * the very guards, events and error codes the operator's own button does, and cannot drift from
  * it. What this module adds on top:
  *  - the gate: a group set to `off` is refused here, per call, before anything is dispatched —
- *    whatever Claude's own permission rules say or how fast it re-reads them;
+ *    whatever Claude's own permission rules say or how fast it re-reads them — and a group set to
+ *    `ask` runs only once the operator approves that exact call in the HUD (an Action Request,
+ *    src/action-request.ts; audit F08). Claude's own rule for `ask` groups is `allow`, so the
+ *    operator is asked once, by the server;
  *  - target resolution: sessions by desig, and only herd sessions (live, an agent, not the
  *    assistant itself, never another machine's); repos by path or unique basename;
  *  - the repo scope: a repo-scoped assistant reaches only its repo's sessions, held tasks and
@@ -18,9 +21,6 @@
  *  - bounded answers: never a route's body (session rows carry ids and prompts), only whitelisted
  *    scalars, and route errors redacted and clipped;
  *  - one audit line per action in Shepherd's log.
- *
- * `ask` vs `allow` is Claude's business (its confirmation prompt); the server can't tell whether
- * the operator confirmed, so it only enforces `off`.
  *
  * Agent-facing English, no i18n — same precedent as the other tool descriptions.
  */
@@ -70,7 +70,26 @@ export interface OperatorActionDeps {
   log?: (line: string) => void;
 }
 
-type ActionDeps = Pick<AgentControlDeps, "store" | "operatorActions" | "operatorDiag">;
+type ActionDeps = Pick<
+  AgentControlDeps,
+  "store" | "operatorActions" | "operatorDiag" | "actionRequests" | "actionWaitMs"
+>;
+
+/** One `ask` call's wait window. Claude Code's HTTP MCP transport aborts a call at a hard 60s,
+ *  so stay under it and let the model call again. */
+const ACTION_WAIT_MS = 50_000;
+
+const ACTION_PENDING_NEXT =
+  "The operator has not answered yet. Tell them it is waiting for their approval in the " +
+  "assistant panel, then call this tool again with exactly the same arguments to keep waiting.";
+
+/** Who is calling: the assistant session, its repo scope (null = the global assistant) and the
+ *  HTTP call's abort signal (ends an approval wait early). */
+export interface ActionCaller {
+  sessionId: string;
+  scope: AssistantScope;
+  signal?: AbortSignal;
+}
 
 type Fail = { ok: false; status: number; error: string };
 const fail = (status: number, error: string): Fail => ({ ok: false, status, error });
@@ -393,18 +412,50 @@ function answerFields(body: unknown): Record<string, unknown> {
   return out;
 }
 
-/** Run one action tool. `scope` is the caller's repo scope (`Session.assistantRepo`): null for the
- *  global assistant, which reaches the whole herd. */
+/** Hold an `ask` call for the operator's approval: null once approved, else the answer to return
+ *  now — denied, or still pending (the model calls again). */
+async function awaitApproval(
+  deps: ActionDeps,
+  tool: AssistantActionTool,
+  args: Record<string, unknown>,
+  target: string,
+  caller: ActionCaller,
+): Promise<ApplyResult<unknown> | null> {
+  if (!deps.actionRequests) return fail(503, "operator approvals unavailable");
+  const state = deps.actionRequests.request(caller.sessionId, tool, args, target);
+  const outcome =
+    state.status === "open"
+      ? await deps.actionRequests.wait(
+          caller.sessionId,
+          state.request.id,
+          deps.actionWaitMs ?? ACTION_WAIT_MS,
+          caller.signal,
+        )
+      : state.status;
+  if (outcome === "approved") return null;
+  if (outcome === "denied") {
+    return fail(403, "the operator denied this action — do not retry it unless they ask you to");
+  }
+  return {
+    ok: true,
+    data: { status: "awaiting_approval", action: tool, target, next: ACTION_PENDING_NEXT },
+  };
+}
+
+/** Run one action tool for `caller` — the assistant session and its repo scope
+ *  (`Session.assistantRepo`): null for the global assistant, which reaches the whole herd. */
 export async function applyOperatorAction(
   deps: ActionDeps,
   tool: AssistantActionTool,
   args: Record<string, unknown>,
-  scope: AssistantScope = null,
+  caller: ActionCaller,
 ): Promise<ApplyResult<unknown>> {
+  const { scope } = caller;
   const actions = deps.operatorActions;
   if (!actions) return fail(503, "operator actions unavailable");
   const group = actionGroupOf(tool)!;
-  if (actions.permissions()[group] === "off") {
+  const level = actions.permissions()[group];
+  if (level === "off") {
     return fail(
       403,
       `${group} actions are turned off in Settings → Assistant — tell the operator that setting ` +
@@ -421,6 +472,13 @@ export async function applyOperatorAction(
   }
   const built = ACTIONS[tool](args, resolver(deps, scope));
   if (isFail(built)) return built;
+  if (level === "ask") {
+    const answer = await awaitApproval(deps, tool, args, built.target, caller);
+    if (answer) return answer;
+    // Turned off while it waited: the setting outranks a stale approval.
+    if (actions.permissions()[group] === "off")
+      return fail(403, `${group} actions were turned off`);
+  }
   const log = actions.log ?? ((line: string) => console.info(line));
   let last: unknown = null;
   for (const req of built.requests) {

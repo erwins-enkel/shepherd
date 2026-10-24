@@ -16,6 +16,9 @@ import {
   type AssistantPermissions,
 } from "../src/operator-assistant-permissions";
 import { SessionStore } from "../src/store";
+import { EventHub } from "../src/events";
+import { ACTION_REQUEST_EVENT, ActionRequestService } from "../src/action-request";
+import type { AgentControlDeps } from "../src/agent-control";
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -40,10 +43,14 @@ function addSession(
   });
 }
 
+const ASSISTANT_ID = "assistant-session";
+
 function setup(
   opts: {
     permissions?: Partial<AssistantPermissions>;
     answer?: (req: OperatorActionRequest) => { status: number; body: unknown };
+    /** The approval seam for `ask` groups; default: every call is already approved. */
+    actionRequests?: AgentControlDeps["actionRequests"];
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -52,6 +59,11 @@ function setup(
   const permissions = { ...DEFAULT_ASSISTANT_PERMISSIONS, ...opts.permissions };
   const deps = {
     store,
+    actionRequests: opts.actionRequests ?? {
+      request: () => ({ status: "approved" as const }),
+      wait: async () => "approved" as const,
+    },
+    actionWaitMs: 20,
     operatorDiag: {
       repos: () => ["/r/alpha", "/r/beta"],
       logPaths: {} as never,
@@ -74,10 +86,10 @@ function setup(
   };
   const worker = addSession(store, "worker");
   const run = (tool: AssistantActionTool, args: Record<string, unknown>) =>
-    applyOperatorAction(deps, tool, args);
+    applyOperatorAction(deps, tool, args, { sessionId: ASSISTANT_ID, scope: null });
   /** `run` as a repo-scoped assistant of `scope`. */
   const runScoped = (scope: string, tool: AssistantActionTool, args: Record<string, unknown>) =>
-    applyOperatorAction(deps, tool, args, scope);
+    applyOperatorAction(deps, tool, args, { sessionId: ASSISTANT_ID, scope });
   return { store, deps, requests, logs, worker, run, runScoped };
 }
 
@@ -500,7 +512,15 @@ test("route errors are redacted and clipped", async () => {
 
 test("without operator action deps every action is unavailable", async () => {
   const store = new SessionStore(":memory:");
-  const res = await applyOperatorAction({ store }, "herd_halt", {});
+  const res = await applyOperatorAction(
+    { store },
+    "herd_halt",
+    {},
+    {
+      sessionId: ASSISTANT_ID,
+      scope: null,
+    },
+  );
   expect(res).toEqual({ ok: false, status: 503, error: "operator actions unavailable" });
 });
 
@@ -595,4 +615,91 @@ test("repo-scoped drain actions cannot mutate another repo", async () => {
     ).toBe(true);
     expect(requests).toHaveLength(1);
   }
+});
+
+// ── F08: `ask` is enforced by the server, bound to the exact call ─────────────
+
+function approvals() {
+  const events = new EventHub();
+  const emitted: unknown[] = [];
+  events.subscribe((event, data) => {
+    if (event === ACTION_REQUEST_EVENT) emitted.push(data);
+  });
+  return { service: new ActionRequestService({ events }), events, emitted };
+}
+
+test("F08: an `ask` action never dispatches without the operator's approval", async () => {
+  const { service, emitted } = approvals();
+  const { run, requests, worker } = setup({
+    permissions: { sessions: "ask" },
+    actionRequests: service,
+  });
+  const pending = await run("session_interrupt", { desig: worker.desig });
+  expect(pending).toMatchObject({ ok: true, data: { status: "awaiting_approval" } });
+  expect(requests).toEqual([]);
+  const open = service.snapshot()[ASSISTANT_ID]!;
+  expect(open).toMatchObject({ tool: "session_interrupt", target: worker.desig });
+  expect(emitted).toHaveLength(1);
+  // The operator approves between two long-polls: the next IDENTICAL call runs, once.
+  expect(service.resolve(ASSISTANT_ID, open.id, "approved")).toBe(true);
+  expect((await run("session_interrupt", { desig: worker.desig })).ok).toBe(true);
+  expect(requests).toHaveLength(1);
+  const again = await run("session_interrupt", { desig: worker.desig });
+  expect(again).toMatchObject({ ok: true, data: { status: "awaiting_approval" } });
+  expect(requests).toHaveLength(1);
+});
+
+test("F08: an approval is bound to the tool and its arguments", async () => {
+  const { service } = approvals();
+  const { run, requests, worker, store } = setup({
+    permissions: { sessions: "ask", steer: "ask" },
+    actionRequests: service,
+  });
+  const other = addSession(store, "other");
+  await run("session_interrupt", { desig: worker.desig });
+  const open = service.snapshot()[ASSISTANT_ID]!;
+  service.resolve(ASSISTANT_ID, open.id, "approved");
+  // A different target or tool does not inherit it.
+  await run("session_interrupt", { desig: other.desig });
+  await run("session_steer", { desig: worker.desig, text: "go" });
+  expect(requests).toEqual([]);
+});
+
+test("F08: a waiting call runs on approval, a denial refuses, `allow` never asks", async () => {
+  const { service } = approvals();
+  const { deps, requests, worker } = setup({
+    permissions: { sessions: "ask", start: "allow" },
+    actionRequests: service,
+  });
+  deps.actionWaitMs = 5_000;
+  const caller = { sessionId: ASSISTANT_ID, scope: null };
+  const waiting = applyOperatorAction(deps, "session_interrupt", { desig: worker.desig }, caller);
+  await Bun.sleep(0);
+  service.resolve(ASSISTANT_ID, service.snapshot()[ASSISTANT_ID]!.id, "approved");
+  expect((await waiting).ok).toBe(true);
+  expect(requests).toHaveLength(1);
+
+  const denied = applyOperatorAction(deps, "session_interrupt", { desig: worker.desig }, caller);
+  await Bun.sleep(0);
+  service.resolve(ASSISTANT_ID, service.snapshot()[ASSISTANT_ID]!.id, "denied");
+  expect(await denied).toMatchObject({ ok: false, status: 403 });
+  expect(requests).toHaveLength(1);
+
+  expect(
+    (await applyOperatorAction(deps, "session_start", { repo: "alpha", prompt: "x" }, caller)).ok,
+  ).toBe(true);
+  expect(service.snapshot()).toEqual({});
+});
+
+test("F08: `ask` without an approval service fails closed", async () => {
+  const { deps, requests, worker } = setup({ permissions: { sessions: "ask" } });
+  delete (deps as { actionRequests?: unknown }).actionRequests;
+  const res = await applyOperatorAction(
+    deps,
+    "session_interrupt",
+    { desig: worker.desig },
+    { sessionId: ASSISTANT_ID, scope: null },
+  );
+  expect(res).toMatchObject({ ok: false, status: 503 });
+  expect(requests).toEqual([]);
 });

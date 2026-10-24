@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentIngressApp, makeApp, type AppDeps } from "../src/server";
 import { BrowserTokenSigner } from "../src/browser-token";
+import { ActionRequestService } from "../src/action-request";
+import { EventHub } from "../src/events";
 import { AssistantViewRegistry, UNKNOWN_VIEW } from "../src/operator-assistant-view";
 import { config } from "../src/config";
 import { hashPassword } from "../src/operator-auth";
@@ -20,7 +22,6 @@ import {
   type SessionService,
 } from "../src/service";
 import { SessionStore } from "../src/store";
-import type { EventHub } from "../src/events";
 import type { EpicRun } from "../src/epic-core";
 import type { DiagnosticCheck, Session } from "../src/types";
 
@@ -616,12 +617,39 @@ test("assistant actions run the operator's own routes in-process: interrupt and 
     isError: false,
     data: { ok: true, action: "session_interrupt", target: worker.desig },
   });
-  const steered = await callTool(app, assistant.id, "session_steer", {
-    desig: worker.desig,
-    text: "rebase please",
-  });
+  // steer is `ask`: the server holds it until the operator approves THAT call in the HUD (F08).
+  const requests = new ActionRequestService({ events: new EventHub() });
+  deps.actionRequests = requests;
+  deps.actionWaitMs = 10;
+  const steer = () =>
+    callTool(app, assistant.id, "session_steer", { desig: worker.desig, text: "rebase please" });
+  expect((await steer()).data).toMatchObject({ status: "awaiting_approval" });
+  expect(seen).toEqual([`interrupt ${worker.id}`]);
+  const open = await (await app.fetch(new Request("http://localhost/api/action-requests"))).json();
+  const requestId = open[assistant.id].id as string;
+  expect(open[assistant.id]).toMatchObject({ tool: "session_steer", target: worker.desig });
+  const answer = (body: unknown, headers: Record<string, string> = {}) =>
+    app.fetch(
+      new Request(`http://localhost/api/sessions/${assistant.id}/action-request`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      }),
+    );
+  expect((await answer({ requestId: "nope", outcome: "approved" })).status).toBe(404);
+  expect((await answer({ requestId, outcome: "approved" })).status).toBe(200);
+  const steered = await steer();
   expect(steered.isError).toBe(false);
   expect(seen).toEqual([`interrupt ${worker.id}`, `reply ${worker.id} rebase please`]);
+  // The assistant's own ingress cannot reach the answer route.
+  const viaIngress = await makeAgentIngressApp(deps).fetch(
+    new Request(`http://127.0.0.1/api/sessions/${assistant.id}/action-request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId, outcome: "approved" }),
+    }),
+  );
+  expect(viaIngress.status).toBe(404);
 });
 
 test("an action of a group turned off never reaches its route, even with the route's service wired", async () => {

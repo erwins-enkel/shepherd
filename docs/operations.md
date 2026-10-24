@@ -156,8 +156,11 @@ hostname is allowlisted — closing the blind-mutation vector. The preview `<ifr
 `allow-same-origin allow-scripts …` (everything the app needs to run) but withholds every
 `allow-top-navigation*` token, so untrusted agent JS can't redirect the operator's HUD tab.
 Residual: cookies are host-scoped (shared across ports on one host), so a same-host preview can make
-the browser attach the HUD session cookie to requests. The cookie is `HttpOnly`/`SameSite=Strict` and
-the HUD rejects preview-range origins for writes, but full per-origin cookie isolation is tracked in
+the browser attach the HUD session cookie to requests. The preview proxy strips that cookie
+(`shepherd_session`) before forwarding to the dev server and drops any upstream `Set-Cookie` for it,
+so agent code never sees or overwrites it; the app's own cookies pass through unchanged. The cookie
+is `HttpOnly`/`SameSite=Strict` and the HUD rejects preview-range origins for writes, but full
+per-origin cookie isolation is tracked in
 [#398](https://github.com/erwins-enkel/shepherd/issues/398).
 
 **Caveats:**

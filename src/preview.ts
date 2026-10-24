@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { open, readdir, readFile } from "node:fs/promises";
 import type { Server, ServerWebSocket } from "bun";
 import type { PreviewReach, PreviewUnavailable, SessionPreviewState } from "./types";
+import { SESSION_COOKIE } from "./operator-auth";
 
 // ── detectDevCommand ──────────────────────────────────────────────────────────
 
@@ -796,6 +797,9 @@ function parseSubprotocols(header: string | null): string[] {
  * query, method, headers (minus host + hop-by-hop) and a streamed body. Strips
  * content-framing + hop-by-hop + framing-blocking headers from the response (Bun's
  * fetch decodes the body, so a forwarded content-encoding/length would break it).
+ * The HUD session cookie never crosses the proxy: it is stripped from the request
+ * (the browser attaches it, since cookies ignore ports) and any upstream Set-Cookie
+ * naming it is dropped; other app cookies pass both ways.
  * Fails closed with a 502 if upstream throws.
  */
 async function proxyHttp(req: Request, devPort: number): Promise<Response> {
@@ -804,6 +808,7 @@ async function proxyHttp(req: Request, devPort: number): Promise<Response> {
 
   const headers = new Headers(req.headers);
   for (const h of STRIPPED_REQUEST_HEADERS) headers.delete(h);
+  stripSessionCookie(headers);
 
   const hasBody = req.body !== null && req.method !== "GET" && req.method !== "HEAD";
 
@@ -825,6 +830,7 @@ async function proxyHttp(req: Request, devPort: number): Promise<Response> {
   const respHeaders = new Headers(upstream.headers);
   for (const h of STRIPPED_RESPONSE_HEADERS) respHeaders.delete(h);
   stripFramingHeaders(respHeaders);
+  stripSessionSetCookie(respHeaders);
   rewriteLoopbackLocation(respHeaders, devPort);
   return new Response(upstream.body, {
     status: upstream.status,
@@ -854,6 +860,40 @@ export function rewriteLoopbackLocation(headers: Headers, devPort: number): void
   const isLoopbackHost = u.hostname === "127.0.0.1" || u.hostname === "localhost";
   if (isLoopbackHost && u.port === String(devPort)) {
     headers.set("location", u.pathname + u.search + u.hash);
+  }
+}
+
+/** Name of a `name=value` cookie pair (text before the first `=`, trimmed). */
+function cookieName(pair: string): string {
+  const eq = pair.indexOf("=");
+  return (eq < 0 ? pair : pair.slice(0, eq)).trim();
+}
+
+/** Remove the HUD session cookie from the request `Cookie` header, keeping every other
+ *  pair. Fails closed on comma-joined duplicate headers: a pair is dropped when ANY of its
+ *  `,`-separated segments names the session cookie. */
+function stripSessionCookie(headers: Headers): void {
+  const cookie = headers.get("cookie");
+  if (cookie === null) return;
+  const kept = cookie
+    .split(";")
+    .filter((pair) => pair.trim().length > 0)
+    .filter((pair) => !pair.split(",").some((seg) => cookieName(seg) === SESSION_COOKIE))
+    .map((pair) => pair.trim());
+  if (kept.length === 0) headers.delete("cookie");
+  else headers.set("cookie", kept.join("; "));
+}
+
+/** Drop any upstream `Set-Cookie` that would set, overwrite or clear the HUD session cookie.
+ *  Leading `=` are skipped before matching: browsers store `=shepherd_session=x` as an
+ *  empty-name cookie and send it back as `shepherd_session=x`, shadowing the real one. */
+function stripSessionSetCookie(headers: Headers): void {
+  const all = headers.getSetCookie();
+  if (all.length === 0) return;
+  headers.delete("set-cookie");
+  for (const c of all) {
+    const pair = c.split(";")[0]!.replace(/^[\s=]+/, "");
+    if (cookieName(pair) !== SESSION_COOKIE) headers.append("set-cookie", c);
   }
 }
 

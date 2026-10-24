@@ -47,11 +47,11 @@ jobs:
           echo "SIGNING_DIR=$RUNNER_TEMP/shepherd-release-signing" >> "$GITHUB_ENV"
           echo "SIGNING_KEYCHAIN=$RUNNER_TEMP/shepherd-release-signing/release.keychain-db" >> "$GITHUB_ENV"
           echo "ASC_API_KEY_PATH=$RUNNER_TEMP/shepherd-release-signing/AuthKey.p8" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Checkout release source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
@@ -108,7 +108,7 @@ jobs:
           fi
       - name: Cache release build state
         if: steps.existing.outputs.published != 'true'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: release-source/native/Apps/ShepherdMac/.build
           key: ${{ runner.os }}-mac-release-${{ hashFiles('release-source/native/Package.resolved') }}
@@ -196,7 +196,7 @@ jobs:
             "https://github.com/$GITHUB_REPOSITORY/releases/download/$MAC_TAG/" 2>&1 | tail -n 40
       - name: Set up Python for DMG packaging
         if: steps.existing.outputs.published != 'true'
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
       - name: Package manual installer
@@ -230,7 +230,7 @@ jobs:
           spctl -a -vvv -t open --context context:primary-signature "$DMG" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Retain signed package for publication recovery
         if: steps.existing.outputs.published != 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-update-${{ env.BUILD_NUMBER }}
           path: ${{ runner.temp }}/mac-update/

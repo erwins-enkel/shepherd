@@ -61,7 +61,7 @@ jobs:
       # Give the job git context: `gh repo view` (and gh's repo auto-detection generally) falls back
       # to the local git remote, so without a checkout it dies with "fatal: not a git repository".
       # A shallow checkout fixes every gh call deterministically — cheaper than per-command reasoning.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Merge eligible doc PRs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,7 +91,7 @@ jobs:
 
           failed=0
           for n in "${prs[@]}"; do
-            info="$(gh pr view "$n" --json isDraft,mergeable,baseRefName,statusCheckRollup,reviews,isCrossRepository,files,changedFiles)"
+            info="$(gh pr view "$n" --json isDraft,mergeable,baseRefName,statusCheckRollup,reviews,isCrossRepository,files,changedFiles,headRefOid)"
 
             draft=$(jq -r '.isDraft' <<<"$info")
             mergeable=$(jq -r '.mergeable' <<<"$info")
@@ -100,6 +100,9 @@ jobs:
             cross=$(jq -r '.isCrossRepository' <<<"$info")
             nfiles=$(jq '(.files // []) | length' <<<"$info")
             changed=$(jq -r '.changedFiles' <<<"$info")
+            # The head every gate below judged. The merge is pinned to it, so a push landing between
+            # this read and the merge makes GitHub refuse the merge instead of merging it unchecked.
+            head=$(jq -r '.headRefOid' <<<"$info")
 
             # Identity hardening (#1125): the branch PREFIX alone is not proof of provenance — a fork
             # or outside-collaborator PR can carry the same `shepherd/docs-update-*` name with
@@ -155,7 +158,7 @@ jobs:
             echo "#$n: eligible — merging (squash, delete branch)"
             # Tolerate a per-PR merge failure: log it and keep going so one stuck PR doesn't block
             # the rest of this pass. Still flag the run red at the end so the failure isn't swallowed.
-            if ! gh pr merge "$n" --squash --delete-branch; then
+            if ! gh pr merge "$n" --squash --delete-branch --match-head-commit "$head"; then
               echo "#$n: merge FAILED — continuing with remaining PRs"
               failed=1
             fi

@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -70,12 +70,33 @@ jobs:
       # you copied was never the run whose exit code decided pass/fail; on a nondeterministic eval
       # those are different results. The exit code here is the verdict.
       #
-      # NOTE the `|| 'default'` on each input: `github.event.inputs.*` are EMPTY on a `schedule`
-      # run, and an empty `--trials ""` would ask for zero trials.
+      # The inputs reach the shell through env and are validated before use (#2108): they are
+      # caller-controlled dispatch text, never spliced into the script. They are EMPTY on a
+      # `schedule` run, hence the defaults — an empty `--trials ""` would ask for zero trials.
       - name: Run eval
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials || '5' }}" --model "${{ github.event.inputs.model || 'claude-haiku-4-5' }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json
+          TRIALS: ${{ github.event.inputs.trials }}
+          MODEL: ${{ github.event.inputs.model }}
+          OPERATOR_LANGUAGE_OFF: ${{ github.event.inputs.operator_language_off }}
+        run: |
+          set -euo pipefail
+          trials="${TRIALS:-5}"
+          model="${MODEL:-claude-haiku-4-5}"
+          case "$trials" in
+            *[!0-9]*) echo "::error title=Bad trials input::'$trials' is not a positive integer."; exit 1 ;;
+          esac
+          case "$model" in
+            *[!A-Za-z0-9._-]*) echo "::error title=Bad model input::'$model' is not a model id."; exit 1 ;;
+          esac
+          flags=""
+          case "${OPERATOR_LANGUAGE_OFF:-false}" in
+            false) ;;
+            true) flags="--operator-language-off" ;;
+            *) echo "::error title=Bad operator_language_off input::'$OPERATOR_LANGUAGE_OFF' is not true or false."; exit 1 ;;
+          esac
+          # $flags is unquoted on purpose: empty must expand to no argument.
+          bun run eval:stop-classifier --trials "$trials" --model "$model" $flags --json
 
   # The JEV leg (#2377). Same fixtures, same nightly cron, a different decision model — and a drift
   # gate shaped for one: coverage, flip rate and the pinned model version, not just accuracy.
@@ -93,7 +114,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0

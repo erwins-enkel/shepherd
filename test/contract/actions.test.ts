@@ -254,6 +254,11 @@ describe("recaps", () => {
     const ok = await fetch(`${s.baseUrl}/api/recaps`, { headers: bearer(token) });
     expect(ok.status).toBe(200);
     expect(await validateResponse("GET", "/api/recaps", ok)).toEqual({});
+    const unchanged = await fetch(`${s.baseUrl}/api/recaps`, {
+      headers: { ...bearer(token), "if-none-match": ok.headers.get("etag")! },
+    });
+    expect(unchanged.status).toBe(304);
+    await validateResponse("GET", "/api/recaps", unchanged);
 
     const anon = await fetch(`${s.baseUrl}/api/recaps`);
     expect(anon.status).toBe(401);

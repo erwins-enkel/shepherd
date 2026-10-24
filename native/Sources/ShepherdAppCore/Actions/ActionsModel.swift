@@ -14,8 +14,11 @@ struct PendingOutcomeNote: Equatable, Sendable {
 struct ActionReads: Sendable {
     var recaps: @Sendable () async throws -> [String: Recap]
 
+    var readRecaps: (@Sendable (String?) async throws -> SnapshotReadResult<[String: Recap]>)? = nil
+
     static func live(_ client: ShepherdClient) -> ActionReads {
-        ActionReads(recaps: { try await client.recaps() })
+        ActionReads(recaps: { try await client.recaps() },
+                    readRecaps: { try await client.readRecaps(ifNoneMatch: $0) })
     }
 }
 
@@ -119,7 +122,15 @@ public final class ActionsModel: AppExtension {
     /// `AppModel`'s own watcher uses, not a second one.
     @ObservationIgnored var connectionSource: ConnectionSource?
 
+    @ObservationIgnored private let loadsListsOnDemand: Bool
+    @ObservationIgnored private var recapConsumers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    @ObservationIgnored private var recapTask: Task<Void, Never>?
+    @ObservationIgnored private var recapTaskToken = 0
+    @ObservationIgnored private var recapETag: String?
+    private(set) var hasLoadedRecaps = false
+
     public init(store: SessionStore, app: AppModel) {
+        loadsListsOnDemand = app.loadsListsOnDemand
         self.reads = .live(store.client)
         self.now = { Int(Date().timeIntervalSince1970 * 1_000) }
         self.app = app
@@ -132,11 +143,12 @@ public final class ActionsModel: AppExtension {
             read: { [weak store] in store?.connection }, abandon: {})
         subscribe(to: store)
         watchConnection()
-        bootstrap = Task { [weak self] in await self?.refresh() }
+        if !loadsListsOnDemand { bootstrap = Task { [weak self] in await self?.refresh() } }
     }
 
     /// Test/preview seam: no store, no socket, injected clock.
-    init(reads: ActionReads, now: @escaping @Sendable () -> Int) {
+    init(reads: ActionReads, now: @escaping @Sendable () -> Int, loadsListsOnDemand: Bool = false) {
+        self.loadsListsOnDemand = loadsListsOnDemand
         self.reads = reads
         self.now = now
     }
@@ -185,6 +197,46 @@ public final class ActionsModel: AppExtension {
             for: session, workingBlocked: workingBlocked(), gitMerged: gitMerged(session.id), now: now())
     }
 
+    /// Demand lasts until the presentation task is canceled or the activation ends.
+    public func observeRecaps() async {
+        guard !isTornDown, !Task.isCancelled else { return }
+        let id = UUID()
+        let (lifetime, signal) = AsyncStream<Void>.makeStream()
+        let first = recapConsumers.isEmpty
+        recapConsumers[id] = signal
+        defer {
+            recapConsumers.removeValue(forKey: id)
+            if recapConsumers.isEmpty {
+                recapTaskToken &+= 1
+                recapTask?.cancel()
+                recapTask = nil
+            }
+        }
+        if first { _ = startRecapRead() }
+        for await _ in lifetime {}
+    }
+
+    func refresh() async {
+        guard !isTornDown, !Task.isCancelled else { return }
+        if loadsListsOnDemand {
+            guard !recapConsumers.isEmpty else { return }
+            await startRecapRead()?.value
+        } else { await loadRecaps() }
+    }
+
+    private func startRecapRead() -> Task<Void, Never>? {
+        guard !isTornDown, !recapConsumers.isEmpty else { return nil }
+        if let recapTask { return recapTask }
+        recapTaskToken &+= 1
+        let token = recapTaskToken
+        recapTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.recapTaskToken == token { self.recapTask = nil } }
+            await self.loadRecaps()
+        }
+        return recapTask
+    }
+
     /// Re-reads the recap snapshot. A failure is logged and dropped: the bar keeps the last
     /// snapshot rather than blanking, because a missing recap line reads as "nothing to do".
     ///
@@ -198,18 +250,25 @@ public final class ActionsModel: AppExtension {
     /// away by it. `recapIDsWrittenByEvents` is cleared here and collected during the await, and
     /// those ids are re-applied from the *current* map on top of `loaded` — carrying an archive
     /// frame's removal too, so a recap that was cleared does not come back. See that property.
-    func refresh() async {
+    private func loadRecaps() async {
         let mine = generation
         readSequence &+= 1
         let sequence = readSequence
         recapIDsWrittenByEvents.removeAll()
         do {
-            var loaded = try await reads.recaps()
-            guard mine == generation, sequence == readSequence else { return }
+            let result: SnapshotReadResult<[String: Recap]>
+            if loadsListsOnDemand, let read = reads.readRecaps {
+                result = try await read(hasLoadedRecaps ? recapETag : nil)
+            } else { result = .modified(value: try await reads.recaps(), etag: nil) }
+            guard mine == generation, sequence == readSequence, !Task.isCancelled,
+                  !loadsListsOnDemand || !recapConsumers.isEmpty else { return }
+            guard case .modified(var loaded, let etag) = result else { return }
+            recapETag = etag
+            hasLoadedRecaps = true
             for id in recapIDsWrittenByEvents { loaded[id] = recaps[id] }
             recapIDsWrittenByEvents.removeAll()
             recaps = loaded
-            pruneToLiveSessions()
+            if !loadsListsOnDemand { pruneToLiveSessions() }
         } catch {
             // A cancelled read is this model walking away from its own call — `teardown()`
             // cancels the bootstrap — so it is a debug line, not an error the operator or a
@@ -386,7 +445,8 @@ public final class ActionsModel: AppExtension {
     func apply(_ event: ServerEvent) {
         switch event {
         case .sessionArchived(let payload):
-            recaps[payload.id] = nil
+            // iOS shares this map with Done; archiving does not erase its summary.
+            if !loadsListsOnDemand { recaps[payload.id] = nil }
             // A removal is a write like any other: an in-flight read's snapshot still lists this
             // session, and must not be allowed to put its recap back. See `refresh()`.
             recapIDsWrittenByEvents.insert(payload.id)
@@ -439,6 +499,11 @@ public final class ActionsModel: AppExtension {
 
     public func teardown() {
         isTornDown = true
+        recapTask?.cancel()
+        recapTask = nil
+        for signal in recapConsumers.values { signal.finish() }
+        recapConsumers.removeAll()
+        recapETag = nil
         generation &+= 1
         recapIDsWrittenByEvents.removeAll()
         tap?.cancel()

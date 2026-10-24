@@ -1955,12 +1955,22 @@ function handlePlanGates({ req, parts, deps, token }: Ctx): Response | null {
   return null;
 }
 
+/** Conditional snapshots hash the final, authorized representation, independent of compression. */
+function conditionalSnapshot(req: Request, value: unknown): Response {
+  const etag = `W/"${createHash("sha256").update(JSON.stringify(value)).digest("hex")}"`;
+  const headers = { etag, "cache-control": "private, no-cache", vary: "Accept-Encoding" };
+  if (etagMatches(req.headers.get("if-none-match"), etag))
+    return new Response(null, { status: 304, headers });
+  return json(value, 200, headers);
+}
+
 // GET /api/recaps — bootstrap snapshot of session recaps keyed by session id.
 // Mirrors handleReviews / handlePlanGates; absent dep returns {}.
 function handleRecaps({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "recaps") {
     if (!parts[2])
-      return json(
+      return conditionalSnapshot(
+        req,
         Object.fromEntries(
           Object.entries(deps.recapCache?.snapshot() ?? {}).map(([id, recap]) => [
             id,
@@ -4512,11 +4522,14 @@ function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: s
 
 // GET reads on /api/sessions[/:id[/usage|/activity|/messages|/diff|/leftovers]].
 /** Literal `GET /api/sessions/<name>` lists. Neither is in the read-scope allowlist (`full`-only). */
-const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
+const SESSION_LISTS = new Map<string, (ctx: Ctx) => Response>([
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
-  ["done", doneSessionsWithIssueUrl],
+  ["done", ({ req, deps }) => conditionalSnapshot(req, doneSessionsWithIssueUrl(deps))],
   // Every archived session, newest-first (`shepherd sessions list --all`, #2590).
-  ["archived", (deps) => deps.store.listArchivedSessions().filter((s) => !isOperatorAssistant(s))],
+  [
+    "archived",
+    ({ deps }) => json(deps.store.listArchivedSessions().filter((s) => !isOperatorAssistant(s))),
+  ],
 ]);
 
 /** GET /api/sessions/:id/steer-log — who typed into the session and when (Shepherd's steers vs
@@ -4556,7 +4569,7 @@ async function sessionListRead({ req, url, deps, token }: Ctx): Promise<Response
       ),
   );
   const remote = mirroredSessions(url, deps, token);
-  return json(remote.length > 0 ? [...local, ...remote] : local);
+  return conditionalSnapshot(req, remote.length > 0 ? [...local, ...remote] : local);
 }
 
 async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
@@ -4565,7 +4578,7 @@ async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
   if (!parts[2]) return sessionListRead(ctx);
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
   const list = parts[3] ? undefined : SESSION_LISTS.get(parts[2]);
-  if (list) return json(list(deps));
+  if (list) return list(ctx);
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
   if (parts[3] === "messages") return sessionMessagesRead(parts[2], url, deps);

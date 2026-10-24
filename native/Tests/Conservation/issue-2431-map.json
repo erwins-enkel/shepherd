@@ -12896,7 +12896,17 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapDetailErrors(status: Int) async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesModelTests.swift\",\"QueuesModelTests\",\"doneDetailFetchesItsSelectedRecapWhenMounted() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RecapDetailStateTests.swift\",\"RecapDetailStateTests\",\"staleResponseIsRetryableAndCancellationDoesNotInstallBlocks() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"metadataOnlyUpNextSnapshotDecodesOverHTTPAndEvents() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"metadataOnlyUpNextSnapshotDecodesOverHTTPAndEvents() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionsModelTests.swift\",\"CoreSeamTests.ActionsModelTests\",\"closingRecapsCancelsDemandBeforeSlowReadFinishes() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionsModelTests.swift\",\"CoreSeamTests.ActionsModelTests\",\"conditionalRecapRecoveryKeepsNewerEventOn304() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionsModelTests.swift\",\"CoreSeamTests.ActionsModelTests\",\"recapsRequirePresentationAndShareDemand() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"closingDoneCancelsDemandBeforeSlowReadFinishes() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"conditionalDoneRecoveryKeepsSnapshotOn304() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"doneRequiresPresentation() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"freshStoreSessionRepairsMissedHaltClearWithoutAnotherRead() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"conditionalRefreshPreservesSnapshot() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsDecodeEmptySnapshots(hasETag: Bool) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsPreserveValidators(validator: String) async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

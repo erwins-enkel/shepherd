@@ -13,7 +13,8 @@ struct UpNextConditionalHeaderMiddleware: ClientMiddleware, Sendable {
     next: @Sendable (HTTPRequest, HTTPBody?, URL) async throws -> (HTTPResponse, HTTPBody?)
   ) async throws -> (HTTPResponse, HTTPBody?) {
     var request = request
-    if operationID == "peekUpNext", let validator = request.headerFields[.ifNoneMatch] {
+    if ["peekUpNext", "listSessions", "listDoneSessions", "listRecaps"].contains(operationID),
+       let validator = request.headerFields[.ifNoneMatch] {
       request.headerFields[.ifNoneMatch] = validator.removingPercentEncoding
     }
     return try await next(request, body, baseURL)

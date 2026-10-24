@@ -8560,15 +8560,30 @@ paths:
     get:
       operationId: listSessions
       description: Active (non-archived) sessions, oldest first. No pagination.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Sessions.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionList"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Missing or invalid credential.
     post:
       operationId: createSession
       description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. The choice is recorded on the session as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. When the chosen machine is out of reach (#2775) the task waits here for it: 200 with `waiting` (a HeldTask); nothing is sent or uploaded until that machine can take it, and nothing falls back to another machine. A keyed retry goes where its first submission went."
@@ -8640,15 +8655,30 @@ paths:
     get:
       operationId: listDoneSessions
       description: Recently archived sessions for the Done lens.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Sessions.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionList"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Missing or invalid credential.
   /api/sessions/archived:
     get:
       operationId: listArchivedSessions
@@ -10104,15 +10134,30 @@ paths:
     get:
       operationId: listRecaps
       description: Bootstrap snapshot of every recap summary, without blocks.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Session id -> recap.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RecapMap"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: Missing or invalid credential.
   /api/git:
     get:
       operationId: gitStates

@@ -4,6 +4,19 @@ import XCTest
 
 @MainActor
 final class IOSAppLifecycleTests: XCTestCase {
+    func testInitialActivationSendsPresenceWithoutRepeatingBootstrap() async {
+        var recoveries = 0
+        let lifecycle = IOSAppLifecycle(setActive: { _ in }, onForegroundRecovery: { recoveries += 1 })
+        await lifecycle.update(.active)
+        await lifecycle.connectionDidChange(.idle)
+        await lifecycle.connectionDidChange(.connecting)
+        await lifecycle.connectionDidChange(.live)
+        XCTAssertEqual(recoveries, 0)
+        await lifecycle.update(.background)
+        await lifecycle.update(.active)
+        XCTAssertEqual(recoveries, 1)
+    }
+
     func testForegroundReconcilesSidebarEvenWhenConnectionRemainsLive() async {
         var reads = 0
         let sidebar = ReadOnlySidebarRecovery { reads += 1 }
@@ -28,19 +41,21 @@ final class IOSAppLifecycleTests: XCTestCase {
         await lifecycle.update(.background)
         await lifecycle.update(.active)
         XCTAssertEqual(values, [true, false, true])
-        XCTAssertEqual(recoveries, 2)
+        XCTAssertEqual(recoveries, 1)
     }
     func testLiveRecoveryOnlyWhileActive() async {
         var recoveries = 0
         let lifecycle = IOSAppLifecycle(setActive: { _ in }, onForegroundRecovery: { recoveries += 1 })
         await lifecycle.update(.active)
         await lifecycle.connectionDidChange(.live)
+        await lifecycle.connectionDidChange(.offline(message: "offline"))
         await lifecycle.connectionDidChange(.live)
-        XCTAssertEqual(recoveries, 2)
+        await lifecycle.connectionDidChange(.live)
+        XCTAssertEqual(recoveries, 1)
         await lifecycle.update(.background)
         await lifecycle.connectionDidChange(.offline(message: "offline"))
         await lifecycle.connectionDidChange(.live)
-        XCTAssertEqual(recoveries, 2)
+        XCTAssertEqual(recoveries, 1)
     }
     func testSuspendedPresenceCannotRecoverAfterBackgrounding() async {
         var gate: CheckedContinuation<Void, Never>?

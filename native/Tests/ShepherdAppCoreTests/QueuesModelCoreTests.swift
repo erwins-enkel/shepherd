@@ -55,10 +55,11 @@ private final class QueueFixture {
     let store: SessionStore
     let model: QueuesModel
 
-    init(_ reads: QueuesReads) throws {
+    init(_ reads: QueuesReads, loadsListsOnDemand: Bool = false) throws {
         defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: CoreTestSupport.environment(defaults: defaults))
+        app.loadsListsOnDemand = loadsListsOnDemand
         store = try SessionStore(
             profile: ServerProfile(name: "queues", baseURL: URL(string: "https://queues.invalid")!,
                                    mode: .remote),
@@ -79,6 +80,69 @@ private final class QueueFixture {
 extension CoreSeamTests {
 @MainActor
 struct QueuesModelTests {
+    @Test func closingDoneCancelsDemandBeforeSlowReadFinishes() async {
+        let gate = QueueReadGate()
+        let row = PreviewData.session(id: "late", status: .init(known: .archived))
+        let m = QueuesModel(reads: .init(held: { [] }, done: {
+            await gate.enter(); return [row]
+        }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {}), loadsListsOnDemand: true)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { await gate.calls == 1 })
+        visible.cancel()
+        await visible.value
+        await gate.open()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(m.finishedSessions.isEmpty)
+        #expect(!m.hasLoadedDone)
+        m.teardown()
+    }
+
+    @Test func freshStoreSessionRepairsMissedHaltClearWithoutAnotherRead() async throws {
+        let f = try QueueFixture(empty, loadsListsOnDemand: true)
+        defer { f.close() }
+        let session = PreviewData.session(id: "s1")
+        f.store.apply(.sessionNew(session))
+        f.store.apply(try frame("session:halt", "{\"id\":\"s1\",\"haltReason\":\"operator\",\"haltedAt\":1}"))
+        #expect(await queueSettle { f.model.retrySessions.first?.haltReason?.rawValue == "operator" })
+        f.store.apply(.sessionNew(session))
+        #expect(await queueSettle { f.model.retrySessions.first?.haltReason == nil })
+    }
+
+    @Test func conditionalDoneRecoveryKeepsSnapshotOn304() async {
+        let probe = UpNextReadProbe()
+        let row = PreviewData.session(id: "done", status: .init(known: .archived))
+        let m = QueuesModel(reads: .init(held: { [] }, done: { [] }, recaps: { [:] },
+            stranded: { [] }, refreshUpNext: {}, readDone: { tag in
+                _ = await probe.record(tag)
+                return tag == nil ? .modified(value: [row], etag: "W/\"done\"") : .notModified
+            }), loadsListsOnDemand: true)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { m.hasLoadedDone })
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(m.finishedSessions.map(\.id) == ["done"])
+        #expect(await probe.validators == [nil, "W/\"done\""])
+        visible.cancel(); await visible.value
+        m.teardown()
+    }
+
+    @Test func doneRequiresPresentation() async {
+        let probe = UpNextReadProbe()
+        let m = QueuesModel(reads: .init(held: { [] }, done: {
+            _ = await probe.record(nil)
+            return []
+        }, recaps: { Issue.record("iOS queues must not duplicate recap reads"); return [:] },
+            stranded: { [] }, refreshUpNext: {}), loadsListsOnDemand: true)
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(await probe.calls == 0)
+        let visible = Task { await m.observeDone() }
+        #expect(await queueSettle { await probe.calls == 1 })
+        #expect(await queueSettle { m.hasLoadedDone })
+        visible.cancel(); await visible.value
+        await m.refresh(recomputeUpNext: false, readOnly: true)
+        #expect(await probe.calls == 1)
+        m.teardown()
+    }
+
     private var empty: QueuesReads {
         QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] },
                     refreshUpNext: {})

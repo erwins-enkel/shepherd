@@ -19,6 +19,46 @@ struct ShepherdClientReadTests {
     return (client, credentials)
   }
 
+  @Test(arguments: ["W/\"cached\"", "\"strong%2Ftag\""])
+  func conditionalListsPreserveValidators(validator: String) async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    let (client, _) = try makeClient(server)
+    for path in ["/api/sessions", "/api/sessions/done", "/api/recaps"] {
+      server.on("GET", path) { request in
+        #expect(request.headers.first { $0.key.lowercased() == "if-none-match" }?.value == validator)
+        return FakeResponse(statusCode: 304, headers: ["ETag": validator])
+      }
+    }
+    guard case .notModified = try await client.readSessions(ifNoneMatch: validator),
+          case .notModified = try await client.readDoneSessions(ifNoneMatch: validator),
+          case .notModified = try await client.readRecaps(ifNoneMatch: validator) else {
+      Issue.record("304 must preserve the installed snapshot without decoding a body")
+      return
+    }
+  }
+
+  @Test(arguments: [false, true])
+  func conditionalListsDecodeEmptySnapshots(hasETag: Bool) async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    let (client, _) = try makeClient(server)
+    let headers = hasETag ? ["Content-Type": "application/json", "ETag": "W/\"empty\""]
+                          : ["Content-Type": "application/json"]
+    for path in ["/api/sessions", "/api/sessions/done", "/api/recaps"] {
+      server.on("GET", path) { _ in
+        FakeResponse(headers: headers, body: Data((path == "/api/recaps" ? "{}" : "[]").utf8))
+      }
+    }
+    guard case .modified(let sessions, let tag) = try await client.readSessions(),
+          case .modified(let done, _) = try await client.readDoneSessions(),
+          case .modified(let recaps, _) = try await client.readRecaps() else {
+      Issue.record("200 must decode a snapshot"); return
+    }
+    #expect(sessions.isEmpty && done.isEmpty && recaps.isEmpty)
+    #expect(tag == (hasETag ? "W/\"empty\"" : nil))
+  }
+
   @Test("health decodes and sends no Authorization requirement")
   func health() async throws {
     let server = FakeShepherdServer()

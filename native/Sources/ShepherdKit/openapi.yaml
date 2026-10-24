@@ -9316,13 +9316,28 @@ paths:
     get:
       operationId: listSessions
       description: Active (non-archived) sessions, oldest first. No pagination.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Sessions.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionList"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
     post:
@@ -9396,13 +9411,28 @@ paths:
     get:
       operationId: listDoneSessions
       description: Recently archived sessions for the Done lens.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Sessions.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionList"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
   /api/sessions/archived:
@@ -10844,13 +10874,28 @@ paths:
     get:
       operationId: listRecaps
       description: Bootstrap snapshot of every recap summary, without blocks.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
       responses:
         "200":
           description: Session id -> recap.
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RecapMap"
+        "304":
+          description: Representation unchanged; no response body.
+          headers:
+            ETag:
+              schema:
+                type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
   /api/git:

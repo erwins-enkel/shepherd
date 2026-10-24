@@ -33,6 +33,7 @@ import type {
   DocAgentOutcome,
   HoldReason,
   LoginRequest,
+  ActionRequest,
   OperatorAssistantState,
   OperatorAssistantUnavailableReason,
   AssistantPermissions,
@@ -171,6 +172,8 @@ export class HerdStore {
   holds = $state<Record<string, HoldReason>>({});
   /** Open Login Requests (#2882), keyed by session id. */
   loginRequests = $state<Record<string, LoginRequest>>({});
+  /** The assistant's open Action Requests (audit F08), keyed by session id. */
+  actionRequests = $state<Record<string, ActionRequest>>({});
   /** Live per-session preview-listener port (sessionId → port), pushed by the
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
@@ -320,6 +323,10 @@ export class HerdStore {
     this.holds = map;
   }
   /** Seed (or replace) the open Login Requests after the bootstrap GET. */
+  setActionRequests(map: Record<string, ActionRequest>): void {
+    this.actionRequests = map;
+  }
+
   setLoginRequests(map: Record<string, LoginRequest>): void {
     this.loginRequests = map;
   }
@@ -637,6 +644,7 @@ export class HerdStore {
         this.backgroundBusy = dropKey(this.backgroundBusy, ev.data.id);
         this.holds = dropKey(this.holds, ev.data.id);
         this.loginRequests = dropKey(this.loginRequests, ev.data.id);
+        this.actionRequests = dropKey(this.actionRequests, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
@@ -809,6 +817,11 @@ export class HerdStore {
         this.loginRequests = ev.data.request
           ? setKey(this.loginRequests, ev.data.id, ev.data.request)
           : dropKey(this.loginRequests, ev.data.id);
+        return true;
+      case "session:action-request":
+        this.actionRequests = ev.data.request
+          ? setKey(this.actionRequests, ev.data.id, ev.data.request)
+          : dropKey(this.actionRequests, ev.data.id);
         return true;
       case "session:manual-steps":
         this.patchSession(ev.data.id, {

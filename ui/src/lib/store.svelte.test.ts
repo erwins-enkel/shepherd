@@ -1690,6 +1690,24 @@ test("session:login-request sets and clears a session's Login Request; archive d
   expect(s.loginRequests.s1).toBeUndefined();
 });
 
+test("session:action-request sets and clears the assistant's Action Request; archive drops it", () => {
+  const s = new HerdStore();
+  const request = {
+    id: "q1",
+    tool: "pr_merge",
+    args: { desig: "TASK-1" },
+    target: "TASK-1",
+    createdAt: 1,
+  };
+  s.apply({ event: "session:action-request", data: { id: "oa", request } });
+  expect(s.actionRequests.oa).toEqual(request);
+  s.apply({ event: "session:action-request", data: { id: "oa", request: null } });
+  expect(s.actionRequests.oa).toBeUndefined();
+  s.setActionRequests({ oa: request });
+  s.apply({ event: "session:archived", data: { id: "oa" } });
+  expect(s.actionRequests.oa).toBeUndefined();
+});
+
 describe("Operator Assistant row (#1446)", () => {
   const assistantRow = (id = "oa1") => ({
     ...session(id),

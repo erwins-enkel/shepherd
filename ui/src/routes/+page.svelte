@@ -41,6 +41,7 @@
     blockStates,
     holdStates,
     loginRequestStates,
+    actionRequestStates,
     getOperatorAssistant,
     subagentStates,
     previewStates,
@@ -1043,6 +1044,9 @@
       .catch(() => {});
     loginRequestStates()
       .then((m) => store.setLoginRequests(m))
+      .catch(() => {});
+    actionRequestStates()
+      .then((m) => store.setActionRequests(m))
       .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))
@@ -2258,6 +2262,9 @@
     loginRequestStates()
       .then((m) => store.setLoginRequests(m))
       .catch(() => {});
+    actionRequestStates()
+      .then((m) => store.setActionRequests(m))
+      .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))
       .catch(() => {});
@@ -3423,6 +3430,7 @@
         {switcher}
         session={entry.session}
         ask={assistantAsk(entry.session)}
+        actionRequest={entry.session ? (store.actionRequests[entry.session.id] ?? null) : null}
         available={store.assistantAvailable}
         reason={store.assistantUnavailableReason}
         pending={assistantLifecycle.pendingFor(repo)}

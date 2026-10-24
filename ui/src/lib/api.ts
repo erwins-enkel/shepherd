@@ -95,6 +95,7 @@ import type {
   DocAgentRun,
   HoldReason,
   LoginRequest,
+  ActionRequest,
   OperatorAssistantState,
   OperatorAssistantUnavailableReason,
   AgentProvider,
@@ -2149,6 +2150,30 @@ export async function resolveLoginRequest(
   if (!r.ok) {
     flagIfUnauthorized(r.status);
     throw await failed(r, "login request");
+  }
+}
+
+/** Snapshot of the assistant's open Action Requests keyed by session id (client bootstrap). */
+export async function actionRequestStates(): Promise<Record<string, ActionRequest>> {
+  const r = await fetch("/api/action-requests");
+  if (!r.ok) throw await failed(r, "action requests");
+  return r.json();
+}
+
+/** Approve or deny the assistant's Action Request; its waiting tool call gets the answer. */
+export async function resolveActionRequest(
+  sessionId: string,
+  requestId: string,
+  outcome: "approved" | "denied",
+): Promise<void> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/action-request`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ requestId, outcome }),
+  });
+  if (!r.ok) {
+    flagIfUnauthorized(r.status);
+    throw await failed(r, "action request");
   }
 }
 

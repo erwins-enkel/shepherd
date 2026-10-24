@@ -2,6 +2,7 @@
   import { onMount, untrack } from "svelte";
   import { desigIndex } from "#lib/desigLinks.js";
   import type {
+    ActionRequest,
     AnswerAskResult,
     Session,
     PendingAsk,
@@ -10,7 +11,7 @@
     SessionStatus,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { answerAsk, getSessionMessages } from "#lib/api.js";
+  import { answerAsk, getSessionMessages, resolveActionRequest } from "#lib/api.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { clock } from "#lib/activity.js";
   import { chatEntries, unsettled, yesNoQuestions, type PendingSend } from "#lib/assistant-chat.js";
@@ -27,6 +28,7 @@
     herd = [],
     onnavigate,
     ask = null,
+    actionRequest = null,
     mobile = false,
     touch = false,
     prefill = null,
@@ -41,6 +43,8 @@
     herd?: readonly Pick<Session, "id" | "desig">[];
     onnavigate?: (id: string) => void;
     ask?: PendingAsk | null;
+    /** An action in an `ask` group, held by the server until the operator answers it here. */
+    actionRequest?: ActionRequest | null;
     mobile?: boolean;
     touch?: boolean;
     /** An "Ask the assistant" prefill: put into the composer (not sent) for the operator to review. */
@@ -99,6 +103,23 @@
       : null,
   );
   const answerWarning = $derived(!!answer && !["sending", "verified"].includes(answer.result));
+
+  // The request being answered: "sending" keeps the buttons from firing twice, "failed" says so.
+  let decision = $state<{ requestId: string; result: "sending" | "failed" } | null>(null);
+  const deciding = $derived(
+    actionRequest && decision?.requestId === actionRequest.id ? decision.result : null,
+  );
+
+  async function decide(outcome: "approved" | "denied") {
+    if (!actionRequest || deciding === "sending") return;
+    const requestId = actionRequest.id;
+    decision = { requestId, result: "sending" };
+    try {
+      await resolveActionRequest(sessionId, requestId, outcome);
+    } catch {
+      if (decision?.requestId === requestId) decision = { requestId, result: "failed" };
+    }
+  }
 
   async function submitAnswer(answers: RawAnswer[]) {
     if (!ask || (answer?.sessionId === sessionId && answer.toolUseId === ask.toolUseId)) return;
@@ -369,6 +390,38 @@
           </div>
         {/key}
       {/if}
+      {#if actionRequest}
+        <div class="ac-notice ac-action" role="alert">
+          <p>
+            {m.assistant_action_request_title({
+              tool: actionRequest.tool,
+              target: actionRequest.target,
+            })}
+          </p>
+          {#if Object.keys(actionRequest.args).length > 0}
+            <code class="ac-args" aria-label={m.assistant_action_request_args()}
+              >{JSON.stringify(actionRequest.args)}</code
+            >
+          {/if}
+          {#if deciding === "failed"}
+            <p>{m.assistant_action_request_failed()}</p>
+          {/if}
+          <div class="ac-actions">
+            <button
+              type="button"
+              class="gbtn"
+              disabled={deciding === "sending"}
+              onclick={() => decide("denied")}>{m.assistant_action_request_deny()}</button
+            >
+            <button
+              type="button"
+              class="gbtn primary"
+              disabled={deciding === "sending"}
+              onclick={() => decide("approved")}>{m.assistant_action_request_approve()}</button
+            >
+          </div>
+        </div>
+      {/if}
       {#if answerText}
         <div class="ac-notice" role={answerWarning ? "alert" : "status"}>
           <p>{answerText}</p>
@@ -560,6 +613,17 @@
     border-radius: var(--radius-chip);
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
+  }
+  .ac-args {
+    flex-basis: 100%;
+    overflow-wrap: anywhere;
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
+  }
+  .ac-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
   }
   .ac-notice p {
     flex: 1;

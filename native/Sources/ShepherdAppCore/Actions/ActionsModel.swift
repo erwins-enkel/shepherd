@@ -265,11 +265,14 @@ public final class ActionsModel: AppExtension {
             var loaded: [String: Recap]
             let etag: String?
             switch result {
-            case .modified(let value, let tag): (loaded, etag) = (value, tag)
+            case .modified(let value, let tag):
+                loaded = value
+                etag = tag
             case .notModified:
                 // Only this server's list is unchanged; connected machines are re-read below.
                 guard store?.visibleSessions.contains(where: { $0.host != nil }) == true else { return }
-                (loaded, etag) = (recaps, recapETag)
+                loaded = recaps
+                etag = recapETag
             }
             if let store {
                 let client = store.client

@@ -75,7 +75,9 @@ public final class QueuesModel: AppExtension {
     /// also patches pushes; this overlay repairs missed frames from the queue's REST refresh.
     /// The sheet owns its selection throughout.
     public var retrySessions: [Session] {
-        (store?.sessions ?? []).map { session in
+        // iOS revalidates the store itself; a delayed tap must not overlay older halt flags.
+        if loadsListsOnDemand { return store?.sessions ?? [] }
+        return (store?.sessions ?? []).map { session in
             guard let flags = haltFlags[session.id] else { return session }
             var current = session
             current.haltReason = flags.haltReason.map {
@@ -470,16 +472,6 @@ public final class QueuesModel: AppExtension {
         stranded = snapshot.subtracting(archivedStrandedIDs)
     }
 
-    private func reconcileHaltFlagsFromStore() {
-        guard loadsListsOnDemand, let store, store.hasLoadedSessions || !store.sessions.isEmpty else { return }
-        // Synchronous on the main actor: an event applied later still wins.
-        haltFlags = Dictionary(uniqueKeysWithValues: store.sessions.map { session in
-            (session.id, .init(id: session.id, haltReason: session.haltReason.map {
-                .init(value1: .init(rawValue: $0.rawValue), value2: $0.rawValue)
-            }, haltedAt: session.haltedAt))
-        })
-    }
-
     private func pruneStranded() {
         guard let store else { return }
         // Settings and sessions are installed together by SessionStore.refresh(). Settings
@@ -580,7 +572,6 @@ public final class QueuesModel: AppExtension {
                           activation == self.app?.activationGeneration,
                           self.connectionWatcherToken == token, let state = read() else { return }
                     self.pruneStranded()
-                    self.reconcileHaltFlagsFromStore()
                     let isLive = state == .live
                     if isLive, wasLive != true {
                         self.requestRefresh()

@@ -10,7 +10,12 @@ const originalLocale = getLocale();
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
-  return { ...actual, getSessionMessages: vi.fn(), answerAsk: vi.fn() };
+  return {
+    ...actual,
+    getSessionMessages: vi.fn(),
+    answerAsk: vi.fn(),
+    resolveActionRequest: vi.fn(),
+  };
 });
 
 let refresh: (() => void) | undefined;
@@ -26,7 +31,8 @@ vi.mock("#lib/visibility.js", () => ({
 }));
 
 const { default: AssistantChat } = await import("./AssistantChat.svelte");
-const { getSessionMessages, answerAsk } = await import("#lib/api.js");
+const { getSessionMessages, answerAsk, resolveActionRequest } = await import("#lib/api.js");
+const mockResolveAction = vi.mocked(resolveActionRequest);
 const mockMessages = vi.mocked(getSessionMessages);
 const mockAnswer = vi.mocked(answerAsk);
 const ask = {
@@ -651,5 +657,38 @@ describe("AssistantChat quick reply updates", () => {
     await expect
       .element(page.getByRole("button", { name: "Yes", exact: true }))
       .not.toBeInTheDocument();
+  });
+});
+
+describe("AssistantChat Action Request (audit F08)", () => {
+  const actionRequest = {
+    id: "q1",
+    tool: "pr_merge",
+    args: { desig: "TASK-07" },
+    target: "TASK-07",
+    createdAt: 1,
+  };
+
+  it("shows the exact call and sends the operator's approval for it", async () => {
+    mockResolveAction.mockReset();
+    mockResolveAction.mockResolvedValue();
+    render(AssistantChat, props({ actionRequest }));
+    await expect
+      .element(
+        page.getByText(m.assistant_action_request_title({ tool: "pr_merge", target: "TASK-07" })),
+      )
+      .toBeVisible();
+    await expect.element(page.getByText('{"desig":"TASK-07"}')).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: m.assistant_action_request_approve() }));
+    expect(mockResolveAction).toHaveBeenCalledWith("a1", "q1", "approved");
+  });
+
+  it("denies, and says so when the answer does not reach Shepherd", async () => {
+    mockResolveAction.mockReset();
+    mockResolveAction.mockRejectedValue(new Error("offline"));
+    render(AssistantChat, props({ actionRequest }));
+    await userEvent.click(page.getByRole("button", { name: m.assistant_action_request_deny() }));
+    expect(mockResolveAction).toHaveBeenCalledWith("a1", "q1", "denied");
+    await expect.element(page.getByText(m.assistant_action_request_failed())).toBeVisible();
   });
 });

@@ -47,6 +47,7 @@ import type { RateLimitSnapshot } from "./forge/rate-limit";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import type { ActionRequestService } from "./action-request";
 import {
   applyHerdStatus,
   applyLogsTail,
@@ -95,6 +96,10 @@ export interface AgentControlDeps {
   operatorDiag?: OperatorDiagDeps;
   /** The Operator Assistant's actions (Settings → Assistant); absent ⇒ they answer "unavailable". */
   operatorActions?: OperatorActionDeps;
+  /** Operator approvals for actions in an `ask` group (audit F08); absent ⇒ those refuse. */
+  actionRequests?: Pick<ActionRequestService, "request" | "wait">;
+  /** One `ask` action call's wait window (ms); default `ACTION_WAIT_MS`. */
+  actionWaitMs?: number;
 }
 
 /** Transport-neutral outcome of an applier: the REST route renders it as a Response, the MCP
@@ -764,8 +769,12 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       .flat()
       .map((tool): [string, ToolHandler] => [
         tool,
-        (deps, id, args) =>
-          applyOperatorAction(deps, tool as AssistantActionTool, args, assistantScope(deps, id)),
+        (deps, id, args, signal) =>
+          applyOperatorAction(deps, tool as AssistantActionTool, args, {
+            sessionId: id,
+            scope: assistantScope(deps, id),
+            signal,
+          }),
       ]),
   ),
 };
@@ -852,8 +861,13 @@ export async function handleMcpRequest(
  * resolve identically here. Deliberately NOT paired with `--strict-mcp-config`, which would
  * suppress the operator's own MCP servers for every Shepherd session.
  */
-export function agentMcpConfigArg(sessionId: string, baseUrl: string): string {
+export function agentMcpConfigArg(
+  sessionId: string,
+  baseUrl: string,
+  headers?: Record<string, string>,
+): string {
+  const url = `${baseUrl}/api/sessions/${sessionId}/mcp`;
   return JSON.stringify({
-    mcpServers: { shepherd: { type: "http", url: `${baseUrl}/api/sessions/${sessionId}/mcp` } },
+    mcpServers: { shepherd: { type: "http", url, ...(headers ? { headers } : {}) } },
   });
 }

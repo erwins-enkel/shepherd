@@ -750,6 +750,17 @@ export interface LoginRequest {
   createdAt: number;
 }
 
+/** The Operator Assistant's open Action Request (audit F08): an action in an `ask` group, held
+ *  until the operator approves or denies that exact call. `tool` and `target` are data; `args` is
+ *  agent-chosen — render as plain text only. */
+export interface ActionRequest {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  target: string;
+  createdAt: number;
+}
+
 export interface HoldReason {
   code: HoldCode;
   params?: HoldParams;
@@ -3164,6 +3175,7 @@ export type WsEvent =
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:hold"; data: { id: string; hold: HoldReason | null } }
   | { event: "session:login-request"; data: { id: string; request: LoginRequest | null } }
+  | { event: "session:action-request"; data: { id: string; request: ActionRequest | null } }
   | {
       event: "session:halt";
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };

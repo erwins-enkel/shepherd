@@ -41,6 +41,7 @@
     blockStates,
     holdStates,
     loginRequestStates,
+    actionRequestStates,
     getOperatorAssistant,
     subagentStates,
     previewStates,
@@ -1044,6 +1045,9 @@
     loginRequestStates()
       .then((m) => store.setLoginRequests(m))
       .catch(() => {});
+    actionRequestStates()
+      .then((m) => store.setActionRequests(m))
+      .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))
       .catch(() => {});
@@ -1611,6 +1615,10 @@
   );
   function assistantAsk(session: Session | null) {
     return session ? (store.blocks[session.id]?.reason.ask ?? null) : null;
+  }
+
+  function assistantActionRequest(session: Session | null) {
+    return session ? (store.actionRequests[session.id] ?? null) : null;
   }
 
   // The open assistant; a pick whose assistant is gone (ended elsewhere) falls back to the global.
@@ -2257,6 +2265,9 @@
       .catch(() => {});
     loginRequestStates()
       .then((m) => store.setLoginRequests(m))
+      .catch(() => {});
+    actionRequestStates()
+      .then((m) => store.setActionRequests(m))
       .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))
@@ -3423,6 +3434,7 @@
         {switcher}
         session={entry.session}
         ask={assistantAsk(entry.session)}
+        actionRequest={assistantActionRequest(entry.session)}
         available={store.assistantAvailable}
         reason={store.assistantUnavailableReason}
         pending={assistantLifecycle.pendingFor(repo)}

@@ -26,13 +26,18 @@ export function browserConfigPath(dir: string, sessionId: string): string {
 
 /** Atomically (temp + rename) writes `{"cdp": cdpUrl}` with mode 0600 in a 0700 dir. */
 export async function writeBrowserConfig(path: string, cdpUrl: string): Promise<void> {
+  await writePrivateFile(path, JSON.stringify({ cdp: cdpUrl }));
+}
+
+/** Atomically (temp + rename) writes `content` with mode 0600 in a 0700 dir. */
+export async function writePrivateFile(path: string, content: string): Promise<void> {
   const dir = dirname(path);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // mkdir's mode only applies to dirs it creates; tighten a pre-existing one too.
   await chmod(dir, 0o700);
   const tmp = `${path}.${randomBytes(6).toString("hex")}.tmp`;
   try {
-    await writeFile(tmp, JSON.stringify({ cdp: cdpUrl }), { mode: 0o600, flag: "wx" });
+    await writeFile(tmp, content, { mode: 0o600, flag: "wx" });
     await rename(tmp, path);
   } catch (err) {
     await rm(tmp, { force: true });

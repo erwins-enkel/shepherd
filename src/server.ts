@@ -382,6 +382,7 @@ import {
   type GithubBackoff,
 } from "./agent-control";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { ASSISTANT_INGRESS_HEADER } from "./assistant-ingress";
 import {
   parseAssistantViewFrame,
   renderAssistantView,
@@ -673,8 +674,18 @@ export interface AppDeps {
   >;
   /** Test seam: one `browser_request_login` call's wait window (ms); default LOGIN_WAIT_MS. */
   loginWaitMs?: number;
+  /** Operator approvals for the assistant's `ask` actions (audit F08); absent ⇒ those refuse. */
+  actionRequests?: Pick<
+    import("./action-request").ActionRequestService,
+    "request" | "wait" | "resolve" | "snapshot"
+  >;
+  /** Test seam: one `ask` action call's wait window (ms); default ACTION_WAIT_MS. */
+  actionWaitMs?: number;
   /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
   browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
+  /** Operator Assistant ingress-key verifier (audit F08); absent → the agent ingress refuses
+   *  every call addressed to an assistant. */
+  assistantIngress?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
   starPrompt?: {
@@ -1280,6 +1291,7 @@ function checkOrigin(req: Request): Response | null {
     req.headers.get("Origin"),
     config.allowedOriginHosts,
     previewRange,
+    requestHosts(req),
   );
   // Distinct bodies so the client can show accurate copy (issue #1645 Fix 3): a preview-port
   // origin genuinely IS read-only; an un-allowlisted host should be pointed at
@@ -1288,6 +1300,13 @@ function checkOrigin(req: Request): Response | null {
   if (verdict === "host-not-allowed")
     return json({ error: "forbidden: origin host not allowed" }, 403);
   return null;
+}
+
+/** The host[:port] values a request was addressed to: `Host`, plus a fronting proxy's
+ *  `X-Forwarded-Host` (first hop). A browser cannot set either on a simple cross-origin request. */
+function requestHosts(req: Request): string[] {
+  const forwarded = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  return [req.headers.get("host") ?? new URL(req.url).host, ...(forwarded ? [forwarded] : [])];
 }
 
 // Shared `Content-Type: application/json` guard. Returns the 415 Response when
@@ -1374,9 +1393,36 @@ function resourceRepositoryError(
   return path && tokenRepoAllowed(token, path) ? null : json({ error: "not found" }, 404);
 }
 
+/** Routes whose cookie-authenticated mutations may carry `multipart/form-data`: the file uploads,
+ *  the project create with imported docs, and plugin routes (voice transcription). Never plugin
+ *  management (`/api/plugins/manage/*`). */
+function multipartAllowed(parts: string[]): boolean {
+  if (parts[0] !== "api") return false;
+  if (parts[1] === "uploads" || parts[1] === "projects") return parts.length === 2;
+  if (parts[1] === "sessions") return parts[3] === "scratchpad" && parts[4] === "upload";
+  return parts[1] === "plugins" && !!parts[2] && parts[2] !== "manage";
+}
+
+/**
+ * A cookie-carrying mutation with a body must be `application/json` (or multipart on the routes
+ * above). The three CORS-safelisted types (text/plain, form-urlencoded, multipart) are what a
+ * page can send cross-origin WITHOUT a preflight, so refusing them keeps a forged request off the
+ * handlers even if it gets past the origin check (audit F13). Bearer-authenticated callers (CLI,
+ * extension, native) cannot be forged by a page, and the agent ingress carries no cookie.
+ */
+function cookieContentTypeError({ req, parts, agentIngress }: Ctx): Response | null {
+  const m = req.method;
+  if (m !== "POST" && m !== "PUT" && m !== "PATCH" && m !== "DELETE") return null;
+  if (agentIngress || !req.headers.get("cookie") || req.headers.get("authorization")) return null;
+  if (req.body === null || req.headers.get("content-length") === "0") return null;
+  const type = req.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (type === "multipart/form-data" && multipartAllowed(parts)) return null;
+  return requireJsonContentType(req);
+}
+
 /** Shared HTTP/WebSocket boundary after authentication, before dispatch or upgrade. */
 function requestBoundaryError(ctx: Ctx): Response | null {
-  return checkOrigin(ctx.req) ?? repositoryRequestError(ctx);
+  return checkOrigin(ctx.req) ?? cookieContentTypeError(ctx) ?? repositoryRequestError(ctx);
 }
 
 /** Called on validated inputs BEFORE holds, spawns, forge calls or file writes. */
@@ -2344,7 +2390,7 @@ async function redirectWaitingTask(ctx: Ctx, id: string): Promise<Response> {
  *  fresh probe, its requirements — BEFORE it leaves its machine's queue, then started under its
  *  own client key. */
 async function redirectHere(
-  { req, deps }: Ctx,
+  { req, deps, token }: Ctx,
   row: RemoteDispatchRow,
   placement: Placement,
 ): Promise<Response> {
@@ -2360,7 +2406,7 @@ async function redirectHere(
   const claim = await remoteDispatcher(deps).claimForHere(row.id);
   if (claim.kind === "not_found") return json({ error: "not found" }, 404);
   if (claim.kind === "not_redirectable") return notRedirectable(claim.dispatch);
-  const create = () => createValidatedSession(req, body, value, deps);
+  const create = () => createValidatedSession(req, body, value, deps, token);
   const claimKey = { id: row.clientKey, payloadHash: row.payloadHash, repoPath: value.repoPath };
   const res = await runDispatch(deps.store, claimKey, create);
   remoteDispatcher(deps).announceRedirected(claim.row, placement.target);
@@ -4024,7 +4070,7 @@ async function routeCreate(
   if (repoErr) return repoErr;
   const placed = await placeCreate(ctx, result.value, { self: target.self, raw, dispatchId });
   if (placed instanceof Response) return placed;
-  const create = () => createValidatedSession(req, body, placed, deps);
+  const create = () => createValidatedSession(req, body, placed, deps, token);
   if (dispatchId === undefined) return create();
   // Keyed (#2761): reserved now — after validation and the repo grant, before the hold gate and
   // the spawn — so a retry or a concurrent duplicate replays this outcome instead of running again.
@@ -4385,6 +4431,7 @@ async function createValidatedSession(
   body: unknown,
   value: CreateSessionInput,
   deps: AppDeps,
+  token?: VerifiedToken | null,
 ): Promise<Response> {
   // Readiness (#2770) first, inside a keyed dispatch: a refusal settles the key like any failed
   // start, so a retry replays it (error and code intact) rather than re-checking a used key.
@@ -4407,6 +4454,9 @@ async function createValidatedSession(
   // #3245: a linked issue naming another `Target repo:` starts there (claim stays here).
   const routed = await routeIssueCreate(value, deps);
   if (routed instanceof Response) return routed;
+  // The routed repo needs the token's grant too — routing must not promote a body into authority.
+  const routedErr = repositoryInputError(token, routed);
+  if (routedErr) return routedErr;
   value = routed;
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
@@ -6689,6 +6739,41 @@ async function handleSessionLoginRequest({ req, parts, deps }: Ctx): Promise<Res
     return json({ error: "outcome must be done or cancelled" }, 400);
   if (!deps.loginRequests?.resolve(id, body.outcome))
     return json({ error: "no open login request" }, 404);
+  return json({ ok: true });
+}
+
+// GET /api/action-requests — every open Action Request (audit F08), keyed by assistant session id
+// (bootstrap). A repo-restricted token sees none: no assistant lives in a repo.
+function handleActionRequestsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "action-requests" && !parts[2]) {
+    return json(tokenMap(token, deps, deps.actionRequests?.snapshot() ?? {}));
+  }
+  return null;
+}
+
+// POST /api/sessions/:id/action-request {requestId, outcome: "approved"|"denied"} — the operator
+// answers the assistant's Action Request. Operator app only: deliberately NOT an AGENT_LEAF_ROUTES
+// leaf, so the assistant can never approve its own action.
+async function handleSessionActionRequest({
+  req,
+  parts,
+  deps,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "action-request"))
+    return null;
+  const id = parts[2];
+  if (!id || parts[4] || req.method !== "POST") return null;
+  // The assistant's in-process route calls share this app; they must not answer for the operator.
+  if (agentIngress) return json({ error: "not found" }, 404);
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => ({}))) as { requestId?: unknown; outcome?: unknown };
+  if (body.outcome !== "approved" && body.outcome !== "denied")
+    return json({ error: "outcome must be approved or denied" }, 400);
+  if (typeof body.requestId !== "string") return json({ error: "requestId required" }, 400);
+  if (!deps.actionRequests?.resolve(id, body.requestId, body.outcome))
+    return json({ error: "no open action request" }, 404);
   return json({ ok: true });
 }
 
@@ -11939,7 +12024,9 @@ const ROUTE_HANDLERS = [
   handleAssistantViewHook,
   handleSessionMcp,
   handleSessionLoginRequest,
+  handleSessionActionRequest,
   handleLoginRequestsSnapshot,
+  handleActionRequestsSnapshot,
   handleOperatorAssistant,
   handleBuildQueue,
   handleEpicDraft,
@@ -12144,6 +12231,19 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   return method === "POST" && sub === "queue" && parts[4] === "steps" && !!parts[5] && !parts[6];
 }
 
+/** The Operator Assistant's ingress needs its key on top of the UUID (audit F08): the UUID rides
+ *  argv that any local user can read, and the assistant's MCP endpoint runs operator actions. A
+ *  still-spawning assistant has no row yet — its in-flight capabilities identify it. Every other
+ *  session passes (its UUID stays its capability). */
+function assistantIngressAllowed(deps: AppDeps, id: string, req: Request): boolean {
+  const row = deps.store.get(id);
+  const assistant = row
+    ? isOperatorAssistant(row)
+    : deps.service.spawningAgentCapabilities(id)?.operatorActions === true;
+  if (!assistant) return true;
+  return deps.assistantIngress?.verify(id, req.headers.get(ASSISTANT_INGRESS_HEADER)) === true;
+}
+
 /** Restricted ingress app: 404 unless the request is an allowlisted agent→server route; otherwise
  *  DELEGATE to the full app. Built with `skipAuth` (issue #1079): spawned agents carry neither a
  *  human session cookie nor (by default) a bearer token — autonomous agents run under `--clearenv`
@@ -12158,6 +12258,8 @@ export function makeAgentIngressApp(deps: AppDeps) {
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean);
       if (!isAgentIngressRoute(req.method, parts)) return json({ error: "not found" }, 404);
+      if (!assistantIngressAllowed(deps, parts[2]!, req))
+        return json({ error: "unauthorized" }, 401);
       return app.fetch(req); // delegate — preserves checkOrigin (CSRF) + the real handlers
     },
   };
@@ -12514,10 +12616,12 @@ export function serve(deps: AppDeps, port: number) {
   // returns null for any other path, which falls through to the HTTP app.
   type Upgrader = Server<WsData>;
   const wsOriginRefusal = (req: Request): Response | null =>
-    originAllowed(req.headers.get("Origin"), config.allowedOriginHosts, {
-      base: config.previewPortBase,
-      count: config.previewPortCount,
-    })
+    originAllowed(
+      req.headers.get("Origin"),
+      config.allowedOriginHosts,
+      { base: config.previewPortBase, count: config.previewPortCount },
+      requestHosts(req),
+    )
       ? null
       : new Response("forbidden: origin not allowed", { status: 403 });
   const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined =>

@@ -65,6 +65,12 @@ const browserProfileRoot = join(dirname(dbPath), "browser-profiles");
 const browserBrokerKeyPath = join(dirname(dbPath), "browser-broker.key");
 /** Per-session Browser Attach config files (0600; see src/browser-attach-config.ts). */
 const browserAttachDir = join(dirname(dbPath), "browser-attach");
+/** HMAC key for the Operator Assistant's ingress key, and its per-session 0600 spawn files
+ *  (`--settings` / `--mcp-config`; see src/assistant-ingress.ts). */
+const assistantIngressKeyPath = join(dirname(dbPath), "assistant-ingress.key");
+// A sibling of the assistant dir (never inside it — every assistant scope shares that dir), so
+// SHEPHERD_ASSISTANT_DIR relocates both.
+const assistantSpawnDir = join(dirname(operatorAssistantDir), "assistant-spawn");
 
 // herdr session id ("default" for a single-session install; a named daemon otherwise) and
 // the Unix-socket path for herdr's native JSON-RPC API (issue #1529). Resolved via the shared
@@ -662,6 +668,8 @@ export const config = {
   browserProfileRoot,
   browserBrokerKeyPath,
   browserAttachDir,
+  assistantIngressKeyPath,
+  assistantSpawnDir,
   // Shared Browser binary override; null → PATH lookup in src/shared-browser.ts.
   chromiumBin: process.env.SHEPHERD_CHROMIUM_BIN || null,
   pluginsDir,

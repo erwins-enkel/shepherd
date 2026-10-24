@@ -99,8 +99,10 @@ test("rules: every tool of a group lands in the bucket of the group's level", ()
   expect(rules.allow).toContain("mcp__shepherd__session_steer");
   expect(rules.allow).toContain("mcp__shepherd__session_start");
   expect(rules.allow).toContain("mcp__shepherd__plan_answer");
-  expect(rules.ask).toContain("mcp__shepherd__session_interrupt");
-  expect(rules.ask).toContain("mcp__shepherd__herd_retry");
+  // `ask` is the server's prompt (an Action Request), never Claude's too (audit F08).
+  expect(rules.allow).toContain("mcp__shepherd__session_interrupt");
+  expect(rules.allow).toContain("mcp__shepherd__herd_retry");
+  expect(rules.ask).toEqual([]);
   expect(rules.deny).toEqual(ASSISTANT_ACTION_GROUPS.approve.map((t) => `mcp__shepherd__${t}`));
 });
 
@@ -131,7 +133,7 @@ test("drain_enqueue follows automation off, ask and allow", () => {
   expect(actionGroupOf("drain_enqueue")).toBe("automation");
   for (const [level, bucket] of [
     ["off", "deny"],
-    ["ask", "ask"],
+    ["ask", "allow"], // the server asks (audit F08)
     ["allow", "allow"],
   ] as const) {
     const rules = assistantPermissionRules({ ...ALL_OFF, automation: level });

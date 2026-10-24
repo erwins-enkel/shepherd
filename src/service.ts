@@ -122,6 +122,11 @@ import type { Leftover, ProcessReaper } from "./process-reaper";
 import { SESSION_MARKER_ENV } from "./process-reaper";
 import type { BrowserTokenSigner } from "./browser-token";
 import {
+  ASSISTANT_INGRESS_HEADER,
+  removeAssistantSpawnFiles,
+  writeAssistantSpawnFiles,
+} from "./assistant-ingress";
+import {
   browserConfigPath,
   removeBrowserConfig,
   writeBrowserConfig,
@@ -398,6 +403,11 @@ export interface ServiceDeps {
   /** Dir holding per-session Browser Attach config files (seam); default
    *  `config.browserAttachDir`. */
   browserAttachDir?: string;
+  /** Operator Assistant ingress-key signer (audit F08). Absent (tests / broken key) → the
+   *  assistant's spawn files carry no key, and the ingress refuses its calls. */
+  assistantIngress?: Pick<BrowserTokenSigner, "sign">;
+  /** Dir holding the assistant's 0600 spawn files (seam); default `config.assistantSpawnDir`. */
+  assistantSpawnDir?: string;
   /** The Operator Assistant's working dir (seam); default `config.operatorAssistantDir`. */
   operatorAssistantDir?: string;
   /** Pre-accept Claude's workspace trust for the assistant dir (seam); default
@@ -607,9 +617,9 @@ export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
     /** The repo's `claudeAiConnectorsEnabled` opt-in; absent → the connectors stay off. */
     claudeAiConnectors?: boolean;
-    hooks?: { sessionId: string; baseUrl: string; token: string | null };
+    hooks?: HookTarget;
     permissions?: { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
-    assistantView?: { sessionId: string; baseUrl: string; token: string | null };
+    assistantView?: HookTarget;
   } = {},
 ): string {
   const settings: Record<string, unknown> = {
@@ -678,16 +688,12 @@ export function spawnSettingsOverlay(
  * under autonomous normally. To make token + autonomous hooks reach, re-inject the token into the
  * sandbox env or accept the literal-in-argv exposure — intentionally NOT done here.
  */
-export function buildHooksFragment(input: {
-  sessionId: string;
-  baseUrl: string;
-  token: string | null;
-}): Record<string, unknown> {
+export function buildHooksFragment(input: HookTarget): Record<string, unknown> {
   const httpHook = {
     type: "http",
     url: `${input.baseUrl}/api/sessions/${input.sessionId}/hooks`,
     timeout: 5,
-    ...hookAuthFields(input.token),
+    ...hookAuthFields(input.token, input.ingressKey),
   };
   const eventEntry = [{ matcher: "*", hooks: [httpHook] }];
   return {
@@ -707,12 +713,24 @@ export function buildHooksFragment(input: {
   };
 }
 
+/** Where a session's http hooks post. `ingressKey` (the Operator Assistant only, audit F08) is
+ *  sent literally — its overlay reaches claude as a 0600 file, never argv (src/assistant-ingress.ts). */
+type HookTarget = {
+  sessionId: string;
+  baseUrl: string;
+  token: string | null;
+  ingressKey?: string;
+};
+
 /** An http hook's auth: the `$SHEPHERD_TOKEN` placeholder, never the literal token (see
- *  buildHooksFragment); no token → no header at all. */
-function hookAuthFields(token: string | null): Record<string, unknown> {
-  return token !== null
-    ? { headers: { Authorization: "Bearer $SHEPHERD_TOKEN" }, allowedEnvVars: ["SHEPHERD_TOKEN"] }
-    : {};
+ *  buildHooksFragment); no token → no header at all. Plus the assistant's ingress key. */
+function hookAuthFields(token: string | null, ingressKey?: string): Record<string, unknown> {
+  const key = ingressKey ? { [ASSISTANT_INGRESS_HEADER]: ingressKey } : {};
+  if (token === null) return ingressKey ? { headers: key } : {};
+  return {
+    headers: { Authorization: "Bearer $SHEPHERD_TOKEN", ...key },
+    allowedEnvVars: ["SHEPHERD_TOKEN"],
+  };
 }
 
 /**
@@ -722,16 +740,12 @@ function hookAuthFields(token: string | null): Record<string, unknown> {
  * non-blocking in Claude Code, so the message still goes — just without a view. Same auth as the
  * ingest hooks.
  */
-function buildAssistantViewHookFragment(input: {
-  sessionId: string;
-  baseUrl: string;
-  token: string | null;
-}): Record<string, unknown> {
+function buildAssistantViewHookFragment(input: HookTarget): Record<string, unknown> {
   const httpHook = {
     type: "http",
     url: `${input.baseUrl}/api/sessions/${input.sessionId}/assistant-view`,
     timeout: 5,
-    ...hookAuthFields(input.token),
+    ...hookAuthFields(input.token, input.ingressKey),
   };
   return { UserPromptSubmit: [{ hooks: [httpHook] }] };
 }
@@ -3088,6 +3102,10 @@ export class SessionService {
     }
   }
 
+  private assistantSpawnDir(): string {
+    return this.deps.assistantSpawnDir ?? config.assistantSpawnDir;
+  }
+
   private browserConfigFile(sessionId: string): string {
     return browserConfigPath(this.deps.browserAttachDir ?? config.browserAttachDir, sessionId);
   }
@@ -3807,12 +3825,12 @@ export class SessionService {
     return argv;
   }
 
-  private buildResumeArgv(
+  private async buildResumeArgv(
     s: Session,
     provider: AgentProvider,
     trim: TrimDecision,
     codexSessionId: string | null = null,
-  ): string[] {
+  ): Promise<string[]> {
     if (isOperatorAssistant(s)) return this.operatorAssistantArgv(s, true);
     return provider === "codex"
       ? this.buildCodexResumeArgv(s.model, s.effort, codexSessionId!)
@@ -4700,7 +4718,7 @@ export class SessionService {
     // spawningMcp). Cleared however the spawn ends.
     this.spawningMcp.set(sessionId, OPERATOR_ASSISTANT_CAPABILITIES);
     try {
-      const argv = this.operatorAssistantArgv(
+      const argv = await this.operatorAssistantArgv(
         { id: sessionId, worktreePath: dir, claudeSessionId, model, effort, assistantRepo: repo },
         false,
       );
@@ -4802,26 +4820,43 @@ export class SessionService {
 
   /** The assistant's inner argv, fresh (`--session-id`) or resumed (`--resume`) — one builder for
    *  create and resume so the two can't drift (its repo scope included). Syncs its permission file
-   *  first, for the same reason. */
-  private operatorAssistantArgv(
+   *  first, for the same reason. Its `--settings` / `--mcp-config` carry the ingress key, so they
+   *  ride as 0600 file paths, never argv JSON (audit F08, src/assistant-ingress.ts). */
+  private async operatorAssistantArgv(
     s: Pick<
       Session,
       "id" | "worktreePath" | "claudeSessionId" | "model" | "effort" | "assistantRepo"
     >,
     resume: boolean,
-  ): string[] {
+  ): Promise<string[]> {
     this.syncOperatorAssistantPermissions(s.worktreePath);
     const baseUrl = this.resolveSpawnBaseUrl("trusted", s.worktreePath);
+    const ingressKey = this.deps.assistantIngress?.sign(s.id);
+    if (!ingressKey)
+      console.warn("[operator-assistant] no ingress key — its tools will be refused");
+    const hook = { sessionId: s.id, baseUrl, token: config.token, ingressKey };
+    const files = await writeAssistantSpawnFiles(this.assistantSpawnDir(), s.id, {
+      settings: spawnSettingsOverlay({
+        hooks: hook,
+        permissions: operatorAssistantPermissions(
+          dirname(config.dbPath),
+          homedir(),
+          this.assistantSpawnDir(),
+        ),
+        assistantView: hook,
+      }),
+      mcpConfig: agentMcpConfigArg(
+        s.id,
+        baseUrl,
+        ingressKey ? { [ASSISTANT_INGRESS_HEADER]: ingressKey } : undefined,
+      ),
+    });
     return buildOperatorAssistantArgv({
       installRoot: SHEPHERD_INSTALL_ROOT,
       resume,
       claudeSessionId: s.claudeSessionId,
-      settings: spawnSettingsOverlay({
-        hooks: { sessionId: s.id, baseUrl, token: config.token },
-        permissions: operatorAssistantPermissions(dirname(config.dbPath)),
-        assistantView: { sessionId: s.id, baseUrl, token: config.token },
-      }),
-      mcpConfig: agentMcpConfigArg(s.id, baseUrl),
+      settings: files.settings,
+      mcpConfig: files.mcpConfig,
       brief: operatorAssistantBrief({
         installRoot: SHEPHERD_INSTALL_ROOT,
         assistantDir: s.worktreePath,
@@ -5703,7 +5738,7 @@ export class SessionService {
 
     const outcome = await this.prepareResumeSpawn(
       session,
-      this.buildResumeArgv(session, provider, trim, session.providerSessionId),
+      await this.buildResumeArgv(session, provider, trim, session.providerSessionId),
     );
     if (!outcome.ok) {
       this.spawnConnectorStamp.delete(session.id);
@@ -5884,7 +5919,7 @@ export class SessionService {
     const trim = await this.trimFor(s.auto, s.worktreePath);
     const outcome = await this.prepareResumeSpawn(
       s,
-      this.buildResumeArgv(s, provider, trim, codexSessionId),
+      await this.buildResumeArgv(s, provider, trim, codexSessionId),
     );
     if (!outcome.ok) {
       console.warn(`[restore] spawn refused for ${s.id}: ${outcome.holdReason}`);
@@ -7146,6 +7181,11 @@ export class SessionService {
     removeEgressTmp(id);
     this.deps.netnsDevForward?.drop(id);
     await this.removeBrowserAttachConfig(s.id);
+    if (isOperatorAssistant(s)) {
+      await removeAssistantSpawnFiles(this.assistantSpawnDir(), s.id).catch((err: unknown) =>
+        console.warn(`[operator-assistant] spawn files for ${s.id} not removed:`, err),
+      );
+    }
     this.deps.store.archive(id, reason);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
     // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive

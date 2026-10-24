@@ -37,7 +37,7 @@ function makeDeps(): AppDeps {
 const harness = () => makeApp(makeDeps());
 
 function ping(app: ReturnType<typeof makeApp>, headers?: HeadersInit) {
-  return app.fetch(new Request("http://x/api/ping", { method: "POST", headers }));
+  return app.fetch(new Request("http://localhost:7330/api/ping", { method: "POST", headers }));
 }
 
 // Restore any config we mutate so tests stay isolated.

@@ -1447,6 +1447,22 @@ test("buildHooksFragment: null token omits headers/allowedEnvVars on every event
   }
 });
 
+test("buildHooksFragment: an ingress key rides as a literal header beside the token placeholder", () => {
+  const hookOf = (token: string | null) =>
+    (
+      buildHooksFragment({ sessionId: "s", baseUrl: "http://h", token, ingressKey: "k" }) as Record<
+        string,
+        Array<{ hooks: Array<Record<string, unknown>> }>
+      >
+    ).Stop![0]!.hooks[0]!;
+  expect(hookOf(null).headers).toEqual({ "x-shepherd-ingress-key": "k" });
+  expect(hookOf(null)).not.toHaveProperty("allowedEnvVars");
+  expect(hookOf("t").headers).toEqual({
+    Authorization: "Bearer $SHEPHERD_TOKEN",
+    "x-shepherd-ingress-key": "k",
+  });
+});
+
 test("createSession: uses herd-qualified name on collision with a different-repo session", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};

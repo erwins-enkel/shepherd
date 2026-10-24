@@ -107,6 +107,7 @@ test("permissions: exact shape — the read tools by name the only allow, edits 
       "Read(~/.shepherd/forges.json)",
       "Read(~/.shepherd/backups/**)",
       "Read(~/.shepherd/plugins/**)",
+      "Read(~/.shepherd/assistant-spawn/**)",
       "Read(~/.config/shepherd/config.toml)",
       "Read(~/.claude.json)",
       "Read(~/.claude/.credentials.json)",
@@ -133,6 +134,11 @@ test("permissions: the state-dir rules follow Shepherd's real state dir, never t
   const elsewhere = operatorAssistantPermissions("/srv/shepherd", home).deny;
   expect(elsewhere).toContain("Read(//srv/shepherd/env)");
   expect(elsewhere).toContain("Read(//srv/shepherd/backups/**)");
+  // Every assistant's ingress key (audit F08) follows its spawn dir, wherever that lives.
+  expect(inHome).toContain("Read(~/.shepherd-dev/assistant-spawn/**)");
+  expect(
+    operatorAssistantPermissions("/srv/shepherd", home, "/opt/sa/assistant-spawn").deny,
+  ).toContain("Read(//opt/sa/assistant-spawn/**)");
   // The env file stays at ~/.shepherd/env when SHEPHERD_DB moves the db: denied either way.
   expect(inHome).toContain("Read(~/.shepherd/env)");
   expect(elsewhere).toContain("Read(~/.shepherd/env)");

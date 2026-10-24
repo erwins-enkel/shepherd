@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {
+    ActionRequest,
     AssistantPermissions,
     PendingAsk,
     OperatorAssistantUnavailableReason,
@@ -39,6 +40,7 @@
     onend,
     session,
     ask = null,
+    actionRequest = null,
     available,
     reason,
     pending,
@@ -75,6 +77,8 @@
     /** The assistant's live row (store.assistant); null until one is spawned. */
     session: Session | null;
     ask?: PendingAsk | null;
+    /** The assistant's open Action Request (store.actionRequests): an `ask` action awaiting you. */
+    actionRequest?: ActionRequest | null;
     /** store.assistantAvailable: null until the bootstrap GET lands. */
     available: boolean | null;
     reason: OperatorAssistantUnavailableReason | null;
@@ -386,6 +390,7 @@
           herd={chatHerd}
           {onnavigate}
           {ask}
+          {actionRequest}
           {mobile}
           {touch}
           prefill={shown === "chat" ? typeRequest : null}

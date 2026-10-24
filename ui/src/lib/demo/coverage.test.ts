@@ -249,6 +249,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/amendments"),
   get("/api/spawn-notices"),
   get("/api/login-requests"),
+  get("/api/action-requests"),
   get("/api/operator-assistant"),
 
   // session-detail tabs
@@ -410,6 +411,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/repo-roles/auto-merge",
     // Answering a Login Request: no seeded session raises one, so the banner never renders.
     "/api/sessions/:p/login-request",
+    // Answering an Action Request: the demo's Operator Assistant never runs, so none is raised.
+    "/api/sessions/:p/action-request",
     // Canceling a task whose start on a machine is unknown (#2774), or redirecting one that
     // waits for its machine (#2775): the demo connects no machines, so no such row renders.
     "/api/remote-dispatches/:p",

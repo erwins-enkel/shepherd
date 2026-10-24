@@ -316,6 +316,7 @@ const ambientGetRoutes: Record<string, GetHandler> = {
   "/api/amendments": () => json({}),
   "/api/spawn-notices": () => json({}),
   "/api/login-requests": () => json({}),
+  "/api/action-requests": () => json({}),
   // The demo runs no agents, so the Operator Assistant (#1446) can't either. `reason` stays null:
   // neither live-node failure (no `claude`, herdr down) is true of a demo.
   "/api/operator-assistant": () => json({ available: false, reason: null, session: null }),

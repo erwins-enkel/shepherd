@@ -3,8 +3,9 @@
 // repo scopes (one global assistant plus one per repo).
 import { test, expect } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { BrowserTokenSigner } from "../src/browser-token";
 import { SessionStore } from "../src/store";
 import {
   OperatorAssistantNotFoundError,
@@ -42,8 +43,12 @@ function harness(
     gate: null as Promise<void> | null,
   };
   let n = 0;
+  const spawnDir = join(dirname(dir), "assistant-spawn");
+  const signer = new BrowserTokenSigner(Buffer.alloc(32, 7));
   const svc: SessionService = new SessionService({
     store,
+    assistantSpawnDir: spawnDir,
+    assistantIngress: signer,
     namer: async () => "unused",
     transcriptExists: () => opts.transcript ?? true,
     runSpawnHooks: opts.runSpawnHooks,
@@ -96,14 +101,18 @@ function harness(
       },
     ];
   };
-  return { store, svc, dir, calls, fake, live };
+  return { store, svc, dir, calls, fake, live, spawnDir, signer };
 }
+
+/** The JSON file an argv flag points at. */
+const fileAfter = (argv: string[], flag: string) =>
+  JSON.parse(readFileSync(after(argv, flag)!, "utf8"));
 
 /** The value following `flag` in `argv`. */
 const after = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
 
 test("ensure creates the assistant: 0700 dir, trust seeded, read-only argv, fenced row", async () => {
-  const { store, svc, dir, calls } = harness();
+  const { store, svc, dir, calls, spawnDir } = harness();
   const s = await svc.ensureOperatorAssistant();
 
   expect(statSync(dir).mode & 0o777).toBe(0o700);
@@ -117,13 +126,15 @@ test("ensure creates the assistant: 0700 dir, trust seeded, read-only argv, fenc
   expect(after(argv, "--permission-mode")).toBe("default");
   expect(after(argv, "--setting-sources")).toBe("project,local");
   expect(argv).toContain("--strict-mcp-config");
-  expect(after(argv, "--mcp-config")).toContain(`/api/sessions/${s.id}/mcp`);
+  expect(fileAfter(argv, "--mcp-config").mcpServers.shepherd.url).toEndWith(
+    `/api/sessions/${s.id}/mcp`,
+  );
   expect(argv).not.toContain("--dangerously-skip-permissions");
-  expect(JSON.parse(after(argv, "--settings")!).permissions).toEqual(
-    operatorAssistantPermissions(),
+  expect(fileAfter(argv, "--settings").permissions).toEqual(
+    operatorAssistantPermissions(dirname(config.dbPath), homedir(), spawnDir),
   );
   // #3161: the operator's view rides each message through its UserPromptSubmit hook.
-  expect(JSON.parse(after(argv, "--settings")!).hooks.UserPromptSubmit[0].hooks[0].url).toEndWith(
+  expect(fileAfter(argv, "--settings").hooks.UserPromptSubmit[0].hooks[0].url).toEndWith(
     `/api/sessions/${s.id}/assistant-view`,
   );
 
@@ -268,6 +279,30 @@ test("ensure force-resumes a pane where only a shell is left", async () => {
   expect(resumed.id).toBe(s.id);
   expect(calls.stops).toEqual(["term_1"]); // the husk is torn down first
   expect(after(calls.starts[1]!.argv, "--resume")).toBe(s.claudeSessionId);
+});
+
+test("F08: the assistant's ingress URLs and key ride 0600 files, never argv; archive removes them", async () => {
+  const { svc, calls, spawnDir, signer } = harness();
+  const s = await svc.ensureOperatorAssistant();
+  const { argv } = calls.starts[0]!;
+  const key = signer.sign(s.id);
+  for (const arg of argv) {
+    expect(arg).not.toContain(`/api/sessions/${s.id}`);
+    expect(arg).not.toContain(key);
+  }
+  expect(statSync(spawnDir).mode & 0o777).toBe(0o700);
+  for (const flag of ["--settings", "--mcp-config"]) {
+    expect(dirname(after(argv, flag)!)).toBe(spawnDir);
+    expect(statSync(after(argv, flag)!).mode & 0o777).toBe(0o600);
+  }
+  expect(fileAfter(argv, "--mcp-config").mcpServers.shepherd.headers).toEqual({
+    "x-shepherd-ingress-key": key,
+  });
+  const viewHook = fileAfter(argv, "--settings").hooks.UserPromptSubmit[0].hooks[0];
+  expect(viewHook.headers["x-shepherd-ingress-key"]).toBe(key);
+  await svc.archive(s.id);
+  expect(existsSync(after(argv, "--settings")!)).toBe(false);
+  expect(existsSync(after(argv, "--mcp-config")!)).toBe(false);
 });
 
 test("ensure replaces a gone assistant that never had a turn (no transcript to resume)", async () => {

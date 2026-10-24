@@ -62,7 +62,7 @@ const enable = (deps: AppDeps, on = true) =>
 
 function post(app: ReturnType<typeof makeApp>, body: unknown) {
   return app.fetch(
-    new Request("http://x/api/repo-browser/open", {
+    new Request("http://localhost:7330/api/repo-browser/open", {
       method: "POST",
       headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
       body: JSON.stringify(body),
@@ -72,7 +72,7 @@ function post(app: ReturnType<typeof makeApp>, body: unknown) {
 
 function put(app: ReturnType<typeof makeApp>, body: unknown) {
   return app.fetch(
-    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(repo)}`, {
+    new Request(`http://localhost:7330/api/repo-config?repo=${encodeURIComponent(repo)}`, {
       method: "PUT",
       headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
       body: JSON.stringify(body),

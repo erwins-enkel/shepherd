@@ -5,6 +5,7 @@ import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
 import { LoginRequestService } from "./login-request";
 import { BrowserTokenSigner, loadOrCreateBrowserBrokerKey } from "./browser-token";
+import { ActionRequestService } from "./action-request";
 import { CodexResetCoordinator } from "./codex-reset";
 import {
   CodexCapacityGate,
@@ -912,12 +913,23 @@ const sharedBrowser = new SharedBrowserManager({
 });
 // Login Requests (#2882): an agent's ask for a Handoff Login, held until the operator answers.
 const loginRequests = new LoginRequestService({ events });
+// Action Requests (audit F08): the assistant's `ask` actions, held until the operator approves.
+const actionRequests = new ActionRequestService({ events });
 // Browser Attach token signer. A broken key file disables Browser Attach (no env injected, every
 // attach refused) instead of failing boot — regenerating it would revoke live agents' URLs.
 const browserToken = await loadOrCreateBrowserBrokerKey(config.browserBrokerKeyPath).then(
   (key) => new BrowserTokenSigner(key),
   (err: unknown) => {
     console.error("[shared-browser] broker key unavailable; Browser Attach disabled:", err);
+    return undefined;
+  },
+);
+// Operator Assistant ingress key (audit F08). A broken key file leaves the assistant without its
+// tools (the ingress refuses every keyless call) instead of failing boot.
+const assistantIngress = await loadOrCreateBrowserBrokerKey(config.assistantIngressKeyPath).then(
+  (key) => new BrowserTokenSigner(key),
+  (err: unknown) => {
+    console.error("[operator-assistant] ingress key unavailable; assistant tools refused:", err);
     return undefined;
   },
 );
@@ -982,6 +994,7 @@ const service = new SessionService({
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   agentIngressPort: () => agentIngressState.port,
   browserToken,
+  assistantIngress,
   // Usage-aware model downgrade (#825 companion): once live usage crosses the (lower) downgrade
   // threshold, every spawn that flows through pushModelFlag — Claude main task agents (here) and the
   // role agents (via roleEnv) — runs on the cheap usageDowngradeModel instead of its configured
@@ -4007,7 +4020,9 @@ const appDeps: AppDeps = {
   sharedBrowser,
   netnsDevForward,
   loginRequests,
+  actionRequests,
   browserToken,
+  assistantIngress,
   service,
   fingerprint: {
     ensureFresh: (slug) => fingerprint.ensureFresh(slug),

@@ -107,13 +107,13 @@ function harness() {
 }
 
 test("GET /api/codex-update/notes has a total empty fallback", async () => {
-  const res = await harness().fetch(new Request("http://x/api/codex-update/notes"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/codex-update/notes"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ current: null, latest: null, notes: [], complete: true });
 });
 
 test("GET /api/codex-update keeps the existing notes:null fallback contract", async () => {
-  const res = await harness().fetch(new Request("http://x/api/codex-update"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/codex-update"));
   expect(res.status).toBe(200);
   expect(await res.json()).toMatchObject({
     current: null,
@@ -137,13 +137,15 @@ test("GET /api/codex-update/notes returns the on-demand service result", async (
     releaseNotes: async () => result,
   };
 
-  const res = await makeApp(deps).fetch(new Request("http://x/api/codex-update/notes"));
+  const res = await makeApp(deps).fetch(
+    new Request("http://localhost:7330/api/codex-update/notes"),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(result);
 });
 
 test("GET /api/usage/limits returns limits + projections", async () => {
-  const res = await harness().fetch(new Request("http://x/api/usage/limits"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/usage/limits"));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body).toEqual({
@@ -162,7 +164,9 @@ test("GET /api/usage/limits returns limits + projections", async () => {
 
 test("GET /api/commands rejects invalid provider", async () => {
   const res = await harness().fetch(
-    new Request(`http://x/api/commands?repo=${encodeURIComponent(validRepo)}&provider=mixed`),
+    new Request(
+      `http://localhost:7330/api/commands?repo=${encodeURIComponent(validRepo)}&provider=mixed`,
+    ),
   );
   expect(res.status).toBe(400);
   expect(await res.json()).toEqual({ error: "invalid provider" });
@@ -192,7 +196,7 @@ test("POST /api/usage/refresh calls refreshUsage and returns its fresh limits", 
     return { limits: fresh, scraped: true } as any;
   };
   const res = await makeApp(deps).fetch(
-    new Request("http://x/api/usage/refresh", { method: "POST" }),
+    new Request("http://localhost:7330/api/usage/refresh", { method: "POST" }),
   );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(fresh); // success returns the UNWRAPPED bare limits
@@ -222,7 +226,7 @@ test("POST /api/usage/refresh fails closed (503) when the probe did not re-scrap
   const deps = makeDeps();
   deps.refreshUsage = async () => ({ limits: fresh, scraped: false }) as any;
   const res = await makeApp(deps).fetch(
-    new Request("http://x/api/usage/refresh", { method: "POST" }),
+    new Request("http://localhost:7330/api/usage/refresh", { method: "POST" }),
   );
   expect(res.status).toBe(503);
   expect((await res.json()).code).toBe("refresh_stale");
@@ -243,14 +247,16 @@ test("POST /api/usage/refresh stays 200 for subscription-only even when scraped:
   const deps = makeDeps();
   deps.refreshUsage = async () => ({ limits: fresh, scraped: false }) as any;
   const res = await makeApp(deps).fetch(
-    new Request("http://x/api/usage/refresh", { method: "POST" }),
+    new Request("http://localhost:7330/api/usage/refresh", { method: "POST" }),
   );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(fresh);
 });
 
 test("POST /api/usage/refresh without refreshUsage falls back to current limits snapshot", async () => {
-  const res = await harness().fetch(new Request("http://x/api/usage/refresh", { method: "POST" }));
+  const res = await harness().fetch(
+    new Request("http://localhost:7330/api/usage/refresh", { method: "POST" }),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
     session5h: null,
@@ -268,7 +274,9 @@ test("GET /api/sessions/:id/usage is unavailable (not fake zero) for a session w
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
-  const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/usage`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${created.id}/usage`),
+  );
   expect(res.status).toBe(200);
   const u = await res.json();
   expect(u.available).toBe(false);
@@ -320,7 +328,9 @@ test("usage ladder: archived session serves its snapshot — raw fields, byModel
     archivedAt: s.createdAt + 1000,
     snapshotAt: s.createdAt + 1000,
   });
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u).toEqual({
     available: true,
     source: "snapshot",
@@ -379,7 +389,9 @@ test("usage ladder: restore drops the snapshot, so a codex re-archive can't serv
   // row is written. The read must report honest unavailability, not the pre-restore tokens.
   deps.store.update(s.id, { claudeSessionId: "", agentProvider: "codex" });
   deps.store.archive(s.id);
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -401,7 +413,9 @@ test("usage ladder: restore drops even a legacy blank-provenance snapshot before
   // snapshots nothing. The stale blank row is gone → honest unavailability.
   deps.store.update(s.id, { claudeSessionId: "c0ffee00-0000-4000-8000-00000000000c" });
   deps.store.archive(s.id);
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -417,7 +431,9 @@ test("usage ladder: a stamped snapshot from a different claude lineage is reject
   // Row stamped with a PRIOR lineage id while the session now carries a different one — the
   // provenance guard rejects it outright (independent of the unarchive drop above).
   deps.store.upsertSessionUsage(usageSnapFor(s, "c0ffee00-0000-4000-8000-00000000000f"));
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -431,7 +447,9 @@ test("usage ladder: legacy pre-provenance snapshot ('' claudeSessionId) on a nev
   });
   deps.store.update(s.id, { status: "archived" });
   deps.store.upsertSessionUsage(usageSnapFor(s, "")); // pre-migration row shape, never restored
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(true);
   expect(u.source).toBe("snapshot");
   expect(u.total).toBe(100);
@@ -445,7 +463,9 @@ test("usage ladder: snapshot-less archive falls back to the live source (here: u
     claudeSessionId: "c0ffee00-0000-4000-8000-000000000002",
   });
   deps.store.update(s.id, { status: "archived" });
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(false);
   expect(u.source).toBe("none");
 });
@@ -467,7 +487,9 @@ test("usage ladder: live JSONL resolves under the spawn account dir (raw byModel
   writeFileSync(join(jsonlDir, `${sid}.jsonl`), `${line}\n`);
   const s = deps.store.create({ ...USAGE_SESSION, claudeSessionId: sid });
   deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(true);
   expect(u.source).toBe("live");
   expect(u.total).toBe(12);
@@ -487,7 +509,9 @@ test("usage ladder: readable-but-empty transcript is a true zero, not unavailabl
   writeFileSync(join(jsonlDir, `${sid}.jsonl`), "");
   const s = deps.store.create({ ...USAGE_SESSION, claudeSessionId: sid });
   deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u.available).toBe(true); // the source exists — zero is a real reading
   expect(u.source).toBe("live");
   expect(u.total).toBe(0);
@@ -503,7 +527,9 @@ test("usage ladder: codex session is honestly unavailable — no state-DB or rol
   // issue). The exact all-null DTO below is the wire contract for that boundary; a future
   // scan would surface here as available:true / a non-"none" source.
   const s = deps.store.create({ ...USAGE_SESSION, agentProvider: "codex" as const });
-  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  const u = await (
+    await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/usage`))
+  ).json();
   expect(u).toEqual({
     available: false,
     source: "none",
@@ -522,7 +548,9 @@ test("GET /api/sessions/:id/activity returns [] for a session w/o JSONL", async 
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
-  const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/activity`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${created.id}/activity`),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual([]);
 });
@@ -563,14 +591,16 @@ test("GET /api/sessions/:id/activity resolves the transcript under spawnAccountD
     const s = deps.store.create({ ...USAGE_SESSION, worktreePath, claudeSessionId });
     deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
 
-    const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/activity`));
+    const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/activity`));
     expect(res.status).toBe(200);
     expect((await res.json()).map((e: { tool: string }) => e.tool)).toEqual(["Edit"]);
 
     // Negative control: same worktree + transcript id, but no spawn account → resolves the
     // server's own (empty) projects dir. Pins the direction — a "search both dirs" read fails.
     const own = deps.store.create({ ...USAGE_SESSION, worktreePath, claudeSessionId });
-    const ownRes = await app.fetch(new Request(`http://x/api/sessions/${own.id}/activity`));
+    const ownRes = await app.fetch(
+      new Request(`http://localhost:7330/api/sessions/${own.id}/activity`),
+    );
     expect(ownRes.status).toBe(200);
     expect(await ownRes.json()).toEqual([]);
   } finally {
@@ -663,7 +693,7 @@ const CODEX_SESSION = {
 };
 
 async function activityOf(app: ReturnType<typeof makeApp>, id: string) {
-  const res = await app.fetch(new Request(`http://x/api/sessions/${id}/activity`));
+  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${id}/activity`));
   expect(res.status).toBe(200);
   return (await res.json()) as Array<{ tool: string; summary: string }>;
 }
@@ -727,7 +757,9 @@ test("GET /api/sessions/:id/messages reads a non-isolated Codex session's rollou
     ],
     async () => {
       const s = deps.store.create({ ...CODEX_SESSION, isolated: false });
-      const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/messages`));
+      const res = await app.fetch(
+        new Request(`http://localhost:7330/api/sessions/${s.id}/messages`),
+      );
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         messages: Array<{ text: string }>;
@@ -740,18 +772,20 @@ test("GET /api/sessions/:id/messages reads a non-isolated Codex session's rollou
 });
 
 test("GET /api/sessions/:id/activity 404s for unknown id", async () => {
-  const res = await harness().fetch(new Request("http://x/api/sessions/nope/activity"));
+  const res = await harness().fetch(
+    new Request("http://localhost:7330/api/sessions/nope/activity"),
+  );
   expect(res.status).toBe(404);
 });
 
 test("GET /api/sessions/:id/usage 404s for unknown id", async () => {
-  const res = await harness().fetch(new Request("http://x/api/sessions/nope/usage"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/sessions/nope/usage"));
   expect(res.status).toBe(404);
 });
 
 function postSessions(app: ReturnType<typeof makeApp>, body: unknown, headers?: HeadersInit) {
   return app.fetch(
-    new Request("http://x/api/sessions", {
+    new Request("http://localhost:7330/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
@@ -770,7 +804,7 @@ test("POST /api/sessions creates, GET lists", async () => {
   const created = await post.json();
   expect(created.desig).toBe("TASK-01");
 
-  const list = await (await app.fetch(new Request("http://x/api/sessions"))).json();
+  const list = await (await app.fetch(new Request("http://localhost:7330/api/sessions"))).json();
   expect(list.length).toBe(1);
 });
 
@@ -880,7 +914,7 @@ test("an unhandled throw on any route becomes a JSON 500, not Bun's HTML error p
       throw new Error("db exploded");
     },
   } as any;
-  const res = await makeApp(deps).fetch(new Request("http://x/api/sessions"));
+  const res = await makeApp(deps).fetch(new Request("http://localhost:7330/api/sessions"));
   expect(res.status).toBe(500);
   expect(res.headers.get("content-type")).toContain("application/json");
   const body = await res.json();
@@ -893,7 +927,7 @@ test("DELETE /api/sessions/:id archives", async () => {
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
   const del = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}`, { method: "DELETE" }),
+    new Request(`http://localhost:7330/api/sessions/${created.id}`, { method: "DELETE" }),
   );
   expect(del.status).toBe(200);
 });
@@ -908,7 +942,7 @@ test("DELETE /api/sessions/:id logs a failed archive and answers its message", a
       },
     } as any;
     const res = await makeApp(deps).fetch(
-      new Request("http://x/api/sessions/s-gone", { method: "DELETE" }),
+      new Request("http://localhost:7330/api/sessions/s-gone", { method: "DELETE" }),
     );
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe("herdr: tab list failed");
@@ -999,7 +1033,7 @@ test("GET /api/sessions/:id/leftovers returns the reaper's detected list", async
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/leftovers`));
+  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/leftovers`));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ leftovers: detected, probesUnavailable: false });
 });
@@ -1013,7 +1047,7 @@ test("GET /api/sessions/:id/leftovers flags a dead probe snapshot", async () => 
     health: () => ({ state: "none", driven: true }),
   });
   const s = mkLeftoverSession(store);
-  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/leftovers`));
+  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/leftovers`));
   expect(await res.json()).toEqual({ leftovers: [], probesUnavailable: true });
 });
 
@@ -1028,7 +1062,7 @@ test("GET /api/sessions/:id/leftovers flags a fresh snapshot that still can't de
     health: () => ({ state: "fresh", driven: true }),
   });
   const s = mkLeftoverSession(store);
-  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/leftovers`));
+  const res = await app.fetch(new Request(`http://localhost:7330/api/sessions/${s.id}/leftovers`));
   expect(await res.json()).toEqual({ leftovers: [], probesUnavailable: true });
 });
 
@@ -1038,7 +1072,9 @@ test("GET /api/sessions/:id/leftovers → [] and no caution without a reaper", a
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
-  const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/leftovers`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${created.id}/leftovers`),
+  );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ leftovers: [], probesUnavailable: false });
 });
@@ -1065,7 +1101,7 @@ test("DELETE /api/sessions/:id with a reap body terminates the selected leftover
     herdrAgentId: "term_z",
   });
   const del = await app.fetch(
-    new Request(`http://x/api/sessions/${s.id}`, {
+    new Request(`http://localhost:7330/api/sessions/${s.id}`, {
       method: "DELETE",
       headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
       body: JSON.stringify({ reap: ["process:9"] }),
@@ -1093,7 +1129,9 @@ test("DELETE /api/sessions/:id with no body archives without reaping", async () 
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  const del = await app.fetch(new Request(`http://x/api/sessions/${s.id}`, { method: "DELETE" }));
+  const del = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${s.id}`, { method: "DELETE" }),
+  );
   expect(del.status).toBe(200);
   expect(reaped).toEqual([]); // nothing selected → reaper untouched
   expect(store.get(s.id)?.status).toBe("archived");
@@ -1134,7 +1172,7 @@ test("POST with invalid baseBranch → 400", async () => {
 test("POST missing Content-Type → 415", async () => {
   const app = harness();
   const res = await app.fetch(
-    new Request("http://x/api/sessions", {
+    new Request("http://localhost:7330/api/sessions", {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: JSON.stringify({ repoPath: validRepo, baseBranch: "main", prompt: "go" }),
@@ -1153,7 +1191,7 @@ test("POST with repoPath outside repoRoot → 400", async () => {
 
 test("GET /api/sessions has no auth/origin restrictions", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/api/sessions"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/sessions"));
   expect(res.status).toBe(200);
 });
 
@@ -1372,14 +1410,14 @@ const UI_INDEX = join(import.meta.dir, "..", "ui", "build", "index.html");
 
 test.skipIf(!existsSync(UI_INDEX))("GET / serves the SPA index html", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/"));
+  const res = await app.fetch(new Request("http://localhost:7330/"));
   expect(res.status).toBe(200);
   expect(res.headers.get("content-type") ?? "").toContain("html");
 });
 
 test("GET /api/unknown still returns JSON 404 (not html)", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/api/unknown"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/unknown"));
   expect(res.status).toBe(404);
   expect(res.headers.get("content-type") ?? "").toContain("json");
 });
@@ -1392,7 +1430,7 @@ test("WS /events with allowed Origin → not 403", async () => {
   try {
     const port = server.port;
     const res = await fetch(`http://localhost:${port}/events`, {
-      headers: { Origin: "http://localhost:7330" },
+      headers: { Origin: `http://localhost:${port}` },
     });
     // The upgrade will fail (plain fetch, not a WS client) → 500, but NOT 403
     expect(res.status).not.toBe(403);
@@ -1405,7 +1443,7 @@ test("WS /events with allowed Origin → not 403", async () => {
 
 test("GET /api/repos → 200 + { repos, recentWindowDays }", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/api/repos"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/repos"));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(Array.isArray(body.repos)).toBe(true);
@@ -1431,7 +1469,7 @@ test("GET /api/repos prefers originSlug, falls back to slug, omits remoteSlug wi
   };
 
   try {
-    const res = await makeApp(deps).fetch(new Request("http://x/api/repos"));
+    const res = await makeApp(deps).fetch(new Request("http://localhost:7330/api/repos"));
     expect(res.status).toBe(200);
     const body = await res.json();
     const forkRepo = body.repos.find((repo: { path: string }) => repo.path === tmpRoot);
@@ -1461,7 +1499,7 @@ test("GET /api/repos prefers originSlug, falls back to slug, omits remoteSlug wi
 test("GET /api/branches?repo=<validRepo> → 200 with branches + current", async () => {
   const app = harness();
   const res = await app.fetch(
-    new Request(`http://x/api/branches?repo=${encodeURIComponent(validRepo)}`),
+    new Request(`http://localhost:7330/api/branches?repo=${encodeURIComponent(validRepo)}`),
   );
   expect(res.status).toBe(200);
   const body = await res.json();
@@ -1473,7 +1511,7 @@ test("POST /api/repos/init-empty-commit creates an initial commit", async () => 
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: validRepo });
   const app = harness();
   const res = await app.fetch(
-    new Request("http://x/api/repos/init-empty-commit", {
+    new Request("http://localhost:7330/api/repos/init-empty-commit", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ repo: validRepo, branch: "main" }),
@@ -1491,20 +1529,20 @@ test("POST /api/repos/init-empty-commit creates an initial commit", async () => 
 
 test("GET /api/branches?repo=/etc → 400", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/api/branches?repo=/etc"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/branches?repo=/etc"));
   expect(res.status).toBe(400);
 });
 
 test("HEAD on a non-API route → 200, no body (not 404)", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/", { method: "HEAD" }));
+  const res = await app.fetch(new Request("http://localhost:7330/", { method: "HEAD" }));
   expect(res.status).toBe(200);
   expect(await res.text()).toBe("");
 });
 
 test("GET /api/todo?repo=/etc/passwd → 400", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/api/todo?repo=/etc/passwd"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/todo?repo=/etc/passwd"));
   expect(res.status).toBe(400);
 });
 
@@ -1513,7 +1551,7 @@ test("GET /api/todo?repo=/etc/passwd → 400", async () => {
 test("GET /api/issues?repo=<validRepo> → 200 with slug + issues array", async () => {
   const app = harness();
   const res = await app.fetch(
-    new Request(`http://x/api/issues?repo=${encodeURIComponent(validRepo)}`),
+    new Request(`http://localhost:7330/api/issues?repo=${encodeURIComponent(validRepo)}`),
   );
   expect(res.status).toBe(200);
   const body = await res.json();
@@ -1523,14 +1561,14 @@ test("GET /api/issues?repo=<validRepo> → 200 with slug + issues array", async 
 
 test("GET /api/issues?repo=/etc → 400", async () => {
   const app = harness();
-  const res = await app.fetch(new Request("http://x/api/issues?repo=/etc"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/issues?repo=/etc"));
   expect(res.status).toBe(400);
 });
 
 test("PUT /api/todo with evil Origin → 403", async () => {
   const app = harness();
   const res = await app.fetch(
-    new Request(`http://x/api/todo?repo=${encodeURIComponent(validRepo)}`, {
+    new Request(`http://localhost:7330/api/todo?repo=${encodeURIComponent(validRepo)}`, {
       method: "PUT",
       headers: {
         "content-type": "application/json",
@@ -1546,7 +1584,9 @@ test("POST /api/uploads saves a staged attachment and returns its path", async (
   const app = harness();
   const fd = new FormData();
   fd.append("file", new File([new Uint8Array([1, 2, 3])], "s.pdf", { type: "application/pdf" }));
-  const res = await app.fetch(new Request("http://x/api/uploads", { method: "POST", body: fd }));
+  const res = await app.fetch(
+    new Request("http://localhost:7330/api/uploads", { method: "POST", body: fd }),
+  );
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.path.startsWith(stagingDir(config.repoRoot) + "/")).toBe(true);
@@ -1611,7 +1651,7 @@ test("POST /api/uploads?session takes any file type for the in-session attach wo
     new File([new Uint8Array([1])], "logo.eps", { type: "application/postscript" }),
   );
   const res = await app.fetch(
-    new Request(`http://x/api/uploads?session=${s.id}`, { method: "POST", body: fd }),
+    new Request(`http://localhost:7330/api/uploads?session=${s.id}`, { method: "POST", body: fd }),
   );
   expect(res.status).toBe(200);
   expect((await res.json()).path.endsWith(".eps")).toBe(true);
@@ -1624,7 +1664,7 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
   ).json();
 
   const ok = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/reply`, {
+    new Request(`http://localhost:7330/api/sessions/${created.id}/reply`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "1" }),
@@ -1633,7 +1673,7 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
   expect(ok.status).toBe(200);
 
   const missing = await app.fetch(
-    new Request(`http://x/api/sessions/does-not-exist/reply`, {
+    new Request(`http://localhost:7330/api/sessions/does-not-exist/reply`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "1" }),
@@ -1642,7 +1682,7 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
   expect(missing.status).toBe(404);
 
   const bad = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/reply`, {
+    new Request(`http://localhost:7330/api/sessions/${created.id}/reply`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ nope: true }),
@@ -1651,7 +1691,7 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
   expect(bad.status).toBe(400);
 
   const wrongType = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/reply`, {
+    new Request(`http://localhost:7330/api/sessions/${created.id}/reply`, {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: "1",
@@ -1671,7 +1711,7 @@ test("POST /api/sessions/:id/ready toggles the flag, emits session:ready, valida
   deps.events.subscribe((event, data) => events.push({ event, data }));
 
   const ok = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/ready`, {
+    new Request(`http://localhost:7330/api/sessions/${created.id}/ready`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ready: true }),
@@ -1683,7 +1723,7 @@ test("POST /api/sessions/:id/ready toggles the flag, emits session:ready, valida
   expect(events).toEqual([{ event: "session:ready", data: { id: created.id, ready: true } }]);
 
   const off = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/ready`, {
+    new Request(`http://localhost:7330/api/sessions/${created.id}/ready`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ready: false }),
@@ -1693,7 +1733,7 @@ test("POST /api/sessions/:id/ready toggles the flag, emits session:ready, valida
   expect(deps.store.get(created.id)?.readyToMerge).toBe(false);
 
   const missing = await app.fetch(
-    new Request(`http://x/api/sessions/does-not-exist/ready`, {
+    new Request(`http://localhost:7330/api/sessions/does-not-exist/ready`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ready: true }),
@@ -1702,7 +1742,7 @@ test("POST /api/sessions/:id/ready toggles the flag, emits session:ready, valida
   expect(missing.status).toBe(404);
 
   const bad = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/ready`, {
+    new Request(`http://localhost:7330/api/sessions/${created.id}/ready`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ready: "yes" }),
@@ -1711,7 +1751,7 @@ test("POST /api/sessions/:id/ready toggles the flag, emits session:ready, valida
   expect(bad.status).toBe(400);
 
   const wrongType = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/ready`, {
+    new Request(`http://localhost:7330/api/sessions/${created.id}/ready`, {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: "1",
@@ -1732,7 +1772,7 @@ test("POST /api/sessions/:id/resume brings a finished session back + emits runni
   deps.events.subscribe((event, data) => events.push({ event, data }));
 
   const res = await app.fetch(
-    new Request(`http://x/api/sessions/${created.id}/resume`, { method: "POST" }),
+    new Request(`http://localhost:7330/api/sessions/${created.id}/resume`, { method: "POST" }),
   );
   expect(res.status).toBe(200);
   const body = await res.json();
@@ -1745,7 +1785,7 @@ test("POST /api/sessions/:id/resume brings a finished session back + emits runni
 
 test("POST /api/sessions/:id/resume 409s when there's nothing to resume", async () => {
   const res = await harness().fetch(
-    new Request("http://x/api/sessions/nope/resume", { method: "POST" }),
+    new Request("http://localhost:7330/api/sessions/nope/resume", { method: "POST" }),
   );
   expect(res.status).toBe(409);
 });
@@ -1756,7 +1796,7 @@ function harnessWithUpdates(updates: AppDeps["updates"]) {
 }
 
 test("GET /api/update with no updater returns a zeroed status", async () => {
-  const res = await harness().fetch(new Request("http://x/api/update"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/update"));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.behind).toBe(0);
@@ -1771,13 +1811,15 @@ test("GET /api/update returns the updater's current status", async () => {
     checkedAt: 1,
   };
   const app = harnessWithUpdates({ current: () => status, apply: () => ({ started: true }) });
-  const res = await app.fetch(new Request("http://x/api/update"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/update"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(status);
 });
 
 test("POST /api/update with no updater → 503", async () => {
-  const res = await harness().fetch(new Request("http://x/api/update", { method: "POST" }));
+  const res = await harness().fetch(
+    new Request("http://localhost:7330/api/update", { method: "POST" }),
+  );
   expect(res.status).toBe(503);
 });
 
@@ -1786,7 +1828,7 @@ test("POST /api/update when up to date → 409", async () => {
     current: () => ({ behind: 0, current: "a", latest: "a", commits: [], checkedAt: 1 }),
     apply: () => ({ started: true }),
   });
-  const res = await app.fetch(new Request("http://x/api/update", { method: "POST" }));
+  const res = await app.fetch(new Request("http://localhost:7330/api/update", { method: "POST" }));
   expect(res.status).toBe(409);
 });
 
@@ -1799,7 +1841,7 @@ test("POST /api/update when behind triggers apply → 202", async () => {
       return { started: true };
     },
   });
-  const res = await app.fetch(new Request("http://x/api/update", { method: "POST" }));
+  const res = await app.fetch(new Request("http://localhost:7330/api/update", { method: "POST" }));
   expect(res.status).toBe(202);
   expect(applied).toBe(1);
 });
@@ -1809,7 +1851,7 @@ test("POST /api/update that can't start → 409 carries the reason (not a bare c
     current: () => ({ behind: 1, current: "a", latest: "b", commits: [], checkedAt: 1 }),
     apply: () => ({ started: false, error: "a deploy is already running" }),
   });
-  const res = await app.fetch(new Request("http://x/api/update", { method: "POST" }));
+  const res = await app.fetch(new Request("http://localhost:7330/api/update", { method: "POST" }));
   expect(res.status).toBe(409);
   expect((await res.json()).error).toBe("a deploy is already running");
 });
@@ -1820,7 +1862,7 @@ test("GET /api/update/log returns the deploy state", async () => {
     apply: () => ({ started: true }),
     applyState: () => ({ phase: "failed", exitCode: 1, log: "build failed: tsc error" }),
   });
-  const res = await app.fetch(new Request("http://x/api/update/log"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/update/log"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
     phase: "failed",
@@ -1843,7 +1885,7 @@ function dirtyFixture(sig: string | null) {
 }
 function postUpdate(app: ReturnType<typeof makeApp>, body: unknown) {
   return app.fetch(
-    new Request("http://x/api/update", {
+    new Request("http://localhost:7330/api/update", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -1863,7 +1905,7 @@ test("GET /api/update/dirty returns the fresh status with pathspec buffers strip
     apply: () => ({ started: true }),
     dirtyStatus: async () => dirtyFixture("S"),
   });
-  const res = await app.fetch(new Request("http://x/api/update/dirty"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/update/dirty"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
     dirty: true,
@@ -1987,7 +2029,7 @@ test("app-managed discard refusal still cleans the server's private pathspec dir
 });
 
 test("GET /api/update/log with no updater → idle", async () => {
-  const res = await harness().fetch(new Request("http://x/api/update/log"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/update/log"));
   expect(res.status).toBe(200);
   expect((await res.json()).phase).toBe("idle");
 });
@@ -2076,7 +2118,7 @@ function clearMergedHarness(reaperExtra?: { canDetectLeftovers?: any; health?: a
 
 const clearMergedPost = (app: any, body: unknown) =>
   app.fetch(
-    new Request("http://x/api/sessions/clear-merged", {
+    new Request("http://localhost:7330/api/sessions/clear-merged", {
       method: "POST",
       headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
       body: JSON.stringify(body),
@@ -2088,7 +2130,7 @@ test("GET /api/sessions/clear-merged lists only merged ids and totals their left
   const a = h.mk("a", "merged");
   const b = h.mk("b", "merged");
   h.mk("c", "open"); // not merged → excluded
-  const res = await h.app.fetch(new Request("http://x/api/sessions/clear-merged"));
+  const res = await h.app.fetch(new Request("http://localhost:7330/api/sessions/clear-merged"));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(new Set(body.ids)).toEqual(new Set([a.id, b.id]));
@@ -2106,7 +2148,7 @@ test("GET /api/sessions/clear-merged flags leftover probes that can't detect", a
     health: () => ({ state: "fresh", driven: true }),
   });
   h.mk("a", "merged");
-  const res = await h.app.fetch(new Request("http://x/api/sessions/clear-merged"));
+  const res = await h.app.fetch(new Request("http://localhost:7330/api/sessions/clear-merged"));
   const body = await res.json();
   expect(body.probesUnavailable).toBe(true);
 });
@@ -2155,7 +2197,7 @@ test("DELETE /api/sessions/clear-merged → 405, never archives the literal segm
   const h = clearMergedHarness();
   h.mk("a", "merged");
   const res = await h.app.fetch(
-    new Request("http://x/api/sessions/clear-merged", {
+    new Request("http://localhost:7330/api/sessions/clear-merged", {
       method: "DELETE",
       headers: { Origin: "http://localhost:7330" },
     }),
@@ -2168,7 +2210,7 @@ test("DELETE /api/sessions/clear-merged → 405, never archives the literal segm
 
 function postRepos(app: ReturnType<typeof makeApp>, body: unknown, headers?: HeadersInit) {
   return app.fetch(
-    new Request("http://x/api/repos", {
+    new Request("http://localhost:7330/api/repos", {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
@@ -2179,7 +2221,7 @@ function postRepos(app: ReturnType<typeof makeApp>, body: unknown, headers?: Hea
 test("POST /api/repos missing Content-Type → 415", async () => {
   const app = harness();
   const res = await app.fetch(
-    new Request("http://x/api/repos", {
+    new Request("http://localhost:7330/api/repos", {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: JSON.stringify({ url: "https://github.com/owner/repo" }),
@@ -2245,7 +2287,7 @@ test("POST /api/repos with foreign Origin → 403", async () => {
 
 function putRepoConfig(app: ReturnType<typeof makeApp>, repo: string, body: unknown) {
   return app.fetch(
-    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(repo)}`, {
+    new Request(`http://localhost:7330/api/repo-config?repo=${encodeURIComponent(repo)}`, {
       method: "PUT",
       headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
       body: JSON.stringify(body),
@@ -2255,7 +2297,7 @@ function putRepoConfig(app: ReturnType<typeof makeApp>, repo: string, body: unkn
 
 function putSessionAutoMerge(app: ReturnType<typeof makeApp>, id: string, body: unknown) {
   return app.fetch(
-    new Request(`http://x/api/sessions/${id}/automerge`, {
+    new Request(`http://localhost:7330/api/sessions/${id}/automerge`, {
       method: "PUT",
       headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
       body: JSON.stringify(body),
@@ -2650,7 +2692,7 @@ test("PUT /api/sessions/:id/automerge 404s for unknown session", async () => {
 });
 
 test("GET /api/automerge returns empty array when dep absent", async () => {
-  const res = await harness().fetch(new Request("http://x/api/automerge"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/automerge"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual([]);
 });
@@ -2717,7 +2759,7 @@ test("GET /api/preview merges serve status into preview snapshot", async () => {
     snapshot: () => ({ s1: "failed" }),
   };
   const app = makeApp(deps);
-  const res = await app.fetch(new Request("http://x/api/preview"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/preview"));
   expect(res.status).toBe(200);
   const body = (await res.json()) as Record<string, { previewPort: number; serve?: string }>;
   expect(body.s1).toEqual({ previewPort: 8001, serve: "failed" });
@@ -2735,7 +2777,7 @@ test("GET /api/preview without previewServe dep returns unchanged snapshot (back
   };
   // previewServe intentionally absent
   const app = makeApp(deps);
-  const res = await app.fetch(new Request("http://x/api/preview"));
+  const res = await app.fetch(new Request("http://localhost:7330/api/preview"));
   expect(res.status).toBe(200);
   const body = (await res.json()) as Record<string, { previewPort: number; serve?: string }>;
   expect(body.s1).toEqual({ previewPort: 8001 });
@@ -2805,7 +2847,7 @@ function harnessWithPreviewStop({
 
 const previewStop = (app: ReturnType<typeof makeApp>, id: string) =>
   app.fetch(
-    new Request(`http://x/api/sessions/${id}/preview/stop`, {
+    new Request(`http://localhost:7330/api/sessions/${id}/preview/stop`, {
       method: "POST",
     }),
   );
@@ -2988,14 +3030,16 @@ test("GET /api/sessions/:id/preview/stop (wrong method) → falls through router
     herdrSession: "default",
     herdrAgentId: "term_z",
   });
-  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/preview/stop`));
+  const res = await app.fetch(
+    new Request(`http://localhost:7330/api/sessions/${s.id}/preview/stop`),
+  );
   expect(res.status).not.toBe(200);
 });
 
 // ── GET /api/usage/history ─────────────────────────────────────────────────
 
 test("GET /api/usage/history returns empty arrays when no history rows exist", async () => {
-  const res = await harness().fetch(new Request("http://x/api/usage/history"));
+  const res = await harness().fetch(new Request("http://localhost:7330/api/usage/history"));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.caps.session5h).toEqual([]);
@@ -3032,7 +3076,7 @@ test("GET /api/usage/history returns cap rows split by window in ASC scrapedAt o
     scrapedAt: now - 150,
   });
 
-  const res = await makeApp(deps).fetch(new Request("http://x/api/usage/history"));
+  const res = await makeApp(deps).fetch(new Request("http://localhost:7330/api/usage/history"));
   expect(res.status).toBe(200);
   const body = await res.json();
 
@@ -3061,7 +3105,7 @@ test("GET /api/usage/history returns credit snapshots and since equals now - USA
     scrapedAt: now - 100,
   });
 
-  const res = await makeApp(deps).fetch(new Request("http://x/api/usage/history"));
+  const res = await makeApp(deps).fetch(new Request("http://localhost:7330/api/usage/history"));
   expect(res.status).toBe(200);
   const body = await res.json();
 
@@ -3098,7 +3142,7 @@ test("GET /api/usage/history does not return rows older than retention window", 
     scrapedAt: now - 50,
   });
 
-  const res = await makeApp(deps).fetch(new Request("http://x/api/usage/history"));
+  const res = await makeApp(deps).fetch(new Request("http://localhost:7330/api/usage/history"));
   expect(res.status).toBe(200);
   const body = await res.json();
 
@@ -3119,7 +3163,7 @@ test("Codex reset routes validate requests and persist automation without spendi
   const app = makeApp(d);
   const request = (path: string, method: string, body: unknown) =>
     app.fetch(
-      new Request(`http://x/api/usage/codex/${path}`, {
+      new Request(`http://localhost:7330/api/usage/codex/${path}`, {
         method,
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -3346,7 +3390,7 @@ test("repo-config priorityLabels normalizes, preserves omitted fields, and clear
   expect((await res.json()).priorityLabels).toEqual(["ci-gate-rot", "Urgent"]);
   expect((await putRepoConfig(app, validRepo, { maxAuto: 3 })).status).toBe(200);
   const get = await app.fetch(
-    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(validRepo)}`),
+    new Request(`http://localhost:7330/api/repo-config?repo=${encodeURIComponent(validRepo)}`),
   );
   expect((await get.json()).priorityLabels).toEqual(["ci-gate-rot", "Urgent"]);
   expect(deps.store.getRepoConfig(validRepo).maxAuto).toBe(3);

@@ -217,6 +217,90 @@ describe("resolveAuxSpawn", () => {
     expect(d.argv).toEqual(["claude", "--x"]);
   });
 
+  test("prepareClaudeState: the copy for the ROUTED config dir is bound RW in place of its .claude.json (F04)", async () => {
+    let seen: Record<string, unknown> | null = null;
+    const result = await resolveAuxSpawn({
+      argv: ["claude"],
+      worktreePath: "/wt/task",
+      repoPath: "/repo",
+      worktree: worktreeStub(),
+      seams: {
+        detectBackend: () => "bwrap",
+        membraneLaunch: okLaunch,
+        membraneEnv: () => stubEnv,
+        pathExists: () => true,
+        runSpawnHooks: async () => ({ credentialDir: "/pool/acct-3" }),
+        prepareClaudeState: async (i) => {
+          seen = { ...i };
+          return "/run/m/review.claude.json";
+        },
+      },
+      descriptor: { sessionId: "s-1", kind: "review" },
+    });
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
+    // Parentless role → shared `aux` dir, one file per kind (never the transient id).
+    expect(seen).toMatchObject({
+      claudeDir: "/pool/acct-3",
+      projectsSource: "/stub/projects",
+      cwd: "/wt/task",
+      sessionId: "aux",
+      key: "review",
+    });
+    const f = result.wrapped;
+    expect(hasTriple(f, "--bind", "/run/m/review.claude.json", "/pool/acct-3/.claude.json")).toBe(
+      true,
+    );
+    expect(
+      f.includes("--bind-try") && f[f.indexOf("--bind-try") + 1]?.endsWith(".claude.json"),
+    ).toBe(false);
+  });
+
+  test("prepareClaudeState keys a parented aux copy under the PARENT session (removed at its archive)", async () => {
+    const seen: { sessionId: string; key: string }[] = [];
+    for (const criticId of ["crit-a", "crit-b"]) {
+      await resolveAuxSpawn({
+        argv: ["claude"],
+        worktreePath: "/wt/task",
+        repoPath: "/repo",
+        worktree: worktreeStub(),
+        seams: {
+          detectBackend: () => "bwrap",
+          membraneLaunch: okLaunch,
+          membraneEnv: () => stubEnv,
+          prepareClaudeState: async (i) => {
+            seen.push({ sessionId: i.sessionId, key: i.key });
+            return "/x";
+          },
+        },
+        descriptor: { sessionId: criticId, kind: "review", parentSessionId: "sess-9" },
+      });
+    }
+    expect(seen).toEqual([
+      { sessionId: "sess-9", key: "review" },
+      { sessionId: "sess-9", key: "review" },
+    ]);
+  });
+
+  test("prepareClaudeState is skipped with no backend (nothing wrapped)", async () => {
+    let called = false;
+    await resolveAuxSpawn({
+      argv: ["claude"],
+      worktreePath: "/wt/task",
+      repoPath: "/repo",
+      worktree: worktreeStub(),
+      seams: {
+        detectBackend: () => null,
+        membraneEnv: () => stubEnv,
+        prepareClaudeState: async () => {
+          called = true;
+          return "/x";
+        },
+      },
+      descriptor: { sessionId: "s-1", kind: "review" },
+    });
+    expect(called).toBe(false);
+  });
+
   test("patched credentialDir is BOUND as claudeDir in the membrane, projects source=active (#1213)", async () => {
     const result = await resolveAuxSpawn({
       argv: ["claude"],
@@ -240,10 +324,10 @@ describe("resolveAuxSpawn", () => {
     // The pool dir is actually BOUND (the bug: previously only --setenv, never mounted).
     expect(hasTriple(f, "--ro-bind", "/pool/acct-3", "/pool/acct-3")).toBe(true);
     // projects bind SOURCE = active projects dir, DEST = pool projects → readback preserved.
-    expect(hasTriple(f, "--bind", "/stub/projects", "/pool/acct-3/projects")).toBe(true);
-    // config-dir .claude.json rw-bound so onboarding/project state persists.
+    expect(hasTriple(f, "--ro-bind-try", "/stub/projects", "/pool/acct-3/projects")).toBe(true);
+    // config-dir .claude.json: the host file only ever RO (no per-spawn copy seam here).
     expect(
-      hasTriple(f, "--bind-try", "/pool/acct-3/.claude.json", "/pool/acct-3/.claude.json"),
+      hasTriple(f, "--ro-bind-try", "/pool/acct-3/.claude.json", "/pool/acct-3/.claude.json"),
     ).toBe(true);
     // CLAUDE_CONFIG_DIR set from the bind, exactly once (no duplicate from the patch env).
     expect(f.filter((x) => x === "CLAUDE_CONFIG_DIR").length).toBe(1);
@@ -288,7 +372,7 @@ describe("resolveAuxSpawn", () => {
     // api-key helper RO-bound.
     expect(hasTriple(f, "--ro-bind-try", "/helper.sh", "/helper.sh")).toBe(true);
     // projects bind SOURCE = active projects dir (readback preserved even under api-key routing).
-    expect(hasTriple(f, "--bind", "/stub/projects", "/pool/acct-5/projects")).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", "/stub/projects", "/pool/acct-5/projects")).toBe(true);
   });
 
   test("api-key + NO backend: credential-less mirror WINS over a routed credentialDir (#1213)", async () => {
@@ -374,7 +458,9 @@ describe("resolveAuxSpawn", () => {
     const f = result.wrapped;
     // pool (== ~/.claude) is bound; projects source = active projects dir.
     expect(hasTriple(f, "--ro-bind", "/stub/home/.claude", "/stub/home/.claude")).toBe(true);
-    expect(hasTriple(f, "--bind", "/stub/projects", "/stub/home/.claude/projects")).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", "/stub/projects", "/stub/home/.claude/projects")).toBe(
+      true,
+    );
     // No CLAUDE_CONFIG_DIR setenv (relies on Claude's default) and no config-dir .claude.json bind.
     expect(f.includes("CLAUDE_CONFIG_DIR")).toBe(false);
     expect(

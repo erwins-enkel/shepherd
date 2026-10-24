@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { config } from "./config";
 import { claudeConfigPath } from "./claude-trust";
+import type { MembraneStateInputs } from "./membrane-state";
 import { apiKeyMembraneFields, apiKeyPassthroughEnv } from "./spawn-auth";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { toolGuardMembranePaths } from "./tool-guard-hook";
@@ -63,6 +64,10 @@ export interface MembraneSeams {
    *  Absent ⇒ no seeding (same convention as `runSpawnHooks`), which keeps tests off the real
    *  `$HOME`: this is the one seam here that WRITES to host state. Wired in index.ts. */
   trustDir?: (dir: string, configPath: string) => Promise<void>;
+  /** Write the wrapped spawn's private `.claude.json` copy + create its mountpoints (audit
+   *  F04/F06; see membrane-state.ts). Absent ⇒ no copy, the host file is bound READ-ONLY — same
+   *  "absent keeps tests off `$HOME`" convention as `trustDir`. Wired in index.ts. */
+  prepareClaudeState?: (i: MembraneStateInputs) => Promise<string | null>;
   /** "Does this agent binary actually start inside the membrane?" (issue #2111). Absent ⇒ the REAL
    *  probe, NOT a no-op: a safety gate that has to be remembered gets forgotten. It short-circuits
    *  when `backend` is null, so in TESTS only one that injects a `bwrap` backend reaches the real
@@ -119,6 +124,8 @@ export function resolveSpawnMembrane(args: {
    *  so a patched CLAUDE_CONFIG_DIR rides the bwrap --setenv (carried THROUGH --clearenv), not
    *  just the outer env. */
   extraEnv?: Record<string, string>;
+  /** This spawn's `.claude.json` copy from {@link resolveAuxPatch}; null → host file RO. */
+  claudeJsonCopy?: string | null;
 }): { wrapped: string[]; backend: SandboxBackend } {
   const backend = resolveBackend(args.seams);
   const env = resolveMembraneEnv(args.seams);
@@ -155,6 +162,7 @@ export function resolveSpawnMembrane(args: {
     // Shepherd `--settings` hooks, so nothing here depends on it today — but the bind is what keeps
     // "the guard exists wherever a Shepherd-spawned agent runs" true if one ever does.
     agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
+    claudeJsonCopy: args.claudeJsonCopy ?? null,
   };
   const wrapped = wrapArgv(args.argv, { profile: "standard", backend, membrane });
   return { wrapped, backend };
@@ -248,6 +256,8 @@ async function foldAuxPatch(
  *  different inner argvs — to produce byte-exact spawn inputs synchronously. */
 export interface AuxPatch {
   backend: SandboxBackend;
+  /** The wrapped spawn's `.claude.json` copy (null → host file RO, or nothing wrapped). */
+  claudeJsonCopy: string | null;
   baseEnv: Record<string, string> | undefined;
   patchEnv: Record<string, string>;
   extraArgs: string[];
@@ -347,8 +357,58 @@ export async function resolveAuxPatch(
     }
   }
 
-  return { backend, baseEnv, patchEnv: folded.patchEnv, extraArgs: folded.extraArgs };
+  const claudeJsonCopy = await prepareAuxClaudeState(args, backend, baseEnv, folded.patchEnv);
+  return {
+    backend,
+    claudeJsonCopy,
+    baseEnv,
+    patchEnv: folded.patchEnv,
+    extraArgs: folded.extraArgs,
+  };
 }
+
+/** The wrapped aux spawn's `.claude.json` copy, for the SAME claudeDir/projects source
+ *  resolveSpawnMembrane binds. Runs after the trust seed so the copy carries it. Best-effort: a
+ *  failure degrades to the RO host bind, never fails the spawn. */
+async function prepareAuxClaudeState(
+  args: AuxSpawnArgs,
+  backend: SandboxBackend,
+  baseEnv: Record<string, string> | undefined,
+  patchEnv: Record<string, string>,
+): Promise<string | null> {
+  if (backend === null || !args.seams.prepareClaudeState) return null;
+  const env = resolveMembraneEnv(args.seams);
+  const claudeDir = mergeAuxEnv(backend, baseEnv, patchEnv).CLAUDE_CONFIG_DIR ?? env.claudeDir;
+  const projectsSource =
+    claudeDir !== env.claudeDir
+      ? (env.projectsDir ?? `${env.claudeDir}/projects`)
+      : `${claudeDir}/projects`;
+  try {
+    return await args.seams.prepareClaudeState({
+      home: env.home,
+      claudeDir,
+      projectsSource,
+      cwd: args.worktreePath,
+      ...auxStateKey(args.descriptor),
+    });
+  } catch (err) {
+    console.warn(`[spawn] could not prepare membrane Claude state for ${args.worktreePath}:`, err);
+    return null;
+  }
+}
+
+/** Where an aux spawn's copy lives. Aux session ids are transient (a fresh critic/reviewer id
+ *  per round, a randomUUID for standalone roles), so keying by them would leak a copy per spawn.
+ *  Instead: the PARENT session's dir (removed at its archive) or one shared dir for parentless
+ *  roles (swept at boot), with ONE file per kind, overwritten by rename each spawn — an earlier,
+ *  still-running spawn keeps the inode it mounted. Sharing is safe because every copy is read
+ *  AFTER the host trust seed for its own cwd, so a later copy carries every earlier cwd's trust. */
+function auxStateKey(d: AuxSpawnArgs["descriptor"]): { sessionId: string; key: string } {
+  return { sessionId: d.parentSessionId ?? AUX_STATE_DIR, key: d.kind };
+}
+
+/** Shared membrane-state dir for parentless aux roles — never a live session id. */
+const AUX_STATE_DIR = "aux";
 
 /** The spawn's effective env. Normally patchEnv LAST so a patched CLAUDE_CONFIG_DIR wins over
  *  apiKeyPassthroughEnv's mirror. EXCEPTION (#1213): api-key + NO backend — baseEnv is truthy ONLY
@@ -394,6 +454,7 @@ export function assembleAuxSpawn(
     worktree: args.worktree,
     seams: args.seams,
     extraEnv: patch.patchEnv,
+    claudeJsonCopy: patch.claudeJsonCopy,
   });
 
   // Merge order lives in mergeAuxEnv — shared with resolveAuxPatch's trust seed.

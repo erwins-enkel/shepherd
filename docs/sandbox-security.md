@@ -53,6 +53,31 @@ break the unmodified-CLI + subscription-OAuth-refresh stance.
 (#601) bounds **where** a leaked token can go; `--clearenv` keeps env-resident
 secrets out of the membrane entirely.
 
+## Shared Claude state and agent-written files
+
+The membrane never binds Claude state that **unconfined** sessions (trusted
+profile, the operator's own `claude`) execute or read as instructions writable
+(`buildMembraneFlags`, `src/membrane-state.ts`):
+
+- **`.claude.json`** — each spawn gets a private copy (seeded with trust for its
+  cwd) under `$XDG_RUNTIME_DIR/shepherd/membrane/<session>/`, bound RW in place of
+  the file Claude reads. Writes (onboarding, trust, `mcpServers`) die with the
+  copy; nothing is merged back. Callers without a copy (launch/egress probes,
+  preview) see the host file **RO**. One copy per session plus one per aux role
+  kind (under the parent session, or a shared `aux/` dir for parentless roles),
+  overwritten on each spawn; removed at the session's archive and swept at boot.
+- **`shell-snapshots/`, `todos/`, `statsig/`** — per-membrane tmpfs.
+- **`projects/`** — RO; only the spawn's own transcript dir
+  (`projects/<dashified cwd>`) is RW, with its `memory/` RO.
+- **Preview** — the agent-authored `<git-common-dir>/shepherd/preview-start.sh`
+  runs inside the membrane with `--clearenv` (credentials masked) whenever the
+  repo's resolved profile or the session's applied profile is sandboxed
+  (`SessionService.previewLaunch`). **Residual:** it keeps host networking so the
+  preview proxy can reach the dev server, so an autonomous repo's preview is not
+  behind the egress firewall.
+- **Relaunch uploads** — the server carries only regular, non-symlink files from
+  a real `.shepherd-uploads` dir, and refuses to upload through a symlinked one.
+
 ## Attended-mode egress coverage
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
@@ -446,7 +471,7 @@ profile have no pin anchor (the agent owns the whole repo), and
 
 ## See also
 
-- `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
+- `src/egress.ts`, `src/sandbox.ts`, `src/membrane-state.ts`, `src/service.ts`, `src/autopilot.ts`,
   `src/transient-agent-argv.ts`, `src/task-shape.ts`, `src/maintain.ts`, `src/untrusted.ts`, `src/task-amendments.ts`,
   `src/tool-guard-hook.ts`,
   `scripts/tool-guard.mjs`.

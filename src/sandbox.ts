@@ -17,6 +17,7 @@
  */
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
+import { claudeConfigPath, dashify } from "./claude-trust";
 import { basename, dirname } from "node:path";
 import { execFileSync } from "./instrument";
 import { CODEX_ROLE_SCHEMA_DIR } from "./codex-role-output-schema";
@@ -214,6 +215,9 @@ export interface MembraneInputs {
    *  where Shepherd's usage/activity readback looks (config.claudeProjectsDir via
    *  jsonlPathFor) even though auth comes from the (pool) claudeDir. */
   projectsBindSource?: string;
+  /** Host path of this spawn's private copy of the `.claude.json` Claude reads (see
+   *  membrane-state.ts), bound RW in its place. Absent → the host file is bound READ-ONLY. */
+  claudeJsonCopy?: string | null;
   /** Codex CLI support — set only for a `codex` inner argv (see membraneForArgv).
    *  Absent (claude spawns): flags stay byte-identical to the historical output. */
   codex?: CodexMembraneInputs;
@@ -486,6 +490,37 @@ function maskedClaudeDirBinds(claudeDir: string, readdir: (p: string) => string[
   return flags;
 }
 
+/** `<claudeDir>` children that get a per-membrane tmpfs instead of the shared host dir. */
+export const EPHEMERAL_CLAUDE_DIRS = ["shell-snapshots", "todos", "statsig"] as const;
+
+/**
+ * The spawn's own transcript dir (`projects/<dashify(cwd)>`) RW over the RO projects bind, with
+ * its `memory/` kept read-only (or a tmpfs when absent, so nothing written there reaches the
+ * host). Only when the host dir exists: a missing source could not be mounted under the RO
+ * projects bind; prepareMembraneClaudeState creates it for real spawns.
+ */
+function ownTranscriptFlags(
+  projectsSrc: string,
+  projectsDest: string,
+  cwd: string,
+  exists: (p: string) => boolean,
+): string[] {
+  const src = `${projectsSrc}/${dashify(cwd)}`;
+  if (!exists(src)) return [];
+  const dest = `${projectsDest}/${dashify(cwd)}`;
+  const memory = exists(`${src}/memory`)
+    ? ["--ro-bind", `${src}/memory`, `${dest}/memory`]
+    : ["--tmpfs", `${dest}/memory`];
+  return ["--bind", src, dest, ...memory];
+}
+
+/** The `.claude.json` Claude reads (`target`): the per-spawn copy RW, else the host file RO. */
+function claudeJsonFlags(target: string, copy: string | null | undefined): string[] {
+  return typeof copy === "string" && copy.length > 0
+    ? ["--bind", copy, target]
+    : ["--ro-bind-try", target, target];
+}
+
 /**
  * Audit F05 defense in depth: re-bind the git store's `hooks/` and `shepherd/` (preview-start.sh)
  * read-only AFTER its rw bind (bwrap applies binds in order), so an agent can't plant a hook or
@@ -515,6 +550,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   const home = inputs.home;
   const claudeDir = inputs.claudeDir;
   const term = inputs.term ?? "xterm-256color";
+  const projectsSrc = inputs.projectsBindSource ?? `${claudeDir}/projects`;
 
   // Claude config dir base bind(s). Two shapes:
   //  - subscription/default: the whole dir RO in one bind — byte-for-byte unchanged.
@@ -572,22 +608,23 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     // ── claude config: base RO (auth + commands + skills) ────────────────
     // Subscription: whole-dir RO. api-key: per-child RO minus `.credentials.json`.
     ...claudeDirBaseBinds,
-    // RW: agent writes transcript; host reads it after. The SOURCE defaults to
-    // `<claudeDir>/projects` (source == dest) but a plugin-redirected aux spawn (#1213)
+    // projects/: RO so a hijacked agent cannot rewrite other sessions' transcripts or any
+    // project's memory (audit F06). Only this spawn's own transcript dir is re-bound RW below.
+    // The SOURCE defaults to `<claudeDir>/projects` but a plugin-redirected aux spawn (#1213)
     // overrides it with the ACTIVE projects dir so the transcript lands where Shepherd's
     // usage/activity readback looks even when claudeDir is a (pool) config dir.
-    "--bind",
-    inputs.projectsBindSource ?? `${claudeDir}/projects`,
+    "--ro-bind-try",
+    projectsSrc,
     `${claudeDir}/projects`,
-    "--bind-try",
-    `${claudeDir}/todos`,
-    `${claudeDir}/todos`,
-    "--bind-try",
-    `${claudeDir}/statsig`,
-    `${claudeDir}/statsig`,
-    "--bind-try",
-    `${claudeDir}/shell-snapshots`,
-    `${claudeDir}/shell-snapshots`,
+    ...ownTranscriptFlags(projectsSrc, `${claudeDir}/projects`, inputs.worktreePath, exists),
+    // Shared state other (unconfined) Claude sessions execute or consume — shell-snapshots are
+    // SOURCED before every Bash command — gets per-membrane throwaway storage instead of the
+    // host dirs (audit F06). Guarded: bwrap cannot mkdir a mountpoint under the RO claudeDir
+    // bind; prepareMembraneClaudeState creates them host-side for real spawns.
+    ...EPHEMERAL_CLAUDE_DIRS.filter((d) => exists(`${claudeDir}/${d}`)).flatMap((d) => [
+      "--tmpfs",
+      `${claudeDir}/${d}`,
+    ]),
     // session-env: claude 2.1.181+ mkdirs `<config-dir>/session-env/<id>` before EVERY
     // Bash command. A tmpfs (not a host bind) makes it writable + ephemeral per-session
     // scratch — no host pollution. MUST sit AFTER claudeDirBaseBinds so it overrides both
@@ -597,10 +634,10 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     `${claudeDir}/session-env`,
     // OAuth credential: rw bind (subscription) or nothing (api-key mask: absent).
     ...credentialFlags,
-    // RW persisted: trust/onboarding state (else non-interactive auto hangs on onboarding).
-    "--bind-try",
-    `${home}/.claude.json`,
-    `${home}/.claude.json`,
+    // .claude.json: a per-spawn COPY rw (trust/onboarding writes land there, else
+    // non-interactive auto hangs on onboarding), never the host file — it holds user/project
+    // `mcpServers` that later unconfined sessions launch (audit F04). No copy → RO host file.
+    ...claudeJsonFlags(claudeConfigPath(home, claudeDir), inputs.claudeJsonCopy),
     // claude native binary + launcher symlink.
     "--ro-bind-try",
     `${home}/.local/share/claude`,
@@ -609,18 +646,6 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     `${home}/.local/bin`,
     `${home}/.local/bin`,
   ];
-
-  // ── config-dir .claude.json (non-default CLAUDE_CONFIG_DIR) ───────────────
-  // When CLAUDE_CONFIG_DIR is non-default (a plugin-redirected pool dir #1213, or a
-  // custom-config-dir operator), Claude reads/writes `.claude.json` from the CONFIG dir
-  // — NOT `$HOME/.claude.json` (see auth-config-dir.ts). The whole-dir/masked binds above
-  // mount that file RO, so rw-override it here (same guard as the CLAUDE_CONFIG_DIR setenv
-  // below) — else Claude can't persist onboarding/project state and non-interactive auto
-  // hangs on onboarding (the same failure the `$HOME/.claude.json` rw bind guards). For the
-  // default `~/.claude` (guard false) nothing is added → flags stay byte-identical.
-  if (claudeDir !== `${home}/.claude`) {
-    f.push("--bind-try", `${claudeDir}/.claude.json`, `${claudeDir}/.claude.json`);
-  }
 
   // ── node toolchain (binary's libs must resolve) ──────────────────────────
   f.push(...nodeToolchainFlags(inputs, exists));

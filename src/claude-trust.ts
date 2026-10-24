@@ -12,6 +12,11 @@
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 
+/** Claude's unshortened project directory encoding: every non-ASCII-alphanumeric character → `-`. */
+export function dashify(cwd: string): string {
+  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
+}
+
 /**
  * The `.claude.json` file Claude Code actually reads, mirroring the sandbox.ts:404 rule:
  *  - DEFAULT config dir (`${home}/.claude`) → `$HOME/.claude.json` (a SIBLING of `~/.claude`).

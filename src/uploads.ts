@@ -1,6 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, copyFileSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, basename } from "node:path";
+import {
+  constants as fsConstants,
+  closeSync,
+  copyFileSync,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeSync,
+} from "node:fs";
+import { join, basename, sep } from "node:path";
 import type { SessionStore } from "./store";
 
 /** Sized for smartphone screen recordings (~0.63 MB/s HEVC → ≈6–7 min), uniform across
@@ -85,6 +100,100 @@ export function worktreeUploadsDir(worktreePath: string): string {
   return join(worktreePath, ".shepherd-uploads");
 }
 
+/** Thrown when a worktree's `.shepherd-uploads` exists but is not a real directory. */
+export class UploadsDirInvalid extends Error {}
+
+/**
+ * The worktree's uploads dir is agent-writable (a membrane binds the worktree RW), so an agent
+ * can swap it for a symlink to a host directory: refuse to write through one (audit F11).
+ * Absent is fine (the caller creates it).
+ */
+export function assertUploadsDirSafe(worktreePath: string): void {
+  const dir = worktreeUploadsDir(worktreePath);
+  let st;
+  try {
+    st = lstatSync(dir);
+  } catch {
+    return;
+  }
+  if (!st.isDirectory()) throw new UploadsDirInvalid(`not a real directory: ${dir}`);
+}
+
+/** A listed upload plus the identity it had when listed (see {@link copyRegularFileNoFollow}). */
+export interface RegularUpload {
+  path: string;
+  dev: number;
+  ino: number;
+}
+
+/**
+ * The worktree's uploads that are safe to hand to the SERVER (which reads outside any membrane):
+ * regular, non-symlink files physically inside a real `.shepherd-uploads` dir under the worktree.
+ * A symlinked dir, symlinked entries, fifos and subdirs are skipped (audit F11). Sorted.
+ */
+export function listRegularUploadEntries(worktreePath: string): RegularUpload[] {
+  const dir = worktreeUploadsDir(worktreePath);
+  try {
+    if (!lstatSync(dir).isDirectory()) return [];
+  } catch {
+    return [];
+  }
+  const root = realpathSync(worktreePath) + sep;
+  const out: RegularUpload[] = [];
+  for (const name of readdirSync(dir).sort()) {
+    const path = join(dir, name);
+    try {
+      const st = lstatSync(path);
+      if (st.isFile() && realpathSync(path).startsWith(root))
+        out.push({ path, dev: st.dev, ino: st.ino });
+    } catch {
+      // vanished or unreadable — skip
+    }
+  }
+  return out;
+}
+
+/** {@link listRegularUploadEntries}, paths only. */
+export function listRegularUploads(worktreePath: string): string[] {
+  return listRegularUploadEntries(worktreePath).map((u) => u.path);
+}
+
+const COPY_CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * Copy a listed upload to `dest`, reading through an fd that must be the SAME file that was
+ * listed: O_NOFOLLOW refuses a final-component symlink, and the dev/ino match refuses a swap of
+ * any earlier component (e.g. `.shepherd-uploads` replaced by a symlink to a host dir after
+ * listing) — a still-running agent can race the listing. Capped at MAX_UPLOAD_BYTES and copied in
+ * bounded chunks so an agent-planted (sparse) giant file can't balloon the server heap.
+ */
+export function copyRegularFileNoFollow(src: RegularUpload, dest: string): void {
+  const fd = openSync(src.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.dev !== src.dev || st.ino !== src.ino)
+      throw new UploadsDirInvalid(`changed since listing: ${src.path}`);
+    if (st.size > MAX_UPLOAD_BYTES) throw new UploadsDirInvalid(`too large: ${src.path}`);
+    const out = openSync(dest, "wx", 0o600);
+    try {
+      const buf = Buffer.allocUnsafe(Math.min(COPY_CHUNK_BYTES, Math.max(st.size, 1)));
+      let total = 0;
+      for (let n = readSync(fd, buf); n > 0; n = readSync(fd, buf)) {
+        total += n;
+        if (total > MAX_UPLOAD_BYTES) throw new UploadsDirInvalid(`grew too large: ${src.path}`);
+        writeSync(out, buf, 0, n);
+      }
+    } catch (e) {
+      closeSync(out);
+      rmSync(dest, { force: true });
+      throw e;
+    }
+    closeSync(out);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Generate a fresh, traversal-safe filename for a validated upload. */
 export function uploadFilename(ext: string): string {
   return `${randomUUID()}.${safeExt(ext) ?? "bin"}`;
@@ -109,6 +218,7 @@ export function copyStagedIntoWorktree(
   uploads: string[],
   worktreePath: string,
 ): UploadCopyResult[] {
+  assertUploadsDirSafe(worktreePath);
   const dir = worktreeUploadsDir(worktreePath);
   mkdirSync(dir, { recursive: true });
   const copied: UploadCopyResult[] = [];
@@ -189,6 +299,12 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   if (sessionId) {
     const s = deps.store.get(sessionId);
     if (!s) return j({ error: "unknown session" }, 404);
+    try {
+      assertUploadsDirSafe(s.worktreePath);
+    } catch (e) {
+      if (e instanceof UploadsDirInvalid) return j({ error: "uploads_dir_invalid" }, 409);
+      throw e;
+    }
     destDir = worktreeUploadsDir(s.worktreePath);
   } else {
     destDir = stagingDir(deps.repoRoot);

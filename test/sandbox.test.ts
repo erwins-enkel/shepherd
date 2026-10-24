@@ -297,6 +297,10 @@ describe("wrapArgv", () => {
 });
 
 // helper: assert that flags contains the sequence [flag, a, b] contiguously.
+function hasPair(flags: string[], flag: string, a: string): boolean {
+  return flags.some((f, i) => f === flag && flags[i + 1] === a);
+}
+
 function hasTriple(flags: string[], flag: string, a: string, b: string): boolean {
   for (let i = 0; i + 2 < flags.length; i++) {
     if (flags[i] === flag && flags[i + 1] === a && flags[i + 2] === b) return true;
@@ -342,12 +346,12 @@ describe("buildMembraneFlags", () => {
     );
   });
 
-  test("RO claudeDir base + RW projects bind", () => {
+  test("RO claudeDir base + RO projects bind", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(hasTriple(f, "--ro-bind", "/home/me/.claude", "/home/me/.claude")).toBe(true);
-    expect(hasTriple(f, "--bind", "/home/me/.claude/projects", "/home/me/.claude/projects")).toBe(
-      true,
-    );
+    expect(
+      hasTriple(f, "--ro-bind-try", "/home/me/.claude/projects", "/home/me/.claude/projects"),
+    ).toBe(true);
   });
 
   test("system dirs use plain ro-bind, host-variable paths use *-bind-try", () => {
@@ -550,9 +554,16 @@ describe("buildMembraneFlags", () => {
     expect(f.includes("CLAUDE_CONFIG_DIR")).toBe(false);
   });
 
-  test(".claude.json persisted RW bind via *-bind-try", () => {
+  test(".claude.json: host file RO without a copy, the per-spawn copy RW with one (F04)", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
-    expect(hasTriple(f, "--bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(
+      true,
+    );
+    const g = buildMembraneFlags(fakeMembrane({ claudeJsonCopy: "/run/m/s.claude.json" }), detDeps);
+    expect(hasTriple(g, "--bind", "/run/m/s.claude.json", "/home/me/.claude.json")).toBe(true);
+    expect(hasTriple(g, "--ro-bind-try", "/home/me/.claude.json", "/home/me/.claude.json")).toBe(
+      false,
+    );
   });
 
   test("subscription (no api-key fields): rw .credentials.json bind, no helper, no /dev/null overlay", () => {
@@ -648,25 +659,24 @@ describe("buildMembraneFlags", () => {
       fakeMembrane({ claudeDir: "/pool/x", projectsBindSource: "/active/projects" }),
       detDeps,
     );
-    expect(hasTriple(f, "--bind", "/active/projects", "/pool/x/projects")).toBe(true);
-    // absent → source == dest → byte-identical default.
+    expect(hasTriple(f, "--ro-bind-try", "/active/projects", "/pool/x/projects")).toBe(true);
+    // absent → source == dest.
     const g = buildMembraneFlags(fakeMembrane({ claudeDir: "/pool/x" }), detDeps);
-    expect(hasTriple(g, "--bind", "/pool/x/projects", "/pool/x/projects")).toBe(true);
+    expect(hasTriple(g, "--ro-bind-try", "/pool/x/projects", "/pool/x/projects")).toBe(true);
   });
 
-  test("config-dir .claude.json rw bind only when CLAUDE_CONFIG_DIR is non-default (#1213)", () => {
-    // Non-default config dir (pool redirect / custom operator) → rw-bind <claudeDir>/.claude.json
-    // so Claude can persist onboarding/project state (it reads .claude.json from the config dir).
-    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me", claudeDir: "/pool/x" }), detDeps);
-    expect(hasTriple(f, "--bind-try", "/pool/x/.claude.json", "/pool/x/.claude.json")).toBe(true);
-    // Default ~/.claude → NOT added (default path stays byte-identical; Claude reads $HOME/.claude.json).
-    const g = buildMembraneFlags(
-      fakeMembrane({ home: "/home/me", claudeDir: "/home/me/.claude" }),
+  test("non-default CLAUDE_CONFIG_DIR: the copy lands at <claudeDir>/.claude.json, $HOME one unbound (#1213)", () => {
+    // Claude reads .claude.json from the config dir when CLAUDE_CONFIG_DIR is non-default.
+    const f = buildMembraneFlags(
+      fakeMembrane({ home: "/home/me", claudeDir: "/pool/x", claudeJsonCopy: "/run/c.json" }),
       detDeps,
     );
-    expect(
-      hasTriple(g, "--bind-try", "/home/me/.claude/.claude.json", "/home/me/.claude/.claude.json"),
-    ).toBe(false);
+    expect(hasTriple(f, "--bind", "/run/c.json", "/pool/x/.claude.json")).toBe(true);
+    expect(f.includes("/home/me/.claude.json")).toBe(false);
+    const g = buildMembraneFlags(fakeMembrane({ home: "/home/me", claudeDir: "/pool/x" }), detDeps);
+    expect(hasTriple(g, "--ro-bind-try", "/pool/x/.claude.json", "/pool/x/.claude.json")).toBe(
+      true,
+    );
   });
 
   test("api-key redirect: masks the POOL dir per-child minus creds, projects source=active, .claude.json rw (#1213)", () => {
@@ -696,9 +706,11 @@ describe("buildMembraneFlags", () => {
     // api-key helper bound RO.
     expect(hasTriple(f, "--ro-bind-try", "/helper.sh", "/helper.sh")).toBe(true);
     // projects bind SOURCE = active projects dir (readback preserved).
-    expect(hasTriple(f, "--bind", "/active/projects", "/pool/x/projects")).toBe(true);
-    // config-dir .claude.json rw override (beats the masked per-child RO).
-    expect(hasTriple(f, "--bind-try", "/pool/x/.claude.json", "/pool/x/.claude.json")).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", "/active/projects", "/pool/x/projects")).toBe(true);
+    // config-dir .claude.json: host file RO without a per-spawn copy.
+    expect(hasTriple(f, "--ro-bind-try", "/pool/x/.claude.json", "/pool/x/.claude.json")).toBe(
+      true,
+    );
   });
 
   test("session-env tmpfs carve-out present in subscription mode", () => {
@@ -1264,5 +1276,75 @@ describe("wrapArgv codex fold", () => {
       { ...detDeps, ...bunGlobalDeps },
     );
     expect(out.join("\n")).not.toContain(".codex");
+  });
+});
+
+// ── audit F04/F06: no RW bind of shared Claude state ─────────────────────────
+describe("buildMembraneFlags shared Claude state (F04/F06)", () => {
+  const home = "/home/me";
+  const cd = "/home/me/.claude";
+  const wt = "/repos/proj/.shepherd-worktrees/wt-1";
+  const own = `${cd}/projects/${wt.replace(/[^a-zA-Z0-9]/g, "-")}`;
+  const RW = new Set(["--bind", "--bind-try"]);
+  const rwDests = (f: string[]) =>
+    f.flatMap((x, i) => (RW.has(x) && i + 2 < f.length ? [f[i + 2]] : []));
+  const allExist = { exists: () => true, readdir: () => ["projects", "shell-snapshots"] };
+
+  for (const [shape, extra] of [
+    ["subscription", {}],
+    ["api-key", { maskCredentials: true }],
+  ] as const) {
+    test(`${shape}: never RW-binds .claude.json, projects/, shell-snapshots, todos, statsig`, () => {
+      for (const deps of [allExist, detDeps]) {
+        const dests = rwDests(buildMembraneFlags(fakeMembrane(extra), deps));
+        for (const bad of [
+          `${home}/.claude.json`,
+          `${cd}/.claude.json`,
+          `${cd}/projects`,
+          `${cd}/shell-snapshots`,
+          `${cd}/todos`,
+          `${cd}/statsig`,
+          `${own}/memory`,
+        ]) {
+          expect(dests).not.toContain(bad);
+        }
+      }
+    });
+
+    test(`${shape}: shell-snapshots/todos/statsig tmpfs only when the host dir exists`, () => {
+      const f = buildMembraneFlags(fakeMembrane(extra), allExist);
+      for (const d of ["shell-snapshots", "todos", "statsig"])
+        expect(hasPair(f, "--tmpfs", `${cd}/${d}`)).toBe(true);
+      // Absent host dir → no mountpoint under the RO bind (bwrap could not mkdir it).
+      const g = buildMembraneFlags(fakeMembrane(extra), { ...allExist, exists: () => false });
+      for (const d of ["shell-snapshots", "todos", "statsig"])
+        expect(hasPair(g, "--tmpfs", `${cd}/${d}`)).toBe(false);
+    });
+  }
+
+  test("own transcript dir RW, its memory RO; tmpfs memory when absent; nothing when dir absent", () => {
+    const f = buildMembraneFlags(fakeMembrane(), allExist);
+    expect(hasTriple(f, "--bind", own, own)).toBe(true);
+    expect(hasTriple(f, "--ro-bind", `${own}/memory`, `${own}/memory`)).toBe(true);
+    // RO projects bind precedes the own-dir RW bind (bwrap applies in order).
+    expect(f.indexOf(`${cd}/projects`)).toBeLessThan(f.indexOf(own));
+
+    const g = buildMembraneFlags(fakeMembrane(), { exists: (p: string) => p === own });
+    expect(hasTriple(g, "--bind", own, own)).toBe(true);
+    expect(hasPair(g, "--tmpfs", `${own}/memory`)).toBe(true);
+
+    const h = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(h.includes(own)).toBe(false);
+  });
+
+  test("own transcript dir follows projectsBindSource (#1213)", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ claudeDir: "/pool/x", projectsBindSource: "/active/projects" }),
+      { exists: () => true },
+    );
+    const dash = wt.replace(/[^a-zA-Z0-9]/g, "-");
+    expect(hasTriple(f, "--bind", `/active/projects/${dash}`, `/pool/x/projects/${dash}`)).toBe(
+      true,
+    );
   });
 });

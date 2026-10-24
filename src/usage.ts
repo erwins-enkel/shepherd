@@ -1,13 +1,9 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { dashify } from "./claude-trust";
 import { config } from "./config";
 import { coldResumeUnits, weightedUnits, type CacheTtl } from "./pricing";
-
-/** Claude's unshortened project directory encoding: every non-ASCII-alphanumeric character → `-`. */
-export function dashify(cwd: string): string {
-  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
-}
 
 /** The claude projects dir a session's transcript lives under. When the agent was spawned
  *  into a swap/pool account (`spawnAccountDir` set — claude-swap sets CLAUDE_CONFIG_DIR to it),

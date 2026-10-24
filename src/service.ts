@@ -1,14 +1,6 @@
 import { isEpicChild } from "./epic-branch";
 import { randomUUID } from "node:crypto";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -95,7 +87,9 @@ import {
   type UploadCopyResult,
   uploadExtensionFromName,
   uploadFilename,
-  worktreeUploadsDir,
+  listRegularUploads,
+  listRegularUploadEntries,
+  copyRegularFileNoFollow,
 } from "./uploads";
 import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL, withIssueNumber } from "./namer";
 import { SpawnCanceled, SpawnPhaseTracker } from "./spawn-progress";
@@ -158,6 +152,13 @@ import {
   type SandboxBackend,
   type MembraneInputs,
 } from "./sandbox";
+import {
+  previewLogFile,
+  removeMembraneState,
+  sweepMembraneState,
+  type MembraneStateInputs,
+} from "./membrane-state";
+import type { PreviewLaunch } from "./preview-launch";
 import {
   detectEgressBackend as detectRealEgressBackend,
   detectEgressHostLoopback as detectRealEgressHostLoopback,
@@ -413,6 +414,12 @@ export interface ServiceDeps {
   /** Pre-accept Claude's workspace trust for the assistant dir (seam); default
    *  `ensureRepoRootTrusted`, which writes the operator's `.claude.json`. */
   trustDir?: (configPath: string, dir: string) => Promise<void>;
+  /** Write a membrane spawn's private `.claude.json` copy + create its mountpoints (audit F04/F06);
+   *  returns the copy path. Absent ⇒ no copy (host file bound RO) — keeps tests off the real
+   *  `$HOME`. Wired to `prepareMembraneClaudeState` in index.ts. */
+  prepareMembraneState?: (i: MembraneStateInputs) => Promise<string | null>;
+  /** Writable host log file for a sandboxed preview launch (seam); default `previewLogFile`. */
+  previewLogFile?: (sessionId: string) => string;
   /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
    *  to the cached real version probe in egress.ts. Gates reaching Shepherd via 10.0.2.2. */
   detectEgressHostLoopback?: () => boolean;
@@ -3237,6 +3244,7 @@ export class SessionService {
           agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
           // This session's Browser Attach config only (single-file RO bind); null otherwise.
           browserConfigFile,
+          claudeJsonCopy: await this.prepareSessionClaudeState(ctx.sessionId, ctx.worktreePath),
         }
       : ({} as MembraneInputs);
 
@@ -3292,6 +3300,77 @@ export class SessionService {
       egressDegraded,
       spawnAccountDir: patchEnv.CLAUDE_CONFIG_DIR ?? null,
     };
+  }
+
+  /**
+   * How to launch the repo's agent-authored `preview-start.sh` (audit F03). Null ⇒ trusted: the
+   * script runs directly with the server env, as before. When the repo's resolved profile OR this
+   * session's applied profile is sandboxed, any membrane agent of the repo may have written the
+   * script, so it runs inside the agent's bwrap membrane with a cleared env (credentials masked,
+   * host network so the preview proxy reaches it — autonomous gets no egress netns here). No
+   * backend ⇒ unwrapped, but still with a minimal env instead of the server's.
+   *
+   * `scriptPath` is the canonical `<git-common-dir>/shepherd/preview-start.sh` (the caller checked),
+   * so the common dir is its grandparent — no git call on the loop.
+   */
+  previewLaunch(s: Session, scriptPath: string): PreviewLaunch | null {
+    const repoProfile = resolveProfile(
+      null,
+      this.deps.store.getRepoConfig(s.repoPath).sandboxProfile,
+      config.sandboxDefaultProfile,
+    );
+    if (repoProfile === "trusted" && (s.sandboxApplied ?? "trusted") === "trusted") return null;
+    const home = homedir();
+    const extraEnv = { ...collectPassthroughEnv(), SHEPHERD_WORKTREE_PATH: s.worktreePath };
+    if (this.detectBackend() === null) {
+      return {
+        argv: [scriptPath],
+        env: {
+          ...extraEnv,
+          HOME: home,
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+          TERM: process.env.TERM ?? "xterm-256color",
+        },
+      };
+    }
+    // The script's default log sits in the RO-rebound `<git-common-dir>/shepherd`; point it at a
+    // writable per-session file instead, bound RW at the same path.
+    const log = (this.deps.previewLogFile ?? previewLogFile)(s.id);
+    const flags = buildMembraneFlags({
+      worktreePath: s.worktreePath,
+      gitCommonDir: dirname(dirname(scriptPath)),
+      isolated: s.isolated,
+      repoPath: s.repoPath,
+      claudeDir: config.claudeDir,
+      home,
+      nodeBinReal: safeRealpath(config.nodeBin),
+      term: process.env.TERM,
+      extraEnv: { ...extraEnv, SHEPHERD_PREVIEW_LOG: log },
+      maskCredentials: true,
+    }).filter((f) => f !== "--die-with-parent"); // detached: must outlive a server restart
+    return {
+      argv: ["bwrap", ...flags, "--bind", log, log, "--", scriptPath],
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    };
+  }
+
+  /** This spawn's private `.claude.json` copy (null → host file RO). Best-effort: a failed copy
+   *  degrades to the RO bind rather than failing the spawn. */
+  private async prepareSessionClaudeState(sessionId: string, cwd: string): Promise<string | null> {
+    if (!this.deps.prepareMembraneState) return null;
+    try {
+      return await this.deps.prepareMembraneState({
+        home: homedir(),
+        claudeDir: config.claudeDir,
+        projectsSource: `${config.claudeDir}/projects`,
+        cwd,
+        sessionId,
+        key: "session",
+      });
+    } catch (err) {
+      console.warn(`[sandbox] ${sessionId}: could not prepare membrane Claude state:`, err);
+      return null;
+    }
   }
 
   private resolveSpawnPreflight(
@@ -4875,29 +4954,23 @@ export class SessionService {
    * the new staged paths (empty when the original has no uploads dir).
    */
   private copyOriginalUploads(worktreePath: string): { path: string; sourceName: string }[] {
-    const srcDir = worktreeUploadsDir(worktreePath);
-    if (!existsSync(srcDir)) return [];
+    // Agent-writable dir read by the unconfined server: regular non-symlink files only (F11).
+    const sources = listRegularUploadEntries(worktreePath);
+    if (sources.length === 0) return [];
     const stage = stagingDir(config.repoRoot);
     mkdirSync(stage, { recursive: true });
     const copied: { path: string; sourceName: string }[] = [];
-    for (const name of readdirSync(srcDir)) {
-      const src = join(srcDir, name);
-      if (!statSync(src).isFile()) continue;
-      const ext = uploadExtensionFromName(name);
-      const dest = join(stage, uploadFilename(ext));
-      copyFileSync(src, dest);
+    for (const src of sources) {
+      const name = basename(src.path);
+      const dest = join(stage, uploadFilename(uploadExtensionFromName(name)));
+      try {
+        copyRegularFileNoFollow(src, dest);
+      } catch {
+        continue; // swapped/changed after listing or oversized — skip, never follow
+      }
       copied.push({ path: dest, sourceName: name });
     }
     return copied;
-  }
-
-  private listWorktreeUploads(worktreePath: string): string[] {
-    const dir = worktreeUploadsDir(worktreePath);
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir)
-      .sort()
-      .map((name) => join(dir, name))
-      .filter((p) => statSync(p).isFile());
   }
 
   /**
@@ -5120,7 +5193,7 @@ export class SessionService {
     const sourceProvider = s.agentProvider ?? "claude";
     const model = modelForProviderOrDefault(opts.model, agentProvider);
     const claudeSessionId = randomUUID();
-    const carriedUploads = this.listWorktreeUploads(s.worktreePath);
+    const carriedUploads = listRegularUploads(s.worktreePath);
     const promptUploads = carriedUploads.slice(0, MAX_IMAGES);
     if (carriedUploads.length > promptUploads.length)
       console.warn(
@@ -7179,6 +7252,7 @@ export class SessionService {
     // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);
+    removeMembraneState(id);
     this.deps.netnsDevForward?.drop(id);
     await this.removeBrowserAttachConfig(s.id);
     if (isOperatorAssistant(s)) {
@@ -7228,6 +7302,7 @@ export class SessionService {
   sweepEgressTmp(): void {
     const live = this.deps.store.list({ activeOnly: true }).map((s) => s.id);
     sweepEgressTmp(live);
+    sweepMembraneState(live);
   }
 
   /**

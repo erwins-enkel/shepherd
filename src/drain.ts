@@ -615,6 +615,7 @@ export class DrainService {
    *  off), the tick owes it read-only statuses until one shows neither — else the panel freezes on
    *  the last pump's picture (see refreshRunPicture). */
   private shownRuns = new Map<string, { live: boolean; child: boolean }>();
+  private publishedStatuses = new Map<string, string>();
   /** Extra-credit cost-guard baseline (account-wide, in-memory/ephemeral). The scraped paid-credit
    *  total is CUMULATIVE MONTHLY, but paid overage only accrues once a subscription window is
    *  exhausted — so a nonzero month-to-date total while the weekly window still has headroom is
@@ -5454,7 +5455,10 @@ export class DrainService {
         summary.landingRepairs.length > 0);
     if (live || child) this.shownRuns.set(status.repoPath, { live, child });
     else this.shownRuns.delete(status.repoPath);
+    const signature = JSON.stringify(status);
+    if (this.publishedStatuses.get(status.repoPath) === signature) return;
     this.deps.emitStatus(status);
+    this.publishedStatuses.set(status.repoPath, signature);
   }
 
   /** Does the tick owe an unpumped repo a fresh run picture? While an epic child is in flight there,

@@ -2851,3 +2851,23 @@ test("a running epic keeps its empty hold despite unrelated claims or a failed c
     expect(status!.claimDiagnostics).toHaveLength(fail ? 0 : 1);
   }
 });
+
+test("drain broadcasts only changed full status, including the all-clear", async () => {
+  const h = makeHarness({ issues: [], autoDrainEnabled: true });
+  await h.drain.pump(REPO);
+  expect(h.statuses).toHaveLength(1);
+  await h.drain.pump(REPO);
+  expect(h.statuses).toHaveLength(1);
+  h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), maxAuto: 4 });
+  await h.drain.pump(REPO);
+  expect(h.statuses).toHaveLength(2);
+  expect(h.statuses.at(-1)?.max).toBe(4);
+  await h.drain.pump("/other");
+  expect(h.statuses.at(-1)?.repoPath).toBe("/other");
+  h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), autoDrainEnabled: false });
+  await h.drain.pump(REPO);
+  expect(h.statuses.at(-1)?.enabled).toBe(false);
+  const n = h.statuses.length;
+  await h.drain.pump(REPO);
+  expect(h.statuses).toHaveLength(n);
+});

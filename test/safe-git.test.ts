@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   execGit,
@@ -80,6 +80,17 @@ test("resolveWorktreePin finds the admin dir from the trusted repo path", async 
   expect(resolveWorktreePinSync(f.repo, wt)).toEqual(pin);
   const { stdout } = await execGit(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: wt, pin });
   expect(stdout.trim()).toBe("task");
+});
+
+test("resolveWorktreePin matches a worktree added through a symlinked path", async () => {
+  f = makeFixture();
+  const link = join(f.root, "link");
+  symlinkSync(f.root, link);
+  const viaLink = join(link, "wt");
+  g(f.repo, "worktree", "add", "-q", "-b", "task", viaLink, "main");
+  const pin = await resolveWorktreePin(f.repo, viaLink);
+  expect(pin?.workTree).toBe(realpathSync(viaLink));
+  expect(await resolveWorktreePin(f.repo, join(f.root, "wt"))).toEqual(pin);
 });
 
 test("resolveWorktreePin is null for a non-isolated session (worktree IS the repo)", async () => {

@@ -1,18 +1,15 @@
-import { execFile } from "node:child_process";
+import { execGit } from "./safe-git";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import type { WorktreeMgr, WorktreeResult } from "./worktree";
 import type { GitForge } from "./forge/types";
 import { upsertShepherdIgnoreBlock } from "./shepherd-exclude";
 
-const execFileP = promisify(execFile);
-
 /** Async git runner — keeps the single-process event loop unblocked during the
  *  fetch/commit/push (house rule: no blocking subprocess in request handlers). */
 async function defaultGit(cwd: string, args: string[]): Promise<void> {
-  await execFileP("git", args, { cwd });
+  await execGit(args, { cwd });
 }
 
 export interface GitignoreAdopterDeps {
@@ -142,7 +139,7 @@ export class GitignoreAdopter {
    *  side-effecting `this.git` (which discards stdout). */
   private async gitShow(repoPath: string, ref: string, path: string): Promise<string | null> {
     try {
-      const { stdout } = await execFileP("git", ["show", `${ref}:${path}`], { cwd: repoPath });
+      const { stdout } = await execGit(["show", `${ref}:${path}`], { cwd: repoPath });
       return stdout;
     } catch {
       return null; // ref or file absent

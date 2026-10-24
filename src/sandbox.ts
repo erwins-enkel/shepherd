@@ -487,6 +487,20 @@ function maskedClaudeDirBinds(claudeDir: string, readdir: (p: string) => string[
 }
 
 /**
+ * Audit F05 defense in depth: re-bind the git store's `hooks/` and `shepherd/` (preview-start.sh)
+ * read-only AFTER its rw bind (bwrap applies binds in order), so an agent can't plant a hook or
+ * launcher that host-side git / Shepherd would later run. `config` stays rw — git rewrites it by
+ * lock+rename, which a ro bind would break; the host-side invariant lives in src/safe-git.ts.
+ */
+function gitStoreReadOnlyFlags(gitDir: string): string[] {
+  return ["hooks", "shepherd"].flatMap((sub) => [
+    "--ro-bind-try",
+    `${gitDir}/${sub}`,
+    `${gitDir}/${sub}`,
+  ]);
+}
+
+/**
  * The frozen, host-derived membrane flag list (validated against real claude
  * 2.1.173 on the reference host). Returns the bwrap argv PREFIX flags only —
  * `wrapArgv` appends `-- <innerArgv>`.
@@ -643,6 +657,9 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     // whole repo (its .git is inside).
     f.push("--bind", inputs.repoPath, inputs.repoPath);
   }
+  f.push(
+    ...gitStoreReadOnlyFlags(inputs.isolated ? inputs.gitCommonDir : `${inputs.repoPath}/.git`),
+  );
 
   // ── env + process hardening ──────────────────────────────────────────────
   // Clear ALL inherited env first, then re-set only what a compliant session needs.

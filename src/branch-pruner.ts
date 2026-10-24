@@ -1,5 +1,5 @@
 // src/branch-pruner.ts
-import { execFileSync } from "./instrument";
+import { execGitSync } from "./safe-git";
 import type { SessionStore } from "./store";
 import type { GitForge } from "./forge/types";
 import { isOperatorAssistant } from "./operator-assistant-core";
@@ -53,11 +53,10 @@ export class BranchPruner {
   /** Local `shepherd/*` branch short-names in `repo`, or [] on any git error. */
   private shepherdBranches(repo: string): string[] {
     try {
-      return execFileSync(
-        "git",
-        ["for-each-ref", "--format=%(refname:short)", "refs/heads/shepherd/"],
-        { cwd: repo, stdio: "pipe" },
-      )
+      return execGitSync(["for-each-ref", "--format=%(refname:short)", "refs/heads/shepherd/"], {
+        cwd: repo,
+        stdio: "pipe",
+      })
         .toString()
         .split("\n")
         .map((s) => s.trim())
@@ -71,7 +70,7 @@ export class BranchPruner {
   private checkedOut(repo: string): Set<string> {
     const out = new Set<string>();
     try {
-      const txt = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      const txt = execGitSync(["worktree", "list", "--porcelain"], {
         cwd: repo,
         stdio: "pipe",
       }).toString();
@@ -89,7 +88,7 @@ export class BranchPruner {
   private deleteBranch(repo: string, branch: string): boolean {
     if (!BRANCH_RE.test(branch)) return false;
     try {
-      execFileSync("git", ["branch", "-D", branch], { cwd: repo, stdio: "pipe" });
+      execGitSync(["branch", "-D", branch], { cwd: repo, stdio: "pipe" });
       return true;
     } catch {
       return false; // checked out elsewhere / already gone — best-effort
@@ -141,7 +140,7 @@ export class BranchPruner {
     }
     if (pruned) {
       try {
-        execFileSync("git", ["worktree", "prune"], { cwd: repo, stdio: "pipe" });
+        execGitSync(["worktree", "prune"], { cwd: repo, stdio: "pipe" });
       } catch {
         /* best-effort */
       }

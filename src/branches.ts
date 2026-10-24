@@ -1,4 +1,4 @@
-import { execFileSync } from "./instrument";
+import { execGitSync } from "./safe-git";
 
 export interface BranchList {
   branches: string[];
@@ -15,8 +15,7 @@ export interface BranchList {
 export function listBranches(repoDir: string): BranchList {
   let branches: string[];
   try {
-    branches = execFileSync(
-      "git",
+    branches = execGitSync(
       ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"],
       { cwd: repoDir, stdio: "pipe" },
     )
@@ -30,7 +29,7 @@ export function listBranches(repoDir: string): BranchList {
   let current: string | null = null;
   try {
     current =
-      execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoDir, stdio: "pipe" })
+      execGitSync(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoDir, stdio: "pipe" })
         .toString()
         .trim() || null;
   } catch {
@@ -41,7 +40,7 @@ export function listBranches(repoDir: string): BranchList {
   let def: string | null = null;
   try {
     def =
-      execFileSync("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], {
+      execGitSync(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], {
         cwd: repoDir,
         stdio: "pipe",
       })

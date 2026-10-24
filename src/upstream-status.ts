@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { execGit } from "./safe-git";
 import { timedAsync } from "./instrument";
-
-const execFileAsync = promisify(execFile);
 
 // Same refname regex as used in worktree.ts
 const REFNAME_RE = /^(?!-)[A-Za-z0-9._/-]{1,200}$/;
@@ -43,8 +40,7 @@ export async function upstreamStatus(
   // not in unit tests (unit tests use an immediately-failing remote).
   try {
     await timedAsync("git fetch", () =>
-      execFileAsync(
-        "git",
+      execGit(
         [
           "-c",
           "http.lowSpeedLimit=1000",
@@ -67,8 +63,7 @@ export async function upstreamStatus(
   // Resolve upstream sha
   let upstreamSha: string | null = null;
   try {
-    const { stdout } = await execFileAsync(
-      "git",
+    const { stdout } = await execGit(
       ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${baseBranch}^{commit}`],
       { cwd: repoPath },
     );
@@ -80,8 +75,7 @@ export async function upstreamStatus(
   // Resolve local sha
   let localSha: string | null = null;
   try {
-    const { stdout } = await execFileAsync(
-      "git",
+    const { stdout } = await execGit(
       ["rev-parse", "--verify", "--quiet", `refs/heads/${baseBranch}^{commit}`],
       { cwd: repoPath },
     );
@@ -96,21 +90,17 @@ export async function upstreamStatus(
 
   if (upstreamSha !== null && localSha !== null) {
     try {
-      const { stdout } = await execFileAsync(
-        "git",
-        ["rev-list", "--count", `${localSha}..${upstreamSha}`],
-        { cwd: repoPath },
-      );
+      const { stdout } = await execGit(["rev-list", "--count", `${localSha}..${upstreamSha}`], {
+        cwd: repoPath,
+      });
       behind = Number.parseInt(stdout.trim(), 10) || 0;
     } catch {
       // safe default
     }
     try {
-      const { stdout } = await execFileAsync(
-        "git",
-        ["rev-list", "--count", `${upstreamSha}..${localSha}`],
-        { cwd: repoPath },
-      );
+      const { stdout } = await execGit(["rev-list", "--count", `${upstreamSha}..${localSha}`], {
+        cwd: repoPath,
+      });
       ahead = Number.parseInt(stdout.trim(), 10) || 0;
     } catch {
       // safe default

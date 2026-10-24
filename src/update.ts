@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash, type Hash } from "node:crypto";
 import {
   appendFileSync,
@@ -11,13 +11,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { config } from "./config";
 import { timedAsync } from "./instrument";
+import { execGit, spawnGit } from "./safe-git";
 import { systemdRun } from "./restart";
 import { shepherdRuntimeDir } from "./runtime-dir";
-
-const execFileAsync = promisify(execFile);
 
 export interface UpdateCommit {
   sha: string;
@@ -327,18 +325,19 @@ export class UpdateService {
       deps.git ??
       (async (args) => {
         const { stdout } = await timedAsync(`git ${args[0] ?? ""}`, () =>
-          execFileAsync("git", ["-C", this.repoDir, ...args], { encoding: "utf8" }),
+          execGit(["-C", this.repoDir, ...args], { encoding: "utf8" }),
         );
         return stdout as string;
       });
     this.gitRaw =
       deps.gitRaw ??
       (async (args) => {
-        const { stdout } = await execFileAsync("git", ["-C", this.repoDir, ...args], {
-          encoding: "buffer",
+        // latin1 maps each byte to one code unit, so the round-trip back to a Buffer is lossless.
+        const { stdout } = await execGit(["-C", this.repoDir, ...args], {
+          encoding: "latin1",
           maxBuffer: this.sigMaxBytes,
         });
-        return stdout as Buffer;
+        return Buffer.from(stdout, "latin1");
       });
     this.gitHashStream =
       deps.gitHashStream ?? ((args, hash, limit) => this.streamGit(args, hash, limit));
@@ -355,7 +354,7 @@ export class UpdateService {
     limit: { maxBytes: number; timeoutMs: number },
   ): Promise<number> {
     return new Promise((resolve, reject) => {
-      const child = spawn("git", ["-C", this.repoDir, ...args], {
+      const child = spawnGit(["-C", this.repoDir, ...args], {
         stdio: ["ignore", "pipe", "ignore"],
       });
       let streamed = 0;
@@ -373,7 +372,7 @@ export class UpdateService {
       };
       const timer = setTimeout(() => finish(new Error("signature timed out")), limit.timeoutMs);
       child.on("error", (e) => finish(e));
-      child.stdout.on("data", (chunk: Buffer) => {
+      child.stdout?.on("data", (chunk: Buffer) => {
         streamed += chunk.length;
         if (streamed > limit.maxBytes) {
           finish(new Error("signature too large"));

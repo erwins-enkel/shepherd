@@ -424,7 +424,8 @@ import {
   pickEncodings,
   type Encoding,
 } from "./static-assets";
-import { execFileSync, markPtyEvent } from "./instrument";
+import { markPtyEvent } from "./instrument";
+import { execGitSync } from "./safe-git";
 import { opStart, withOp } from "./loop-watchdog";
 import { startLoopLagMonitor, withServerTiming } from "./server-timing";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
@@ -9227,7 +9228,7 @@ async function listIssuesWithBlockers(forge: GitForge): Promise<Issue[]> {
 function initEmptyCommit(dir: string, branch: string): { branch: string } {
   if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
   try {
-    execFileSync("git", ["rev-parse", "--verify", "--quiet", `${branch}^{commit}`], {
+    execGitSync(["rev-parse", "--verify", "--quiet", `${branch}^{commit}`], {
       cwd: dir,
       stdio: "pipe",
     });
@@ -9235,8 +9236,8 @@ function initEmptyCommit(dir: string, branch: string): { branch: string } {
   } catch {
     // no existing base commit; create the minimal root commit below
   }
-  execFileSync("git", ["checkout", "-B", branch], { cwd: dir, stdio: "pipe" });
-  execFileSync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
+  execGitSync(["checkout", "-B", branch], { cwd: dir, stdio: "pipe" });
+  execGitSync(["commit", "--allow-empty", "-m", "Initial commit"], {
     cwd: dir,
     env: {
       ...process.env,

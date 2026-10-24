@@ -1,6 +1,4 @@
-import { execFile } from "node:child_process";
-import { execFileSync } from "./instrument";
-import { promisify } from "node:util";
+import { execGit, execGitSync } from "./safe-git";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -154,12 +152,10 @@ function inferredForkHandoff(
 /** Sync git for the LOCAL read path only (`git show` of a ref, a symref lookup) — fast and
  *  network-free. Anything that talks to the remote goes through {@link gitAsync}. */
 const git = (repoPath: string, args: string[]): string =>
-  execFileSync("git", ["-C", repoPath, ...args], {
+  execGitSync(["-C", repoPath, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   });
-
-const execFileAsync = promisify(execFile);
 
 const defBranchCache = new Map<string, string>();
 /** The repo's default branch name, resolved from the local `origin/HEAD` symref
@@ -323,7 +319,7 @@ async function gitAsync(
   args: string[],
   o: { timeout?: number; env?: Record<string, string> } = {},
 ): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-C", repoPath, ...args], {
+  const { stdout } = await execGit(["-C", repoPath, ...args], {
     encoding: "utf8",
     timeout: o.timeout ?? LOCAL_GIT_TIMEOUT_MS,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", ...o.env },

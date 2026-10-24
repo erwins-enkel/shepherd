@@ -6,7 +6,7 @@ import {
 } from "./codex-last-message";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { execFileSync } from "./instrument";
+import { execGitSync } from "./safe-git";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -2411,7 +2411,7 @@ export function defaultPlanAnchorSha(
 ): PlanAnchorResolution {
   const git = (cwd: string, args: string[]): string | null => {
     try {
-      return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"] })
+      return execGitSync(args, { cwd, stdio: ["ignore", "pipe", "ignore"] })
         .toString()
         .trim();
     } catch {
@@ -2456,7 +2456,7 @@ export function defaultAnchorStaleness(
 ): AnchorStaleness {
   const git = (args: string[]): string | null => {
     try {
-      return execFileSync("git", args, { cwd: repoPath, stdio: ["ignore", "pipe", "ignore"] })
+      return execGitSync(args, { cwd: repoPath, stdio: ["ignore", "pipe", "ignore"] })
         .toString()
         .trim();
     } catch {

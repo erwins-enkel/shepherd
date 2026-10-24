@@ -22,13 +22,16 @@
  */
 import {
   execFile,
+  spawn,
+  type ChildProcess,
   type ExecFileOptions,
   type ExecFileSyncOptions,
   type ExecFileSyncOptionsWithStringEncoding,
+  type SpawnOptions,
 } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
 
@@ -127,6 +130,11 @@ export function execGitSync(
   }) as string | Buffer;
 }
 
+/** Hardened streaming git (`spawn`), for callers that must consume stdout incrementally. */
+export function spawnGit(args: readonly string[], opts: SpawnOptions = {}): ChildProcess {
+  return spawn("git", safeGitArgs(args), opts);
+}
+
 /** The worktree's `.git` gitfile can't be trusted to name its admin dir, and no admin dir under
  *  the repo's common dir claims it. Fail closed: the caller treats it as any git failure. */
 export class UntrustedGitDirError extends Error {
@@ -136,39 +144,48 @@ export class UntrustedGitDirError extends Error {
   }
 }
 
+/** One `<common>/worktrees/<id>` admin dir, its backlinks realpath'd (null = unreadable). */
 interface AdminEntry {
   dir: string;
-  gitdir: string | null;
-  commondir: string | null;
+  /** realpath of the worktree its `gitdir` file names (the dir holding that `.git`). */
+  worktree: string | null;
+  /** realpath of its `commondir`. */
+  common: string | null;
 }
 
-/** The admin dir whose `gitdir` backlink names `<wtReal>/.git` and whose `commondir` resolves
- *  to `common`. Pure, so the sync and async resolvers share it. */
+/** The admin dir whose `gitdir` backlink names `wtReal` and whose `commondir` is `common`.
+ *  Realpath'd on both sides, so a symlinked path git recorded (macOS `/tmp`) still matches. */
 function matchAdmin(common: string, wtReal: string, entries: AdminEntry[]): string | null {
-  const want = join(wtReal, ".git");
-  for (const e of entries) {
-    if (!e.gitdir || !e.commondir) continue;
-    if (resolve(e.dir, e.gitdir.trim()) !== want) continue;
-    if (resolve(e.dir, e.commondir.trim()) !== common) continue;
-    return e.dir;
-  }
-  return null;
+  return entries.find((e) => e.worktree === wtReal && e.common === common)?.dir ?? null;
 }
 
-function readOrNull(path: string): string | null {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return null;
-  }
+/** `<admin>/<file>` content resolved against the admin dir; `up` drops the trailing `.git`. */
+function backlinkPath(dir: string, content: string, up: boolean): string {
+  const p = resolve(dir, content.trim());
+  return up ? dirname(p) : p;
 }
 
-async function readOrNullAsync(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf8");
-  } catch {
-    return null;
-  }
+function adminEntrySync(dir: string): AdminEntry {
+  const real = (file: string, up: boolean): string | null => {
+    try {
+      return realpathSync(backlinkPath(dir, readFileSync(join(dir, file), "utf8"), up));
+    } catch {
+      return null;
+    }
+  };
+  return { dir, worktree: real("gitdir", true), common: real("commondir", false) };
+}
+
+async function adminEntry(dir: string): Promise<AdminEntry> {
+  const real = async (file: string, up: boolean): Promise<string | null> => {
+    try {
+      return await realpath(backlinkPath(dir, await readFile(join(dir, file), "utf8"), up));
+    } catch {
+      return null;
+    }
+  };
+  const [worktree, common] = await Promise.all([real("gitdir", true), real("commondir", false)]);
+  return { dir, worktree, common };
 }
 
 /** The repo's git common dir, realpath'd. A `.git` directory is used directly; otherwise
@@ -197,11 +214,7 @@ export function resolveWorktreePinSync(repoPath: string, worktreePath: string): 
   const common = commonDirSync(repoPath);
   const root = join(common, "worktrees");
   const names = existsSync(root) ? readdirSync(root) : [];
-  const entries = names.map((n) => ({
-    dir: join(root, n),
-    gitdir: readOrNull(join(root, n, "gitdir")),
-    commondir: readOrNull(join(root, n, "commondir")),
-  }));
+  const entries = names.map((n) => adminEntrySync(join(root, n)));
   const dir = matchAdmin(common, wtReal, entries);
   if (!dir) throw new UntrustedGitDirError(worktreePath);
   return { gitDir: dir, workTree: wtReal };
@@ -223,13 +236,7 @@ export async function resolveWorktreePin(
   const common = await commonDir(repoPath);
   const root = join(common, "worktrees");
   const names = await readdir(root).catch(() => [] as string[]);
-  const entries = await Promise.all(
-    names.map(async (n) => ({
-      dir: join(root, n),
-      gitdir: await readOrNullAsync(join(root, n, "gitdir")),
-      commondir: await readOrNullAsync(join(root, n, "commondir")),
-    })),
-  );
+  const entries = await Promise.all(names.map((n) => adminEntry(join(root, n))));
   const dir = matchAdmin(common, wtReal, entries);
   if (!dir) throw new UntrustedGitDirError(worktreePath);
   return { gitDir: dir, workTree: wtReal };

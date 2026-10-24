@@ -1,4 +1,4 @@
-import { execFileSync } from "../instrument";
+import { execGitSync } from "../safe-git";
 import { GithubForge, type GhRunner } from "./github";
 import { GiteaForge } from "./gitea";
 import { parseRemote } from "./remote";
@@ -60,7 +60,7 @@ export function forgeFor(remoteUrl: string, map: ForgeMap, deps?: ForgeDeps): Gi
 /** Read a named remote's URL for a repo dir, or null if the remote is absent. */
 function remoteUrl(repoDir: string, remote: string): string | null {
   try {
-    return execFileSync("git", ["-C", repoDir, "remote", "get-url", remote], {
+    return execGitSync(["-C", repoDir, "remote", "get-url", remote], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();

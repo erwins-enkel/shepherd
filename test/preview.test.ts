@@ -1015,6 +1015,16 @@ test("PreviewService: HTTP proxy drops upstream Set-Cookie for shepherd_session,
   expect(res.headers.getSetCookie()).toEqual(["app=1; Path=/"]);
 });
 
+test("PreviewService: HTTP proxy drops empty-name Set-Cookie that would replay as shepherd_session", async () => {
+  const headers = new Headers();
+  headers.append("set-cookie", "=shepherd_session=attacker; Path=/api");
+  headers.append("set-cookie", " = shepherd_session=attacker; Path=/");
+  headers.append("set-cookie", "=other=1; Path=/");
+  const port = service!.ensure("s1", portOf(httpUpstream({ headers })));
+  const res = await fetch(`http://127.0.0.1:${port}/`);
+  expect(res.headers.getSetCookie()).toEqual(["=other=1; Path=/"]);
+});
+
 test("PreviewService: HTTP proxy keeps cookies whose names merely resemble shepherd_session", async () => {
   const seen: Headers[] = [];
   const headers = new Headers();

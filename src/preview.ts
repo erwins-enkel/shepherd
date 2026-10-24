@@ -884,13 +884,16 @@ function stripSessionCookie(headers: Headers): void {
   else headers.set("cookie", kept.join("; "));
 }
 
-/** Drop any upstream `Set-Cookie` that would set, overwrite or clear the HUD session cookie. */
+/** Drop any upstream `Set-Cookie` that would set, overwrite or clear the HUD session cookie.
+ *  Leading `=` are skipped before matching: browsers store `=shepherd_session=x` as an
+ *  empty-name cookie and send it back as `shepherd_session=x`, shadowing the real one. */
 function stripSessionSetCookie(headers: Headers): void {
   const all = headers.getSetCookie();
   if (all.length === 0) return;
   headers.delete("set-cookie");
   for (const c of all) {
-    if (cookieName(c.split(";")[0]!) !== SESSION_COOKIE) headers.append("set-cookie", c);
+    const pair = c.split(";")[0]!.replace(/^[\s=]+/, "");
+    if (cookieName(pair) !== SESSION_COOKIE) headers.append("set-cookie", c);
   }
 }
 

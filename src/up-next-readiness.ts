@@ -53,11 +53,7 @@ const DEFAULT_MAX_PER_REFRESH = 60;
  *  failure (401, rate limit) must not be retried 60 times. */
 const MAX_FAILURES_PER_RUN = 3;
 
-/** What gets scored for a row. For an epic unit `issueRef` is the next-actionable CHILD — what Start
- *  launches — while `labels` are the parent's, which is the context that child inherits. */
-function readinessInputOf(item: UpNextItem): ReadinessInput {
-  return { title: item.issueRef.title, body: item.issueRef.body, labels: item.labels };
-}
+export type ReadinessInputOf = (item: UpNextItem) => ReadinessInput;
 
 /** Mutable per-run state, so the per-item worker stays small. */
 interface RunState {
@@ -85,15 +81,17 @@ export class ReadinessScorer {
     this.maxPerRefresh = Math.max(0, deps.maxPerRefresh ?? DEFAULT_MAX_PER_REFRESH);
   }
 
-  hashOf(item: UpNextItem, model: string = this.deps.model()): string {
-    return readinessHash(model, readinessInputOf(item));
+  hashOf(item: UpNextItem, inputOf: ReadinessInputOf, model: string = this.deps.model()): string {
+    return readinessHash(model, inputOf(item));
   }
 
   /** Cached scores by hash. A store failure reads as "nothing cached" — today's order. */
-  scoresFor(items: readonly UpNextItem[]): Map<string, number> {
+  scoresFor(items: readonly UpNextItem[], inputOf: ReadinessInputOf): Map<string, number> {
     const model = this.deps.model();
     try {
-      return this.deps.store.getReadiness([...new Set(items.map((i) => this.hashOf(i, model)))]);
+      return this.deps.store.getReadiness([
+        ...new Set(items.map((i) => this.hashOf(i, inputOf, model))),
+      ]);
     } catch (err) {
       this.warnFn("[up-next] readiness cache read failed (keeping today's order):", err);
       return new Map();
@@ -101,10 +99,13 @@ export class ReadinessScorer {
   }
 
   /** `scoresFor` shaped for `applyReadiness`: item → cached `p`, or null when unscored. */
-  scoreLookup(items: readonly UpNextItem[]): (item: UpNextItem) => number | null {
+  scoreLookup(
+    items: readonly UpNextItem[],
+    inputOf: ReadinessInputOf,
+  ): (item: UpNextItem) => number | null {
     const model = this.deps.model();
-    const scores = this.scoresFor(items);
-    return (item) => scores.get(this.hashOf(item, model)) ?? null;
+    const scores = this.scoresFor(items, inputOf);
+    return (item) => scores.get(this.hashOf(item, inputOf, model)) ?? null;
   }
 
   /**
@@ -112,7 +113,7 @@ export class ReadinessScorer {
    * daily ceiling. Resolves to how many NEW scores were stored — the service re-publishes only when
    * that is non-zero. Never rejects.
    */
-  async scoreMissing(items: readonly UpNextItem[]): Promise<number> {
+  async scoreMissing(items: readonly UpNextItem[], inputOf: ReadinessInputOf): Promise<number> {
     const judge = this.safeJudge();
     if (!judge || this.maxPerRefresh === 0) return 0;
     const run: RunState = {
@@ -125,7 +126,7 @@ export class ReadinessScorer {
     };
     let pending: [string, ReadinessInput][];
     try {
-      pending = this.pendingInputs(items, run.model);
+      pending = this.pendingInputs(items, inputOf, run.model);
     } catch (err) {
       this.warnOnce(run, "[up-next] readiness cache read failed (scoring skipped):", err);
       return 0;
@@ -158,10 +159,14 @@ export class ReadinessScorer {
 
   /** Uncached, not-in-flight inputs, deduped by hash and capped. Throws on a store failure (the
    *  caller's catch turns that into a skipped run). */
-  private pendingInputs(items: readonly UpNextItem[], model: string): [string, ReadinessInput][] {
+  private pendingInputs(
+    items: readonly UpNextItem[],
+    inputOf: ReadinessInputOf,
+    model: string,
+  ): [string, ReadinessInput][] {
     const byHash = new Map<string, ReadinessInput>();
     for (const item of items) {
-      const input = readinessInputOf(item);
+      const input = inputOf(item);
       const hash = readinessHash(model, input);
       if (!this.inFlight.has(hash)) byHash.set(hash, input);
     }

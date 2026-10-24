@@ -8,12 +8,13 @@ import { upNext } from "#lib/up-next.svelte.js";
 import { upNextUi } from "#lib/up-next-ui.svelte.js";
 import type { UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
 import { steers } from "#lib/steers.svelte.js";
-import { startUpNext } from "#lib/api.js";
+import { getUpNextBody, startUpNext } from "#lib/api.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
+    getUpNextBody: vi.fn<() => Promise<{ body: string }>>(),
     startUpNext: vi.fn(async () => ({ created: [], held: [], errors: [] })),
   };
 });
@@ -32,7 +33,7 @@ const item = (number: number, opts: Partial<UpNextItem> = {}): UpNextItem => ({
   priority: false,
   createdAt: 0,
   labels: [],
-  issueRef: { number, url: `https://example.test/${number}`, title: `issue ${number}`, body: "" },
+  issueRef: { number, url: `https://example.test/${number}`, title: `issue ${number}` },
   ...opts,
 });
 
@@ -56,6 +57,9 @@ const snapshot = (items: UpNextItem[]): UpNextSnapshot => ({
 const key = (n: number) => `${REPO}#${n}`;
 
 beforeEach(() => {
+  vi.mocked(getUpNextBody)
+    .mockReset()
+    .mockResolvedValue({ body: "## TL;DR\n\nMake the **lifecycle** explicit." });
   upNextUi.reset();
   upNext.snapshot = snapshot([
     item(7, {
@@ -66,7 +70,6 @@ beforeEach(() => {
         number: 7,
         url: "https://example.test/7",
         title: "Plan Gate before Build Queue",
-        body: "## TL;DR\n\nMake the **lifecycle** explicit.",
       },
     }),
     item(8),
@@ -209,11 +212,27 @@ describe("UpNextPreview — issue steers", () => {
     await expect.poll(() => vi.mocked(launch.onquick!).mock.calls.length).toBe(1);
     expect(vi.mocked(launch.onquick!).mock.calls[0]).toEqual([
       REPO,
-      expect.objectContaining({ number: 7, title: "Plan Gate before Build Queue" }),
+      expect.objectContaining({
+        number: 7,
+        title: "Plan Gate before Build Queue",
+        body: "## TL;DR\n\nMake the **lifecycle** explicit.",
+      }),
       expect.objectContaining({ id: "a" }),
     ]);
     expect(shownSteers()).toEqual(["tldr-status"]);
     expect(page.getByRole("button", { name: m.upnext_preview_more() }).query()).toBeNull();
+  });
+
+  it("does not launch a steer on body failure and allows retrying the action", async () => {
+    vi.mocked(getUpNextBody).mockRejectedValue(new Error("read failed"));
+    const launch = (await renderAt(1200))!;
+    await steerButton("tldr-status").click();
+    await expect.element(steerButton("tldr-status")).toBeEnabled();
+    expect(launch.onquick).not.toHaveBeenCalled();
+    vi.mocked(getUpNextBody).mockResolvedValue({ body: "Full steer context" });
+    await steerButton("tldr-status").click();
+    await expect.poll(() => vi.mocked(launch.onquick!).mock.calls.length).toBe(1);
+    expect(vi.mocked(launch.onquick!).mock.calls[0]![1].body).toBe("Full steer context");
   });
 
   it("shows no steers without the page's quick-launch", async () => {
@@ -351,5 +370,63 @@ describe("UpNextPreview — phone swipe right back to the list", () => {
     drag(unp, [10, 300], [300, 300]);
     expect(upNextUi.previewKey).toBe(key(7));
     expect(unp.style.transform).toBe("");
+  });
+});
+
+describe("UpNextPreview — lazy full body", () => {
+  it("does not fetch until open, displays loading, then untruncated markdown", async () => {
+    let resolve!: (value: { body: string }) => void;
+    vi.mocked(getUpNextBody).mockImplementation(() => new Promise((r) => (resolve = r)));
+    render(UpNextPreview, {});
+    expect(getUpNextBody).not.toHaveBeenCalled();
+    upNextUi.previewKey = key(7);
+    await expect.element(page.getByRole("status")).toHaveTextContent(m.common_loading());
+    expect(getUpNextBody).toHaveBeenCalledWith(REPO, 7);
+    resolve({ body: "x".repeat(3000) + "\n\n## Complete tail" });
+    await expect.element(page.getByRole("heading", { name: "Complete tail" })).toBeVisible();
+    upNext.snapshot = snapshot([item(7), item(8)]);
+    await expect.element(page.getByRole("heading", { name: "issue 7" })).toBeVisible();
+    expect(getUpNextBody).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores stale success and failure after switching or closing", async () => {
+    const requests: {
+      resolve: (value: { body: string }) => void;
+      reject: (error: Error) => void;
+    }[] = [];
+    vi.mocked(getUpNextBody).mockImplementation(
+      () => new Promise((resolve, reject) => requests.push({ resolve, reject })),
+    );
+    upNextUi.previewKey = key(7);
+    render(UpNextPreview, {});
+    await expect.poll(() => requests.length).toBe(1);
+    await page.getByRole("button", { name: m.upnext_preview_next() }).click();
+    await expect.poll(() => requests.length).toBe(2);
+    requests[1]!.resolve({ body: "## New selection" });
+    await expect.element(page.getByRole("heading", { name: "New selection" })).toBeVisible();
+    requests[0]!.resolve({ body: "## Stale selection" });
+    await expect.element(page.getByRole("heading", { name: "New selection" })).toBeVisible();
+    expect(page.getByRole("heading", { name: "Stale selection" }).query()).toBeNull();
+    await page.getByRole("button", { name: m.upnext_preview_next() }).click();
+    await expect.poll(() => requests.length).toBe(3);
+    await page.getByRole("button", { name: m.common_close() }).click();
+    requests[2]!.reject(new Error("late failure"));
+    await expect.element(page.getByText(m.upnext_preview_empty())).toBeVisible();
+  });
+
+  it("shows an error and retry, then accepts an empty body", async () => {
+    vi.mocked(getUpNextBody)
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValue({ body: "" });
+    upNextUi.previewKey = key(7);
+    render(UpNextPreview, {});
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent(`${m.issuepeek_unavailable()} ${m.common_retry()}`);
+    await page.getByRole("button", { name: m.common_retry() }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.common_retry() }))
+      .not.toBeInTheDocument();
+    expect(getUpNextBody).toHaveBeenCalledTimes(2);
   });
 });

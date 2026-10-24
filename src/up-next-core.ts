@@ -35,8 +35,8 @@ export interface UpNextItem {
   labelColors?: Record<string, string>;
   /** Present iff this row represents an epic unit (the parent it rolls up). */
   epicParent?: { number: number; title: string };
-  /** Payload for SessionService.create()'s issueRef on Start. */
-  issueRef: { number: number; url: string; title: string; body: string };
+  /** Issue identity; Start loads the full body server-side. */
+  issueRef: { number: number; url: string; title: string };
 }
 
 export interface UpNextSection {
@@ -197,7 +197,7 @@ function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): 
     createdAt: issue.createdAt,
     labels: issue.labels,
     labelColors: issue.labelColors,
-    issueRef: { number: issue.number, url: issue.url, title: issue.title, body: issue.body },
+    issueRef: { number: issue.number, url: issue.url, title: issue.title },
   };
 }
 
@@ -226,7 +226,7 @@ function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Up
     labels: e.parentLabels,
     labelColors: e.parentLabelColors,
     epicParent: { number: e.parentNumber, title: e.parentTitle },
-    issueRef: { number: c.number, url: c.url, title: c.title, body: c.body },
+    issueRef: { number: c.number, url: c.url, title: c.title },
   };
 }
 

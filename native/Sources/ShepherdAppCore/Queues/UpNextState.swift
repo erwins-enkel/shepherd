@@ -185,7 +185,10 @@ public final class UpNextPanelState {
                       commands: UpNextCommands, gate: SessionCommandState,
                       isCurrent: () -> Bool) async -> Bool {
         guard !items.isEmpty, !gate.busy, isCurrent(), !Task.isCancelled else { return false }
-        let requests = items.map { UpNextStartItem(repoPath: $0.repoPath, issueRef: $0.issueRef) }
+        let requests = items.map {
+            UpNextStartItem(repoPath: $0.repoPath, issueRef: .init(
+                number: $0.issueRef.number, url: $0.issueRef.url, title: $0.issueRef.title))
+        }
         if items.count > 3, confirmation != requests {
             confirmation = requests
             return false

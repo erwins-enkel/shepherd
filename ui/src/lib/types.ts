@@ -3084,7 +3084,7 @@ export interface UpNextItem {
   /** Forge label name → source color. Optional/partial; labels without a color render neutral. */
   labelColors?: Record<string, string>;
   epicParent?: { number: number; title: string };
-  issueRef: { number: number; url: string; title: string; body: string };
+  issueRef: { number: number; url: string; title: string };
 }
 export interface UpNextSection {
   kind: "priority" | "repo";

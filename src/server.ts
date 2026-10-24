@@ -430,6 +430,7 @@ import { markPtyEvent } from "./instrument";
 import { execGitSync } from "./safe-git";
 import { opStart, withOp } from "./loop-watchdog";
 import { startLoopLagMonitor, withServerTiming } from "./server-timing";
+import { withSecurityHeaders } from "./security-headers";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
   normalizeDefaultCodexModelSetting,
@@ -12193,6 +12194,8 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
           // carry no cookie — and never on WS upgrades, which return before reaching makeApp).
           .then((res) => (opts.skipAuth ? res : maybeRestamp(req, res)))
           .catch((e) => json({ error: e instanceof Error ? e.message : "internal error" }, 500))
+          // Last, so every response — the 500 fallback included — is unframeable (#2099).
+          .then(withSecurityHeaders)
           .finally(settled)
       );
     },

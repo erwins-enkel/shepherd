@@ -1,11 +1,11 @@
 <script lang="ts">
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import { linkifySessionDesignations } from "#lib/markdownSessionLinks.js";
   import { m } from "#lib/paraglide/messages.js";
 
   // Shared reading surface for forge Markdown (issue descriptions, #2617): renders `source`
-  // through marked + DOMPurify, styled from tokens only. Same lazy-import recipe as GitRail's
-  // review body — marked/DOMPurify stay off the first-paint critical path, and the browser-only
-  // sanitizer never runs during SSR (effects don't run there).
+  // through the shared sanitizer (#lib/sanitize-html), styled from tokens only. It loads lazily,
+  // off the first-paint critical path, and never runs during SSR (effects don't run there).
   let {
     source,
     sessionDesigs = new Map(),
@@ -27,13 +27,11 @@
     failed = false;
     if (!body.trim()) return;
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
+    // The shared sanitizer also strips `data-session-id`: that marker belongs only to links we
+    // generate, never to the Markdown source.
+    renderMarkdown(body)
+      .then((html) => {
         if (!alive) return;
-        const html = DOMPurify.sanitize(marked.parse(body, { async: false }) as string, {
-          // This marker belongs only to links we generate, never to the Markdown source.
-          FORBID_ATTR: ["data-session-id"],
-        });
         if (linkSessions && live.size > 0) {
           const root = document.createElement("div");
           root.innerHTML = html;
@@ -53,8 +51,8 @@
   });
 
   // Links in a forge body point off-app; following one in place would navigate the whole app
-  // away (and drop the open dialog). Open them in a new tab instead — a container handler, so
-  // no global DOMPurify hook leaks into the other consumers of the shared sanitizer.
+  // away (and drop the open dialog). The sanitizer already sets target=_blank; this container
+  // handler also routes generated session links and keeps `noopener` on every open.
   function onclick(e: MouseEvent) {
     const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
     if (!(a instanceof HTMLAnchorElement)) return;
@@ -76,7 +74,7 @@
   <!-- The handler only delegates clicks on the (keyboard-reachable) links inside; Enter on a
        focused link fires `click` too, so there is no separate key path to add. -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
   <div class="md-body" {onclick}>{@html rendered}</div>
 {/if}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { m } from "#lib/paraglide/messages.js";
   import { relativeAge } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
@@ -103,10 +104,14 @@
       >
     {/if}
   </div>
-  <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-  <a class="gh-link" href={url} target="_blank" rel="noopener noreferrer"
-    >{m.issuespanel_open_on_github()} ↗</a
+  <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+  <a
+    class="gh-link"
+    href={firstSafeHttpUrl(url) ?? undefined}
+    target="_blank"
+    rel="noopener noreferrer">{m.issuespanel_open_on_github()} ↗</a
   >
+  <!-- eslint-enable svelte/no-navigation-without-resolve -->
 </header>
 
 {#if menu && menuOpen && menuBtn}

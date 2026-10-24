@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { dialog } from "#lib/a11yDialog.js";
@@ -291,10 +292,14 @@
             {m.epicdraft_created()}
             {#if draft.parentUrl && draft.parentNumber != null}
               <span aria-hidden="true">·</span>
-              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-              <a class="link" href={draft.parentUrl} target="_blank" rel="noopener noreferrer"
-                >{m.epicdraft_view_parent({ n: draft.parentNumber })}</a
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+              <a
+                class="link"
+                href={firstSafeHttpUrl(draft.parentUrl) ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer">{m.epicdraft_view_parent({ n: draft.parentNumber })}</a
               >
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
             {/if}
           </p>
         {/if}

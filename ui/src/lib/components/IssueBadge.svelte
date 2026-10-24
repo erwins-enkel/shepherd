@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { Session, GitState } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { issueRef } from "#lib/issue-ref.svelte.js";
@@ -168,7 +169,7 @@
     <a
       bind:this={anchorEl}
       class="issue-badge interactive"
-      href={href ?? undefined}
+      href={firstSafeHttpUrl(href) ?? undefined}
       target="_blank"
       rel="noopener"
       aria-label={m.issuebadge_open_label({ number })}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { DocAgentRun } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { anchorPopover } from "#lib/floating-anchor.js";
@@ -181,10 +182,16 @@
           <span class="run-time">{formatAgo(clock.current - run.at)}</span>
           <span class="run-outcome">{outcomeLabel(run.outcome)}</span>
           {#if run.url}
-            <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-            <a class="run-link" href={run.url} target="_blank" rel="noopener">
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+            <a
+              class="run-link"
+              href={firstSafeHttpUrl(run.url) ?? undefined}
+              target="_blank"
+              rel="noopener"
+            >
               #{prNumber(run.url) ?? m.docagent_history_pr_link()}
             </a>
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
           {/if}
         </li>
       {/each}

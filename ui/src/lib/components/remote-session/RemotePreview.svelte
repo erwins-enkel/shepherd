@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { PreviewReach } from "#lib/types.js";
   import { type MirroredSession, remoteActionMessage } from "#lib/remote-sessions.js";
   import { getPreviewReach, startPreview, stopPreview } from "#lib/api.js";
@@ -222,10 +223,14 @@
         >{m.remote_preview_served_by({ machine, host })}</span
       >
       {@render stopButton()}
-      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- the machine's preview origin, not an app route -->
-      <a class="open" href={url} target="_blank" rel="noopener noreferrer"
-        >{m.viewport_preview_open_new_tab()}</a
+      <!-- eslint-disable svelte/no-navigation-without-resolve -- the machine's preview origin, not an app route -->
+      <a
+        class="open"
+        href={firstSafeHttpUrl(url) ?? undefined}
+        target="_blank"
+        rel="noopener noreferrer">{m.viewport_preview_open_new_tab()}</a
       >
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
     </div>
   {:else}
     {#if reason}

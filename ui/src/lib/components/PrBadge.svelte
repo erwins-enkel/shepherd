@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { GitState } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { setPrDraftState, mergePr, MergeRefusedError } from "#lib/api.js";
@@ -116,8 +117,8 @@
 
   function openPr() {
     closeMenu();
-    if (!git?.url) return;
-    window.open(git.url, "_blank", "noopener,noreferrer");
+    const url = firstSafeHttpUrl(git?.url);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
 
   // The merge itself is confirmed in MergeConfirmDialog (#2299) — this only opens it. The menu

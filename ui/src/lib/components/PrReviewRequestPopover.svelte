@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { onMount, tick, untrack } from "svelte";
   import { getPrReviewers, requestPrReview, type PrReviewerOptions } from "#lib/api.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -266,10 +267,14 @@
   {#if prUrl || data}
     <div class="actions">
       {#if prUrl}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-        <a class="gbtn" href={prUrl} target="_blank" rel="noopener noreferrer"
-          >{m.prbadge_open_pr()}</a
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+        <a
+          class="gbtn"
+          href={firstSafeHttpUrl(prUrl) ?? undefined}
+          target="_blank"
+          rel="noopener noreferrer">{m.prbadge_open_pr()}</a
         >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
       {/if}
       {#if data}
         <button

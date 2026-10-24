@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   let { slug, webUrl }: { slug: string | null; webUrl: string | null } = $props();
 </script>
 
 {#if slug}<span class="sep">·</span
   >{#if webUrl}<!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-    <a class="repo-link" href={webUrl} target="_blank" rel="noopener">{slug}</a
+    <a class="repo-link" href={firstSafeHttpUrl(webUrl) ?? undefined} target="_blank" rel="noopener"
+      >{slug}</a
     >{:else}{slug}{/if}{/if}
 
 <style>

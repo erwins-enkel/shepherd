@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import { untrack } from "svelte";
   import type { Session } from "#lib/types.js";
   import type { RecapVerdict } from "#lib/types.js";
@@ -39,7 +40,7 @@
   });
 
   // Render the (LLM-authored) body as sanitized markdown.
-  // Dynamically imported so marked/DOMPurify stay off the first-paint critical path;
+  // The sanitizer loads lazily, off the first-paint critical path;
   // gated on showBody so the browser-only sanitizer never runs during SSR.
   let renderedBody = $state("");
   $effect(() => {
@@ -49,10 +50,9 @@
       return;
     }
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive)
-          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+    renderMarkdown(body)
+      .then((html) => {
+        if (alive) renderedBody = html;
       })
       .catch((err) => {
         console.warn("Recap body markdown render failed", err);
@@ -139,7 +139,7 @@
         {#if recap.blocks && recap.blocks.length > 0}
           <VisualReview blocks={recap.blocks} />
         {:else if renderedBody}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
           <div class="recap-md">{@html renderedBody}</div>
         {/if}
         {#if recap.openItems.length > 0}

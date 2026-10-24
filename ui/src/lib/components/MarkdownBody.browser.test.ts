@@ -30,6 +30,14 @@ describe("MarkdownBody", () => {
     expect(container.querySelector("img")?.getAttribute("onerror")).toBeNull();
   });
 
+  it("shows an issue author's external image as a link instead of loading it (#2099)", async () => {
+    const { container } = await render(MarkdownBody, {
+      source: "![screenshot](https://tracker.example/pixel.png)",
+    });
+    await expect.poll(() => container.querySelector(".md-body a")?.textContent).toBe("screenshot");
+    expect(container.querySelector("img")).toBeNull();
+  });
+
   it("shows the empty hint for a blank body", async () => {
     await render(MarkdownBody, { source: "  " });
     await expect.element(page.getByText(m.issuedetail_no_description())).toBeInTheDocument();

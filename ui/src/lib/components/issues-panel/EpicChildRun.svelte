@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type {
     DrainStatus,
     Epic,
@@ -128,10 +129,14 @@
   {:else if view === "session"}
     <EpicChildSession {child} {live} {runSummary} {onopensession} />
   {:else if mergedPr}
-    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-    <a class="pr-link" href={mergedPr} target="_blank" rel="noopener noreferrer"
-      >{m.childrun_pr_link({ number: child.prNumber ?? 0 })} ↗</a
+    <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+    <a
+      class="pr-link"
+      href={firstSafeHttpUrl(mergedPr) ?? undefined}
+      target="_blank"
+      rel="noopener noreferrer">{m.childrun_pr_link({ number: child.prNumber ?? 0 })} ↗</a
     >
+    <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {/if}
 </RunPanel>
 

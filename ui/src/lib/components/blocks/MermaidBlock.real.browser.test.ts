@@ -54,4 +54,16 @@ describe("MermaidBlock (real mermaid)", () => {
     expect(document.querySelector(".mb-error")).toBeNull();
     expect(hasLeakedMermaidError()).toBe(false);
   }, 20000);
+
+  it("node labels survive the DOMPurify SVG pass (#2104)", async () => {
+    render(MermaidBlock, {
+      block: { type: "mermaid", id: "real-labels", source: "graph TD; Alpha-->Beta" },
+    });
+
+    await expect
+      .poll(() => document.querySelector(".mb-svg svg")?.textContent ?? "", { timeout: 15000 })
+      .toMatch(/Alpha[\s\S]*Beta/);
+    // Mermaid's own theme CSS carries no escapes, so the backslash guard keeps it.
+    expect(document.querySelector(".mb-svg svg style")?.textContent ?? "").toContain("fill");
+  }, 20000);
 });

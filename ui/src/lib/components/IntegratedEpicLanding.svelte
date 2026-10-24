@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { Snippet } from "svelte";
   import type { CompletedEpic } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -61,13 +62,15 @@
       status.situation !== "landing",
   );
   const reasonId = $props.id();
-  const parentUrl = $derived.by(() => {
+  // Forge URLs, validated once here (#2102) so every link below binds an http(s) href.
+  const landingPrHref = $derived(firstSafeHttpUrl(epic.landingPrUrl));
+  const parentHref = $derived.by(() => {
     const ref = epic.children.find((c) => c.url)?.url;
-    return ref ? ref.replace(/\/\d+(?=\/?$)/, `/${epic.parentIssueNumber}`) : null;
+    return firstSafeHttpUrl(
+      ref ? ref.replace(/\/\d+(?=\/?$)/, `/${epic.parentIssueNumber}`) : null,
+    );
   });
-  const checksUrl = $derived(
-    epic.landingPrUrl ? `${epic.landingPrUrl.replace(/\/$/, "")}/checks` : null,
-  );
+  const checksHref = $derived(landingPrHref ? `${landingPrHref.replace(/\/$/, "")}/checks` : null);
   const checking = $derived(epic.landingChecks === "pending" || epic.landingMergeable === null);
   // #2872: the live repair session, else the last recorded one (server omits archived sessions).
   const repairSessionId = $derived(epic.landingCiAutomation?.repair.sessionId ?? null);
@@ -258,7 +261,7 @@
       value: copy.label,
       detail: "",
       marker: landingMarker,
-      href: epic.landingPrUrl,
+      href: landingPrHref,
     },
     {
       label: m.integrated_epics_path_landed(),
@@ -302,8 +305,13 @@
           <div class="step-content">
             <div class="step-line">
               {#if step.href}
-                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-                <a href={step.href} target="_blank" rel="noopener noreferrer">{step.label}</a>
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+                <a
+                  href={firstSafeHttpUrl(step.href) ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer">{step.label}</a
+                >
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
               {:else}<span>{step.label}</span>{/if}
               <span class="step-value">{step.value}</span>
             </div>
@@ -360,19 +368,20 @@
             >{m.integrated_epics_last_session()}</button
           >
         {/if}
-        {#if checksUrl}
-          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-          <a class="gbtn" href={checksUrl} target="_blank" rel="noopener noreferrer"
+        {#if checksHref}
+          <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+          <a class="gbtn" href={checksHref} target="_blank" rel="noopener noreferrer"
             >{m.integrated_epics_view_checks()}</a
           >
+          <!-- eslint-enable svelte/no-navigation-without-resolve -->
         {/if}
-      {:else if (status.situation === "ci-retrying" || status.situation === "ci-failed") && checksUrl}
+      {:else if (status.situation === "ci-retrying" || status.situation === "ci-failed") && checksHref}
         <!-- No agent repair here (rerun in flight, or a non-GitHub forge): checks are the action. -->
         <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
         <a
           class="gbtn"
           class:primary={status.situation === "ci-failed"}
-          href={checksUrl}
+          href={checksHref}
           target="_blank"
           rel="noopener noreferrer">{m.integrated_epics_view_checks()}</a
         >
@@ -389,16 +398,18 @@
           onclick={() => onresolveconflicts(epic.repoPath, epic.parentIssueNumber)}
           >{m.integrated_epics_resolve_conflicts()}</button
         >
-      {:else if status.situation === "nothing-to-land" && parentUrl}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-        <a class="gbtn primary" href={parentUrl} target="_blank" rel="noopener noreferrer"
+      {:else if status.situation === "nothing-to-land" && parentHref}
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+        <a class="gbtn primary" href={parentHref} target="_blank" rel="noopener noreferrer"
           >{m.integrated_epics_open_issue()}</a
         >
-      {:else if status.situation === "not-ready" && epic.landingPrUrl}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-        <a class="gbtn primary" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
+      {:else if status.situation === "not-ready" && landingPrHref}
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+        <a class="gbtn primary" href={landingPrHref} target="_blank" rel="noopener noreferrer"
           >{m.integrated_epics_open_pr()}</a
         >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
       {/if}
       {#if lockedLand}
         <div class="locked-action">

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
+  import { renderMarkdown } from "#lib/sanitize-html.js";
   import {
     gitState,
     setPrDraftState,
@@ -512,9 +514,7 @@
           : m.gitrail_review_plan(),
   );
   // Render the (AI-authored) findings as markdown, sanitized before @html.
-  // Dynamically imported so marked/DOMPurify stay off the first-paint critical path;
-  // a static import here would hoist both into the main chunk and defeat the same
-  // lazy-loading in every other consumer (SessionRecap, PlanPanel, ...).
+  // renderMarkdown loads marked/DOMPurify lazily, off the first-paint critical path.
   // Gated on showReview so the browser-only sanitizer never runs during SSR.
   let renderedBody = $state("");
   $effect(() => {
@@ -524,10 +524,9 @@
       return;
     }
     let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive)
-          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+    renderMarkdown(body)
+      .then((html) => {
+        if (alive) renderedBody = html;
       })
       .catch((e) => {
         // Never assigns to renderedBody — a failed load must not leave unsanitized
@@ -854,9 +853,14 @@
             <span class="rv-label critic-{verdict.decision}">{criticBadgeLabel(verdict)}</span>
           {/if}
           {#if git.url}
-            <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-            <a class="rv-prlink" href={git.url} target="_blank" rel="noopener">PR #{git.number} ↗</a
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+            <a
+              class="rv-prlink"
+              href={firstSafeHttpUrl(git.url) ?? undefined}
+              target="_blank"
+              rel="noopener">PR #{git.number} ↗</a
             >
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
           {/if}
           <button
             class="gbtn"
@@ -874,7 +878,7 @@
         <!-- #2155: renders nothing unless the critic measured a real departure from the plan. -->
         <PlanDriftNote {verdict} />
         {#if verdict.body}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
           <div class="rv-body">{@html renderedBody}</div>
         {/if}
         {#if verdict.decision !== "error" && verdict.body}

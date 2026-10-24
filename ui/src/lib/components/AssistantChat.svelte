@@ -228,6 +228,11 @@
   $effect(() => {
     const el = thread;
     const content = stack;
+    // A fresh observer per session: a replacement that reloads to the same height within one
+    // frame would otherwise never fire, leaving the old scroll position. `observe()` always
+    // reports once, so the new session starts at its end.
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    sessionId;
     if (!el || !content) return;
     const ro = new ResizeObserver(() => {
       if (stick) el.scrollTop = el.scrollHeight;

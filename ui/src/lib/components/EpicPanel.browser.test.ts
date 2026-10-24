@@ -11,7 +11,7 @@ function child(over: Partial<EpicChild>): EpicChild {
   return {
     number: 1,
     title: "c",
-    url: "u",
+    url: "https://github.com/o/r/issues/1",
     order: 0,
     body: "",
     blockedBy: [],

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { PullRequest } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import {
@@ -154,12 +155,16 @@
   <div class="pr-body">
     <div class="pr-top">
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-      <a class="pr-num" href={pr.url} target="_blank" rel="noopener" title={m.prspanel_open_link()}
-        >#{pr.number}</a
+      <a
+        class="pr-num"
+        href={firstSafeHttpUrl(pr.url) ?? undefined}
+        target="_blank"
+        rel="noopener"
+        title={m.prspanel_open_link()}>#{pr.number}</a
       >
       <a
         class="pr-title"
-        href={pr.url}
+        href={firstSafeHttpUrl(pr.url) ?? undefined}
         target="_blank"
         rel="noopener"
         title={m.prspanel_open_link()}>{pr.title}</a
@@ -242,7 +247,7 @@
               <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
               <a
                 class="job-name"
-                href={job.url}
+                href={firstSafeHttpUrl(job.url) ?? undefined}
                 target="_blank"
                 rel="noopener"
                 title={m.actionspanel_job_link()}>{job.name}</a

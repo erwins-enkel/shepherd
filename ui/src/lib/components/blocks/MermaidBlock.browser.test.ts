@@ -11,6 +11,10 @@ vi.mock("mermaid", () => ({
     render: vi.fn(async (id: string, src: string) => {
       lastRenderId = id;
       if (src.includes("BOOM")) throw new Error("parse error");
+      if (src.includes("EVIL"))
+        return {
+          svg: "<svg data-testid='mmsvg' onload='window.__mm=1'><script>window.__mm=1</script><a href='https://e.example'><text>x</text></a></svg>",
+        };
       return { svg: "<svg data-testid='mmsvg'></svg>" };
     }),
   },
@@ -48,6 +52,16 @@ describe("MermaidBlock", () => {
     await expect.element(page.getByText("graph TD; BOOM")).toBeInTheDocument();
     // No svg injected.
     expect(document.querySelector("[data-testid='mmsvg']")).toBeNull();
+  });
+
+  it("re-sanitizes mermaid output before injecting it (#2104)", async () => {
+    render(MermaidBlock, { block: { type: "mermaid", id: "evil", source: "EVIL" } });
+    await expect.element(page.getByTestId("mmsvg")).toBeInTheDocument();
+    const svg = document.querySelector("[data-testid='mmsvg']")!;
+    expect(svg.hasAttribute("onload")).toBe(false);
+    expect(svg.querySelector("script")).toBeNull();
+    expect(svg.querySelector("a")?.hasAttribute("href")).toBe(false);
+    expect((window as unknown as { __mm?: number }).__mm).toBeUndefined();
   });
 
   it("config-pin: mermaid.initialize is called with suppressErrorRendering:true", async () => {

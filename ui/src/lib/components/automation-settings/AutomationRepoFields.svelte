@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { m } from "#lib/paraglide/messages.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
   import {
@@ -315,7 +316,12 @@
     })}
     {#if pending.url}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external PR URL -->
-      <a class="roles-link" href={pending.url} target="_blank" rel="noopener noreferrer">
+      <a
+        class="roles-link"
+        href={firstSafeHttpUrl(pending.url) ?? undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         {m.roles_pending_pr_open()}
       </a>
       <!-- eslint-enable svelte/no-navigation-without-resolve -->

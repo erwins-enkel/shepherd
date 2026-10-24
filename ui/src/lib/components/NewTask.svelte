@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { flushSync, onMount, tick, untrack } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import {
@@ -2758,10 +2759,14 @@
           {#if issueRef && !relaunch}
             <div class="issue-ref">
               <span class="issue-ref-label">{m.newtask_issue_attached_label()}</span>
-              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external GitHub URL -->
-              <a class="issue-ref-link" href={issueRef.url} target="_blank" rel="noopener"
-                >#{issueRef.number} {issueRef.title}</a
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL -->
+              <a
+                class="issue-ref-link"
+                href={firstSafeHttpUrl(issueRef.url) ?? undefined}
+                target="_blank"
+                rel="noopener">#{issueRef.number} {issueRef.title}</a
               >
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
               <button
                 type="button"
                 class="issue-ref-x"

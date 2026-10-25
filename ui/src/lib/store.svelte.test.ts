@@ -1112,6 +1112,27 @@ test("mergetrain:landed enqueues a repo-keyed landed confirmation toast", () => 
   expect(t!.actionLabel).toBeUndefined();
 });
 
+// ── auto-drain skip toasts ─────────────────────────────────────────────────
+
+test("repo:untrusted-author toast names the repo", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.apply({ event: "repo:untrusted-author", data: { repoPath: "/repos/my-project", issue: 42 } });
+  const t = toasts.items.find((x) => x.key === "untrusted-author-/repos/my-project-42");
+  expect(t!.text).toContain("my-project#42");
+});
+
+test("repo:target-repo-unregistered toast names the repo", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.apply({
+    event: "repo:target-repo-unregistered",
+    data: { repoPath: "/repos/my-project", issue: 42, slug: "acme/other" },
+  });
+  const t = toasts.items.find((x) => x.key === "target-repo-unregistered-/repos/my-project-42");
+  expect(t!.text).toContain("my-project#42");
+});
+
 // ── draftreconcile:status ──────────────────────────────────────────────────
 
 test("draftreconcile:status promote_error raises a persistent assertive keyed toast", () => {

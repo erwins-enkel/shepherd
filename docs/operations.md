@@ -23,6 +23,16 @@ single-operator password and stores browser access in a signed session cookie. S
 `SHEPHERD_PASSWORD` in `~/.shepherd/env`, or use the first-boot generated password from the server
 log; machine clients can use `SHEPHERD_TOKEN` as a bearer alternative.
 
+Login and pairing attempts are throttled per caller. Behind the loopback proxy, Shepherd keys
+them on the identity the proxy asserts (`Tailscale-User-Login`, the last `X-Forwarded-For` hop) —
+but on Linux it only believes those headers when the kernel says the connecting socket belongs
+to `SHEPHERD_TRUSTED_PROXY_UID` (default `0`, the root `tailscaled`). Any other local client
+(agents, other users) shares one local bucket whatever headers it sends, so it cannot lock the
+operator out. If your proxy runs as another user, set that UID; setting Shepherd's own UID
+re-trusts same-user agents. macOS has no such lookup: there the header-based keys still apply,
+so a plain local flood can't lock out a tailnet login, but a local client forging proxy headers
+still can.
+
 To start tasks on another Shepherd, for example a MacBook with Xcode, connect it as a machine:
 [Run tasks on another machine](machines.md).
 

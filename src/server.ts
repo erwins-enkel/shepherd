@@ -3,7 +3,13 @@ import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-in
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { recapSummary } from "./recap-core";
 import { PairingCodeService } from "./pairing-codes";
-import { PeerThrottle, throttleKey } from "./attempt-budget";
+import {
+  hasProxyHeaders,
+  PeerThrottle,
+  throttleKey,
+  type ProxyTrust,
+  type ThrottleKey,
+} from "./attempt-budget";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
 import { localHealthIdentity } from "./local-health";
@@ -111,9 +117,11 @@ import {
   clearCookie,
   shouldRestamp,
   isSecureRequest,
+  isLoopbackPeer,
   verifyPassword,
   SESSION_COOKIE,
 } from "./operator-auth";
+import { loopbackPeerUid } from "./peer-uid";
 import {
   normalizeRepositoryPaths,
   repositoryAllows,
@@ -583,6 +591,9 @@ export interface AppDeps {
   pairingCodes?: PairingCodeService;
   /** Per-peer `POST /api/login` budget (#2105); lazily built like `pairingCodes`. */
   loginAttempts?: PeerThrottle;
+  /** Is this loopback connection the trusted proxy (#3368)? Absent ⇒ {@link defaultProxyTrust}
+   *  (kernel socket owner vs `config.trustedProxyUid`). Test seam. */
+  proxyTrust?: (sock: RequestSocket) => Promise<ProxyTrust>;
   /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
@@ -1512,6 +1523,25 @@ function sandboxOverrideRefused(): Response {
 // an "unknown" bucket; a reverse proxy also shares its upstream bucket deliberately.
 // Used for the /api/pair + /api/login budgets and isSecureRequest's proxy trust.
 const requestPeers = new WeakMap<Request, string>();
+/** The connection's client port and our listener port, for the proxy-trust UID lookup (#3368). */
+type RequestSocket = { port: number; serverPort: number };
+const requestSockets = new WeakMap<Request, RequestSocket>();
+
+async function defaultProxyTrust({ port, serverPort }: RequestSocket): Promise<ProxyTrust> {
+  const uid = await loopbackPeerUid(port, serverPort);
+  if (uid === "unavailable") return "unavailable";
+  return uid === config.trustedProxyUid ? "trusted" : "untrusted";
+}
+
+/** Throttle key for `/api/login` + `/api/pair`. Proxy headers from a loopback peer count only once
+ *  the kernel says the socket is the proxy's (#3368); headerless or non-loopback requests do no I/O. */
+async function resolveThrottleKey(req: Request, deps: AppDeps): Promise<ThrottleKey> {
+  const peer = requestPeers.get(req);
+  const sock = requestSockets.get(req);
+  if (!isLoopbackPeer(peer) || !hasProxyHeaders(req)) return throttleKey(req, peer, "untrusted");
+  const trust = sock ? await (deps.proxyTrust ?? defaultProxyTrust)(sock) : "untrusted";
+  return throttleKey(req, peer, trust);
+}
 
 // ── single-operator auth routes (issue #1079) ──────────────────────────────
 // login is the only unauthenticated mutation (isPublicRequest); logout + me sit behind the gate.
@@ -1551,7 +1581,7 @@ async function handleLogin({ req, parts, deps }: Ctx): Promise<Response | null> 
     undefined,
     PROXIED_LOGIN_GLOBAL,
   ));
-  if (!attempts.allowAttempt(throttleKey(req, requestPeers.get(req)))) {
+  if (!attempts.allowAttempt(await resolveThrottleKey(req, deps))) {
     return json({ error: "login_rate_limited" }, 429, { "Retry-After": "60" });
   }
   const ctErr = requireJsonContentType(req);
@@ -1654,7 +1684,7 @@ async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null
   if (parts[1] === "pairing-codes") {
     return requireOperatorSession(req) ?? json(svc.mint(), 201, NO_STORE);
   }
-  if (!svc.allowAttempt(throttleKey(req, requestPeers.get(req)))) {
+  if (!svc.allowAttempt(await resolveThrottleKey(req, deps))) {
     return json({ error: "pairing_rate_limited" }, 429, { "Retry-After": "60" });
   }
   const ctErr = requireJsonContentType(req);
@@ -13288,7 +13318,9 @@ export function serve(deps: AppDeps, port: number) {
     // layer, before the app-level MAX_UPLOAD_BYTES check ever runs.
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     fetch(req, server) {
-      requestPeers.set(req, server.requestIP(req)?.address ?? "unknown");
+      const ip = server.requestIP(req);
+      requestPeers.set(req, ip?.address ?? "unknown");
+      if (ip) requestSockets.set(req, { port: ip.port, serverPort: server.port! });
       const authErr = checkAuth(req, deps);
       if (authErr instanceof Response) return authErr;
       const tokenId = authErr?.id;

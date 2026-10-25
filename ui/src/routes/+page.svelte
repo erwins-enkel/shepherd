@@ -1207,6 +1207,8 @@
     }
     if (kickoff.kind === "bootstrap")
       return m.newproject_bootstrap_seed({ idea: idea || m.newproject_prd_seed_noidea() });
+    if (kickoff.prdSupplied)
+      return m.newproject_prd_seed_supplied({ idea: idea || m.newproject_prd_seed_noidea() });
     return m.newproject_prd_seed({ idea: idea || m.newproject_prd_seed_noidea() });
   }
 

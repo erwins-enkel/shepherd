@@ -63,6 +63,59 @@ describe("NewProject bootstrap kickoff (#3112)", () => {
   });
 });
 
+describe("NewProject PRD brief file", () => {
+  it("commits a picked PRD as docs/prd/PRD.md and flags the kickoff", async () => {
+    const posts = mockApi();
+    const ondone = vi.fn();
+    render(NewProject, { ondone });
+    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await page
+      .getByLabelText(m.newproject_prd_file_label())
+      .upload(new File(["# My PRD"], "my-prd.md", { type: "text/markdown" }));
+    await expect
+      .element(page.getByText(m.newproject_prd_file_hint({ name: "my-prd.md" })))
+      .toBeVisible();
+    await page.getByRole("button", { name: m.newproject_submit() }).click();
+    await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
+    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd", prdSupplied: true });
+    const fd = posts[0]!.body as FormData;
+    expect(fd).toBeInstanceOf(FormData);
+    const prd = fd.getAll("prd") as File[];
+    expect(prd.map((f) => f.name)).toEqual(["PRD.md"]);
+    expect(await prd[0]!.text()).toBe("# My PRD");
+    expect(fd.getAll("design")).toEqual([]);
+  });
+
+  it("keeps the plain JSON create without a PRD file", async () => {
+    const posts = mockApi();
+    const ondone = vi.fn();
+    render(NewProject, { ondone });
+    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await page.getByRole("button", { name: m.newproject_submit() }).click();
+    await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
+    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd" });
+    expect(posts[0]?.type).toBe("application/json");
+  });
+
+  it("hides the PRD file input outside the PRD brief kickoff", async () => {
+    mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await expect.element(page.getByLabelText(m.newproject_prd_file_label())).toBeVisible();
+    await page
+      .getByLabelText(m.newproject_prd_file_label())
+      .upload(new File(["# PRD"], "p.md", { type: "text/markdown" }));
+    await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__bootstrap__");
+    await expect
+      .element(page.getByLabelText(m.newproject_prd_file_label()))
+      .not.toBeInTheDocument();
+    // Back to PRD brief: the dropped file leaves no stale hint behind.
+    await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__prd__");
+    await expect
+      .element(page.getByText(m.newproject_prd_file_hint({ name: "p.md" })))
+      .not.toBeInTheDocument();
+  });
+});
+
 describe("NewProject idea length", () => {
   it("blocks an idea over the server's 8000-char limit before sending", async () => {
     const posts = mockApi();

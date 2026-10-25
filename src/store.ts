@@ -688,6 +688,7 @@ type NewSession = Omit<
   | "updatedAt"
   | "settledAt"
   | "claudeAiConnectors"
+  | "ingressStamp"
   | "archivedAt"
   | "archiveReason"
   | "model"
@@ -788,7 +789,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+  claudeAiConnectors, ingressStamp, (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
 /** A bootstrap spawn: P1+P2 carries its resolved stack, P3 (#3110) only its phase. */
 function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">): boolean {
@@ -875,6 +876,7 @@ type SessionRow = {
   spawnTerminalId: string | null;
   spawnAccountDir: string | null;
   claudeAiConnectors: number | null;
+  ingressStamp: string | null;
   launchMetadataJson: string | null;
   codexLaunchId: string | null;
 };
@@ -5524,6 +5526,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** Record the ingress-key stamp (#3341) a Claude spawn/resume carried. Written by
+   *  SessionService's persistSpawnIdentity (and its legacy backfill); ConnectorRestartService reads
+   *  it back via SessionService.ingressStale. */
+  setIngressStamp(id: string, stamp: string): void {
+    this.db.run(`UPDATE sessions SET ingressStamp=?, updatedAt=? WHERE id=?`, [
+      stamp,
+      Date.now(),
+      id,
+    ]);
+  }
+
   /** Persist a provider-native session id (the Codex rollout UUID) discovered post-spawn. Dedicated
    *  setter (the generic update() whitelist would work too, but this mirrors {@link setSpawnIdentity}'s
    *  targeted-UPDATE style for a post-spawn-discovered marker). Callers only ever pass a non-empty id. */
@@ -6481,6 +6494,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // The claude.ai-connector setting the live agent was spawned with (written only via
     // setClaudeAiConnectors). Nullable, no default: null reads as "spawned with connectors off".
     add("claudeAiConnectors", `claudeAiConnectors INTEGER`);
+    // The ingress-key stamp (#3341) the live Claude agent was spawned/resumed with (written only via
+    // setIngressStamp). Nullable: null = spawned before the stamp existed.
+    add("ingressStamp", `ingressStamp TEXT`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
     // The commit the worktree was actually created from (#2761). Nullable, no default: legacy rows
@@ -7424,6 +7440,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       spawnTerminalId: r.spawnTerminalId ?? null,
       spawnAccountDir: r.spawnAccountDir ?? null,
       claudeAiConnectors: nullableBool(r.claudeAiConnectors),
+      ingressStamp: r.ingressStamp,
     } as Session;
   }
 

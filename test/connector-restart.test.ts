@@ -28,6 +28,7 @@ function harness(opts: {
   enabled?: Record<string, boolean>;
   liveness?: LivenessState | undefined;
   resume?: (id: string) => Promise<unknown>;
+  stale?: Set<string>;
 }) {
   const resumed: string[] = [];
   let now = NOW;
@@ -39,6 +40,7 @@ function harness(opts: {
       }),
     } as any,
     livenessOf: () => ("liveness" in opts ? opts.liveness : "alive"),
+    ...(opts.stale ? { ingressStale: async (s: Session) => opts.stale!.has(s.id) } : {}),
     resume: async (id) => {
       resumed.push(id);
       return opts.resume ? opts.resume(id) : { id };
@@ -185,4 +187,60 @@ test("pending counts the repo's out-of-step live Claude sessions by whether they
     ],
   });
   expect(svc.pending("/repo")).toEqual({ now: 2, later: 2 });
+});
+
+// #3341: sessions spawned without the current ingress key.
+test("a settled live session with a stale ingress key is resumed", async () => {
+  const { svc, resumed } = harness({
+    sessions: [session({ claudeAiConnectors: true })],
+    stale: new Set(["s1"]),
+  });
+  await svc.sweep();
+  expect(resumed).toEqual(["s1"]);
+});
+
+test("a stale ingress key waits for settle, and skips codex/assistant/terminal/non-live", async () => {
+  const s = session({ claudeAiConnectors: true, status: "running", settledAt: null });
+  const { svc, resumed } = harness({
+    sessions: [
+      s,
+      session({ id: "codex", agentProvider: "codex", claudeAiConnectors: true }),
+      session({ id: "assistant", operatorAssistant: true, claudeAiConnectors: true }),
+      session({ id: "terminal", terminal: true, claudeAiConnectors: true }),
+    ],
+    stale: new Set(["s1", "codex", "assistant", "terminal"]),
+  });
+  await svc.sweep();
+  s.status = "blocked";
+  await svc.sweep();
+  expect(resumed).toEqual([]);
+  const husk = harness({
+    sessions: [session({ claudeAiConnectors: true })],
+    stale: new Set(["s1"]),
+    liveness: "husk",
+  });
+  await husk.svc.sweep();
+  expect(husk.resumed).toEqual([]);
+});
+
+test("both drifts at once restart once; ingress drift has its own attempt budget", async () => {
+  const sessions = [session()];
+  const stale = new Set(["s1"]);
+  const { svc, resumed } = harness({ sessions, stale, resume: async () => null });
+  await svc.sweep();
+  expect(resumed).toEqual(["s1"]);
+  for (let i = 0; i < CONNECTOR_RESTART_MAX_ATTEMPTS + 2; i++) await svc.sweep();
+  expect(resumed).toHaveLength(CONNECTOR_RESTART_MAX_ATTEMPTS);
+  // connectors now in step, ingress still stale: a different drift, a fresh budget
+  sessions[0]!.claudeAiConnectors = true;
+  await svc.sweep();
+  expect(resumed).toHaveLength(CONNECTOR_RESTART_MAX_ATTEMPTS + 1);
+});
+
+test("pending stays connector-only", async () => {
+  const { svc } = harness({
+    sessions: [session({ claudeAiConnectors: true })],
+    stale: new Set(["s1"]),
+  });
+  expect(svc.pending("/repo")).toEqual({ now: 0, later: 0 });
 });

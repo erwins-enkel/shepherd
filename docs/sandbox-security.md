@@ -97,8 +97,16 @@ it has its own HMAC `?token=`.
   agent skill calling the ingress (for example video-brief's self-rename) must
   send the same header.
 - **Membrane:** a sandboxed session gets only its own three files, RO-bound.
-- **Upgrade:** a session spawned before this change carries no key. Its hooks
-  fall back to polling and its MCP tools fail until its next resume or relaunch.
+- **Upgrade (#3341):** a session spawned without the current key carries none:
+  pre-#3339, a rotated key file, or an older spawn-file version
+  (`INGRESS_SPAWN_VERSION`). Each Claude spawn and resume records an
+  `ingressStamp` (version + key fingerprint). The 15s connector-restart sweep
+  force-resumes a live Claude task session whose stamp is stale once it has
+  settled (idle/done ≥15s). Until then its hooks fall back to polling and its
+  MCP tools fail. There is no keyless transition window. **Codex sessions and
+  the Operator Assistant are not auto-resumed.** A Codex resume does not re-send
+  its curl directives, and the Assistant has its own relaunch. Both need a
+  manual relaunch.
 
 ## Shared Claude state and agent-written files
 

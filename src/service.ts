@@ -118,6 +118,7 @@ import type { BrowserTokenSigner } from "./browser-token";
 import {
   ASSISTANT_INGRESS_HEADER,
   ingressSpawnPaths,
+  ingressStamp,
   removeIngressSpawnFiles,
   writeIngressSpawnFiles,
 } from "./assistant-ingress";
@@ -4051,6 +4052,28 @@ export class SessionService {
     );
   }
 
+  /**
+   * True when a live Claude task session's agent was spawned without the CURRENT ingress key
+   * (#3341: pre-#3339, a rotated key, or an older spawn-file version), so its hooks and MCP calls are
+   * refused until a resume rewrites its spawn files. ConnectorRestartService resumes it once
+   * settled. No signer → never stale (a resume cannot help). A null stamp is a row from before the
+   * stamp existed: if its `--settings` or `--mcp-config` file already carries the session's key
+   * (spawned after #3339), the stamp is backfilled instead of forcing a needless restart.
+   */
+  async ingressStale(s: Session): Promise<boolean> {
+    const current = ingressStamp(this.deps.assistantIngress);
+    if (!current || s.ingressStamp === current) return false;
+    if (s.ingressStamp) return true;
+    const key = this.deps.assistantIngress!.sign(s.id);
+    const paths = ingressSpawnPaths(this.ingressSpawnDir(false), s.id);
+    const files = await Promise.all(
+      [paths.settings, paths.mcpConfig].map((p) => readFile(p, "utf8").catch(() => "")),
+    );
+    if (!files.some((f) => f.includes(key))) return true;
+    this.deps.store.setIngressStamp(s.id, current);
+    return false;
+  }
+
   /** Stable manual-API refusal; autonomous callers keep resume()'s null/no-spawn contract. */
   resumeRefusalCode(id: string): "transcript-missing" | null {
     const s = this.deps.store.get(id);
@@ -4158,6 +4181,10 @@ export class SessionService {
       this.spawnConnectorStamp.delete(session.id);
       this.deps.store.setClaudeAiConnectors(session.id, connectors);
     }
+    // #3341: every Claude task spawn/resume wrote keyed spawn files (sessionSpawnFileArgs).
+    const stamp = ingressStamp(this.deps.assistantIngress);
+    if (stamp && (session.agentProvider ?? "claude") === "claude" && !isOperatorAssistant(session))
+      this.deps.store.setIngressStamp(session.id, stamp);
     const folded = outcome.spawnAccountDir;
     if (folded !== null) {
       this.deps.store.setSpawnIdentity(session.id, outcome.terminalId, folded);

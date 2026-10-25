@@ -12,11 +12,26 @@
  * only its own three files (file-level RO binds). Rewritten on every spawn and resume (claude reads
  * them at startup), removed on archive.
  */
+import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { writePrivateFile } from "./browser-attach-config";
+import type { BrowserTokenSigner } from "./browser-token";
 
 export const ASSISTANT_INGRESS_HEADER = "x-shepherd-ingress-key";
+
+/** Bump when the spawn files' shape changes so live sessions carrying the old one get resumed. */
+const INGRESS_SPAWN_VERSION = 1;
+
+/** The stamp a Claude spawn records (#3341): format version + a fingerprint of the ingress key, so
+ *  a key rotation or a version bump marks every live session stale. The fingerprint is a hash of
+ *  the HMAC of a constant — it identifies the key without being a usable ingress credential.
+ *  No signer → null (every ingress call is refused anyway; a resume cannot help). */
+export function ingressStamp(signer: Pick<BrowserTokenSigner, "sign"> | undefined): string | null {
+  if (!signer) return null;
+  const fp = createHash("sha256").update(signer.sign("ingress-stamp")).digest("hex").slice(0, 16);
+  return `v${INGRESS_SPAWN_VERSION}:${fp}`;
+}
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]+$/;
 

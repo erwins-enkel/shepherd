@@ -250,6 +250,11 @@ export interface Session {
    *  `settledAt`: null/absent means it was spawned with the connectors off (legacy rows, Codex, the
    *  Operator Assistant). ConnectorRestartService compares it with the repo's current value. */
   claudeAiConnectors?: boolean | null;
+  /** The ingress-key stamp (#3341, `ingressStamp()` in assistant-ingress.ts) the live Claude agent was
+   *  last spawned or resumed with. Null/absent: spawned before the stamp existed (legacy rows, Codex,
+   *  the Operator Assistant). A mismatch with the current stamp means its hooks/MCP calls are refused
+   *  until it is resumed — ConnectorRestartService does that once it settles. */
+  ingressStamp?: string | null;
   /** Launch-time display metadata for the task-id tooltip. Null/absent for legacy rows. */
   launchMetadata?: SessionLaunchMetadata | null;
 }

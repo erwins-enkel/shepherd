@@ -1,24 +1,42 @@
 ---
-// The "how it works" pipeline animation — a ~14s, silent, autoplay, looping
-// story authored as inline SVG + CSS, styled as a live instrument readout
-// (mission telemetry, not decoration). A single task token glides a gated
-// pipeline left → right, pausing only where it matters (the plan gate); the
-// rails carry a continuous flowing signal so the board always reads as live.
-// Colour is semantic, from global.css tokens: --blue = the task in motion,
-// --green = passed / landed, --amber = paused / needs-you, --ink-dim = inert
-// structure. Phosphor glow is restrained and only marks live-signal elements.
+// The "how it works" pipeline animation — a ~17s, silent, autoplay, looping
+// story styled as a live instrument readout (mission telemetry, not
+// decoration). A single task token glides a gated pipeline — left → right on
+// wide screens, top → bottom at ≤640px — pausing only where it matters (the
+// plan gate), while ghost tasks flow on parallel lanes so the board always
+// reads as live. Colour is semantic, from global.css tokens: --blue = the task
+// in motion, --green = passed / landed, --amber = paused / needs-you,
+// --ink-dim = inert structure.
 //
 // Thesis: Shepherd runs many agents at once (the parallel lanes flow the whole
-// time) and is built to stop (near the end one lane bounces off a gate, turns
-// amber, asks for you, while the others keep flowing).
+// time) and is built to stop (near the end the task on the innermost lane
+// bounces off a gate, turns amber, asks for you, while the others keep
+// flowing).
 //
-// One shared ~17s master timeline: every beat-driven element uses the same
-// duration + infinite iteration, so all keyframe clocks stay in lockstep and
-// the loop restarts as one. Windows are weighted, not uniform — the wordy
-// beats (4 and 6) get more time so their captions stay readable, while the
-// short beats stay snappy. Ambient motion (rail flow, cursor, live pip) runs
-// on its own short clock. The beat → % map below is the single source of
-// truth.
+// Stage: plain HTML/CSS, not SVG. Static structure (rails, gate posts, station
+// boxes, terminal, labels as real text) is painted once. Station positions are
+// 0..1 fractions along the track (--p-*), the single source of truth for both
+// placement and token travel; --ax/--ay (1/0 horizontal, 0/1 vertical) pick
+// the axis, so the ≤640px layout only swaps those and the cross-axis lines
+// (--c-*) and the same @keyframes drive both. A token is a thin "carrier"
+// spanning the track (cross size = the dot) with its dot at the start, moved
+// by translate(p × 100%). A gate post sits --g past its p, so a token held at
+// p rests against it.
+//
+// Perf contract: every @keyframes animates transform and opacity only — never
+// colour, size, position, filter or custom properties. Colour changes
+// (gate grey → amber → green, blocked token blue → amber, pass flares) are
+// crossfades of stacked elements; glows are static (rasterised once) and only
+// on live-signal elements (tokens, check, landing pulse, needs-you chip). The
+// loop therefore runs on the compositor: no per-frame paint or layout.
+//
+// One shared ~17s master timeline: every beat-driven element (class "m") uses
+// the same duration + infinite iteration, so all keyframe clocks stay in
+// lockstep and the loop restarts as one. Windows are weighted, not uniform —
+// the wordy beats (4 and 6) get more time so their captions stay readable,
+// while the short beats stay snappy. Ambient motion (ghost tasks, cursor, live
+// pip) runs on its own short clocks. The beat → % map below is the single
+// source of truth; the beat rail in the chrome strip mirrors it.
 //
 //   Beat                          window (% of ~17s loop)
 //   1 issue                         0 – 11
@@ -30,11 +48,22 @@
 //   7 land                         71 – 82
 //   8 payload (bounce / needs you) 82 – 100
 //
+// Playback: on load the script below pauses every figure animation at t=0
+// (beat 1); an IntersectionObserver restarts them from 0 whenever the figure
+// enters view after being fully hidden (including the first time), and they
+// pause again once it is fully hidden — so a visitor never lands mid-story.
+// The observer is only attached while paused (a live one makes Chromium run a
+// main-thread style pass on every compositor frame); while playing, a passive
+// scroll/resize check spots the exit. With JS disabled the CSS simply plays
+// from load.
+//
 // Accessibility: the animated figure is role="img" with a full aria-label, so
-// AT reads the summary and ignores the decorative internals. A separate static
-// diagram (all eight beat labels + both end-states) replaces it under
-// prefers-reduced-motion. A minimal IntersectionObserver pauses the loop when
-// off-screen; with JS disabled the animation simply plays without pausing.
+// AT reads the summary and ignores the decorative internals. Under
+// prefers-reduced-motion nothing animates (the motion rules only exist under
+// no-preference): the same stage shows a frozen summary pose (every station,
+// the merge node landed green, the blocked task amber with its chip), captions
+// and beat rail hide, and an ordered list of the eight beats — outside the
+// role="img", so AT reads it — appears below.
 // Tokens only — no raw hex / rgba / ad-hoc px font sizes.
 
 const beats: string[] = [
@@ -55,179 +84,185 @@ const ariaSummary =
   "Its diff passes CI, hygiene checks and a third agent's review before it " +
   "lands. And when a task can't pass, it stops and asks for you — while the " +
   "other tasks keep running.";
+
+// Beat window lengths (% of the loop), from the map above — the beat rail's
+// segment widths, so its fill advances at one steady speed.
+const windows = [11, 10, 8, 19, 8, 15, 11, 18];
+
+// Lanes 1–3 carry ghost tasks on their own linear clocks (two per lane, half a
+// lap apart); lane 4, next to the hero lane, belongs to the blocked task.
+// `rest` = where each ghost sits in the frozen reduced-motion pose.
+const ghosts = [
+  { lane: 1, dur: 10.5, lag: 0, rest: 0.31 },
+  { lane: 1, dur: 10.5, lag: 5.25, rest: 0.88 },
+  { lane: 2, dur: 12.5, lag: 2.1, rest: 0.55 },
+  { lane: 2, dur: 12.5, lag: 8.35, rest: 0.17 },
+  { lane: 3, dur: 9.5, lag: 3.9, rest: 0.76 },
+  { lane: 3, dur: 9.5, lag: 8.65, rest: 0.36 },
+];
+const lanes = [1, 2, 3, 4];
+const gates = ["plan", "checks", "review"];
 ---
 
 <figure class="pipe">
-  <!-- Animated figure (hidden under prefers-reduced-motion) -->
   <div class="pipe-anim" role="img" aria-label={ariaSummary}>
     <div class="chrome" aria-hidden="true">
       <span class="live"><i class="pip"></i>task pipeline</span>
-      <span class="meta">live</span>
-    </div>
-
-    <svg
-      class="stage"
-      viewBox="0 0 760 224"
-      preserveAspectRatio="xMidYMid meet"
-      aria-hidden="true">
-      <!-- ---------- parallel lanes: the "many at once", always flowing ----------
-           Flowing signal traces, not lonely dots — the board reads as busy. -->
-      <g class="lanes">
+      <span class="beat-rail">
         {
-          [18, 44, 70, 96].map((y, i) => (
-            <line
-              class="flow"
-              x1="118"
-              y1={y}
-              x2="620"
-              y2={y}
-              style={`--fd:${[-0.4, -0.95, -0.65, -0.2][i]}s`}
-            />
+          windows.map((w, i) => (
+            <i class="seg" style={`--w:${w}`}>
+              <b class={`m fill fill-${i + 1}`} />
+            </i>
           ))
         }
-      </g>
+      </span>
+    </div>
 
-      <!-- ---------- hero lane ---------- -->
-      <line class="rail" x1="102" y1="130" x2="628" y2="130" />
-      <line class="rail-flow" x1="102" y1="130" x2="628" y2="130" />
+    <div class="stage" aria-hidden="true">
+      <div class="frame">
+        <!-- beat 3: parallel lanes — the "many at once", always flowing.
+             Ticks line up with the hero lane's three gates. -->
+        <div class="m lanes">
+          {lanes.map((l) => <i class={`span ln lane l${l}`} />)}
+          {
+            lanes.map((l) =>
+              gates.map((g) => <i class={`span xs tick l${l} at-${g}`} />),
+            )
+          }
+          {
+            ghosts.map((g) => (
+              <i
+                class={`car ghost l${g.lane}`}
+                style={`--dur:${g.dur}s;--lag:-${g.lag}s;--rest:${g.rest}`}>
+                <i class="dot" />
+              </i>
+            ))
+          }
+        </div>
+        <i class="span xs trunk"></i>
+        <i class="span ln rail"></i>
 
-      <!-- beat 1: issue card -->
-      <g class="station">
-        <rect class="card" x="14" y="105" width="92" height="48" rx="6" />
-        <rect class="chip" x="22" y="111" width="76" height="14" rx="3" />
-        <text class="chip-t" x="60" y="121" textLength="66" lengthAdjust="spacingAndGlyphs">shepherd:auto</text>
-        <text class="lbl" x="60" y="170">issue</text>
-      </g>
+        <!-- beat 5: the diff draws in beside the working token -->
+        <div class="span diffs">
+          <i class="m diff d1"></i>
+          <i class="m diff d2"></i>
+          <i class="m diff d3"></i>
+          <i class="m diff d4"></i>
+        </div>
 
-      <!-- beat 2: worktree + terminal -->
-      <g class="station">
-        <rect class="box" x="126" y="100" width="116" height="60" rx="7" />
-        <rect class="term" x="136" y="113" width="96" height="38" rx="3" />
-        <line class="code code1" x1="144" y1="123" x2="196" y2="123" />
-        <line class="code code2" x1="144" y1="131" x2="216" y2="131" />
-        <rect class="cursor" x="144" y="137" width="8" height="9" />
-        <text class="lbl" x="184" y="94">worktree</text>
-      </g>
+        <!-- beat 6: pass flares (under the posts) -->
+        <span class="pt gated on-rail at-checks"><i class="m flare flare-checks"></i></span>
+        <span class="pt gated on-rail at-review"><i class="m flare flare-review"></i></span>
 
-      <!-- beat 4: plan gate + separate clean-copy reviewer -->
-      <g class="gate gate-a">
-        <line class="gate-bar" x1="286" y1="104" x2="286" y2="156" />
-        <text class="lbl" x="286" y="168">plan</text>
-      </g>
-      <g class="review">
-        <rect class="copy" x="244" y="14" width="96" height="44" rx="6" />
-        <text class="lbl-sm" x="292" y="10">clean copy</text>
-        <circle class="tok tok-review" cx="260" cy="36" r="4.5" />
-        <path class="verdict" d="M308 33 l6 7 l12 -15" />
-      </g>
+        <!-- beat 4: plan gate — holds amber, turns green, opens (halves part) -->
+        <span class="pt gate plan-gate gated on-rail at-plan">
+          <i class="m half up"><i class="m pg-green"></i></i>
+          <i class="m half down"><i class="m pg-green"></i></i>
+          <i class="m pg-amber"></i>
+        </span>
+        <span class="pt gate gated on-rail at-checks"><i class="m g-green g-checks"></i></span>
+        <span class="pt gate gated on-rail at-review"><i class="m g-green g-review"></i></span>
 
-      <!-- beat 5: work / diff -->
-      <g class="diffs">
-        <line class="diff diff1" x1="314" y1="118" x2="404" y2="118" />
-        <line class="diff diff2" x1="314" y1="126" x2="386" y2="126" />
-        <line class="diff diff3" x1="314" y1="134" x2="398" y2="134" />
-        <line class="diff diff4" x1="314" y1="142" x2="372" y2="142" />
-      </g>
+        <!-- hero token: under the station boxes, so it slips inside them -->
+        <i class="m car tok on-rail"><i class="dot"></i></i>
 
-      <!-- beat 6: CI · hygiene, then review -->
-      <g class="gate gate-b">
-        <line class="gate-bar" x1="452" y1="106" x2="452" y2="154" />
-        <circle class="pass pass-b" cx="452" cy="130" r="8" />
-        <text class="lbl" x="452" y="168">checks</text>
-      </g>
-      <g class="gate gate-c">
-        <line class="gate-bar" x1="524" y1="106" x2="524" y2="154" />
-        <circle class="pass pass-c" cx="524" cy="130" r="8" />
-        <text class="lbl" x="524" y="168">review</text>
-      </g>
+        <!-- beat 1: issue card -->
+        <span class="pt card on-rail at-issue">
+          <span class="m label-chip">shepherd:auto</span>
+          <i class="txt"></i>
+          <i class="txt short"></i>
+          <i class="m lit lit-issue"></i>
+        </span>
 
-      <!-- beat 7: merge trunk -->
-      <g class="trunk">
-        <line class="trunk-line" x1="628" y1="58" x2="628" y2="198" />
-        <circle class="trunk-node" cx="628" cy="130" r="7" />
-        <circle class="trunk-pulse" cx="628" cy="130" r="7" />
-        <text class="lbl" x="628" y="52">merge</text>
-      </g>
+        <!-- beat 2: worktree + live terminal -->
+        <span class="pt wt on-rail at-wt">
+          <span class="term">
+            <i class="code"></i>
+            <i class="code long"></i>
+            <i class="cursor"></i>
+          </span>
+          <i class="m lit lit-wt"></i>
+        </span>
 
-      <!-- hero token: travels the whole pipeline -->
-      <circle class="tok tok-hero" cx="60" cy="130" r="8" />
+        <!-- beat 7: merge trunk node -->
+        <span class="pt merge on-rail at-merge">
+          <i class="m mg-green"></i>
+          <i class="m land"></i>
+        </span>
 
-      <!-- beat 8: a blocked lane bounces, turns amber, asks for you.
-           The chip lives outside .block so it does not translate. -->
-      <line class="rail rail-dim" x1="118" y1="190" x2="470" y2="190" />
-      <line class="gate-bar gate-block" x1="286" y1="178" x2="286" y2="202" />
-      <g class="block">
-        <circle class="tok tok-block" cx="120" cy="190" r="6" />
-      </g>
-      <g class="needs">
-        <rect class="needs-chip" x="300" y="180" width="84" height="20" rx="10" />
-        <text class="needs-t" x="342" y="194">needs you</text>
-      </g>
-    </svg>
+        <!-- beat 4: separate clean-copy reviewer, in its own clear zone -->
+        <span class="pt cc-at gated at-plan">
+          <span class="m cc">
+            <span class="cc-h">clean copy</span>
+            <span class="cc-body">
+              <i class="code"></i>
+              <i class="code long"></i>
+              <i class="code"></i>
+              <i class="m scan"></i>
+            </span>
+            <i class="m verdict"><i></i></i>
+            <i class="cc-stem"></i>
+          </span>
+        </span>
+
+        <!-- beat 8: the lane-4 task bounces off a gate, turns amber, asks -->
+        <i class="m car blocked l4">
+          <i class="dot"></i>
+          <i class="m dot amber"></i>
+          <i class="m ping"></i>
+        </i>
+        <span class="pt needs-at"><span class="m needs">needs you</span></span>
+
+        <!-- station labels: one shared baseline (one shared column ≤640px) -->
+        <span class="pt lbl at-issue">issue</span>
+        <span class="pt lbl at-wt">worktree</span>
+        <span class="pt lbl gated at-plan">plan</span>
+        <span class="pt lbl gated at-checks">checks</span>
+        <span class="pt lbl gated at-review">review</span>
+        <span class="pt lbl at-merge">merge</span>
+      </div>
+    </div>
 
     <p class="caption" aria-hidden="true">
-      {beats.map((b, i) => <span class={`beat beat-${i + 1}`}>{b}</span>)}
+      {beats.map((b, i) => <span class={`m beat beat-${i + 1}`}>{b}</span>)}
     </p>
   </div>
 
-  <!-- Static fallback: shown only under prefers-reduced-motion -->
-  <div class="pipe-static" role="img" aria-label={ariaSummary}>
-    <svg
-      class="stage"
-      viewBox="0 0 760 200"
-      preserveAspectRatio="xMidYMid meet"
-      aria-hidden="true">
-      <line class="rail" x1="72" y1="96" x2="688" y2="96" />
-      <circle class="s-node" cx="72" cy="96" r="7"></circle>
-      <text class="s-lbl" x="72" y="122">issue</text>
-      <circle class="s-node" cx="226" cy="96" r="7"></circle>
-      <text class="s-lbl" x="226" y="122">worktree · terminal</text>
-      <line class="s-gate" x1="350" y1="72" x2="350" y2="120"></line>
-      <text class="s-lbl" x="350" y="134">plan</text>
-      <circle class="s-node" cx="454" cy="96" r="7"></circle>
-      <text class="s-lbl" x="454" y="122">work</text>
-      <line class="s-gate" x1="552" y1="72" x2="552" y2="120"></line>
-      <text class="s-lbl" x="552" y="134">CI · hygiene · review</text>
-      <circle class="s-node s-done" cx="688" cy="96" r="8"></circle>
-      <text class="s-lbl" x="688" y="122">merge</text>
-      <line class="rail rail-dim" x1="350" y1="168" x2="552" y2="168"></line>
-      <circle class="s-node s-block" cx="454" cy="168" r="6"></circle>
-      <text class="s-lbl s-block-lbl" x="494" y="172">needs you</text>
-    </svg>
-    <ol class="beat-list">
-      {beats.map((b) => <li>{b}</li>)}
-    </ol>
-  </div>
+  <!-- Real content, shown only under prefers-reduced-motion -->
+  <ol class="beat-list">
+    {beats.map((b) => <li>{b}</li>)}
+  </ol>
 </figure>
 
 <style>
   .pipe {
+    --struct: color-mix(in srgb, var(--ink-dim) 55%, transparent);
+    --struct-dim: color-mix(in srgb, var(--ink-dim) 40%, transparent);
+    --line: color-mix(in srgb, var(--ink-dim) 70%, transparent);
+    --post-c: color-mix(in srgb, var(--ink-dim) 85%, transparent);
+    --box: color-mix(in srgb, var(--ink-dim) 8%, var(--bg));
+    --code: color-mix(in srgb, var(--ink-dim) 90%, transparent);
     margin: 0;
     width: 100%;
-    --e-quint: cubic-bezier(0.22, 1, 0.36, 1);
-    --e-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  .pipe-anim,
-  .pipe-static {
-    width: 100%;
-    background:
-      radial-gradient(
-        120% 140% at 50% 0%,
-        color-mix(in srgb, var(--green) 5%, var(--panel)) 0%,
-        var(--panel) 55%
-      );
+    overflow: clip;
+    background: radial-gradient(
+      120% 140% at 50% 0%,
+      color-mix(in srgb, var(--green) 5%, var(--panel)) 0%,
+      var(--panel) 55%
+    );
     border: 1px solid var(--panel-2);
     border-radius: 0.9rem;
     padding: clamp(0.9rem, 2.6vw, 1.4rem);
   }
 
-  /* instrument chrome strip */
+  /* ---------- instrument chrome strip ---------- */
   .chrome {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.4rem;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
     font-family: var(--font-mono);
     font-size: 0.72rem;
     letter-spacing: 0.06em;
@@ -244,13 +279,739 @@ const ariaSummary =
     border-radius: 50%;
     background: var(--green);
     box-shadow: 0 0 6px color-mix(in srgb, var(--green) 70%, transparent);
-    animation: pip 1.8s ease-in-out infinite;
   }
-  .meta {
-    text-transform: uppercase;
-    color: var(--green);
+  /* beat rail: one segment per beat, widths = window lengths */
+  .beat-rail {
+    display: flex;
+    gap: 3px;
+    width: clamp(6rem, 16vw, 9.5rem);
   }
-  @keyframes pip {
+  .seg {
+    flex: var(--w) 1 0;
+    height: 3px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--struct-dim);
+  }
+  .fill {
+    display: block;
+    height: 100%;
+    background: var(--ink-muted);
+    transform-origin: left center;
+    transform: scaleX(0);
+  }
+
+  /* ============================================================
+     Stage geometry. Track space: main axis = a 0..1 fraction of the
+     frame (--p, plus an optional length --o); cross axis = a length
+     (--c) from the stage's top (horizontal) / left (vertical).
+     ============================================================ */
+  .stage {
+    --ax: 1;
+    --ay: 0;
+    /* where the hero token stops or passes (fraction of the track) */
+    --p-wt: 0.27;
+    --p-plan: 0.42;
+    --p-work: 0.53;
+    --p-checks: 0.65;
+    --p-review: 0.79;
+    --p-ls: 0.07; /* ghost lanes start */
+    --p-brest: calc(var(--p-checks) - 0.035); /* blocked task's rebound */
+    --g: 0.5rem; /* gate post offset past its p */
+    --post: 1.1rem; /* half length of a gate post */
+    /* cross-axis lines */
+    --c-l1: 0.7rem;
+    --c-l2: 1.65rem;
+    --c-l3: 2.6rem;
+    --c-l4: 3.55rem;
+    --c-rail: 9.55rem;
+    --c-lbl: calc(var(--c-rail) + 2.35rem);
+    --c-cc: calc(var(--c-rail) - 2.2rem); /* clean copy's track-facing edge */
+    --c-chip: calc(var(--c-l4) + 0.75rem); /* clears the ping's full radius */
+    --c-diff0: calc(var(--c-rail) + 0.55rem);
+    --c-diff1: calc(var(--c-rail) + 1.95rem);
+    --d-ghost: 0.5rem;
+    --tick: 0.3rem; /* half length of a lane's gate tick */
+    --ping: 1.3rem;
+    --lane-dir: to right;
+    --cross-dir: to bottom;
+    position: relative;
+    height: calc(var(--c-lbl) + 1.35rem);
+  }
+  /* frame = the track's extent: p 0 = issue centre, p 1 = merge node.
+     Insets = half the issue card / half the "merge" label, so the
+     diagram's outer edges sit equally far from the panel's. */
+  .frame {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3.5rem;
+    right: 1.2rem;
+  }
+
+  .at-issue {
+    --p: 0;
+  }
+  .at-wt {
+    --p: var(--p-wt);
+  }
+  .at-plan {
+    --p: var(--p-plan);
+  }
+  .at-checks {
+    --p: var(--p-checks);
+  }
+  .at-review {
+    --p: var(--p-review);
+  }
+  .at-merge {
+    --p: 1;
+  }
+  .gated {
+    --o: var(--g);
+  }
+  .on-rail {
+    --c: var(--c-rail);
+  }
+  .l1 {
+    --c: var(--c-l1);
+  }
+  .l2 {
+    --c: var(--c-l2);
+  }
+  .l3 {
+    --c: var(--c-l3);
+  }
+  .l4 {
+    --c: var(--c-l4);
+  }
+
+  /* point anchor at (p, c), centred unless told otherwise */
+  .pt {
+    position: absolute;
+    left: calc(var(--ax) * (var(--p) * 100% + var(--o, 0rem)) + var(--ay) * var(--c));
+    top: calc(var(--ay) * (var(--p) * 100% + var(--o, 0rem)) + var(--ax) * var(--c));
+    translate: -50% -50%;
+  }
+  /* box from (p0 + o0, c0) to (p1 + o1, c1) */
+  .span {
+    position: absolute;
+    left: calc(var(--ax) * (var(--p0) * 100% + var(--o0, 0rem)) + var(--ay) * var(--c0));
+    top: calc(var(--ay) * (var(--p0) * 100% + var(--o0, 0rem)) + var(--ax) * var(--c0));
+    width: calc(
+      var(--ax) * ((var(--p1) - var(--p0)) * 100% + var(--o1, 0rem) - var(--o0, 0rem)) +
+        var(--ay) * (var(--c1) - var(--c0))
+    );
+    height: calc(
+      var(--ay) * ((var(--p1) - var(--p0)) * 100% + var(--o1, 0rem) - var(--o0, 0rem)) +
+        var(--ax) * (var(--c1) - var(--c0))
+    );
+  }
+  /* .ln: a line along the track at c; .xs: a line across it at p */
+  .ln {
+    --c0: calc(var(--c) - var(--t) / 2);
+    --c1: calc(var(--c) + var(--t) / 2);
+  }
+  .xs {
+    --p0: var(--p);
+    --p1: var(--p);
+    --o0: calc(var(--o, 0rem) - var(--t) / 2);
+    --o1: calc(var(--o, 0rem) + var(--t) / 2);
+  }
+  /* token carrier: spans the whole track, the dot sits at its start */
+  .car {
+    --x: calc(var(--ax) * 100%);
+    --y: calc(var(--ay) * 100%);
+    position: absolute;
+    left: calc(var(--ay) * (var(--c) - var(--d) / 2));
+    top: calc(var(--ax) * (var(--c) - var(--d) / 2));
+    width: calc(var(--ax) * 100% + var(--ay) * var(--d));
+    height: calc(var(--ay) * 100% + var(--ax) * var(--d));
+  }
+  .dot {
+    position: absolute;
+    left: calc(var(--ax) * var(--d) / -2);
+    top: calc(var(--ay) * var(--d) / -2);
+    width: var(--d);
+    height: var(--d);
+    border-radius: 50%;
+  }
+
+  /* ---------- static structure ---------- */
+  .lanes {
+    position: absolute;
+    inset: 0;
+    opacity: 0.6;
+  }
+  .lane {
+    --p0: var(--p-ls);
+    --p1: 1;
+    --t: 1px;
+    background: linear-gradient(var(--lane-dir), transparent, var(--struct) 2.5rem);
+  }
+  .tick {
+    --o: var(--g);
+    --t: 1.5px;
+    --c0: calc(var(--c) - var(--tick));
+    --c1: calc(var(--c) + var(--tick));
+    background: var(--struct);
+  }
+  .trunk {
+    --p: 1;
+    --t: 2px;
+    --c0: calc(var(--c-l1) - 0.45rem);
+    --c1: var(--c-rail);
+    background: var(--struct);
+  }
+  .rail {
+    --p0: 0;
+    --p1: 1;
+    --c: var(--c-rail);
+    --t: 1.5px;
+    background: var(--struct);
+  }
+
+  .gate {
+    width: calc(var(--ax) * 3px + var(--ay) * 2 * var(--post));
+    height: calc(var(--ay) * 3px + var(--ax) * 2 * var(--post));
+    border-radius: 2px;
+    background: var(--post-c);
+  }
+  .plan-gate {
+    background: none;
+  }
+  .half {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: calc(var(--ax) * 100% + var(--ay) * 50%);
+    height: calc(var(--ay) * 100% + var(--ax) * 50%);
+    border-radius: 2px;
+    background: var(--post-c);
+  }
+  .half.up {
+    --dir: -1;
+  }
+  .half.down {
+    --dir: 1;
+    left: auto;
+    top: auto;
+    right: 0;
+    bottom: 0;
+  }
+  .pg-green,
+  .pg-amber,
+  .g-green {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
+  }
+  .pg-green,
+  .g-green {
+    background: var(--green);
+  }
+  .pg-amber {
+    border-radius: 2px;
+    background: var(--amber);
+  }
+
+  .card,
+  .wt,
+  .cc {
+    border: 1px solid var(--line);
+    background: var(--box);
+  }
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    width: 7rem;
+    height: 3.4rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.55rem;
+  }
+  .label-chip {
+    align-self: flex-start;
+    padding: 0 0.3rem;
+    border: 1px solid color-mix(in srgb, var(--blue) 50%, transparent);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--blue) 14%, var(--panel));
+    color: color-mix(in srgb, var(--blue) 60%, var(--ink));
+    font: 0.6875rem/1.05rem var(--font-mono);
+    white-space: nowrap;
+  }
+  .txt {
+    display: block;
+    width: 82%;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--struct-dim);
+  }
+  .txt.short {
+    width: 52%;
+  }
+  .wt {
+    width: 7.5rem;
+    height: 3.7rem;
+    border-radius: 0.55rem;
+  }
+  .term {
+    position: absolute;
+    inset: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.32rem;
+    padding: 0.45rem 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 0.3rem;
+    background: var(--panel);
+  }
+  .code {
+    display: block;
+    width: 52%;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--code);
+  }
+  .code.long {
+    width: 76%;
+  }
+  .cursor {
+    display: block;
+    width: 0.45rem;
+    height: 0.6rem;
+    background: var(--ink-muted);
+  }
+  .lit {
+    position: absolute;
+    inset: -1px;
+    border: 1px solid color-mix(in srgb, var(--blue) 75%, transparent);
+    border-radius: 0.55rem;
+    opacity: 0;
+  }
+
+  .merge {
+    width: 1.1rem;
+    height: 1.1rem;
+    border: 2px solid var(--code);
+    border-radius: 50%;
+    background: var(--bg);
+  }
+  .mg-green {
+    position: absolute;
+    inset: -2px;
+    border: 2px solid var(--green);
+    border-radius: 50%;
+    background: var(--bg);
+  }
+  .mg-green::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+  /* rasterised at full size, scaled down — crisp at the end of the pulse */
+  .land,
+  .flare,
+  .ping {
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0;
+  }
+  .land {
+    left: 50%;
+    top: 50%;
+    width: 2.9rem;
+    height: 2.9rem;
+    margin: -1.45rem 0 0 -1.45rem;
+    border: 2px solid var(--green);
+    box-shadow: 0 0 0.5rem color-mix(in srgb, var(--green) 45%, transparent);
+  }
+  .flare {
+    width: 1.8rem;
+    height: 1.8rem;
+    margin: -0.9rem 0 0 -0.9rem;
+    border: 1.5px solid var(--green);
+    box-shadow: 0 0 0.4rem color-mix(in srgb, var(--green) 40%, transparent);
+  }
+
+  .cc-at {
+    --c: var(--c-cc);
+    translate: calc(var(--ax) * -50% + var(--ay) * -100%) calc(var(--ay) * -50% + var(--ax) * -100%);
+  }
+  .cc {
+    --stem: calc(var(--c-rail) - var(--post) - var(--c-cc));
+    position: relative;
+    display: block;
+    width: 5rem;
+    height: 3.3rem;
+    padding: 0.35rem 0.4rem;
+    border-radius: 0.45rem;
+  }
+  .cc-h {
+    display: block;
+    color: color-mix(in srgb, var(--ink-muted) 70%, var(--ink-dim));
+    font: 0.6875rem/1rem var(--font-mono);
+    white-space: nowrap;
+  }
+  .cc-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    width: 2.4rem;
+    margin-top: 0.35rem;
+  }
+  .scan {
+    position: absolute;
+    left: -0.15rem;
+    right: -0.15rem;
+    top: -0.2rem;
+    height: 1px;
+    background: color-mix(in srgb, var(--ink-muted) 60%, transparent);
+    opacity: 0;
+  }
+  .verdict {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.55rem;
+    width: 0.9rem;
+    height: 0.9rem;
+  }
+  .verdict i {
+    position: absolute;
+    left: 0.28rem;
+    top: 0;
+    width: 0.38rem;
+    height: 0.7rem;
+    border-right: 2.5px solid var(--green);
+    border-bottom: 2.5px solid var(--green);
+    transform: rotate(45deg);
+    filter: drop-shadow(0 0 0.2rem color-mix(in srgb, var(--green) 60%, transparent));
+  }
+  .cc-stem {
+    position: absolute;
+    left: calc(var(--ax) * 50% + var(--ay) * 100%);
+    top: calc(var(--ay) * 50% + var(--ax) * 100%);
+    width: calc(var(--ax) * 1px + var(--ay) * var(--stem));
+    height: calc(var(--ay) * 1px + var(--ax) * var(--stem));
+    background: repeating-linear-gradient(var(--cross-dir), var(--line) 0 3px, transparent 3px 6px);
+  }
+
+  .diffs {
+    --p0: var(--p-plan);
+    --o0: calc(var(--g) + 1.1rem);
+    --p1: var(--p-checks);
+    --o1: calc(var(--g) - 0.7rem);
+    --c0: var(--c-diff0);
+    --c1: var(--c-diff1);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.3rem;
+  }
+  .diff {
+    display: block;
+    width: 80%;
+    max-width: 6.5rem;
+    height: 2px;
+    border-radius: 1px;
+    background: color-mix(in srgb, var(--blue) 70%, transparent);
+    transform-origin: left center;
+  }
+  .d2 {
+    width: 58%;
+    max-width: 4.75rem;
+  }
+  .d3 {
+    width: 70%;
+    max-width: 5.75rem;
+  }
+  .d4 {
+    width: 44%;
+    max-width: 3.5rem;
+  }
+
+  /* ---------- tokens ---------- */
+  .tok {
+    --d: 0.75rem;
+    opacity: 0;
+  }
+  .tok .dot {
+    background: var(--blue);
+    box-shadow: 0 0 0.55rem color-mix(in srgb, var(--blue) 65%, transparent);
+  }
+  .ghost {
+    --d: var(--d-ghost);
+    transform: translate(calc(var(--x) * var(--rest)), calc(var(--y) * var(--rest)));
+  }
+  .ghost .dot {
+    background: color-mix(in srgb, var(--blue) 75%, transparent);
+  }
+  .blocked {
+    --d: 0.625rem;
+    transform: translate(calc(var(--x) * var(--p-brest)), calc(var(--y) * var(--p-brest)));
+  }
+  .blocked .dot {
+    background: color-mix(in srgb, var(--blue) 60%, transparent);
+  }
+  .blocked .amber {
+    background: var(--amber);
+    box-shadow: 0 0 0.5rem color-mix(in srgb, var(--amber) 60%, transparent);
+  }
+  .ping {
+    left: calc(var(--ay) * var(--d) / 2);
+    top: calc(var(--ax) * var(--d) / 2);
+    width: var(--ping);
+    height: var(--ping);
+    margin: calc(var(--ping) / -2) 0 0 calc(var(--ping) / -2);
+    border: 1.5px solid var(--amber);
+  }
+  .needs-at {
+    --p: var(--p-brest);
+    --c: var(--c-chip);
+    translate: calc(var(--ax) * -50%) calc(var(--ay) * -50%);
+  }
+  .needs {
+    display: block;
+    padding: 0.12rem 0.55rem;
+    border: 1px solid var(--amber);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--amber) 14%, var(--panel));
+    color: var(--amber);
+    font: 0.6875rem/1rem var(--font-mono);
+    white-space: nowrap;
+    box-shadow: 0 0 0.6rem color-mix(in srgb, var(--amber) 30%, transparent);
+  }
+
+  .lbl {
+    --c: var(--c-lbl);
+    translate: calc(var(--ax) * -50%) calc(var(--ay) * -50%);
+    color: var(--ink-muted);
+    font: 0.8125rem/1rem var(--font-mono);
+    white-space: nowrap;
+  }
+
+  /* ---------- ≤640px: the same stage, top → bottom ---------- */
+  @media (max-width: 640px) {
+    .stage {
+      --ax: 0;
+      --ay: 1;
+      --p-wt: 0.25;
+      --p-plan: 0.47;
+      --p-work: 0.6;
+      --p-checks: 0.7;
+      --p-review: 0.817;
+      --c-l1: 0.35rem;
+      --c-l2: 1rem;
+      --c-l3: 1.65rem;
+      --c-l4: 2.3rem;
+      --c-rail: 9.7rem;
+      --c-lbl: calc(var(--c-rail) + 4.2rem);
+      --c-cc: calc(var(--c-rail) - 2rem);
+      --c-diff0: calc(var(--c-rail) + 0.9rem);
+      --c-diff1: calc(var(--c-rail) + 5.6rem);
+      --d-ghost: 0.45rem;
+      --tick: 0.25rem;
+      --ping: 1.1rem; /* stays clear of the neighbouring lane */
+      --lane-dir: to bottom;
+      --cross-dir: to right;
+      width: 17.5rem;
+      max-width: 100%;
+      height: 22rem;
+      margin-inline: auto;
+    }
+    .frame {
+      top: 1.9rem;
+      bottom: 1rem;
+      left: 0;
+      right: 0;
+    }
+    .lbl {
+      font-size: 0.6875rem;
+    }
+  }
+
+  /* ---------- captions: stacked in one cell, height = tallest ---------- */
+  .caption {
+    display: grid;
+    margin-top: clamp(0.7rem, 2vw, 1.1rem);
+    text-align: center;
+  }
+  .beat {
+    grid-area: 1 / 1;
+    align-self: center;
+    justify-self: center;
+    max-width: 44rem;
+    opacity: 0;
+    color: var(--ink);
+    font-size: clamp(1.05rem, 2.6vw, 1.25rem);
+    line-height: 1.4;
+  }
+
+  .beat-list {
+    display: none;
+    gap: 0.5rem;
+    margin: clamp(1rem, 3vw, 1.5rem) 0 0;
+    padding-left: 1.4rem;
+    color: var(--ink-muted);
+    font-size: 1rem;
+    line-height: 1.4;
+  }
+
+  /* ============================================================
+     Motion. Base styles above ARE the reduced-motion summary pose;
+     animations exist only when motion is welcome.
+     ============================================================ */
+  @media (prefers-reduced-motion: no-preference) {
+    .m {
+      animation-duration: 17s;
+      animation-iteration-count: infinite;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+    }
+
+    /* ambient, own clocks */
+    .pip {
+      animation: pa-pip 1.8s ease-in-out infinite;
+    }
+    .cursor {
+      animation: pa-blink 1.1s linear infinite;
+    }
+    .ghost {
+      animation: pa-ghost var(--dur) linear var(--lag) infinite;
+    }
+
+    /* master timeline */
+    .label-chip {
+      animation-name: pa-stamp;
+    }
+    .lit-issue {
+      animation-name: pa-lit-issue;
+    }
+    .lit-wt {
+      animation-name: pa-lit-wt;
+    }
+    .tok {
+      animation-name: pa-hero;
+    }
+    .lanes {
+      animation-name: pa-lanes;
+    }
+    .pg-amber {
+      animation-name: pa-plan-amber;
+    }
+    .pg-green {
+      animation-name: pa-plan-green;
+    }
+    .half {
+      animation-name: pa-plan-open;
+    }
+    .cc {
+      animation-name: pa-cc;
+    }
+    .scan {
+      animation-name: pa-scan;
+    }
+    .verdict {
+      animation-name: pa-verdict;
+    }
+    .diff {
+      animation-name: pa-diff;
+    }
+    .d2 {
+      animation-delay: 0.2s;
+    }
+    .d3 {
+      animation-delay: 0.4s;
+    }
+    .d4 {
+      animation-delay: 0.6s;
+    }
+    .g-checks {
+      animation-name: pa-checks-green;
+    }
+    .flare-checks {
+      animation-name: pa-checks-flare;
+    }
+    .g-review {
+      animation-name: pa-review-green;
+    }
+    .flare-review {
+      animation-name: pa-review-flare;
+    }
+    .mg-green {
+      animation-name: pa-merge;
+    }
+    .land {
+      animation-name: pa-land;
+    }
+    .blocked {
+      animation-name: pa-block;
+    }
+    .blocked .amber {
+      animation-name: pa-block-amber;
+    }
+    .ping {
+      animation-name: pa-ping;
+    }
+    .needs {
+      animation-name: pa-needs;
+    }
+    .beat-1 {
+      animation-name: pa-cap1;
+    }
+    .beat-2 {
+      animation-name: pa-cap2;
+    }
+    .beat-3 {
+      animation-name: pa-cap3;
+    }
+    .beat-4 {
+      animation-name: pa-cap4;
+    }
+    .beat-5 {
+      animation-name: pa-cap5;
+    }
+    .beat-6 {
+      animation-name: pa-cap6;
+    }
+    .beat-7 {
+      animation-name: pa-cap7;
+    }
+    .beat-8 {
+      animation-name: pa-cap8;
+    }
+    .fill-1 {
+      animation-name: pa-seg1;
+    }
+    .fill-2 {
+      animation-name: pa-seg2;
+    }
+    .fill-3 {
+      animation-name: pa-seg3;
+    }
+    .fill-4 {
+      animation-name: pa-seg4;
+    }
+    .fill-5 {
+      animation-name: pa-seg5;
+    }
+    .fill-6 {
+      animation-name: pa-seg6;
+    }
+    .fill-7 {
+      animation-name: pa-seg7;
+    }
+    .fill-8 {
+      animation-name: pa-seg8;
+    }
+  }
+
+  /* ---------- ambient keyframes ---------- */
+  @keyframes pa-pip {
     0%,
     100% {
       opacity: 0.4;
@@ -259,173 +1020,7 @@ const ariaSummary =
       opacity: 1;
     }
   }
-
-  .stage {
-    width: 100%;
-    height: auto;
-    overflow: visible;
-  }
-
-  /* ---------- shape language (tokens only) ---------- */
-  .rail {
-    stroke: color-mix(in srgb, var(--ink-dim) 55%, transparent);
-    stroke-width: 1.5;
-  }
-  .rail-dim {
-    stroke: color-mix(in srgb, var(--ink-dim) 40%, transparent);
-    stroke-width: 1.5;
-  }
-  /* flowing signal along the rails */
-  .rail-flow,
-  .flow {
-    fill: none;
-    stroke-linecap: round;
-  }
-  .rail-flow {
-    stroke: color-mix(in srgb, var(--blue) 75%, transparent);
-    stroke-width: 2;
-    stroke-dasharray: 2 13;
-  }
-  .flow {
-    stroke: color-mix(in srgb, var(--green) 45%, transparent);
-    stroke-width: 2;
-    stroke-dasharray: 2 15;
-  }
-  .card,
-  .box,
-  .term,
-  .copy {
-    fill: color-mix(in srgb, var(--ink-dim) 8%, var(--bg));
-    stroke: color-mix(in srgb, var(--ink-dim) 70%, transparent);
-    stroke-width: 1.25;
-  }
-  .term {
-    fill: var(--panel);
-  }
-  .code {
-    stroke: color-mix(in srgb, var(--ink-dim) 90%, transparent);
-    stroke-width: 2;
-    stroke-linecap: round;
-  }
-  .chip {
-    fill: color-mix(in srgb, var(--amber) 18%, var(--panel));
-    stroke: color-mix(in srgb, var(--amber) 50%, transparent);
-    stroke-width: 1;
-  }
-  .lbl,
-  .lbl-sm,
-  .chip-t {
-    font-family: var(--font-mono);
-    text-anchor: middle;
-  }
-  .chip-t {
-    fill: var(--amber);
-    font-size: 9px;
-  }
-  .lbl {
-    fill: var(--ink-muted);
-    font-size: 13px;
-  }
-  .lbl-sm {
-    fill: var(--ink-dim);
-    font-size: 11px;
-  }
-  .gate-bar {
-    stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
-    stroke-width: 3;
-    stroke-linecap: round;
-  }
-  .diff {
-    stroke: var(--green);
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-dasharray: 100;
-    stroke-dashoffset: 100;
-    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--green) 45%, transparent));
-  }
-  .pass {
-    fill: none;
-  }
-  .trunk-line {
-    stroke: color-mix(in srgb, var(--ink-dim) 60%, transparent);
-    stroke-width: 3;
-  }
-  .trunk-node {
-    fill: var(--bg);
-    stroke: color-mix(in srgb, var(--ink-dim) 90%, transparent);
-    stroke-width: 2;
-  }
-  .trunk-pulse {
-    fill: none;
-    stroke: var(--green);
-    stroke-width: 2.5;
-    opacity: 0;
-    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--green) 70%, transparent));
-  }
-  .cursor {
-    fill: var(--green);
-  }
-  .verdict {
-    fill: none;
-    stroke: var(--green);
-    stroke-width: 3;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--green) 60%, transparent));
-  }
-  .tok {
-    fill: var(--blue);
-  }
-  .tok-hero {
-    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--blue) 75%, transparent));
-  }
-  .tok-review {
-    fill: var(--green);
-  }
-  .needs-chip {
-    fill: color-mix(in srgb, var(--amber) 16%, var(--panel));
-    stroke: var(--amber);
-    stroke-width: 1.25;
-    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--amber) 45%, transparent));
-  }
-  .needs-t {
-    fill: var(--amber);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    text-anchor: middle;
-  }
-
-  /* transform-box so translate units track the viewBox */
-  .tok,
-  .cursor,
-  .verdict,
-  .pass,
-  .lanes,
-  .review,
-  .block,
-  .needs,
-  .trunk-pulse,
-  .gate-a .gate-bar {
-    transform-box: view-box;
-  }
-
-  /* ---------- ambient motion (own short clocks) ---------- */
-  .rail-flow,
-  .flow {
-    animation: flow 1.05s linear infinite;
-  }
-  .flow {
-    animation-delay: var(--fd, 0s);
-  }
-  @keyframes flow {
-    to {
-      stroke-dashoffset: -15;
-    }
-  }
-  .cursor {
-    animation: blink 1s steps(1) infinite;
-  }
-  @keyframes blink {
+  @keyframes pa-blink {
     0%,
     50% {
       opacity: 1;
@@ -435,366 +1030,455 @@ const ariaSummary =
       opacity: 0;
     }
   }
-
-  /* ============================================================
-     Master timeline — beat-driven elements share ~17s / infinite.
-     ============================================================ */
-  .pipe-anim :where(.tok-hero, .lanes, .gate-a .gate-bar, .review, .verdict,
-      .diff, .pass-b, .pass-c, .trunk-pulse, .block, .tok-block, .needs,
-      .beat) {
-    animation-duration: 17s;
-    animation-iteration-count: infinite;
-    animation-timing-function: var(--e-quint);
-    animation-fill-mode: backwards;
-  }
-
-  /* hero token journey — continuous glide, one real pause (plan gate) */
-  .tok-hero {
-    animation-name: heroMove;
-  }
-  @keyframes heroMove {
+  /* a ghost task glides its lane and merges into the trunk */
+  @keyframes pa-ghost {
     0% {
-      transform: translateX(0);
       opacity: 0;
+      transform: translate(calc(var(--x) * var(--p-ls)), calc(var(--y) * var(--p-ls)));
     }
-    2% {
+    7%,
+    90% {
       opacity: 1;
-    }
-    9% {
-      transform: translateX(0);
-    }
-    19% {
-      transform: translateX(124px);
-    }
-    27% {
-      transform: translateX(124px);
-    }
-    36% {
-      transform: translateX(226px);
-    }
-    46% {
-      transform: translateX(226px);
-    }
-    54% {
-      transform: translateX(300px);
-    }
-    64% {
-      transform: translateX(392px);
-    }
-    69% {
-      transform: translateX(464px);
-    }
-    80% {
-      transform: translateX(568px);
-      opacity: 1;
-    }
-    84% {
-      transform: translateX(568px);
-      opacity: 0;
     }
     100% {
-      transform: translateX(568px);
       opacity: 0;
+      transform: translate(var(--x), var(--y));
     }
   }
 
-  /* parallel lanes always flow; they brighten briefly at beat 3 */
-  .lanes {
-    animation-name: lanesPulse;
-    animation-timing-function: var(--e-expo);
-  }
-  @keyframes lanesPulse {
+  /* ---------- beat 1–2: issue, worktree ---------- */
+  @keyframes pa-stamp {
     0%,
-    19% {
-      opacity: 0.5;
+    1% {
+      opacity: 0;
+      transform: scale(1.12);
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
     }
-    25% {
-      opacity: 0.9;
+    4%,
+    96% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    99%,
+    100% {
+      opacity: 0;
+      transform: scale(1);
+    }
+  }
+  @keyframes pa-lit-issue {
+    0%,
+    2.5% {
+      opacity: 0;
+    }
+    4.5%,
+    10% {
+      opacity: 1;
+    }
+    12.5%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes pa-lit-wt {
+    0%,
+    15% {
+      opacity: 0;
+    }
+    17%,
+    27.5% {
+      opacity: 1;
     }
     30%,
     100% {
-      opacity: 0.5;
+      opacity: 0;
     }
   }
 
-  /* plan gate: holds (amber) during review, then opens green (beat 4) */
-  .gate-a .gate-bar {
-    animation-name: gateOpen;
-    transform-origin: 286px 130px;
-  }
-  @keyframes gateOpen {
-    0%,
-    34% {
-      transform: scaleY(1);
-      stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
+  /* hero token journey — one real pause (plan gate), a short one to work,
+     then a continuous glide through checks and review into the merge */
+  @keyframes pa-hero {
+    0% {
+      opacity: 0;
+      transform: translate(0, 0);
     }
-    37%,
-    44% {
-      transform: scaleY(1);
-      stroke: var(--amber);
+    6% {
+      opacity: 1;
+    }
+    9% {
+      transform: translate(0, 0);
+      animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+    }
+    19% {
+      transform: translate(calc(var(--x) * var(--p-wt)), calc(var(--y) * var(--p-wt)));
+    }
+    27% {
+      transform: translate(calc(var(--x) * var(--p-wt)), calc(var(--y) * var(--p-wt)));
+      animation-timing-function: cubic-bezier(0.45, 0, 0.2, 1);
+    }
+    35% {
+      transform: translate(calc(var(--x) * var(--p-plan)), calc(var(--y) * var(--p-plan)));
+    }
+    47% {
+      transform: translate(calc(var(--x) * var(--p-plan)), calc(var(--y) * var(--p-plan)));
+      animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+    }
+    52% {
+      transform: translate(calc(var(--x) * var(--p-work)), calc(var(--y) * var(--p-work)));
+    }
+    /* ease-in / linear / ease-out with matched speeds at the joins (end
+       slope 2 = start slope 2), so the glide never hitches at a gate */
+    56% {
+      transform: translate(calc(var(--x) * var(--p-work)), calc(var(--y) * var(--p-work)));
+      animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0.5);
+    }
+    62% {
+      transform: translate(calc(var(--x) * var(--p-checks)), calc(var(--y) * var(--p-checks)));
+    }
+    65.5% {
+      transform: translate(calc(var(--x) * var(--p-review)), calc(var(--y) * var(--p-review)));
+      animation-timing-function: cubic-bezier(0.25, 0.5, 0.5, 1);
+    }
+    76.5% {
+      opacity: 1;
+      transform: translate(var(--x), var(--y));
+    }
+    78%,
+    100% {
+      opacity: 0;
+      transform: translate(var(--x), var(--y));
+    }
+  }
+
+  /* ---------- beat 3: lanes brighten ---------- */
+  @keyframes pa-lanes {
+    0%,
+    20% {
+      opacity: 0.6;
+    }
+    23.5%,
+    27% {
+      opacity: 1;
+    }
+    31%,
+    100% {
+      opacity: 0.6;
+    }
+  }
+
+  /* ---------- beat 4: plan gate + clean-copy reviewer ---------- */
+  @keyframes pa-plan-amber {
+    0%,
+    33.5% {
+      opacity: 0;
+    }
+    35%,
+    42.5% {
+      opacity: 1;
+    }
+    44%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes pa-plan-green {
+    0%,
+    42.5% {
+      opacity: 0;
+    }
+    44%,
+    80% {
+      opacity: 1;
+    }
+    83.5%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes pa-plan-open {
+    0%,
+    45.5% {
+      transform: translate(0, 0);
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
     }
     47%,
     80% {
-      transform: scaleY(0.06);
-      stroke: color-mix(in srgb, var(--green) 80%, transparent);
+      transform: translate(
+        calc(var(--ay) * var(--dir) * 0.5rem),
+        calc(var(--ax) * var(--dir) * 0.5rem)
+      );
+      animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
     }
-    84%,
+    83.5%,
     100% {
-      transform: scaleY(1);
-      stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
+      transform: translate(0, 0);
     }
   }
-  .review {
-    animation-name: reviewIn;
-  }
-  @keyframes reviewIn {
+  @keyframes pa-cc {
     0%,
-    29% {
+    34% {
       opacity: 0;
+      transform: translate(calc(var(--ay) * -0.4rem), calc(var(--ax) * -0.4rem));
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
     }
-    34%,
-    45% {
+    36.5%,
+    44% {
+      opacity: 1;
+      transform: translate(0, 0);
+    }
+    45.5%,
+    100% {
+      opacity: 0;
+      transform: translate(0, 0);
+    }
+  }
+  @keyframes pa-scan {
+    0%,
+    36.5% {
+      opacity: 0;
+      transform: translateY(0);
+    }
+    37% {
       opacity: 1;
     }
-    48%,
+    39.5% {
+      opacity: 1;
+    }
+    40%,
     100% {
       opacity: 0;
+      transform: translateY(1.35rem);
     }
   }
-  .verdict {
-    animation-name: stamp;
-    transform-origin: 314px 33px;
-  }
-  @keyframes stamp {
+  @keyframes pa-verdict {
     0%,
     40% {
       opacity: 0;
-      transform: scale(0.4);
+      transform: scale(1.6);
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
     }
-    44%,
-    46% {
+    42%,
+    44% {
       opacity: 1;
       transform: scale(1);
     }
-    49%,
+    45.5%,
     100% {
       opacity: 0;
       transform: scale(1);
     }
   }
 
-  /* diff lines draw in (beat 5) */
-  .diff {
-    animation-name: diffIn;
-    animation-timing-function: var(--e-expo);
-  }
-  .diff2 {
-    animation-delay: 0.25s;
-  }
-  .diff3 {
-    animation-delay: 0.5s;
-  }
-  .diff4 {
-    animation-delay: 0.75s;
-  }
-  @keyframes diffIn {
+  /* ---------- beat 5: diff lines draw in from their start edge ---------- */
+  @keyframes pa-diff {
     0%,
-    47% {
-      stroke-dashoffset: 100;
-      opacity: 0;
-    }
     49% {
-      opacity: 1;
-    }
-    56% {
-      stroke-dashoffset: 0;
-      opacity: 1;
-    }
-    82% {
-      stroke-dashoffset: 0;
-      opacity: 1;
-    }
-    86%,
-    100% {
       opacity: 0;
+      transform: scaleX(0);
+      animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
     }
-  }
-
-  /* gate checks flare green as the token passes (beat 6) */
-  .pass-b,
-  .pass-c {
-    animation-name: passFlash;
-  }
-  .pass-c {
-    animation-delay: 0.85s;
-  }
-  @keyframes passFlash {
-    0%,
-    61% {
-      stroke: var(--green);
-      stroke-width: 0;
-      opacity: 0;
-    }
-    65% {
-      stroke: var(--green);
-      stroke-width: 3;
-      opacity: 1;
-      filter: drop-shadow(0 0 5px color-mix(in srgb, var(--green) 60%, transparent));
-    }
-    79% {
+    49.5% {
       opacity: 1;
     }
-    83%,
-    100% {
-      opacity: 0;
-    }
-  }
-
-  /* trunk lands with a green pulse (beat 7) */
-  .trunk-pulse {
-    animation-name: landPulse;
-    transform-origin: 628px 130px;
-  }
-  @keyframes landPulse {
-    0%,
-    77% {
-      opacity: 0;
-      transform: scale(0.6);
-    }
-    81% {
-      opacity: 1;
-      transform: scale(1);
-    }
-    93% {
-      opacity: 0.6;
-      transform: scale(2.4);
-    }
-    100% {
-      opacity: 0;
-      transform: scale(2.4);
-    }
-  }
-
-  /* payload (beat 8): the block lane bounces off a gate and turns amber */
-  .block {
-    animation-name: blockMove;
-  }
-  @keyframes blockMove {
-    0%,
-    20% {
-      opacity: 0;
-    }
-    28% {
-      opacity: 1;
-      transform: translateX(30px);
-    }
-    64% {
-      opacity: 1;
-      transform: translateX(150px);
-    }
-    78% {
-      opacity: 1;
-      transform: translateX(172px);
-    }
+    53.5%,
     84% {
       opacity: 1;
-      transform: translateX(140px);
+      transform: scaleX(1);
     }
+    86.5%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+
+  /* ---------- beat 6: checks then review flare green as it passes ---------- */
+  @keyframes pa-checks-green {
+    0%,
+    61.5% {
+      opacity: 0;
+    }
+    62.5%,
+    84% {
+      opacity: 1;
+    }
+    87%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes pa-checks-flare {
+    0%,
+    61.5% {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+    62.5% {
+      opacity: 1;
+      transform: scale(0.75);
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    65.5%,
+    100% {
+      opacity: 0;
+      transform: scale(1);
+    }
+  }
+  @keyframes pa-review-green {
+    0%,
+    65% {
+      opacity: 0;
+    }
+    66%,
+    84% {
+      opacity: 1;
+    }
+    87%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes pa-review-flare {
+    0%,
+    65% {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+    66% {
+      opacity: 1;
+      transform: scale(0.75);
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    69%,
+    100% {
+      opacity: 0;
+      transform: scale(1);
+    }
+  }
+
+  /* ---------- beat 7: lands on the trunk with a green pulse ---------- */
+  @keyframes pa-merge {
+    0%,
+    74.5% {
+      opacity: 0;
+    }
+    76%,
     97% {
       opacity: 1;
-      transform: translateX(140px);
     }
+    99.5%,
     100% {
       opacity: 0;
-      transform: translateX(140px);
     }
   }
-  .tok-block {
-    animation-name: blockAmber;
-  }
-  @keyframes blockAmber {
+  @keyframes pa-land {
     0%,
-    79% {
-      fill: var(--blue);
-    }
-    83%,
-    100% {
-      fill: var(--amber);
-      filter: drop-shadow(0 0 5px color-mix(in srgb, var(--amber) 60%, transparent));
-    }
-  }
-  .needs {
-    animation-name: needsIn;
-    animation-timing-function: var(--e-expo);
-  }
-  @keyframes needsIn {
-    0%,
-    81% {
+    74.5% {
       opacity: 0;
-      transform: translateX(-6px);
+      transform: scale(0.38);
+    }
+    75.5% {
+      opacity: 1;
+      transform: scale(0.45);
+      animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
     }
     86%,
-    97% {
-      opacity: 1;
-      transform: translateX(0);
-    }
     100% {
       opacity: 0;
-      transform: translateX(0);
+      transform: scale(1);
+    }
+  }
+
+  /* ---------- beat 8: blocked task bounces, turns amber, asks ---------- */
+  @keyframes pa-block {
+    0%,
+    18% {
+      opacity: 0;
+      transform: translate(calc(var(--x) * var(--p-ls)), calc(var(--y) * var(--p-ls)));
+    }
+    21.5%,
+    97% {
+      opacity: 1;
+    }
+    83% {
+      transform: translate(calc(var(--x) * var(--p-checks)), calc(var(--y) * var(--p-checks)));
+      animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    86%,
+    100% {
+      transform: translate(calc(var(--x) * var(--p-brest)), calc(var(--y) * var(--p-brest)));
+    }
+    99.5%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes pa-block-amber {
+    0%,
+    83% {
+      opacity: 0;
+    }
+    84.5%,
+    100% {
+      opacity: 1;
+    }
+  }
+  @keyframes pa-ping {
+    0%,
+    84% {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    84.5% {
+      opacity: 0.9;
+      transform: scale(0.5);
+      animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    86.5% {
+      opacity: 0.55;
+    }
+    89% {
+      opacity: 0;
+      transform: scale(1);
+    }
+    89.2% {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    89.7% {
+      opacity: 0.9;
+      transform: scale(0.5);
+      animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    91.7% {
+      opacity: 0.55;
+    }
+    94.5%,
+    100% {
+      opacity: 0;
+      transform: scale(1);
+    }
+  }
+  @keyframes pa-needs {
+    0%,
+    85.5% {
+      opacity: 0;
+      transform: translate(calc(var(--ay) * -0.35rem), calc(var(--ax) * -0.35rem)) scale(0.92);
+      animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    88%,
+    97% {
+      opacity: 1;
+      transform: translate(0, 0) scale(1);
+    }
+    99.5%,
+    100% {
+      opacity: 0;
+      transform: translate(0, 0) scale(1);
     }
   }
 
   /* ---------- captions, synced to the beats ---------- */
-  .caption {
-    position: relative;
-    margin-top: clamp(0.7rem, 2vw, 1.1rem);
-    /* Reserve enough height for the tallest caption so the absolutely
-       positioned lines never overlap the copy below. The longest line
-       (beat 4) wraps to more lines as the viewport narrows, so the
-       reserved height grows on small screens. */
-    min-height: 4.6em;
-    text-align: center;
-  }
-  @media (max-width: 640px) {
-    .caption {
-      min-height: 7.4em;
-    }
-  }
-  .beat {
-    position: absolute;
-    inset: 0 0 auto;
-    margin: 0 auto;
-    max-width: 44rem;
-    opacity: 0;
-    color: var(--ink);
-    font-size: clamp(1.05rem, 2.6vw, 1.25rem);
-    line-height: 1.4;
-  }
-  .beat-1 {
-    animation-name: cap1;
-  }
-  .beat-2 {
-    animation-name: cap2;
-  }
-  .beat-3 {
-    animation-name: cap3;
-  }
-  .beat-4 {
-    animation-name: cap4;
-  }
-  .beat-5 {
-    animation-name: cap5;
-  }
-  .beat-6 {
-    animation-name: cap6;
-  }
-  .beat-7 {
-    animation-name: cap7;
-  }
-  .beat-8 {
-    animation-name: cap8;
-  }
-  @keyframes cap1 {
+  @keyframes pa-cap1 {
     0%,
     9% {
       opacity: 1;
@@ -804,7 +1488,7 @@ const ariaSummary =
       opacity: 0;
     }
   }
-  @keyframes cap2 {
+  @keyframes pa-cap2 {
     0%,
     11% {
       opacity: 0;
@@ -818,7 +1502,7 @@ const ariaSummary =
       opacity: 0;
     }
   }
-  @keyframes cap3 {
+  @keyframes pa-cap3 {
     0%,
     21% {
       opacity: 0;
@@ -832,7 +1516,7 @@ const ariaSummary =
       opacity: 0;
     }
   }
-  @keyframes cap4 {
+  @keyframes pa-cap4 {
     0%,
     29% {
       opacity: 0;
@@ -846,7 +1530,7 @@ const ariaSummary =
       opacity: 0;
     }
   }
-  @keyframes cap5 {
+  @keyframes pa-cap5 {
     0%,
     48% {
       opacity: 0;
@@ -860,7 +1544,7 @@ const ariaSummary =
       opacity: 0;
     }
   }
-  @keyframes cap6 {
+  @keyframes pa-cap6 {
     0%,
     56% {
       opacity: 0;
@@ -874,7 +1558,7 @@ const ariaSummary =
       opacity: 0;
     }
   }
-  @keyframes cap7 {
+  @keyframes pa-cap7 {
     0%,
     71% {
       opacity: 0;
@@ -888,7 +1572,7 @@ const ariaSummary =
       opacity: 0;
     }
   }
-  @keyframes cap8 {
+  @keyframes pa-cap8 {
     0%,
     82% {
       opacity: 0;
@@ -902,74 +1586,188 @@ const ariaSummary =
     }
   }
 
-  /* pause the loop when scrolled off-screen (progressive enhancement) */
-  .pipe-anim.is-paused * {
-    animation-play-state: paused !important;
+  /* ---------- beat rail: the current segment fills, the rest stay dim ---------- */
+  @keyframes pa-seg1 {
+    0% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    11% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    11.8%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes pa-seg2 {
+    0%,
+    11% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    21% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    21.8%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes pa-seg3 {
+    0%,
+    21% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    29% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    29.8%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes pa-seg4 {
+    0%,
+    29% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    48% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    48.8%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes pa-seg5 {
+    0%,
+    48% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    56% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    56.8%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes pa-seg6 {
+    0%,
+    56% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    71% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    71.8%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes pa-seg7 {
+    0%,
+    71% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    82% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+    82.8%,
+    100% {
+      opacity: 0;
+      transform: scaleX(1);
+    }
+  }
+  @keyframes pa-seg8 {
+    0%,
+    82% {
+      opacity: 1;
+      transform: scaleX(0);
+    }
+    100% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
   }
 
-  /* ---------- reduced-motion static fallback ---------- */
-  .pipe-static {
-    display: none;
-  }
-  .pipe-static .s-node {
-    fill: var(--bg);
-    stroke: color-mix(in srgb, var(--ink-dim) 90%, transparent);
-    stroke-width: 2;
-  }
-  .pipe-static .s-done {
-    fill: var(--green);
-    stroke: var(--green);
-  }
-  .pipe-static .s-block {
-    fill: var(--amber);
-    stroke: var(--amber);
-  }
-  .pipe-static .s-gate {
-    stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
-    stroke-width: 3;
-    stroke-linecap: round;
-  }
-  .pipe-static .s-lbl {
-    fill: var(--ink-muted);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    text-anchor: middle;
-  }
-  .pipe-static .s-block-lbl {
-    fill: var(--amber);
-    text-anchor: start;
-  }
-  .beat-list {
-    margin: clamp(1rem, 3vw, 1.5rem) 0 0;
-    padding-left: 1.4rem;
-    display: grid;
-    gap: 0.5rem;
-    color: var(--ink-muted);
-    font-size: 1rem;
-    line-height: 1.4;
-  }
-
+  /* ---------- reduced motion: frozen summary pose + the beat list ---------- */
   @media (prefers-reduced-motion: reduce) {
-    .pipe-anim {
+    .beat-rail,
+    .caption {
       display: none;
     }
-    .pipe-static {
-      display: block;
+    .beat-list {
+      display: grid;
     }
   }
 </style>
 
 <script>
-  // Pause the looping animation while it is off-screen. Pure enhancement:
-  // with JS disabled the CSS animation just plays without pausing.
-  const fig = document.querySelector<HTMLElement>(".pipe-anim");
-  if (fig && "IntersectionObserver" in window) {
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) fig.classList.toggle("is-paused", !e.isIntersecting);
-      },
-      { threshold: 0 },
-    );
+  // Hold the story at beat 1 until the figure is seen, restart it from 0 each
+  // time it comes back into view, pause it while hidden. Pure enhancement:
+  // with JS disabled the CSS animation just plays from load.
+  //
+  // While any IntersectionObserver has a target attached, Chromium runs a
+  // main-thread style + prepaint pass on every frame a compositor animation
+  // ticks — which would undo the compositor-only loop. So the observer only
+  // watches for entry while the story is paused; while it plays, a passive
+  // scroll/resize check watches for it leaving view.
+  const fig = document.querySelector<HTMLElement>(".pipe");
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (fig && !still && "IntersectionObserver" in window) {
+    const each = (fn: (a: Animation) => void) =>
+      fig.getAnimations({ subtree: true }).forEach(fn);
+    const hidden = () => {
+      const r = fig.getBoundingClientRect();
+      return r.bottom <= 0 || r.top >= innerHeight;
+    };
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) start();
+    });
+    const onMove = () => {
+      if (hidden()) stop();
+    };
+    const start = () => {
+      io.disconnect();
+      each((a) => {
+        a.currentTime = 0;
+        a.play();
+      });
+      addEventListener("scroll", onMove, { passive: true });
+      addEventListener("resize", onMove);
+    };
+    const stop = () => {
+      removeEventListener("scroll", onMove);
+      removeEventListener("resize", onMove);
+      each((a) => a.pause());
+      io.observe(fig);
+    };
+
+    each((a) => {
+      a.pause();
+      a.currentTime = 0;
+    });
     io.observe(fig);
   }
 </script>

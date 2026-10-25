@@ -419,14 +419,15 @@ describe("claude/codex install remediation is mise-aware", () => {
     );
   });
 
-  it("stays one-click fixable in-app for every agent-CLI hint", () => {
+  it("is guidance-only in-app for every agent-CLI hint — an unpinned upstream installer (#3338)", () => {
     for (const hint of [
       "diagnostics_hint_claude_missing",
       "diagnostics_hint_claude_optional",
       "diagnostics_hint_codex_missing",
       "diagnostics_hint_codex_optional",
     ]) {
-      expect(autoFixCommandFor(hint)).toBe(REMEDIATIONS[hint]!);
+      expect(REMEDIATIONS[hint]).toBeDefined();
+      expect(autoFixCommandFor(hint)).toBeUndefined();
     }
   });
 });

@@ -9,7 +9,14 @@ import {
 } from "./herdr-capabilities";
 import { maintenance as sharedMaintenance } from "./maintenance";
 import { compareSemver } from "./semver";
-import { HERDR_LATEST_URL, herdrAssetKey, herdrReleaseUrl, sanitizeVersion } from "./herdr-install";
+import {
+  HERDR_LATEST_URL,
+  herdrAssetKey,
+  herdrReleaseUrl,
+  herdrSha256,
+  sanitizeVersion,
+  sha256ShellOf,
+} from "./herdr-install";
 import { runScriptChild } from "./script-child";
 import { readInstalledVersion, readActualVersion } from "./version-probe";
 import type { HerdrUpdateStatus, HerdrUpdateResult } from "./types";
@@ -112,6 +119,7 @@ export function buildDowngradeScript(
   from: string | null | undefined,
   to: string | null | undefined,
   url: string,
+  sha256: string,
   herdrBin: string = config.herdrBin,
 ): string {
   const f = sanitizeVersion(from);
@@ -119,6 +127,7 @@ export function buildDowngradeScript(
   const q = shq(logPath);
   const h = shq(herdrBin);
   const u = shq(url);
+  const sum = sha256.replace(/[^0-9a-f]/g, "");
   return [
     `LOG=${q}`,
     'mkdir -p "$(dirname "$LOG")"',
@@ -136,6 +145,13 @@ export function buildDowngradeScript(
     `  echo '${UPDATE_LOG_PREFIX} downloading herdr ${t}'`,
     `  if ! curl -fsSL --retry 3 --connect-timeout 10 --max-time 120 -o "$TMP" ${u}; then`,
     `    echo '${UPDATE_LOG_PREFIX} download failed — herdr binary untouched'`,
+    '    rm -f "$TMP"',
+    "    exit 1",
+    "  fi",
+    // Integrity before the artifact ever runs: the pinned sha256 for this asset (#3338).
+    `  ${sha256ShellOf("TMP")}`,
+    `  if [ -z "$S" ] || [ "$S" != "${sum}" ]; then`,
+    `    echo '${UPDATE_LOG_PREFIX} sha256 of the download does not match the pinned one — aborting, herdr binary untouched'`,
     '    rm -f "$TMP"',
     "    exit 1",
     "  fi",
@@ -656,11 +672,13 @@ export class HerdrUpdateService {
   /** Resolve the versioned artifact URL for `target`: the hardcoded template AND the
    *  manifest's releases entry must agree (user-chosen trust model, #1898). Throws a
    *  human-readable error on any mismatch — surfaced via onDone into the modal. */
-  private async resolveDowngradeUrl(target: string): Promise<string> {
+  private async resolveDowngradeUrl(target: string): Promise<{ url: string; sha256: string }> {
     const assetKey = herdrAssetKey();
     if (!assetKey) {
       throw new Error(`no herdr binary published for ${process.platform}/${process.arch}`);
     }
+    const sha256 = herdrSha256(target, assetKey);
+    if (!sha256) throw new Error(`no pinned sha256 for herdr ${target} (${assetKey})`);
     const templateUrl = herdrReleaseUrl(target, assetKey);
     const manifest = await this.fetchLatest();
     const manifestUrl = manifest?.releases?.[target]?.assets?.[assetKey];
@@ -672,7 +690,7 @@ export class HerdrUpdateService {
         `refusing downgrade: manifest URL ${manifestUrl} does not match the expected ${templateUrl}`,
       );
     }
-    return templateUrl;
+    return { url: templateUrl, sha256 };
   }
 
   /** Kick off the in-app downgrade to HERDR_LAST_SUPPORTED_VERSION in the background
@@ -720,8 +738,8 @@ export class HerdrUpdateService {
     let result: HerdrUpdateResult;
     try {
       this.maintenance.begin();
-      const url = await this.resolveDowngradeUrl(to);
-      const script = buildDowngradeScript(config.herdrUpdateLogPath, from, to, url);
+      const { url, sha256 } = await this.resolveDowngradeUrl(to);
+      const script = buildDowngradeScript(config.herdrUpdateLogPath, from, to, url, sha256);
       const ctrl = new AbortController();
       watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
       await this.runDowngrade(script, (line) => this.onLog(line), ctrl.signal);

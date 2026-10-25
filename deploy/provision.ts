@@ -22,15 +22,17 @@ import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/con
 import { compareSemver } from "../src/herdr-update";
 import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
 import { herdrPinnedInstallCommand } from "../src/herdr-install";
-import { autoFixCommandFor, HERDR_SERVE } from "../src/remediations";
+import { autoFixCommandFor, HERDR_SERVE, REMEDIATIONS } from "../src/remediations";
 import { resolveBackupDir, backupConfiguredMarker } from "../src/backup-paths";
 
 // ── pure types + data ─────────────────────────────────────────────────────────
 
 /** A table-driven prerequisite. `floor` undefined ⇒ presence-only (no version
- *  gate), like claude. `hintKey` selects the verbatim install via autoFixCommandFor
- *  — so tailscale (guidance-only) is intentionally NOT in this table and can never
- *  be auto-installed. */
+ *  gate), like claude. Without `installCommand`, `hintKey` selects the verbatim install via
+ *  autoFixCommandFor, which excludes guidance-only hints. An explicit `installCommand`
+ *  bypasses that gate: bun, node and claude are guidance-only in-app (#3338) yet provision
+ *  runs their installers deliberately. tailscale, git and chromium are NOT in this table and
+ *  are never auto-installed here. */
 export interface Prereq {
   /** Binary probed with `command -v` / `<bin> --version`. */
   bin: string;
@@ -38,14 +40,28 @@ export interface Prereq {
   hintKey: string;
   /** Advisory version floor; undefined ⇒ presence-only. */
   floor?: string;
-  /** Overrides the hintKey's shipped remediation for THIS loop only — set when the
-   *  remediation does more than provision wants here. See herdr below. */
+  /** Overrides the hintKey's shipped remediation for THIS loop only, and runs even when the
+   *  hint is guidance-only in-app. Set when provision wants a different command (herdr) or
+   *  deliberately runs a guidance-only installer (bun, node, claude). */
   installCommand?: string;
 }
 
+// bun, node and claude are guidance-only IN-APP (unpinned upstream installers, #3338), but this
+// operator-run installer still runs them — the operator already chose those upstreams by running
+// install.sh — so their command is set explicitly rather than read through autoFixCommandFor.
 export const PREREQS: readonly Prereq[] = [
-  { bin: "bun", hintKey: "diagnostics_hint_bun_missing", floor: BUN_MIN_VERSION },
-  { bin: "node", hintKey: "diagnostics_hint_node_missing", floor: NODE_MIN_VERSION },
+  {
+    bin: "bun",
+    hintKey: "diagnostics_hint_bun_missing",
+    floor: BUN_MIN_VERSION,
+    installCommand: REMEDIATIONS.diagnostics_hint_bun_missing,
+  },
+  {
+    bin: "node",
+    hintKey: "diagnostics_hint_node_missing",
+    floor: NODE_MIN_VERSION,
+    installCommand: REMEDIATIONS.diagnostics_hint_node_missing,
+  },
   {
     bin: "herdr",
     hintKey: "diagnostics_hint_herdr_missing",
@@ -68,7 +84,11 @@ export const PREREQS: readonly Prereq[] = [
     }),
   },
   // claude is presence-only (no version floor), like diagnostics.
-  { bin: "claude", hintKey: "diagnostics_hint_claude_missing" },
+  {
+    bin: "claude",
+    hintKey: "diagnostics_hint_claude_missing",
+    installCommand: REMEDIATIONS.diagnostics_hint_claude_missing,
+  },
 ];
 
 /** Install-time RAM floor. Claude Code's native installer transiently peaks at ~2 GB during
@@ -108,15 +128,16 @@ export function needsInstall(version: string | null, floor: string | undefined):
 }
 
 /** The verbatim command to run for a prereq given its probed state, or undefined to
- *  skip. Selects via autoFixCommandFor (NOT raw REMEDIATIONS) so guidance-only hints
- *  are excluded. */
+ *  skip. An explicit `installCommand` wins, guidance-only or not; otherwise it selects via
+ *  autoFixCommandFor (NOT raw REMEDIATIONS), so a guidance-only hint without one is excluded. */
 export function selectPrereqCommand(
   prereq: Prereq,
   probed: { version: string | null },
 ): string | undefined {
   if (!needsInstall(probed.version, prereq.floor)) return undefined;
-  // `installCommand` wins when set (herdr: install-only, no daemon start). Otherwise the
-  // shipped remediation via autoFixCommandFor, which still excludes guidance-only hints.
+  // `installCommand` wins when set (herdr: install-only, no daemon start; bun/node/claude:
+  // guidance-only in-app, run here on purpose). Otherwise the shipped remediation via
+  // autoFixCommandFor, which still excludes guidance-only hints.
   return prereq.installCommand ?? autoFixCommandFor(prereq.hintKey);
 }
 

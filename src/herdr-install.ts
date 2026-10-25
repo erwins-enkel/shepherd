@@ -56,6 +56,37 @@ export function herdrReleaseUrl(version: string, assetKey: string): string {
 }
 
 /**
+ * sha256 of every herdr release asset Shepherd downloads (#3338): the supported ceiling and the
+ * sandbox-status downgrade target. Taken from the GitHub release digests. Raising either constant
+ * in herdr-capabilities.ts needs a new entry here (test/herdr-install.test.ts enforces it).
+ */
+export const HERDR_SHA256: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  "0.9.5": {
+    "linux-x86_64": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "linux-aarch64": "17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c",
+    "macos-x86_64": "5fb0a908ec7f6745e3e245738b06bfad56c46391c391ab3c0955fbead01f1369",
+    "macos-aarch64": "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2",
+  },
+  "0.7.4": {
+    "linux-x86_64": "bc0fc02d4ba500f9cac2353a43e67fe036785ecca6eb55378e050fac3c103059",
+    "linux-aarch64": "544e0002de42806d1ab64ccdef3a7e7414f24717b0b6b022bc9e57d2eefd26a2",
+    "macos-x86_64": "ddf430133352e1712413d5d865b34a485546f4658893fc89986257d65a7585a8",
+    "macos-aarch64": "24992e1625dbdcb18354a59e299e4b263c312400b31396cdc07cd46ed57f24a7",
+  },
+};
+
+/** The pinned sha256 for one asset, or null when Shepherd has none (never download it then). */
+export function herdrSha256(version: string, assetKey: string): string | null {
+  return HERDR_SHA256[sanitizeVersion(version)]?.[assetKey] ?? null;
+}
+
+/** Shell: the sha256 of `$<fileVar>` into `$S` — `sha256sum` (Linux) or `shasum -a 256` (macOS);
+ *  empty when neither exists, which every caller treats as a mismatch. */
+export function sha256ShellOf(fileVar: string): string {
+  return `S="$( (sha256sum "$${fileVar}" 2>/dev/null || shasum -a 256 "$${fileVar}" 2>/dev/null) | cut -d ' ' -f 1)";`;
+}
+
+/**
  * `curl` transfer flags for the pinned download, sized to the CONSUMER's deadline.
  *
  * The artifact is ~20.3 MiB (measured: 21,315,048 bytes for v0.7.5 linux-x86_64, served via one
@@ -171,10 +202,19 @@ function curlFlags(budget: HerdrDownloadBudget): string {
  */
 export function herdrPinnedInstallCommand(
   version: string = HERDR_LAST_SUPPORTED_VERSION,
-  opts: { downloadBudget?: HerdrDownloadBudget } = {},
+  opts: {
+    downloadBudget?: HerdrDownloadBudget;
+    /** Test seam: expected sha256 per asset key, instead of {@link HERDR_SHA256}. */
+    sha256?: Readonly<Record<string, string>>;
+  } = {},
 ): string {
   const v = sanitizeVersion(version);
   const tag = herdrReleaseTagUrl(v);
+  const sums = opts.sha256 ?? HERDR_SHA256[v];
+  if (!sums) throw new Error(`no pinned sha256 for herdr ${v} — add it to HERDR_SHA256`);
+  const arms = Object.entries(sums)
+    .map(([key, sum]) => `${key}) H=${sum.replace(/[^0-9a-f]/g, "")} ;;`)
+    .join(" ");
   // Asset key assembled by the shell from `uname`, NOT baked from process.platform: this string is
   // built on the Shepherd host but can execute elsewhere (the harness applies it inside an Incus
   // instance), and provision.ts runs it on hosts Shepherd has never introspected. The arms must
@@ -192,6 +232,11 @@ export function herdrPinnedInstallCommand(
     'T="$D/.herdr.$$"; OUT="$D/.herdr-version.$$";',
     `curl ${curlFlags(opts.downloadBudget ?? "in-app")} -o "$T" "${url}" || ` +
       `{ rm -f "$T"; echo "herdr: download failed for ${v} ($O-$A) — install manually from ${tag}" >&2; exit 1; };`,
+    // Integrity before anything executes the artifact: a pinned sha256 per asset (#3338).
+    `case "$O-$A" in ${arms} *) H="" ;; esac;`,
+    sha256ShellOf("T"),
+    `[ -n "$H" ] && [ "$S" = "$H" ] || ` +
+      `{ rm -f "$T"; echo "herdr: sha256 of the downloaded ${v} ($O-$A) does not match the pinned one — refusing to install it; get ${v} from ${tag}" >&2; exit 1; };`,
     'chmod +x "$T" || { rm -f "$T"; echo "herdr: cannot chmod $T" >&2; exit 1; };',
     // rc is the BINARY's status; V is the parse. They are different questions with different
     // answers, so they are captured separately.

@@ -248,6 +248,7 @@ describe("Up Next", () => {
       refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
+      refilter: () => {},
     };
     try {
       expect(await check("GET", "/api/up-next", 200, "/api/up-next?peek=1")).toBeNull();
@@ -268,6 +269,7 @@ describe("Up Next", () => {
       refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
+      refilter: () => {},
     };
     try {
       expect(await check("POST", "/api/up-next/refresh", 202)).toEqual({ ok: true });
@@ -540,6 +542,7 @@ test("Up Next publication stays below 64 KB and the full snapshot is read condit
     refreshIfStale: (age) => service.refreshIfStale(age),
     recomputeUntilCleared: (items) => service.recomputeUntilCleared(items),
     hiddenRepoPathsRaw: () => new Set(),
+    refilter: () => {},
   };
   try {
     const frames = await collectEvents(s, token, async () => {
@@ -574,6 +577,7 @@ test("1,319 items across 42 repos stay below 1 MiB over HTTP and WebSocket", asy
     repoLabel: `repo-${repo}`,
     lastUsedAt: 1,
     viewer: null,
+    isFork: false,
     epics: [],
     subIssueNumbers: [],
     linkedIssueNumbers: [],
@@ -598,6 +602,7 @@ test("1,319 items across 42 repos stay below 1 MiB over HTTP and WebSocket", asy
     refreshIfStale: () => {},
     recomputeUntilCleared: async () => {},
     hiddenRepoPathsRaw: () => new Set(),
+    refilter: () => {},
   };
   try {
     const response = await request("GET", "/api/up-next?peek=1");

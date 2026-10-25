@@ -1322,14 +1322,20 @@ function researchDirective(agentProvider: AgentProvider): string {
   );
 }
 
-/** Env var carrying the PATH of a session's 0600 ingress key file (issue #3337, see
- *  src/assistant-ingress.ts). Only the path rides the env — it reaches argv via bwrap `--setenv`
- *  and herdr's env shim — and the curl directives / agent skills read the key from the file. */
+/** Env var carrying the PATH of a session's 0600 bare ingress key file (issue #3337, see
+ *  src/assistant-ingress.ts), kept for agent skills that predate the header file. Only the path
+ *  rides the env — it reaches argv via bwrap `--setenv` and herdr's env shim. */
 const INGRESS_KEY_FILE_ENV = "SHEPHERD_INGRESS_KEY_FILE";
 
-/** The ingress-key header line every Codex curl directive carries (the agent ingress refuses a
- *  keyless request). Shell-expanded by the agent, so the key never appears in the prompt. */
-const INGRESS_CURL_HEADER = `     -H "${ASSISTANT_INGRESS_HEADER}: $(cat "$${INGRESS_KEY_FILE_ENV}")" \\\n`;
+/** Env var carrying the PATH of a session's 0600 ingress header file (issue #3370): the full
+ *  `x-shepherd-ingress-key: <key>` line, which curl reads itself via `-H @<file>` — so only the
+ *  path reaches curl's argv, never the key (a shell command substitution would put it in `/proc`). */
+const INGRESS_HEADER_FILE_ENV = "SHEPHERD_INGRESS_HEADER_FILE";
+
+/** The curl flag every Codex curl directive carries for the ingress key (the agent ingress refuses
+ *  a keyless request). */
+const INGRESS_CURL_FLAG = `-H @"$${INGRESS_HEADER_FILE_ENV}"`;
+const INGRESS_CURL_HEADER = `     ${INGRESS_CURL_FLAG} \\\n`;
 
 /**
  * Injected as the highest-priority directive for an attended EPIC-AUTHORING task
@@ -1555,7 +1561,7 @@ export function buildQueueDirective(args: {
     "exact match; a server UUID may also be posted as an unambiguous prefix of ≥8 chars (a 409 " +
     "means the prefix matched several steps — use a longer prefix or the full id).\n\n" +
     "3. Inspect the current queue at any time:\n" +
-    `   curl -s -H "${ASSISTANT_INGRESS_HEADER}: $(cat "$${INGRESS_KEY_FILE_ENV}")" ${queueUrl}\n\n` +
+    `   curl -s ${INGRESS_CURL_FLAG} ${queueUrl}\n\n` +
     "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +
     "Only add, change, or remove steps that are still PENDING. ALWAYS include each carried step " +
     "with its existing `id` (its status is kept server-side) — that is how completed and " +
@@ -2324,7 +2330,8 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
  * Env var carrying the agent-ingress base URL into a spawn (issue #2053). With `SESSION_MARKER_ENV`
  * beside it, an agent skill has everything it needs to address its OWN session on the restricted
  * ingress — today, `video-brief`'s optional self-rename
- * (`POST $SHEPHERD_AGENT_API_URL/api/sessions/$SHEPHERD_SESSION_ID/rename`).
+ * (`POST $SHEPHERD_AGENT_API_URL/api/sessions/$SHEPHERD_SESSION_ID/rename`), which must send
+ * `-H @"$SHEPHERD_INGRESS_HEADER_FILE"` (#3370).
  *
  * Deliberately NOT put in the Claude `--settings` overlay (`spawnSettingsOverlay`, whose `env` a
  * Codex spawn never reads): the control plane is provider-neutral, so its coordinates ride the
@@ -3207,16 +3214,20 @@ export class SessionService {
     return ["--settings", files.settings, ...(tools ? ["--mcp-config", files.mcpConfig] : [])];
   }
 
-  /** Write the session's 0600 ingress key file (both providers) and return its env (the key
-   *  file's path) plus the spawn files that exist, for the membrane's RO binds. No signer → no key
-   *  file, no env. */
+  /** Write the session's 0600 ingress key + header files (both providers) and return their env
+   *  (the files' paths) plus the spawn files that exist, for the membrane's RO binds. No signer →
+   *  no key files, no env. */
   private async sessionIngressFiles(
     sessionId: string,
     operatorAssistant: boolean,
   ): Promise<{ env: Record<string, string>; files: string[] }> {
     const dir = this.ingressSpawnDir(operatorAssistant);
     const key = this.deps.assistantIngress?.sign(sessionId);
-    if (key) await writeIngressSpawnFiles(dir, sessionId, { key });
+    if (key)
+      await writeIngressSpawnFiles(dir, sessionId, {
+        key,
+        header: `${ASSISTANT_INGRESS_HEADER}: ${key}\n`,
+      });
     const paths = ingressSpawnPaths(dir, sessionId);
     const present = await Promise.all(
       Object.values(paths).map((p) =>
@@ -3227,7 +3238,9 @@ export class SessionService {
       ),
     );
     return {
-      env: key ? { [INGRESS_KEY_FILE_ENV]: paths.key } : {},
+      env: key
+        ? { [INGRESS_KEY_FILE_ENV]: paths.key, [INGRESS_HEADER_FILE_ENV]: paths.header }
+        : {},
       files: present.filter((p): p is string => p !== null),
     };
   }

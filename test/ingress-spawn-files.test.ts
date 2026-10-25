@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, existsSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
-import { SessionService } from "../src/service";
+import { SessionService, epicAuthoringDirective } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeAgentIngressApp, type AppDeps } from "../src/server";
 import { BrowserTokenSigner } from "../src/browser-token";
@@ -82,7 +82,8 @@ test("spawn: --settings / --mcp-config are 0600 file paths carrying the key; arg
   const mcpPath = flagValue(argv, "--mcp-config");
   expect(settingsPath).toBe(join(spawnDir, `${s.id}.settings.json`));
   expect(mcpPath).toBe(join(spawnDir, `${s.id}.mcp.json`));
-  for (const p of [settingsPath, mcpPath, join(spawnDir, `${s.id}.key`)])
+  const headerPath = join(spawnDir, `${s.id}.header`);
+  for (const p of [settingsPath, mcpPath, join(spawnDir, `${s.id}.key`), headerPath])
     expect(statSync(p).mode & 0o777).toBe(0o600);
 
   const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
@@ -90,11 +91,13 @@ test("spawn: --settings / --mcp-config are 0600 file paths carrying the key; arg
   const mcp = JSON.parse(readFileSync(mcpPath, "utf8"));
   expect(mcp.mcpServers.shepherd.headers[ASSISTANT_INGRESS_HEADER]).toBe(key);
   expect(readFileSync(join(spawnDir, `${s.id}.key`), "utf8")).toBe(key);
+  expect(readFileSync(headerPath, "utf8")).toBe(`${ASSISTANT_INGRESS_HEADER}: ${key}\n`);
 
   // Nothing the process list shows carries the key or an ingress URL.
   expect(argv.some((a) => a.includes(key) || a.includes("/api/sessions/"))).toBe(false);
   expect(Object.values(env).some((v) => v.includes(key))).toBe(false);
   expect(env.SHEPHERD_INGRESS_KEY_FILE).toBe(join(spawnDir, `${s.id}.key`));
+  expect(env.SHEPHERD_INGRESS_HEADER_FILE).toBe(headerPath);
 });
 
 test("resume rewrites the session's spawn files; archive removes them", async () => {
@@ -109,7 +112,7 @@ test("resume rewrites the session's spawn files; archive removes them", async ()
   expect(existsSync(join(spawnDir, `${s.id}.settings.json`))).toBe(true);
 
   await svc.archive(s.id);
-  for (const f of ["settings.json", "mcp.json", "key"])
+  for (const f of ["settings.json", "mcp.json", "key", "header"])
     expect(existsSync(join(spawnDir, `${s.id}.${f}`))).toBe(false);
 });
 
@@ -118,7 +121,7 @@ test("a membrane-wrapped session RO-binds exactly its own spawn files", async ()
   const s = await create(svc);
   const argv = started[0]!.argv;
   expect(argv[0]).toBe("bwrap");
-  for (const f of ["settings.json", "mcp.json", "key"]) {
+  for (const f of ["settings.json", "mcp.json", "key", "header"]) {
     const p = join(spawnDir, `${s.id}.${f}`);
     const i = argv.indexOf(p);
     expect(argv[i - 1]).toBe("--ro-bind");
@@ -128,14 +131,28 @@ test("a membrane-wrapped session RO-binds exactly its own spawn files", async ()
   expect(argv).not.toContain(spawnDir);
 });
 
-test("codex: curl directives read the key from SHEPHERD_INGRESS_KEY_FILE, never inline it", async () => {
+// #3370: a `$(cat …)` expansion would put the key in curl's argv; curl's `-H @file` keeps it off.
+function expectCurlsReadHeaderFile(prompt: string): void {
+  expect(prompt).not.toContain("$(cat");
+  const curls = prompt.split(/(?=curl -s)/).filter((c) => c.startsWith("curl -s"));
+  expect(curls.length).toBeGreaterThan(0);
+  for (const c of curls) expect(c).toContain(`-H @"$SHEPHERD_INGRESS_HEADER_FILE"`);
+}
+
+test("codex: curl directives send the key via -H @header-file, never in argv", async () => {
   const { svc, spawnDir, started } = harness();
   const s = await create(svc, "codex");
   const { argv, env } = started[0]!;
   const prompt = argv.at(-1)!;
-  expect(prompt).toContain(`-H "${ASSISTANT_INGRESS_HEADER}: $(cat "$SHEPHERD_INGRESS_KEY_FILE")"`);
+  expectCurlsReadHeaderFile(prompt);
   expect(prompt).not.toContain(SIGNER.sign(s.id));
-  expect(env.SHEPHERD_INGRESS_KEY_FILE).toBe(join(spawnDir, `${s.id}.key`));
+  expect(env.SHEPHERD_INGRESS_HEADER_FILE).toBe(join(spawnDir, `${s.id}.header`));
+});
+
+test("codex: the epic-authoring directive sends the key via -H @header-file", () => {
+  expectCurlsReadHeaderFile(
+    epicAuthoringDirective({ sessionId: "s1", baseUrl: "http://x", agentProvider: "codex" }),
+  );
 });
 
 function ingressDeps(svc: SessionService, store: SessionStore, signer = true): AppDeps {
@@ -190,6 +207,19 @@ test("ingress: the right key passes; browser needs no header (its own token gate
   expect(browser.status).not.toBe(401);
 });
 
+test("ingress: an archived session's key is refused (#3370)", async () => {
+  const { svc, store } = harness();
+  const s = await create(svc);
+  await svc.archive(s.id);
+  const app = makeAgentIngressApp(ingressDeps(svc, store));
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}/queue`, {
+      headers: { [ASSISTANT_INGRESS_HEADER]: SIGNER.sign(s.id) },
+    }),
+  );
+  expect(res.status).toBe(401);
+});
+
 test("ingress: no signer (broken key file) refuses every keyed call", async () => {
   const { svc, store } = harness();
   const s = await create(svc);
@@ -226,7 +256,8 @@ test("regression: keyless session → resume at idle → hook POST with key is a
   const { svc, store, spawnDir } = harness();
   const s = await create(svc);
   // Simulate a pre-#3339 spawn: no spawn files, no stamp.
-  for (const f of ["settings.json", "mcp.json", "key"]) rmSync(join(spawnDir, `${s.id}.${f}`));
+  for (const f of ["settings.json", "mcp.json", "key", "header"])
+    rmSync(join(spawnDir, `${s.id}.${f}`));
   unstamp(store, s.id);
   expect(await svc.ingressStale(store.get(s.id)!)).toBe(true);
 

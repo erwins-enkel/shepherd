@@ -12410,8 +12410,8 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *   - `epic-draft`: PUT authors/replaces the draft; GET inspects it (issue #1507).
  *   - `rename`: the session's own retitle (issue #2053) — the write half of the coordinates the
  *     public `video-brief` skill uses to name a session after the recording it just watched. Like
- *     every route here except `browser` it needs the ingress key header (#3337), which a skill reads
- *     from the file named by `SHEPHERD_INGRESS_KEY_FILE`. */
+ *     every route here except `browser` it needs the ingress key header (#3337), which a skill
+ *     sends with curl's `-H @"$SHEPHERD_INGRESS_HEADER_FILE"` (#3370). */
 const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["hooks", ["POST"]],
   ["assistant-view", ["POST"]],
@@ -12457,9 +12457,11 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
  *  the UUID rides argv and env that any local user can read. The key is HMAC(key, sessionId), so a
  *  still-spawning session (no row yet) verifies the same way. `browser` is exempt — it carries its
  *  own HMAC `?token=` (ADR 0001), and a CDP WebSocket client cannot add a header. No signer (broken
- *  key file) → every call refused. */
+ *  key file) → every call refused. An archived session's key is dead (#3370), so a leaked key
+ *  cannot outlive its session. */
 function ingressKeyAllowed(deps: AppDeps, id: string, sub: string, req: Request): boolean {
   if (sub === "browser") return true;
+  if (deps.store.get(id)?.status === "archived") return false;
   return deps.assistantIngress?.verify(id, req.headers.get(ASSISTANT_INGRESS_HEADER)) === true;
 }
 

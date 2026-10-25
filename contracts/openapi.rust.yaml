@@ -1983,6 +1983,11 @@ components:
                 type: array
                 items:
                   type: string
+              touches:
+                type: array
+                items:
+                  type: string
+                description: Authoring-time overlap anchors (#3423); absent when none.
         materializedChildren:
           type: object
           description: Child key → the real issue number created for it.
@@ -6218,6 +6223,9 @@ components:
           type: integer
           nullable: true
           description: Epoch ms the child was done (integrated into the epic branch, else merged); null while not done or when unknown. Always sent by the current server; optional so an older server stays valid.
+        retiredPrNumber:
+          type: integer
+          description: "#3423: the still-open PR of a session-less in-review child whose session the drain retired (checks cleared, mergeable, left for a human merge). Absent otherwise."
     EpicRun:
       type: object
       additionalProperties: true

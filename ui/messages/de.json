@@ -7174,5 +7174,11 @@
   "assistant_chat_attachment_uploading": "wird hochgeladen…",
   "assistant_chat_attachment_failed": "Ein Bild wurde nicht hochgeladen. Entferne es, um zu senden.",
   "feat_assistant_image_attachments_title": "Zeig dem Assistenten einen Screenshot",
-  "feat_assistant_image_attachments_body": "Füge ein Bild in das Nachrichtenfeld des Operator-Assistenten ein, zieh es hinein oder wähle es über die Büroklammer. Es geht mit deiner nächsten Nachricht mit, damit der Assistent es sich ansehen kann."
+  "feat_assistant_image_attachments_body": "Füge ein Bild in das Nachrichtenfeld des Operator-Assistenten ein, zieh es hinein oder wähle es über die Büroklammer. Es geht mit deiner nächsten Nachricht mit, damit der Assistent es sich ansehen kann.",
+  "epicdraft_overlap_hint": "Die Kinder {a} und {b} berühren beide {anchors}, aber keine Abhängigkeit ordnet sie: Sie können parallel laufen und beim Mergen kollidieren. Bitte die Sitzung, eine Kante zwischen ihnen zu ergänzen.",
+  "epicdraft_touches_label": "berührt",
+  "epic_merge_wait": "Wartet auf deinen Merge: PR #{pr} (blockiert {issues})",
+  "epic_incremental_stall_warning": "Inkrementelle Landung mit Abhängigkeiten, aber hier mergt niemand die Kind-PRs (Auto-Merge oder Autopilot ist aus). Jedes abhängige Kind startet erst, wenn du den PR seines Blockers mergst. Schalte Autopilot und Auto-Merge ein oder lande über einen Integrations-Branch.",
+  "feat_epic_merge_gate_title": "Inkrementelle Epics sagen, wann sie auf dich warten",
+  "feat_epic_merge_gate_body": "Ein inkrementelles Epic mit Abhängigkeiten warnt jetzt, wenn im Repo niemand Kind-PRs mergt, und sein Ablaufbereich nennt den grünen PR, der auf deinen Merge wartet, samt der Kinder, die er blockiert. Epic-Entwürfe markieren Geschwister-Issues, die dieselben Dateien berühren, ohne dass eine Abhängigkeit sie ordnet."
 }

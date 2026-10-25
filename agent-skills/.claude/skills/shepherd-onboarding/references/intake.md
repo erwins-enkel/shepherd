@@ -100,6 +100,12 @@ Express dependencies as edges between children: give each child a short stable
 `epic-dag` fence — the server builds the fence from real numbers when it creates the
 issues.
 
+Siblings with no edge between them run in parallel. If two of them will edit the same
+files (a shared message catalog, a registry, a schema), the second to merge conflicts.
+List each child's likely-touched stable anchors (a module, a glob, a catalog) in its
+`touches` field — review-only, never written into the issue — and give siblings that
+share an anchor a `blockedBy` edge.
+
 **Draft the entire tree as markdown** — parent epic with goal, acceptance criteria
 and non-goals, and each child's key, title, body, acceptance criteria and blockers.
 It is the approval artifact (Stage 4), maps 1:1 onto the `epic_draft` submission, and

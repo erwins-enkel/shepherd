@@ -111,6 +111,7 @@ project) — don't draft tooling slices yourself.
   (GitHub) or a markdown backlog (local). No `gh issue create`, no `gh issue edit`.
 - **Dependencies** are `blockedBy` keys between children; the server turns them into
   the parent's `epic-dag` fence (`#<dependent> <- #<blocker>`) with real numbers.
+  Siblings that share a `touches` anchor (same catalog, registry, schema) get an edge.
 - **No versions in acceptance criteria** — the server rejects the draft.
 - **CLAUDE.md exclusions:** no restating injected constants, no
   `# House rules for AI agents` heading, no pointers to skills the repo doesn't ship.

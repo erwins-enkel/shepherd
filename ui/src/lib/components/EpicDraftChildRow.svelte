@@ -39,6 +39,12 @@
         {#each child.acceptanceCriteria as c, i (i)}<li>{c}</li>{/each}
       </ul>
     {/if}
+    {#if child.touches?.length}
+      <div class="edp-touches">
+        <span class="edp-touches-label">{m.epicdraft_touches_label()}</span>
+        {#each child.touches as t, i (i)}<code>{t}</code>{/each}
+      </div>
+    {/if}
     {#if blockers.length}
       <div class="edp-blocked">
         <span class="edp-blocked-label">{m.epicdraft_blocked_by_label()}</span>
@@ -101,6 +107,18 @@
     align-items: center;
     gap: 6px;
     font-size: var(--fs-meta);
+  }
+  .edp-touches {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
+  .edp-touches code {
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
   }
   .edp-blocked-label {
     color: var(--color-amber);

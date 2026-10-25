@@ -7174,5 +7174,11 @@
   "assistant_chat_attachment_uploading": "uploading…",
   "assistant_chat_attachment_failed": "An image didn't upload. Remove it to send.",
   "feat_assistant_image_attachments_title": "Show the assistant a screenshot",
-  "feat_assistant_image_attachments_body": "Paste an image into the Operator Assistant's message field, drop it there, or pick it with the paperclip. It goes along with your next message, so the assistant can look at it."
+  "feat_assistant_image_attachments_body": "Paste an image into the Operator Assistant's message field, drop it there, or pick it with the paperclip. It goes along with your next message, so the assistant can look at it.",
+  "epicdraft_overlap_hint": "Children {a} and {b} both touch {anchors}, and no dependency orders them: they can run in parallel and conflict on merge. Ask the session to add an edge between them.",
+  "epicdraft_touches_label": "touches",
+  "epic_merge_wait": "Waiting on your merge: PR #{pr} (blocks {issues})",
+  "epic_incremental_stall_warning": "Incremental landing with dependencies, but nothing merges child PRs here (auto-merge or autopilot is off). Each dependent child starts only after you merge its blocker's PR. Turn on autopilot and auto-merge, or land via an integration branch.",
+  "feat_epic_merge_gate_title": "Incremental epics say when they wait on you",
+  "feat_epic_merge_gate_body": "An incremental epic with dependencies now warns when nothing in the repo merges child PRs, and its run area names the green PR waiting for your merge and the children it blocks. Epic drafts flag sibling issues that touch the same files without a dependency between them."
 }

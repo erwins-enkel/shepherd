@@ -154,6 +154,10 @@ In incremental mode:
   landing PR.
 - A child PR merges like any other PR in the repo. The merge train lands it when the session is
   full-auto. Otherwise it waits for you to merge it.
+- If the epic has dependencies but the repo doesn't have both autopilot and auto-merge on, nothing
+  merges child PRs, so each dependent child starts only after you merge its blocker. The run area
+  and the draft's landing choice warn about this. While the epic runs, the run area names the green
+  PR that waits for your merge and the children it blocks.
 - A child PR that touches database migrations is never merged by the merge train. It is held as
   **migrations**, and you merge it by hand.
 - Shepherd closes the parent issue when the last child is done.

@@ -67,6 +67,8 @@ export interface EpicDraftChild {
   body: string;
   acceptanceCriteria: string[];
   blockedBy: string[];
+  /** Stable anchors the child will likely edit (#3423) — authoring-time overlap signal. */
+  touches?: string[];
 }
 
 export interface EpicDraftParent {
@@ -1418,6 +1420,9 @@ export interface EpicChild {
   startedAt?: number | null;
   /** Epoch ms the child was done; null while not done or when unknown. Absent from older servers. */
   endedAt?: number | null;
+  /** #3423: the open PR the drain retired this session-less in-review child with (checks cleared,
+   *  mergeable, left for a human merge). Absent otherwise. */
+  retiredPrNumber?: number;
 }
 /** How an epic's children land (#3191): via its integration branch (default) or one by one on the
  *  default branch. */

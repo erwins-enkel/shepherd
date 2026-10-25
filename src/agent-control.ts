@@ -485,6 +485,14 @@ const EPIC_DRAFT_CHILD_SCHEMA = {
       items: { type: "string" },
       description: "Keys of sibling children that must land first.",
     },
+    touches: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Stable anchors this child will likely edit (a module, a glob, a shared catalog or " +
+        'registry, e.g. "ui/messages/*.json"). Review-only, never written into the issue. Give ' +
+        "siblings that share an anchor a blockedBy edge, or they run in parallel and conflict.",
+    },
   },
   required: ["key", "title"],
   additionalProperties: false,

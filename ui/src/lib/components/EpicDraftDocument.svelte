@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EpicDraft, EpicDraftChild } from "#lib/types.js";
-  import type { MarkdownSection } from "#lib/epic-draft-outline.js";
+  import { overlapHints, type MarkdownSection } from "#lib/epic-draft-outline.js";
   import { m } from "#lib/paraglide/messages.js";
   import EpicDraftChildRow from "#lib/components/EpicDraftChildRow.svelte";
   import MarkdownBody from "#lib/components/MarkdownBody.svelte";
@@ -30,6 +30,22 @@
       return blocker ? [{ key: k, label: `${positionByKey.get(k)} · ${blocker.title}` }] : [];
     });
   }
+  // #3423: siblings that touch the same anchor with no edge between them run in parallel and
+  // conflict on merge — a review aid, not a gate.
+  const overlaps = $derived(
+    overlapHints(children).map((h) => {
+      const label = (key: string) =>
+        `${positionByKey.get(key)} · ${children.find((c) => c.key === key)?.title ?? key}`;
+      return {
+        ...h,
+        text: m.epicdraft_overlap_hint({
+          a: label(h.a),
+          b: label(h.b),
+          anchors: h.anchors.join(", "),
+        }),
+      };
+    }),
+  );
 </script>
 
 <div class="doc">
@@ -72,6 +88,9 @@
   <!-- Children (dependency DAG as an ordered list: wave per row, blockers as jump links) -->
   <section class="children part" data-anchor="children">
     <h5 class="part-title">{m.epicdraft_children_label({ count: children.length })}</h5>
+    {#each overlaps as o (`${o.a}:${o.b}`)}
+      <p class="hint" data-overlap-hint>{o.text}</p>
+    {/each}
     <ol class="list">
       {#each children as child, i (child.key)}
         <EpicDraftChildRow

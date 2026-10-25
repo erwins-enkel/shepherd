@@ -1395,6 +1395,9 @@ export function epicAuthoringDirective(args: {
     "PR (one child = one PR = one Shepherd session). A child too big for one PR is itself an epic — " +
     "split it further. Give each child a crisp title, a body stating the goal, and a checkable " +
     "acceptance criterion. Express ordering with dependency edges (a child's `blockedBy`).\n" +
+    "- List in each child's `touches` the stable anchors it will likely edit (modules, globs, shared " +
+    "catalogs, registries, schemas). Two children sharing an anchor with no edge between them run " +
+    "in parallel and conflict on merge — add a `blockedBy` edge between them.\n" +
     "- Write `parent.body` as Markdown for a rendered review: open each part with a `##` heading " +
     "(e.g. Goal, Confirmed decisions) — the review builds its table of contents from them — keep " +
     "paragraphs short, and write labelled points as `- **Label:** text`. Acceptance criteria and " +

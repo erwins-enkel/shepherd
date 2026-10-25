@@ -61,6 +61,41 @@ describe("BootstrapChecklist (#3112)", () => {
     expect(onopensession).toHaveBeenCalledWith("s-9");
   });
 
+  it("a held merge waiting on CI shows the note, no button — even with the session live (#3411)", async () => {
+    mockApi({
+      ...ACTIVE,
+      ciHold: "waiting",
+      next: { kind: "bootstrap", phase: 1, sessionId: "s-1" },
+    });
+    render(BootstrapChecklist, { repoPath: "/repo-ci-wait" });
+    await expect.element(page.getByText(m.bootstrap_checklist_next_ci_waiting())).toBeVisible();
+    await expect
+      .element(page.getByText(m.bootstrap_checklist_next_running()))
+      .not.toBeInTheDocument();
+    for (const name of [
+      m.bootstrap_checklist_open_session(),
+      m.bootstrap_checklist_start_scaffold(),
+      m.bootstrap_checklist_start_fixci(),
+    ])
+      await expect.element(page.getByRole("button", { name })).not.toBeInTheDocument();
+  });
+
+  it("failed CI after the merge offers a fix session — even with the session live (#3411)", async () => {
+    mockApi({
+      ...ACTIVE,
+      ciHold: "failed",
+      next: { kind: "bootstrap", phase: 1, sessionId: "s-1" },
+    });
+    const onbootstrapstep = vi.fn();
+    render(BootstrapChecklist, { repoPath: "/repo-ci-red", onbootstrapstep });
+    await expect.element(page.getByText(m.bootstrap_checklist_next_ci_failed())).toBeVisible();
+    await expect
+      .element(page.getByText(m.bootstrap_checklist_next_running()))
+      .not.toBeInTheDocument();
+    await page.getByRole("button", { name: m.bootstrap_checklist_start_fixci() }).click();
+    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-ci-red", "fix-ci");
+  });
+
   it("renders nothing for a repo that is not bootstrapping", async () => {
     mockApi({ ...ACTIVE, state: "off", next: null });
     render(BootstrapChecklist, { repoPath: "/repo-off" });

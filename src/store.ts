@@ -1564,6 +1564,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN phaseAt INTEGER`);
       this.db.run(`UPDATE repo_bootstrap SET phaseAt = updatedAt`);
     }
+    // #3411: a bootstrap merge's phase advance held until the default branch's CI is green.
+    if (
+      !(this.db.query(`PRAGMA table_info(repo_bootstrap)`).all() as { name: string }[]).some(
+        (c) => c.name === "ciPendingAt",
+      )
+    ) {
+      this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN ciPendingAt INTEGER`);
+      this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN ciPendingSessionId TEXT`);
+      this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN ciPendingSha TEXT`);
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS local_prs (
       number    INTEGER PRIMARY KEY AUTOINCREMENT,
       repoPath  TEXT NOT NULL,
@@ -2459,14 +2469,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   getRepoBootstrap(repoPath: string): RepoBootstrap {
     const r = this.db
-      .query(`SELECT state, phase, overrideAt FROM repo_bootstrap WHERE repoPath = ?`)
-      .get(repoPath) as { state: string; phase: number; overrideAt: number | null } | null;
+      .query(`SELECT state, phase, overrideAt, ciPendingAt FROM repo_bootstrap WHERE repoPath = ?`)
+      .get(repoPath) as {
+      state: string;
+      phase: number;
+      overrideAt: number | null;
+      ciPendingAt: number | null;
+    } | null;
     if (!r || (r.state !== "active" && r.state !== "done")) return { ...BOOTSTRAP_OFF };
-    return { state: r.state, phase: r.phase, overrideAt: r.overrideAt ?? null };
+    return {
+      state: r.state,
+      phase: r.phase,
+      overrideAt: r.overrideAt ?? null,
+      ciPendingAt: r.ciPendingAt ?? null,
+    };
   }
 
   /** Set the bootstrap state + phase. `off` deletes the row. A state change clears any override,
-   *  so an override never outlives the bootstrap run it was granted for. */
+   *  so an override never outlives the bootstrap run it was granted for; a new phase (or state)
+   *  clears a held CI advance (#3411). */
   setRepoBootstrap(repoPath: string, next: { state: RepoBootstrap["state"]; phase: number }): void {
     if (next.state === "off") {
       this.db.run(`DELETE FROM repo_bootstrap WHERE repoPath = ?`, [repoPath]);
@@ -2482,19 +2503,59 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(repoPath) DO UPDATE SET state = excluded.state, phase = excluded.phase,
          overrideAt = excluded.overrideAt, updatedAt = excluded.updatedAt,
-         phaseAt = CASE WHEN ? THEN excluded.phaseAt ELSE COALESCE(phaseAt, excluded.phaseAt) END`,
-      [repoPath, next.state, next.phase, overrideAt, now, now, restart ? 1 : 0],
+         phaseAt = CASE WHEN ? THEN excluded.phaseAt ELSE COALESCE(phaseAt, excluded.phaseAt) END,
+         ciPendingAt = CASE WHEN ? THEN NULL ELSE ciPendingAt END,
+         ciPendingSessionId = CASE WHEN ? THEN NULL ELSE ciPendingSessionId END,
+         ciPendingSha = CASE WHEN ? THEN NULL ELSE ciPendingSha END`,
+      [repoPath, next.state, next.phase, overrideAt, now, now, ...Array(4).fill(restart ? 1 : 0)],
     );
   }
 
+  /** #3411: hold the phase advance of `sessionId`'s bootstrap merge (seen at `at`) until the default
+   *  branch's CI is green. Active repos only; a later merge re-arms it with the newer time and an
+   *  unknown head until {@link setBootstrapCiPendingSha} anchors it. */
+  setBootstrapCiPending(repoPath: string, at: number, sessionId: string): void {
+    this.db.run(
+      `UPDATE repo_bootstrap SET ciPendingAt = ?, ciPendingSessionId = ?, ciPendingSha = NULL,
+         updatedAt = ? WHERE repoPath = ? AND state = 'active'`,
+      [at, sessionId, Date.now(), repoPath],
+    );
+  }
+
+  /** Anchor a held advance (#3411) on the default branch's current tip — the commit whose CI
+   *  decides it. No-op when nothing is held. */
+  setBootstrapCiPendingSha(repoPath: string, sha: string): void {
+    this.db.run(
+      `UPDATE repo_bootstrap SET ciPendingSha = ? WHERE repoPath = ? AND ciPendingAt IS NOT NULL`,
+      [sha, repoPath],
+    );
+  }
+
+  /** The held advance of `repoPath` (#3411): the merged session and the anchored head (null until
+   *  known); null when none is held. */
+  getBootstrapCiPending(repoPath: string): { sessionId: string; sha: string | null } | null {
+    const r = this.db
+      .query(
+        `SELECT ciPendingSessionId AS sessionId, ciPendingSha AS sha FROM repo_bootstrap
+         WHERE repoPath = ? AND ciPendingAt IS NOT NULL`,
+      )
+      .get(repoPath) as { sessionId: string | null; sha: string | null } | null;
+    return r ? { sessionId: r.sessionId ?? "", sha: r.sha } : null;
+  }
+
   /** Every repo in ACTIVE bootstrap with its phase clock — the boot reconcile's work list (#3112). */
-  listActiveRepoBootstraps(): { repoPath: string; phase: number; phaseAt: number }[] {
+  listActiveRepoBootstraps(): {
+    repoPath: string;
+    phase: number;
+    phaseAt: number;
+    ciPendingAt: number | null;
+  }[] {
     return this.db
       .query(
-        `SELECT repoPath, phase, COALESCE(phaseAt, updatedAt) AS phaseAt FROM repo_bootstrap
-         WHERE state = 'active'`,
+        `SELECT repoPath, phase, COALESCE(phaseAt, updatedAt) AS phaseAt, ciPendingAt
+         FROM repo_bootstrap WHERE state = 'active'`,
       )
-      .all() as { repoPath: string; phase: number; phaseAt: number }[];
+      .all() as { repoPath: string; phase: number; phaseAt: number; ciPendingAt: number | null }[];
   }
 
   /** When the first bootstrap session of `sessionPhase` (1 = P1+P2, legacy stack rows count as 1;
@@ -2504,18 +2565,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     repoPath: string,
     sessionPhase: BootstrapSessionPhase,
     since: number,
-  ): number | null {
+  ): { at: number; id: string } | null {
     const phaseCond =
       sessionPhase === 3
         ? `bootstrapPhase = 3`
         : `(bootstrapPhase = 1 OR (bootstrapPhase IS NULL AND bootstrapStackJson IS NOT NULL))`;
     const r = this.db
       .query(
-        `SELECT MIN(archivedAt) AS at FROM sessions WHERE repoPath = ? AND archiveReason = 'merged'
-         AND archivedAt >= ? AND ${phaseCond}`,
+        `SELECT id, archivedAt AS at FROM sessions WHERE repoPath = ? AND archiveReason = 'merged'
+         AND archivedAt >= ? AND ${phaseCond} ORDER BY archivedAt LIMIT 1`,
       )
-      .get(repoPath, since) as { at: number | null } | null;
-    return r?.at ?? null;
+      .get(repoPath, since) as { at: number; id: string } | null;
+    return r ?? null;
   }
 
   /** When the first epic draft of a session in `repoPath` was approved (issues materialized) at or

@@ -59,7 +59,7 @@ test("an empty project runs every bootstrap phase and the drain gate falls", asy
   const greenfield = new GreenfieldService({
     store,
     resolveForge: () => null,
-    pull: async () => {},
+    pull: async () => null,
   });
   const advances: number[] = [];
   const deps = {

@@ -86,6 +86,7 @@ test("GET /api/readiness/greenfield re-scans through the service; 503 when unwir
       return { ecosystem: null, score: 0, items: [], mustHavesMissing: [], checkedAt: 1 };
     },
     mustHavesMissing: () => [],
+    ciHold: () => null,
   };
   const res = await makeApp(d).fetch(new Request(url));
   expect(res.status).toBe(200);

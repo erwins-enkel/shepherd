@@ -21,8 +21,14 @@ export function checklistSteps(
   }));
 }
 
+/** What the checklist asks the composer to start: a bootstrap session, the P4 epic, or a plain
+ *  session fixing CI on the default branch after a held merge (#3411). */
+export type BootstrapStepKind = "scaffold" | "gaps" | "epic" | "fix-ci";
+
 /** The checklist's one primary action, or null when the repo is not in an active bootstrap. */
 export type ChecklistAction =
+  | { kind: "ci-waiting" }
+  | { kind: "fix-ci" }
   | { kind: "open-session"; sessionId: string }
   | { kind: "start-bootstrap"; phase: number }
   | { kind: "start-epic" }
@@ -31,6 +37,9 @@ export type ChecklistAction =
 export function checklistAction(view: RepoBootstrapView): ChecklistAction | null {
   const next = view.next;
   if (view.state !== "active" || !next) return null;
+  // A held advance (#3411) shows even while the merged session is still live.
+  if (view.ciHold === "waiting") return { kind: "ci-waiting" };
+  if (view.ciHold === "failed") return { kind: "fix-ci" };
   if (next.sessionId) return { kind: "open-session", sessionId: next.sessionId };
   if (next.kind === "bootstrap") return { kind: "start-bootstrap", phase: next.phase };
   return next.kind === "epic" ? { kind: "start-epic" } : { kind: "open-readiness" };

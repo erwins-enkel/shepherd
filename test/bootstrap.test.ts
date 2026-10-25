@@ -7,9 +7,12 @@ import {
   bootstrapMissing,
   bootstrapSessionPhase,
   hasProjectManifest,
+  heldAdvanceTarget,
   phaseAfterBootstrapMerge,
+  postMergeCi,
   type RepoBootstrap,
 } from "../src/bootstrap";
+import type { ForgeRun } from "../src/forge/types";
 import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
 
@@ -17,12 +20,17 @@ const active = (phase: number, overrideAt: number | null = null): RepoBootstrap 
   state: "active",
   phase,
   overrideAt,
+  ciPendingAt: null,
 });
 
 describe("bootstrapMissing", () => {
   test("off and done never gate", () => {
-    expect(bootstrapMissing({ state: "off", phase: 1, overrideAt: null }, [])).toBeNull();
-    expect(bootstrapMissing({ state: "done", phase: 5, overrideAt: null }, ["ci"])).toBeNull();
+    expect(
+      bootstrapMissing({ state: "off", phase: 1, overrideAt: null, ciPendingAt: null }, []),
+    ).toBeNull();
+    expect(
+      bootstrapMissing({ state: "done", phase: 5, overrideAt: null, ciPendingAt: null }, ["ci"]),
+    ).toBeNull();
   });
   test("an override lifts the gate", () => {
     expect(bootstrapMissing(active(1, 123), [])).toBeNull();
@@ -40,8 +48,12 @@ describe("bootstrapSessionPhase", () => {
     expect(bootstrapSessionPhase(active(2))).toBe(1);
     expect(bootstrapSessionPhase(active(3))).toBe(3);
     expect(bootstrapSessionPhase(active(4))).toBe(3);
-    expect(bootstrapSessionPhase({ state: "off", phase: 3, overrideAt: null })).toBe(1);
-    expect(bootstrapSessionPhase({ state: "done", phase: 5, overrideAt: null })).toBe(1);
+    expect(
+      bootstrapSessionPhase({ state: "off", phase: 3, overrideAt: null, ciPendingAt: null }),
+    ).toBe(1);
+    expect(
+      bootstrapSessionPhase({ state: "done", phase: 5, overrideAt: null, ciPendingAt: null }),
+    ).toBe(1);
   });
 });
 
@@ -54,8 +66,64 @@ describe("phaseAfterBootstrapMerge", () => {
   test("never lowers the phase; inactive repos are untouched", () => {
     expect(phaseAfterBootstrapMerge(active(3), 1)).toBeNull();
     expect(phaseAfterBootstrapMerge(active(5), 3)).toBeNull();
-    expect(phaseAfterBootstrapMerge({ state: "off", phase: 1, overrideAt: null }, 1)).toBeNull();
-    expect(phaseAfterBootstrapMerge({ state: "done", phase: 5, overrideAt: null }, 3)).toBeNull();
+    expect(
+      phaseAfterBootstrapMerge({ state: "off", phase: 1, overrideAt: null, ciPendingAt: null }, 1),
+    ).toBeNull();
+    expect(
+      phaseAfterBootstrapMerge({ state: "done", phase: 5, overrideAt: null, ciPendingAt: null }, 3),
+    ).toBeNull();
+  });
+});
+
+describe("heldAdvanceTarget", () => {
+  test("P1+P2 → 3, P3 → 4, nothing past P3", () => {
+    expect(heldAdvanceTarget(active(1))).toBe(3);
+    expect(heldAdvanceTarget(active(2))).toBe(3);
+    expect(heldAdvanceTarget(active(3))).toBe(4);
+    expect(heldAdvanceTarget(active(4))).toBeNull();
+  });
+});
+
+describe("postMergeCi (#3411)", () => {
+  const run = (o: Partial<ForgeRun>): ForgeRun => ({
+    id: 1,
+    workflowName: "ci",
+    workflowFile: ".github/workflows/ci.yml",
+    event: "push",
+    status: "completed",
+    conclusion: "success",
+    attempt: 1,
+    headSha: "new",
+    createdAt: 1,
+    url: "",
+    ...o,
+  });
+
+  test("unknown head or no run for the merged head yet → waiting", () => {
+    expect(postMergeCi([], "new")).toBe("waiting");
+    expect(postMergeCi([run({})], null)).toBe("waiting");
+  });
+  test("another head's green run never decides (forge not yet listing the push run)", () => {
+    expect(postMergeCi([run({ headSha: "old", createdAt: 9 })], "new")).toBe("waiting");
+    const oldRed = run({ headSha: "old", conclusion: "failure" });
+    expect(postMergeCi([oldRed, run({ id: 2 })], "new")).toBe("green");
+  });
+  test("a 0-job workflow-file-issue run fails; startup_failure fails", () => {
+    expect(postMergeCi([run({ conclusion: "failure" })], "new")).toBe("failed");
+    expect(postMergeCi([run({ conclusion: "startup_failure" })], "new")).toBe("failed");
+  });
+  test("in progress → waiting, unless a finished one already failed", () => {
+    const busy = run({ id: 2, status: "in_progress", conclusion: null });
+    expect(postMergeCi([run({}), busy], "new")).toBe("waiting");
+    expect(postMergeCi([run({ conclusion: "failure" }), busy], "new")).toBe("failed");
+  });
+  test("success, skipped and neutral are green", () => {
+    const runs = [
+      run({}),
+      run({ id: 2, conclusion: "skipped" }),
+      run({ id: 3, conclusion: "neutral" }),
+    ];
+    expect(postMergeCi(runs, "new")).toBe("green");
   });
 });
 
@@ -64,7 +132,9 @@ describe("bootstrapExitReached", () => {
     expect(bootstrapExitReached(active(5), [])).toBe(true);
     expect(bootstrapExitReached(active(5), ["ci"])).toBe(false);
     expect(bootstrapExitReached(active(4), [])).toBe(false);
-    expect(bootstrapExitReached({ state: "off", phase: 5, overrideAt: null }, [])).toBe(false);
+    expect(
+      bootstrapExitReached({ state: "off", phase: 5, overrideAt: null, ciPendingAt: null }, []),
+    ).toBe(false);
   });
 });
 
@@ -84,9 +154,19 @@ describe("hasProjectManifest", () => {
 describe("SessionStore repo bootstrap", () => {
   test("defaults to off; off deletes the row", () => {
     const s = new SessionStore(":memory:");
-    expect(s.getRepoBootstrap("/r")).toEqual({ state: "off", phase: 1, overrideAt: null });
+    expect(s.getRepoBootstrap("/r")).toEqual({
+      state: "off",
+      phase: 1,
+      overrideAt: null,
+      ciPendingAt: null,
+    });
     s.setRepoBootstrap("/r", { state: "active", phase: 2 });
-    expect(s.getRepoBootstrap("/r")).toEqual({ state: "active", phase: 2, overrideAt: null });
+    expect(s.getRepoBootstrap("/r")).toEqual({
+      state: "active",
+      phase: 2,
+      overrideAt: null,
+      ciPendingAt: null,
+    });
     s.setRepoBootstrap("/r", { state: "off", phase: 1 });
     expect(s.getRepoBootstrap("/r").state).toBe("off");
   });
@@ -126,10 +206,33 @@ describe("SessionStore repo bootstrap", () => {
     s.setRepoBootstrap("/r", { state: "active", phase: 3 });
     expect(phaseAt()).toBeGreaterThan(1);
     expect(s.listActiveRepoBootstraps()).toEqual([
-      { repoPath: "/r", phase: 3, phaseAt: phaseAt()! },
+      { repoPath: "/r", phase: 3, phaseAt: phaseAt()!, ciPendingAt: null },
     ]);
     s.setRepoBootstrap("/r", { state: "done", phase: 5 });
     expect(s.listActiveRepoBootstraps()).toEqual([]);
+  });
+
+  test("a held CI advance is set on active rows and cleared by a phase or state move (#3411)", () => {
+    const s = new SessionStore(":memory:");
+    s.setBootstrapCiPending("/r", 5, "s1");
+    expect(s.getRepoBootstrap("/r").ciPendingAt).toBeNull();
+    s.setRepoBootstrap("/r", { state: "active", phase: 1 });
+    s.setBootstrapCiPending("/r", 5, "s1");
+    expect(s.getRepoBootstrap("/r").ciPendingAt).toBe(5);
+    expect(s.getBootstrapCiPending("/r")).toEqual({ sessionId: "s1", sha: null });
+    s.setBootstrapCiPendingSha("/r", "abc");
+    expect(s.getBootstrapCiPending("/r")?.sha).toBe("abc");
+    s.setBootstrapCiPending("/r", 6, "s2"); // a new hold forgets the old anchor
+    expect(s.getBootstrapCiPending("/r")).toEqual({ sessionId: "s2", sha: null });
+    expect(s.listActiveRepoBootstraps()[0]?.ciPendingAt).toBe(6);
+    s.setRepoBootstrapOverride("/r", true);
+    s.setRepoBootstrap("/r", { state: "active", phase: 1 });
+    expect(s.getRepoBootstrap("/r").ciPendingAt).toBe(6);
+    s.setRepoBootstrap("/r", { state: "active", phase: 3 });
+    expect(s.getRepoBootstrap("/r").ciPendingAt).toBeNull();
+    expect(s.getBootstrapCiPending("/r")).toBeNull();
+    s.setBootstrapCiPendingSha("/r", "abc"); // nothing held → no-op
+    expect(s.getBootstrapCiPending("/r")).toBeNull();
   });
 
   test("phaseAt migration backfills updatedAt on a legacy table (#3112)", () => {
@@ -142,7 +245,9 @@ describe("SessionStore repo bootstrap", () => {
       raw.run(`INSERT INTO repo_bootstrap VALUES ('/r', 'active', 3, NULL, 42)`);
       raw.close();
       const s = new SessionStore(file);
-      expect(s.listActiveRepoBootstraps()).toEqual([{ repoPath: "/r", phase: 3, phaseAt: 42 }]);
+      expect(s.listActiveRepoBootstraps()).toEqual([
+        { repoPath: "/r", phase: 3, phaseAt: 42, ciPendingAt: null },
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -166,7 +271,10 @@ describe("SessionStore repo bootstrap", () => {
     expect(s.bootstrapSessionMergedAt("/r", 1, 0)).toBeNull();
     s.archive(p1.id, "merged");
     s.archive(p3.id, "operator");
-    expect(s.bootstrapSessionMergedAt("/r", 1, 0)).toBe(s.get(p1.id)!.archivedAt);
+    expect(s.bootstrapSessionMergedAt("/r", 1, 0)).toEqual({
+      at: s.get(p1.id)!.archivedAt!,
+      id: p1.id,
+    });
     expect(s.bootstrapSessionMergedAt("/r", 1, Date.now() + 60_000)).toBeNull();
     expect(s.bootstrapSessionMergedAt("/other", 1, 0)).toBeNull();
     expect(s.bootstrapSessionMergedAt("/r", 3, 0)).toBeNull();

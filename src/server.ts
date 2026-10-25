@@ -938,7 +938,7 @@ export interface AppDeps {
     adopt: (repoPath: string) => Promise<import("./gitignore-adopt").AdoptResult>;
   };
   /** Readiness greenfield profile + bootstrap must-haves (#3107); absent → no must-haves gate. */
-  greenfield?: Pick<GreenfieldService, "refresh" | "mustHavesMissing">;
+  greenfield?: Pick<GreenfieldService, "refresh" | "mustHavesMissing" | "ciHold">;
   /** #3112: a bootstrap repo's phase moved forward (`phase` = the new one) because of `sessionId`'s
    *  work — proposes the next attended session to the operator (push). Absent in tests. */
   onBootstrapAdvance?: (repoPath: string, phase: number, sessionId: string) => void;
@@ -3224,7 +3224,12 @@ function bootstrapMustHaves(deps: AppDeps, dir: string): string[] {
 }
 
 function repoBootstrapView(deps: AppDeps, dir: string) {
-  return buildRepoBootstrapView(deps.store, dir, bootstrapMustHaves(deps, dir));
+  return buildRepoBootstrapView(
+    deps.store,
+    dir,
+    bootstrapMustHaves(deps, dir),
+    deps.greenfield?.ciHold(dir) ?? null,
+  );
 }
 
 function parseRepoBootstrapPut(

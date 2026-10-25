@@ -2885,7 +2885,12 @@ const greenfield = new GreenfieldService({
       console.warn("[greenfield] tick:", err),
     );
   },
+  onAdvance: (dir, phase, sessionId) => onBootstrapAdvance(dir, phase, sessionId),
 });
+// #3411: a held bootstrap advance waits on the default branch's CI, which moves without a merge.
+setInterval(() => {
+  void greenfield.refreshPending().catch((err) => console.warn("[greenfield] pending:", err));
+}, 60_000);
 
 // #3112: a bootstrap phase moved forward — propose the next attended session (never spawn it).
 function onBootstrapAdvance(repoPath: string, phase: number, sessionId: string): void {
@@ -2954,23 +2959,23 @@ events.subscribe((event, data) => {
     // #3107: a merged PR in an active-bootstrap repo re-scans its greenfield readiness; a bootstrap
     // session's merge also advances the repo's phase (#3110).
     const s = store.get(id);
-    if (s?.archiveReason === "merged")
-      onBootstrapRepoMerge(store, greenfield, s, onBootstrapAdvance);
+    if (s?.archiveReason === "merged") onBootstrapRepoMerge(store, greenfield, s);
   } else if (event === "session:review") {
     const { id } = data as { id: string };
     void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
   }
 });
 // An attended bootstrap session's forge merge archives as "operator" (only auto sessions are
-// reaped as "merged"), so advance its phase on the merge itself. Idempotent with the above.
+// reaped as "merged"), so hold its phase advance on the merge itself. Idempotent with the above.
 onSessionGit(({ id, git }) => {
   if (git.state !== "merged") return;
   const s = store.get(id);
-  if (s?.bootstrap) onBootstrapRepoMerge(store, greenfield, s, onBootstrapAdvance);
+  if (s?.bootstrap) onBootstrapRepoMerge(store, greenfield, s);
 });
 
 // #3112: heal every bootstrap phase advance a restart lost (a merge or epic approval persisted, the
-// phase write not). Before the first drain tick reads the gate; the re-scan runs the exit check.
+// phase write not). Before the first drain tick reads the gate; the re-scan runs the exit check and
+// resolves a held CI advance (#3411).
 for (const { repoPath } of reconcileBootstrapPhases(store)) {
   events.emit("repo-bootstrap:update", { repoPath });
   void greenfield.refresh(repoPath).catch((err) => console.warn("[greenfield]:", err));

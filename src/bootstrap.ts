@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
+import type { ForgeRun } from "./forge/types";
 
 /**
  * Project-bootstrap mode (#3105, epic #3114): a repo in `active` bootstrap holds its drain
@@ -19,9 +20,17 @@ export interface RepoBootstrap {
   phase: number;
   /** When the operator overrode the drain hold; null when no override is in force. */
   overrideAt: number | null;
+  /** #3411: when a bootstrap session's merge was seen whose phase advance waits for green CI on
+   *  the default branch; null when no advance is held. */
+  ciPendingAt: number | null;
 }
 
-export const BOOTSTRAP_OFF: RepoBootstrap = { state: "off", phase: 1, overrideAt: null };
+export const BOOTSTRAP_OFF: RepoBootstrap = {
+  state: "off",
+  phase: 1,
+  overrideAt: null,
+  ciPendingAt: null,
+};
 
 export function isBootstrapPhase(n: unknown): n is number {
   return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= BOOTSTRAP_LAST_PHASE;
@@ -65,6 +74,29 @@ export function phaseAfterBootstrapMerge(
   if (b.state !== "active") return null;
   const next = sessionPhase === 1 ? 3 : 4;
   return next > b.phase ? next : null;
+}
+
+/** The phase a held advance (#3411) lands on: P1+P2 → 3, P3 → 4; null past P3. */
+export function heldAdvanceTarget(b: RepoBootstrap): number | null {
+  if (b.phase <= 2) return 3;
+  return b.phase === 3 ? 4 : null;
+}
+
+const OK_CONCLUSIONS = new Set(["success", "skipped", "neutral"]);
+
+export type PostMergeCi = "green" | "waiting" | "failed";
+
+/**
+ * Default-branch CI of `headSha`, the branch tip after a bootstrap merge (#3411) — "does main's
+ * current head build". Unknown head or no run for it yet → waiting (never another head's runs);
+ * any finished run that didn't pass (incl. a 0-job "workflow file issue" run) → failed.
+ */
+export function postMergeCi(runs: readonly ForgeRun[], headSha: string | null): PostMergeCi {
+  const head = headSha ? runs.filter((r) => r.headSha === headSha) : [];
+  if (head.length === 0) return "waiting";
+  const done = head.filter((r) => r.status === "completed");
+  if (done.some((r) => !OK_CONCLUSIONS.has(r.conclusion ?? ""))) return "failed";
+  return done.length === head.length ? "green" : "waiting";
 }
 
 /** True when the repo root carries a manifest of a supported ecosystem (package.json /

@@ -65,9 +65,11 @@ test("GET: a repo without bootstrap state reads off and is suggested when it has
     state: "off",
     phase: 1,
     overrideAt: null,
+    ciPendingAt: null,
     missing: [],
     suggested: true,
     next: null,
+    ciHold: null,
   });
   writeFileSync(join(repo, "package.json"), "{}");
   expect((await (await call(app, "GET", "")).json()).suggested).toBe(false);
@@ -130,6 +132,7 @@ test("#3107: red must-haves from the greenfield service block the exit and show 
   deps.greenfield = {
     mustHavesMissing: () => red,
     refresh: async (d: string) => (refreshed.push(d), {}) as never,
+    ciHold: () => null,
   };
   const app = makeApp(deps);
   await call(app, "PUT", "", { state: "active" });

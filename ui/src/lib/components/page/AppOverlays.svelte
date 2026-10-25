@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
   import type { ComponentProps } from "svelte";
   import { displayStatus } from "#lib/display-status.js";
   import { repos } from "#lib/repos.svelte.js";
@@ -360,7 +361,7 @@
     /** The Issues overview's "Draft epic" (#2638): New Task set to epic authoring. */
     ondraftepic: (repoPath: string) => void;
     /** The Backlog's bootstrap checklist (#3112): New Task set to the repo's next bootstrap step. */
-    onbootstrapstep: (repoPath: string, kind: "scaffold" | "gaps" | "epic") => void;
+    onbootstrapstep: (repoPath: string, kind: BootstrapStepKind) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onaddclone: () => void;
     onaddfork: () => void;

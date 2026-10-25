@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { READINESS_PENDING, type RepoBootstrap } from "../src/bootstrap";
-import type { GitForge } from "../src/forge/types";
+import type { ForgeRun, GitForge } from "../src/forge/types";
 import { GreenfieldService } from "../src/greenfield";
 
 let dir: string;
@@ -19,18 +19,38 @@ function write(rel: string, body = "x") {
 
 function fakeStore(initial: RepoBootstrap) {
   let b = { ...initial };
+  let pending: { sessionId: string; sha: string | null } | null = null;
   return {
     sets: [] as string[],
     getRepoBootstrap: () => ({ ...b }),
     setRepoBootstrap(_: string, next: { state: RepoBootstrap["state"]; phase: number }) {
-      b = { state: next.state, phase: next.phase, overrideAt: null };
+      b = { state: next.state, phase: next.phase, overrideAt: null, ciPendingAt: null };
+      pending = null;
       this.sets.push(next.state);
     },
+    setBootstrapCiPending(_: string, at: number, sessionId: string) {
+      if (b.state !== "active") return;
+      b = { ...b, ciPendingAt: at };
+      pending = { sessionId, sha: null };
+    },
+    setBootstrapCiPendingSha(_: string, sha: string) {
+      if (pending) pending = { ...pending, sha };
+    },
+    getBootstrapCiPending: () => pending,
+    listActiveRepoBootstraps: () =>
+      b.state === "active"
+        ? [{ repoPath: dir, phase: b.phase, phaseAt: 0, ciPendingAt: b.ciPendingAt }]
+        : [],
     getRepoConfig: () => ({ autoLabel: "shepherd:auto" }) as never,
   };
 }
 
-const active = (phase: number): RepoBootstrap => ({ state: "active", phase, overrideAt: null });
+const active = (phase: number): RepoBootstrap => ({
+  state: "active",
+  phase,
+  overrideAt: null,
+  ciPendingAt: null,
+});
 
 /** A fully bootstrapped JS/TS repo on disk (forge-free: settings omitted, runs unverified). */
 function scaffold() {
@@ -98,7 +118,7 @@ describe("GreenfieldService", () => {
 
   test("a non-active repo is never scanned by the gate read", () => {
     const svc = new GreenfieldService({
-      store: fakeStore({ state: "off", phase: 1, overrideAt: null }),
+      store: fakeStore({ state: "off", phase: 1, overrideAt: null, ciPendingAt: null }),
       resolveForge: () => null,
     });
     expect(svc.mustHavesMissing(dir)).toEqual([]);
@@ -132,6 +152,7 @@ describe("GreenfieldService", () => {
     const pull = async (d: string) => {
       pulls.push(d);
       scaffold(); // what the merge landed
+      return null;
     };
     const svc = new GreenfieldService({
       store: fakeStore(active(2)),
@@ -143,7 +164,7 @@ describe("GreenfieldService", () => {
     expect(svc.cached(dir)?.mustHavesMissing).toEqual([]);
 
     const off = new GreenfieldService({
-      store: fakeStore({ state: "done", phase: 5, overrideAt: null }),
+      store: fakeStore({ state: "done", phase: 5, overrideAt: null, ciPendingAt: null }),
       resolveForge: () => null,
       pull,
     });
@@ -157,12 +178,21 @@ describe("GreenfieldService", () => {
     const svc = new GreenfieldService({
       store,
       resolveForge: () => null,
-      pull: async () => {},
+      pull: async () => null,
       onChange: (d) => changes.push(d),
     });
-    await svc.onMerged(dir, 1);
+    const advanced: [number, string][] = [];
+    const notifying = new GreenfieldService({
+      store,
+      resolveForge: () => null,
+      pull: async () => null,
+      onChange: (d) => changes.push(d),
+      onAdvance: (_, phase, id) => advanced.push([phase, id]),
+    });
+    await notifying.onMerged(dir, 1, "s1"); // no runs API → no CI signal → advances at once
     expect(store.getRepoBootstrap().phase).toBe(3);
     expect(changes.length).toBeGreaterThanOrEqual(1);
+    expect(advanced).toEqual([[3, "s1"]]);
     await svc.onMerged(dir, 1); // a late P1+P2 merge never lowers P3
     expect(store.getRepoBootstrap().phase).toBe(3);
     await svc.onMerged(dir, 3);
@@ -199,5 +229,123 @@ describe("GreenfieldService", () => {
       resolveForge: () => forge,
     }).refresh(dir);
     expect(r.mustHavesMissing).toEqual(["scaffold_builds", "forge_settings"]);
+  });
+
+  describe("held advance until post-merge CI is green (#3411)", () => {
+    const NOW = 1_000_000_000;
+    const run = (o: Partial<ForgeRun>): ForgeRun => ({
+      id: 1,
+      workflowName: "ci",
+      workflowFile: "ci.yml",
+      event: "push",
+      status: "completed",
+      conclusion: "success",
+      attempt: 1,
+      headSha: "m",
+      createdAt: NOW + 1,
+      url: "u",
+      ...o,
+    });
+    function setup(phase: number) {
+      let runs: ForgeRun[] = [];
+      let head = "m";
+      const forge = {
+        isFork: false,
+        mergeMethod: "squash",
+        repoForgeSettings: async () => {
+          throw new Error("not under test");
+        },
+        listDefaultBranchRuns: async () => runs,
+      } as unknown as GitForge;
+      const store = fakeStore(active(phase));
+      const advanced: [number, string][] = [];
+      const changes: string[] = [];
+      const svc = new GreenfieldService({
+        store,
+        resolveForge: () => forge,
+        pull: async () => head,
+        now: () => NOW,
+        onChange: (d) => changes.push(d),
+        onAdvance: (_, p, id) => advanced.push([p, id]),
+      });
+      return {
+        svc,
+        store,
+        advanced,
+        changes,
+        setRuns: (r: ForgeRun[]) => (runs = r),
+        setHead: (sha: string) => (head = sha),
+      };
+    }
+
+    test("P1+P2 merge with no post-merge run holds at P1 (waiting)", async () => {
+      const t = setup(1);
+      expect(t.svc.ciHold(dir)).toBeNull();
+      await t.svc.onMerged(dir, 1, "s1");
+      expect(t.store.getRepoBootstrap().phase).toBe(1);
+      expect(t.svc.ciHold(dir)).toBe("waiting");
+      expect(t.advanced).toEqual([]);
+      expect(t.changes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("a failed run keeps P1 and reports failed; a later green head advances once", async () => {
+      const t = setup(1);
+      t.setRuns([run({ conclusion: "failure" })]);
+      await t.svc.onMerged(dir, 1, "s1");
+      expect(t.store.getRepoBootstrap().phase).toBe(1);
+      expect(t.svc.ciHold(dir)).toBe("failed");
+      // A fix lands on main without a merge Shepherd saw: refreshPending re-anchors on the new tip.
+      t.setHead("fix");
+      t.setRuns([
+        run({ conclusion: "failure" }),
+        run({ id: 2, headSha: "fix", createdAt: NOW + 9 }),
+      ]);
+      await t.svc.refreshPending();
+      expect(t.store.getRepoBootstrap().phase).toBe(3);
+      expect(t.svc.ciHold(dir)).toBeNull();
+      expect(t.advanced).toEqual([[3, "s1"]]);
+      await t.svc.refreshPending();
+      expect(t.advanced).toEqual([[3, "s1"]]);
+    });
+
+    test("the previous head's green run never releases the hold before the merged head runs", async () => {
+      const t = setup(3);
+      t.setHead("p3");
+      t.setRuns([run({ headSha: "p1", createdAt: NOW - 20 * 60_000 })]);
+      await t.svc.onMerged(dir, 3, "s3");
+      expect(t.store.getRepoBootstrap().phase).toBe(3);
+      expect(t.svc.ciHold(dir)).toBe("waiting");
+      t.setRuns([run({ headSha: "p1" }), run({ id: 2, headSha: "p3", conclusion: "failure" })]);
+      await t.svc.refreshPending();
+      expect(t.svc.ciHold(dir)).toBe("failed");
+      expect(t.advanced).toEqual([]);
+    });
+
+    test("an unknown branch tip keeps the hold waiting", async () => {
+      const t = setup(1);
+      t.setHead("");
+      t.setRuns([run({})]);
+      await t.svc.onMerged(dir, 1, "s1");
+      expect(t.svc.ciHold(dir)).toBe("waiting");
+      expect(t.store.getRepoBootstrap().phase).toBe(1);
+    });
+
+    test("P3 merge is held the same way and lands on P4", async () => {
+      const t = setup(3);
+      t.setRuns([run({ status: "in_progress", conclusion: null })]);
+      await t.svc.onMerged(dir, 3, "s3");
+      expect(t.svc.ciHold(dir)).toBe("waiting");
+      t.setRuns([run({})]);
+      await t.svc.refresh(dir);
+      expect(t.store.getRepoBootstrap().phase).toBe(4);
+      expect(t.advanced).toEqual([[4, "s3"]]);
+    });
+
+    test("a phase move by the operator clears the hold", async () => {
+      const t = setup(1);
+      await t.svc.onMerged(dir, 1, "s1");
+      t.store.setRepoBootstrap(dir, { state: "active", phase: 3 });
+      expect(t.svc.ciHold(dir)).toBeNull();
+    });
   });
 });

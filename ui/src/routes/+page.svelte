@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+  import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
@@ -1207,7 +1208,7 @@
   // bootstrap kind (the server picks P1+P2 or P3 from the repo's phase; the seed matches it) or
   // the P4 epic, seeded with the M0 candidates P3 recorded. The operator still submits; nothing
   // auto-spawns.
-  function onbootstrapstep(repoPath: string, kind: "scaffold" | "gaps" | "epic") {
+  function onbootstrapstep(repoPath: string, kind: BootstrapStepKind) {
     if (kind === "epic") {
       ondraftepic(repoPath);
       composePrompt = m.bootstrap_checklist_epic_seed();
@@ -1215,6 +1216,15 @@
     }
     composeRepoPath = repoPath;
     composeIssue = null;
+    // #3411: fixing main's CI after a held bootstrap merge is a plain session — any green merge
+    // releases the held advance.
+    if (kind === "fix-ci") {
+      composeBootstrap = false;
+      composePrompt = m.bootstrap_checklist_fixci_seed();
+      showNew = true;
+      showBacklog = false;
+      return;
+    }
     composeBootstrap = true;
     composePrompt =
       kind === "gaps" ? m.bootstrap_checklist_gaps_seed() : m.bootstrap_checklist_scaffold_seed();

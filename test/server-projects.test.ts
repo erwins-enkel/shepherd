@@ -281,6 +281,7 @@ test("POST /api/projects local-only happy path → 201 + RepoEntry shape", async
       state: "active",
       phase: 1,
       overrideAt: null,
+      ciPendingAt: null,
     });
   } finally {
     if (existsSync(targetDir)) rmSync(targetDir, { recursive: true, force: true });

@@ -3,16 +3,19 @@
  * → exit. The phase advances on a bootstrap session's merge (src/greenfield.ts → onMerged) and on
  * the P4 epic's materialization ({@link advanceAfterEpicApproved}); each advance only PROPOSES the
  * next attended session ({@link bootstrapNextStep}) — nothing is spawned without the operator.
+ * A session merge's advance is held until the default branch's CI is green (#3411, resolved by
+ * `GreenfieldService`).
  *
  * Restart-safe: the phase lives in `repo_bootstrap`, and {@link reconcileBootstrapPhases} re-derives
- * any advance a crash lost from persisted facts (merged bootstrap sessions, approved epic drafts)
- * newer than the phase's start. It never moves a phase backwards.
+ * any advance (or held advance) a crash lost from persisted facts (merged bootstrap sessions,
+ * approved epic drafts) newer than the phase's start. It never moves a phase backwards.
  */
 import {
   BOOTSTRAP_LAST_PHASE,
   bootstrapMissing,
   hasProjectManifest,
   type BootstrapSessionPhase,
+  type PostMergeCi,
   type RepoBootstrap,
 } from "./bootstrap";
 import type { GreenfieldService } from "./greenfield";
@@ -74,17 +77,19 @@ function liveSessions(store: ViewStore, dir: string): LiveBootstrapSession[] {
 }
 
 /** GET /api/repo-bootstrap's view: the state, what still holds the drain, whether bootstrap is
- *  suggested, and the proposed next step. `missing` ignores the override, so the operator still
- *  sees what an override skips. */
+ *  suggested, the proposed next step and the CI verdict of a held advance (#3411). `missing`
+ *  ignores the override, so the operator still sees what an override skips. */
 export async function buildRepoBootstrapView(
   store: ViewStore,
   dir: string,
   mustHaves: readonly string[],
+  ciHold: Exclude<PostMergeCi, "green"> | null = null,
 ) {
   const b = store.getRepoBootstrap(dir);
   const missing = bootstrapMissing({ ...b, overrideAt: null }, mustHaves) ?? [];
   const suggested = b.state === "off" && !(await hasProjectManifest(dir));
-  return { ...b, missing, suggested, next: bootstrapNextStep(b, liveSessions(store, dir)) };
+  const next = bootstrapNextStep(b, liveSessions(store, dir));
+  return { ...b, missing, suggested, next, ciHold };
 }
 
 type PhaseStore = Pick<SessionStore, "getRepoBootstrap" | "setRepoBootstrap">;
@@ -102,70 +107,74 @@ export function advanceAfterEpicApproved(store: PhaseStore, repoPath: string): b
 type ReconcileStore = PhaseStore &
   Pick<
     SessionStore,
-    "listActiveRepoBootstraps" | "bootstrapSessionMergedAt" | "epicDraftApprovedAt"
+    | "listActiveRepoBootstraps"
+    | "bootstrapSessionMergedAt"
+    | "epicDraftApprovedAt"
+    | "setBootstrapCiPending"
   >;
 
-/** One forward step from the first persisted fact at or after `since`, with that fact's time;
- *  null when no fact moves it. */
+/** A held session-merge advance (#3411) or an epic approval's advance. */
+type ReconcileFact =
+  { kind: "hold"; at: number; sessionId: string } | { kind: "advance"; phase: number; at: number };
+
+/** The first persisted fact at or after `since` that moves `phase`; null when none does. */
 function reconcileStep(
   store: ReconcileStore,
   repoPath: string,
   phase: number,
   since: number,
-): { phase: number; at: number } | null {
-  let at: number | null = null;
-  if (phase <= 2) at = store.bootstrapSessionMergedAt(repoPath, 1, since);
-  else if (phase === 3) at = store.bootstrapSessionMergedAt(repoPath, 3, since);
-  else if (phase === 4) at = store.epicDraftApprovedAt(repoPath, since);
-  if (at == null) return null;
-  return { phase: phase <= 2 ? 3 : phase + 1, at };
+): ReconcileFact | null {
+  if (phase <= 3) {
+    const merged = store.bootstrapSessionMergedAt(repoPath, phase <= 2 ? 1 : 3, since);
+    return merged && { kind: "hold", at: merged.at, sessionId: merged.id };
+  }
+  const at = phase === 4 ? store.epicDraftApprovedAt(repoPath, since) : null;
+  return at == null ? null : { kind: "advance", phase: phase + 1, at };
 }
 
 /**
  * Boot reconcile: heal every advance a restart lost. The first step counts facts from the CURRENT
- * phase's start (`phaseAt`), so a re-activated repo never advances on an older run; each further
- * step counts only facts at or after the fact that drove the previous one — exactly where the live
- * advance would have restarted the phase clock. So an epic approved while the repo still sat at P3
- * never carries it past P4. Returns the repos that moved.
+ * phase's start (`phaseAt`), so a re-activated repo never advances on an older run. A session
+ * merge never advances here — it re-arms the CI hold (#3411) and stops; the greenfield scan
+ * resolves it. Returns the repos that moved, or were held (`to === from`).
  */
 export function reconcileBootstrapPhases(
   store: ReconcileStore,
 ): { repoPath: string; from: number; to: number }[] {
   const moved: { repoPath: string; from: number; to: number }[] = [];
-  for (const { repoPath, phase, phaseAt } of store.listActiveRepoBootstraps()) {
-    let to = phase;
-    for (let step = reconcileStep(store, repoPath, to, phaseAt); step;) {
-      to = step.phase;
-      step = reconcileStep(store, repoPath, to, step.at);
+  for (const { repoPath, phase, phaseAt, ciPendingAt } of store.listActiveRepoBootstraps()) {
+    if (ciPendingAt != null) continue;
+    const fact = reconcileStep(store, repoPath, phase, phaseAt);
+    if (!fact) continue;
+    if (fact.kind === "hold") {
+      store.setBootstrapCiPending(repoPath, fact.at, fact.sessionId);
+      console.log(`[bootstrap] reconcile phase ${phase} held for CI repo=${repoPath}`);
+      moved.push({ repoPath, from: phase, to: phase });
+      continue;
     }
-    if (to === phase) continue;
-    store.setRepoBootstrap(repoPath, { state: "active", phase: to });
-    console.log(`[bootstrap] reconcile phase ${phase} → ${to} repo=${repoPath}`);
-    moved.push({ repoPath, from: phase, to });
+    store.setRepoBootstrap(repoPath, { state: "active", phase: fact.phase });
+    console.log(`[bootstrap] reconcile phase ${phase} → ${fact.phase} repo=${repoPath}`);
+    moved.push({ repoPath, from: phase, to: fact.phase });
   }
   return moved;
 }
 
-type MergeStore = Pick<SessionStore, "getRepoBootstrap" | "getBootstrapPhase">;
+type MergeStore = Pick<SessionStore, "getBootstrapPhase">;
 
 /**
  * A session's PR merged: re-scan the repo's greenfield readiness and, for a bootstrap session,
- * advance the phase. Called from BOTH the poller's merged `session:git` (an attended bootstrap
- * session merged on the forge is never archived as "merged" — the drain reaps only auto sessions,
- * so the operator's later archive records "operator") and the "merged" archive (merge train, local
- * merge). Idempotent: the phase only moves forward, so the second call never re-notifies.
+ * hold (or, without a CI signal, make) the phase advance — `GreenfieldService` notifies when it
+ * lands. Called from BOTH the poller's merged `session:git` (an attended bootstrap session merged on
+ * the forge is never archived as "merged" — the drain reaps only auto sessions, so the operator's
+ * later archive records "operator") and the "merged" archive (merge train, local merge).
+ * Idempotent: a held or made advance is never re-armed by a second sighting.
  */
 export function onBootstrapRepoMerge(
   store: MergeStore,
   greenfield: Pick<GreenfieldService, "onMerged">,
   s: Session,
-  onAdvance: (repoPath: string, phase: number, sessionId: string) => void,
 ): void {
-  const before = store.getRepoBootstrap(s.repoPath).phase;
-  // onMerged writes the phase synchronously, before its first await.
   void greenfield
-    .onMerged(s.repoPath, s.bootstrap ? store.getBootstrapPhase(s.id) : null)
+    .onMerged(s.repoPath, s.bootstrap ? store.getBootstrapPhase(s.id) : null, s.id)
     .catch((err) => console.warn("[greenfield]:", err));
-  const after = store.getRepoBootstrap(s.repoPath);
-  if (after.state === "active" && after.phase > before) onAdvance(s.repoPath, after.phase, s.id);
 }

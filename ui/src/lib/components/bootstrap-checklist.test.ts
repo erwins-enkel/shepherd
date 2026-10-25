@@ -45,6 +45,16 @@ describe("checklistAction (#3112)", () => {
     expect(checklistAction({ ...view(5, null), state: "done" })).toBeNull();
     expect(checklistAction(view(1, undefined))).toBeNull();
   });
+
+  it("a held CI advance (#3411) wins, even over the merged session still running", () => {
+    const live = view(1, { kind: "bootstrap", phase: 1, sessionId: "s1" });
+    expect(checklistAction({ ...live, ciHold: "waiting" })).toEqual({ kind: "ci-waiting" });
+    expect(checklistAction({ ...live, ciHold: "failed" })).toEqual({ kind: "fix-ci" });
+    expect(checklistAction({ ...live, ciHold: null })).toEqual({
+      kind: "open-session",
+      sessionId: "s1",
+    });
+  });
 });
 
 describe("docPath (#3112)", () => {

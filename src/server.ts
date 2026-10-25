@@ -104,8 +104,7 @@ import {
   validateBrowserAllowedHosts,
 } from "./validate";
 import {
-  parseCookie,
-  verifyCookie,
+  verifySessionCookie,
   signCookie,
   serializeCookie,
   clearCookie,
@@ -1226,7 +1225,7 @@ function checkAuth(req: Request, deps: AppDeps): Response | VerifiedToken | null
   if (isPublicRequest(req)) return null;
   if (
     config.cookieSecret &&
-    verifyCookie(config.cookieSecret, parseCookie(req.headers.get("cookie"))).ok
+    verifySessionCookie(config.cookieSecret, req.headers.get("cookie")).ok
   ) {
     return null;
   }
@@ -1272,7 +1271,7 @@ function requireOperatorSession(req: Request): Response | null {
   if (config.cookieSecret === null && config.token === null) return null; // un-bootstrapped (tests)
   if (
     config.cookieSecret &&
-    verifyCookie(config.cookieSecret, parseCookie(req.headers.get("cookie"))).ok
+    verifySessionCookie(config.cookieSecret, req.headers.get("cookie")).ok
   ) {
     return null;
   }
@@ -1305,7 +1304,7 @@ function maybeRestamp(req: Request, res: Response): Response {
   if (responseSetsSessionCookie(res)) return res; // handler owns the cookie (login/logout)
   const secret = config.cookieSecret;
   if (!secret) return res;
-  const v = verifyCookie(secret, parseCookie(req.headers.get("cookie")));
+  const v = verifySessionCookie(secret, req.headers.get("cookie"));
   if (!v.ok || !shouldRestamp(v.iat)) return res;
   const headers = new Headers(res.headers);
   headers.append(
@@ -12881,7 +12880,7 @@ export function serve(deps: AppDeps, port: number) {
       : new Response("forbidden: origin not allowed", { status: 403 });
   const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined => {
     if (!data.tokenId && config.cookieSecret) {
-      const v = verifyCookie(config.cookieSecret, parseCookie(req.headers.get("cookie")));
+      const v = verifySessionCookie(config.cookieSecret, req.headers.get("cookie"));
       if (v.ok) data.cookieExp = v.exp;
     }
     return server.upgrade(req, { data })

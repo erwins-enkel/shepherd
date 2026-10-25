@@ -31,7 +31,8 @@ import {
   shouldRestamp,
   serializeCookie,
   clearCookie,
-  parseCookie,
+  parseCookies,
+  verifySessionCookie,
   isSecureRequest,
   bootstrapAuth,
   type AuthSettingsStore,
@@ -140,10 +141,44 @@ test("clearCookie expires the cookie with Max-Age=0", () => {
   expect(clearCookie({ secure: false })).toContain(`${SESSION_COOKIE}=;`);
 });
 
-test("parseCookie extracts the session value among others", () => {
-  expect(parseCookie(`a=1; ${SESSION_COOKIE}=tok123; b=2`)).toBe("tok123");
-  expect(parseCookie("a=1; b=2")).toBe(null);
-  expect(parseCookie(null)).toBe(null);
+test("parseCookies extracts every session value among others, in header order", () => {
+  expect(parseCookies(`a=1; ${SESSION_COOKIE}=tok123; b=2`)).toEqual(["tok123"]);
+  expect(parseCookies(`${SESSION_COOKIE}=junk; a=1; ${SESSION_COOKIE}=tok`)).toEqual([
+    "junk",
+    "tok",
+  ]);
+  expect(parseCookies("a=1; b=2")).toEqual([]);
+  expect(parseCookies(null)).toEqual([]);
+});
+
+const SECRET = "test-cookie-signing-secret";
+
+// A preview origin can plant a path-scoped sibling cookie that the browser sends FIRST (#3365).
+test("verifySessionCookie: any valid sibling authenticates, whatever its position", () => {
+  const valid = signCookie(SECRET);
+  expect(verifySessionCookie(SECRET, `${SESSION_COOKIE}=junk; ${SESSION_COOKIE}=${valid}`).ok).toBe(
+    true,
+  );
+  expect(verifySessionCookie(SECRET, `${SESSION_COOKIE}=${valid}; ${SESSION_COOKIE}=junk`).ok).toBe(
+    true,
+  );
+});
+
+test("verifySessionCookie: picks the valid cookie with the latest expiry", () => {
+  const now = Date.now();
+  const older = signCookie(SECRET, SESSION_TTL_MS, now - 1000);
+  const newer = signCookie(SECRET, SESSION_TTL_MS, now);
+  const v = verifySessionCookie(SECRET, `${SESSION_COOKIE}=${newer}; ${SESSION_COOKIE}=${older}`);
+  expect(v.ok && v.exp).toBe(now + SESSION_TTL_MS);
+});
+
+test("verifySessionCookie: fails when no value verifies or none is present", () => {
+  const forged = signCookie("other-secret");
+  expect(
+    verifySessionCookie(SECRET, `${SESSION_COOKIE}=junk; ${SESSION_COOKIE}=${forged}`).ok,
+  ).toBe(false);
+  expect(verifySessionCookie(SECRET, "a=1")).toEqual({ ok: false });
+  expect(verifySessionCookie(SECRET, null)).toEqual({ ok: false });
 });
 
 // ── conditional Secure detection ─────────────────────────────────────────────

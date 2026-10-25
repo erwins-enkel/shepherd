@@ -2,7 +2,12 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseActivity, readTranscriptTail, sessionActivity } from "../src/activity";
+import {
+  parseActivity,
+  readTranscriptTail,
+  readTranscriptTailAsync,
+  sessionActivity,
+} from "../src/activity";
 
 function toolUse(name: string, input: unknown, id = "t1", ts = "2026-05-31T10:00:00.000Z"): string {
   return JSON.stringify({
@@ -162,4 +167,19 @@ test("readTranscriptTail: file larger than cap → only tail returned, leading p
 
 test("readTranscriptTail: missing file throws", () => {
   expect(() => readTranscriptTail(join(tmpdir(), "does-not-exist-tail-test.jsonl"))).toThrow();
+});
+
+test("readTranscriptTailAsync matches readTranscriptTail; missing file rejects", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tail-"));
+  const path = join(dir, "big.jsonl");
+  try {
+    const lines = Array.from({ length: 10 }, (_, i) => `{"n":${i},"pad":"xxxxxxxxxx"}`);
+    writeFileSync(path, lines.join("\n") + "\n");
+    for (const cap of [60, 1024]) {
+      expect(await readTranscriptTailAsync(path, cap)).toBe(readTranscriptTail(path, cap));
+    }
+    await expect(readTranscriptTailAsync(join(dir, "gone.jsonl"))).rejects.toThrow();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

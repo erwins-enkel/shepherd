@@ -22,6 +22,7 @@ function harness(reply: { result?: boolean; throws?: boolean } = {}) {
   const store = new SessionStore(":memory:");
   const session = store.create(base);
   const calls: ReplyCall[] = [];
+  const released: string[] = [];
   const events: { event: string; data: unknown }[] = [];
   const hub = new EventHub();
   hub.subscribe((event, data) => events.push({ event, data }));
@@ -33,11 +34,12 @@ function harness(reply: { result?: boolean; throws?: boolean } = {}) {
         if (reply.throws) throw new Error("clean-terminal session");
         return reply.result ?? true;
       },
+      releasePlanOnOperatorReply: (id: string) => (released.push(id), true),
     } as unknown as AppDeps["service"],
     events: hub,
     usageLimits: { limits: () => ({}) } as unknown as AppDeps["usageLimits"],
   } as AppDeps;
-  return { app: makeApp(deps), store, session, calls, events };
+  return { app: makeApp(deps), store, session, calls, events, released };
 }
 
 const post = (id: string, body: unknown) =>
@@ -193,4 +195,32 @@ test("GET /api/amendments returns the snapshot keyed by session id", async () =>
 test("GET /api/amendments is {} when nothing has been amended", async () => {
   const { app } = harness();
   expect(await (await app.fetch(new Request("http://x/api/amendments"))).json()).toEqual({});
+});
+
+// ── the chat plan release (#2586) is /reply-only ─────────────────────────────
+
+const reply = (id: string) =>
+  new Request(`http://x/api/sessions/${id}/reply`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "go ahead" }),
+  });
+
+test("a steered amendment never releases the plan gate", async () => {
+  const { app, store, session, calls, released } = harness();
+  store.setPlanPhase(session.id, "planning");
+  const res = await app.fetch(post(session.id, { text: "also build X", steer: true }));
+  expect(res.status).toBe(201);
+  expect(calls).toHaveLength(1); // delivered
+  expect(released).toEqual([]);
+  expect(store.get(session.id)!.planPhase).toBe("planning");
+});
+
+test("a delivered /reply asks for the plan release; an undelivered one does not", async () => {
+  const ok = harness();
+  expect((await ok.app.fetch(reply(ok.session.id))).status).toBe(200);
+  expect(ok.released).toEqual([ok.session.id]);
+  const dead = harness({ result: false });
+  expect((await dead.app.fetch(reply(dead.session.id))).status).toBe(404);
+  expect(dead.released).toEqual([]);
 });

@@ -10,7 +10,7 @@
  * paragraphs ask something ({@link looksLikeQuestion}). The transcript text is untrusted agent
  * output; it is only ever returned verbatim, never interpreted.
  */
-import { readTranscriptTail } from "./activity";
+import { readTranscriptTail, readTranscriptTailAsync } from "./activity";
 import { eachJsonlObject } from "./jsonl";
 import type { AgentProvider, SessionStatus } from "./types";
 
@@ -53,7 +53,7 @@ const QUESTION_PARAGRAPHS = 3;
 const SENTENCE_QUESTION_RE = /\?(?=[\s*_`"'”“»)\]]|$)/;
 
 /** Statuses at which the agent is waiting rather than working. */
-const AT_REST: ReadonlySet<SessionStatus> = new Set(["idle", "done", "blocked"]);
+export const AT_REST: ReadonlySet<SessionStatus> = new Set(["idle", "done", "blocked"]);
 
 export function looksLikeQuestion(text: string): boolean {
   return text
@@ -254,6 +254,27 @@ export interface MessagesQuery {
   includeUser: boolean;
 }
 
+function parseTranscript(text: string, provider?: AgentProvider | null): ParsedMessages {
+  return (provider ?? "claude") === "codex" ? parseCodexMessages(text) : parseClaudeMessages(text);
+}
+
+/** Whether the session waits on a question — {@link sessionMessages}' `awaitingInput`, read off
+ *  the event loop and without the messages. Never throws: an unreadable transcript reads false. */
+export async function awaitingInput(
+  s: { status: SessionStatus; agentProvider?: AgentProvider | null },
+  path: string | null,
+): Promise<boolean> {
+  if (!path || !AT_REST.has(s.status)) return false;
+  try {
+    return (
+      parseTranscript(await readTranscriptTailAsync(path, TAIL_BYTES), s.agentProvider).question !==
+      null
+    );
+  } catch {
+    return false;
+  }
+}
+
 function unavailable(reason: MessagesUnavailable): SessionMessages {
   return { messages: [], awaitingInput: false, pendingQuestion: null, unavailable: reason };
 }
@@ -275,10 +296,7 @@ export async function sessionMessages(
   } catch {
     return unavailable("file-missing");
   }
-  const parsed =
-    (s.agentProvider ?? "claude") === "codex"
-      ? parseCodexMessages(text)
-      : parseClaudeMessages(text);
+  const parsed = parseTranscript(text, s.agentProvider);
   const question = AT_REST.has(s.status) ? parsed.question : null;
   const kept = q.includeUser
     ? parsed.messages

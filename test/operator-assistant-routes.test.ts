@@ -605,6 +605,7 @@ test("assistant actions run the operator's own routes in-process: interrupt and 
   deps.service = {
     interrupt: async (id: string) => (seen.push(`interrupt ${id}`), true),
     operatorReply: async (id: string, text: string) => (seen.push(`reply ${id} ${text}`), true),
+    releasePlanOnOperatorReply: () => false,
   } as unknown as SessionService;
   const assistant = assistantRow(store);
   const worker = workerRow(store);

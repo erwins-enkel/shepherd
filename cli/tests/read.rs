@@ -236,6 +236,56 @@ async fn show_reports_awaiting_input() {
 }
 
 #[tokio::test]
+async fn list_and_show_print_phase() {
+    let s = server().await;
+    let mut planned = session_json("id-1", "TASK-01");
+    planned["phase"] = json!("plan_ready");
+    // id-2 comes from an older server: no `phase` at all.
+    Mock::given(method("GET"))
+        .and(path("/api/sessions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([planned, session_json("id-2", "TASK-02")])),
+        )
+        .mount(&s)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [], "awaitingInput": false,
+            "pendingQuestion": null, "unavailable": null
+        })))
+        .mount(&s)
+        .await;
+
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "sessions", "list"]).await, 0);
+    let v = h.json();
+    assert_eq!(v[0]["phase"], "plan_ready");
+    assert!(v[1].get("phase").is_none_or(|p| p.is_null()), "{v}");
+
+    let mut tty = Harness::new();
+    tty.tty = true;
+    assert_eq!(tty.run(&["--url", &s.uri(), "sessions", "list"]).await, 0);
+    let out = tty.out.text();
+    assert!(out.contains("PHASE") && out.contains("plan_ready"), "{out}");
+
+    let mut show = Harness::new();
+    show.tty = true;
+    assert_eq!(
+        show.run(&["--url", &s.uri(), "sessions", "show", "TASK-01"])
+            .await,
+        0
+    );
+    let out = show.out.text();
+    assert!(
+        out.lines()
+            .any(|l| l.contains("phase") && l.contains("plan_ready")),
+        "{out}"
+    );
+}
+
+#[tokio::test]
 async fn messages_json_passes_limit_and_include_user() {
     let s = server().await;
     with_sessions(&s).await;

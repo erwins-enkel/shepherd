@@ -274,7 +274,10 @@ describe("mirrored sessions", () => {
     const frames = await dashboard(a);
     const remote = startSession(b, "on-b");
     const green = { state: "open", checks: "success", deployConfigured: false, number: 7 };
-    b.deps.prCache = { snapshot: () => ({ [remote.id]: green }) } as never;
+    b.deps.prCache = {
+      snapshot: () => ({ [remote.id]: green }),
+      get: (id: string) => (id === remote.id ? green : undefined),
+    } as never;
     await connect(a, b);
 
     const git = (l: Session[]) => (l.find((s) => s.id === remote.id) as Record<string, any>)?.git;

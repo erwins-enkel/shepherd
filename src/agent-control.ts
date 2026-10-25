@@ -69,6 +69,7 @@ import {
 import type { PrCache } from "./pr-poller";
 import type { SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, Session } from "./types";
+import type { SessionPhase } from "./session-phase";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import {
   BUILD_STEP_STATUSES,
@@ -101,6 +102,8 @@ export interface AgentControlDeps {
   actionRequests?: Pick<ActionRequestService, "request" | "wait">;
   /** One `ask` action call's wait window (ms); default `ACTION_WAIT_MS`. */
   actionWaitMs?: number;
+  /** The session's derived phase (#2586); absent ⇒ the read tools report `phase: null`. */
+  sessionPhase?: (s: Session) => Promise<SessionPhase>;
 }
 
 /** Transport-neutral outcome of an applier: the REST route renders it as a Response, the MCP
@@ -220,8 +223,9 @@ function prBlock(git: GitState | undefined, fence: Fence) {
 }
 
 /** One session as the read tools report it. Deliberately NO `id` — see the module doc. */
-function sessionSummary(deps: AgentControlDeps, s: Session, selfId: string, fence: Fence) {
+async function sessionSummary(deps: AgentControlDeps, s: Session, selfId: string, fence: Fence) {
   const git = deps.prCache?.get(s.id);
+  const phase = deps.sessionPhase ? await deps.sessionPhase(s) : null;
   return {
     desig: s.desig,
     self: s.id === selfId,
@@ -229,32 +233,38 @@ function sessionSummary(deps: AgentControlDeps, s: Session, selfId: string, fenc
     repo: basename(s.repoPath),
     status: s.status,
     planPhase: s.planPhase,
+    phase,
     branch: s.branch,
     issueNumber: s.issueNumber,
     pr: prBlock(git, fence),
   };
 }
 
-function applySessionsList(deps: AgentControlDeps, sessionId: string): ApplyResult<unknown[]> {
+async function applySessionsList(
+  deps: AgentControlDeps,
+  sessionId: string,
+): Promise<ApplyResult<unknown[]>> {
   const fence = makeFence();
-  const rows = deps.store
-    .list({ activeOnly: true })
-    .filter(isReadable)
-    .map((s) => sessionSummary(deps, s, sessionId, fence));
+  const rows = await Promise.all(
+    deps.store
+      .list({ activeOnly: true })
+      .filter(isReadable)
+      .map((s) => sessionSummary(deps, s, sessionId, fence)),
+  );
   return { ok: true, data: rows };
 }
 
-function applySessionsShow(
+async function applySessionsShow(
   deps: AgentControlDeps,
   sessionId: string,
   body: Record<string, unknown>,
-): ApplyResult<unknown> {
+): Promise<ApplyResult<unknown>> {
   const desig = typeof body.desig === "string" ? body.desig : "";
   const s = deps.store.getByDesig(desig);
   if (!s || !isReadable(s)) {
     return { ok: false, status: 404, error: `session "${desig}" not found` };
   }
-  return { ok: true, data: sessionSummary(deps, s, sessionId, makeFence()) };
+  return { ok: true, data: await sessionSummary(deps, s, sessionId, makeFence()) };
 }
 
 /** The three GitHub backoff trackers (src/forge/rate-limit.ts), read live. */

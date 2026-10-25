@@ -610,6 +610,22 @@ test("sessions_list: live agent sessions across repos, no archived or terminal r
   expectFenced(row.pr.title);
 });
 
+test("sessions_list and sessions_show report the derived phase; null without the dep", async () => {
+  const { deps, sessionId, other } = readHarness();
+  const withPhase: AgentControlDeps = {
+    ...deps,
+    sessionPhase: async (s) => (s.id === other.id ? "pr_open" : "working"),
+  };
+  const list = toolPayload(await call(withPhase, sessionId, "sessions_list", {}));
+  expect(list.payload.map((r: any) => r.phase)).toEqual(["working", "pr_open"]);
+  const show = toolPayload(
+    await call(withPhase, sessionId, "sessions_show", { desig: other.desig }),
+  );
+  expect(show.payload.phase).toBe("pr_open");
+  const bare = toolPayload(await call(deps, sessionId, "sessions_show", { desig: other.desig }));
+  expect(bare.payload.phase).toBeNull();
+});
+
 test("sessions_list and sessions_show leave out the Operator Assistant", async () => {
   const { deps, sessionId, store, other } = readHarness();
   const assistant = addSession(store, { name: "assistant", operatorAssistant: true });

@@ -14,6 +14,11 @@
 // field keep that field; dialogs that don't (BroadcastDialog, BacklogOverlay,
 // LeftoverDialog, Update/HerdrUpdateModal) get focus on the first
 // focusable control, or the node itself as a fallback.
+//
+// Every mounted dialog is counted in `openDialogs`, so a self-opening dialog can
+// wait until the operator leaves the one they are in.
+
+import { openDialogs } from "#lib/open-dialogs.svelte.js";
 
 interface DialogParams {
   /** Invoked on Escape (and available for the caller to wire to its ✕ button). */
@@ -35,6 +40,7 @@ function focusable(node: HTMLElement): HTMLElement[] {
 
 export function dialog(node: HTMLElement, params: DialogParams = {}) {
   let current = params;
+  openDialogs.opened();
   const previouslyFocused = document.activeElement as HTMLElement | null;
 
   // Give the node a programmatic focus target (out of tab order) so the trap has
@@ -89,6 +95,7 @@ export function dialog(node: HTMLElement, params: DialogParams = {}) {
     },
     destroy() {
       node.removeEventListener("keydown", onKeydown);
+      openDialogs.closed();
       // Restore focus to where it was before the dialog opened, if that element
       // is still in the document and focusable.
       if (previouslyFocused && document.contains(previouslyFocused)) {

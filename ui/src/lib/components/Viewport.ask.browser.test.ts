@@ -20,6 +20,7 @@ vi.mock("#lib/pty.js", () => ({
   }),
 }));
 const { default: Viewport } = await import("./Viewport.svelte");
+const { dialog } = await import("#lib/a11yDialog.js");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -130,6 +131,26 @@ describe("AskUserQuestion dialog in the Viewport (#3165)", () => {
 
     // A new question auto-opens again.
     await setAsk(ask("toolu_2"));
+    await expect.element(dialogEl()).toBeVisible();
+  });
+
+  it("waits while another dialog is open, keeping the operator's focus, then auto-opens", async () => {
+    const setAsk = await mount(null);
+    // Stand-in for New Task: a mounted `use:dialog` card with a focused text field.
+    const other = document.createElement("div");
+    const input = document.createElement("textarea");
+    other.append(input);
+    document.body.append(other);
+    const action = dialog(other);
+    input.focus();
+
+    await setAsk(ask("toolu_1"));
+    await expect.element(answerStrip()).toBeVisible();
+    await expect.element(dialogEl()).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(input);
+
+    action.destroy();
+    other.remove();
     await expect.element(dialogEl()).toBeVisible();
   });
 

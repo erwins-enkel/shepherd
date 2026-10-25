@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import QuestionFormBlock from "./QuestionFormBlock.svelte";
 
@@ -163,6 +163,19 @@ describe("QuestionFormBlock — interactive (answerCtx present)", () => {
     await expect.element(page.getByText("Answers sent to the planning agent.")).toBeInTheDocument();
   });
 
+  it("Enter in the freeform field submits to the plan gate", async () => {
+    const { container } = await render(QuestionFormBlock, {
+      block,
+      answerCtx: { sessionId: "sess-9", locked: false },
+    });
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    await page.elementLocator(radios[0]!).click();
+    const text = container.querySelector<HTMLInputElement>('input[type="text"]')!;
+    await page.elementLocator(text).fill("ok");
+    await userEvent.keyboard("{Enter}");
+    expect(answerPlanQuestions).toHaveBeenCalledTimes(1);
+  });
+
   it("disables submit while a plan review is in flight (locked)", async () => {
     render(QuestionFormBlock, { block, answerCtx: { sessionId: "s1", locked: true } });
     await expect.element(page.getByRole("button")).toBeDisabled();
@@ -306,6 +319,38 @@ describe("QuestionFormBlock — allowOther (AskUserQuestion, #3165)", () => {
       { blockId: "toolu_1", questionId: "0", optionIndices: [], text: "Green" },
       { blockId: "toolu_1", questionId: "1", optionIndices: [1], text: "Kiwi" },
     ]);
+  });
+
+  it("Enter in an Other field submits the whole form once everything is answered", async () => {
+    const onanswer = vi.fn();
+    const { container } = await render(QuestionFormBlock, { block, onanswer });
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    await page.elementLocator(radios[0]!).click(); // Red
+    const boxes = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    await page.elementLocator(boxes[2]!).click(); // multi → Other
+    const other = page.elementLocator(container.querySelector("input.qf-other-input")!);
+    await other.fill("Kiwi");
+    await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(onanswer).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Enter}");
+    expect(onanswer).toHaveBeenCalledOnce();
+    expect(onanswer.mock.calls[0]![0]).toEqual([
+      { blockId: "toolu_1", questionId: "0", optionIndices: [0] },
+      { blockId: "toolu_1", questionId: "1", optionIndices: [], text: "Kiwi" },
+    ]);
+  });
+
+  it("Enter with a question still open focuses that question instead of submitting", async () => {
+    const onanswer = vi.fn();
+    const { container } = await render(QuestionFormBlock, { block, onanswer });
+    const boxes = container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    await page.elementLocator(boxes[2]!).click(); // multi → Other; the single is unanswered
+    const other = page.elementLocator(container.querySelector("input.qf-other-input")!);
+    await other.fill("Kiwi");
+    await userEvent.keyboard("{Enter}");
+    expect(onanswer).not.toHaveBeenCalled();
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    expect(document.activeElement).toBe(radios[0]);
   });
 
   it("a multi with allowOther needs at least one choice", async () => {

@@ -72,6 +72,27 @@
   }
   const canSubmit = $derived(interactive && !locked && block.questions.every(answered));
 
+  // Enter in a text field submits the whole form once every question is answered; until then it
+  // moves focus to the first unanswered question (its Other text when that is what's missing).
+  let formEl = $state<HTMLDivElement>();
+  function onEnter(e: KeyboardEvent) {
+    if (e.key !== "Enter" || e.isComposing || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey)
+      return;
+    e.preventDefault();
+    if (canSubmit) {
+      void submit();
+      return;
+    }
+    const q = block.questions.find((x) => !answered(x));
+    const el = q && formEl?.querySelector<HTMLElement>(`[data-qid="${CSS.escape(q.id)}"]`);
+    if (!q || !el) return;
+    const target =
+      (otherOn(q) && el.querySelector<HTMLInputElement>("input.qf-other-input")) ||
+      el.querySelector<HTMLInputElement>("input:not(:disabled)");
+    target?.focus();
+    target?.scrollIntoView({ block: "nearest" });
+  }
+
   function kindLabel(kind: "single" | "multi" | "freeform", required = false): string {
     if (kind === "single") return m.qform_kind_single();
     if (kind === "multi")
@@ -136,9 +157,9 @@
 {/snippet}
 <!-- eslint-enable svelte/no-navigation-without-resolve -->
 
-<div class="qf-form">
+<div class="qf-form" bind:this={formEl}>
   {#each block.questions as q (q.id)}
-    <div class="qf-question">
+    <div class="qf-question" data-qid={q.id}>
       {#if q.header}<span class="qf-header">{q.header}</span>{/if}
       <p class="qf-prompt">{@render linked(q.prompt)}</p>
       <span class="qf-kind">{kindLabel(q.kind, !!q.allowOther)}</span>
@@ -199,8 +220,9 @@
               <li class="qf-freeform">
                 <input
                   type="text"
-                  class="qf-freeform-input qf-freeform-live"
+                  class="qf-freeform-input qf-freeform-live qf-other-input"
                   bind:value={otherText[q.id]}
+                  onkeydown={onEnter}
                   disabled={inputsDisabled}
                   maxlength={500}
                   aria-label={`${q.prompt}: ${m.qform_other()}`}
@@ -217,6 +239,7 @@
             class="qf-freeform-input"
             class:qf-freeform-live={interactive}
             bind:value={freeform[q.id]}
+            onkeydown={onEnter}
             disabled={inputsDisabled}
             placeholder={m.qform_freeform_placeholder()}
           />

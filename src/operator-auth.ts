@@ -147,7 +147,7 @@ export function parseCookie(
 }
 
 /** True for a loopback socket address (IPv4 127/8, `::1`, IPv4-mapped 127/8). */
-function isLoopbackPeer(peer: string | null | undefined): boolean {
+export function isLoopbackPeer(peer: string | null | undefined): boolean {
   if (!peer) return false;
   const v4 = peer.startsWith("::ffff:") ? peer.slice(7) : peer;
   return v4.startsWith("127.") || peer === "::1";

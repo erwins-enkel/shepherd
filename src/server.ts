@@ -3,7 +3,7 @@ import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-in
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { recapSummary } from "./recap-core";
 import { PairingCodeService } from "./pairing-codes";
-import { AttemptBudget } from "./attempt-budget";
+import { PeerThrottle, throttleKey } from "./attempt-budget";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
 import { localHealthIdentity } from "./local-health";
@@ -581,7 +581,7 @@ export interface AppDeps {
   accessTokens?: AccessTokenService;
   pairingCodes?: PairingCodeService;
   /** Per-peer `POST /api/login` budget (#2105); lazily built like `pairingCodes`. */
-  loginAttempts?: AttemptBudget;
+  loginAttempts?: PeerThrottle;
   /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
@@ -1539,12 +1539,18 @@ async function readCappedText(req: Request, max: number): Promise<string | null>
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** All proxied `/api/login` attempts together per minute: their keys are header-derived (#3368). */
+const PROXIED_LOGIN_GLOBAL = 30;
+
 async function handleLogin({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "login" || parts[2]) return null;
   // Admission control before any body buffering or argon2id work (#2105), mirroring /api/pair.
-  if (
-    !(deps.loginAttempts ??= new AttemptBudget()).allowAttempt(requestPeers.get(req) ?? "unknown")
-  ) {
+  const attempts = (deps.loginAttempts ??= new PeerThrottle(
+    Date.now,
+    undefined,
+    PROXIED_LOGIN_GLOBAL,
+  ));
+  if (!attempts.allowAttempt(throttleKey(req, requestPeers.get(req)))) {
     return json({ error: "login_rate_limited" }, 429, { "Retry-After": "60" });
   }
   const ctErr = requireJsonContentType(req);
@@ -1636,7 +1642,7 @@ async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null
   if (parts[1] === "pairing-codes") {
     return requireOperatorSession(req) ?? json(svc.mint(), 201, NO_STORE);
   }
-  if (!svc.allowAttempt(requestPeers.get(req) ?? "unknown")) {
+  if (!svc.allowAttempt(throttleKey(req, requestPeers.get(req)))) {
     return json({ error: "pairing_rate_limited" }, 429, { "Retry-After": "60" });
   }
   const ctErr = requireJsonContentType(req);

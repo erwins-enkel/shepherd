@@ -76,6 +76,7 @@ async fn snapshot_from(
                     repo_count: snap.repo_count,
                     fallback: snap.fallback,
                     failed_repo_count: snap.failed_repo_count,
+                    filter: snap.filter,
                 });
             }
             if event != Some("upnext:snapshot") {

@@ -13,6 +13,7 @@ import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import type { GitForge } from "./forge/types";
 import { reconcileRealPathsToRaw, type RepoEntry } from "./repos";
 import type { ReadinessScorer, ReadinessInputOf } from "./up-next-readiness";
+import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "./issue-filter";
 import {
   applyReadiness,
   buildSnapshot,
@@ -98,6 +99,8 @@ export interface UpNextDeps {
     enabled: () => boolean;
     scorer: Pick<ReadinessScorer, "scoreLookup" | "scoreMissing">;
   };
+  /** The operator's issue filter (#3017), read per build; absent ⇒ the defaults. */
+  issueFilter?: () => IssueFilterSettings;
 }
 
 /** A just-started item, keyed for the post-start membership check. `repoPath` is in
@@ -143,6 +146,14 @@ export class UpNextService {
    *  THIS, never to the snapshot it started from — so a slow judge can never publish stale items,
    *  and scores from a run that a newer compute overtook still land. */
   private raw: { snapshot: UpNextSnapshot; inputOf: ReadinessInputOf } | null = null;
+  /** The latest compute's fetched per-repo input, so a filter change rebuilds without the forge. */
+  private input: {
+    repos: RepoInput[];
+    failedRepoCount: number;
+    inputOf: ReadinessInputOf;
+    /** When the input was fetched: a rebuild keeps this as `generatedAt`, so freshness stays honest. */
+    fetchedAt: number;
+  } | null = null;
 
   constructor(private deps: UpNextDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -174,7 +185,6 @@ export class UpNextService {
     );
     const ok = resolved.filter((r): r is RepoInput => r !== null && r !== "fetch_failed");
     const failedRepoCount = resolved.filter((r) => r === "fetch_failed").length;
-    const raw = buildSnapshot(ok, this.now(), null, failedRepoCount);
     // Keep the text in this compute's private context, never on a published row.
     const bodies = new Map<string, Map<number, string>>();
     for (const repo of ok) {
@@ -189,6 +199,29 @@ export class UpNextService {
       body: bodies.get(item.repoPath)!.get(item.issueRef.number)!,
       labels: item.labels,
     });
+    this.input = { repos: ok, failedRepoCount, inputOf, fetchedAt: this.now() };
+    return this.build();
+  }
+
+  /** Re-apply the current issue filter to the last fetched input — no forge call (#3017). Before
+   *  the first compute there is nothing cached, so it falls back to a full refresh. */
+  refilter(): void {
+    if (!this.input) {
+      void this.refresh().catch((err) => console.warn("[up-next] refilter:", err));
+      return;
+    }
+    try {
+      this.build();
+    } catch (err) {
+      console.warn("[up-next] refilter:", err);
+    }
+  }
+
+  /** Build, rerank and publish a snapshot from the cached input with the current filter. */
+  private build(): UpNextSnapshot {
+    const { repos, failedRepoCount, inputOf, fetchedAt } = this.input!;
+    const filter = this.deps.issueFilter?.() ?? DEFAULT_ISSUE_FILTER;
+    const raw = buildSnapshot(repos, fetchedAt, null, failedRepoCount, filter);
     this.raw = { snapshot: raw, inputOf };
     const readiness = this.activeReadiness();
     if (!readiness) return this.publish(raw);
@@ -356,6 +389,7 @@ export class UpNextService {
       repoLabel: r.repoLabel,
       lastUsedAt: lastUsed[r.repoPath] ?? null,
       viewer,
+      isFork: !!forge.isFork,
       openIssues,
       epics,
       subIssueNumbers: summaries.subIssueNumbers,
@@ -404,6 +438,7 @@ export class UpNextService {
         parentLabels: parent.labels,
         parentLabelColors: parent.labelColors,
         parentAssignees: parent.assignees,
+        parentAuthor: parent.author,
         memberNumbers: epic.children.map((c) => c.number),
         candidate: selectEpicCandidates(epic.children)[0] ?? null,
         parentBlockedBy: blockedByOpen.get(pn) ?? [],

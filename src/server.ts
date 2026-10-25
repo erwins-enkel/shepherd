@@ -150,6 +150,7 @@ import {
   sharedHouseStackResolver,
   storedHouseStack,
 } from "./house-stack";
+import { ISSUE_FILTER_SETTING, parseIssueFilterPatch, storedIssueFilter } from "./issue-filter";
 import {
   type MachineView,
   type Placement,
@@ -885,6 +886,8 @@ export interface AppDeps {
     ): Promise<void>;
     /** Raw-path-space hidden set (reconciled), applied at read time for instant freshness. */
     hiddenRepoPathsRaw(): Set<string>;
+    /** Re-apply the issue filter to the cached input, without a forge refetch (#3017). */
+    refilter(): void;
   };
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
@@ -8635,6 +8638,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       machinePlatformOrder: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
       // the operator's House Stack (#3108); the default list when unset.
       houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
+      // the operator's default issue filter (#3017); defaults when unset.
+      issueFilter: storedIssueFilter(deps.store.getSetting(ISSUE_FILTER_SETTING)),
       reducedPushMode: config.reducedPushMode,
       // What the Operator Assistant may do (Settings → Assistant).
       assistantPermissions: config.assistantPermissions,
@@ -8812,7 +8817,20 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["telemetryConsent", putTelemetryConsent],
   ["machinePlatformOrder", putMachinePlatformOrder],
   ["houseStack", putHouseStack],
+  ["issueFilter", putIssueFilter],
 ];
+
+/** The default issue filter (#3017): a partial merged onto the stored value. Every client hears
+ *  the new value, and Up Next re-applies it to its cached input — no forge refetch. */
+function putIssueFilter(value: unknown, deps: Ctx["deps"]): Response {
+  const current = storedIssueFilter(deps.store.getSetting(ISSUE_FILTER_SETTING));
+  const parsed = parseIssueFilterPatch(value, current);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  deps.store.setSetting(ISSUE_FILTER_SETTING, JSON.stringify(parsed.value));
+  deps.events.emit("settings:issue-filter", { issueFilter: parsed.value });
+  deps.upNext?.refilter();
+  return json({ issueFilter: parsed.value });
+}
 
 /** The operator's House Stack (#3108): packages whose current stable versions a bootstrap pins. */
 function putHouseStack(value: unknown, deps: Ctx["deps"]): Response {

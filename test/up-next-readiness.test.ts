@@ -28,6 +28,8 @@ function item(n: number, over: Partial<TestItem> = {}): TestItem {
     createdAt: n,
     labels: [],
     issueRef: { number: n, url: `https://x/${n}`, title, body: `body ${n}` },
+    fromFork: false,
+    mine: false,
     ...over,
   };
 }

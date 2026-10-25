@@ -5,7 +5,7 @@ import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
-import type { UpNextSnapshot, UpNextSection } from "../src/up-next-core";
+import { buildSnapshot, type UpNextSnapshot, type UpNextSection } from "../src/up-next-core";
 import type { Issue } from "../src/forge/types";
 import { repositoryRoutePolicy } from "../src/token-repositories";
 import { scopeAllows } from "../src/token-scopes";
@@ -53,6 +53,7 @@ const SNAP: UpNextSnapshot = {
   fallback: null,
   failedRepoCount: 0,
   sections: [],
+  filter: buildSnapshot([], 0).filter,
 };
 
 function harness(
@@ -129,6 +130,7 @@ function harness(
         recomputeCalls.push(started.map((s) => ({ ...s })));
       },
       hiddenRepoPathsRaw: opts.hiddenRepoPathsRaw ?? (() => new Set<string>()),
+      refilter: () => {},
     },
   };
   return {
@@ -438,6 +440,7 @@ test("GET /api/up-next?peek strips hidden-repo sections via hiddenRepoPathsRaw",
     fallback: null,
     failedRepoCount: 0,
     sections: [hiddenSection, visibleSection],
+    filter: buildSnapshot([], 0).filter,
   };
   const { app } = harness({
     snapshot: snap,

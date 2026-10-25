@@ -149,6 +149,39 @@ struct UpNextTests {
         #expect(UpNextPresentation.phase(snap, failed: false, groups: []) == .empty)
     }
 
+    @Test func defaultFilterSummaryDescribesWhatTheServerHid() throws {
+        #expect(UpNextFilterSummary(snapshot([])) == nil)
+        let json = #"""
+        {"generatedAt":1,"sections":[{"kind":"repo","repoPath":"/f","repoSlug":null,"repoLabel":"fork","totalCount":2,"items":[
+          {"repoPath":"/f","repoSlug":null,"repoLabel":"fork","number":1,"title":"A","url":"https://example.test/1","kind":"feature","priority":false,"createdAt":1,"labels":["Bug","shepherd:priority"],"issueRef":{"number":1,"url":"https://example.test/1","title":"A"},"fromFork":true,"mine":true},
+          {"repoPath":"/f","repoSlug":null,"repoLabel":"fork","number":2,"title":"B","url":"https://example.test/2","kind":"feature","priority":false,"createdAt":1,"labels":["bug"],"issueRef":{"number":2,"url":"https://example.test/2","title":"B"},"fromFork":true}]}],
+         "repoCount":1,"fallback":null,"failedRepoCount":0,
+         "filter":{"hiddenCount":5,"hiddenBy":{"scope":2,"forks":0,"labels":1,"repo":2},"hiddenByRepo":{"/a":3,"/f":2},
+                   "optionCounts":{"scope":{"all":9,"mine_unassigned":4,"mine":2},"forks":{"all":4,"own":3,"hide":1}}}}
+        """#
+        let snap = try JSONDecoder().decode(UpNextSnapshot.self, from: Data(json.utf8))
+        let summary = try #require(UpNextFilterSummary(snap))
+        #expect(summary.hidden(repos: []) == 5)
+        #expect(summary.hidden(repos: ["/a", "/x"]) == 3)
+        #expect(summary.count(IssueFilterSettings.Scope.mineUnassigned) == 4)
+        #expect(summary.count(IssueFilterSettings.Forks.hide) == 1)
+        #expect(summary.reasons(repos: []).count == 3)
+        #expect(summary.reasons(repos: ["/a"]).isEmpty)
+        let items = snap.sections[0].items
+        #expect(UpNextFilterPresentation.forkTag(items[0]) == L.t("upnext_filter_tag_fork"))
+        #expect(UpNextFilterPresentation.forkTag(items[1]) == L.t("upnext_filter_tag_upstream"))
+        #expect(UpNextFilterPresentation.forkTag(item(3)) == nil)
+        #expect(UpNextFilterPresentation.forkRepos(snap) == ["fork"])
+        #expect(UpNextFilterPresentation.labelOptions(snap, hidden: ["WIP", "BUG"]) == ["BUG", "WIP"])
+        #expect(UpNextFilterPresentation.labelOptions(snap, hidden: []) == ["Bug"])
+        let rules = IssueFilterSettings(scope: .mine, forks: .hide, hiddenLabels: ["wip"])
+        #expect(UpNextFilterPresentation.chips(rules).count == 3)
+        #expect(UpNextFilterPresentation.summary(IssueFilterSettings(scope: .all)) == L.t("upnext_filter_standard"))
+        #expect(rules.activeRuleCount == 3)
+        #expect(rules.toggledLabels("WIP") == [])
+        #expect(rules.toggledLabels("bug") == ["wip", "bug"])
+    }
+
     @Test func labelChipsDropOnlyExactPriorityAndEpicBadgeDuplicates() {
         let labels = ["shepherd:priority", "priority", "shepherd:priority-high", "epic", "bug"]
         #expect(UpNextPresentation.labels(item(1, kind: "epic", labels: labels)) ==

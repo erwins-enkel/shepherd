@@ -80,7 +80,7 @@ struct IssuePickerView: View {
                     || String($0.number).contains(model.issueQuery.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
             }
             if visible.isEmpty {
-                Text(verbatim: model.issueQuery.isEmpty ? (result.emptiedBy?.message ?? L.t("common_no_open_issues")) : L.t("issuespanel_no_match"))
+                Text(verbatim: model.issueQuery.isEmpty ? (result.emptiedBy?.message(scope: model.filter.scope) ?? L.t("common_no_open_issues")) : L.t("issuespanel_no_match"))
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(Array(visible.prefix(model.expanded ? visible.count : 3)), id: \.number) { issue in
@@ -132,15 +132,39 @@ struct IssuePickerView: View {
     private var filters: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(verbatim: L.t("issue_filter_heading")).font(.headline)
-            Toggle(L.t("issues_filter_mine_label"), isOn: $model.filter.hideOthers)
-                .help(L.t("issues_filter_mine_title"))
+            Text(verbatim: L.t("issue_filter_section_default")).font(.subheadline)
+            Text(verbatim: L.t("issue_filter_section_default_hint")).font(.caption).foregroundStyle(.secondary)
+            Picker(L.t("upnext_filter_scope_heading"), selection: $model.filter.scope) {
+                ForEach(IssueFilterSettings.Scope.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
+            }
+            .accessibilityIdentifier("compose.issue-filter.scope")
+            Picker(L.t("upnext_filter_forks_heading"), selection: $model.filter.forks) {
+                ForEach(IssueFilterSettings.Forks.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
+            }
+            .accessibilityIdentifier("compose.issue-filter.forks")
             Toggle(L.t("issues_filter_active_label"), isOn: $model.filter.hideActive)
                 .help(L.t("issues_filter_active_title"))
             Toggle(L.t("issues_filter_subissues_label"), isOn: $model.filter.hideSubIssues)
                 .help(L.t("issues_filter_subissues_title"))
             Toggle(L.t("issues_filter_blocked_label"), isOn: $model.filter.hideBlocked)
                 .help(L.t("issues_filter_blocked_title"))
+            Text(verbatim: L.t("upnext_filter_labels_heading")).font(.subheadline)
+            let hideable = Array(Set(model.labels + model.filter.settings.hiddenLabels))
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            if hideable.isEmpty {
+                Text(verbatim: L.t("issue_filter_hidden_labels_none")).font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                VStack(alignment: .leading) {
+                    ForEach(hideable, id: \.self) { label in
+                        Toggle(isOn: Binding(get: { model.filter.settings.isHidden(label: label) }, set: { _ in
+                            model.filter.settings.hiddenLabels = model.filter.settings.toggledLabels(label)
+                        })) { Text(verbatim: label) }
+                    }
+                }
+            }.frame(maxHeight: 120)
             Divider()
+            Text(verbatim: L.t("issue_filter_section_view")).font(.subheadline)
             Picker(L.t("issues_filter_author_heading"), selection: $model.filter.author) {
                 Text(verbatim: L.t("issues_filter_author_all")).tag(nil as String?)
                 ForEach(model.authors, id: \.self) { Text(verbatim: $0).tag(Optional($0)) }

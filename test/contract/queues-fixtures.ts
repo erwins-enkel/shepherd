@@ -49,10 +49,21 @@ export const snapshot: UpNextSnapshot = {
           labelColors: { priority: "ff0000" },
           epicParent: { number: 10, title: "Native" },
           issueRef: { number: issueRef.number, url: issueRef.url, title: issueRef.title },
+          fromFork: true,
+          mine: true,
         },
       ],
     },
   ],
+  filter: {
+    hiddenCount: 3,
+    hiddenBy: { scope: 1, forks: 1, labels: 1 },
+    hiddenByRepo: { "/repo": 3 },
+    optionCounts: {
+      scope: { all: 3, mine_unassigned: 1, mine: 1 },
+      forks: { all: 2, own: 1, hide: 0 },
+    },
+  },
 };
 export const hold: HoldReason = { code: "halted-error" };
 export const halted: Pick<Session, "id" | "haltReason" | "haltedAt"> = {

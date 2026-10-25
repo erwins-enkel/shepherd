@@ -458,6 +458,8 @@ components:
           type: boolean
         judgeEnabled:
           type: boolean
+        issueFilter:
+          $ref: "#/components/schemas/IssueFilterSettings"
         upNextReadiness:
           type: boolean
         tuiFullscreen:
@@ -5166,7 +5168,83 @@ components:
               type: string
         issueRef:
           $ref: "#/components/schemas/UpNextIssueRef"
+        fromFork:
+          type: boolean
+          description: The repo is a fork; its issues are the upstream's.
+        mine:
+          type: boolean
+          description: "Assigned to or authored by the viewer (the epic parent's, for an epic unit). With fromFork: FORK (mine) or UPSTREAM (not mine)."
       description: For an epic, number/title/url/issueRef describe the next-actionable child; createdAt is the parent age.
+    UpNextFilterStats:
+      type: object
+      additionalProperties: true
+      required:
+        - hiddenCount
+        - hiddenBy
+        - hiddenByRepo
+        - optionCounts
+      properties:
+        hiddenCount:
+          type: integer
+          description: Startable items the filter hides.
+        hiddenBy:
+          type: object
+          additionalProperties: true
+          description: "Each hidden item counted once, under the first rule that drops it: scope, then forks, then labels."
+          required:
+            - scope
+            - forks
+            - labels
+          properties:
+            scope:
+              type: integer
+            forks:
+              type: integer
+            labels:
+              type: integer
+        hiddenByRepo:
+          type: object
+          description: repoPath → hidden items in that repo; repos with none are omitted.
+          additionalProperties:
+            type: integer
+        optionCounts:
+          type: object
+          additionalProperties: true
+          description: The visible count were that option picked, the other settings unchanged.
+          required:
+            - scope
+            - forks
+          properties:
+            scope:
+              type: object
+              additionalProperties:
+                type: integer
+              required:
+                - all
+                - mine_unassigned
+                - mine
+              properties:
+                all:
+                  type: integer
+                mine_unassigned:
+                  type: integer
+                mine:
+                  type: integer
+            forks:
+              type: object
+              additionalProperties:
+                type: integer
+              required:
+                - all
+                - own
+                - hide
+              properties:
+                all:
+                  type: integer
+                own:
+                  type: integer
+                hide:
+                  type: integer
     UpNextSection:
       type: object
       additionalProperties: true
@@ -5219,6 +5297,9 @@ components:
         failedRepoCount:
           type: integer
           description: Repos whose listing failed. Non-zero with an empty sections is the panel's "could not load" state.
+        filter:
+          $ref: "#/components/schemas/UpNextFilterStats"
+          description: What the operator's issue filter hides (#3017). Absent from servers before it.
       description: The Up Next queue, fetched after upnext:changed invalidates the cached snapshot read.
     UpNextCachedSnapshot:
       type: object
@@ -5240,6 +5321,9 @@ components:
         failedRepoCount:
           type: integer
           description: Repos whose listing failed. Non-zero with an empty sections is the panel's "could not load" state.
+        filter:
+          $ref: "#/components/schemas/UpNextFilterStats"
+          description: What the operator's issue filter hides (#3017). Absent from servers before it.
       description: Cached snapshot or JSON null before the first computation; event snapshots remain non-nullable.
     UpNextStartItem:
       type: object
@@ -6736,6 +6820,8 @@ components:
           type: boolean
         judgeEnabled:
           type: boolean
+        issueFilter:
+          $ref: "#/components/schemas/IssueFilterSettingsPatch"
         upNextReadiness:
           type: boolean
         tuiFullscreen:
@@ -6840,6 +6926,8 @@ components:
           type: boolean
         judgeEnabled:
           type: boolean
+        issueFilter:
+          $ref: "#/components/schemas/IssueFilterSettings"
         upNextReadiness:
           type: boolean
         tuiFullscreen:
@@ -6971,6 +7059,68 @@ components:
           description: A live session already doing this step; null when none.
           type: string
           nullable: true
+    SettingsIssueFilterEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - issueFilter
+      properties:
+        issueFilter:
+          $ref: "#/components/schemas/IssueFilterSettings"
+    IssueFilterSettings:
+      type: object
+      additionalProperties: true
+      description: The operator's default issue filter (#3017). scope/forks/hiddenLabels apply to Up Next server-side; hideActive/hideSubIssues/hideBlocked apply to Backlog and New Task.
+      required:
+        - scope
+        - forks
+        - hiddenLabels
+        - hideActive
+        - hideSubIssues
+        - hideBlocked
+      properties:
+        scope:
+          type: string
+        forks:
+          type: string
+        hiddenLabels:
+          type: array
+          items:
+            type: string
+          maxItems: 50
+        hideActive:
+          type: boolean
+        hideSubIssues:
+          type: boolean
+        hideBlocked:
+          type: boolean
+    IssueFilterSettingsPatch:
+      type: object
+      additionalProperties: false
+      description: A partial IssueFilterSettings, merged onto the stored value. hiddenLabels are trimmed, de-duplicated case-insensitively and capped at 50.
+      properties:
+        scope:
+          type: string
+          enum:
+            - all
+            - mine_unassigned
+            - mine
+        forks:
+          type: string
+          enum:
+            - all
+            - own
+            - hide
+        hiddenLabels:
+          type: array
+          items:
+            type: string
+        hideActive:
+          type: boolean
+        hideSubIssues:
+          type: boolean
+        hideBlocked:
+          type: boolean
     RepoBootstrapUpdateEvent:
       type: object
       additionalProperties: true
@@ -14037,6 +14187,10 @@ x-shepherd-events:
     description: A repo's project-bootstrap state or phase changed (#3112); re-read GET /api/repo-bootstrap for it.
     schema:
       $ref: "#/components/schemas/RepoBootstrapUpdateEvent"
+  settings:issue-filter:
+    description: The operator's default issue filter changed (#3017). Carries the full new value; Up Next re-announces itself via upnext:changed.
+    schema:
+      $ref: "#/components/schemas/SettingsIssueFilterEvent"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". Frames starting with viewPrefix carry a JSON view report plus "\n" (what the operator's window shows — client, repo filter, the session in view — issue 3161); the server never forwards them as input and keeps only the report of the client owning the Operator Assistant's terminal, ignoring it on every other session. One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. closeCodes.machineUnreachable means the session runs on a connected machine this server cannot reach right now; clients do not retry until that session's connection reports connected again. Any other close is transient; clients retry with backoff. resume=1 marks a client returning from a stream it paused itself; it attaches only when no other client owns the terminal, and is otherwise refused at once with closeCodes.superseded (park, do not reconnect) instead of taking the terminal over.
   path: /pty/{id}

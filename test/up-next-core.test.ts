@@ -12,6 +12,7 @@ import {
   type UpNextItem,
 } from "../src/up-next-core";
 import type { Issue } from "../src/forge/types";
+import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "../src/issue-filter";
 
 function issue(number: number, over: Partial<Issue> = {}): Issue {
   return {
@@ -33,6 +34,7 @@ function repo(over: Partial<RepoInput> = {}): RepoInput {
     repoLabel: "a",
     lastUsedAt: 0,
     viewer: null,
+    isFork: false,
     openIssues: [],
     epics: [],
     subIssueNumbers: [],
@@ -432,6 +434,8 @@ function makeItem(repoPath: string, num: number): UpNextItem {
     createdAt: num,
     labels: [],
     issueRef: { number: num, url: `https://x/${num}`, title: `t${num}` },
+    fromFork: false,
+    mine: false,
   };
 }
 
@@ -458,7 +462,14 @@ function makePrioritySection(items: UpNextItem[]): UpNextSection {
 }
 
 function makeSnap(sections: UpNextSection[], repoCount: number): UpNextSnapshot {
-  return { generatedAt: 1000, sections, repoCount, fallback: null, failedRepoCount: 0 };
+  return {
+    generatedAt: 1000,
+    sections,
+    repoCount,
+    fallback: null,
+    failedRepoCount: 0,
+    filter: buildSnapshot([], 0).filter,
+  };
 }
 
 describe("excludeHiddenSections", () => {
@@ -617,4 +628,195 @@ test("snapshots omit bodies for priority, standalone and epic-child rows", () =>
   expect(items.map((i) => i.number).sort()).toEqual([1, 2, 3]);
   for (const item of items) expect(Object.hasOwn(item.issueRef, "body")).toBe(false);
   expect(JSON.stringify(snap)).not.toContain("PRIVATE-BODY-MARKER");
+});
+
+// ── issue filter (#3017) ─────────────────────────────────────────────────────
+
+describe("issue filter", () => {
+  const ME = "me";
+  const nums = (snap: UpNextSnapshot) => snap.sections.flatMap((s) => s.items.map((i) => i.number));
+  const build = (r: RepoInput[], filter: Partial<IssueFilterSettings> = {}) =>
+    buildSnapshot(r, NOW, null, 0, { ...DEFAULT_ISSUE_FILTER, ...filter });
+
+  // A mixed two-repo queue: priority, bug, feature, epic, assigned-to-others, mine, excluded.
+  const mixed = (): RepoInput[] => [
+    repo({
+      repoPath: "/r/a",
+      lastUsedAt: 2,
+      viewer: ME,
+      openIssues: [
+        issue(1, { labels: ["shepherd:priority"] }),
+        issue(2, { labels: ["bug"], assignees: [ME] }),
+        issue(3, { assignees: ["other"] }), // hidden by #824 today
+        issue(4),
+        issue(5, { labels: ["shepherd:active"] }), // excluded, not "hidden by the filter"
+        issue(6, { labels: ["bug"], assignees: ["other", ME] }),
+        issue(100),
+      ],
+      epics: [
+        epic({ candidate: issue(101), memberNumbers: [101] }),
+        epic({
+          parentNumber: 200,
+          parentAssignees: ["other"],
+          candidate: issue(201),
+          memberNumbers: [201],
+        }), // hidden by #824 (keyed on the parent)
+      ],
+      linkedIssueNumbers: [],
+    }),
+    repo({
+      repoPath: "/r/b",
+      repoLabel: "b",
+      lastUsedAt: 1,
+      viewer: null, // fails open
+      openIssues: [issue(7, { assignees: ["other"] }), issue(8, { labels: ["shepherd:priority"] })],
+    }),
+  ];
+
+  test("default settings reproduce today's snapshot (same items, same order)", () => {
+    const snap = buildSnapshot(mixed(), NOW);
+    expect(snap.sections.map((s) => [s.kind, s.repoPath, s.items.map((i) => i.number)])).toEqual([
+      ["priority", null, [1, 8]],
+      ["repo", "/r/a", [101, 2, 6, 4]],
+      ["repo", "/r/b", [7]],
+    ]);
+    expect(build(mixed())).toEqual(snap);
+    expect(snap.filter.hiddenCount).toBe(2);
+    expect(snap.filter.hiddenBy).toEqual({ scope: 2, forks: 0, labels: 0 });
+    expect(snap.filter.hiddenByRepo).toEqual({ "/r/a": 2 });
+  });
+
+  test("the one default divergence from #824: an issue I authored but others hold now shows", () => {
+    const r = [repo({ viewer: ME, openIssues: [issue(1, { author: ME, assignees: ["other"] })] })];
+    expect(nums(build(r))).toEqual([1]);
+    expect(nums(build(r, { scope: "mine" }))).toEqual([1]);
+  });
+
+  test("rows carry fromFork and mine", () => {
+    const r = [
+      repo({
+        viewer: ME,
+        isFork: true,
+        openIssues: [issue(1, { assignees: [ME] }), issue(2)],
+      }),
+    ];
+    const items = build(r).sections[0]!.items;
+    expect(items.map((i) => [i.number, i.fromFork, i.mine])).toEqual([
+      [1, true, true],
+      [2, true, false],
+    ]);
+    const own = buildSnapshot([repo({ openIssues: [issue(1)] })], NOW).sections[0]!.items[0]!;
+    expect([own.fromFork, own.mine]).toEqual([false, false]);
+  });
+
+  test("epic units use the parent's assignees, author and labels", () => {
+    const r = [
+      repo({
+        viewer: ME,
+        epics: [
+          epic({
+            parentNumber: 100,
+            parentAuthor: ME,
+            parentAssignees: ["other"],
+            parentLabels: ["Design"],
+            candidate: issue(101, { assignees: ["other"], labels: ["x"] }),
+          }),
+          epic({
+            parentNumber: 200,
+            parentAssignees: [ME],
+            candidate: issue(201, { author: "other" }),
+          }),
+          epic({ parentNumber: 300, candidate: issue(301, { assignees: [ME] }) }),
+        ],
+      }),
+    ];
+    expect(nums(build(r, { scope: "mine" }))).toEqual([101, 201]);
+    expect(build(r, { scope: "mine" }).sections[0]!.items.every((i) => i.mine)).toBe(true);
+    expect(nums(build(r, { scope: "all", hiddenLabels: ["design"] }))).toEqual([201, 301]);
+    expect(nums(build(r, { scope: "all", hiddenLabels: ["x"] }))).toEqual([101, 201, 301]);
+  });
+
+  test("forks: hide drops a fork repo, own keeps only mine there, viewer null fails open", () => {
+    const fork = repo({
+      repoPath: "/r/f",
+      viewer: ME,
+      isFork: true,
+      openIssues: [issue(1, { author: ME }), issue(2)],
+    });
+    const anon = repo({ repoPath: "/r/n", viewer: null, isFork: true, openIssues: [issue(3)] });
+    const plain = repo({ repoPath: "/r/p", viewer: ME, openIssues: [issue(4)] });
+    const all = [fork, anon, plain];
+    expect(nums(build(all, { forks: "own" })).sort()).toEqual([1, 3, 4]);
+    expect(nums(build(all, { forks: "hide" }))).toEqual([4]);
+    expect(build(all, { forks: "hide" }).filter.hiddenByRepo).toEqual({ "/r/f": 2, "/r/n": 1 });
+  });
+
+  test("hiddenBy counts each item once under the first rule (scope → forks → labels)", () => {
+    const r = [
+      repo({
+        viewer: ME,
+        isFork: true,
+        openIssues: [
+          issue(1, { assignees: ["other"], labels: ["wip"] }), // scope
+          issue(2, { labels: ["wip"] }), // forks (not mine, in a fork)
+          issue(3, { assignees: [ME], labels: ["WIP"] }), // labels
+          issue(4, { assignees: [ME] }), // visible
+        ],
+      }),
+    ];
+    const snap = build(r, { scope: "mine_unassigned", forks: "own", hiddenLabels: ["wip"] });
+    expect(nums(snap)).toEqual([4]);
+    expect(snap.filter.hiddenCount).toBe(3);
+    expect(snap.filter.hiddenBy).toEqual({ scope: 1, forks: 1, labels: 1 });
+    expect(snap.filter.hiddenByRepo).toEqual({ "/r/a": 3 });
+  });
+
+  test("optionCounts: visible count per option, the other settings unchanged", () => {
+    const r = [
+      repo({
+        repoPath: "/r/a",
+        viewer: ME,
+        openIssues: [issue(1, { assignees: [ME] }), issue(2), issue(3, { assignees: ["x"] })],
+      }),
+      repo({
+        repoPath: "/r/f",
+        viewer: ME,
+        isFork: true,
+        openIssues: [issue(4, { author: ME, labels: ["wip"] }), issue(5)],
+      }),
+    ];
+    const snap = build(r, { scope: "all", forks: "own", hiddenLabels: ["wip"] });
+    expect(snap.filter.optionCounts).toEqual({
+      scope: { all: 3, mine_unassigned: 2, mine: 1 },
+      forks: { all: 4, own: 3, hide: 3 },
+    });
+    expect(nums(snap).length).toBe(snap.filter.optionCounts.scope.all);
+  });
+
+  test("excluded and linked-PR items are not counted as hidden", () => {
+    const r = [
+      repo({
+        viewer: ME,
+        openIssues: [
+          issue(1, { assignees: ["x"], labels: ["wontfix"] }),
+          issue(2, { assignees: ["x"] }),
+        ],
+        linkedIssueNumbers: [2],
+      }),
+    ];
+    expect(build(r, { scope: "mine" }).filter.hiddenCount).toBe(0);
+  });
+
+  test("excludeHiddenSections drops hidden repos from hiddenByRepo and hiddenCount", () => {
+    const snap = build(
+      mixed().map((r) => ({ ...r, viewer: ME })),
+      { scope: "mine" },
+    );
+    expect(snap.filter.hiddenByRepo).toEqual({ "/r/a": 5, "/r/b": 2 });
+    expect(snap.filter.hiddenCount).toBe(7);
+    const out = excludeHiddenSections(snap, new Set(["/r/b"]));
+    expect(out.filter.hiddenByRepo).toEqual({ "/r/a": 5 });
+    expect(out.filter.hiddenCount).toBe(5);
+    expect(out.filter.hiddenBy).toEqual(snap.filter.hiddenBy);
+  });
 });

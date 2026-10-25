@@ -185,11 +185,6 @@
     ),
   );
   let assigneeFiltered = $derived(defaultStages.afterLabels);
-  // Expose per-issue assignees on the rows whenever the scope rule isn't hiding others' issues
-  // — scope "all", or failing open because the viewer is unknown. With it active, the only
-  // assigned-to-others rows still visible are flagged epics kept by the exemption (#1616) — and
-  // those surface their owner via the epic pill ("assigned to X"), not a chip.
-  let showAssignees = $derived(issueFilter.scope === "all" || viewer == null);
   let activeFiltered = $derived(hideActive(assigneeFiltered, issueFilter.hideActive));
   let epicParentNums = $derived(new Set(epicByNumber.keys()));
   // "Hide blocked" filter, applied BEFORE the author/label filters (see hideBlockedIssues).
@@ -965,7 +960,6 @@
                 ? epicFor(selection.parent)
                 : undefined}
             {drain}
-            {showAssignees}
             {viewer}
             {issueActions}
             {taskDefaults}

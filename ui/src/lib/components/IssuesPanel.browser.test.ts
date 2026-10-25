@@ -2125,22 +2125,38 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     expect(checkboxByLabel(m.issues_filter_active_label())).toBeTruthy();
   });
 
-  // Assignee pill (#1694): shown per row only when the mine & unassigned filter isn't
-  // hiding others' issues. `.assigned-pill` is distinct from EpicOthersPill's `.others-pill`;
+  // Assignee pill (#1694): names whoever else is assigned, under every scope. `.assigned-pill` is distinct from EpicOthersPill's `.others-pill`;
   // `.framed` = "assigned to X" (viewer known), `.neutral` = plain listing (viewer unknown).
   const assignedPills = () => document.querySelectorAll(".assigned-pill");
   const framedPills = () => document.querySelectorAll(".assigned-pill.framed");
   const neutralPills = () => document.querySelectorAll(".assigned-pill.neutral");
   const pillText = (els: NodeListOf<Element>) => [...els].map((el) => el.textContent ?? "");
 
-  it("shows no assignee pill while the mine & unassigned filter is active", async () => {
+  it("shows no assignee pill on my own or unassigned issues", async () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
-    // Filter on + viewer known → every visible issue is mine-or-unassigned, so the pill
-    // would be redundant and is suppressed.
-    expect(assignedPills().length).toBe(0);
+    for (const key of ["s:1", "s:2"]) {
+      await selectRow(key);
+      expect(assignedPills().length).toBe(0);
+    }
+  });
+
+  it("pills an issue I authored but someone else is assigned to, under the default scope", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer: "octocat",
+      issues: [{ ...withAssignees(4, "Authored issue", ["someone-else"]), author: "octocat" }],
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // isMine counts the author, so mine & unassigned keeps it — the pill names the assignee.
+    await selectRow("s:4");
+    await expect.poll(() => framedPills().length).toBe(1);
+    expect(pillText(framedPills())[0]).toContain("someone-else");
   });
 
   it("reveals a framed 'assigned to X' pill for others' issues when the filter is toggled off", async () => {

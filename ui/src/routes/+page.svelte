@@ -1208,9 +1208,11 @@
 
   // Backlog bootstrap checklist (#3112): the composer preset for the repo's next step — the
   // bootstrap kind (the server picks P1+P2 or P3 from the repo's phase; the seed matches it) or
-  // the P4 epic, seeded with the M0 candidates P3 recorded. The operator still submits; nothing
-  // auto-spawns.
-  function onbootstrapstep(repoPath: string, kind: BootstrapStepKind) {
+  // the P4 epic, seeded with the M0 candidates P3 recorded. The checklist click starts it (#3421):
+  // the seeded composer submits itself with every gate a click passes. "Adjust first" (`adjust`)
+  // opens it without starting.
+  function onbootstrapstep(repoPath: string, kind: BootstrapStepKind, adjust: boolean) {
+    composeAutostart = !adjust;
     if (kind === "epic") {
       ondraftepic(repoPath);
       composePrompt = m.bootstrap_checklist_epic_seed();

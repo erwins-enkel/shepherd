@@ -44,3 +44,17 @@ export function checklistAction(view: RepoBootstrapView): ChecklistAction | null
   if (next.kind === "bootstrap") return { kind: "start-bootstrap", phase: next.phase };
   return next.kind === "epic" ? { kind: "start-epic" } : { kind: "open-readiness" };
 }
+
+/** The composer step an action starts, or null for one that opens something instead. */
+export function checklistStepKind(action: ChecklistAction): BootstrapStepKind | null {
+  switch (action.kind) {
+    case "fix-ci":
+      return "fix-ci";
+    case "start-bootstrap":
+      return action.phase >= 3 ? "gaps" : "scaffold";
+    case "start-epic":
+      return "epic";
+    default:
+      return null;
+  }
+}

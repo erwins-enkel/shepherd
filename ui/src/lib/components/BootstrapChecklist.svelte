@@ -6,6 +6,7 @@
   import { bootstrapMissingText } from "./queue-strip";
   import {
     checklistAction,
+    checklistStepKind,
     checklistSteps,
     type BootstrapStepKind,
     type ChecklistAction,
@@ -14,7 +15,8 @@
 
   // The Backlog's bootstrap checklist (#3112): where an active-bootstrap repo stands (P1+P2 → P3 →
   // P4 → exit) and its one next step. The server advances the phase; this only PROPOSES the next
-  // attended session — the operator starts it with one click, nothing auto-spawns.
+  // attended session — the operator's one click starts it (#3421), nothing starts without it.
+  // "Adjust first" (`adjust`) opens the seeded composer without starting.
   let {
     repoPath,
     onbootstrapstep = undefined,
@@ -22,7 +24,7 @@
     onopenreadiness = undefined,
   }: {
     repoPath: string;
-    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind) => void;
+    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind, adjust: boolean) => void;
     onopensession?: (sessionId: string) => void;
     onopenreadiness?: () => void;
   } = $props();
@@ -33,6 +35,7 @@
 
   const view = $derived(repoBootstrap.viewFor(repoPath));
   const action = $derived(view ? checklistAction(view) : null);
+  const stepKind = $derived(action ? checklistStepKind(action) : null);
   const missing = $derived(view ? bootstrapMissingText(view.missing.join(",")) : "");
 
   const STEP_LABEL: Record<ChecklistStepId, () => string> = {
@@ -78,12 +81,10 @@
     }
   }
 
-  function run(a: Exclude<ChecklistAction, { kind: "ci-waiting" }>) {
-    if (a.kind === "fix-ci") onbootstrapstep?.(repoPath, "fix-ci");
+  function run(a: Exclude<ChecklistAction, { kind: "ci-waiting" }>, adjust = false) {
+    const kind = checklistStepKind(a);
+    if (kind) onbootstrapstep?.(repoPath, kind, adjust);
     else if (a.kind === "open-session") onopensession?.(a.sessionId);
-    else if (a.kind === "start-bootstrap")
-      onbootstrapstep?.(repoPath, a.phase >= 3 ? "gaps" : "scaffold");
-    else if (a.kind === "start-epic") onbootstrapstep?.(repoPath, "epic");
     else onopenreadiness?.();
   }
 </script>
@@ -120,6 +121,11 @@
         <button class="gbtn primary" type="button" onclick={() => run(action)}
           >{buttonText(action)}</button
         >
+        {#if stepKind}
+          <button class="gbtn" type="button" onclick={() => run(action, true)}
+            >{m.bootstrap_checklist_adjust()}</button
+          >
+        {/if}
       {/if}
     </div>
     {#if missing}

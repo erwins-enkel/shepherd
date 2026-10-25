@@ -132,7 +132,7 @@
     /** Open the New Task composer set to draft an epic for a repo (Issues overview). */
     ondraftepic?: (repoPath: string) => void;
     /** Start a repo's next bootstrap step (#3112) — the checklist above the tab content. */
-    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind) => void;
+    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind, adjust: boolean) => void;
     /** Global run defaults for the Issues tab's task box (CLI / model / effort pre-fill). */
     taskDefaults?: TaskRunDefaults;
   } = $props();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepoBootstrapView } from "#lib/api.js";
-import { checklistAction, checklistSteps } from "./bootstrap-checklist";
+import { checklistAction, checklistStepKind, checklistSteps } from "./bootstrap-checklist";
 import { docPath, toDocs } from "./new-project/project-docs";
 
 const view = (phase: number, next: RepoBootstrapView["next"]): RepoBootstrapView => ({
@@ -54,6 +54,19 @@ describe("checklistAction (#3112)", () => {
       kind: "open-session",
       sessionId: "s1",
     });
+  });
+});
+
+describe("checklistStepKind (#3421)", () => {
+  it("names the composer step a start action opens; open/wait actions have none", () => {
+    expect(checklistStepKind({ kind: "start-bootstrap", phase: 1 })).toBe("scaffold");
+    expect(checklistStepKind({ kind: "start-bootstrap", phase: 2 })).toBe("scaffold");
+    expect(checklistStepKind({ kind: "start-bootstrap", phase: 3 })).toBe("gaps");
+    expect(checklistStepKind({ kind: "start-epic" })).toBe("epic");
+    expect(checklistStepKind({ kind: "fix-ci" })).toBe("fix-ci");
+    expect(checklistStepKind({ kind: "open-session", sessionId: "s1" })).toBeNull();
+    expect(checklistStepKind({ kind: "open-readiness" })).toBeNull();
+    expect(checklistStepKind({ kind: "ci-waiting" })).toBeNull();
   });
 });
 

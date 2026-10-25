@@ -70,7 +70,7 @@
     /** Open the New Task composer set to draft an epic for a repo (Issues overview). */
     ondraftepic?: (repoPath: string) => void;
     /** The bootstrap checklist's start (#3112): New Task set to the repo's next bootstrap step. */
-    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind) => void;
+    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind, adjust: boolean) => void;
     /** Switch to the Readiness tab (the bootstrap exit's must-haves live there). */
     onopenreadiness?: () => void;
   } = $props();

@@ -655,3 +655,30 @@ it("starts the composer New Project seeded by itself (Create & start)", async ()
     prompt: "Build this project",
   });
 });
+
+// #3421: the bootstrap checklist's one click — the seeded bootstrap / epic composer starts itself.
+it.each([
+  { mode: "bootstrap", seed: { composeBootstrap: true }, sent: { bootstrap: true } },
+  { mode: "epic", seed: { composeEpicAuthoring: true }, sent: { epicAuthoring: true } },
+])("starts the seeded $mode composer by itself (bootstrap checklist)", async ({ seed, sent }) => {
+  const onsubmit = vi.fn().mockResolvedValue(undefined);
+  await render(AppOverlays, {
+    props: {
+      ...baseProps(),
+      store,
+      settings: null,
+      showNew: true,
+      composeRepoPath: "/repo/bootstrapping",
+      composePrompt: "Next bootstrap phase",
+      composeAutostart: true,
+      ...seed,
+      onsubmit,
+    },
+  });
+  await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+  expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+    repoPath: "/repo/bootstrapping",
+    prompt: "Next bootstrap phase",
+    ...sent,
+  });
+});

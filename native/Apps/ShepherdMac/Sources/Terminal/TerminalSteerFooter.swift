@@ -238,7 +238,8 @@ struct TerminalSteerFooter: View {
                     }.frame(minHeight: 28).disabled(command.busy)
                     .accessibilityIdentifier("terminal-steers-stop")
                 }
-                TerminalSteerHoldButton { openEditor(.close) }
+                TerminalSteerHoldButton(confirm: { Task { await closeHeld() } },
+                                        accessibilityActivate: { openEditor(.close) })
                     .disabled(command.busy).accessibilityIdentifier("terminal-steers-decommission")
             }
             .disabled(!store.canOperateSession(id: sessionID))
@@ -250,6 +251,17 @@ struct TerminalSteerFooter: View {
         guard allowsWrites else { return }
         allOpen = false
         editor = mode
+    }
+
+    /// The hold confirmed the close; the sheet opens only for leftovers to pick. A failure
+    /// keeps the popover open on its message.
+    private func closeHeld() async {
+        guard allowsWrites, !command.busy, let session else { return }
+        if await ComposeActions.closeHeld(session, store: store, command: command, isCurrent: { current }) {
+            openEditor(.close)
+        } else if command.message == nil {
+            allOpen = false
+        }
     }
 
     private func send(_ steer: ComposeSteer) {
@@ -276,9 +288,11 @@ private struct SteerShortcut: ViewModifier {
     }
 }
 
-/// Holding opens the existing archive confirmation sheet; it never archives directly.
+/// Holding confirms the close by itself. VoiceOver cannot hold, so its activation runs
+/// `accessibilityActivate`, which opens the archive confirmation sheet instead.
 private struct TerminalSteerHoldButton: View {
     let confirm: () -> Void
+    let accessibilityActivate: () -> Void
     @State private var progress: CGFloat = 0
     @Environment(\.isEnabled) private var isEnabled
     var body: some View {
@@ -304,6 +318,6 @@ private struct TerminalSteerHoldButton: View {
             }
             .accessibilityElement(children: .ignore).accessibilityLabel(L.t("native_ios_steers_end_hold"))
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction { if isEnabled { confirm() } }
+            .accessibilityAction { if isEnabled { accessibilityActivate() } }
     }
 }

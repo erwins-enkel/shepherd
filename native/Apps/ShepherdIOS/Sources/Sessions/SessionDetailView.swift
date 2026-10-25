@@ -216,13 +216,17 @@ struct SessionDetailView: View {
         }
     }
 
-    /// The same decommission sheet the header menu opens; the header owns its presentation.
-    private var decommission: (() -> Void)? {
+    /// A held decommission archives unless a choice is left; VoiceOver's activation opens the
+    /// same sheet the header menu does. The header owns the sheet's presentation.
+    private var decommission: (held: () -> Void, activated: () -> Void)? {
         guard let state = app.extension(IOSSessionActions.self)?.state(for: session), state.canDecommission else { return nil }
-        return {
+        return (held: {
+            gesture.setSteersOpen(false)
+            Task { await state.decommissionHeld() }
+        }, activated: {
             gesture.setSteersOpen(false)
             state.presentDecommission()
-        }
+        })
     }
 
     private var planSurface: AnyView? {

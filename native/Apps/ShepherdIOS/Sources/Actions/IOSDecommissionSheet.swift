@@ -3,8 +3,9 @@ import UIKit
 import ShepherdAppCore
 import ShepherdKit
 
-/// The only confirmation a decommission gets: the archive removes the worktree and cannot be
-/// undone, so the sheet says what happens to an open PR and which leftovers end with it.
+/// The confirmation a tapped decommission gets, and the choice a held one still needs: the
+/// archive removes the worktree and cannot be undone, so the sheet says what happens to an open
+/// PR and which leftovers end with it.
 struct IOSDecommissionSheet: View {
     let session: Session
     @Bindable var state: IOSSessionActionState

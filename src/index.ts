@@ -169,7 +169,7 @@ import { BacklogPoller, reposUsedSince, createBacklogBroadcast } from "./backlog
 import { UpNextService, buildUpNextRepos, upNextChangePublisher } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
 import { GreenfieldService } from "./greenfield";
-import { reconcileBootstrapPhases } from "./bootstrap-phases";
+import { onBootstrapRepoMerge, reconcileBootstrapPhases } from "./bootstrap-phases";
 import {
   ProcessReaper,
   reapDeletedWorktreeOrphans,
@@ -2954,20 +2954,19 @@ events.subscribe((event, data) => {
     // #3107: a merged PR in an active-bootstrap repo re-scans its greenfield readiness; a bootstrap
     // session's merge also advances the repo's phase (#3110).
     const s = store.get(id);
-    if (s?.archiveReason === "merged") {
-      const before = store.getRepoBootstrap(s.repoPath).phase;
-      // onMerged writes the phase synchronously, before its first await.
-      void greenfield
-        .onMerged(s.repoPath, s.bootstrap ? store.getBootstrapPhase(id) : null)
-        .catch((err) => console.warn("[greenfield]:", err));
-      const after = store.getRepoBootstrap(s.repoPath);
-      if (after.state === "active" && after.phase > before)
-        onBootstrapAdvance(s.repoPath, after.phase, id);
-    }
+    if (s?.archiveReason === "merged")
+      onBootstrapRepoMerge(store, greenfield, s, onBootstrapAdvance);
   } else if (event === "session:review") {
     const { id } = data as { id: string };
     void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
   }
+});
+// An attended bootstrap session's forge merge archives as "operator" (only auto sessions are
+// reaped as "merged"), so advance its phase on the merge itself. Idempotent with the above.
+onSessionGit(({ id, git }) => {
+  if (git.state !== "merged") return;
+  const s = store.get(id);
+  if (s?.bootstrap) onBootstrapRepoMerge(store, greenfield, s, onBootstrapAdvance);
 });
 
 // #3112: heal every bootstrap phase advance a restart lost (a merge or epic approval persisted, the

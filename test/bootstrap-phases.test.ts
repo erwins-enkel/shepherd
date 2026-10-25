@@ -7,9 +7,11 @@ import {
   advanceAfterEpicApproved,
   bootstrapNextStep,
   buildRepoBootstrapView,
+  onBootstrapRepoMerge,
   reconcileBootstrapPhases,
 } from "../src/bootstrap-phases";
 import type { RepoBootstrap } from "../src/bootstrap";
+import { GreenfieldService } from "../src/greenfield";
 import { SessionStore } from "../src/store";
 
 const active = (phase: number): RepoBootstrap => ({ state: "active", phase, overrideAt: null });
@@ -173,5 +175,27 @@ describe("reconcileBootstrapPhases", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("onBootstrapRepoMerge", () => {
+  test("an attended bootstrap session's forge merge advances once, before any archive", () => {
+    const s = new SessionStore(":memory:");
+    s.setRepoBootstrap("/r", { state: "active", phase: 1 });
+    const greenfield = new GreenfieldService({
+      store: s,
+      resolveForge: () => null,
+      pull: async () => {},
+    });
+    const session = create(s, { bootstrap: true, bootstrapPhase: 1 });
+    const advances: number[] = [];
+    const onAdvance = (_: string, phase: number) => advances.push(phase);
+    // Poller sees the merge while the session is still live (it later archives as "operator").
+    onBootstrapRepoMerge(s, greenfield, s.get(session.id)!, onAdvance);
+    expect(s.getRepoBootstrap("/r").phase).toBe(3);
+    // A second sighting (replay, or a "merged" archive) neither moves nor re-notifies.
+    onBootstrapRepoMerge(s, greenfield, s.get(session.id)!, onAdvance);
+    expect(s.getRepoBootstrap("/r").phase).toBe(3);
+    expect(advances).toEqual([3]);
   });
 });

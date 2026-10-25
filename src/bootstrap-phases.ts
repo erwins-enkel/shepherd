@@ -15,7 +15,9 @@ import {
   type BootstrapSessionPhase,
   type RepoBootstrap,
 } from "./bootstrap";
+import type { GreenfieldService } from "./greenfield";
 import type { SessionStore } from "./store";
+import type { Session } from "./types";
 
 /** What the operator starts next: a bootstrap session (P1+P2 or P3), the P4 epic authoring, or —
  *  phases done — the Readiness tab for the red must-haves. */
@@ -142,4 +144,28 @@ export function reconcileBootstrapPhases(
     moved.push({ repoPath, from: phase, to });
   }
   return moved;
+}
+
+type MergeStore = Pick<SessionStore, "getRepoBootstrap" | "getBootstrapPhase">;
+
+/**
+ * A session's PR merged: re-scan the repo's greenfield readiness and, for a bootstrap session,
+ * advance the phase. Called from BOTH the poller's merged `session:git` (an attended bootstrap
+ * session merged on the forge is never archived as "merged" — the drain reaps only auto sessions,
+ * so the operator's later archive records "operator") and the "merged" archive (merge train, local
+ * merge). Idempotent: the phase only moves forward, so the second call never re-notifies.
+ */
+export function onBootstrapRepoMerge(
+  store: MergeStore,
+  greenfield: Pick<GreenfieldService, "onMerged">,
+  s: Session,
+  onAdvance: (repoPath: string, phase: number, sessionId: string) => void,
+): void {
+  const before = store.getRepoBootstrap(s.repoPath).phase;
+  // onMerged writes the phase synchronously, before its first await.
+  void greenfield
+    .onMerged(s.repoPath, s.bootstrap ? store.getBootstrapPhase(s.id) : null)
+    .catch((err) => console.warn("[greenfield]:", err));
+  const after = store.getRepoBootstrap(s.repoPath);
+  if (after.state === "active" && after.phase > before) onAdvance(s.repoPath, after.phase, s.id);
 }

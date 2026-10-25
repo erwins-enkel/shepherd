@@ -17,7 +17,11 @@ const session = (extra: Partial<Session> = {}) =>
     ...extra,
   }) as Session;
 
-function harness(s: Session | null = session(), autopilot = false) {
+function harness(
+  s: Session | null = session(),
+  autopilot = false,
+  seed?: Record<string, GitState>,
+) {
   const events = new EventHub();
   const sent: string[] = [];
   attachCiSteer(events, { get: () => s ?? undefined } as never, {
@@ -26,6 +30,7 @@ function harness(s: Session | null = session(), autopilot = false) {
       return true;
     },
     autopilotOn: () => autopilot,
+    seed,
   });
   const emit = (g: GitState) => events.emit("session:git", { id: "s1", git: g });
   return { events, sent, emit };
@@ -72,6 +77,21 @@ describe("attachCiSteer", () => {
   it("primes on first sighting without steering", async () => {
     const h = harness();
     h.emit(git("success"));
+    await Promise.resolve();
+    expect(h.sent).toEqual([]);
+  });
+
+  it("announces the first post-restart transition when seeded from the persisted cache", async () => {
+    const h = harness(session(), false, { s1: git("pending") });
+    h.emit(git("failure"));
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("failed");
+  });
+
+  it("does not re-announce a seeded state that did not change", async () => {
+    const h = harness(session(), false, { s1: git("failure") });
+    h.emit(git("failure"));
     await Promise.resolve();
     expect(h.sent).toEqual([]);
   });

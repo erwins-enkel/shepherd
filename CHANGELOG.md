@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.4.0](https://github.com/erwins-enkel/shepherd/compare/v2.3.1...v2.4.0) (2026-10-25)
+
+
+### Features
+
+* **sandbox:** default new repos to standard profile ([#2100](https://github.com/erwins-enkel/shepherd/issues/2100)) ([#3344](https://github.com/erwins-enkel/shepherd/issues/3344)) ([cb57006](https://github.com/erwins-enkel/shepherd/commit/cb57006134ba66f0d3f1a80daf1eeed760c98cb0))
+
+
+### Bug Fixes
+
+* **autopilot:** reliable CI-red steering ([#3340](https://github.com/erwins-enkel/shepherd/issues/3340)) ([902347c](https://github.com/erwins-enkel/shepherd/commit/902347cd92417c46db77fc72025aa1c7a5380a98))
+* **egress:** autonomous sessions died at launch; bind DNS to dnsmasq ([#3347](https://github.com/erwins-enkel/shepherd/issues/3347)) ([4b3307d](https://github.com/erwins-enkel/shepherd/commit/4b3307d104c318c9a13ff900adb58be9d6a161e5))
+* **egress:** run autonomous agent as host uid, not netns root ([#3350](https://github.com/erwins-enkel/shepherd/issues/3350)) ([f8cdb49](https://github.com/erwins-enkel/shepherd/commit/f8cdb49c1a967d01e85385d86574f2fea22d4d7e))
+* **ingress:** auto-resume live sessions lacking current ingress key at settle ([#3345](https://github.com/erwins-enkel/shepherd/issues/3345)) ([b214e0a](https://github.com/erwins-enkel/shepherd/commit/b214e0a8715eea4549fcee56aa1fc27224e3a442)), closes [#3341](https://github.com/erwins-enkel/shepherd/issues/3341)
+* **sandbox:** put server's bun on membrane PATH ([#3352](https://github.com/erwins-enkel/shepherd/issues/3352)) ([0d0a6c7](https://github.com/erwins-enkel/shepherd/commit/0d0a6c71756ac545e05cacd7d9148936c58d0fb2)), closes [#3351](https://github.com/erwins-enkel/shepherd/issues/3351)
+* **security:** close audit run-1 leads N01/N02/N11/N12 ([#3348](https://github.com/erwins-enkel/shepherd/issues/3348)) ([3289d43](https://github.com/erwins-enkel/shepherd/commit/3289d4352e0e3a11f522ea0bf187761641e0f1cf))
+* **security:** hardening roundup from audit run-1 ([#3338](https://github.com/erwins-enkel/shepherd/issues/3338)) ([#3346](https://github.com/erwins-enkel/shepherd/issues/3346)) ([19c5b0d](https://github.com/erwins-enkel/shepherd/commit/19c5b0dbadf3b280163a335e9388038d08696880))
+
 ## [2.3.1](https://github.com/erwins-enkel/shepherd/compare/v2.3.0...v2.3.1) (2026-10-25)
 
 

@@ -119,6 +119,10 @@ export function bootstrapDirective(args: {
     "- i18n catalog per P1 plus a drift gate (catalog key parity) in CI and the pre-push hook.",
     "- A CI workflow with a `quality` job (lint, typecheck, test, dead-code audit) and, when there " +
       "is a database, a `db` job on the P1 service container.",
+    "- actionlint on `.github/workflows/` in the `quality` job AND the pre-push hook, on its " +
+      "latest release (query it, never a version from memory). GitHub silently runs 0 jobs for " +
+      "an invalid workflow (e.g. a `job` context in a job-level `env:`), so run actionlint on " +
+      "every workflow file and fix every finding before you push.",
     "- An env schema; an intent-shaped issue template; dependency automation.",
     "- Every guardrail below — the install steps are Shepherd's Readiness prescriptions:",
     indent(checklistSection(args.stack)),
@@ -133,6 +137,11 @@ export function bootstrapDirective(args: {
     "- The PR is green in CI and leaves the Readiness greenfield must-haves satisfiable: pinned " +
       "stack, scaffold builds, CI on the default branch, git hooks + pre-push, dead-code audit. " +
       "Forge settings are applied by the operator from the Readiness tab — say so in the PR.",
+    "- Green means the PR's workflow runs actually ran jobs and all passed. After Shepherd reports " +
+      "CI finished (or `self_status` shows it), check ONCE with `gh run list --branch <branch>` " +
+      "and `gh run view <id> --json conclusion,jobs`. A run with 0 jobs, a " +
+      '"workflow file issue" failure, or "no checks reported" is NOT green: fix the workflow ' +
+      "(actionlint) and push again.",
     "- You are attended: ask on genuine product decisions; otherwise keep going until the PR is up.",
   ].join("\n");
 }

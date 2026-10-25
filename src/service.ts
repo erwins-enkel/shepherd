@@ -3344,6 +3344,7 @@ export class SessionService {
           claudeDir: config.claudeDir,
           home: homedir(),
           nodeBinReal,
+          bunBinReal: config.bunBin,
           term: process.env.TERM,
           // SESSION_MARKER_ENV and AGENT_API_URL_ENV ride the membrane's --setenv loop so they
           // survive bwrap's --clearenv (see sandbox.ts). Last, so nothing above can shadow them.
@@ -3468,6 +3469,7 @@ export class SessionService {
       claudeDir: config.claudeDir,
       home,
       nodeBinReal: safeRealpath(config.nodeBin),
+      bunBinReal: config.bunBin,
       term: process.env.TERM,
       extraEnv: { ...extraEnv, SHEPHERD_PREVIEW_LOG: log },
       maskCredentials: true,

@@ -205,6 +205,8 @@ export interface MembraneInputs {
   home: string;
   /** realpath of resolveNodeBin() (caller passes resolved). */
   nodeBinReal: string;
+  /** Real bun binary (config.bunBin, #3351): its dir is bound RO + put on PATH. null/absent = none. */
+  bunBinReal?: string | null;
   term?: string;
   /** Non-secret host env vars to pass through under `--clearenv` (e.g. LANG/TZ);
    *  caller builds this via `collectPassthroughEnv`. HOME/PATH/TERM are always set
@@ -438,6 +440,7 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
     if (isUnder(inputs.nodeBinReal, root) || exists(root)) add(root);
   }
   add(binDir);
+  if (inputs.bunBinReal) add(dirname(inputs.bunBinReal));
   return flags;
 }
 
@@ -482,10 +485,17 @@ function codexCliFlags(codex: CodexMembraneInputs | undefined): string[] {
   return f;
 }
 
-/** The sandbox PATH. A codex spawn appends the launcher's bin dir so `codex` resolves
- *  by name; skipped when it already is an entry (claude spawns are unchanged either way). */
-function sandboxPath(home: string, nodeBinDir: string, codex?: CodexMembraneInputs): string {
-  const entries = [`${home}/.local/bin`, nodeBinDir, "/usr/bin", "/bin"];
+/** The sandbox PATH. The bun dir (#3351) follows node's; a codex spawn appends the launcher's
+ *  bin dir so `codex` resolves by name. Each is skipped when it already is an entry. */
+function sandboxPath(
+  home: string,
+  nodeBinDir: string,
+  bunBinDir: string | null,
+  codex?: CodexMembraneInputs,
+): string {
+  const entries = [`${home}/.local/bin`, nodeBinDir];
+  if (bunBinDir && !entries.includes(bunBinDir)) entries.push(bunBinDir);
+  entries.push("/usr/bin", "/bin");
   if (codex && !entries.includes(codex.binDir)) entries.push(codex.binDir);
   return entries.join(":");
 }
@@ -741,7 +751,8 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   const nodeBinDir = dirname(inputs.nodeBinReal);
   f.push("--clearenv");
   f.push("--setenv", "HOME", home);
-  f.push("--setenv", "PATH", sandboxPath(home, nodeBinDir, inputs.codex));
+  const bunBinDir = inputs.bunBinReal ? dirname(inputs.bunBinReal) : null;
+  f.push("--setenv", "PATH", sandboxPath(home, nodeBinDir, bunBinDir, inputs.codex));
   f.push("--setenv", "TERM", term);
   // --clearenv strips CLAUDE_CONFIG_DIR; re-set it when the bound config dir is NOT the
   // default ~/.claude, else claude would fall back to an empty ~/.claude tmpfs (the custom

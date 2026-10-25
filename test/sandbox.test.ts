@@ -1425,6 +1425,51 @@ describe("buildMembraneFlags ingress spawn files (#3337)", () => {
   });
 });
 
+describe("buildMembraneFlags bun toolchain (#3351)", () => {
+  const pathOf = (f: string[]) => f[f.indexOf("PATH") + 1] ?? "";
+  const roBindTargets = (f: string[]) => f.filter((_, j) => f[j - 1] === "--ro-bind-try");
+
+  test("bun under a bound mise root: no extra bind, its real dir on PATH after node", () => {
+    const bunDir = "/home/me/.local/share/mise/installs/bun/1.4.4/bin";
+    const f = buildMembraneFlags(fakeMembrane({ bunBinReal: `${bunDir}/bun` }), {
+      exists: () => true,
+    });
+    expect(roBindTargets(f)).not.toContain(bunDir);
+    expect(pathOf(f)).toBe(
+      `/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:${bunDir}:/usr/bin:/bin`,
+    );
+  });
+
+  test("bun outside any manager root (~/.bun/bin): its dir bound RO and on PATH", () => {
+    const bunDir = "/home/me/.bun/bin";
+    const f = buildMembraneFlags(fakeMembrane({ bunBinReal: `${bunDir}/bun` }), detDeps);
+    expect(hasTriple(f, "--ro-bind-try", bunDir, bunDir)).toBe(true);
+    const homeTmpfs = f.findIndex((x, j) => x === "--tmpfs" && f[j + 1] === "/home/me");
+    expect(f.indexOf(bunDir)).toBeGreaterThan(homeTmpfs); // else the tmpfs would mask it
+    expect(pathOf(f).split(":")).toContain(bunDir);
+  });
+
+  test("bun in node's dir: one bind, one PATH entry", () => {
+    const dir = "/opt/js/bin"; // outside every manager root, so the dir itself is bound
+    const f = buildMembraneFlags(
+      fakeMembrane({ nodeBinReal: `${dir}/node`, bunBinReal: `${dir}/bun` }),
+      detDeps,
+    );
+    expect(roBindTargets(f).filter((t) => t === dir).length).toBe(1);
+    expect(
+      pathOf(f)
+        .split(":")
+        .filter((e) => e === dir).length,
+    ).toBe(1);
+  });
+
+  test("no bun on the host: flags byte-identical", () => {
+    const base = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(buildMembraneFlags(fakeMembrane({ bunBinReal: null }), detDeps)).toEqual(base);
+    expect(pathOf(base)).not.toContain("bun");
+  });
+});
+
 describe("resolveProfile lazy default (#2100)", () => {
   test("an explicit override or repo profile never evaluates the default", () => {
     const boom = (): "standard" => {

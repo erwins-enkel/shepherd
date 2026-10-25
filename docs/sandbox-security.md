@@ -16,6 +16,9 @@ closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
 for DNS drops. Egress is keyed to the **autonomous profile**, not to
 attendedness (`src/sandbox.ts` `egressApplies`).
+The toolchain is bound read-only: node's bin dir and the server's own bun
+(`config.bunBin`, #3351) land on the membrane PATH. Under `autonomous`,
+`bun install` still fails, since no package registry is an egress host.
 
 This note records two residuals the operator has **accepted** after the audit.
 

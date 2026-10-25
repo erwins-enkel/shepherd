@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { resolveNodeBin } from "./node-bin";
+import { resolveBunBin, resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
 import {
   normalizeDefaultCodexModelSetting,
@@ -690,6 +690,8 @@ export const config = {
   // managed by mise/nvm/fnm still works when the launcher's PATH excludes it —
   // otherwise the helper can't spawn and every session pane stays black.
   nodeBin: resolveNodeBin({ override: process.env.SHEPHERD_NODE_BIN }),
+  // Real bun binary the sandbox membrane binds RO + puts on PATH (#3351); null = none on host.
+  bunBin: resolveBunBin(),
   herdrSession,
   herdrSocketPath,
   // usage tracking: where Claude Code writes its session JSONL

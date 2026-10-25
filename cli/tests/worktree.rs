@@ -108,6 +108,8 @@ fn file(path: &str, adds: i64, patch: Option<&str>) -> serde_json::Value {
 }
 
 async fn with_diff(s: &MockServer) {
+    let mut big = file("docs/big.md", 5000, None);
+    big["truncated"] = json!(true);
     Mock::given(method("GET"))
         .and(path("/api/sessions/id-1/diff"))
         .and(query_param("worktree", "true"))
@@ -117,7 +119,9 @@ async fn with_diff(s: &MockServer) {
             "files": [
                 file("src/a.ts", 3, Some("diff --git a/src/a.ts b/src/a.ts\n+a")),
                 file("src/ab.ts", 4, Some("diff --git a/src/ab.ts b/src/ab.ts\n+ab")),
-                file("docs/big.md", 5000, None),
+                big,
+                json!({"path": "src/new.ts", "oldPath": "src/old.ts", "status": "renamed",
+                       "additions": 0, "deletions": 0, "binary": false}),
             ]
         })))
         .mount(s)
@@ -133,6 +137,7 @@ async fn diff_prints_patches_and_marks_truncated() {
     assert_eq!(h.run(&["--url", &s.uri(), "diff", "TASK-01"]).await, 0);
     let out = h.out.text();
     assert!(out.contains("+a\n"), "{out}");
+    assert!(out.contains("# src/old.ts -> src/new.ts: renamed"), "{out}");
     assert!(
         out.contains("# docs/big.md: too large to show (+5000 -1)"),
         "{out}"
@@ -174,7 +179,7 @@ async fn diff_json_is_the_filtered_result() {
         0
     );
     let v = h.json();
-    assert_eq!(v["files"].as_array().unwrap().len(), 2);
+    assert_eq!(v["files"].as_array().unwrap().len(), 3);
     assert_eq!(v["baseRef"], "origin/main");
 }
 

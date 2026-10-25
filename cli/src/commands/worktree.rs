@@ -149,26 +149,30 @@ fn print_stat(out: &mut dyn Write, files: &[DiffFile]) -> Result<()> {
     )
 }
 
+/// The one-line note for a file without a patch: binary, over the per-file cap, or a change with no
+/// line body (a pure rename, an empty added/deleted file, a mode change).
+fn patchless_note(f: &DiffFile) -> String {
+    let path = match f.old_path.as_deref() {
+        Some(old) if old != f.path => format!("{} -> {}", plain(old), plain(&f.path)),
+        _ => plain(&f.path),
+    };
+    if f.binary {
+        format!("# {path}: binary (+{} -{})", f.additions, f.deletions)
+    } else if f.truncated == Some(true) {
+        format!(
+            "# {path}: too large to show (+{} -{})",
+            f.additions, f.deletions
+        )
+    } else {
+        format!("# {path}: {}", plain(&f.status.0))
+    }
+}
+
 fn print_patches(out: &mut dyn Write, files: &[DiffFile]) -> Result<()> {
     for f in files {
         match &f.patch {
             Some(patch) => output::line(out, &plain(patch))?,
-            None => {
-                let why = if f.binary {
-                    "binary"
-                } else {
-                    "too large to show"
-                };
-                output::line(
-                    out,
-                    &format!(
-                        "# {}: {why} (+{} -{})",
-                        plain(&f.path),
-                        f.additions,
-                        f.deletions
-                    ),
-                )?;
-            }
+            None => output::line(out, &patchless_note(f))?,
         }
     }
     Ok(())

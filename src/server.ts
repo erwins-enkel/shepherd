@@ -4884,10 +4884,11 @@ async function handleSessionScratchpad({ req, parts, url, deps }: Ctx): Promise<
 async function worktreeDownload(s: Session, rel: string): Promise<Response> {
   const file = await resolveWorktreeFile(s.worktreePath, rel);
   if (!file) return json({ error: "not found" }, 404);
-  const f = Bun.file(file);
-  return new Response(f, {
+  // Always octet-stream: it is an attachment, and the contract promises one media type whatever
+  // the extension (Bun.file().type would say text/markdown for a plan file).
+  return new Response(Bun.file(file), {
     headers: {
-      "content-type": f.type || "application/octet-stream",
+      "content-type": "application/octet-stream",
       "content-disposition": attachmentDisposition(basename(file)),
     },
   });

@@ -198,9 +198,11 @@ A session without its own branch reports these fields as `null`. JSON output is
 
 `diff` compares the fork point with the working tree, so uncommitted edits to tracked files show
 up. Untracked files don't (see `dirty`). `--stat` prints per-file line counts instead of the
-patch. `-- <path>…` keeps only those files and directories. A file with more than 2000 changed
-lines, or a binary one, shows as a one-line note instead of a patch. JSON output is the server's
-diff with the same filter applied.
+patch. `-- <path>…` keeps only those files and directories. A file without a patch shows as a
+one-line note instead: a binary file, a file with more than 2000 changed lines (`too large to
+show`), or a change with no changed lines, such as a pure rename (`old -> new: renamed`), an empty
+added or deleted file, or a mode change. JSON output is the server's diff with the same filter
+applied.
 
 `cat` prints the file's bytes as they are when stdout is redirected (or with `--json`). On a
 terminal it drops control characters, as for any text an agent wrote. A path that leaves the

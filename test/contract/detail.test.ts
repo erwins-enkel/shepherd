@@ -204,6 +204,7 @@ describe("detail: reads", () => {
     const res = await get(`/api/sessions/${ok}/worktree/download?path=README.md`);
     await validateResponse("GET", "/api/sessions/{id}/worktree/download", res);
     expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/octet-stream");
     expect(await res.text()).toBe("hi\n");
     const bad = await get(`/api/sessions/${ok}/worktree/download?path=../escape`);
     await validateResponse("GET", "/api/sessions/{id}/worktree/download", bad);

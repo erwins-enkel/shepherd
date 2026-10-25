@@ -18496,24 +18496,6 @@
         }
       }
     },
-    "native_ios_server_mirror_via": {
-      "comment": "%1$@ = server",
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "über %1$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "via %1$@"
-          }
-        }
-      }
-    },
     "native_ios_server_unavailable": {
       "comment": "%1$@ = server",
       "extractionState": "manual",

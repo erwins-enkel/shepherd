@@ -6314,7 +6314,6 @@
   "native_ios_server_mirror_only": "nur gespiegelt",
   "native_ios_server_mirror_add": "Hinterlegen",
   "native_ios_server_mirror_add_aria": "{machine} als Server hinterlegen",
-  "native_ios_server_mirror_via": "über {server}",
   "native_compose_sandbox_chip_default": "Sandbox",
   "native_compose_sandbox_chip_trusted": "Keine Sandbox",
   "native_compose_sandbox_chip_standard": "Sandbox: Standard",

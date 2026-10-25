@@ -1075,7 +1075,6 @@
 "native_ios_server_mirror_add_aria" = "Add %1$@ as a server";
 "native_ios_server_mirror_direct" = "added directly · copy hidden";
 "native_ios_server_mirror_only" = "mirrored only";
-"native_ios_server_mirror_via" = "via %1$@";
 "native_ios_server_unavailable" = "%1$@ is currently unavailable";
 "native_ios_session_age" = "Age: %1$@";
 "native_ios_spawn_events_down" = "The live connection to the server is down, so progress reports cannot arrive until it is back.";

@@ -148,8 +148,10 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         return copy
     }
     private func shownIDs(_ merged: IOSMergedSessionPresentation.Snapshot) -> [String] {
-        (merged.epicGroups.flatMap(\.rows) + merged.groups.flatMap(\.rows) + merged.machines.flatMap(\.rows))
-            .map(\.session.id)
+        (merged.epicGroups.flatMap(\.rows) + merged.groups.flatMap(\.rows)).map(\.session.id)
+    }
+    private func mirroredRows(_ merged: IOSMergedSessionPresentation.Snapshot) -> [IOSMergedSessionPresentation.Row] {
+        merged.groups.flatMap(\.rows).filter(\.mirrored)
     }
 
     func testAMacSessionAppearsOnceWhenTheCoordinatorAndTheMacBookAreBothConnected() {
@@ -164,17 +166,17 @@ final class IOSMergedServerPresentationTests: XCTestCase {
             XCTAssertEqual(shownIDs(merged).filter { $0 == "m1" }.count, 1)
             // Shown through its owner's own connection, not the coordinator's mirror.
             XCTAssertEqual(merged.groups.flatMap(\.rows).first { $0.session.id == "m1" }?.profile.id, mac.id)
-            XCTAssertTrue(merged.machines.isEmpty)
+            XCTAssertTrue(mirroredRows(merged).isEmpty)
             XCTAssertEqual(merged.tallies.total, 2)
         }
         // Before the MacBook's /api/instance answers, its own copy still stands in for the mirror.
         macbook.instanceID = nil
         let early = IOSMergedSessionPresentation.merge([coordinator, macbook], selectedRepos: [])
         XCTAssertEqual(shownIDs(early).filter { $0 == "m1" }.count, 1)
-        XCTAssertTrue(early.machines.isEmpty)
+        XCTAssertTrue(mirroredRows(early).isEmpty)
     }
 
-    func testTheCoordinatorAloneShowsTheMacSessionInItsMachineGroup() {
+    func testTheCoordinatorAloneJoinsTheMacSessionsIntoTheLifecycleGroups() {
         let linux = profile("coordinator")
         var coordinator = source(linux, sessions: [session("l1", created: 10, repo: "/repos/app")])
         coordinator.instanceID = "linux-id"
@@ -182,14 +184,31 @@ final class IOSMergedServerPresentationTests: XCTestCase {
             mirrored("b1", machine: "box-id", name: "Box", connected: false)]
         // The repo filter names this server's checkouts; it never hides another machine's work.
         let merged = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: ["/repos/app"])
-        XCTAssertEqual(merged.machines.map(\.id), ["mac-id", "box-id"])
-        XCTAssertEqual(merged.machines[0].rows.map(\.session.id), ["m1"])
-        XCTAssertEqual(merged.machines[0].rows.first?.profile.id, linux.id)
-        XCTAssertEqual(merged.machines[1].connection.state.known, .disconnected)
-        XCTAssertEqual(merged.groups.flatMap(\.rows).map(\.session.id), ["l1"])
+        // No group per machine (#3055): interleaved by start time among the server's own.
+        XCTAssertEqual(merged.groups.map(\.stage), [.active])
+        XCTAssertEqual(merged.groups[0].rows.map(\.session.id), ["m1", "b1", "l1"])
+        XCTAssertEqual(merged.groups[0].rows.map(\.mirrored), [true, true, false])
+        XCTAssertEqual(mirroredRows(merged).map(\.profile.id), [linux.id, linux.id])
         XCTAssertEqual(merged.tallies.total, 1)
         XCTAssertEqual(merged.chips.map(\.name), ["app"])
         XCTAssertEqual(merged.chips.map(\.paths), [["/repos/app"]])
+    }
+
+    func testAMirroredSessionSitsInTheStageItsMachinesPRStateGivesItAndOnlyInTheAllLens() {
+        var coordinator = source(profile("coordinator"), sessions: [session("l1", created: 10)])
+        coordinator.instanceID = "linux-id"
+        var landed = mirrored("m1", connected: false)
+        landed.status = .init(known: .done)
+        landed.git = GitState(state: .init(known: .merged), checks: .init(known: .success), deployConfigured: false)
+        var green = mirrored("m2")
+        green.status = .init(known: .idle)
+        green.git = GitState(state: .init(known: .open), checks: .init(known: .success), deployConfigured: false)
+        coordinator.remote = [landed, green, mirrored("m3")]
+        let merged = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: [])
+        XCTAssertEqual(merged.groups.map(\.stage), [.active, .awaitingMerge, .merged])
+        XCTAssertEqual(merged.groups.map { $0.rows.map(\.session.id) }, [["m3", "l1"], ["m2"], ["m1"]])
+        let ready = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: [], lens: .ready)
+        XCTAssertTrue(mirroredRows(ready).isEmpty)
     }
 
     func testOneSessionMirroredByTwoCoordinatorsOrServedUnderTwoProfilesAppearsOnce() {
@@ -230,8 +249,8 @@ final class IOSMergedServerPresentationTests: XCTestCase {
             XCTAssertNil(machines[mac.id])
             let merged = IOSMergedSessionPresentation.merge(order, selectedRepos: [])
             XCTAssertEqual(shownIDs(merged).filter { $0.hasPrefix("m") }, ["m1", "m2"])
-            XCTAssertEqual(merged.machines.map(\.id), ["box-id"])
-            XCTAssertEqual(merged.machines.first?.via.id, linux.id)
+            XCTAssertEqual(mirroredRows(merged).map(\.session.host?.instanceId), ["box-id"])
+            XCTAssertEqual(mirroredRows(merged).first?.profile.id, linux.id)
         }
         // Before the MacBook's /api/instance answers, its own sessions already mark it direct.
         macbook.instanceID = nil
@@ -248,8 +267,8 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         XCTAssertEqual(machines[linux.id], [.init(host: mirrored("m1").host!, connection: mirrored("m1").connection!,
             direct: false)])
         let merged = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: [])
-        XCTAssertEqual(merged.machines.first?.via.name, "coordinator")
-        XCTAssertEqual(merged.machines.first?.rows.map(\.session.id), ["m1", "m2"])
+        XCTAssertEqual(mirroredRows(merged).map(\.profile.name), ["coordinator", "coordinator"])
+        XCTAssertEqual(mirroredRows(merged).map(\.session.id), ["m1", "m2"])
         XCTAssertTrue(IOSMergedSessionPresentation.mirroredMachines([source(linux, sessions: [])]).isEmpty)
     }
 

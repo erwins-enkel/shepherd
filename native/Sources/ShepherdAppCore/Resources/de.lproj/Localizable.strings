@@ -1075,7 +1075,6 @@
 "native_ios_server_mirror_add_aria" = "%1$@ als Server hinterlegen";
 "native_ios_server_mirror_direct" = "direkt hinterlegt · Kopie ausgeblendet";
 "native_ios_server_mirror_only" = "nur gespiegelt";
-"native_ios_server_mirror_via" = "über %1$@";
 "native_ios_server_unavailable" = "%1$@ ist gerade nicht erreichbar";
 "native_ios_session_age" = "Alter: %1$@";
 "native_ios_spawn_events_down" = "Die Live-Verbindung zum Server ist getrennt. Fortschrittsmeldungen kommen erst an, wenn sie wieder steht.";

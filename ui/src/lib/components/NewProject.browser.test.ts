@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import NewProject from "./NewProject.svelte";
 import { m } from "#lib/paraglide/messages.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
 
 const ENTRY = { name: "demo", path: "/r/demo", display: "~/r/demo", realPath: "/r/demo" };
 
@@ -24,95 +25,231 @@ function mockApi() {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("NewProject bootstrap kickoff (#3112)", () => {
-  it("offers the PRD + design import and hands back the bootstrap kickoff", async () => {
+const prdMd = () => new File(["# PRD"], "prd.md", { type: "text/markdown" });
+
+/** A file as a directory picker hands it over: `webkitRelativePath` starts at the picked folder. */
+function folderFile(rel: string): File {
+  const file = new File(["png"], rel.split("/").pop()!, { type: "image/png" });
+  Object.defineProperty(file, "webkitRelativePath", { value: rel });
+  return file;
+}
+
+function pick(selector: string, files: File[]) {
+  const input = document.querySelector<HTMLInputElement>(selector)!;
+  Object.defineProperty(input, "files", { value: files, configurable: true });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+const pickPrd = (files: File[]) => pick('input[type="file"]:not([webkitdirectory])', files);
+const pickDesign = (files: File[]) => pick('input[type="file"][webkitdirectory]', files);
+
+const dialogEl = () => document.querySelector<HTMLFormElement>("form.card")!;
+const chipList = () => page.getByRole("list", { name: m.newproject_docs_group() });
+const submitButton = () => page.getByRole("button", { name: m.newproject_submit() });
+const names = (fd: FormData, area: string) => (fd.getAll(area) as File[]).map((f) => f.name);
+
+async function fillName() {
+  await page.getByLabelText(m.newproject_name_label()).fill("demo");
+}
+
+async function submitForm(posts: { body: BodyInit | null | undefined }[]): Promise<FormData> {
+  await submitButton().click();
+  await vi.waitFor(() => expect(posts.length).toBe(1));
+  const fd = posts[0]!.body as FormData;
+  expect(fd).toBeInstanceOf(FormData);
+  return fd;
+}
+
+async function openAdvanced(choice: string) {
+  await page.getByText(m.newproject_advanced_summary({ choice })).click();
+}
+
+describe("NewProject attachments (#3420)", () => {
+  it("shows the attach buttons up front and folds the kickoff under Advanced", async () => {
+    mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await expect
+      .element(page.getByRole("button", { name: m.newproject_attach_prd() }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.newproject_attach_design() }))
+      .toBeVisible();
+    await expect.element(page.getByLabelText(m.newproject_kickoff_label())).not.toBeVisible();
+  });
+
+  it("defaults to the bootstrap kickoff with a plain JSON create", async () => {
     const posts = mockApi();
     const ondone = vi.fn();
     render(NewProject, { ondone });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
-    await expect
-      .element(page.getByLabelText(m.newproject_docs_prd_label()))
-      .not.toBeInTheDocument();
-    await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__bootstrap__");
-    await expect.element(page.getByLabelText(m.newproject_docs_prd_label())).toBeVisible();
-    await expect.element(page.getByLabelText(m.newproject_docs_design_label())).toBeVisible();
-    await page.getByRole("button", { name: m.newproject_submit() }).click();
+    await fillName();
+    await submitButton().click();
     await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
     expect(ondone.mock.calls[0]![1]).toEqual({ kind: "bootstrap" });
-    // No files picked → the plain JSON create.
     expect(posts[0]?.type).toBe("application/json");
   });
 
-  it("sends picked PRD files as multipart with their docs path", async () => {
+  it("lists a picked PRD as a chip and sends it as multipart", async () => {
     const posts = mockApi();
     render(NewProject, { ondone: vi.fn() });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
-    await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__bootstrap__");
-    await page
-      .getByLabelText(m.newproject_docs_prd_label())
-      .upload(new File(["# PRD"], "prd.md", { type: "text/markdown" }));
+    await fillName();
+    pickPrd([prdMd()]);
+    await expect.element(chipList().getByText("prd.md", { exact: true })).toBeVisible();
+    await expect.element(chipList().getByText("→ docs/prd/prd.md", { exact: true })).toBeVisible();
     await expect
-      .element(page.getByText(m.newproject_docs_hint({ prd: 1, design: 0 })))
+      .element(page.getByText(m.newproject_docs_summary({ prd: 1, design: 0 })))
       .toBeVisible();
-    await page.getByRole("button", { name: m.newproject_submit() }).click();
-    await vi.waitFor(() => expect(posts.length).toBe(1));
-    const fd = posts[0]!.body as FormData;
-    expect(fd).toBeInstanceOf(FormData);
+    const fd = await submitForm(posts);
     expect(JSON.parse(String(fd.get("project")))).toMatchObject({ name: "demo" });
-    expect((fd.get("prd") as File).name).toBe("prd.md");
-  });
-});
-
-describe("NewProject PRD brief file", () => {
-  it("commits a picked PRD as docs/prd/PRD.md and flags the kickoff", async () => {
-    const posts = mockApi();
-    const ondone = vi.fn();
-    render(NewProject, { ondone });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
-    await page
-      .getByLabelText(m.newproject_prd_file_label())
-      .upload(new File(["# My PRD"], "my-prd.md", { type: "text/markdown" }));
-    await expect
-      .element(page.getByText(m.newproject_prd_file_hint({ name: "my-prd.md" })))
-      .toBeVisible();
-    await page.getByRole("button", { name: m.newproject_submit() }).click();
-    await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
-    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd", prdSupplied: true });
-    const fd = posts[0]!.body as FormData;
-    expect(fd).toBeInstanceOf(FormData);
-    const prd = fd.getAll("prd") as File[];
-    expect(prd.map((f) => f.name)).toEqual(["PRD.md"]);
-    expect(await prd[0]!.text()).toBe("# My PRD");
+    expect(names(fd, "prd")).toEqual(["prd.md"]);
     expect(fd.getAll("design")).toEqual([]);
   });
 
-  it("keeps the plain JSON create without a PRD file", async () => {
+  it("groups a picked design folder into one chip", async () => {
     const posts = mockApi();
-    const ondone = vi.fn();
-    render(NewProject, { ondone });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
-    await page.getByRole("button", { name: m.newproject_submit() }).click();
-    await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
-    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd" });
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    pickDesign([folderFile("export/a.png"), folderFile("export/screens/b.png")]);
+    await expect.element(chipList().getByText("export", { exact: true })).toBeVisible();
+    await expect
+      .element(
+        chipList().getByText(m.newproject_doc_target_folder({ target: "docs/design/", count: 2 })),
+      )
+      .toBeVisible();
+    expect(chipList().getByRole("listitem").elements()).toHaveLength(1);
+    const fd = await submitForm(posts);
+    expect(names(fd, "design")).toEqual(["a.png", "screens/b.png"]);
+    expect(fd.getAll("prd")).toEqual([]);
+  });
+
+  it("drops a file again with its chip's ✕", async () => {
+    const posts = mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    pickPrd([prdMd()]);
+    await page
+      .getByRole("button", { name: m.newproject_doc_remove_aria({ name: "prd.md" }) })
+      .click();
+    await expect.element(chipList()).not.toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.newproject_docs_summary({ prd: 1, design: 0 })))
+      .not.toBeInTheDocument();
+    await submitButton().click();
+    await vi.waitFor(() => expect(posts.length).toBe(1));
     expect(posts[0]?.type).toBe("application/json");
   });
 
-  it("hides the PRD file input outside the PRD brief kickoff", async () => {
+  it("blocks both create buttons when the attachments exceed the server's caps", async () => {
+    const posts = mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    pickPrd(Array.from({ length: 501 }, (_, i) => new File(["x"], `f${i}.md`)));
+    await expect.element(page.getByText(m.newproject_failed_docs_size())).toBeVisible();
+    await expect.element(submitButton()).toBeDisabled();
+    await expect
+      .element(page.getByRole("button", { name: m.newproject_submit_customize() }))
+      .toBeDisabled();
+    expect(posts.length).toBe(0);
+  });
+});
+
+describe("NewProject drop target (#3420)", () => {
+  it("sorts dropped files into PRD and design", async () => {
+    const posts = mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    const dt = new DataTransfer();
+    dt.items.add(prdMd());
+    dt.items.add(new File(["png"], "logo.png", { type: "image/png" }));
+    dialogEl().dispatchEvent(
+      new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+    await expect.element(chipList().getByText("prd.md", { exact: true })).toBeVisible();
+    await expect.element(chipList().getByText("logo.png", { exact: true })).toBeVisible();
+    const fd = await submitForm(posts);
+    expect(names(fd, "prd")).toEqual(["prd.md"]);
+    expect(names(fd, "design")).toEqual(["logo.png"]);
+  });
+
+  it("names a drop it could not read", async () => {
+    mockApi();
+    const unreadable = {
+      name: "prd.md",
+      fullPath: "/prd.md",
+      isFile: true,
+      file: (_ok: unknown, bad: (e: Error) => void) => bad(new Error("gone")),
+    } as unknown as FileSystemEntry;
+    vi.spyOn(DataTransferItem.prototype, "webkitGetAsEntry").mockReturnValue(unreadable);
+    render(NewProject, { ondone: vi.fn() });
+    const dt = new DataTransfer();
+    dt.items.add(prdMd());
+    dialogEl().dispatchEvent(
+      new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+    await expect.element(page.getByText(m.newproject_drop_failed())).toBeVisible();
+    await expect.element(chipList()).not.toBeInTheDocument();
+  });
+
+  it("claims file drags only, so text still drops into the idea", async () => {
     mockApi();
     render(NewProject, { ondone: vi.fn() });
-    await expect.element(page.getByLabelText(m.newproject_prd_file_label())).toBeVisible();
-    await page
-      .getByLabelText(m.newproject_prd_file_label())
-      .upload(new File(["# PRD"], "p.md", { type: "text/markdown" }));
-    await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__bootstrap__");
-    await expect
-      .element(page.getByLabelText(m.newproject_prd_file_label()))
-      .not.toBeInTheDocument();
-    // Back to PRD brief: the dropped file leaves no stale hint behind.
+    const text = new DataTransfer();
+    text.setData("text/plain", "x");
+    const textOver = new DragEvent("dragover", {
+      dataTransfer: text,
+      bubbles: true,
+      cancelable: true,
+    });
+    dialogEl().dispatchEvent(textOver);
+    expect(textOver.defaultPrevented).toBe(false);
+    expect(dialogEl().classList.contains("dragging")).toBe(false);
+
+    const files = new DataTransfer();
+    files.items.add(prdMd());
+    const fileOver = new DragEvent("dragover", {
+      dataTransfer: files,
+      bubbles: true,
+      cancelable: true,
+    });
+    dialogEl().dispatchEvent(fileOver);
+    expect(fileOver.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(dialogEl().classList.contains("dragging")).toBe(true));
+  });
+});
+
+describe("NewProject kickoff (#3420)", () => {
+  it("notes the bootstrap start until another kickoff is picked under Advanced", async () => {
+    const posts = mockApi();
+    const ondone = vi.fn();
+    render(NewProject, { ondone });
+    await fillName();
+    pickPrd([prdMd()]);
+    await expect.element(page.getByText(m.newproject_docs_bootstrap_note())).toBeVisible();
+    await openAdvanced(m.newproject_kickoff_bootstrap());
     await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__prd__");
     await expect
-      .element(page.getByText(m.newproject_prd_file_hint({ name: "p.md" })))
+      .element(page.getByText(m.newproject_docs_bootstrap_note()))
       .not.toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(m.newproject_advanced_summary({ choice: m.newproject_kickoff_prd() })),
+      )
+      .toBeVisible();
+    const fd = await submitForm(posts);
+    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd", prdSupplied: true });
+    // The PRD keeps its own name under docs/prd/ — no rename to PRD.md.
+    expect(names(fd, "prd")).toEqual(["prd.md"]);
+  });
+
+  it("hands back the plain PRD brief without attachments", async () => {
+    const posts = mockApi();
+    const ondone = vi.fn();
+    render(NewProject, { ondone });
+    await fillName();
+    await openAdvanced(m.newproject_kickoff_bootstrap());
+    await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__prd__");
+    await submitButton().click();
+    await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
+    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd" });
+    expect(posts[0]?.type).toBe("application/json");
   });
 });
 
@@ -121,8 +258,8 @@ describe("NewProject start", () => {
     mockApi();
     const ondone = vi.fn();
     render(NewProject, { ondone });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
-    await page.getByRole("button", { name: m.newproject_submit() }).click();
+    await fillName();
+    await submitButton().click();
     await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
     expect(ondone.mock.calls[0]![3]).toBe(false);
   });
@@ -131,11 +268,11 @@ describe("NewProject start", () => {
     const posts = mockApi();
     const ondone = vi.fn();
     render(NewProject, { ondone });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await fillName();
     await page.getByRole("button", { name: m.newproject_submit_customize() }).click();
     await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
     expect(posts.length).toBe(1);
-    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd" });
+    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "bootstrap" });
     expect(ondone.mock.calls[0]![3]).toBe(true);
   });
 
@@ -152,7 +289,7 @@ describe("NewProject idea length", () => {
   it("blocks an idea over the server's 8000-char limit before sending", async () => {
     const posts = mockApi();
     render(NewProject, { ondone: vi.fn() });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await fillName();
     await page.getByLabelText(m.newproject_idea_label()).fill("x".repeat(8001));
     await expect
       .element(page.getByText(m.newproject_idea_count({ count: 8001, max: 8000 })))
@@ -160,7 +297,7 @@ describe("NewProject idea length", () => {
     await expect
       .element(page.getByText(m.newproject_failed_idea_too_long({ max: 8000 })))
       .toBeVisible();
-    await expect.element(page.getByRole("button", { name: m.newproject_submit() })).toBeDisabled();
+    await expect.element(submitButton()).toBeDisabled();
     expect(posts.length).toBe(0);
   });
 
@@ -173,12 +310,37 @@ describe("NewProject idea length", () => {
       return new Response(JSON.stringify({ commands: [] }), { status: 200 });
     });
     render(NewProject, { ondone: vi.fn() });
-    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await fillName();
     await page.getByLabelText(m.newproject_idea_label()).fill("an idea");
-    await page.getByRole("button", { name: m.newproject_submit() }).click();
+    await submitButton().click();
     await expect
       .element(page.getByText(m.newproject_failed_idea_too_long({ max: 8000 })))
       .toBeVisible();
     await expect.element(page.getByText(m.newproject_failed_generic())).not.toBeInTheDocument();
+  });
+});
+
+describe("NewProject mobile (#3420)", () => {
+  // Back to vitest's default viewport for whatever runs after.
+  afterEach(() => page.viewport(414, 896));
+
+  it("keeps the attach toolbar tappable and the chips inside 375px", async () => {
+    await page.viewport(375, 812);
+    mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    // Baseline before attaching: it already counts the decorative corner bracket, which sits 1px
+    // outside the card by design.
+    const scrollWidth = dialogEl().scrollWidth;
+    pickPrd([new File(["# PRD"], `${"very-long-product-requirements-".repeat(3)}.md`)]);
+    pickDesign([folderFile("export/a.png")]);
+    await expect.element(chipList()).toBeVisible();
+    expect(dialogEl().scrollWidth).toBe(scrollWidth);
+    for (const name of [m.newproject_attach_prd(), m.newproject_attach_design()])
+      expectMinPx(page.getByRole("button", { name }).element().getBoundingClientRect().height, 44);
+    expectMinPx(
+      document.querySelector(".advanced summary")!.getBoundingClientRect().height,
+      44,
+      "advanced summary",
+    );
   });
 });

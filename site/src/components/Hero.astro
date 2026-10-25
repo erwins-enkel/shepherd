@@ -135,24 +135,34 @@ const DEMO_URL = "https://demo.shepherd.run";
   }
 
   .pulse {
+    position: relative;
     flex: 0 0 auto;
     width: 0.6rem;
     height: 0.6rem;
     border-radius: 50%;
     background: var(--amber);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent);
-    animation: pulse 2s ease-out infinite;
+  }
+
+  /* Ring is a scaled pseudo-element: transform + opacity stay on the compositor. */
+  .pulse::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--amber) 70%, transparent);
+    opacity: 0;
+    animation: pulse 2s ease-out 4;
   }
 
   @keyframes pulse {
     0% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent);
+      transform: scale(1);
+      opacity: 1;
     }
-    70% {
-      box-shadow: 0 0 0 0.45rem transparent;
-    }
+    70%,
     100% {
-      box-shadow: 0 0 0 0 transparent;
+      transform: scale(2.5);
+      opacity: 0;
     }
   }
 
@@ -248,6 +258,9 @@ const DEMO_URL = "https://demo.shepherd.run";
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .pulse::after {
+      animation: none;
+    }
     .btn {
       transition: none;
     }

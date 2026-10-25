@@ -7071,5 +7071,10 @@
   "topbar_held_after_unknown": "Wartet, bis eine andere Aufgabe gemergt ist",
   "native_held_reason_after": "Zurückgehalten, bis der PR der Vorgänger-Aufgabe gemergt ist.",
   "feat_task_after_title": "Aufgaben, die aufeinander warten",
-  "feat_task_after_body": "Starte eine Aufgabe mit shepherd new --after TASK-07, dann wartet sie unter Zurückgehaltene Aufgaben, bis der PR von TASK-07 gemergt ist, und startet danach auf der frischen Basis. Laufende Agenten erfahren außerdem, wenn ihr Basis-Branch neue Commits bekommt, samt Liste, damit sie rebasen können."
+  "feat_task_after_body": "Starte eine Aufgabe mit shepherd new --after TASK-07, dann wartet sie unter Zurückgehaltene Aufgaben, bis der PR von TASK-07 gemergt ist, und startet danach auf der frischen Basis. Laufende Agenten erfahren außerdem, wenn ihr Basis-Branch neue Commits bekommt, samt Liste, damit sie rebasen können.",
+  "viewport_select_text": "Text auswählen",
+  "viewport_select_text_hint": "Lange drücken zum Auswählen, dann im Menü kopieren",
+  "viewport_select_text_done": "Fertig",
+  "feat_terminal_touch_select_title": "Terminal-Text auf dem Handy auswählen und kopieren",
+  "feat_terminal_touch_select_body": "Drücke lange auf das Terminal oder tippe in der Tastenleiste auf die Schaltfläche zum Textauswählen. Die Ausgabe öffnet sich als reiner Text, den du mit den Auswahlgriffen deines Handys markieren und kopieren kannst. Fertig schließt sie."
 }

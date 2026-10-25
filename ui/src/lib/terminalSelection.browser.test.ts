@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { trimTrailingWhitespace } from "./terminalSelection";
+import { bufferText, trimTrailingWhitespace } from "./terminalSelection";
 
 // Integration coverage against a REAL @xterm/xterm instance — the two claims the
 // fix depends on that a string-only unit test cannot prove:
@@ -35,6 +35,16 @@ afterEach(() => {
 });
 
 describe("terminal selection copy (real xterm)", () => {
+  it("bufferText keeps a space that lands on the soft-wrap column", async () => {
+    const t = mount(10, 4);
+    // "git commit" fills the 10 columns; the space after it sits in column 0 of
+    // the wrapped row, and "fix the" puts a space exactly at the next wrap column
+    await write(t, "git commit -m fix the bug\r\n$ ");
+    expect(bufferText(t.buffer.active)).toBe("git commit -m fix the bug\n$");
+    await write(t, "\r\n123456789 next");
+    expect(bufferText(t.buffer.active)).toBe("git commit -m fix the bug\n$\n123456789 next");
+  });
+
   it("getSelection() keeps TUI trailing padding; trimTrailingWhitespace removes it", async () => {
     const t = mount();
     // two backslash-continued lines, each with trailing padding spaces after the "\"

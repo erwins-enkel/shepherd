@@ -7071,5 +7071,10 @@
   "topbar_held_after_unknown": "Waiting on another task to land",
   "native_held_reason_after": "Held until its predecessor's PR lands.",
   "feat_task_after_title": "Tasks that wait for each other",
-  "feat_task_after_body": "Start a task with shepherd new --after TASK-07 and it waits in Held tasks until TASK-07's PR has merged, then starts on the fresh base. Running agents are also told when their base branch gains new commits, with the list, so they can rebase."
+  "feat_task_after_body": "Start a task with shepherd new --after TASK-07 and it waits in Held tasks until TASK-07's PR has merged, then starts on the fresh base. Running agents are also told when their base branch gains new commits, with the list, so they can rebase.",
+  "viewport_select_text": "Select text",
+  "viewport_select_text_hint": "Long-press to select, then copy from the menu",
+  "viewport_select_text_done": "Done",
+  "feat_terminal_touch_select_title": "Select and copy terminal text on your phone",
+  "feat_terminal_touch_select_body": "Long-press the terminal or tap the select-text button in the key row. The output opens as plain text you can select with your phone's own handles and copy. Done closes it."
 }

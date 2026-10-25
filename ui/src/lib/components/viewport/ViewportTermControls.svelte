@@ -16,6 +16,7 @@
     uploadFailed,
     attachFiles,
     onsummon,
+    onselect,
   }: {
     mobile: boolean;
     touch: boolean;
@@ -28,6 +29,7 @@
     uploadFailed: boolean;
     attachFiles: (files: FileList | File[]) => void;
     onsummon: () => void;
+    onselect: () => void;
   } = $props();
 
   let fileInput = $state<HTMLInputElement>();
@@ -134,6 +136,32 @@
           /></svg
         >
       {/if}
+    </button>
+    <!-- select-text: opens the touch select sheet (the long-press on the terminal does
+         the same; this is its visible entry point). pointerup + preventDefault like
+         Enter, so the tap never blurs the terminal. -->
+    <button
+      type="button"
+      class="attach"
+      title={m.viewport_select_text()}
+      aria-label={m.viewport_select_text()}
+      onpointerup={(e) => {
+        e.preventDefault();
+        onselect();
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        ><path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1" /><path
+          d="M7 22h1a4 4 0 0 0 4-4v-1"
+        /><path d="M7 2h1a4 4 0 0 1 4 4v1" /></svg
+      >
     </button>
     <!-- include is a membership filter; ControlBar renders in palette order (nav-first,
          see controlKeys). Listed nav-first here only to mirror the actual render order. -->

@@ -633,6 +633,31 @@ export interface DiffResult {
   files: DiffFile[];
 }
 
+/** One commit on the session branch that its remote-tracking branch lacks. */
+export interface UnpushedCommit {
+  sha: string;
+  subject: string;
+  authoredAt: number; // epoch ms
+}
+
+/** Live git state of a session's worktree against its base (#2587). Git fields are null for a
+ *  non-isolated session (no branch of its own). */
+export interface WorktreeStatus {
+  base: string; // logical base branch, e.g. "main"
+  baseRef: string; // ref compared against, e.g. "origin/main" or "main"
+  fetchFailed: boolean; // true when `git fetch` failed and the local ref was used
+  head: string | null; // session branch; null for non-isolated sessions
+  headSha: string | null;
+  mergeBase: string | null; // the commit the branch forked from (merge-base of baseRef and HEAD)
+  baseSha: string | null; // baseRef's tip
+  behindBase: number | null; // commits on baseRef that HEAD lacks
+  aheadOfBase: number | null; // commits on HEAD that baseRef lacks
+  upstream: string | null; // `origin/<branch>` when it exists; null = never pushed
+  unpushedCount: number | null;
+  unpushed: UnpushedCommit[]; // newest first, capped
+  dirty: boolean | null; // uncommitted or untracked changes in the worktree
+}
+
 // ── herdr version update check (informational only) ─────────────────────────
 export interface HerdrUpdateResult {
   ok: boolean;

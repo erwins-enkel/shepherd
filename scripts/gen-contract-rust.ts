@@ -255,10 +255,15 @@ function resolveResponse(doc: Obj, resp: unknown, pointer: string): Obj {
   return structuredClone(target);
 }
 
-/** The body a response declares: null when bodyless, else its `application/json` schema. */
+/** Stands for a raw `application/octet-stream` body, which progenitor hands back as a byte stream. */
+const BINARY_BODY = { binary: true } as const;
+
+/** The body a response declares: null when bodyless, {@link BINARY_BODY} for a lone
+ *  `application/octet-stream` download, else its `application/json` schema. */
 function responseBody(resp: Obj, pointer: string): unknown {
   if (!isObj(resp.content)) return null;
   const types = Object.keys(resp.content);
+  if (types.length === 1 && types[0] === "application/octet-stream") return BINARY_BODY;
   const json = resp.content["application/json"];
   if (types.length !== 1 || !isObj(json) || !("schema" in json)) {
     throw new Error(
@@ -289,6 +294,8 @@ function unifyGroup(doc: Obj, op: Obj, group: ResponseGroup, pointer: string): v
   const bodies = resolved.map((r, i) => responseBody(r, ptr(pointer, group.statuses[i]!)));
   const distinct = distinctBodies(bodies);
   if (distinct.length <= 1) return;
+  if (bodies.includes(BINARY_BODY))
+    throw new Error(`unsupported responses at ${pointer}: a binary body cannot share a group`);
   if (distinct.includes(null)) {
     if (group.suffix === "Success") {
       throw new Error(

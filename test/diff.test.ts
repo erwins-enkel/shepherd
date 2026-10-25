@@ -320,3 +320,25 @@ test("hasCommittedChanges: prefers origin/<base> when present, falls back to loc
     rmSync(repo2, { recursive: true, force: true });
   }
 });
+
+test("computeDiff: worktree mode adds uncommitted edits; default stays committed-only", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-diff-wt-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "one\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(repo, "a.txt"), "one\ntwo\n");
+    git(repo, "commit", "-q", "-am", "feature change");
+    writeFileSync(join(repo, "a.txt"), "one\ntwo\nthree\n");
+
+    const committed = await computeDiff(repo, "main", "feature");
+    expect(committed.files[0]!.additions).toBe(1);
+    const wt = await computeDiff(repo, "main", "feature", undefined, { worktree: true });
+    expect(wt.files).toHaveLength(1);
+    expect(wt.files[0]!.additions).toBe(2);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});

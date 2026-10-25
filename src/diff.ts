@@ -225,7 +225,7 @@ const REMOTE = "origin";
 const MAX_BUFFER = 64 * 1024 * 1024; // 64 MiB — large diffs exceed the 1 MiB default
 
 /** Pin for git in a session worktree — from the trusted repo path when the caller has it. */
-async function pinFor(worktreePath: string, repoPath?: string): Promise<GitPin | null> {
+export async function pinFor(worktreePath: string, repoPath?: string): Promise<GitPin | null> {
   return repoPath ? resolveWorktreePin(repoPath, worktreePath) : null;
 }
 
@@ -245,7 +245,7 @@ async function refExists(cwd: string, ref: string, pin: GitPin | null): Promise<
  * prefer origin/<base>; fall back to local <base> when the fetch fails or the
  * remote-tracking ref doesn't resolve. Returns the chosen ref + whether fetch failed.
  */
-async function resolveBaseRef(
+export async function resolveBaseRef(
   cwd: string,
   base: string,
   pin: GitPin | null,
@@ -303,9 +303,25 @@ export async function hasCommittedChanges(
   }
 }
 
+/** The `git diff` range argument: three-dot `<ref>...HEAD` (committed only), or — in worktree mode —
+ *  the merge-base sha alone, which diffs it against the working tree (uncommitted tracked edits too). */
+async function diffRange(
+  cwd: string,
+  ref: string,
+  pin: GitPin | null,
+  worktree: boolean,
+): Promise<string> {
+  if (!worktree) return `${ref}...HEAD`;
+  const { stdout } = await timedAsync("git merge-base", () =>
+    execGit(["merge-base", ref, "HEAD"], { cwd, pin }),
+  );
+  return stdout.trim();
+}
+
 /**
  * Structured diff of a session's branch against its (freshly fetched) base.
- * Uses three-dot `<baseRef>...HEAD` = merge-base→HEAD = "what would merge".
+ * Uses three-dot `<baseRef>...HEAD` = merge-base→HEAD = "what would merge"; with
+ * `opts.worktree` it diffs merge-base→working tree instead (untracked files excluded).
  * Non-isolated sessions (no branch) return an empty result for the empty state.
  * `repoPath` pins the gitdir as in {@link hasCommittedChanges}.
  */
@@ -314,14 +330,16 @@ export async function computeDiff(
   base: string,
   branch: string | null,
   repoPath?: string,
+  opts: { worktree?: boolean } = {},
 ): Promise<DiffResult> {
   if (!branch) {
     return { base, baseRef: base, head: null, fetchFailed: false, truncated: false, files: [] };
   }
   const pin = await pinFor(worktreePath, repoPath);
   const { ref, fetchFailed } = await resolveBaseRef(worktreePath, base, pin);
+  const range = await diffRange(worktreePath, ref, pin, opts.worktree === true);
   const { stdout } = await timedAsync("git diff", () =>
-    execGit(["diff", "--no-color", `${ref}...HEAD`], {
+    execGit(["diff", "--no-color", range], {
       cwd: worktreePath,
       maxBuffer: MAX_BUFFER,
       pin,

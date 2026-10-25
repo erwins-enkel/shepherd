@@ -68,6 +68,7 @@ const SESSION_READS = new Set([
   "scratchpad/download",
   "worktree",
   "worktree/download",
+  "worktree/status",
   "queue",
   "git",
   "git/reviewers",

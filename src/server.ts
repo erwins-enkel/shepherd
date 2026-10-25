@@ -254,6 +254,7 @@ import { listBranches } from "./branches";
 import { computeDiff, toSessionDiff } from "./diff";
 import { buildDiffNotes } from "./diff-annotations";
 import { resolveDiffBase } from "./diff-base";
+import { computeWorktreeStatus } from "./worktree-status";
 import { readSessionUsage, jsonlPathFor, type SessionUsageRollup } from "./usage";
 import { CodexTranscriptLocator, codexSessionActivity } from "./codex-activity";
 import { buildUsageBreakdown } from "./usage-breakdown";
@@ -4605,14 +4606,17 @@ async function sessionMessagesRead(id: string, url: URL, deps: AppDeps): Promise
   return json(await sessionMessages(s, path, { limit, includeUser }));
 }
 
-async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
+async function sessionDiffRead(id: string, url: URL, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
   try {
     // Diff against the PR's actual base (so it matches the PR's "Files changed" even when
     // the PR targets a non-default branch), falling back to the session's stored baseBranch.
     const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
-    return json(toSessionDiff(await computeDiff(s.worktreePath, base, s.branch, s.repoPath)));
+    const worktree = ["1", "true"].includes(url.searchParams.get("worktree") ?? "");
+    return json(
+      toSessionDiff(await computeDiff(s.worktreePath, base, s.branch, s.repoPath, { worktree })),
+    );
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "diff failed" }, 500);
   }
@@ -4766,7 +4770,7 @@ async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
   // annotations must precede the bare `diff` check (which matches parts[3]==="diff" regardless).
   if (parts[3] === "diff" && parts[4] === "annotations")
     return sessionDiffAnnotationsRead(parts[2], deps);
-  if (parts[3] === "diff") return sessionDiffRead(parts[2], deps);
+  if (parts[3] === "diff") return sessionDiffRead(parts[2], url, deps);
   // Leftover subprocesses/proxies that would survive this session's close. An OBJECT, not
   // the bare array it used to be: on a host where detection is dead the array is `[]`,
   // indistinguishable from "nothing is running", and the close-confirm would tell the
@@ -4895,12 +4899,24 @@ async function worktreeList(s: Session, rel: string): Promise<Response> {
   return json({ error: "not found" }, 404);
 }
 
+// Live git state of the worktree against its base (#2587): fork point, behind/ahead, unpushed
+// commits, dirty. Base resolution matches /diff. git failure → 500, like /diff.
+async function worktreeStatusRead(s: Session, deps: AppDeps): Promise<Response> {
+  try {
+    const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
+    return json(await computeWorktreeStatus(s.worktreePath, base, s.branch, s.repoPath));
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "worktree status failed" }, 500);
+  }
+}
+
 async function handleSessionWorktree({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[3] !== "worktree") return null;
   const s = deps.store.get(parts[2] ?? "");
   if (!s || s.status === "archived") return json({ error: "not found" }, 404);
   const rel = url.searchParams.get("path") ?? "";
   if (parts[4] === "download") return worktreeDownload(s, rel);
+  if (parts[4] === "status" && !parts[5]) return worktreeStatusRead(s, deps);
   if (!parts[4]) return worktreeList(s, rel);
   return null;
 }

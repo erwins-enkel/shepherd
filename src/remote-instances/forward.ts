@@ -84,6 +84,7 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "GET usage",
   "GET worktree",
   "GET worktree/download",
+  "GET worktree/status",
   "GET scratchpad",
   "GET scratchpad/download",
   "POST scratchpad/upload",

@@ -21,6 +21,8 @@ read after `upnext:changed`; legacy `upnext:snapshot` frames remain receive-comp
 `mergePullRequest`, `listAutomerge` and `setSessionAutomerge`.
 `sessions list --all` (#2590) adds `listArchivedSessions`.
 `shepherd messages` and `sessions show` add `getSessionMessages` (#2585).
+`shepherd git <session>`, `diff` and `cat` add `getSessionWorktreeStatus`, `getSessionDiff` and
+`getSessionWorktreeFile` (#2587).
 `test/contract/rust-derivation.test.ts` pins both lists. The spec calls the terminal block `x-shepherd-protocol`;
 here it is `x-shepherd-pty`, next to `x-shepherd-events`, so the two socket catalogues read as a
 pair.

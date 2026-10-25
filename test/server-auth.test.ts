@@ -227,6 +227,21 @@ test("login: 11th attempt per peer → 429 with Retry-After, before any verify",
   expect(res.headers.get("set-cookie")).toBeNull();
 });
 
+test("login: raw loopback client at 429 does not lock out a proxied operator (#3368)", async () => {
+  await withServer(async (port) => {
+    const attempt = (headers: Record<string, string> = {}) =>
+      fetch(`http://127.0.0.1:${port}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify({ password: "wrong" }),
+      });
+    for (let i = 0; i < 10; i++) expect((await attempt()).status).toBe(401);
+    expect((await attempt()).status).toBe(429);
+    const proxied = await attempt({ "tailscale-user-login": "op@example.com" });
+    expect(proxied.status).toBe(401);
+  });
+});
+
 test("login: body over 4 KiB → 413 (declared Content-Length)", async () => {
   const app = makeApp(makeDeps());
   const res = await app.fetch(loginReq(JSON.stringify({ password: "x".repeat(5000) })));

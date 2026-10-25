@@ -138,8 +138,9 @@ test("outstanding codes are capped and attempts are bounded across all peers", (
   expect(svc.consume(oldest.code)).toBe(false);
   expect(svc.consume(next[0]!.code)).toBe(true);
   // 30 attempts a minute in total (#3338), however many distinct peers make them.
-  for (let i = 0; i < 30; i++) expect(svc.allowAttempt(`peer-${i}`)).toBe(true);
-  expect(svc.allowAttempt("extra")).toBe(false);
+  for (let i = 0; i < 30; i++)
+    expect(svc.allowAttempt({ proxied: false, key: `peer-${i}` })).toBe(true);
+  expect(svc.allowAttempt({ proxied: false, key: "extra" })).toBe(false);
   now = 60_000;
-  expect(svc.allowAttempt("extra")).toBe(true);
+  expect(svc.allowAttempt({ proxied: false, key: "extra" })).toBe(true);
 });

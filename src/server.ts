@@ -741,7 +741,7 @@ export interface AppDeps {
    *  `session:preview` events are emitted via PreviewService.onChange in index.ts. */
   preview?: {
     snapshot(): Record<string, SessionPreviewState>;
-    ensure?(sessionId: string, devPort: number): number | null;
+    ensure?(sessionId: string, devPort: number, upstreamPort?: number): number | null;
     /** The session's live dev-server port, or null when no preview listener is bound. */
     devPortFor?(sessionId: string): number | null;
   };
@@ -5294,15 +5294,34 @@ async function parsePreviewStartCommand(req: Request): Promise<string | undefine
   return rawCommand || undefined;
 }
 
+/** The session's running dev server: its port and the loopback port the preview dials. An
+ *  egress-confined session's server lives in its netns, invisible to the host scan, so it is
+ *  found by the netns probe and dialled via the slirp host forward (#2902). */
+async function existingDevTarget(
+  s: Session,
+  deps: AppDeps,
+  launcher: PreviewLauncher,
+): Promise<{ devPort: number; upstreamPort: number } | null> {
+  if (!s.egressApplied) {
+    const devPort = await launcher.findDevPort(s.worktreePath, s.id);
+    return devPort === null ? null : { devPort, upstreamPort: devPort };
+  }
+  const fwd = deps.netnsDevForward;
+  const devPort = fwd ? await fwd.devPort(s.id) : null;
+  if (!fwd || devPort === null) return null;
+  const upstreamPort = await fwd.forward(s.id, devPort);
+  return upstreamPort === null ? null : { devPort, upstreamPort };
+}
+
 async function bindExistingPreviewServer(
   id: string,
   s: Session,
   deps: AppDeps,
   launcher: PreviewLauncher,
 ): Promise<Response | null> {
-  const devPort = await launcher.findDevPort(s.worktreePath, s.id);
-  if (devPort === null) return null;
-  const previewPort = deps.preview?.ensure?.(id, devPort) ?? null;
+  const target = await existingDevTarget(s, deps, launcher);
+  if (target === null) return null;
+  const previewPort = deps.preview?.ensure?.(id, target.devPort, target.upstreamPort) ?? null;
   if (previewPort === null) return json({ error: "preview_slot_unavailable" }, 503);
   return json({
     ok: true,

@@ -473,7 +473,7 @@ describe("the preview of a mirrored session (#2767)", () => {
     expect(start.status).toBe(200);
     expect(await start.json()).toMatchObject({ ok: true, mode: "local", alreadyRunning: true });
     expect(machine.findDevPort).toHaveBeenCalledWith(repo, remote.id);
-    expect(machine.ensure).toHaveBeenCalledWith(remote.id, 5173);
+    expect(machine.ensure).toHaveBeenCalledWith(remote.id, 5173, 5173);
     // The machine's frame reaches dashboards through the mirror, marked as the machine's.
     const frame = await until(
       () => relayed.find(([event]) => event === "session:preview"),

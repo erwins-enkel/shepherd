@@ -19184,6 +19184,75 @@
         }
       }
     },
+    "native_ios_upnext_filter_button": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_filter_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_filter_footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gilt auch für Backlog und Neue Aufgabe. Auf dem Server gespeichert, auf jedem Gerät gleich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also applies to Backlog and New Task. Saved on the server, the same on every device."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_filter_mixed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemischt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixed"
+          }
+        }
+      }
+    },
     "native_ios_usage_warning": {
       "comment": "%1$@ = agent, %2$@ = window, %3$@ = pct",
       "extractionState": "manual",

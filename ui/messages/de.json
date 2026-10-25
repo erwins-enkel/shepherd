@@ -7155,6 +7155,10 @@
   "settings_repo_overrides_differs": "Weicht vom Standard ab",
   "upnext_filter_repo_overrides": "Ausnahmen pro Repo →",
   "upnext_filter_empty_by_repo": "{count} durch Ausnahmen pro Repo",
+  "native_ios_upnext_filter_button": "Filter · {count}",
+  "native_ios_upnext_filter_done": "Fertig",
+  "native_ios_upnext_filter_footer": "Gilt auch für Backlog und Neue Aufgabe. Auf dem Server gespeichert, auf jedem Gerät gleich.",
+  "native_ios_upnext_filter_mixed": "Gemischt",
   "feat_repo_issue_filter_overrides_title": "Ausnahmen pro Repo im Issue-Filter",
   "feat_repo_issue_filter_overrides_body": "Gib einem einzelnen Repo eine eigene Regel — alle Issues, meine & nicht zugewiesene, nur meine oder ausgeblendet — statt des Standardfilters. Einstellbar unter Einstellungen › Arbeitsbereich › Ausnahmen pro Repo; Als Nächstes, Backlog und Neue Aufgabe folgen."
 }

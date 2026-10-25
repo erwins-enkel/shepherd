@@ -107,6 +107,9 @@ struct ComposeSourceSheet: View {
                     Picker(L.t("upnext_filter_scope_heading"), selection: $model.filter.scope) {
                         ForEach(IssueFilterSettings.Scope.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
                     }
+                    Picker(L.t("upnext_filter_forks_heading"), selection: $model.filter.forks) {
+                        ForEach(IssueFilterSettings.Forks.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
+                    }
                     Toggle(L.t("issues_filter_active_label"), isOn: $model.filter.hideActive)
                     Toggle(L.t("issues_filter_subissues_label"), isOn: $model.filter.hideSubIssues)
                     Toggle(L.t("issues_filter_blocked_label"), isOn: $model.filter.hideBlocked)

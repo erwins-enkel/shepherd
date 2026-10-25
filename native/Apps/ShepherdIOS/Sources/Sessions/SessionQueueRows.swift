@@ -6,10 +6,13 @@ import ShepherdKit
 struct IOSUpNextRows: View {
     let model: QueuesModel?
     let repos: Set<String>
+    let filter: IOSUpNextFilter
     @State private var sort: UpNextSort = .newest
     @State private var expanded: Set<String> = []
+    @State private var filterOpen = false
     var body: some View {
         let groups = UpNextPresentation.groups(model?.upNext, sort: sort, repos: repos)
+        IOSUpNextFilterHeader(filter: filter, repos: repos, open: $filterOpen)
         Picker(L.t("upnext_sort_aria"), selection: $sort) {
             ForEach(UpNextSort.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
         }
@@ -20,8 +23,13 @@ struct IOSUpNextRows: View {
         } else {
             switch UpNextPresentation.phase(model?.upNext, failed: model?.upNextLoadFailed ?? false, groups: groups) {
             case .failed: Text(L.t("common_issues_load_failed"))
-            case .empty: Text(repos.isEmpty ? L.t("upnext_empty")
-                : L.t("upnext_repo_filter_empty", repos.sorted().map(DonePresentation.repoBasename).joined(separator: ", ")))
+            case .empty:
+                if case let .filtered(hidden, reasons) = IOSUpNextEmpty.choose(filter, repos: repos) {
+                    IOSUpNextFilteredEmpty(hidden: hidden, reasons: reasons) { filterOpen = true }
+                } else {
+                    Text(repos.isEmpty ? L.t("upnext_empty")
+                        : L.t("upnext_repo_filter_empty", repos.sorted().map(DonePresentation.repoBasename).joined(separator: ", ")))
+                }
             case .computing: ProgressView(L.t("common_loading"))
             case .ready: EmptyView()
             }
@@ -32,7 +40,7 @@ struct IOSUpNextRows: View {
                     let item = row.item
                     VStack(alignment: .leading, spacing: 6) {
                         Text(verbatim: "#\(item.number) \(item.title)").sessionFont(weight: .semibold)
-                        Text(verbatim: item.repoLabel).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
+                        IOSUpNextRepoLine(item: item)
                         if item.priority { Text(L.t("upnext_pill_priority")).sessionFont(label: true).foregroundStyle(SessionListStyle.amber) }
                     }
                     .padding(.vertical, 6).listRowBackground(SessionListStyle.panel)
@@ -45,6 +53,23 @@ struct IOSUpNextRows: View {
                 }
             }
         }
+    }
+}
+
+/// The item's repo, tagged FORK or UPSTREAM in a fork repo.
+struct IOSUpNextRepoLine: View {
+    let item: UpNextItem
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(verbatim: item.repoLabel)
+            if let tag = UpNextFilterPresentation.forkTag(item) {
+                Text(verbatim: tag.uppercased()).padding(.horizontal, 4)
+                    .overlay { RoundedRectangle(cornerRadius: 2).stroke(SessionListStyle.line, lineWidth: 0.5) }
+                    .accessibilityLabel(Text(verbatim: tag))
+                    .accessibilityIdentifier("queues-upnext-tag-\(UpNextPresentation.key(item))")
+            }
+        }
+        .sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
     }
 }
 

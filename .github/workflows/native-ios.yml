@@ -15,9 +15,12 @@ name: native-ios
 #
 # One build, no rebuilds: `build-ios-app.sh --for-testing` compiles the app and
 # both test bundles once, for arm64 only, and every test step runs them with
-# `--without-building`. A PR runs the unit and iPhone UI bundles. The iPad UI
-# bundle needs a second simulator boot, so it runs on push to main, or on a PR
-# labelled `ci:full-native` (from its next push: a re-run keeps the old labels).
+# `--without-building` from the build's `.xctestrun` (#3354). Pre-booting the
+# iPhone simulator during the build was measured slower on the 7 GB runner
+# (build ~180-290 s -> ~620 s), so the unit step still boots it. A PR runs the
+# unit and iPhone UI bundles. The iPad UI bundle needs a second simulator boot,
+# so it runs on push to main, or on a PR labelled `ci:full-native` (from its
+# next push: a re-run keeps the old labels).
 on:
   pull_request:
     branches: [main, "epic/**"]

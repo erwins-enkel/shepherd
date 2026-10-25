@@ -100,8 +100,11 @@ LOCK=/Users/kai.osthoff/.claude/projects/-Users-kai-osthoff-githubrepos-shepherd
 
 To build once and test without rebuilding, as CI does, build with
 `build-ios-app.sh Debug --for-testing` (host architecture only, test bundles included) and pass
-`--without-building` to each `test-ios-app.sh` run. CI runs the iPad UI bundle only on push to
-`main` or on a PR labelled `ci:full-native`; see [CI](development.md#ci).
+`--without-building` to each `test-ios-app.sh` run. That runs the single `.xctestrun` the build
+wrote under `Apps/ShepherdIOS/.build/Build/Products`, without loading the project; a stale second
+one (for example after an SDK update) is an unmet gate, so remove `.build` and rebuild. CI runs
+the iPad UI bundle only on push to `main` or on a PR labelled `ci:full-native`; see
+[CI](development.md#ci).
 
 CI uses `native/scripts/uitest-lock.sh`. Tests select available iOS 18+ devices by
 numeric runtime version, then name and UDID. The family selector refuses to replace

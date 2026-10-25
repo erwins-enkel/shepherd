@@ -9,7 +9,7 @@ const REQUIRED = [
   ["-packageAuthorizationProvider", "netrc"],
   ["-scmProvider", "system"],
 ] as const;
-const EXEMPT = new Set(["-version", "-downloadComponent", "-exportArchive"]);
+const EXEMPT = new Set(["-version", "-downloadComponent", "-exportArchive", "-xctestrun"]);
 const ACTIONS = "build|test|archive|analyze|clean|build-for-testing|test-without-building|docbuild";
 // A call starts with an option or an action, so prose ("before xcodebuild, so …") never matches.
 const CALL = new RegExp(`\\bxcodebuild\\s+(?=-|(?:${ACTIONS})\\b)`, "g");
@@ -80,9 +80,10 @@ describe("package-resolving xcodebuild calls", () => {
         "native/scripts/uitest-lock.sh xcodebuild -version",
         "run: native/scripts/uitest-lock.sh xcodebuild -downloadComponent MetalToolchain",
         'xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath "$EXPORT"',
+        'xcodebuild -xctestrun "$XCTESTRUN" -destination "$D" test-without-building',
       ].join("\n"),
     );
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
     expect(calls.every((call) => !call.resolving)).toBe(true);
   });
 

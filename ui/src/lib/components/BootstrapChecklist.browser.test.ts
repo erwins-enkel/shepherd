@@ -34,7 +34,7 @@ describe("BootstrapChecklist (#3112)", () => {
       .filter({ hasText: m.bootstrap_checklist_step_scaffold() });
     await expect.element(current).toHaveAttribute("aria-current", "step");
     await page.getByRole("button", { name: m.bootstrap_checklist_start_scaffold() }).click();
-    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p1", "bootstrap");
+    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p1", "scaffold");
   });
 
   it("P4 drafts the epic; a running session is opened instead", async () => {
@@ -43,6 +43,14 @@ describe("BootstrapChecklist (#3112)", () => {
     render(BootstrapChecklist, { repoPath: "/repo-p4", onbootstrapstep });
     await page.getByRole("button", { name: m.bootstrap_checklist_start_epic() }).click();
     expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p4", "epic");
+  });
+
+  it("P3 starts the gap sweep", async () => {
+    mockApi({ ...ACTIVE, phase: 3, next: { kind: "bootstrap", phase: 3, sessionId: null } });
+    const onbootstrapstep = vi.fn();
+    render(BootstrapChecklist, { repoPath: "/repo-p3-gaps", onbootstrapstep });
+    await page.getByRole("button", { name: m.bootstrap_checklist_start_gaps() }).click();
+    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p3-gaps", "gaps");
   });
 
   it("opens a running session", async () => {

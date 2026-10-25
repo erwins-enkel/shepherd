@@ -6575,6 +6575,8 @@
   "bootstrap_checklist_state_current": "(aktuell)",
   "bootstrap_checklist_state_todo": "(offen)",
   "bootstrap_checklist_epic_seed": "Entwirf das Backlog-Epic für dieses frisch aufgesetzte Projekt (Bootstrap-Phase P4). Starte bei den `## M0 candidates` in docs/decisions/0002-product-decisions.md und decke dann das PRD in docs/prd gegen das vorhandene Gerüst ab. Nur Absicht — keine Versionsnummern in den Akzeptanzkriterien.",
+  "bootstrap_checklist_scaffold_seed": "Setze dieses Projekt aus dem PRD in docs/prd auf (Bootstrap-Phasen P1+P2). Schlag mir den Stack zur Bestätigung vor, pinne ihn in CLAUDE.md, erstelle das Gerüst und richte alle Guardrails ein — ein PR.",
+  "bootstrap_checklist_gaps_seed": "Führe den Bootstrap-Gap-Sweep (Phase P3) auf dem vorhandenen Gerüst durch. Gleiche das PRD in docs/prd mit dem Design ab, kläre die offenen Produktentscheidungen mit mir, halte sie in docs/decisions/0002-product-decisions.md und CLAUDE.md fest und liste die `## M0 candidates` auf — ein reiner Doku-PR.",
   "tooltip_bootstrap_seq_summary": "Shepherd führt ein neues Projekt durch die Bootstrap-Phasen und schlägt jeweils die nächste Session vor.",
   "tooltip_bootstrap_seq_advance": "Wie es weitergeht",
   "tooltip_bootstrap_seq_advance_body": "Der Merge des Bootstrap-PRs führt zu P3, der des P3-PRs zu P4, die Freigabe des Backlog-Epics zur Abschlussprüfung. Ein Neustart verliert nichts.",

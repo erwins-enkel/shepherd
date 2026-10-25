@@ -21,7 +21,7 @@
     onopenreadiness = undefined,
   }: {
     repoPath: string;
-    onbootstrapstep?: (repoPath: string, kind: "bootstrap" | "epic") => void;
+    onbootstrapstep?: (repoPath: string, kind: "scaffold" | "gaps" | "epic") => void;
     onopensession?: (sessionId: string) => void;
     onopenreadiness?: () => void;
   } = $props();
@@ -73,7 +73,8 @@
 
   function run(a: ChecklistAction) {
     if (a.kind === "open-session") onopensession?.(a.sessionId);
-    else if (a.kind === "start-bootstrap") onbootstrapstep?.(repoPath, "bootstrap");
+    else if (a.kind === "start-bootstrap")
+      onbootstrapstep?.(repoPath, a.phase >= 3 ? "gaps" : "scaffold");
     else if (a.kind === "start-epic") onbootstrapstep?.(repoPath, "epic");
     else onopenreadiness?.();
   }

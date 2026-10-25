@@ -1183,9 +1183,10 @@
   }
 
   // Backlog bootstrap checklist (#3112): the composer preset for the repo's next step — the
-  // bootstrap kind (the server picks P1+P2 or P3 from the repo's phase) or the P4 epic, seeded
-  // with the M0 candidates P3 recorded. The operator still submits; nothing auto-spawns.
-  function onbootstrapstep(repoPath: string, kind: "bootstrap" | "epic") {
+  // bootstrap kind (the server picks P1+P2 or P3 from the repo's phase; the seed matches it) or
+  // the P4 epic, seeded with the M0 candidates P3 recorded. The operator still submits; nothing
+  // auto-spawns.
+  function onbootstrapstep(repoPath: string, kind: "scaffold" | "gaps" | "epic") {
     if (kind === "epic") {
       ondraftepic(repoPath);
       composePrompt = m.bootstrap_checklist_epic_seed();
@@ -1194,6 +1195,8 @@
     composeRepoPath = repoPath;
     composeIssue = null;
     composeBootstrap = true;
+    composePrompt =
+      kind === "gaps" ? m.bootstrap_checklist_gaps_seed() : m.bootstrap_checklist_scaffold_seed();
     showNew = true;
     showBacklog = false;
   }

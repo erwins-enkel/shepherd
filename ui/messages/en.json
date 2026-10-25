@@ -6575,6 +6575,8 @@
   "bootstrap_checklist_state_current": "(current)",
   "bootstrap_checklist_state_todo": "(open)",
   "bootstrap_checklist_epic_seed": "Draft the backlog epic for this freshly bootstrapped project (bootstrap phase P4). Start from the `## M0 candidates` in docs/decisions/0002-product-decisions.md, then cover the PRD in docs/prd against the scaffold that exists. Intent only — no version numbers in acceptance criteria.",
+  "bootstrap_checklist_scaffold_seed": "Bootstrap this project from the PRD in docs/prd (bootstrap phases P1+P2). Propose the stack for my confirmation, pin it in CLAUDE.md, scaffold the app and wire every guardrail — one PR.",
+  "bootstrap_checklist_gaps_seed": "Run the bootstrap gap sweep (phase P3) on the scaffold that exists. Sweep the PRD in docs/prd against the design, settle the open product decisions with me, record them in docs/decisions/0002-product-decisions.md and CLAUDE.md, and list the `## M0 candidates` — one docs-only PR.",
   "tooltip_bootstrap_seq_summary": "Shepherd leads a new project through its bootstrap phases and proposes each next session.",
   "tooltip_bootstrap_seq_advance": "How it advances",
   "tooltip_bootstrap_seq_advance_body": "Merging the bootstrap PR moves to P3, merging the P3 PR to P4, approving the backlog epic to the exit check. A restart loses nothing.",

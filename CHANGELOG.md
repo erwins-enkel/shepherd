@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.5.0](https://github.com/erwins-enkel/shepherd/compare/v2.4.0...v2.5.0) (2026-10-25)
+
+
+### Features
+
+* **cli:** derived session phase in sessions list/show ([#2586](https://github.com/erwins-enkel/shepherd/issues/2586)) ([#3359](https://github.com/erwins-enkel/shepherd/issues/3359)) ([b8f68de](https://github.com/erwins-enkel/shepherd/commit/b8f68deb8ba52bb68e719b06fc13d83cafe57daf))
+* **cli:** worktree state without SSH — git &lt;session&gt;, diff, cat ([#3356](https://github.com/erwins-enkel/shepherd/issues/3356)) ([1290144](https://github.com/erwins-enkel/shepherd/commit/1290144a6ac56fd09242a03d743c1433b39be85d))
+* **hooks:** show ExitPlanMode plan + arm block edge on PreToolUse ([#2779](https://github.com/erwins-enkel/shepherd/issues/2779)) ([#3361](https://github.com/erwins-enkel/shepherd/issues/3361)) ([443111c](https://github.com/erwins-enkel/shepherd/commit/443111c030b15e816e4e65ff86d43a6d393d92e0))
+* **preview:** relay egress session's in-netns dev server via slirp forward ([#2902](https://github.com/erwins-enkel/shepherd/issues/2902)) ([#3355](https://github.com/erwins-enkel/shepherd/issues/3355)) ([5171486](https://github.com/erwins-enkel/shepherd/commit/5171486db8fd0ca3e9806ad5a02b3cbcc54297b6))
+* task dependencies (--after) + base-moved notice ([#3360](https://github.com/erwins-enkel/shepherd/issues/3360)) ([fb889c2](https://github.com/erwins-enkel/shepherd/commit/fb889c2939d505963248252c1acd534435c5a6b9)), closes [#2589](https://github.com/erwins-enkel/shepherd/issues/2589)
+* **ui:** optional PRD markdown upload on new project PRD brief ([#3390](https://github.com/erwins-enkel/shepherd/issues/3390)) ([316cea9](https://github.com/erwins-enkel/shepherd/commit/316cea9404ad75d02f8f3661e4c1c064a2e9d300))
+* **ui:** select + copy terminal text on touch devices ([#3399](https://github.com/erwins-enkel/shepherd/issues/3399)) ([04292ee](https://github.com/erwins-enkel/shepherd/commit/04292ee3fcaba78950d13f6904ecf8f59a94d13b))
+
+
+### Bug Fixes
+
+* **cli:** sanitize server/agent text before writing to TTY ([#3364](https://github.com/erwins-enkel/shepherd/issues/3364)) ([#3395](https://github.com/erwins-enkel/shepherd/issues/3395)) ([2954f87](https://github.com/erwins-enkel/shepherd/commit/2954f87b785927ffc79289728526b033302bf367))
+* **github:** open-PR snapshot on change, targeted transient poll ([#2799](https://github.com/erwins-enkel/shepherd/issues/2799)) ([#3357](https://github.com/erwins-enkel/shepherd/issues/3357)) ([2ca7220](https://github.com/erwins-enkel/shepherd/commit/2ca7220cbd9021af05e07145f34b9946cdc98e83))
+* **security:** accept any valid shepherd_session so planted sibling can't shadow it ([#3365](https://github.com/erwins-enkel/shepherd/issues/3365)) ([#3394](https://github.com/erwins-enkel/shepherd/issues/3394)) ([cff44d6](https://github.com/erwins-enkel/shepherd/commit/cff44d65a46aef9c6e01460bde0c677aed70cb1c))
+* **security:** bind assistant merge approval to PR head; expire action requests ([#3378](https://github.com/erwins-enkel/shepherd/issues/3378)) ([7ecb9aa](https://github.com/erwins-enkel/shepherd/commit/7ecb9aab8a3c6c40707b66fde037dc5193859e75))
+* **security:** bind proxied login/pair throttle to proxy socket UID ([#3368](https://github.com/erwins-enkel/shepherd/issues/3368)) ([#3396](https://github.com/erwins-enkel/shepherd/issues/3396)) ([dc1ba8b](https://github.com/erwins-enkel/shepherd/commit/dc1ba8b7da3ee8102acee670bd4db2fbea635e2a))
+* **security:** cap unauthenticated /api/pair body at 1 KiB ([#3369](https://github.com/erwins-enkel/shepherd/issues/3369)) ([#3385](https://github.com/erwins-enkel/shepherd/issues/3385)) ([bb34ffa](https://github.com/erwins-enkel/shepherd/commit/bb34ffa5e9c3e3fea89c683948795e3852e96f5a))
+* **security:** doc-agent finalize runs only trusted install code on worktree ([#3377](https://github.com/erwins-enkel/shepherd/issues/3377)) ([0a274a4](https://github.com/erwins-enkel/shepherd/commit/0a274a4a570cbb0022d2658ea1f770144fd613ee))
+* **security:** fail-closed read-only git store carve-outs in membrane ([#3375](https://github.com/erwins-enkel/shepherd/issues/3375)) ([3d5c0cb](https://github.com/erwins-enkel/shepherd/commit/3d5c0cb29fd5812e622c79c0833f7cc7648c16cb))
+* **security:** gate epic auto-land on critic verdict for landing head ([#3383](https://github.com/erwins-enkel/shepherd/issues/3383)) ([6a6979f](https://github.com/erwins-enkel/shepherd/commit/6a6979f443335b8a3118098f262d1911ae269303)), closes [#3367](https://github.com/erwins-enkel/shepherd/issues/3367)
+* **security:** honor host-only cookies in confined attach ([#3366](https://github.com/erwins-enkel/shepherd/issues/3366)) ([#3393](https://github.com/erwins-enkel/shepherd/issues/3393)) ([0c63634](https://github.com/erwins-enkel/shepherd/commit/0c6363412de8517e1490019305ac30922fbf40fb))
+* **security:** isolate preview slot origin state across owners ([#3374](https://github.com/erwins-enkel/shepherd/issues/3374)) ([899e1f8](https://github.com/erwins-enkel/shepherd/commit/899e1f805603415633b456911da42e1637042e58))
+* **security:** keep ingress key off curl argv; refuse archived sessions ([#3388](https://github.com/erwins-enkel/shepherd/issues/3388)) ([04135a0](https://github.com/erwins-enkel/shepherd/commit/04135a0319437a3e3e2655cb9615475103b66d85))
+* **security:** re-check loopback listener owner before every CLI connection ([#3372](https://github.com/erwins-enkel/shepherd/issues/3372)) ([e992ce0](https://github.com/erwins-enkel/shepherd/commit/e992ce071cd04204cd712604b0b54856abf1fa20))
+* **security:** read-only per-worktree config and info/ in membrane git store ([#3391](https://github.com/erwins-enkel/shepherd/issues/3391)) ([9a36cfd](https://github.com/erwins-enkel/shepherd/commit/9a36cfd002e2b3e41426fed47622b547099f677d))
+* **security:** split login/pair throttle by loopback proxy identity ([#3368](https://github.com/erwins-enkel/shepherd/issues/3368)) ([#3386](https://github.com/erwins-enkel/shepherd/issues/3386)) ([dd1c4fd](https://github.com/erwins-enkel/shepherd/commit/dd1c4fd82f29e5961cffd5afddfdbbd9016aa1dd))
+* **security:** token below full may only tighten spawn sandbox profile ([#3376](https://github.com/erwins-enkel/shepherd/issues/3376)) ([a4671ed](https://github.com/erwins-enkel/shepherd/commit/a4671ed719cd11838e125eb91a65aafd7d8c3888))
+* **security:** unterminated fence marker can't unfence content ([#3371](https://github.com/erwins-enkel/shepherd/issues/3371)) ([#3382](https://github.com/erwins-enkel/shepherd/issues/3382)) ([8cbacb1](https://github.com/erwins-enkel/shepherd/commit/8cbacb10f2eaa72039b6af73625e5d34370790ef))
+* **ui:** enter submits question forms; ask dialog waits for open dialogs ([#3403](https://github.com/erwins-enkel/shepherd/issues/3403)) ([b20b046](https://github.com/erwins-enkel/shepherd/commit/b20b046f0852b02a124ebab0b6b706878bc6696b))
+* **ui:** keep decommissioning row dimmed until archived ([#3380](https://github.com/erwins-enkel/shepherd/issues/3380)) ([be1b5a6](https://github.com/erwins-enkel/shepherd/commit/be1b5a6fe75d29d2cd1bb81eb75e0b6751a6fb14))
+* **ui:** seed prompt for bootstrap P1+P2 and P3 checklist steps ([#3397](https://github.com/erwins-enkel/shepherd/issues/3397)) ([#3398](https://github.com/erwins-enkel/shepherd/issues/3398)) ([8ba41b2](https://github.com/erwins-enkel/shepherd/commit/8ba41b256be8e7af03cf4872200de7bb56e27abf))
+
+
+### Documentation
+
+* highlights since 2.0 for 2.5 (docs site + landing) ([#3402](https://github.com/erwins-enkel/shepherd/issues/3402)) ([a55aad3](https://github.com/erwins-enkel/shepherd/commit/a55aad3b262df8639bed3ab124df83d58d17af6f))
+
 ## [2.4.0](https://github.com/erwins-enkel/shepherd/compare/v2.3.1...v2.4.0) (2026-10-25)
 
 

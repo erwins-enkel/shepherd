@@ -175,14 +175,19 @@ export function resolvePreviewPort(opts: {
   return previewPort;
 }
 
-/** True when a cookie for `domain` belongs to an allowed host (or to `localhost` when allowed). */
+/**
+ * True when a cookie for CDP `domain` belongs to an allowed host (or to `localhost` when allowed).
+ * Only a Domain-attribute cookie (leading dot) covers subdomains; a host-only cookie (no dot)
+ * matches an identical host alone, so a parent's host-only cookie never leaks (#3366).
+ */
 export function cookieMatchesHosts(
   domain: string,
   hosts: readonly string[],
   includeLocalhost: boolean,
 ): boolean {
+  const hostOnly = !domain.startsWith(".");
   const d = domain.replace(/^\./, "").toLowerCase();
   if (!d) return false;
   if (d === "localhost") return includeLocalhost;
-  return hosts.some((h) => h === d || h.endsWith(`.${d}`));
+  return hosts.some((h) => h === d || (!hostOnly && h.endsWith(`.${d}`)));
 }

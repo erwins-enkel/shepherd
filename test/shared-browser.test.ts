@@ -615,6 +615,19 @@ test("confined attach: proxied context seeded with allowlisted cookies only", as
   expect(liveTimers(60_000)).toHaveLength(1);
 });
 
+test("confined attach: host-only parent-domain cookie is not seeded (#3366)", async () => {
+  const { m, sent } = await confinedSetup([
+    { name: "hostonly", value: "1", domain: "example.com", path: "/" },
+    { name: "domain", value: "2", domain: ".example.com", path: "/" },
+    { name: "exact", value: "3", domain: "app.example.com", path: "/" },
+  ]);
+  await (
+    await m.attach("/r/a", sink(), { policy: policy(["app.example.com"]) })
+  ).ready;
+  const set = (await sent()).find((x) => x.method === "Storage.setCookies")!;
+  expect(set.params.cookies.map((c: { name: string }) => c.name)).toEqual(["domain", "exact"]);
+});
+
 test("confined attach: localhost cookies only with a Preview origin, never the Shepherd session", async () => {
   const { m, sent } = await confinedSetup([
     { name: "dev", value: "3", domain: "localhost" },

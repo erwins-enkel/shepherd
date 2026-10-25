@@ -167,6 +167,7 @@ import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
 import { BacklogPoller, reposUsedSince, createBacklogBroadcast } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos, upNextChangePublisher } from "./up-next";
+import { ISSUE_FILTER_SETTING, storedIssueFilter } from "./issue-filter";
 import { ReadinessScorer } from "./up-next-readiness";
 import { GreenfieldService } from "./greenfield";
 import { reconcileBootstrapPhases } from "./bootstrap-phases";
@@ -4017,6 +4018,8 @@ const upNext = new UpNextService({
   buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
   getEpicRun: (repoPath) => store.getEpicRun(repoPath),
   onChange: upNextChangePublisher(events),
+  // The operator's issue filter (#3017), read per build so a PATCH lands on the next refilter.
+  issueFilter: () => storedIssueFilter(store.getSetting(ISSUE_FILTER_SETTING)),
   // Readiness rerank (#2535): effective only while BOTH the setting and the judge itself are on
   // (which needs a key) — read per compute, so either toggle, or a key saved in Settings, lands on
   // the next refresh.
@@ -4163,6 +4166,7 @@ const appDeps: AppDeps = {
     refresh: () => upNext.refresh(),
     refreshIfStale: (maxAgeMs) => upNext.refreshIfStale(maxAgeMs),
     recomputeUntilCleared: (started) => upNext.recomputeUntilCleared(started),
+    refilter: () => upNext.refilter(),
     hiddenRepoPathsRaw: () =>
       reconcileRealPathsToRaw(store.hiddenRepoPaths(), listRepos(config.repoRoot)),
   },

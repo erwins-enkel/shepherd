@@ -35,7 +35,14 @@
     repoRootDisplay = "~/projects",
   }: {
     onclose?: () => void;
-    ondone: (entry: RepoEntry & { warning?: string }, kickoff: KickoffChoice, idea: string) => void;
+    /** `customize`: "Create & adjust before starting" — the first session waits for the operator
+     *  instead of starting by itself. */
+    ondone: (
+      entry: RepoEntry & { warning?: string },
+      kickoff: KickoffChoice,
+      idea: string,
+      customize: boolean,
+    ) => void;
     repoRootDisplay?: string;
   } = $props();
 
@@ -159,7 +166,7 @@
     return undefined;
   }
 
-  async function submit(e: Event) {
+  async function submit(e: Event, customize = false) {
     e.preventDefault();
     const trimmedName = name.trim();
     const trimmedIdea = idea.trim();
@@ -178,11 +185,11 @@
         },
         submitDocs(),
       );
-      ondone(entry, resolveKickoff(), trimmedIdea);
+      ondone(entry, resolveKickoff(), trimmedIdea, customize);
     } catch (err) {
       const code = err instanceof Error ? err.message.replace(/^newproject_failed_/, "") : "";
       error = msg(code);
-      retry = () => submit(e);
+      retry = () => submit(e, customize);
     } finally {
       submitting = false;
     }
@@ -322,6 +329,14 @@
 
     <button class="run" type="submit" disabled={!canSubmit}>
       {submitting ? m.newproject_creating() : m.newproject_submit()}
+    </button>
+    <button
+      class="gbtn customize"
+      type="button"
+      disabled={!canSubmit}
+      onclick={(e) => submit(e, true)}
+    >
+      {m.newproject_submit_customize()}
     </button>
   </form>
 </div>
@@ -507,6 +522,33 @@
     opacity: 0.5;
     cursor: default;
   }
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .customize {
+    align-self: center;
+    margin-top: 4px;
+  }
 
   @media (max-width: 768px) {
     .overlay {
@@ -527,7 +569,8 @@
       /* 16px no-zoom font-size comes from the global iOS guard in app.css */
       min-height: 44px;
     }
-    .run {
+    .run,
+    .customize {
       min-height: 44px;
     }
     .chead {

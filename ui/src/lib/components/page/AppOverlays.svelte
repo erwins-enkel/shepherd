@@ -126,6 +126,7 @@
     composeEpicAuthoring,
     composePlain,
     composeBootstrap,
+    composeAutostart,
     usageLimits = null,
     holdLikely,
     onnewclose,
@@ -269,6 +270,7 @@
     composeEpicAuthoring: boolean;
     composePlain: boolean;
     composeBootstrap: boolean;
+    composeAutostart: boolean;
     usageLimits?: UsageLimits | null;
     holdLikely: boolean;
     onnewclose: () => void;
@@ -307,6 +309,7 @@
       entry: { path: string; warning?: string },
       kickoff: KickoffChoice,
       idea: string,
+      customize: boolean,
     ) => void;
     showBroadcast: boolean;
     onbroadcastclose: () => void;
@@ -596,6 +599,7 @@
             initialEpicAuthoring={composeEpicAuthoring}
             initialPlain={composePlain}
             initialBootstrap={composeBootstrap}
+            autostart={composeAutostart}
             {usageLimits}
             defaultAgentProvider={newTaskDefaultAgentProvider}
             defaultModel={settings?.defaultModel}
@@ -685,9 +689,9 @@
 {/if}
 
 {#if showNewProject}
-  <!-- ondone auto-selects the new repo in NewTask + prefills the kickoff seed.
-       A warning (partial success: local ok, GitHub failed) surfaces as a non-blocking
-       info toast — the flow still proceeds to NewTask with the repo preselected. -->
+  <!-- ondone opens NewTask on the new repo with the kickoff seed, which submits itself
+       unless the operator chose to adjust first. A warning (partial success: local ok,
+       GitHub failed) surfaces as a non-blocking info toast — the flow still proceeds. -->
   <LazyMount load={loadNewProject} onerror={onnewprojectclose}>
     {#snippet children(NewProject)}
       <NewProject

@@ -126,6 +126,7 @@ function baseProps(): Props {
     composeEpicAuthoring: false,
     composePlain: false,
     composeBootstrap: false,
+    composeAutostart: false,
     holdLikely: false,
     onnewclose: vi.fn(),
     onnewclone: vi.fn(),
@@ -632,4 +633,25 @@ it("still opens a closable recovery dialog if bootstrap status was unavailable",
   await page.getByRole("button", { name: m.herdrupdate_later(), exact: true }).click();
   await expect.poll(() => document.querySelector("#nt-prompt")?.closest("[hidden]")).toBeNull();
   expect(document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.value).toBe("Unsaved draft");
+});
+
+it("starts the composer New Project seeded by itself (Create & start)", async () => {
+  const onsubmit = vi.fn().mockResolvedValue(undefined);
+  await render(AppOverlays, {
+    props: {
+      ...baseProps(),
+      store,
+      settings: null,
+      showNew: true,
+      composeRepoPath: "/repo/fresh-project",
+      composePrompt: "Build this project",
+      composeAutostart: true,
+      onsubmit,
+    },
+  });
+  await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+  expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+    repoPath: "/repo/fresh-project",
+    prompt: "Build this project",
+  });
 });

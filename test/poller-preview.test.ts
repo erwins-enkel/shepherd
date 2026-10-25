@@ -1341,3 +1341,123 @@ test("preview sweep (null scan): does not converge, so bound listeners are not t
   expect(convergeArgs).toEqual([]);
   void s;
 });
+
+// ── egress-confined sessions: in-netns dev server via the slirp forward (#2902) ──
+
+/** A poller whose wiring records scan targets, converge sets and idle-stop calls. */
+function makeNetnsPoller(opts: {
+  store: SessionStore;
+  netns?: {
+    devPort: (id: string) => Promise<number | null>;
+    forward: (id: string, port: number) => Promise<number | null>;
+  };
+}) {
+  const scanned: string[][] = [];
+  const convergeArgs: Array<Array<{ sessionId: string; devPort: number; upstreamPort?: number }>> =
+    [];
+  const stopCalls: string[] = [];
+  const clock = { v: 100_000 };
+  const poller = new StatusPoller(
+    opts.store,
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock.v,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service: {
+        ensure: () => null,
+        release: () => {},
+        converge: (active) => convergeArgs.push([...active]),
+        snapshot: () => ({}),
+        idleSince: () => 60_000,
+      },
+      sweepMs: 4000,
+      scan: (targets) => {
+        scanned.push(targets.map((t) => t.sessionId ?? ""));
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of targets) m.set(t.worktreePath, { ports: [5173], hintDirs: [] });
+        return m;
+      },
+      pick: async () => 5173,
+      netns: opts.netns,
+      idleStop: {
+        idleMs: 1,
+        stop: (sessionId) => {
+          stopCalls.push(sessionId);
+          return { result: "stopped" as const, killed: 1 };
+        },
+      },
+    },
+  );
+  return { poller, clock, scanned, convergeArgs, stopCalls };
+}
+
+test("preview sweep (egress): relays to the netns forward, never host-scanned or idle-stopped", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSessionInput, egressApplied: true });
+  store.update(s.id, { status: "idle" });
+  const forwardCalls: Array<[string, number]> = [];
+  const { poller, clock, scanned, convergeArgs, stopCalls } = makeNetnsPoller({
+    store,
+    netns: {
+      devPort: async () => 5173,
+      forward: async (id, port) => {
+        forwardCalls.push([id, port]);
+        return 41234;
+      },
+    },
+  });
+  await runSweep(clock, poller);
+  expect(convergeArgs[0]).toEqual([{ sessionId: s.id, devPort: 5173, upstreamPort: 41234 }]);
+  expect(forwardCalls).toEqual([[s.id, 5173]]);
+  expect(scanned).toEqual([]); // the only session is confined: no host scan at all
+  expect(stopCalls).toEqual([]);
+});
+
+test("preview sweep (egress): no verified dev port or failed forward → not in converge", async () => {
+  for (const netns of [
+    { devPort: async () => null, forward: async () => 41234 },
+    { devPort: async () => 5173, forward: async () => null },
+  ]) {
+    const store = new SessionStore(":memory:");
+    store.create({ ...baseSessionInput, egressApplied: true });
+    const { poller, clock, convergeArgs } = makeNetnsPoller({ store, netns });
+    await runSweep(clock, poller);
+    expect(convergeArgs[0]).toEqual([]);
+  }
+});
+
+test("preview sweep (egress): no netns wiring → confined session gets no preview", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSessionInput, egressApplied: true });
+  const { poller, clock, scanned, convergeArgs } = makeNetnsPoller({ store });
+  await runSweep(clock, poller);
+  expect(scanned).toEqual([]);
+  expect(convergeArgs[0]).toEqual([]);
+});
+
+test("preview sweep (egress): mixed — only the host session is scanned", async () => {
+  const store = new SessionStore(":memory:");
+  const confined = store.create({ ...baseSessionInput, egressApplied: true });
+  const hosted = store.create({ ...baseSessionInput, worktreePath: "/wt-b" });
+  const { poller, clock, scanned, convergeArgs } = makeNetnsPoller({
+    store,
+    netns: { devPort: async () => 3000, forward: async () => 41000 },
+  });
+  await runSweep(clock, poller);
+  expect(scanned).toEqual([[hosted.id]]);
+  expect(convergeArgs[0]).toContainEqual({
+    sessionId: confined.id,
+    devPort: 3000,
+    upstreamPort: 41000,
+  });
+  expect(convergeArgs[0]).toContainEqual({ sessionId: hosted.id, devPort: 5173 });
+});

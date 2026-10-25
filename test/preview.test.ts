@@ -420,6 +420,12 @@ test("rewriteLoopbackLocation: loopback on a DIFFERENT port is left untouched", 
   expect(h.get("location")).toBe("http://127.0.0.1:9999/api");
 });
 
+test("rewriteLoopbackLocation: either given port (dev or forwarded upstream) → path-relative", () => {
+  const h = new Headers({ location: "http://127.0.0.1:41234/next" });
+  rewriteLoopbackLocation(h, 5173, 41234);
+  expect(h.get("location")).toBe("/next");
+});
+
 test("rewriteLoopbackLocation: cross-origin redirect (OAuth) is left untouched", () => {
   const h = new Headers({ location: "https://accounts.google.com/o/oauth2?id=1" });
   rewriteLoopbackLocation(h, 5173);
@@ -1197,6 +1203,27 @@ test("PreviewService: re-ensure updates devPort live without rebind, no onChange
   } finally {
     svc.stopAll();
   }
+});
+
+test("PreviewService: upstreamPort — HTTP and WS dial it, devPortFor keeps devPort (#2902)", async () => {
+  const http = httpUpstream({ echoPath: true });
+  const port = service!.ensure("s1", 5173, portOf(http));
+  expect(service!.devPortFor("s1")).toBe(5173);
+  expect(await (await fetch(`http://127.0.0.1:${port}/x?y=1`)).text()).toBe("/x?y=1");
+
+  // Re-ensure moves the upstream live (netns respawn → new forward), WS included.
+  const ws = wsUpstream("from-forward");
+  expect(service!.ensure("s1", 5173, portOf(ws))).toBe(port);
+  expect(await collectWsMessages(`ws://127.0.0.1:${port}/`, 1)).toEqual(["from-forward"]);
+  expect(service!.devPortFor("s1")).toBe(5173);
+});
+
+test("PreviewService: converge carries upstreamPort through to ensure", async () => {
+  const up = httpUpstream({ body: "fwd" });
+  service!.converge([{ sessionId: "s1", devPort: 5173, upstreamPort: portOf(up) }]);
+  const port = service!.snapshot()["s1"]?.previewPort;
+  expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("fwd");
+  expect(service!.devPortFor("s1")).toBe(5173);
 });
 
 test("PreviewService: onChange fires on first bind and on release", () => {

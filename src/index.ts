@@ -1513,6 +1513,8 @@ const poller = new StatusPoller(
     sweepMs: config.previewSweepMs,
     // Drives the probe-snapshot refresh for BOTH sweeps through the shared reaper.
     refresh: (opts) => reaper.refresh(opts),
+    // Egress-confined sessions: in-netns dev server, relayed via the slirp forward (#2902).
+    netns: netnsDevForward,
     idleStop: {
       idleMs: config.previewIdleStopMs,
       // Returns the stop outcome so the escalation ladder can refuse to advance on

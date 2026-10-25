@@ -534,6 +534,7 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 
 /** Per-WS-connection relay state attached via `server.upgrade(req, { data })`. */
 interface RelayData {
+  /** Loopback port the relay dials: the listener's upstream port. */
   devPort: number;
   /** Path + query to dial on the upstream (e.g. "/?token=…"). */
   path: string;
@@ -549,6 +550,9 @@ interface RelayData {
 interface Listener {
   previewPort: number;
   devPort: number;
+  /** Loopback port the proxy dials: `devPort`, or the host port an autonomous session's
+   *  in-netns dev server is forwarded to (#2902). Live, like `devPort`. */
+  upstreamPort: number;
   server: Server<RelayData> | null;
   /** Timestamp (ms) of the last proxied HTTP request or relayed WS frame. Set at
    *  first bind; updated on every HTTP request and relayed WS frame (both directions). */
@@ -586,7 +590,8 @@ export class PreviewService {
   }
 
   /**
-   * Ensure a listener exists for `sessionId` proxying to `devPort`.
+   * Ensure a listener exists for `sessionId` proxying to `devPort` — dialled at
+   * `upstreamPort` when that differs (an in-netns dev server's host forward, #2902).
    *
    * - Already bound → UPDATE the stored devPort live (no rebind, no onChange);
    *   returns the existing preview port.
@@ -595,10 +600,11 @@ export class PreviewService {
    * - Range exhausted → log + return null (never throws).
    * - Bind error on a slot → try the next free slot; null if all fail.
    */
-  ensure(sessionId: string, devPort: number): number | null {
+  ensure(sessionId: string, devPort: number, upstreamPort: number = devPort): number | null {
     const existing = this.listeners.get(sessionId);
     if (existing) {
       existing.devPort = devPort; // live target update — the fetch/relay read this
+      existing.upstreamPort = upstreamPort;
       return existing.previewPort;
     }
 
@@ -612,7 +618,13 @@ export class PreviewService {
     }
 
     for (const previewPort of candidates) {
-      const listener: Listener = { previewPort, devPort, server: null, lastActivityAt: this.now() };
+      const listener: Listener = {
+        previewPort,
+        devPort,
+        upstreamPort,
+        server: null,
+        lastActivityAt: this.now(),
+      };
       try {
         // bind reads listener.devPort live (re-ensure mutates it), so the record
         // must exist first — server is the only field bind fills in.
@@ -660,12 +672,13 @@ export class PreviewService {
   }
 
   /** Reconcile to `active`: ensure each entry, release any bound session absent from it. */
-  converge(active: Array<{ sessionId: string; devPort: number }>): void {
+  converge(active: Array<{ sessionId: string; devPort: number; upstreamPort?: number }>): void {
     const wanted = new Set(active.map((a) => a.sessionId));
     for (const sessionId of [...this.listeners.keys()]) {
       if (!wanted.has(sessionId)) this.release(sessionId);
     }
-    for (const { sessionId, devPort } of active) this.ensure(sessionId, devPort);
+    for (const { sessionId, devPort, upstreamPort } of active)
+      this.ensure(sessionId, devPort, upstreamPort);
   }
 
   /** Live preview snapshot for client bootstrap: bound sessions only. */
@@ -722,13 +735,13 @@ export class PreviewService {
     listener: Listener,
   ): Response | Promise<Response> | undefined {
     listener.lastActivityAt = this.now(); // stamp on every HTTP request and WS upgrade
-    const devPort = listener.devPort; // live read — re-ensure may have updated it
+    const { devPort, upstreamPort } = listener; // live read — re-ensure may have updated them
     if (isWebSocketUpgrade(req)) {
       const url = new URL(req.url);
       const protocols = parseSubprotocols(req.headers.get("sec-websocket-protocol"));
       const upgraded = server.upgrade(req, {
         data: {
-          devPort,
+          devPort: upstreamPort,
           path: url.pathname + url.search,
           protocols,
           touch: () => {
@@ -746,7 +759,7 @@ export class PreviewService {
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 426 });
     }
-    return proxyHttp(req, devPort);
+    return proxyHttp(req, upstreamPort, devPort);
   }
 
   /**
@@ -793,7 +806,7 @@ function parseSubprotocols(header: string | null): string[] {
 }
 
 /**
- * Reverse-proxy a plain HTTP request to `127.0.0.1:<devPort>` with the same path,
+ * Reverse-proxy a plain HTTP request to `127.0.0.1:<upstreamPort>` with the same path,
  * query, method, headers (minus host + hop-by-hop) and a streamed body. Strips
  * content-framing + hop-by-hop + framing-blocking headers from the response (Bun's
  * fetch decodes the body, so a forwarded content-encoding/length would break it).
@@ -802,9 +815,9 @@ function parseSubprotocols(header: string | null): string[] {
  * naming it is dropped; other app cookies pass both ways.
  * Fails closed with a 502 if upstream throws.
  */
-async function proxyHttp(req: Request, devPort: number): Promise<Response> {
+async function proxyHttp(req: Request, upstreamPort: number, devPort: number): Promise<Response> {
   const url = new URL(req.url);
-  const target = `http://127.0.0.1:${devPort}${url.pathname}${url.search}`;
+  const target = `http://127.0.0.1:${upstreamPort}${url.pathname}${url.search}`;
 
   const headers = new Headers(req.headers);
   for (const h of STRIPPED_REQUEST_HEADERS) headers.delete(h);
@@ -831,7 +844,7 @@ async function proxyHttp(req: Request, devPort: number): Promise<Response> {
   for (const h of STRIPPED_RESPONSE_HEADERS) respHeaders.delete(h);
   stripFramingHeaders(respHeaders);
   stripSessionSetCookie(respHeaders);
-  rewriteLoopbackLocation(respHeaders, devPort);
+  rewriteLoopbackLocation(respHeaders, devPort, upstreamPort);
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
@@ -846,9 +859,10 @@ async function proxyHttp(req: Request, devPort: number): Promise<Response> {
  * than following an unreachable loopback URL. The redirect: "manual" proxy passes Location
  * through verbatim, so a dev server's own absolute self-redirect (trailing-slash, base
  * path, post-login) would otherwise strand the browser. Already-relative Locations and
- * genuinely cross-origin redirects (OAuth providers, CDNs) are left untouched.
+ * genuinely cross-origin redirects (OAuth providers, CDNs) are left untouched. `ports` are the
+ * dev port plus, for a forwarded in-netns dev server, the host port the proxy dialled (#2902).
  */
-export function rewriteLoopbackLocation(headers: Headers, devPort: number): void {
+export function rewriteLoopbackLocation(headers: Headers, ...ports: number[]): void {
   const loc = headers.get("location");
   if (loc === null) return;
   let u: URL;
@@ -858,7 +872,7 @@ export function rewriteLoopbackLocation(headers: Headers, devPort: number): void
     return; // relative Location — already resolves against the preview origin
   }
   const isLoopbackHost = u.hostname === "127.0.0.1" || u.hostname === "localhost";
-  if (isLoopbackHost && u.port === String(devPort)) {
+  if (isLoopbackHost && ports.some((p) => u.port === String(p))) {
     headers.set("location", u.pathname + u.search + u.hash);
   }
 }

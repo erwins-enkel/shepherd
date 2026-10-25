@@ -53,6 +53,7 @@ import { config } from "./config";
 import { SessionLiveness, type LivenessOutcome, type TranscriptSignals } from "./session-liveness";
 import { CodexTranscriptLocator, readCodexTranscriptSignals } from "./codex-activity";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import type { NetnsDevForwarder } from "./netns-dev-forward";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 const AUTH_SIG = "auth"; // fixed signature → a resting MCP-auth block fires once per episode
@@ -98,7 +99,7 @@ export interface PreviewWiring {
   service: {
     ensure(sessionId: string, devPort: number): number | null;
     release(sessionId: string): void;
-    converge(active: Array<{ sessionId: string; devPort: number }>): void;
+    converge(active: Array<{ sessionId: string; devPort: number; upstreamPort?: number }>): void;
     snapshot(): Record<string, { previewPort: number | null }>;
     /** Ms since last proxy activity for a bound session, null if unbound.
      *  Optional so existing fake `service` literals in tests still compile. */
@@ -120,6 +121,10 @@ export interface PreviewWiring {
    *  hint (if listening + HTTP-live) and otherwise falls back to the primary-port heuristic.
    *  `hintDirs` is worktree-root-first; see `resolveDevPort`. */
   pick: (ports: number[], hintDirs: string[]) => Promise<number | null>;
+  /** An egress-confined session's dev server lives in its netns, invisible to `scan` (#2902):
+   *  its dev port comes from the netns probe and the listener relays to the slirp host forward.
+   *  Absent = such sessions get no preview (never a relay to a same-numbered host port). */
+  netns?: Pick<NetnsDevForwarder, "devPort" | "forward">;
   /** Opt-in idle-stop. idleMs > 0 enables it; `stop` signals a session's dev-server
    *  process (wired to SessionService.stopPreview in index.ts). Returns the stop
    *  outcome. The two that signalled NOTHING must NOT advance the escalation ladder:
@@ -191,6 +196,28 @@ function resolveBackgroundBusyWiring(
     scan: partial?.scan ?? ((worktrees) => scanBackgroundShellsByWorktree(worktrees)),
     sweepMs: partial?.sweepMs ?? config.previewSweepMs,
     onChange: partial?.onChange ?? (() => {}),
+  };
+}
+
+/** Merge supplied preview overrides with real defaults. When preview is omitted entirely
+ *  this is a no-op wiring so tick() never throws on undefined access. */
+function resolvePreviewWiring(preview: Partial<PreviewWiring> | undefined): PreviewWiring {
+  return {
+    service: preview?.service ?? {
+      ensure: () => null,
+      release: () => {},
+      converge: () => {},
+      snapshot: () => ({}),
+      idleSince: () => null,
+    },
+    sweepMs: preview?.sweepMs ?? config.previewSweepMs,
+    refresh: preview?.refresh,
+    scan:
+      preview?.scan ??
+      ((targets) => scanListeningPortsByWorktree(targets, undefined, agentTmpDir())),
+    pick: preview?.pick ?? ((ports, hintDirs) => resolveDevPort(ports, hintDirs)),
+    netns: preview?.netns,
+    idleStop: preview?.idleStop,
   };
 }
 
@@ -645,24 +672,7 @@ export class StatusPoller {
             )
           : { snapshot: null, activity: null };
       });
-    // Merge supplied overrides with real defaults. When preview is omitted entirely
-    // we create a no-op wiring so tick() never throws on undefined access.
-    this.previewWiring = {
-      service: preview?.service ?? {
-        ensure: () => null,
-        release: () => {},
-        converge: () => {},
-        snapshot: () => ({}),
-        idleSince: () => null,
-      },
-      sweepMs: preview?.sweepMs ?? config.previewSweepMs,
-      refresh: preview?.refresh,
-      scan:
-        preview?.scan ??
-        ((targets) => scanListeningPortsByWorktree(targets, undefined, agentTmpDir())),
-      pick: preview?.pick ?? ((ports, hintDirs) => resolveDevPort(ports, hintDirs)),
-      idleStop: preview?.idleStop,
-    };
+    this.previewWiring = resolvePreviewWiring(preview);
     this.livenessWiring = {
       scan: liveness?.scan ?? ((worktrees) => scanClaudeAliveByWorktree(worktrees)),
       sweepMs: liveness?.sweepMs ?? config.previewSweepMs,
@@ -2456,11 +2466,17 @@ export class StatusPoller {
    */
   private async runPreviewSweep(isolated: Session[]): Promise<void> {
     const now = this.now();
-    // Single /proc scan for ALL sessions — never once per session. Session ids ride along
+    // Egress-confined sessions' dev servers live in their netns: the host scan can't see them.
+    const confined = isolated.filter((s) => s.egressApplied);
+    const hosted = isolated.filter((s) => !s.egressApplied);
+    // Single /proc scan for ALL host sessions — never once per session. Session ids ride along
     // so a scratchpad-rooted server can be attributed by its inherited marker.
-    const portsMap = this.previewWiring.scan(
-      isolated.map((s) => ({ worktreePath: s.worktreePath, sessionId: s.id })),
-    );
+    const portsMap =
+      hosted.length === 0
+        ? new Map<string, WorktreeListeners>()
+        : this.previewWiring.scan(
+            hosted.map((s) => ({ worktreePath: s.worktreePath, sessionId: s.id })),
+          );
 
     // `null` = the snapshot backend can't support a negative verdict (darwin,
     // stale/none cell). An empty/partial map here would drive `converge` to tear
@@ -2468,37 +2484,64 @@ export class StatusPoller {
     // in place until the cell is fresh again.
     if (portsMap === null) return;
 
-    const active: Array<{ sessionId: string; devPort: number }> = [];
-    for (const s of isolated) {
-      const devPort = await this.pickDevPort(s, portsMap.get(s.worktreePath));
-      if (devPort === null) {
-        // Server is gone — clear any escalation state and skip (converge will release it).
-        this.previewStopState.delete(s.id);
-        this.idleStopSilentLogged.delete(s.id);
-        continue;
-      }
-
-      const idleMs = this.previewWiring.idleStop?.idleMs ?? 0;
-      if (idleMs > 0) {
-        // FRESH read from store — NOT s.status (stale: store.update doesn't mutate the hydrated object)
-        const status = this.store.get(s.id)?.status;
-        const idle = this.previewWiring.service.idleSince?.(s.id, now) ?? null;
-        if ((status === "idle" || status === "done") && idle !== null && idle >= idleMs) {
-          this.escalateIdleStop(s.id, devPort);
-          // Keep the session in `active` so the next sweep can observe whether the port
-          // died and escalate; the preview clears only when the port actually disappears.
-        } else {
-          this.previewStopState.delete(s.id); // recovered: viewed again / resumed / not stale → reset episode
-          this.idleStopSilentLogged.delete(s.id);
-        }
-      }
-
-      active.push({ sessionId: s.id, devPort });
+    const active: Array<{ sessionId: string; devPort: number; upstreamPort?: number }> = [];
+    for (const s of confined) {
+      // No idle-stop here: the host reaper can't see in-netns sockets, so it would signal nothing.
+      const target = await this.netnsPreviewTarget(s.id);
+      if (target) active.push({ sessionId: s.id, ...target });
+    }
+    for (const s of hosted) {
+      const devPort = await this.hostedPreviewDevPort(s, portsMap.get(s.worktreePath), now);
+      if (devPort !== null) active.push({ sessionId: s.id, devPort });
     }
 
     // converge releases sessions absent from `active` and ensures those present.
     // onChange (wired in index.ts) emits session:preview on real transitions only.
     this.previewWiring.service.converge(active);
+  }
+
+  /** A host session's dev port from its scan result (null = none), driving idle-stop for it. */
+  private async hostedPreviewDevPort(
+    s: Session,
+    listeners: WorktreeListeners | undefined,
+    now: number,
+  ): Promise<number | null> {
+    const devPort = await this.pickDevPort(s, listeners);
+    if (devPort === null) {
+      // Server is gone — clear any escalation state and skip (converge will release it).
+      this.previewStopState.delete(s.id);
+      this.idleStopSilentLogged.delete(s.id);
+      return null;
+    }
+
+    const idleMs = this.previewWiring.idleStop?.idleMs ?? 0;
+    if (idleMs > 0) {
+      // FRESH read from store — NOT s.status (stale: store.update doesn't mutate the hydrated object)
+      const status = this.store.get(s.id)?.status;
+      const idle = this.previewWiring.service.idleSince?.(s.id, now) ?? null;
+      if ((status === "idle" || status === "done") && idle !== null && idle >= idleMs) {
+        this.escalateIdleStop(s.id, devPort);
+        // Keep the session in `active` so the next sweep can observe whether the port
+        // died and escalate; the preview clears only when the port actually disappears.
+      } else {
+        this.previewStopState.delete(s.id); // recovered: viewed again / resumed / not stale → reset episode
+        this.idleStopSilentLogged.delete(s.id);
+      }
+    }
+    return devPort;
+  }
+
+  /** An egress-confined session's verified in-netns dev port and the host port slirp forwards it
+   *  to, or null (no netns wiring, no verified dev server, forward failed). */
+  private async netnsPreviewTarget(
+    sessionId: string,
+  ): Promise<{ devPort: number; upstreamPort: number } | null> {
+    const netns = this.previewWiring.netns;
+    if (!netns) return null;
+    const devPort = await netns.devPort(sessionId);
+    if (devPort === null) return null;
+    const upstreamPort = await netns.forward(sessionId, devPort);
+    return upstreamPort === null ? null : { devPort, upstreamPort };
   }
 
   /** Did this stop outcome signal NOTHING for a reason that must not advance the

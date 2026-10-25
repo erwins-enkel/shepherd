@@ -541,3 +541,51 @@ test("preview/start: the stored script is launched with the service's sandbox la
   expect(res.status).toBe(200);
   expect(seen).toEqual([[id, "/git/shepherd/preview-start.sh"], spec]);
 });
+
+test("preview/start (egress): binds the in-netns dev server via its slirp forward (#2902)", async () => {
+  const ensured: Array<[string, number, number | undefined]> = [];
+  let hostScanned = false;
+  const store = new SessionStore(":memory:");
+  const id = store.create({
+    name: "preview-test",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/preview-test",
+    worktreePath: "/wt/confined",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_p",
+    egressApplied: true,
+  }).id;
+  const app = makeApp({
+    store,
+    service: {} as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: {
+      snapshot: () => ({}),
+      ensure: (sessionId, devPort, upstreamPort) => {
+        ensured.push([sessionId, devPort, upstreamPort]);
+        return 8001;
+      },
+    },
+    netnsDevForward: { devPort: async () => 5173, forward: async () => 41234 },
+    previewLauncher: {
+      findDevPort: async () => {
+        hostScanned = true;
+        return 5173;
+      },
+      scriptExists: async () => true,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => "/git/shepherd/preview-start.sh",
+      startScript: async () => {},
+    },
+  });
+
+  const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ alreadyRunning: true, previewPort: 8001 });
+  expect(ensured).toEqual([[id, 5173, 41234]]);
+  expect(hostScanned).toBe(false);
+});

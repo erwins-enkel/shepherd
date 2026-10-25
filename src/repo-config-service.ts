@@ -1,11 +1,15 @@
 import type { SessionStore, RepoConfig } from "./store";
+import type { SandboxProfile } from "./sandbox";
+import { defaultSandboxProfile } from "./sandbox-default";
 
 /** The read-shape the repo-config route returns: the stored config plus the two
  *  automation-metadata flags that live OUTSIDE RepoConfig (a deliberate split —
- *  `markAutomationConfirmed` is metadata, never a config field). */
+ *  `markAutomationConfirmed` is metadata, never a config field), plus the global default
+ *  sandbox profile a `sandboxProfile: "inherit"` resolves to (#2100). */
 export type RepoConfigView = RepoConfig & {
   automationConfirmed: boolean;
   automationRowExists: boolean;
+  sandboxDefaultProfile: SandboxProfile;
 };
 
 /** A partial repo-config edit. Every field is a RepoConfig field (the route's
@@ -35,7 +39,10 @@ type RepoConfigStore = Pick<
  * never a Response or status code — so it's testable without booting makeApp.
  */
 export class RepoConfigService {
-  constructor(private store: RepoConfigStore) {}
+  constructor(
+    private store: RepoConfigStore,
+    private defaultProfile: () => SandboxProfile = defaultSandboxProfile,
+  ) {}
 
   /** The stored config plus its automation-metadata flags (the route response shape). */
   read(dir: string): RepoConfigView {
@@ -43,6 +50,7 @@ export class RepoConfigService {
       ...this.store.getRepoConfig(dir),
       automationConfirmed: this.store.isAutomationConfirmed(dir),
       automationRowExists: this.store.automationRowExists(dir),
+      sandboxDefaultProfile: this.defaultProfile(),
     };
   }
 

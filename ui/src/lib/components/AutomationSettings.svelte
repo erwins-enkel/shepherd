@@ -19,7 +19,7 @@
   import AutomationBootstrap from "./automation-settings/AutomationBootstrap.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
-  import type { Session, SandboxProfile, DrainStatus } from "#lib/types.js";
+  import type { Session, SandboxProfile, RepoSandboxSetting, DrainStatus } from "#lib/types.js";
 
   let {
     repoPath,
@@ -68,6 +68,23 @@
    *  hides just that field on `epicActive`. Only lightweight (non-forge) repos, which
    *  never drain, hide the group entirely. */
   const drainRailsActive = $derived(!lightweight && (flags.autoDrain || epicActive));
+  // #2100: standard is interactive-only, so drain/epic spawns in a repo that RESOLVES to it (incl.
+  // via "inherit") are held — say so here instead of letting the drain sit silently.
+  const SANDBOX_NAMES: Record<SandboxProfile, () => string> = {
+    trusted: m.sandbox_profile_trusted,
+    standard: m.sandbox_profile_standard,
+    autonomous: m.sandbox_profile_autonomous,
+  };
+  // The "inherit" option names what it resolves to, so the operator sees the effective default.
+  const sandboxInheritLabel = $derived.by(() => {
+    const d = repoConfig.sandboxDefaultFor(repoPath);
+    return d
+      ? m.sandbox_profile_inherit({ profile: SANDBOX_NAMES[d]() })
+      : m.sandbox_profile_inherit_unresolved();
+  });
+  const drainSandboxHeld = $derived(
+    drainRailsActive && repoConfig.effectiveSandboxProfileFor(repoPath) === "standard",
+  );
   // Switch-pulse is per-task; only meaningful when this instance is bound to a session.
   const reviewing = $derived(sessionId ? reviews.isReviewing(sessionId) : false);
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
@@ -437,6 +454,9 @@
       />
     </div>
     <div class="auto-desc">{m.automation_autodrain_desc()}</div>
+    <div class="auto-warn" role="status" hidden={!drainSandboxHeld}>
+      {m.automation_autodrain_sandbox_held()}
+    </div>
     <AutomationDetail
       id="auto-drain"
       open={openDetail === "auto-drain"}
@@ -715,8 +735,8 @@
 {/if}
 
 <!-- Sandbox confinement: a repo-wide default, independent of any switch above.
-     Opt-in (trusted = today's unconfined behavior); autonomous is required for
-     auto/drain sessions. -->
+     "inherit" follows the global default (#2100: standard where bwrap works, else trusted);
+     auto/drain sessions need autonomous or trusted. -->
 <div class="drain-fields">
   <label class="drain-field" use:coachIf={{ id: "sandbox-profile", on: armCoachmarks }}>
     <span class="drain-label">{m.automation_sandbox_profile_label()}</span>
@@ -727,9 +747,10 @@
       onchange={(e) =>
         repoConfig.setSandboxProfile(
           repoPath,
-          (e.currentTarget as HTMLSelectElement).value as SandboxProfile,
+          (e.currentTarget as HTMLSelectElement).value as RepoSandboxSetting,
         )}
     >
+      <option value="inherit">{sandboxInheritLabel}</option>
       <option value="trusted">{m.sandbox_profile_trusted()}</option>
       <option value="standard">{m.sandbox_profile_standard()}</option>
       <option value="autonomous">{m.sandbox_profile_autonomous()}</option>

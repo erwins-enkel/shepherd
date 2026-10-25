@@ -2602,6 +2602,18 @@ test("PUT /api/repo-config accepts sandboxProfile autonomous → 200 and GET ref
   expect(deps.store.getRepoConfig(validRepo).sandboxProfile).toBe("autonomous");
 });
 
+test("PUT /api/repo-config accepts sandboxProfile inherit → 200, persisted (#2100)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  await putRepoConfig(app, validRepo, { sandboxProfile: "standard" });
+  const res = await putRepoConfig(app, validRepo, { sandboxProfile: "inherit" });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { sandboxProfile: string; sandboxDefaultProfile: string };
+  expect(body.sandboxProfile).toBe("inherit");
+  expect(["trusted", "standard", "autonomous"]).toContain(body.sandboxDefaultProfile);
+  expect(deps.store.getRepoConfig(validRepo).sandboxProfile).toBe("inherit");
+});
+
 test("PUT /api/repo-config rejects unknown sandboxProfile → 400 with error message", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);

@@ -232,7 +232,7 @@ export interface AgentLaunchFact {
 }
 
 /** What the `sandbox_membrane` row classifies. `backend === null` ⇒ nothing is wrapped on this host,
- *  so there is nothing to prove and the row is not pushed at all. Agent binaries absent from PATH
+ *  so there is no launch to prove — the row reports the sandbox as unavailable instead (#2100). Agent binaries absent from PATH
  *  are omitted from `agents` — the existing `claude` / `codex` rows already report their absence. */
 export interface MembraneLaunchFacts {
   backend: SandboxBackend;

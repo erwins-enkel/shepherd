@@ -129,6 +129,22 @@ extension CoreSeamTests {
             #expect(model.repoSandboxDefault == nil && model.effectiveSandboxProfile == nil)
         }
 
+        @Test func inheritRepoSettingFollowsTheServersGlobalDefault() {
+            let model = ComposeModelTests.composer()
+            defer { model.teardown() }
+            model.repoBranches.allowsStatusProbe = false
+            model.repoPath = "/first"; model.prompt = "Task"
+            model.applyRepoSandboxDefault(stored: "inherit", globalDefault: .standard)
+            #expect(model.inheritedSandboxProfile == .standard && model.effectiveSandboxProfile == .standard)
+            model.applyRepoSandboxDefault(stored: "inherit", globalDefault: nil)
+            #expect(model.repoSandboxDefault == nil && model.effectiveSandboxProfile == nil)
+            model.applyRepoSandboxDefault(stored: "trusted", globalDefault: .standard)
+            #expect(model.effectiveSandboxProfile == .trusted)
+            model.applyRepoSandboxDefault(stored: "inherit", globalDefault: .autonomous)
+            model.setMode(.research)
+            #expect(model.effectiveSandboxProfile == .standard)
+        }
+
         private func withApp(_ run: (AppModel) async throws -> Void) async throws {
             let suite = "ComposeHandoverTests.\(UUID())"
             let defaults = try #require(UserDefaults(suiteName: suite))

@@ -4,6 +4,7 @@ import type {
   ReviewerEnv,
   RepoConfig,
   SandboxProfile,
+  RepoSandboxSetting,
   SpawnNotice,
   SpawnNoticeKind,
 } from "./types";
@@ -410,7 +411,8 @@ class RepoConfigStore {
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
   signoffAuthority = $state<Record<string, "human" | "critic" | "either">>({}); // who may promote draft PRs (default "human")
   repoMode = $state<Record<string, "forge" | "lightweight">>({}); // forge vs lightweight local mode (default "forge")
-  sandboxProfile = $state<Record<string, SandboxProfile>>({}); // per-repo sandbox confinement (default "trusted")
+  sandboxProfile = $state<Record<string, RepoSandboxSetting>>({}); // per-repo sandbox confinement (default "inherit")
+  sandboxDefault = $state<Record<string, SandboxProfile>>({}); // global default "inherit" resolves to (server-derived)
   defaultModel = $state<Record<string, string>>({}); // per-repo default-model override (default "inherit")
   defaultEffort = $state<Record<string, string>>({}); // per-repo default-effort override (default "inherit")
   previewOpenMode = $state<Record<string, RepoConfig["previewOpenMode"]>>({}); // Preview chip action (default ask)
@@ -462,6 +464,8 @@ class RepoConfigStore {
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
     this.repoMode = { ...this.repoMode, [repoPath]: c.repoMode };
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
+    if (c.sandboxDefaultProfile !== undefined)
+      this.sandboxDefault = { ...this.sandboxDefault, [repoPath]: c.sandboxDefaultProfile };
     this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.defaultEffort = { ...this.defaultEffort, [repoPath]: c.defaultEffort };
     this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: c.previewOpenMode };
@@ -746,7 +750,7 @@ class RepoConfigStore {
     });
   }
 
-  async setSandboxProfile(repoPath: string, profile: SandboxProfile) {
+  async setSandboxProfile(repoPath: string, profile: RepoSandboxSetting) {
     const prev = this.sandboxProfile[repoPath];
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: profile }; // optimistic
     await this.apply(repoPath, { sandboxProfile: profile }, () => {
@@ -965,8 +969,19 @@ class RepoConfigStore {
     return this.repoMode[repoPath] ?? "forge";
   }
 
-  sandboxProfileFor(repoPath: string): SandboxProfile {
-    return this.sandboxProfile[repoPath] ?? "trusted";
+  sandboxProfileFor(repoPath: string): RepoSandboxSetting {
+    return this.sandboxProfile[repoPath] ?? "inherit";
+  }
+
+  /** The global default an "inherit" setting resolves to; null until the server reported it. */
+  sandboxDefaultFor(repoPath: string): SandboxProfile | null {
+    return this.sandboxDefault[repoPath] ?? null;
+  }
+
+  /** The profile this repo's spawns actually run under; null while an inherited default is unknown. */
+  effectiveSandboxProfileFor(repoPath: string): SandboxProfile | null {
+    const setting = this.sandboxProfileFor(repoPath);
+    return setting === "inherit" ? this.sandboxDefaultFor(repoPath) : setting;
   }
 
   /** The repo's default-model override SETTING ("inherit" | "auto" | "default" | <model>). */

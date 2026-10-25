@@ -40,6 +40,7 @@ import {
   addOwnHostToAllowlist,
   addServedHostsToAllowlist,
 } from "./config";
+import { defaultSandboxProfile } from "./sandbox-default";
 import { SessionStore } from "./store";
 import {
   isBlockJudgeMode,
@@ -3689,7 +3690,7 @@ const herdrUpdates = new HerdrUpdateService({
   // repo configured sandboxed but with no live session isn't caught here — an accepted gap; the
   // advisory re-appears as soon as such a session runs.)
   sandboxedInUse: () =>
-    config.sandboxDefaultProfile !== "trusted" ||
+    defaultSandboxProfile() !== "trusted" ||
     store
       .list({ activeOnly: true })
       .some(

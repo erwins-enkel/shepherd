@@ -350,6 +350,7 @@ test("repo_automation reports every repo's knobs, drain and epic state", async (
       "maxAuto",
       "repoMode",
       "sandboxProfile",
+      "sandboxProfileEffective",
       "usageCeilingPct",
     ].sort(),
   );

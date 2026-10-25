@@ -5,6 +5,8 @@ import {
   resolveProfile,
   autoHoldReason,
   codexAutoHoldReason,
+  effectiveDefaultProfile,
+  isRepoSandboxSetting,
   isDegraded,
   isEgressDegraded,
   egressApplies,
@@ -1055,10 +1057,47 @@ describe("parseSandboxProfile (config helper)", () => {
     expect(parseSandboxProfile("autonomous")).toBe("autonomous");
     expect(parseSandboxProfile("trusted")).toBe("trusted");
   });
-  test("undefined / blank / garbage falls back to trusted", () => {
-    expect(parseSandboxProfile(undefined)).toBe("trusted");
-    expect(parseSandboxProfile("")).toBe("trusted");
-    expect(parseSandboxProfile("nonsense")).toBe("trusted");
+  test("undefined / blank / garbage → null (built-in default applies)", () => {
+    expect(parseSandboxProfile(undefined)).toBeNull();
+    expect(parseSandboxProfile("")).toBeNull();
+    expect(parseSandboxProfile("nonsense")).toBeNull();
+  });
+});
+
+describe("effectiveDefaultProfile (#2100)", () => {
+  const bwrap = () => "bwrap" as const;
+  const none = () => null;
+  test("unset + working backend → standard", () => {
+    expect(effectiveDefaultProfile(null, bwrap)).toBe("standard");
+  });
+  test("unset + no backend → trusted (no degraded banner on hosts that can't sandbox)", () => {
+    expect(effectiveDefaultProfile(null, none)).toBe("trusted");
+  });
+  test("an explicit choice wins and never probes", () => {
+    const boom = () => {
+      throw new Error("probed");
+    };
+    expect(effectiveDefaultProfile("trusted", boom)).toBe("trusted");
+    expect(effectiveDefaultProfile("standard", boom)).toBe("standard");
+    expect(effectiveDefaultProfile("autonomous", boom)).toBe("autonomous");
+  });
+});
+
+describe('repo setting "inherit" (#2100)', () => {
+  test("isRepoSandboxSetting accepts profiles + inherit only", () => {
+    for (const v of ["trusted", "standard", "autonomous", "inherit"]) {
+      expect(isRepoSandboxSetting(v)).toBe(true);
+    }
+    expect(isRepoSandboxSetting("default")).toBe(false);
+    expect(isRepoSandboxSetting(null)).toBe(false);
+  });
+  test("resolveProfile treats inherit as fall-through to the global default", () => {
+    expect(resolveProfile(undefined, "inherit", "standard")).toBe("standard");
+    expect(resolveProfile(undefined, "inherit", "trusted")).toBe("trusted");
+    expect(resolveProfile("autonomous", "inherit", "standard")).toBe("autonomous");
+  });
+  test("standard auto hold names both auto-capable profiles", () => {
+    expect(autoHoldReason("standard", "bwrap")).toContain("autonomous or trusted");
   });
 });
 
@@ -1383,5 +1422,16 @@ describe("buildMembraneFlags ingress spawn files (#3337)", () => {
     expect(buildMembraneFlags(fakeMembrane({ ingressFiles: [] }), detDeps)).toEqual(
       buildMembraneFlags(fakeMembrane(), detDeps),
     );
+  });
+});
+
+describe("resolveProfile lazy default (#2100)", () => {
+  test("an explicit override or repo profile never evaluates the default", () => {
+    const boom = (): "standard" => {
+      throw new Error("probed");
+    };
+    expect(resolveProfile("trusted", "inherit", boom)).toBe("trusted");
+    expect(resolveProfile(undefined, "autonomous", boom)).toBe("autonomous");
+    expect(resolveProfile(undefined, "inherit", () => "standard")).toBe("standard");
   });
 });

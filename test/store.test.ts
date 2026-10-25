@@ -348,7 +348,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     autoLabel: "shepherd:auto",
     priorityLabels: [],
     usageCeilingPct: 80,
-    sandboxProfile: "trusted",
+    sandboxProfile: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     egressExtraHosts: [],
@@ -716,7 +716,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoLabel: "shepherd:auto",
     priorityLabels: [],
     usageCeilingPct: 80,
-    sandboxProfile: "trusted",
+    sandboxProfile: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
   });
@@ -1416,9 +1416,9 @@ test("repo config: buildQueueEnabled defaults false and round-trips", () => {
   expect(store.getRepoConfig("/r").buildQueueEnabled).toBe(true);
 });
 
-test("repo config: sandboxProfile defaults trusted on a fresh DB", () => {
+test("repo config: sandboxProfile defaults inherit on a fresh DB (#2100)", () => {
   const store = new SessionStore(":memory:");
-  expect(store.getRepoConfig("/r").sandboxProfile).toBe("trusted");
+  expect(store.getRepoConfig("/r").sandboxProfile).toBe("inherit");
 });
 
 test("repo config: sandboxProfile round-trips through set/get", () => {
@@ -3030,6 +3030,56 @@ test("repo_config migration: an old row gains empty priorityLabels", () => {
     });
     const reopened = new SessionStore(dbPath);
     expect(reopened.getRepoConfig("/old").priorityLabels).toEqual(["ci-gate-rot"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── #2100: sandbox default "inherit" + legacy trusted pin ────────────────────
+test("#2100: upgrade pins repos with sessions but no row to trusted; rows + session-less repos untouched; runs once", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-sandbox-inherit-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Boot 1 models the pre-#2100 DB: sessions in /legacy (no row) and /chosen (explicit row).
+    const boot1 = new SessionStore(dbPath);
+    boot1.create({ ...base, repoPath: "/legacy", herdrAgentId: "t1" });
+    boot1.create({ ...base, repoPath: "/legacy", herdrAgentId: "t2" });
+    boot1.create({ ...base, repoPath: "/chosen", herdrAgentId: "t3" });
+    boot1.setRepoConfig("/chosen", {
+      ...boot1.getRepoConfig("/chosen"),
+      sandboxProfile: "standard",
+    });
+    const before = boot1.getRepoConfig("/legacy");
+    // ...whose upgrade has not run yet.
+    const raw = new Database(dbPath);
+    raw.run(`DELETE FROM settings WHERE key = 'sandboxInheritMigrated'`);
+    raw.close();
+
+    const boot2 = new SessionStore(dbPath);
+    expect(boot2.getRepoConfig("/legacy")).toEqual({ ...before, sandboxProfile: "trusted" });
+    expect(boot2.getRepoConfig("/chosen").sandboxProfile).toBe("standard");
+    expect(boot2.getRepoConfig("/fresh").sandboxProfile).toBe("inherit");
+    expect(boot2.getSetting("sandboxInheritMigrated")).toBe("1");
+
+    // Run-once: a repo that gains its first session afterwards is NOT pinned on a later boot.
+    boot2.create({ ...base, repoPath: "/fresh", herdrAgentId: "t4" });
+    const boot3 = new SessionStore(dbPath);
+    expect(boot3.getRepoConfig("/fresh").sandboxProfile).toBe("inherit");
+    expect(boot3.automationRowExists("/fresh")).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#2100: a fresh DB pins nothing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-sandbox-inherit-fresh-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const s = new SessionStore(dbPath);
+    expect(s.getSetting("sandboxInheritMigrated")).toBe("1");
+    const raw = new Database(dbPath);
+    expect(raw.query(`SELECT COUNT(*) AS n FROM repo_config`).get()).toEqual({ n: 0 });
+    raw.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

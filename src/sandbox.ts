@@ -6,8 +6,9 @@
  * injectable dep so tests never spawn bwrap or depend on the runner's host.
  *
  * Three profiles gate how a spawned `claude` is wrapped:
- *   - trusted    — legacy: NO sandbox, runs unconfined (passthrough). auto allowed.
- *   - standard   — wrapped in the bwrap membrane; auto refused (interactive only).
+ *   - trusted    — NO sandbox, runs unconfined (passthrough). auto allowed.
+ *   - standard   — wrapped in the bwrap membrane; auto refused (interactive only). The built-in
+ *                  default where a backend works (#2100, see effectiveDefaultProfile).
  *   - autonomous — wrapped in the membrane; auto allowed iff a backend is present.
  *
  * The membrane is a frozen, host-derived flag list validated against real
@@ -47,17 +48,39 @@ export function isSandboxProfile(v: unknown): v is SandboxProfile {
   return typeof v === "string" && (SANDBOX_PROFILES as readonly string[]).includes(v);
 }
 
-/** Per-spawn override ?? repo setting ?? global default. Invalid/blank => fall through. */
+/** A repo's stored setting: a profile, or `"inherit"` = follow the global default (#2100). */
+export type RepoSandboxSetting = SandboxProfile | "inherit";
+
+export function isRepoSandboxSetting(v: unknown): v is RepoSandboxSetting {
+  return v === "inherit" || isSandboxProfile(v);
+}
+
+/**
+ * The global default profile (#2100): the operator's explicit SHEPHERD_SANDBOX_DEFAULT_PROFILE
+ * wins; unset, it is `standard` where the bwrap backend works and `trusted` where it doesn't
+ * (macOS, missing bwrap, userns off) — so a host that can't sandbox doesn't flag every session
+ * degraded. `detect` only runs when there is no explicit choice.
+ */
+export function effectiveDefaultProfile(
+  explicit: SandboxProfile | null,
+  detect: () => SandboxBackend,
+): SandboxProfile {
+  return explicit ?? (detect() !== null ? "standard" : "trusted");
+}
+
+/** Per-spawn override ?? repo setting ?? global default. Invalid/blank/"inherit" => fall through.
+ *  A function default is only called on fall-through, so an explicit profile never pays the
+ *  backend self-test the built-in default needs (#2100). */
 export function resolveProfile(
   override: string | null | undefined,
   repoSetting: string | null | undefined,
-  defaultProfile: SandboxProfile,
+  defaultProfile: SandboxProfile | (() => SandboxProfile),
 ): SandboxProfile {
   const ov = typeof override === "string" ? override.trim() : "";
   if (isSandboxProfile(ov)) return ov;
   const rs = typeof repoSetting === "string" ? repoSetting.trim() : "";
   if (isSandboxProfile(rs)) return rs;
-  return defaultProfile;
+  return typeof defaultProfile === "function" ? defaultProfile() : defaultProfile;
 }
 
 // ── backend ──────────────────────────────────────────────────────────────────
@@ -783,7 +806,7 @@ export function autoHoldReason(
 ): string | null {
   if (profile === "trusted") return null;
   if (profile === "standard") {
-    return "Autonomous spawn requires the autonomous profile (standard is interactive-only).";
+    return "Autonomous spawn requires the autonomous or trusted profile (standard is interactive-only).";
   }
   // autonomous
   if (backend === null) {

@@ -4,9 +4,13 @@ Internal developer/operator reference. Exempt from i18n and the feature catalog 
 not app chrome.
 
 Shepherd wraps each spawned `claude` agent in a bubblewrap (`bwrap`)
-filesystem/process **membrane** with three profiles: `trusted` (no sandbox, the
-default), `standard` (membrane, interactive-only) and `autonomous` (membrane +
-per-spawn network-egress firewall; required for `auto=true` drain/autopilot).
+filesystem/process **membrane** with three profiles: `trusted` (no sandbox),
+`standard` (membrane, interactive-only — the default since #2100 wherever the bwrap
+self-test passes; hosts without a backend fall back to `trusted`) and `autonomous`
+(membrane + per-spawn network-egress firewall; the confined choice for `auto=true`
+drain/autopilot). A repo set to **Default** (`inherit`) follows
+`SHEPHERD_SANDBOX_DEFAULT_PROFILE` when set, else that built-in default; repos with
+sessions from before #2100 were pinned to `trusted` once on upgrade.
 The egress firewall (slirp4netns + nftables + dnsmasq, shipped in **PR #601**,
 closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
@@ -143,8 +147,8 @@ Consequences:
 
 - An **attended** session on the autonomous profile **is** egress-confined (with
   an egress-degraded banner if the backend is missing).
-- The default `trusted` profile and `standard` are **filesystem-confined only**,
-  never network-confined.
+- `standard` (the default) is **filesystem-confined only**, never
+  network-confined; `trusted` is not confined at all.
 
 To get attended network confinement, select the **autonomous** profile — per-repo
 in the repo's Settings panel, or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`.

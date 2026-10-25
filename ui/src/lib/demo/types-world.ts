@@ -58,6 +58,7 @@ import type {
 export type DemoRepoConfig = RepoConfig & {
   automationConfirmed?: boolean;
   automationRowExists?: boolean;
+  sandboxDefaultProfile?: Exclude<RepoConfig["sandboxProfile"], "inherit">;
 };
 
 /** Mirrors `BranchList` from `#lib/api` for the same reason `DemoRepoConfig` mirrors

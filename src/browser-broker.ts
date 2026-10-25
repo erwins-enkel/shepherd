@@ -13,6 +13,7 @@ import { resolvePreviewPort, type OriginPolicy } from "./browser-origin-policy";
 import type { CdpPipeClient } from "./cdp-pipe";
 import type { NetnsDevForwarder } from "./netns-dev-forward";
 import { config } from "./config";
+import { defaultSandboxProfile } from "./sandbox-default";
 import { resolveProfile } from "./sandbox";
 import {
   SharedBrowserError,
@@ -113,10 +114,8 @@ export function gateBrowserAttach(
   if (!s || s.status === "archived") return refuse(401, "unauthorized");
   const repoCfg = deps.store.getRepoConfig(s.repoPath);
   if (!repoCfg.sharedBrowserEnabled) return refuse(403, "shared browser disabled for this repo");
-  const profile = resolveProfile(
-    s.sandboxApplied ?? undefined,
-    repoCfg.sandboxProfile,
-    config.sandboxDefaultProfile,
+  const profile = resolveProfile(s.sandboxApplied ?? undefined, repoCfg.sandboxProfile, () =>
+    defaultSandboxProfile(),
   );
   if (!deps.sharedBrowser) return refuse(503, "shared browser unavailable");
   const confine =

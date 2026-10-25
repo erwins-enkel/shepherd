@@ -1203,6 +1203,8 @@ export type PlanDrift = "none" | "minor" | "major";
  *  autonomous = same membrane + network-egress allowlist (Anthropic + forge),
  *  required for auto/drain sessions. */
 export type SandboxProfile = "trusted" | "standard" | "autonomous";
+/** A repo's stored sandbox setting: a profile, or "inherit" = the global default (#2100). */
+export type RepoSandboxSetting = SandboxProfile | "inherit";
 
 export interface RepoConfig {
   criticEnabled: boolean;
@@ -1222,8 +1224,8 @@ export interface RepoConfig {
   draftMode: boolean;
   /** Who may promote a draft PR to ready-for-review (default "human"). */
   signoffAuthority: "human" | "critic" | "either";
-  /** Per-repo sandbox confinement profile (default "trusted" = no sandbox). */
-  sandboxProfile: SandboxProfile;
+  /** Per-repo sandbox confinement; "inherit" (default for a new repo) follows the global default. */
+  sandboxProfile: RepoSandboxSetting;
   /** Per-repo default-model override; "inherit" (default) defers to the global default. */
   defaultModel: string;
   /** Per-repo default-effort override; "inherit" (default) defers to the global default. */

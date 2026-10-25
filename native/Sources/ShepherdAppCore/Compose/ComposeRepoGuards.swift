@@ -22,6 +22,13 @@ extension ComposeModel {
         autopilotTouched ? autopilotEnabled : repoGuardDefaults?.autopilot
     }
 
+    /// Resolve the repo's stored sandbox setting (#2100): a stored profile wins; "inherit" (a new
+    /// repo's default) follows the server's global default, which an older server omits — then the
+    /// default stays unresolved (nil) rather than guessed.
+    public func applyRepoSandboxDefault(stored: String, globalDefault: Components.Schemas.SandboxProfile?) {
+        repoSandboxDefault = Components.Schemas.SandboxProfile(rawValue: stored) ?? globalDefault
+    }
+
     /// The profile a nil override inherits; nil until the repo default loads.
     /// Mirrors the server, which downgrades autonomous to standard for research/epic sessions.
     public var inheritedSandboxProfile: Components.Schemas.SandboxProfile? {

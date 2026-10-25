@@ -86,8 +86,9 @@ const baseInput = (over: Partial<StandardCreateInput> = {}): StandardCreateInput
   ...over,
 });
 
-test("create + trusted (default repo config) → passthrough argv (no bwrap)", async () => {
+test("create + trusted repo → passthrough argv (no bwrap)", async () => {
   const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "trusted" });
   const record: { argv?: string[] } = {};
   const service = makeService({ store, record, detectBackend: () => "bwrap" });
   const s = await service.create(baseInput());
@@ -95,6 +96,68 @@ test("create + trusted (default repo config) → passthrough argv (no bwrap)", a
   expect(record.argv).not.toContain("bwrap");
   expect(s.sandboxApplied).toBe("trusted");
   expect(s.sandboxDegraded).toBe(false);
+});
+
+// ── #2100: a new repo inherits the global default — standard where bwrap works ──
+
+async function withDefaultOverride<T>(
+  profile: "trusted" | "standard" | "autonomous" | null,
+  fn: () => Promise<T>,
+) {
+  const { config } = await import("../src/config");
+  const prev = config.sandboxDefaultProfileOverride;
+  config.sandboxDefaultProfileOverride = profile;
+  try {
+    return await fn();
+  } finally {
+    config.sandboxDefaultProfileOverride = prev;
+  }
+}
+
+test("#2100: new repo (no row) + env unset + bwrap → wrapped standard, not degraded", async () => {
+  await withDefaultOverride(null, async () => {
+    const store = new SessionStore(":memory:");
+    const record: { argv?: string[] } = {};
+    const service = makeService({ store, record, detectBackend: () => "bwrap" });
+    const s = await service.create(baseInput());
+    expect(record.argv?.[0]).toBe("bwrap");
+    expect(s.sandboxApplied).toBe("standard");
+    expect(s.sandboxDegraded).toBe(false);
+  });
+});
+
+test("#2100: inherit repo + env unset + bwrap → auto spawn refused (standard is interactive-only)", async () => {
+  await withDefaultOverride(null, async () => {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "inherit" });
+    const service = makeService({ store, record: {}, detectBackend: () => "bwrap" });
+    await expect(service.create(baseInput({ auto: true }))).rejects.toThrow(
+      /autonomous or trusted/,
+    );
+  });
+});
+
+test("#2100: new repo + env unset + NO backend → trusted, no degraded banner", async () => {
+  await withDefaultOverride(null, async () => {
+    const store = new SessionStore(":memory:");
+    const record: { argv?: string[] } = {};
+    const service = makeService({ store, record, detectBackend: () => null });
+    const s = await service.create(baseInput());
+    expect(record.argv?.[0]).toBe("claude");
+    expect(s.sandboxApplied).toBe("trusted");
+    expect(s.sandboxDegraded).toBe(false);
+  });
+});
+
+test("#2100: explicit SHEPHERD_SANDBOX_DEFAULT_PROFILE=trusted → new repo runs unwrapped", async () => {
+  await withDefaultOverride("trusted", async () => {
+    const store = new SessionStore(":memory:");
+    const record: { argv?: string[] } = {};
+    const service = makeService({ store, record, detectBackend: () => "bwrap" });
+    const s = await service.create(baseInput());
+    expect(record.argv).not.toContain("bwrap");
+    expect(s.sandboxApplied).toBe("trusted");
+  });
 });
 
 test("create + standard + backend bwrap → wraps argv, records applied=standard", async () => {
@@ -281,6 +344,7 @@ test("create + standard → egress NEVER probed, egress fields false", async () 
 
 test("create + auto + trusted → succeeds (legacy), passthrough", async () => {
   const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "trusted" });
   const record: { argv?: string[] } = {};
   const service = makeService({ store, record, detectBackend: () => "bwrap" });
   const s = await service.create(baseInput({ auto: true }));
@@ -317,6 +381,7 @@ test("resume + auto + standard → returns null (does not throw)", async () => {
 
 test("resume + trusted → resumes normally, passthrough argv", async () => {
   const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "trusted" });
   const record: { argv?: string[] } = {};
   const service = makeService({ store, record, detectBackend: () => "bwrap" });
   const s = store.create({
@@ -368,45 +433,51 @@ test("resume preserves a per-spawn override stricter than the repo default (no s
   expect(out!.sandboxApplied).toBe("standard"); // badge preserved, not overwritten to trusted
 });
 
-test("drain pre-check: standard profile holds → service.create NOT called", async () => {
-  const store = new SessionStore(":memory:");
-  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
-  let createCalls = 0;
-  const service = {
-    create: async (input: StandardCreateInput): Promise<Session> => {
-      createCalls++;
-      return store.create({
-        name: "auto",
-        prompt: input.prompt,
-        repoPath: input.repoPath,
-        baseBranch: input.baseBranch,
-        branch: "shepherd/auto",
-        worktreePath: "/wt",
-        isolated: true,
-        herdrSession: "default",
-        herdrAgentId: "t",
-        auto: true,
-        issueNumber: input.issueRef?.number ?? null,
+test.each(["standard", "inherit"] as const)(
+  "drain pre-check: %s profile (env unset, bwrap) holds → service.create NOT called",
+  async (sandboxProfile) => {
+    await withDefaultOverride(null, async () => {
+      const store = new SessionStore(":memory:");
+      store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile });
+      let createCalls = 0;
+      const service = {
+        create: async (input: StandardCreateInput): Promise<Session> => {
+          createCalls++;
+          return store.create({
+            name: "auto",
+            prompt: input.prompt,
+            repoPath: input.repoPath,
+            baseBranch: input.baseBranch,
+            branch: "shepherd/auto",
+            worktreePath: "/wt",
+            isolated: true,
+            herdrSession: "default",
+            herdrAgentId: "t",
+            auto: true,
+            issueNumber: input.issueRef?.number ?? null,
+          });
+        },
+        archive: async () => 1,
+      };
+      const forge = makeForge([issue(1)]);
+      const drain = new DrainService({
+        store,
+        service,
+        resolveForge: () => forge,
+        prCache: { snapshot: () => ({}) },
+        usage: { limits: (): UsageLimits => NO_USAGE },
+        repos: () => ["/repo"],
+        emitStatus: () => {},
+        emitArchived: () => {},
+        dropPrCache: () => {},
+        rebaseCap: 5,
+        detectBackend: () => "bwrap",
       });
-    },
-    archive: async () => 1,
-  };
-  const forge = makeForge([issue(1)]);
-  const drain = new DrainService({
-    store,
-    service,
-    resolveForge: () => forge,
-    prCache: { snapshot: () => ({}) },
-    usage: { limits: (): UsageLimits => NO_USAGE },
-    repos: () => ["/repo"],
-    emitStatus: () => {},
-    emitArchived: () => {},
-    dropPrCache: () => {},
-    rebaseCap: 5,
-  });
-  await drain.pump("/repo");
-  expect(createCalls).toBe(0);
-});
+      await drain.pump("/repo");
+      expect(createCalls).toBe(0);
+    });
+  },
+);
 
 test("resume + autonomous + FS + egress backend → egress-runner re-wraps, egress fields persisted", async () => {
   const store = new SessionStore(":memory:");
@@ -775,6 +846,7 @@ test("F12: create + INTERACTIVE codex + autonomous repo → still spawns (attend
 
 test("F12: create + auto + codex + trusted repo → spawns (operator chose unconfined)", async () => {
   const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "trusted" });
   const record: { argv?: string[] } = {};
   const service = makeService({ store, record, detectBackend: () => "bwrap" });
   await service.create(baseInput({ auto: true, agentProvider: "codex" }));

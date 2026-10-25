@@ -12926,7 +12926,8 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"conditionalRefreshPreservesSnapshot() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsDecodeEmptySnapshots(hasETag: Bool) async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsPreserveValidators(validator: String) async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"loginRateLimited() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"loginRateLimited() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"inheritRepoSettingFollowsTheServersGlobalDefault()\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

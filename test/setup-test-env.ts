@@ -45,6 +45,13 @@ for (const key of Object.keys(process.env)) {
 process.env.SHEPHERD_HOOKS_INGEST = "0";
 process.env.SHEPHERD_HOOKS_SIGNALS = "0";
 
+// #2100: with no explicit default profile, a new repo inherits `standard` iff the REAL bwrap
+// self-test passes — so every spawn in a test that injects no backend seam would probe the host
+// and wrap (or not) depending on the runner. Pin the pre-#2100 `trusted` default to keep spawn
+// tests host-independent; the unset path is covered by tests that set
+// `config.sandboxDefaultProfileOverride = null` with an injected backend (sandbox-wiring.test.ts).
+process.env.SHEPHERD_SANDBOX_DEFAULT_PROFILE = "trusted";
+
 // ── Per-run TMPDIR (#1862) ───────────────────────────────────────────────────
 //
 // 144 files under `test/` call `mkdtempSync(join(tmpdir(), …))` and most never clean up, so every

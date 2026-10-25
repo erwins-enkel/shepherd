@@ -119,7 +119,8 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     autoLabel: "shepherd:auto",
     priorityLabels: [],
     usageCeilingPct: 80,
-    sandboxProfile: "trusted",
+    sandboxProfile: "inherit",
+    sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
     egressExtraHosts: [],
@@ -205,7 +206,8 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     autoLabel: "shepherd:auto",
     priorityLabels: [],
     usageCeilingPct: 80,
-    sandboxProfile: "trusted",
+    sandboxProfile: "inherit",
+    sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
     egressExtraHosts: [],
@@ -245,7 +247,8 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     autoLabel: "shepherd:auto",
     priorityLabels: [],
     usageCeilingPct: 80,
-    sandboxProfile: "trusted",
+    sandboxProfile: "inherit",
+    sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
     egressExtraHosts: [],
@@ -295,7 +298,8 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     autoLabel: "shepherd:auto",
     priorityLabels: [],
     usageCeilingPct: 80,
-    sandboxProfile: "trusted",
+    sandboxProfile: "inherit",
+    sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
     egressExtraHosts: [],

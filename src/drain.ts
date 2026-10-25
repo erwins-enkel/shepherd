@@ -254,7 +254,9 @@ import {
   detectBackend,
   safeRealpath,
   type SandboxBackend,
+  type SandboxProfile,
 } from "./sandbox";
+import { defaultSandboxProfile } from "./sandbox-default";
 import { detectEgressBackend, type EgressBackend } from "./egress";
 import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
 import { parseTargetRepo, resolveTargetRepo, sessionIssue, targetsOtherRepo } from "./target-repo";
@@ -674,6 +676,11 @@ export class DrainService {
    *  while `config.nodeBin` honours it — so on a host that sets it the self-test would run against a
    *  different node than every real spawn. The verdict is pinned for the whole process, and `null`
    *  means RUN UNCONFINED, so whichever caller probes first must get this right. */
+  /** The global default profile (#2100) through this service's backend seam, so a test's injected
+   *  backend decides the built-in standard-vs-trusted fallback too. */
+  private readonly defaultProfile = (): SandboxProfile =>
+    defaultSandboxProfile(() => this.detectBackend());
+
   private detectBackend(): SandboxBackend {
     if (this.deps.detectBackend) return this.deps.detectBackend();
     return detectBackend({
@@ -5057,7 +5064,7 @@ export class DrainService {
     repoProfile: string | null | undefined,
     decision: Extract<DrainDecision, { kind: "spawn" }>,
   ): string | null {
-    const profile = resolveProfile(undefined, repoProfile, config.sandboxDefaultProfile);
+    const profile = resolveProfile(undefined, repoProfile, this.defaultProfile);
     // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
     // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.
     const backend = profile === "trusted" ? null : this.detectBackend();

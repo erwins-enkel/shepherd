@@ -123,6 +123,58 @@ describe("AutomationSettings — Auto-Drain explanation (#2872)", () => {
   });
 });
 
+describe("AutomationSettings — sandbox default + auto-drain hold (#2100)", () => {
+  const REPO = "/tmp/repo";
+  const held = () => page.getByText(m.automation_autodrain_sandbox_held());
+
+  afterEach(() => {
+    repoConfig.autoDrain = {};
+    repoConfig.sandboxProfile = {};
+    repoConfig.sandboxDefault = {};
+  });
+
+  it("the inherit option names the global default it resolves to", async () => {
+    await mount();
+    repoConfig.sandboxProfile = { [REPO]: "inherit" };
+    repoConfig.sandboxDefault = { [REPO]: "standard" };
+    await tick();
+    const select = page.getByRole("combobox", { name: m.automation_sandbox_profile_label() });
+    await expect.element(select).toHaveValue("inherit");
+    expect(
+      page
+        .getByRole("option", {
+          name: m.sandbox_profile_inherit({ profile: m.sandbox_profile_standard() }),
+        })
+        .query(),
+    ).not.toBeNull();
+  });
+
+  it("auto-drain on a repo resolving to standard explains the hold", async () => {
+    await mount();
+    repoConfig.autoDrain = { [REPO]: true };
+    repoConfig.sandboxProfile = { [REPO]: "inherit" };
+    repoConfig.sandboxDefault = { [REPO]: "standard" };
+    await tick();
+    await expect.element(held()).toBeVisible();
+  });
+
+  it("no hold note for autonomous/trusted, or with auto-drain off", async () => {
+    await mount();
+    repoConfig.autoDrain = { [REPO]: true };
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    await tick();
+    await expect.element(held()).not.toBeVisible();
+    repoConfig.sandboxProfile = { [REPO]: "inherit" };
+    repoConfig.sandboxDefault = { [REPO]: "trusted" };
+    await tick();
+    await expect.element(held()).not.toBeVisible();
+    repoConfig.autoDrain = { [REPO]: false };
+    repoConfig.sandboxProfile = { [REPO]: "standard" };
+    await tick();
+    await expect.element(held()).not.toBeVisible();
+  });
+});
+
 describe("AutomationSettings — Open shared browser", () => {
   const REPO = "/tmp/repo";
   const openButton = () => page.getByRole("button", { name: m.automation_shared_browser_open() });

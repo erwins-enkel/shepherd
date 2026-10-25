@@ -7104,6 +7104,7 @@ components:
         usageCeilingPct:
           type: number
         sandboxProfile:
+          description: trusted | standard | autonomous, or inherit = follow the global default (sandboxDefaultProfile). A repo with no stored config reads inherit.
           type: string
         defaultModel:
           type: string
@@ -7132,6 +7133,9 @@ components:
           type: boolean
         automationRowExists:
           type: boolean
+        sandboxDefaultProfile:
+          description: "Read-only: the global default profile an inherit sandboxProfile resolves to — SHEPHERD_SANDBOX_DEFAULT_PROFILE, else standard where the bwrap backend works, else trusted."
+          $ref: "#/components/schemas/SandboxProfile"
     RepoConfigPatch:
       type: object
       additionalProperties: false
@@ -7191,6 +7195,7 @@ components:
         usageCeilingPct:
           type: number
         sandboxProfile:
+          description: trusted | standard | autonomous | inherit.
           type: string
         defaultModel:
           type: string

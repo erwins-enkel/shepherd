@@ -4,7 +4,7 @@ import { RepoConfigService } from "../src/repo-config-service";
 
 function harness() {
   const store = new SessionStore(":memory:");
-  const svc = new RepoConfigService(store);
+  const svc = new RepoConfigService(store, () => "standard");
   return { store, svc };
 }
 
@@ -137,4 +137,21 @@ test("hiddenRepoPaths: returns exactly the repos flagged hidden", () => {
   // Unhiding drops it from the set.
   svc.patch("/a", { hidden: false });
   expect(store.hiddenRepoPaths()).toEqual(new Set(["/c"]));
+});
+
+test("read: exposes the global default an inherit setting resolves to (#2100)", () => {
+  const store = new SessionStore(":memory:");
+  const svc = new RepoConfigService(store, () => "standard");
+  const view = svc.read("/new");
+  expect(view.sandboxProfile).toBe("inherit");
+  expect(view.sandboxDefaultProfile).toBe("standard");
+});
+
+test("patch: accepts sandboxProfile inherit and persists it (#2100)", () => {
+  const store = new SessionStore(":memory:");
+  const svc = new RepoConfigService(store, () => "trusted");
+  svc.patch("/r", { sandboxProfile: "standard" });
+  const r = svc.patch("/r", { sandboxProfile: "inherit" });
+  expect(r.ok && r.config.sandboxProfile).toBe("inherit");
+  expect(store.getRepoConfig("/r").sandboxProfile).toBe("inherit");
 });

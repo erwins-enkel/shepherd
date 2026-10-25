@@ -6579,7 +6579,7 @@
   "bootstrap_checklist_gaps_seed": "Führe den Bootstrap-Gap-Sweep (Phase P3) auf dem vorhandenen Gerüst durch. Gleiche das PRD in docs/prd mit dem Design ab, kläre die offenen Produktentscheidungen mit mir, halte sie in docs/decisions/0002-product-decisions.md und CLAUDE.md fest und liste die `## M0 candidates` auf — ein reiner Doku-PR.",
   "tooltip_bootstrap_seq_summary": "Shepherd führt ein neues Projekt durch die Bootstrap-Phasen und schlägt jeweils die nächste Session vor.",
   "tooltip_bootstrap_seq_advance": "Wie es weitergeht",
-  "tooltip_bootstrap_seq_advance_body": "Der Merge des Bootstrap-PRs führt zu P3, der des P3-PRs zu P4, die Freigabe des Backlog-Epics zur Abschlussprüfung. Ein Neustart verliert nichts.",
+  "tooltip_bootstrap_seq_advance_body": "Der Merge des Bootstrap-PRs führt zu P3, der des P3-PRs zu P4 — jeweils sobald die CI auf dem Default-Branch nach dem Merge grün ist. Die Freigabe des Backlog-Epics führt zur Abschlussprüfung. Ein Neustart verliert nichts.",
   "tooltip_bootstrap_seq_start": "Wer einen Schritt startet",
   "tooltip_bootstrap_seq_start_body": "Du — ein Klick öffnet „Neue Aufgabe“ passend vorbelegt. Shepherd startet diese Sessions nie von selbst.",
   "feat_bootstrap_sequencer_title": "Projekt-Bootstrap aus PRD + Design",
@@ -7161,5 +7161,9 @@
   "native_ios_upnext_filter_button": "Filter · {count}",
   "native_ios_upnext_filter_done": "Fertig",
   "native_ios_upnext_filter_footer": "Gilt auch für Backlog und Neue Aufgabe. Auf dem Server gespeichert, auf jedem Gerät gleich.",
-  "native_ios_upnext_filter_mixed": "Gemischt"
+  "native_ios_upnext_filter_mixed": "Gemischt",
+  "bootstrap_checklist_next_ci_waiting": "Gemergt — die nächste Phase beginnt, sobald die CI auf dem Default-Branch grün ist.",
+  "bootstrap_checklist_next_ci_failed": "Gemergt, aber die CI auf dem Default-Branch ist fehlgeschlagen. Die nächste Phase wartet, bis sie repariert ist.",
+  "bootstrap_checklist_start_fixci": "CI reparieren",
+  "bootstrap_checklist_fixci_seed": "Die CI auf dem Default-Branch schlägt seit dem letzten Bootstrap-Merge fehl. Finde den fehlgeschlagenen Workflow-Lauf (auch eine ungültige Workflow-Datei zählt), behebe den Fehler und bring die CI auf Grün — ein PR."
 }

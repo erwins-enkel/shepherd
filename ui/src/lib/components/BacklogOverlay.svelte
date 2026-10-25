@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
   import type {
     BacklogPayload,
     DrainStatus,
@@ -92,7 +93,7 @@
     /** Draft an epic for a repo in the New Task composer, forwarded to BacklogView (#2638). */
     ondraftepic?: (repoPath: string) => void;
     /** Start a repo's next bootstrap step (#3112), forwarded to BacklogView. */
-    onbootstrapstep?: (repoPath: string, kind: "scaffold" | "gaps" | "epic") => void;
+    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind) => void;
   } = $props();
 
   // ── Desktop modal resize (issue #1787) ──────────────────────────────────────

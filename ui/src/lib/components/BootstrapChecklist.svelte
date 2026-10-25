@@ -7,6 +7,7 @@
   import {
     checklistAction,
     checklistSteps,
+    type BootstrapStepKind,
     type ChecklistAction,
     type ChecklistStepId,
   } from "./bootstrap-checklist";
@@ -21,7 +22,7 @@
     onopenreadiness = undefined,
   }: {
     repoPath: string;
-    onbootstrapstep?: (repoPath: string, kind: "scaffold" | "gaps" | "epic") => void;
+    onbootstrapstep?: (repoPath: string, kind: BootstrapStepKind) => void;
     onopensession?: (sessionId: string) => void;
     onopenreadiness?: () => void;
   } = $props();
@@ -43,6 +44,10 @@
 
   function nextText(a: ChecklistAction): string {
     switch (a.kind) {
+      case "ci-waiting":
+        return m.bootstrap_checklist_next_ci_waiting();
+      case "fix-ci":
+        return m.bootstrap_checklist_next_ci_failed();
       case "open-session":
         return m.bootstrap_checklist_next_running();
       case "start-bootstrap":
@@ -56,8 +61,10 @@
     }
   }
 
-  function buttonText(a: ChecklistAction): string {
+  function buttonText(a: Exclude<ChecklistAction, { kind: "ci-waiting" }>): string {
     switch (a.kind) {
+      case "fix-ci":
+        return m.bootstrap_checklist_start_fixci();
       case "open-session":
         return m.bootstrap_checklist_open_session();
       case "start-bootstrap":
@@ -71,8 +78,9 @@
     }
   }
 
-  function run(a: ChecklistAction) {
-    if (a.kind === "open-session") onopensession?.(a.sessionId);
+  function run(a: Exclude<ChecklistAction, { kind: "ci-waiting" }>) {
+    if (a.kind === "fix-ci") onbootstrapstep?.(repoPath, "fix-ci");
+    else if (a.kind === "open-session") onopensession?.(a.sessionId);
     else if (a.kind === "start-bootstrap")
       onbootstrapstep?.(repoPath, a.phase >= 3 ? "gaps" : "scaffold");
     else if (a.kind === "start-epic") onbootstrapstep?.(repoPath, "epic");
@@ -107,10 +115,12 @@
       {/each}
     </ol>
     <div class="bsc-next">
-      <p class="bsc-note">{nextText(action)}</p>
-      <button class="gbtn primary" type="button" onclick={() => run(action)}
-        >{buttonText(action)}</button
-      >
+      <p class={["bsc-note", action.kind === "fix-ci" && "bsc-failed"]}>{nextText(action)}</p>
+      {#if action.kind !== "ci-waiting"}
+        <button class="gbtn primary" type="button" onclick={() => run(action)}
+          >{buttonText(action)}</button
+        >
+      {/if}
     </div>
     {#if missing}
       <p class="bsc-note bsc-muted">{m.automation_bootstrap_missing({ missing })}</p>
@@ -176,6 +186,9 @@
     font-size: var(--fs-meta);
     line-height: 1.4;
     color: var(--color-ink);
+  }
+  .bsc-failed {
+    color: var(--color-red);
   }
   .bsc-muted {
     color: var(--color-muted);

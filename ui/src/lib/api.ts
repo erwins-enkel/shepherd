@@ -3106,6 +3106,11 @@ export interface RepoBootstrapView {
   suggested: boolean;
   /** The proposed next attended step (#3112); null when off or done. Absent on old servers. */
   next?: RepoBootstrapNextStep | null;
+  /** When the merge whose phase advance is held (#3411) was seen; null when nothing is held. */
+  ciPendingAt?: number | null;
+  /** A bootstrap merge's phase advance held until CI on the default branch is green (#3411):
+   *  still waiting, or failed. null/absent when nothing is held. */
+  ciHold?: "waiting" | "failed" | null;
 }
 
 /** What the operator starts next in a bootstrap (#3112): a bootstrap session (P1+P2 below phase

@@ -116,6 +116,38 @@ describe("NewProject PRD brief file", () => {
   });
 });
 
+describe("NewProject start", () => {
+  it("“Create & start” hands the first session over to start by itself", async () => {
+    mockApi();
+    const ondone = vi.fn();
+    render(NewProject, { ondone });
+    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await page.getByRole("button", { name: m.newproject_submit() }).click();
+    await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
+    expect(ondone.mock.calls[0]![3]).toBe(false);
+  });
+
+  it("“Create & adjust before starting” creates the project but leaves the start to the operator", async () => {
+    const posts = mockApi();
+    const ondone = vi.fn();
+    render(NewProject, { ondone });
+    await page.getByLabelText(m.newproject_name_label()).fill("demo");
+    await page.getByRole("button", { name: m.newproject_submit_customize() }).click();
+    await vi.waitFor(() => expect(ondone).toHaveBeenCalled());
+    expect(posts.length).toBe(1);
+    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd" });
+    expect(ondone.mock.calls[0]![3]).toBe(true);
+  });
+
+  it("blocks “Create & adjust before starting” while the name is missing", async () => {
+    mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await expect
+      .element(page.getByRole("button", { name: m.newproject_submit_customize() }))
+      .toBeDisabled();
+  });
+});
+
 describe("NewProject idea length", () => {
   it("blocks an idea over the server's 8000-char limit before sending", async () => {
     const posts = mockApi();

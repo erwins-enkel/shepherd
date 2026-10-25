@@ -5884,3 +5884,74 @@ describe("NewTask pasted GitHub link selects the repo", () => {
     expect(mockGetIssue).not.toHaveBeenCalled();
   });
 });
+
+describe("NewTask autostart (New Project's Create & start)", () => {
+  it("submits the seeded task by itself once the composer is ready", async () => {
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: "/repo/autostart-confirmed",
+        initialPrompt: "Build this project",
+        autostart: true,
+      },
+    });
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      repoPath: "/repo/autostart-confirmed",
+      prompt: "Build this project",
+      baseBranch: "main",
+    });
+  });
+
+  it("stops at the automation confirm on a brand-new repo", async () => {
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    mockPutRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: "/repo/autostart-unconfirmed",
+        initialPrompt: "Build this project",
+        autostart: true,
+      },
+    });
+    await expect.element(page.getByText(m.firsttask_confirm_title())).toBeInTheDocument();
+    expect(onsubmit).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.firsttask_confirm_cta() }).click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+  });
+
+  it("leaves a likely usage hold to the operator", async () => {
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: "/repo/autostart-hold",
+        initialPrompt: "Build this project",
+        autostart: true,
+        holdLikely: true,
+      },
+    });
+    await expect.poll(() => document.querySelector("button.run-hold")).toBeTruthy();
+    await expect.poll(() => mockBranchStatus.mock.calls.length).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not submit by itself without autostart", async () => {
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: "/repo/no-autostart", initialPrompt: "Build this" },
+    });
+    await expect.poll(() => mockBranchStatus.mock.calls.length).toBeGreaterThan(0);
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+});

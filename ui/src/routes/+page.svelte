@@ -812,6 +812,8 @@
   let composeEpicAuthoring = $state(false);
   let composePlain = $state(false);
   let composeBootstrap = $state(false);
+  // New Project's "Create & start": the seeded composer submits itself (see onNewProjectDone).
+  let composeAutostart = $state(false);
   // Re-entrancy guard so a double-invoke while staging is in flight doesn't double-seed.
   let relaunchStaging = $state(false);
   let backlog = $state<BacklogPayload | null>(null);
@@ -2488,6 +2490,7 @@
     composeEpicAuthoring = false;
     composePlain = false;
     composeBootstrap = false;
+    composeAutostart = false;
   }
 
   // NewProject partial-success warning code → message map. A lookup (not a ternary
@@ -2541,29 +2544,29 @@
     showNewProject = true;
   }
 
-  // NewProject.ondone. From the Backlog panel: refetch + auto-select (no yank into
-  // New Task). Otherwise (New-Task origin): auto-select the new repo in NewTask +
-  // prefill the kickoff seed. A warning (partial success: local ok, GitHub failed)
-  // surfaces as a non-blocking info toast in either case. Named here (not inline in
-  // the AppOverlays mount) so its branching stays out of the route template.
+  // NewProject.ondone, from either origin (New Task or a Backlog repos panel): "Create & start"
+  // starts the project's first session — the composer opens on the new repo with the kickoff seed
+  // and submits itself, so the first-task automation confirm is the only stop left. "Adjust before
+  // starting" (`customize`) opens the same seeded composer without submitting. A warning (partial
+  // success: local ok, GitHub failed) surfaces as a non-blocking info toast either way. Named here
+  // (not inline in the AppOverlays mount) so its branching stays out of the route template.
   function onNewProjectDone(
     entry: { path: string; warning?: string },
     kickoff: KickoffChoice,
     idea: string,
+    customize: boolean,
   ) {
     showNewProject = false;
     if (entry.warning) {
       toasts.info((NEW_PROJECT_WARNINGS[entry.warning] ?? m.newproject_warning_github)());
     }
-    if (repoAddOrigin === "backlog") {
-      finishBacklogAdd(entry.path);
-      return;
-    }
     composeRepoPath = entry.path;
     composePrompt = buildKickoffSeed(kickoff, idea);
     // #3112: the bootstrap kickoff opens the composer in the bootstrap kind (P1+P2).
     composeBootstrap = kickoff.kind === "bootstrap";
+    composeAutostart = !customize;
     repoAddOrigin = null;
+    showBacklog = false;
     showNew = true;
   }
 
@@ -4118,6 +4121,7 @@
   {composeEpicAuthoring}
   {composePlain}
   {composeBootstrap}
+  {composeAutostart}
   usageLimits={store.usageLimits}
   holdLikely={composeHoldLikely}
   onnewclose={() => {

@@ -172,6 +172,7 @@
     spawnProgress = null,
     restoreDraft = false,
     ondiscarddraft,
+    autostart = false,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -248,6 +249,9 @@
     restoreDraft?: boolean;
     /** "Discard & new task" on a restored draft: the parent remounts a fresh composer. */
     ondiscarddraft?: () => void;
+    /** Submit the seeded task without a click once the composer is ready (New Project's
+     *  "Create & start"). Every gate a click passes still applies. */
+    autostart?: boolean;
   } = $props();
 
   // One-shot: an accidentally dismissed composer comes back as the operator left it.
@@ -1339,6 +1343,20 @@
     }),
   );
   const showDualCta = $derived(readiness.advisories.includes("hold_likely"));
+
+  // New Project's "Create & start": the seeded composer submits itself once the repo's branches
+  // and base status are in and nothing blocks a submit. submit() keeps every gate a click passes,
+  // the first-task automation confirm included; a likely usage hold leaves the choice between
+  // holding and submitting anyway to the operator. Once only — a failed start stays on the dialog
+  // with its Retry.
+  let autostarted = false;
+  $effect(() => {
+    if (!autostart || autostarted) return;
+    if (branches.length === 0 || upstreamLoading || upstream === null) return;
+    if (!readiness.canSubmit || showDualCta) return;
+    autostarted = true;
+    void submit(new Event("submit"));
+  });
 
   // ── "shape this": an OPTIONAL clarifying round before anything is spawned (#2158) ──
   // A transient agent drafts a brief + the questions only the operator can settle; answering them

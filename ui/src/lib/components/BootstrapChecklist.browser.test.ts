@@ -34,7 +34,7 @@ describe("BootstrapChecklist (#3112)", () => {
       .filter({ hasText: m.bootstrap_checklist_step_scaffold() });
     await expect.element(current).toHaveAttribute("aria-current", "step");
     await page.getByRole("button", { name: m.bootstrap_checklist_start_scaffold() }).click();
-    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p1", "scaffold");
+    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p1", "scaffold", false);
   });
 
   it("P4 drafts the epic; a running session is opened instead", async () => {
@@ -42,7 +42,7 @@ describe("BootstrapChecklist (#3112)", () => {
     const onbootstrapstep = vi.fn();
     render(BootstrapChecklist, { repoPath: "/repo-p4", onbootstrapstep });
     await page.getByRole("button", { name: m.bootstrap_checklist_start_epic() }).click();
-    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p4", "epic");
+    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p4", "epic", false);
   });
 
   it("P3 starts the gap sweep", async () => {
@@ -50,7 +50,7 @@ describe("BootstrapChecklist (#3112)", () => {
     const onbootstrapstep = vi.fn();
     render(BootstrapChecklist, { repoPath: "/repo-p3-gaps", onbootstrapstep });
     await page.getByRole("button", { name: m.bootstrap_checklist_start_gaps() }).click();
-    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p3-gaps", "gaps");
+    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-p3-gaps", "gaps", false);
   });
 
   it("opens a running session", async () => {
@@ -59,7 +59,49 @@ describe("BootstrapChecklist (#3112)", () => {
     render(BootstrapChecklist, { repoPath: "/repo-p3", onopensession });
     await page.getByRole("button", { name: m.bootstrap_checklist_open_session() }).click();
     expect(onopensession).toHaveBeenCalledWith("s-9");
+    await expect
+      .element(page.getByRole("button", { name: m.bootstrap_checklist_adjust() }))
+      .not.toBeInTheDocument();
   });
+
+  // #3421: the primary button starts the step (adjust=false, asserted above); "Adjust first" opens
+  // the seeded composer without starting.
+  it.each([
+    {
+      path: "/repo-adjust-p1",
+      view: ACTIVE,
+      start: m.bootstrap_checklist_start_scaffold(),
+      kind: "scaffold",
+    },
+    {
+      path: "/repo-adjust-p3",
+      view: { ...ACTIVE, phase: 3, next: { kind: "bootstrap", phase: 3, sessionId: null } },
+      start: m.bootstrap_checklist_start_gaps(),
+      kind: "gaps",
+    },
+    {
+      path: "/repo-adjust-p4",
+      view: { ...ACTIVE, phase: 4, next: { kind: "epic", phase: 4, sessionId: null } },
+      start: m.bootstrap_checklist_start_epic(),
+      kind: "epic",
+    },
+    {
+      path: "/repo-adjust-ci",
+      view: { ...ACTIVE, ciHold: "failed" },
+      start: m.bootstrap_checklist_start_fixci(),
+      kind: "fix-ci",
+    },
+  ] satisfies { path: string; view: RepoBootstrapView; start: string; kind: string }[])(
+    "Adjust first opens the $kind step without starting it",
+    async ({ path, view, start, kind }) => {
+      mockApi(view);
+      const onbootstrapstep = vi.fn();
+      render(BootstrapChecklist, { repoPath: path, onbootstrapstep });
+      await expect.element(page.getByRole("button", { name: start })).toBeVisible();
+      await page.getByRole("button", { name: m.bootstrap_checklist_adjust() }).click();
+      expect(onbootstrapstep).toHaveBeenCalledExactlyOnceWith(path, kind, true);
+    },
+  );
 
   it("a held merge waiting on CI shows the note, no button — even with the session live (#3411)", async () => {
     mockApi({
@@ -76,6 +118,7 @@ describe("BootstrapChecklist (#3112)", () => {
       m.bootstrap_checklist_open_session(),
       m.bootstrap_checklist_start_scaffold(),
       m.bootstrap_checklist_start_fixci(),
+      m.bootstrap_checklist_adjust(),
     ])
       await expect.element(page.getByRole("button", { name })).not.toBeInTheDocument();
   });
@@ -93,7 +136,7 @@ describe("BootstrapChecklist (#3112)", () => {
       .element(page.getByText(m.bootstrap_checklist_next_running()))
       .not.toBeInTheDocument();
     await page.getByRole("button", { name: m.bootstrap_checklist_start_fixci() }).click();
-    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-ci-red", "fix-ci");
+    expect(onbootstrapstep).toHaveBeenCalledWith("/repo-ci-red", "fix-ci", false);
   });
 
   it("renders nothing for a repo that is not bootstrapping", async () => {

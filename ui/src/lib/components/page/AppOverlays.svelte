@@ -364,7 +364,7 @@
     /** The Issues overview's "Draft epic" (#2638): New Task set to epic authoring. */
     ondraftepic: (repoPath: string) => void;
     /** The Backlog's bootstrap checklist (#3112): New Task set to the repo's next bootstrap step. */
-    onbootstrapstep: (repoPath: string, kind: BootstrapStepKind) => void;
+    onbootstrapstep: (repoPath: string, kind: BootstrapStepKind, adjust: boolean) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onaddclone: () => void;
     onaddfork: () => void;

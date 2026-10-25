@@ -69,3 +69,47 @@ test("a wait times out as pending; archive drops the request", async () => {
   expect(svc.snapshot()).toEqual({});
   expect(emitted.at(-1)).toEqual({ id: "s", request: null });
 });
+
+// ── R2-F05: requests and undelivered approvals expire ──
+
+function clocked() {
+  const events = new EventHub();
+  const clock = { now: 1_000 };
+  return { clock, svc: new ActionRequestService({ events, now: () => clock.now }) };
+}
+
+test("an open request expires after 10 minutes and cannot be approved", async () => {
+  const { svc, clock } = clocked();
+  const a = open(svc.request("s", "pr_merge", { desig: "TASK-1" }, "TASK-1"));
+  const waiting = svc.wait("s", a.id, 60_000);
+  clock.now += 10 * 60_000 + 1;
+  expect(svc.snapshot()).toEqual({});
+  expect(svc.resolve("s", a.id, "approved")).toBe(false);
+  expect(await waiting).toBe("denied");
+  // The identical call opens a fresh request rather than re-attaching to the expired one.
+  const b = open(svc.request("s", "pr_merge", { desig: "TASK-1" }, "TASK-1"));
+  expect(b.id).not.toBe(a.id);
+  expect(await svc.wait("s", a.id, 5)).toBe("denied");
+});
+
+test("an expired request re-called identically is replaced, not re-attached", () => {
+  const { svc, clock } = clocked();
+  const a = open(svc.request("s", "pr_merge", { desig: "TASK-1" }, "TASK-1"));
+  clock.now += 10 * 60_000 + 1;
+  const b = open(svc.request("s", "pr_merge", { desig: "TASK-1" }, "TASK-1"));
+  expect(b.id).not.toBe(a.id);
+  expect(svc.resolve("s", b.id, "approved")).toBe(true);
+});
+
+test("an undelivered approval is replayed within 2 minutes only", () => {
+  const { svc, clock } = clocked();
+  const a = open(svc.request("s", "herd_halt", {}, "herd"));
+  svc.resolve("s", a.id, "approved");
+  clock.now += 2 * 60_000 - 1;
+  expect(svc.request("s", "herd_halt", {}, "herd")).toEqual({ status: "approved" });
+
+  const b = open(svc.request("s", "herd_halt", {}, "herd"));
+  svc.resolve("s", b.id, "approved");
+  clock.now += 2 * 60_000 + 1;
+  expect(svc.request("s", "herd_halt", {}, "herd").status).toBe("open");
+});

@@ -19,6 +19,7 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { ACTION_REQUEST_EVENT, ActionRequestService } from "../src/action-request";
 import type { AgentControlDeps } from "../src/agent-control";
+import type { GitState } from "../src/forge/types";
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -44,6 +45,8 @@ function addSession(
 }
 
 const ASSISTANT_ID = "assistant-session";
+const HEAD = "a".repeat(40);
+const OPEN_PR = { state: "open", number: 12, headSha: HEAD, baseRefName: "main" } as GitState;
 
 function setup(
   opts: {
@@ -51,14 +54,18 @@ function setup(
     answer?: (req: OperatorActionRequest) => { status: number; body: unknown };
     /** The approval seam for `ask` groups; default: every call is already approved. */
     actionRequests?: AgentControlDeps["actionRequests"];
+    /** Every session's cached PR state; default an open PR at HEAD onto main. */
+    pr?: GitState | null;
   } = {},
 ) {
   const store = new SessionStore(":memory:");
   const requests: OperatorActionRequest[] = [];
   const logs: string[] = [];
   const permissions = { ...DEFAULT_ASSISTANT_PERMISSIONS, ...opts.permissions };
+  const cache = { pr: opts.pr === undefined ? OPEN_PR : opts.pr };
   const deps = {
     store,
+    prCache: { get: () => cache.pr ?? undefined },
     actionRequests: opts.actionRequests ?? {
       request: () => ({ status: "approved" as const }),
       wait: async () => "approved" as const,
@@ -90,7 +97,7 @@ function setup(
   /** `run` as a repo-scoped assistant of `scope`. */
   const runScoped = (scope: string, tool: AssistantActionTool, args: Record<string, unknown>) =>
     applyOperatorAction(deps, tool, args, { sessionId: ASSISTANT_ID, scope });
-  return { store, deps, requests, logs, worker, run, runScoped };
+  return { store, deps, requests, logs, worker, run, runScoped, cache };
 }
 
 test("the catalog is exactly the action groups' tools, in group order", () => {
@@ -123,7 +130,12 @@ test("each session tool runs its operator route on the resolved session", async 
     ["plan_release", {}, { method: "POST" }, "go"],
     ["queue_approve", {}, { method: "POST" }, "queue/approve"],
     ["pr_ready", {}, { method: "POST" }, "git/ready"],
-    ["pr_merge", {}, { method: "POST", body: {} }, "git/merge"],
+    [
+      "pr_merge",
+      {},
+      { method: "POST", body: { confirm: { headSha: HEAD, baseRefName: "main" } } },
+      "git/merge",
+    ],
   ];
   for (const [tool, args, expected, sub] of cases) {
     const { worker, requests, run } = setup();
@@ -226,8 +238,12 @@ test("pr_merge never sends a takeover confirmation, and hands the refusal back w
       },
     }),
   });
-  const res = await run("pr_merge", { desig: worker.desig, confirm: { headSha: "abc" } });
-  expect(requests[0]!.body).toEqual({});
+  const res = await run("pr_merge", {
+    desig: worker.desig,
+    confirm: { headSha: "abc", handoff: "merger", handoffWho: "x" },
+  });
+  // Only the revision it captured — never a takeover, never the agent's own confirm.
+  expect(requests[0]!.body).toEqual({ confirm: { headSha: HEAD, baseRefName: "main" } });
   expect(res).toEqual({
     ok: false,
     status: 409,
@@ -702,4 +718,77 @@ test("F08: `ask` without an approval service fails closed", async () => {
   );
   expect(res).toMatchObject({ ok: false, status: 503 });
   expect(requests).toEqual([]);
+});
+
+// ── R2-F05: an assistant merge is bound to the PR revision it was built (and approved) for ──
+
+test("pr_merge names the PR revision it binds in its target", async () => {
+  const { worker, run } = setup();
+  const res = await run("pr_merge", { desig: worker.desig });
+  expect(res).toMatchObject({
+    ok: true,
+    data: { target: `${worker.desig} PR #12 @ ${HEAD.slice(0, 12)} → main` },
+  });
+});
+
+test("pr_merge refuses without a cached open PR head, dispatching nothing", async () => {
+  for (const pr of [
+    null,
+    { ...OPEN_PR, state: "merged" },
+    { ...OPEN_PR, headSha: undefined },
+    { ...OPEN_PR, number: undefined },
+  ] as (GitState | null)[]) {
+    const { worker, requests, run } = setup({ pr });
+    const res = await run("pr_merge", { desig: worker.desig });
+    expect(res).toMatchObject({ ok: false, status: 409 });
+    expect(requests).toEqual([]);
+  }
+});
+
+test("pr_merge without a known base still binds the head", async () => {
+  const { worker, requests, run } = setup({ pr: { ...OPEN_PR, baseRefName: undefined } });
+  expect((await run("pr_merge", { desig: worker.desig })).ok).toBe(true);
+  expect(requests[0]!.body).toEqual({ confirm: { headSha: HEAD, baseRefName: null } });
+});
+
+test("pr_merge relays a moved head's merge_confirm_stale refusal", async () => {
+  const { worker, run } = setup({
+    answer: () => ({ status: 409, body: { error: "the PR changed", code: "merge_confirm_stale" } }),
+  });
+  expect(await run("pr_merge", { desig: worker.desig })).toEqual({
+    ok: false,
+    status: 409,
+    error: "merge_confirm_stale: the PR changed",
+  });
+});
+
+test("an `ask` merge shows the bound revision, and an approval never runs a moved head", async () => {
+  const { service } = approvals();
+  const { run, requests, worker, cache } = setup({
+    permissions: { approve: "ask" },
+    actionRequests: service,
+  });
+  await run("pr_merge", { desig: worker.desig, pr: { headSha: "spoofed" } });
+  const first = service.snapshot()[ASSISTANT_ID]!;
+  expect(first.args).toEqual({
+    desig: worker.desig,
+    pr: { number: 12, headSha: HEAD, baseRefName: "main" },
+  });
+  expect(first.target).toContain(HEAD.slice(0, 12));
+  // Approved between long-polls, but the head moved before the model called again.
+  service.resolve(ASSISTANT_ID, first.id, "approved");
+  const moved = "b".repeat(40);
+  cache.pr = { ...OPEN_PR, headSha: moved };
+  const res = await run("pr_merge", { desig: worker.desig, pr: { headSha: "spoofed" } });
+  expect(res).toMatchObject({ ok: true, data: { status: "awaiting_approval" } });
+  expect(requests).toEqual([]);
+  const second = service.snapshot()[ASSISTANT_ID]!;
+  expect(second.id).not.toBe(first.id);
+  expect(second.args.pr).toEqual({ number: 12, headSha: moved, baseRefName: "main" });
+  // Approving the new card runs the merge bound to the new head.
+  service.resolve(ASSISTANT_ID, second.id, "approved");
+  expect((await run("pr_merge", { desig: worker.desig, pr: { headSha: "spoofed" } })).ok).toBe(
+    true,
+  );
+  expect(requests[0]!.body).toEqual({ confirm: { headSha: moved, baseRefName: "main" } });
 });

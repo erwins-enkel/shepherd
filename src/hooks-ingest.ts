@@ -24,10 +24,12 @@
 //
 // #3165: PreToolUse (matcher AskUserQuestion only) carries the dialog's questions as data so a
 // native panel can answer it; PostToolUse carries `tool_use_id` + the answers that landed.
+// #2779: the matcher also covers ExitPlanMode, whose PreToolUse carries the plan text.
 //
 // Anything unrecognized is recorded and flagged loudly rather than silently dropped.
 
 import { normalizeAskAnswers, parseAskInput, type AskQuestion } from "./ask-user-question";
+import { parsePlanInput, type PendingPlan } from "./plan-approval";
 
 /** A normalized hook event after validation — the spike's observable unit. */
 export type HookEvent = {
@@ -52,6 +54,8 @@ export type HookEvent = {
   toolUseId?: string;
   /** PreToolUse(AskUserQuestion): the validated questions; absent when unparseable (#3165). */
   ask?: AskQuestion[];
+  /** PreToolUse(ExitPlanMode): the validated plan; absent when unparseable (#2779). */
+  plan?: Omit<PendingPlan, "toolUseId">;
   /** PostToolUse(AskUserQuestion): normalized `tool_response.answers` (#3165). */
   askAnswers?: Record<string, string>;
   /** PostToolUse(/Failure): derived from exit_code / the *Failure event. */
@@ -140,8 +144,9 @@ function parseToolUseEvent(
   return ev;
 }
 
-/** Normalize a PreToolUse body (#3165). Only AskUserQuestion is hooked; its `tool_input` is
- *  validated into questions, an unparseable one simply carries no `ask`. */
+/** Normalize a PreToolUse body (#3165, #2779). Only AskUserQuestion and ExitPlanMode are hooked;
+ *  their `tool_input` is validated into questions / the plan, an unparseable one simply carries
+ *  neither `ask` nor `plan`. */
 function parsePreToolUseEvent(b: Record<string, unknown>, sessionId: string): RawHookEvent {
   const toolName = str(b.tool_name);
   const ev: RawHookEvent = { event: "PreToolUse", sessionId, toolName };
@@ -150,6 +155,9 @@ function parsePreToolUseEvent(b: Record<string, unknown>, sessionId: string): Ra
   if (toolName === "AskUserQuestion") {
     const ask = parseAskInput(b.tool_input);
     if (ask) ev.ask = ask;
+  } else if (toolName === "ExitPlanMode") {
+    const plan = parsePlanInput(b.tool_input);
+    if (plan) ev.plan = plan;
   }
   return ev;
 }

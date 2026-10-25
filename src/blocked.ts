@@ -1,6 +1,7 @@
 import { addressStallStatus } from "./review-status";
 import type { Session, ReviewVerdict, PlanGate } from "./types";
 import type { PendingAsk } from "./ask-user-question";
+import type { PendingPlan } from "./plan-approval";
 
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall" | "quota";
 
@@ -25,6 +26,9 @@ export interface BlockReason {
    *  answer panel renders it and answers via `POST /api/sessions/:id/answer-ask`. Absent without
    *  hooks (the terminal still works). Attached by the poller's `emitBlock`. */
   ask?: PendingAsk;
+  /** #2779: the ExitPlanMode approval dialog on screen, as data from the PreToolUse hook — its plan
+   *  text for display; the options above still come from the PTY. Attached by `emitBlock`. */
+  plan?: PendingPlan;
 }
 
 const TAIL_LINES = 15;
@@ -193,6 +197,17 @@ function hasDialogChrome(tail: string[]): boolean {
  */
 export function looksLikeDemotedMenu(tail: string[]): boolean {
   return captureOptionRun(tail).length >= 2 && !hasDialogChrome(tail);
+}
+
+/**
+ * #2779: undo the #2281 demotion when a PreToolUse hook says an AskUserQuestion / ExitPlanMode dialog
+ * is open — the hook is the evidence the missing chrome would have been, so a chrome-less numbered
+ * run is that dialog caught mid-paint, not prose. Anything else is returned unchanged. The caller
+ * decides whether a hooked dialog is pending; this only reshapes.
+ */
+export function promoteDemotedMenu(reason: BlockReason): BlockReason {
+  if (reason.shape !== "awaiting-input" || !looksLikeDemotedMenu(reason.tail)) return reason;
+  return { ...reason, shape: "menu", options: captureOptionRun(reason.tail) };
 }
 
 /**

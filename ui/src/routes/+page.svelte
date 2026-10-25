@@ -877,6 +877,8 @@
   );
   // The selected session's open AskUserQuestion dialog (#3165), answered natively in the Viewport.
   const selectedAsk = $derived(selected ? (store.blocks[selected.id]?.reason.ask ?? null) : null);
+  // The selected session's plan waiting for approval (#2779), shown above its terminal.
+  const selectedPlan = $derived(selected ? (store.blocks[selected.id]?.reason.plan ?? null) : null);
   // Every session's open question, listed beside the selected one's in that dialog.
   const pendingAsks = $derived(pendingAskEntries(store.sessions, store.blocks));
 
@@ -3748,6 +3750,7 @@
             backgroundBusy={store.backgroundBusy}
             authUrl={selectedAuthUrl}
             ask={selectedAsk}
+            plan={selectedPlan}
             {pendingAsks}
             onback={() => (mobileScreen = "list")}
             onretry={() => (showRetry = true)}
@@ -3974,6 +3977,7 @@
               backgroundBusy={store.backgroundBusy}
               authUrl={selectedAuthUrl}
               ask={selectedAsk}
+              plan={selectedPlan}
               {pendingAsks}
               onretry={() => (showRetry = true)}
               retryHaltedCount={haltedCount}

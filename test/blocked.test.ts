@@ -6,6 +6,7 @@ import {
   hasActiveSpinner,
   hasQueuedInput,
   looksLikeDemotedMenu,
+  promoteDemotedMenu,
   quotaBlockReason,
 } from "../src/blocked";
 import type { Session, PlanGate } from "../src/types";
@@ -411,6 +412,25 @@ test("looksLikeDemotedMenu marks exactly what classifyBlocked demoted", () => {
 
   // no numbered run at all → nothing was demoted
   expect(looksLikeDemotedMenu(classifyBlocked("What should I name it?\n❯").tail)).toBe(false);
+});
+
+test("promoteDemotedMenu turns a demoted run back into a menu with its options (#2779)", () => {
+  const painting = classifyBlocked([" 1. Yes", " 2. No"].join("\n"));
+  expect(promoteDemotedMenu(painting)).toEqual({
+    shape: "menu",
+    options: [
+      { label: "Yes", send: "1" },
+      { label: "No", send: "2" },
+    ],
+    tail: painting.tail,
+  });
+});
+
+test("promoteDemotedMenu leaves everything that is not a demoted run untouched", () => {
+  const rendered = classifyBlocked(readFileSync(join(fixturesDir, "classic-menu.txt"), "utf8"));
+  const bare = classifyBlocked("What should I name it?\n❯");
+  const yesNo = classifyBlocked("Continue? (y/n)");
+  for (const reason of [rendered, bare, yesNo]) expect(promoteDemotedMenu(reason)).toBe(reason);
 });
 
 test("real #2282 panes: both were mid-turn and now read as working", () => {

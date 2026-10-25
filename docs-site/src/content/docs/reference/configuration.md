@@ -362,7 +362,8 @@ same session — a `stranded` session is the revival population and is never aut
 
 Shepherd injects Claude Code lifecycle **hooks** into each spawned agent that POST to a restricted
 loopback ingress, giving the HUD push updates (tool activity, notifications, sub-agent roster,
-turn-`Stop` timing) **on top of** the 1 s poller — never instead of it. The path is **fail-open**:
+turn-`Stop` timing, and the content of `AskUserQuestion` / `ExitPlanMode` dialogs via a `PreToolUse`
+hook on those two tools) **on top of** the 1 s poller — never instead of it. The path is **fail-open**:
 each hook is synchronous with a 5 s budget, so an unreachable or hung endpoint (e.g. an
 autonomous/egress agent whose netns route is down) simply times out and the poller stays
 authoritative.

@@ -6,6 +6,7 @@ import {
   type HookEvent,
   type SubagentEntry,
 } from "../src/hooks-ingest";
+import { PLAN_MAX } from "../src/plan-approval";
 
 // ── validateHookEvent (pure, untrusted body) ──────────────────────────────────
 
@@ -435,6 +436,58 @@ test("validateHookEvent: PreToolUse with an unparseable tool_input carries no as
     toolName: "AskUserQuestion",
     toolUseId: "toolu_1",
   });
+});
+
+// ── #2779: ExitPlanMode's plan as data ───────────────────────────────────────
+
+test("validateHookEvent: PreToolUse(ExitPlanMode) carries the plan, drops planFilePath", () => {
+  // Spike shape, Claude Code 2.1.310 (docs/research/claude-code-pretooluse-dialogs.md).
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "PreToolUse",
+    tool_name: "ExitPlanMode",
+    tool_use_id: "toolu_p",
+    tool_input: {
+      plan: "Step 1: create a.txt\nStep 2: create b.txt\n",
+      planFilePath: "/home/u/.claude/plans/x.md",
+    },
+  });
+  expect(ev).toEqual({
+    event: "PreToolUse",
+    sessionId: "s1",
+    toolName: "ExitPlanMode",
+    toolUseId: "toolu_p",
+    plan: { plan: "Step 1: create a.txt\nStep 2: create b.txt\n", truncated: false },
+  });
+});
+
+test("validateHookEvent: PreToolUse(ExitPlanMode) caps an oversized plan", () => {
+  const ev = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "PreToolUse",
+    tool_name: "ExitPlanMode",
+    tool_use_id: "toolu_p",
+    tool_input: { plan: "x".repeat(PLAN_MAX + 10) },
+  });
+  expect(ev?.plan).toEqual({ plan: "x".repeat(PLAN_MAX), truncated: true });
+});
+
+test("validateHookEvent: PreToolUse(ExitPlanMode) without a string plan carries no plan", () => {
+  for (const tool_input of [{}, { plan: 42 }, { plan: "   " }, null]) {
+    const ev = validateHookEvent({
+      session_id: "s1",
+      hook_event_name: "PreToolUse",
+      tool_name: "ExitPlanMode",
+      tool_use_id: "toolu_p",
+      tool_input,
+    });
+    expect(ev).toEqual({
+      event: "PreToolUse",
+      sessionId: "s1",
+      toolName: "ExitPlanMode",
+      toolUseId: "toolu_p",
+    });
+  }
 });
 
 test("validateHookEvent: PostToolUse(AskUserQuestion) normalizes the answers", () => {

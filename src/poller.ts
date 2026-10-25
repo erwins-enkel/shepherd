@@ -19,6 +19,7 @@ import {
   classifyBlocked,
   hasActiveSpinner,
   hasQueuedInput,
+  promoteDemotedMenu,
   quotaBlockReason,
   tailLines,
   type BlockReason,
@@ -34,6 +35,7 @@ import {
 } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
 import type { PendingAsk } from "./ask-user-question";
+import type { PendingPlan } from "./plan-approval";
 import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { MAIN_SESSION_CACHE_TTL } from "./pricing";
 import { existsSync, statSync } from "node:fs";
@@ -74,6 +76,14 @@ const QUOTA_SIG = "quota"; // fixed signature → a quota block fires once per e
  * by herdr mapping).
  */
 const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);
+
+/** #2779: how long after a PreToolUse(AskUserQuestion|ExitPlanMode) an `awaiting-input` reading is
+ *  withheld while the dialog paints. The hook lands ~6 s before the Notification
+ *  (docs/research/claude-code-pretooluse-dialogs.md), possibly before the dialog is on screen, and an
+ *  announced `awaiting-input` is steerable — autopilot's Enter would answer the dialog painting
+ *  under it. Past this, classification is back to normal, so a dialog that never reads as a menu (or
+ *  was cancelled with no PostToolUse) cannot hold the session's blocks back. */
+const DIALOG_PAINT_GRACE_MS = 10_000;
 
 /** Pairing horizon for the observe-only Stop↔herdr-done window (issue #713): a Stop and a
  *  done-flip more than this apart are treated as unrelated turns and never paired. */
@@ -362,6 +372,10 @@ export class StatusPoller {
    *  the same tool_use_id, the clear of the block that carried it, a Stop/SessionEnd or the next ask
    *  ends it. Hook-only: the transcript holds no tool_use while the dialog is open. */
   private pendingAsk = new Map<string, PendingAsk>();
+  /** #2779: the ExitPlanMode approval dialog each session's agent is waiting on, from the
+   *  PreToolUse hook — same lifecycle as `pendingAsk`, attached as `plan`. A rejected plan sends no
+   *  PostToolUse, so it ends with the clear of the block that carried it or a Stop/SessionEnd. */
+  private pendingPlan = new Map<string, PendingPlan>();
   /** #1891: last lifecycle state pushed to herdr per session, for push-on-change dedup. */
   private lastPushedState = new Map<string, PushableAgentState>();
   /** #1891: ms of the last detected active turn (an `emitActivity` this probe) — the terminal-scrape
@@ -471,6 +485,10 @@ export class StatusPoller {
    *  `reconcileAgent` to trigger a classify THIS tick (≤ ~1 tick), independent of
    *  herdr's latchy `blocked` status. */
   private hookAwaitingInput = new Set<string>();
+  /** #2779: when a PreToolUse(AskUserQuestion|ExitPlanMode) armed `hookAwaitingInput` — see
+   *  `withheldWhilePainting`. Cleared when the marker is consumed or the dialog ends
+   *  (`ingestDialogClosed`). */
+  private hookDialogAt = new Map<string, number>();
 
   /** Observe-only Stop↔herdr-done pairing markers (issue #713), flag-gated, NO behaviour
    *  change. They measure the offset between a Claude Code `Stop` hook and herdr's `done`
@@ -1470,9 +1488,29 @@ export class StatusPoller {
     if (!hookSignalsActive() || !this.hookAwaitingInput.has(s.id)) return false;
     // Consume the marker only when the classify actually ran (throttle didn't skip);
     // a throttled tick keeps the marker so the next tick retries the surface.
-    if (await this.maybeClassify(s, s.herdrAgentId)) this.hookAwaitingInput.delete(s.id);
+    if (await this.maybeClassify(s, s.herdrAgentId)) {
+      this.hookAwaitingInput.delete(s.id);
+      this.hookDialogAt.delete(s.id);
+    }
     const sig = this.lastSig.get(s.id);
     return sig !== undefined && sig !== STALL_SIG;
+  }
+
+  /** #2779: an `awaiting-input` read while a hooked dialog opened moments ago and no menu is
+   *  announced yet — the dialog is still painting, so the reading is not announced. */
+  private withheldWhilePainting(id: string, reason: BlockReason): boolean {
+    if (reason.shape !== "awaiting-input") return false;
+    const at = this.hookDialogAt.get(id);
+    if (at === undefined || this.now() - at >= DIALOG_PAINT_GRACE_MS) return false;
+    return this.lastBlockReason.get(id)?.shape !== "menu";
+  }
+
+  /** `classify`, plus #2779: a hooked dialog is the chrome a mid-paint menu is still missing. */
+  private classifyPane(id: string, visible: string): BlockReason {
+    const reason = this.classify(visible);
+    return this.pendingAsk.has(id) || this.pendingPlan.has(id)
+      ? promoteDemotedMenu(reason)
+      : reason;
   }
 
   /** Prune tracking state for sessions no longer active (archived/removed). */
@@ -1500,6 +1538,7 @@ export class StatusPoller {
       ...this.lastHookActivityAt.keys(),
       ...this.hookTicks.keys(),
       ...this.hookAwaitingInput,
+      ...this.hookDialogAt.keys(),
       ...this.pendingStopAt.keys(),
       ...this.pendingDoneAt.keys(),
       ...this.lastClaudeAlive.keys(),
@@ -1522,6 +1561,7 @@ export class StatusPoller {
         this.lastAuthUrlEmitted.delete(id);
         this.lastBlockReason.delete(id);
         this.pendingAsk.delete(id);
+        this.pendingPlan.delete(id);
         this.lastProbeAt.delete(id);
         this.codexCaptureBackoff.delete(id);
         this.lastActivitySig.delete(id);
@@ -1542,6 +1582,7 @@ export class StatusPoller {
         this.lastHookActivityAt.delete(id);
         this.hookTicks.delete(id);
         this.hookAwaitingInput.delete(id);
+        this.hookDialogAt.delete(id);
         // Observe-only Stop↔herdr-done markers (issue #713)
         this.pendingStopAt.delete(id);
         this.pendingDoneAt.delete(id);
@@ -1835,13 +1876,17 @@ export class StatusPoller {
    *  fire/clear paths route through here so a fresh client can bootstrap current blocks. */
   private emitBlock(id: string, block: BlockReason | null): void {
     const ask = this.pendingAsk.get(id);
-    // Only a rendered dialog can be the AskUserQuestion — never a stall, quota or a bare prompt.
+    const plan = this.pendingPlan.get(id);
+    // Only a rendered dialog can be the AskUserQuestion / plan approval — never a stall, quota or a
+    // bare prompt.
     if (block?.shape === "menu" && ask) block = { ...block, ask };
-    // The block that carried the ask cleared: the session left the dialog (answered, Esc-cancelled,
-    // interrupted). Drop it so it can never ride a LATER unrelated menu (a permission prompt) — a
-    // cancel sends no PostToolUse and an interrupt no Stop. An ask not yet announced survives an
-    // older block's clear: its dialog is still on its way to the screen.
+    if (block?.shape === "menu" && plan) block = { ...block, plan };
+    // The block that carried the ask/plan cleared: the session left the dialog (answered,
+    // Esc-cancelled, rejected, interrupted). Drop it so it can never ride a LATER unrelated menu (a
+    // permission prompt) — a cancel or a plan rejection sends no PostToolUse and an interrupt no
+    // Stop. One not yet announced survives an older block's clear: its dialog is still on its way.
     if (!block && this.lastBlockReason.get(id)?.ask) this.pendingAsk.delete(id);
+    if (!block && this.lastBlockReason.get(id)?.plan) this.pendingPlan.delete(id);
     if (block) this.lastBlockReason.set(id, block);
     else this.lastBlockReason.delete(id);
     this.onBlock(id, block);
@@ -1868,15 +1913,66 @@ export class StatusPoller {
    * so clients close the panel even before the poller reclassifies the pane.
    */
   resolveAsk(id: string, toolUseId?: string): void {
-    const ask = this.pendingAsk.get(id);
-    if (!ask || (toolUseId !== undefined && ask.toolUseId !== toolUseId)) return;
-    this.pendingAsk.delete(id);
+    this.resolveHooked(this.pendingAsk, "ask", id, toolUseId);
+  }
+
+  /**
+   * #2779: a PreToolUse(ExitPlanMode) hook arrived — remember the plan and re-emit an announced
+   * block carrying it, exactly like {@link ingestAsk}.
+   */
+  ingestPlan(id: string, plan: PendingPlan): void {
+    this.pendingPlan.set(id, plan);
     const announced = this.lastBlockReason.get(id);
-    if (announced?.ask) {
+    if (announced) this.emitBlock(id, announced);
+  }
+
+  /** #2779: the plan dialog ended (approved → PostToolUse; Stop / SessionEnd). Same rules as
+   *  {@link resolveAsk}. */
+  resolvePlan(id: string, toolUseId?: string): void {
+    this.resolveHooked(this.pendingPlan, "plan", id, toolUseId);
+  }
+
+  /** Shared end of a hooked dialog: forget it and re-emit an announced block without its field. */
+  private resolveHooked(
+    pending: Map<string, { toolUseId: string }>,
+    field: "ask" | "plan",
+    id: string,
+    toolUseId?: string,
+  ): void {
+    const open = pending.get(id);
+    if (!open || (toolUseId !== undefined && open.toolUseId !== toolUseId)) return;
+    pending.delete(id);
+    const announced = this.lastBlockReason.get(id);
+    if (announced?.[field]) {
       const rest = { ...announced };
-      delete rest.ask;
+      delete rest[field];
       this.emitBlock(id, rest);
     }
+  }
+
+  /**
+   * #2779: a PreToolUse(AskUserQuestion|ExitPlanMode) hook arrived — the agent is about to show a
+   * dialog. Arms the same hook-driven classify a `Notification(permission_prompt)` does, ~6 s
+   * sooner; until the dialog reads as a menu (bounded by DIALOG_PAINT_GRACE_MS) an `awaiting-input`
+   * reading is withheld rather than announced (`withheldWhilePainting`).
+   * No-op when `hookSignalsActive()` is false.
+   */
+  ingestDialogOpen(id: string): void {
+    if (!hookSignalsActive()) return;
+    this.hookAwaitingInput.add(id);
+    this.hookDialogAt.set(id, this.now());
+  }
+
+  /**
+   * #2779: a hooked dialog ended (its own PostToolUse/Failure, or Stop / SessionEnd) — disarm what
+   * {@link ingestDialogOpen} armed, whether or not its tool_input parsed into an ask/plan. A dialog
+   * answered before any classify read it would otherwise leave the marker to drive a classify of
+   * the now-working pane once the grace is gone. A marker a Notification armed (no dialog stamp)
+   * is left alone.
+   */
+  ingestDialogClosed(id: string): void {
+    if (!this.hookDialogAt.delete(id)) return;
+    this.hookAwaitingInput.delete(id);
   }
 
   /** #3165: the ask a client can answer right now — only one an ANNOUNCED block carries, i.e. the
@@ -2064,7 +2160,7 @@ export class StatusPoller {
     let reason: BlockReason;
     try {
       visible = await this.herdr.readAsync(term, "visible");
-      reason = this.classify(visible);
+      reason = this.classifyPane(id, visible);
     } catch (err) {
       console.warn(`[poller] classify failed for ${id}:`, err);
       return false; // best-effort; retry next cadence (didn't classify → didn't look)
@@ -2078,6 +2174,9 @@ export class StatusPoller {
     if (this.blockBackstop && !BACKSTOP_GATED_SHAPES.has(reason.shape)) {
       this.blockBackstop.release(id);
     }
+    // #2779: the hook says a dialog is coming; a pre-paint `awaiting-input` would be steerable.
+    // "Did not look" keeps a hook marker, so the next cadence reads the painted menu.
+    if (this.withheldWhilePainting(id, reason)) return false;
     if (reason.shape === "awaiting-input") {
       if (this.suppressAwaitingInput(s, visible, reason)) return true; // looked, suppressed emit
     } else {

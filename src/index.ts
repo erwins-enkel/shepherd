@@ -1606,20 +1606,33 @@ if (hookSignalsWanted && !config.hooksIngest) {
 } else if (hookSignalsWanted) {
   // #3165: the AskUserQuestion dialog's lifecycle — PreToolUse opens the native panel, the matching
   // PostToolUse closes + verifies it, and Stop / SessionEnd close it after a local Esc cancel
-  // (which sends no PostToolUse).
-  const routeAskHook = (id: string, ev: HookEvent): void => {
-    if (ev.event === "PreToolUse" && ev.ask && ev.toolUseId) {
-      poller.ingestAsk(id, { toolUseId: ev.toolUseId, questions: ev.ask });
+  // (which sends no PostToolUse). #2779: ExitPlanMode's plan rides the same lifecycle (a rejected
+  // plan sends no PostToolUse either), and either PreToolUse arms the block edge early.
+  const routeDialogOpen = (id: string, ev: HookEvent): void => {
+    poller.ingestDialogOpen(id);
+    if (!ev.toolUseId) return;
+    if (ev.ask) poller.ingestAsk(id, { toolUseId: ev.toolUseId, questions: ev.ask });
+    if (ev.plan) poller.ingestPlan(id, { toolUseId: ev.toolUseId, ...ev.plan });
+  };
+  const routeDialogHook = (id: string, ev: HookEvent): void => {
+    if (ev.event === "PreToolUse") {
+      routeDialogOpen(id, ev);
     } else if ((ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") && ev.toolUseId) {
+      if (ev.toolName === "AskUserQuestion" || ev.toolName === "ExitPlanMode") {
+        poller.ingestDialogClosed(id);
+      }
       poller.resolveAsk(id, ev.toolUseId);
+      poller.resolvePlan(id, ev.toolUseId);
       askAnswers.onPostToolUse(id, ev.toolUseId, ev.askAnswers ?? null);
     } else if (ev.event === "Stop" || ev.event === "SessionEnd") {
+      poller.ingestDialogClosed(id);
       poller.resolveAsk(id);
+      poller.resolvePlan(id);
     }
   };
   // `planStopTrigger` is declared further down and only read when a hook arrives, long after boot.
   hookIngest.setSink((id, ev) => {
-    routeAskHook(id, ev);
+    routeDialogHook(id, ev);
     if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
       planStopTrigger.cancel(id);
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });

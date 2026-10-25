@@ -296,3 +296,56 @@ describe("ViewportTermBanners login request bar (#2897)", () => {
     }
   });
 });
+
+describe("ViewportTermBanners plan approval strip (#2779)", () => {
+  const PLAN = {
+    toolUseId: "toolu_p",
+    plan: "Step 1: <b>bold</b> stays text\nStep 2: done",
+    truncated: false,
+  };
+
+  it("announces the plan and reveals it as plain text on demand", async () => {
+    render(ViewportTermBanners, { ...baseProps, plan: PLAN });
+    await expect
+      .element(page.getByText("Claude's plan is waiting for your approval"))
+      .toBeVisible();
+    const show = page.getByRole("button", { name: "Show plan" });
+    await expect.element(show).toHaveAttribute("aria-expanded", "false");
+    await show.click();
+    const text = document.querySelector<HTMLElement>(".plan-text");
+    expect(text?.textContent).toBe(PLAN.plan);
+    expect(text?.querySelector("b")).toBeNull(); // agent text is never parsed as HTML
+    await expect
+      .element(page.getByRole("button", { name: "Hide plan" }))
+      .toHaveAttribute("aria-expanded", "true");
+    await expect.element(page.getByText(/shortened/)).not.toBeInTheDocument();
+  });
+
+  it("notes a truncated plan and collapses again for the next plan dialog", async () => {
+    const r = await render(ViewportTermBanners, {
+      ...baseProps,
+      plan: { ...PLAN, truncated: true },
+    });
+    await page.getByRole("button", { name: "Show plan" }).click();
+    await expect.element(page.getByText(/shortened/)).toBeVisible();
+    await r.rerender({ ...baseProps, plan: { ...PLAN, toolUseId: "toolu_q" } });
+    await expect.element(page.getByRole("button", { name: "Show plan" })).toBeVisible();
+    expect(document.querySelector(".plan-text")).toBeNull();
+  });
+
+  it("wears the shared top-strip chrome from the parent", async () => {
+    render(ViewportTermBanners, { ...baseProps, plan: PLAN, authUrl: AUTH_URL });
+    await expect.element(page.getByRole("button", { name: "Show plan" })).toBeVisible();
+    const [plan, auth] = document.querySelectorAll<HTMLElement>(".auth-banner");
+    expect(plan.classList.contains("plan-banner")).toBe(true);
+    expect(getComputedStyle(plan).backgroundColor).toBe(getComputedStyle(auth).backgroundColor);
+    expect(getComputedStyle(plan, "::after").animationName).not.toBe("none");
+  });
+
+  it("renders nothing without a plan or off the term tab", async () => {
+    const r = await render(ViewportTermBanners, { ...baseProps, plan: PLAN, tab: "diff" });
+    expect(document.querySelector(".plan-banner")).toBeNull();
+    await r.rerender({ ...baseProps, plan: null });
+    expect(document.querySelector(".plan-banner")).toBeNull();
+  });
+});

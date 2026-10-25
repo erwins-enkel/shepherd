@@ -607,7 +607,8 @@ export function resetUserSkillNamesCacheForTests(): void {
  * machine with no personal skills still shouldn't pay for the built-in catalog); absent → both keys
  * omitted, so untrimmed spawns keep today's exact overlay.
  *
- * `hooks` (issue #704, only when `config.hooksIngest`) adds PreToolUse(AskUserQuestion, #3165)/
+ * `hooks` (issue #704, only when `config.hooksIngest`) adds PreToolUse(AskUserQuestion|ExitPlanMode,
+ * #3165/#2779)/
  * PostToolUse/PostToolUseFailure/Notification/SessionStart/Stop/SessionEnd/SubagentStart/
  * SubagentStop HTTP hooks pointing at this session's ingest route (see buildHooksFragment).
  * Flag off → key omitted entirely, so the overlay JSON stays byte-for-byte identical to today.
@@ -615,7 +616,7 @@ export function resetUserSkillNamesCacheForTests(): void {
  * The `PreToolUse` tool guard (issue #2002, `config.toolGuard`) is merged into the same `hooks`
  * object from buildToolGuardFragment. It is independent of `hooksIngest` — a local `command` hook,
  * not an HTTP one — so it rides even when ingest is off. Both register `PreToolUse` (guard:
- * matcher `Bash`; ingest: `AskUserQuestion`), so that one key's matcher arrays are concatenated;
+ * matcher `Bash`; ingest: `AskUserQuestion|ExitPlanMode`), so that one key's matcher arrays are concatenated;
  * every other event belongs to one side only.
  *
  * `permissions` (the Operator Assistant only, #1446 — see operatorAssistantPermissions) adds Claude's
@@ -710,9 +711,10 @@ export function buildHooksFragment(input: HookTarget): Record<string, unknown> {
   };
   const eventEntry = [{ matcher: "*", hooks: [httpHook] }];
   return {
-    // #3165: AskUserQuestion's questions as data for the native answer panel. Non-blocking: the
-    // route answers 200 with an EMPTY body (no decision), so the dialog renders as usual.
-    PreToolUse: [{ matcher: "AskUserQuestion", hooks: [httpHook] }],
+    // #3165: AskUserQuestion's questions as data for the native answer panel; #2779: ExitPlanMode's
+    // plan for the approval strip. Non-blocking: the route answers 200 with an EMPTY body (no
+    // decision), so the dialog renders as usual.
+    PreToolUse: [{ matcher: "AskUserQuestion|ExitPlanMode", hooks: [httpHook] }],
     PostToolUse: eventEntry,
     PostToolUseFailure: eventEntry,
     Notification: eventEntry,

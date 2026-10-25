@@ -1371,6 +1371,23 @@ components:
           type: string
         ask:
           $ref: "#/components/schemas/PendingAsk"
+        plan:
+          $ref: "#/components/schemas/PendingPlan"
+    PendingPlan:
+      type: object
+      additionalProperties: true
+      description: The ExitPlanMode approval dialog the agent is waiting on, as data from Claude Code's PreToolUse hook (#2779). `plan` is untrusted agent text, capped at 32000 chars (`truncated` then true) — render it as plain text. Present on a menu block only while the dialog is hooked and on screen; approval still happens in the terminal via the block's options.
+      required:
+        - toolUseId
+        - plan
+        - truncated
+      properties:
+        toolUseId:
+          type: string
+        plan:
+          type: string
+        truncated:
+          type: boolean
     PendingAsk:
       type: object
       additionalProperties: true

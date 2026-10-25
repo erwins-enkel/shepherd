@@ -124,10 +124,10 @@ key row #2700), so this is pure observation. After `await next(e)` the hook also
 **answer**, which closes the block edge authoritatively instead of via the spinner/queued-input
 suppression regexes (`src/blocked.ts:93-150`, #2280).
 
-**Honest note:** a classic `PreToolUse` HTTP hook with matcher `AskUserQuestion|ExitPlanMode` would
-deliver the same `tool_input` today, without mods — and Shepherd does not register one yet
-(`buildHooksFragment` covers eight events, not `PreToolUse`). That is a cheap win worth taking
-independently. The mod adds the answer-side edge and shares one bridge with everything below.
+**Honest note:** a classic `PreToolUse` HTTP hook with matcher `AskUserQuestion|ExitPlanMode`
+delivers the same `tool_input` without mods. Shepherd now registers one (#3165, #2779); the measured
+payloads and what it can and cannot replace are in `claude-code-pretooluse-dialogs.md`. The mod adds
+the answer-side edge and shares one bridge with everything below.
 
 ### 3.2 Authoritative turn edges
 

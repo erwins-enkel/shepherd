@@ -1612,9 +1612,20 @@ function handleMe({ req, parts, token }: Ctx): Response | null {
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
-/** `/api/pair` body → the token name to mint, or the 400 to answer. */
+/** A pairing body is a 48-char code plus a ≤64-char deviceName; even fully `\uXXXX`-escaped that
+ *  stays near 500 bytes, and the listener-wide cap is sized for uploads. */
+const PAIR_MAX_BODY_BYTES = 1024;
+
+/** `/api/pair` body → the token name to mint, or the 400/413 to answer. */
 async function readPairBody(req: Request): Promise<{ code: unknown; name: string } | Response> {
-  const body: unknown = await req.json().catch(() => null);
+  const text = await readCappedText(req, PAIR_MAX_BODY_BYTES);
+  if (text === null) return json({ error: "payload too large" }, 413);
+  let body: unknown = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // falls through to the invalid-body 400 below
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return json({ error: "invalid body" }, 400);
   }

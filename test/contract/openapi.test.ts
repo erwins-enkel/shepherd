@@ -114,6 +114,13 @@ describe("pairing", () => {
     const replay = await pair();
     await validateResponse("POST", "/api/pair", replay);
     expect(replay.status).toBe(401);
+    const big = await fetch(`${s.baseUrl}/api/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, deviceName: "x".repeat(2000) }),
+    });
+    await validateResponse("POST", "/api/pair", big);
+    expect(big.status).toBe(413);
     await fetch(`${s.baseUrl}/api/access-tokens/${body.entry.id}`, {
       method: "DELETE",
       headers: bearer(body.token),

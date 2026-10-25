@@ -169,6 +169,7 @@ public enum ProfileSetup {
       case .created(let created): minted = try created.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw PairingError.invalidCode
+      case .contentTooLarge(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .tooManyRequests: throw PairingError.rateLimited
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "pairDevice")

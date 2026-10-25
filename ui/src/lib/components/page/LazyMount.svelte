@@ -1,7 +1,8 @@
 <!--
   Mounts a code-split component once its chunk arrives (#3233). Renders nothing while loading;
   a failed load (dropped chunk, or a deploy that moved the hashes) raises one sticky toast whose
-  Reload action recovers both cases, and calls `onerror` so the caller can drop its open flag —
+  Reload action recovers both cases (the update offer when a newer build is known to be live),
+  and calls `onerror` so the caller can drop its open flag —
   otherwise the flag stays set with nothing mounted, blocking shortcuts and the lazy() retry. Usage keeps the child's props type-checked:
 
     <LazyMount load={loadSettings}>{#snippet children(Settings)}<Settings … />{/snippet}</LazyMount>
@@ -11,6 +12,7 @@
   import type { Loader } from "#lib/lazy-component.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { appUpdated, offerUpdateReload } from "#lib/update-offer.js";
 
   let {
     load,
@@ -22,12 +24,14 @@
     load().then(
       (mod) => mod.default,
       () => {
-        toasts.info(m.lazy_load_failed(), {
-          alert: true,
-          sticky: true,
-          key: "lazy-load-failed",
-          action: { label: m.viewport_browser_reload(), run: () => location.reload() },
-        });
+        if (appUpdated()) offerUpdateReload();
+        else
+          toasts.info(m.lazy_load_failed(), {
+            alert: true,
+            sticky: true,
+            key: "lazy-load-failed",
+            action: { label: m.viewport_browser_reload(), run: () => location.reload() },
+          });
         onerror?.();
         return null;
       },

@@ -14,6 +14,7 @@
   import type { SettingsSectionId } from "#lib/settings-search.js";
   import { createTabSignal, deriveTabState } from "#lib/tab-signal.svelte.js";
   import { tabTicker } from "#lib/tab-ticker.svelte.js";
+  import { appUpdated, checkForUpdate, offerUpdateReload } from "#lib/update-offer.js";
   import {
     listSessions,
     listRemoteDispatches,
@@ -1113,10 +1114,17 @@
     const epoch = store.connectionEpoch;
     if (epoch > 1) {
       untrack(() => resync({ force: true }));
+      // A deploy restarts the server, so a replacement socket is the earliest sign of a new build.
+      checkForUpdate();
       void getHerdrUpdate()
         .then((status) => store.setHerdrUpdate(status))
         .catch(() => {});
     }
+  });
+
+  // A newer build is live: offer a reload before a code-split panel fails to load.
+  $effect(() => {
+    if (appUpdated()) untrack(offerUpdateReload);
   });
 
   // Fetch backlog when the overview is empty, or when the operator opens the

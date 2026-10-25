@@ -82,23 +82,18 @@ export function heldAdvanceTarget(b: RepoBootstrap): number | null {
   return b.phase === 3 ? 4 : null;
 }
 
-/** Slack between the merge Shepherd observed (late: poller lag, restart) and the forge creating
- *  the post-merge run. */
-const POST_MERGE_SKEW_MS = 30 * 60_000;
 const OK_CONCLUSIONS = new Set(["success", "skipped", "neutral"]);
 
 export type PostMergeCi = "green" | "waiting" | "failed";
 
 /**
- * Default-branch CI after a bootstrap merge at `since` (#3411): judged on the runs of the newest
- * head that has runs since the merge — "does main's current head build". No run yet → waiting; any
- * finished run that didn't pass (incl. a 0-job "workflow file issue" run) → failed.
+ * Default-branch CI of `headSha`, the branch tip after a bootstrap merge (#3411) — "does main's
+ * current head build". Unknown head or no run for it yet → waiting (never another head's runs);
+ * any finished run that didn't pass (incl. a 0-job "workflow file issue" run) → failed.
  */
-export function postMergeCi(runs: readonly ForgeRun[], since: number): PostMergeCi {
-  const recent = runs.filter((r) => r.createdAt >= since - POST_MERGE_SKEW_MS);
-  if (recent.length === 0) return "waiting";
-  const newest = recent.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
-  const head = recent.filter((r) => r.headSha === newest.headSha);
+export function postMergeCi(runs: readonly ForgeRun[], headSha: string | null): PostMergeCi {
+  const head = headSha ? runs.filter((r) => r.headSha === headSha) : [];
+  if (head.length === 0) return "waiting";
   const done = head.filter((r) => r.status === "completed");
   if (done.some((r) => !OK_CONCLUSIONS.has(r.conclusion ?? ""))) return "failed";
   return done.length === head.length ? "green" : "waiting";

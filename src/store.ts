@@ -1572,6 +1572,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ) {
       this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN ciPendingAt INTEGER`);
       this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN ciPendingSessionId TEXT`);
+      this.db.run(`ALTER TABLE repo_bootstrap ADD COLUMN ciPendingSha TEXT`);
     }
     this.db.run(`CREATE TABLE IF NOT EXISTS local_prs (
       number    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2504,27 +2505,42 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          overrideAt = excluded.overrideAt, updatedAt = excluded.updatedAt,
          phaseAt = CASE WHEN ? THEN excluded.phaseAt ELSE COALESCE(phaseAt, excluded.phaseAt) END,
          ciPendingAt = CASE WHEN ? THEN NULL ELSE ciPendingAt END,
-         ciPendingSessionId = CASE WHEN ? THEN NULL ELSE ciPendingSessionId END`,
-      [repoPath, next.state, next.phase, overrideAt, now, now, ...Array(3).fill(restart ? 1 : 0)],
+         ciPendingSessionId = CASE WHEN ? THEN NULL ELSE ciPendingSessionId END,
+         ciPendingSha = CASE WHEN ? THEN NULL ELSE ciPendingSha END`,
+      [repoPath, next.state, next.phase, overrideAt, now, now, ...Array(4).fill(restart ? 1 : 0)],
     );
   }
 
   /** #3411: hold the phase advance of `sessionId`'s bootstrap merge (seen at `at`) until the default
-   *  branch's CI is green. Active repos only; a later merge re-arms it with the newer time. */
+   *  branch's CI is green. Active repos only; a later merge re-arms it with the newer time and an
+   *  unknown head until {@link setBootstrapCiPendingSha} anchors it. */
   setBootstrapCiPending(repoPath: string, at: number, sessionId: string): void {
     this.db.run(
-      `UPDATE repo_bootstrap SET ciPendingAt = ?, ciPendingSessionId = ?, updatedAt = ?
-       WHERE repoPath = ? AND state = 'active'`,
+      `UPDATE repo_bootstrap SET ciPendingAt = ?, ciPendingSessionId = ?, ciPendingSha = NULL,
+         updatedAt = ? WHERE repoPath = ? AND state = 'active'`,
       [at, sessionId, Date.now(), repoPath],
     );
   }
 
-  /** The session whose merge holds `repoPath`'s advance (#3411); null when none is held. */
-  getBootstrapCiPendingSession(repoPath: string): string | null {
+  /** Anchor a held advance (#3411) on the default branch's current tip — the commit whose CI
+   *  decides it. No-op when nothing is held. */
+  setBootstrapCiPendingSha(repoPath: string, sha: string): void {
+    this.db.run(
+      `UPDATE repo_bootstrap SET ciPendingSha = ? WHERE repoPath = ? AND ciPendingAt IS NOT NULL`,
+      [sha, repoPath],
+    );
+  }
+
+  /** The held advance of `repoPath` (#3411): the merged session and the anchored head (null until
+   *  known); null when none is held. */
+  getBootstrapCiPending(repoPath: string): { sessionId: string; sha: string | null } | null {
     const r = this.db
-      .query(`SELECT ciPendingSessionId AS id FROM repo_bootstrap WHERE repoPath = ?`)
-      .get(repoPath) as { id: string | null } | null;
-    return r?.id ?? null;
+      .query(
+        `SELECT ciPendingSessionId AS sessionId, ciPendingSha AS sha FROM repo_bootstrap
+         WHERE repoPath = ? AND ciPendingAt IS NOT NULL`,
+      )
+      .get(repoPath) as { sessionId: string | null; sha: string | null } | null;
+    return r ? { sessionId: r.sessionId ?? "", sha: r.sha } : null;
   }
 
   /** Every repo in ACTIVE bootstrap with its phase clock — the boot reconcile's work list (#3112). */

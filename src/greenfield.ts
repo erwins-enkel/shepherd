@@ -24,7 +24,7 @@ import {
 } from "./bootstrap";
 import type { GitForge, ForgeRun } from "./forge/types";
 import { buildGreenfieldReport, type GreenfieldReport } from "./greenfield-core";
-import { fastForwardDefaultBranch, resolveDefaultBranch } from "./pull";
+import { fastForwardDefaultBranch, fetchRemoteHead, resolveDefaultBranch } from "./pull";
 import { scanEcosystem } from "./readiness";
 import { forgeReadiness } from "./readiness-forge";
 import type { ForgeReadiness } from "./readiness-forge-core";
@@ -101,7 +101,8 @@ export interface GreenfieldDeps {
     | "setRepoBootstrap"
     | "getRepoConfig"
     | "setBootstrapCiPending"
-    | "getBootstrapCiPendingSession"
+    | "getBootstrapCiPending"
+    | "setBootstrapCiPendingSha"
     | "listActiveRepoBootstraps"
   >;
   resolveForge: (dir: string) => GitForge | null;
@@ -110,18 +111,21 @@ export interface GreenfieldDeps {
   onChange?: (dir: string) => void;
   /** A bootstrap session's merge advanced the phase (#3112) — propose the next step. */
   onAdvance?: (dir: string, phase: number, sessionId: string) => void;
-  /** Fast-forward the local default-branch checkout; injectable for tests. */
-  pull?: (dir: string, forge: GitForge | null) => Promise<void>;
+  /** Fast-forward the local default-branch checkout and answer the branch's remote tip (null when
+   *  unknown); injectable for tests. */
+  pull?: (dir: string, forge: GitForge | null) => Promise<string | null>;
   now?: () => number;
 }
 
-async function defaultPull(dir: string, forge: GitForge | null): Promise<void> {
+async function defaultPull(dir: string, forge: GitForge | null): Promise<string | null> {
   const branch = await resolveDefaultBranch(dir, {
     forgeDefault: forge ? () => forge.defaultBranch().catch(() => null) : undefined,
   });
-  if (!branch) return;
+  if (!branch) return null;
   const r = await fastForwardDefaultBranch(dir, branch);
-  if (!r.ok) console.warn(`[greenfield] fast-forward skipped repo=${dir} reason=${r.reason}`);
+  if (r.ok) return r.sha;
+  console.warn(`[greenfield] fast-forward skipped repo=${dir} reason=${r.reason}`);
+  return fetchRemoteHead(dir, branch);
 }
 
 export class GreenfieldService {
@@ -167,13 +171,25 @@ export class GreenfieldService {
     return this.#ciHold.get(dir) ?? "waiting";
   }
 
-  /** Re-scan every active repo with a held advance (#3411) — its CI moves without a merge. */
+  /** Re-anchor and re-scan every active repo with a held advance (#3411) — its CI moves, and main
+   *  may move, without a merge Shepherd saw. */
   async refreshPending(): Promise<void> {
     const held = this.deps.store.listActiveRepoBootstraps().filter((r) => r.ciPendingAt != null);
-    for (const { repoPath } of held)
+    for (const { repoPath } of held) {
+      await this.#pullAndAnchor(repoPath, this.deps.resolveForge(repoPath));
       await this.refresh(repoPath).catch((e: unknown) =>
         console.warn(`[greenfield] scan failed repo=${repoPath}:`, e),
       );
+    }
+  }
+
+  /** Pull what landed; while an advance is held, anchor it on the branch's tip (#3411). */
+  async #pullAndAnchor(dir: string, forge: GitForge | null): Promise<void> {
+    const sha = await (this.deps.pull ?? defaultPull)(dir, forge).catch((e: unknown) => {
+      console.warn(`[greenfield] fast-forward failed repo=${dir}:`, e);
+      return null;
+    });
+    if (sha) this.deps.store.setBootstrapCiPendingSha(dir, sha);
   }
 
   /** A PR merged in `dir`: in an active bootstrap, a bootstrap session's PR (#3110: P1+P2 → 3,
@@ -188,7 +204,7 @@ export class GreenfieldService {
     if (b.state !== "active") return;
     // A second sighting of the held merge (poller + "merged" archive) never re-arms it.
     const seen =
-      b.ciPendingAt != null && this.deps.store.getBootstrapCiPendingSession(dir) === sessionId;
+      b.ciPendingAt != null && this.deps.store.getBootstrapCiPending(dir)?.sessionId === sessionId;
     const next = bootstrapPhase && !seen ? phaseAfterBootstrapMerge(b, bootstrapPhase) : null;
     const forge = this.deps.resolveForge(dir);
     if (next != null && forge?.listDefaultBranchRuns) {
@@ -197,9 +213,7 @@ export class GreenfieldService {
       console.log(`[greenfield] bootstrap phase ${b.phase} → ${next} held for CI repo=${dir}`);
       this.deps.onChange?.(dir);
     } else if (next != null) this.#advance(dir, b.phase, next, sessionId);
-    await (this.deps.pull ?? defaultPull)(dir, forge).catch((e: unknown) =>
-      console.warn(`[greenfield] fast-forward failed repo=${dir}:`, e),
-    );
+    await this.#pullAndAnchor(dir, forge);
     await this.refresh(dir);
   }
 
@@ -217,10 +231,10 @@ export class GreenfieldService {
     const b = this.deps.store.getRepoBootstrap(dir);
     if (b.state !== "active" || b.ciPendingAt == null) return;
     const to = heldAdvanceTarget(b);
-    const verdict = runs == null ? "green" : postMergeCi(runs, b.ciPendingAt);
+    const held = this.deps.store.getBootstrapCiPending(dir);
+    const verdict = runs == null ? "green" : postMergeCi(runs, held?.sha ?? null);
     if (verdict === "green") {
-      if (to != null)
-        this.#advance(dir, b.phase, to, this.deps.store.getBootstrapCiPendingSession(dir) ?? "");
+      if (to != null) this.#advance(dir, b.phase, to, held?.sessionId ?? "");
       return;
     }
     const prev = this.#ciHold.get(dir) ?? "waiting";

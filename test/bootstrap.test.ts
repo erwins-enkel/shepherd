@@ -85,8 +85,6 @@ describe("heldAdvanceTarget", () => {
 });
 
 describe("postMergeCi (#3411)", () => {
-  const MIN = 60_000;
-  const since = 100 * MIN;
   const run = (o: Partial<ForgeRun>): ForgeRun => ({
     id: 1,
     workflowName: "ci",
@@ -96,32 +94,28 @@ describe("postMergeCi (#3411)", () => {
     conclusion: "success",
     attempt: 1,
     headSha: "new",
-    createdAt: since,
+    createdAt: 1,
     url: "",
     ...o,
   });
 
-  test("no run since the merge → waiting", () => {
-    expect(postMergeCi([], since)).toBe("waiting");
-    expect(postMergeCi([run({ createdAt: since - 31 * MIN })], since)).toBe("waiting");
+  test("unknown head or no run for the merged head yet → waiting", () => {
+    expect(postMergeCi([], "new")).toBe("waiting");
+    expect(postMergeCi([run({})], null)).toBe("waiting");
   });
-  test("a run created shortly before the observed merge still counts (skew)", () => {
-    expect(postMergeCi([run({ createdAt: since - 5 * MIN })], since)).toBe("green");
-  });
-  test("judges only the newest head", () => {
-    const old = run({ headSha: "old", createdAt: since - MIN, conclusion: "failure" });
-    expect(postMergeCi([old, run({ createdAt: since + MIN })], since)).toBe("green");
-    const oldOk = run({ headSha: "old", createdAt: since - MIN });
-    expect(postMergeCi([oldOk, run({ conclusion: "failure" })], since)).toBe("failed");
+  test("another head's green run never decides (forge not yet listing the push run)", () => {
+    expect(postMergeCi([run({ headSha: "old", createdAt: 9 })], "new")).toBe("waiting");
+    const oldRed = run({ headSha: "old", conclusion: "failure" });
+    expect(postMergeCi([oldRed, run({ id: 2 })], "new")).toBe("green");
   });
   test("a 0-job workflow-file-issue run fails; startup_failure fails", () => {
-    expect(postMergeCi([run({ conclusion: "failure" })], since)).toBe("failed");
-    expect(postMergeCi([run({ conclusion: "startup_failure" })], since)).toBe("failed");
+    expect(postMergeCi([run({ conclusion: "failure" })], "new")).toBe("failed");
+    expect(postMergeCi([run({ conclusion: "startup_failure" })], "new")).toBe("failed");
   });
   test("in progress → waiting, unless a finished one already failed", () => {
     const busy = run({ id: 2, status: "in_progress", conclusion: null });
-    expect(postMergeCi([run({}), busy], since)).toBe("waiting");
-    expect(postMergeCi([run({ conclusion: "failure" }), busy], since)).toBe("failed");
+    expect(postMergeCi([run({}), busy], "new")).toBe("waiting");
+    expect(postMergeCi([run({ conclusion: "failure" }), busy], "new")).toBe("failed");
   });
   test("success, skipped and neutral are green", () => {
     const runs = [
@@ -129,7 +123,7 @@ describe("postMergeCi (#3411)", () => {
       run({ id: 2, conclusion: "skipped" }),
       run({ id: 3, conclusion: "neutral" }),
     ];
-    expect(postMergeCi(runs, since)).toBe("green");
+    expect(postMergeCi(runs, "new")).toBe("green");
   });
 });
 
@@ -225,14 +219,20 @@ describe("SessionStore repo bootstrap", () => {
     s.setRepoBootstrap("/r", { state: "active", phase: 1 });
     s.setBootstrapCiPending("/r", 5, "s1");
     expect(s.getRepoBootstrap("/r").ciPendingAt).toBe(5);
-    expect(s.getBootstrapCiPendingSession("/r")).toBe("s1");
-    expect(s.listActiveRepoBootstraps()[0]?.ciPendingAt).toBe(5);
+    expect(s.getBootstrapCiPending("/r")).toEqual({ sessionId: "s1", sha: null });
+    s.setBootstrapCiPendingSha("/r", "abc");
+    expect(s.getBootstrapCiPending("/r")?.sha).toBe("abc");
+    s.setBootstrapCiPending("/r", 6, "s2"); // a new hold forgets the old anchor
+    expect(s.getBootstrapCiPending("/r")).toEqual({ sessionId: "s2", sha: null });
+    expect(s.listActiveRepoBootstraps()[0]?.ciPendingAt).toBe(6);
     s.setRepoBootstrapOverride("/r", true);
     s.setRepoBootstrap("/r", { state: "active", phase: 1 });
-    expect(s.getRepoBootstrap("/r").ciPendingAt).toBe(5);
+    expect(s.getRepoBootstrap("/r").ciPendingAt).toBe(6);
     s.setRepoBootstrap("/r", { state: "active", phase: 3 });
     expect(s.getRepoBootstrap("/r").ciPendingAt).toBeNull();
-    expect(s.getBootstrapCiPendingSession("/r")).toBeNull();
+    expect(s.getBootstrapCiPending("/r")).toBeNull();
+    s.setBootstrapCiPendingSha("/r", "abc"); // nothing held → no-op
+    expect(s.getBootstrapCiPending("/r")).toBeNull();
   });
 
   test("phaseAt migration backfills updatedAt on a legacy table (#3112)", () => {

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveDefaultBranch, fastForwardDefaultBranch } from "../src/pull";
+import { resolveDefaultBranch, fastForwardDefaultBranch, fetchRemoteHead } from "../src/pull";
 
 // House rule: root tests honor an ambient GIT_DIR. Never lean on cwd/ambient git
 // env — pass explicit cwd + a scrubbed env to every fixture git call so a stray
@@ -58,6 +58,18 @@ describe("pull", () => {
     git(seed, "commit", "-m", `change ${content.trim()}`);
     git(seed, "push", "origin", "main");
   }
+
+  describe("fetchRemoteHead (#3411)", () => {
+    test("answers the remote tip even when the checkout can't fast-forward", async () => {
+      git(clone, "checkout", "-b", "feature");
+      advanceOrigin("2\n");
+      expect(await fetchRemoteHead(clone, "main")).toBe(head(seed));
+    });
+
+    test("an unknown branch → null", async () => {
+      expect(await fetchRemoteHead(clone, "nope")).toBeNull();
+    });
+  });
 
   describe("fastForwardDefaultBranch", () => {
     test("behind → updated:true, HEAD advances to origin", async () => {

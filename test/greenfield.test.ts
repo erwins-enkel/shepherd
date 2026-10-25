@@ -19,21 +19,24 @@ function write(rel: string, body = "x") {
 
 function fakeStore(initial: RepoBootstrap) {
   let b = { ...initial };
-  let pendingSession: string | null = null;
+  let pending: { sessionId: string; sha: string | null } | null = null;
   return {
     sets: [] as string[],
     getRepoBootstrap: () => ({ ...b }),
     setRepoBootstrap(_: string, next: { state: RepoBootstrap["state"]; phase: number }) {
       b = { state: next.state, phase: next.phase, overrideAt: null, ciPendingAt: null };
-      pendingSession = null;
+      pending = null;
       this.sets.push(next.state);
     },
     setBootstrapCiPending(_: string, at: number, sessionId: string) {
       if (b.state !== "active") return;
       b = { ...b, ciPendingAt: at };
-      pendingSession = sessionId;
+      pending = { sessionId, sha: null };
     },
-    getBootstrapCiPendingSession: () => pendingSession,
+    setBootstrapCiPendingSha(_: string, sha: string) {
+      if (pending) pending = { ...pending, sha };
+    },
+    getBootstrapCiPending: () => pending,
     listActiveRepoBootstraps: () =>
       b.state === "active"
         ? [{ repoPath: dir, phase: b.phase, phaseAt: 0, ciPendingAt: b.ciPendingAt }]
@@ -149,6 +152,7 @@ describe("GreenfieldService", () => {
     const pull = async (d: string) => {
       pulls.push(d);
       scaffold(); // what the merge landed
+      return null;
     };
     const svc = new GreenfieldService({
       store: fakeStore(active(2)),
@@ -174,14 +178,14 @@ describe("GreenfieldService", () => {
     const svc = new GreenfieldService({
       store,
       resolveForge: () => null,
-      pull: async () => {},
+      pull: async () => null,
       onChange: (d) => changes.push(d),
     });
     const advanced: [number, string][] = [];
     const notifying = new GreenfieldService({
       store,
       resolveForge: () => null,
-      pull: async () => {},
+      pull: async () => null,
       onChange: (d) => changes.push(d),
       onAdvance: (_, phase, id) => advanced.push([phase, id]),
     });
@@ -244,6 +248,7 @@ describe("GreenfieldService", () => {
     });
     function setup(phase: number) {
       let runs: ForgeRun[] = [];
+      let head = "m";
       const forge = {
         isFork: false,
         mergeMethod: "squash",
@@ -258,12 +263,19 @@ describe("GreenfieldService", () => {
       const svc = new GreenfieldService({
         store,
         resolveForge: () => forge,
-        pull: async () => {},
+        pull: async () => head,
         now: () => NOW,
         onChange: (d) => changes.push(d),
         onAdvance: (_, p, id) => advanced.push([p, id]),
       });
-      return { svc, store, advanced, changes, setRuns: (r: ForgeRun[]) => (runs = r) };
+      return {
+        svc,
+        store,
+        advanced,
+        changes,
+        setRuns: (r: ForgeRun[]) => (runs = r),
+        setHead: (sha: string) => (head = sha),
+      };
     }
 
     test("P1+P2 merge with no post-merge run holds at P1 (waiting)", async () => {
@@ -282,6 +294,8 @@ describe("GreenfieldService", () => {
       await t.svc.onMerged(dir, 1, "s1");
       expect(t.store.getRepoBootstrap().phase).toBe(1);
       expect(t.svc.ciHold(dir)).toBe("failed");
+      // A fix lands on main without a merge Shepherd saw: refreshPending re-anchors on the new tip.
+      t.setHead("fix");
       t.setRuns([
         run({ conclusion: "failure" }),
         run({ id: 2, headSha: "fix", createdAt: NOW + 9 }),
@@ -292,6 +306,28 @@ describe("GreenfieldService", () => {
       expect(t.advanced).toEqual([[3, "s1"]]);
       await t.svc.refreshPending();
       expect(t.advanced).toEqual([[3, "s1"]]);
+    });
+
+    test("the previous head's green run never releases the hold before the merged head runs", async () => {
+      const t = setup(3);
+      t.setHead("p3");
+      t.setRuns([run({ headSha: "p1", createdAt: NOW - 20 * 60_000 })]);
+      await t.svc.onMerged(dir, 3, "s3");
+      expect(t.store.getRepoBootstrap().phase).toBe(3);
+      expect(t.svc.ciHold(dir)).toBe("waiting");
+      t.setRuns([run({ headSha: "p1" }), run({ id: 2, headSha: "p3", conclusion: "failure" })]);
+      await t.svc.refreshPending();
+      expect(t.svc.ciHold(dir)).toBe("failed");
+      expect(t.advanced).toEqual([]);
+    });
+
+    test("an unknown branch tip keeps the hold waiting", async () => {
+      const t = setup(1);
+      t.setHead("");
+      t.setRuns([run({})]);
+      await t.svc.onMerged(dir, 1, "s1");
+      expect(t.svc.ciHold(dir)).toBe("waiting");
+      expect(t.store.getRepoBootstrap().phase).toBe(1);
     });
 
     test("P3 merge is held the same way and lands on P4", async () => {

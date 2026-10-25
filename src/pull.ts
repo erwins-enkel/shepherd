@@ -76,6 +76,16 @@ export async function resolveDefaultBranch(
  * Every git step is async so neither the network fetch nor a slow local
  * status/merge on a large repo can block the single-threaded event loop.
  */
+/** The remote tip of `branch` after a fresh fetch (#3411); null when the fetch or lookup fails. */
+export async function fetchRemoteHead(dir: string, branch: string): Promise<string | null> {
+  try {
+    await git(dir, ["fetch", "origin", "--", branch]);
+    return await git(dir, ["rev-parse", "--verify", `refs/remotes/origin/${branch}^{commit}`]);
+  } catch {
+    return null;
+  }
+}
+
 export async function fastForwardDefaultBranch(dir: string, branch: string): Promise<PullResult> {
   try {
     const current = await git(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);

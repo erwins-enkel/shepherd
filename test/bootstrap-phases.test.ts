@@ -123,7 +123,7 @@ describe("reconcileBootstrapPhases", () => {
       phase: 1,
       ciPendingAt: s.get(p1.id)!.archivedAt,
     });
-    expect(s.getBootstrapCiPendingSession("/r")).toBe(p1.id);
+    expect(s.getBootstrapCiPending("/r")?.sessionId).toBe(p1.id);
     expect(reconcileBootstrapPhases(s)).toEqual([]); // already held
     s.setRepoBootstrap("/r", { state: "active", phase: 3 });
     s.archive(create(s, { bootstrapPhase: 3 }).id, "merged");
@@ -193,7 +193,7 @@ describe("onBootstrapRepoMerge", () => {
     const greenfield = new GreenfieldService({
       store: s,
       resolveForge: () => null,
-      pull: async () => {},
+      pull: async () => null,
       onAdvance: (_, phase) => advances.push(phase),
     });
     const session = create(s, { bootstrap: true, bootstrapPhase: 1 });
@@ -214,7 +214,7 @@ describe("onBootstrapRepoMerge", () => {
     const greenfield = new GreenfieldService({
       store: s,
       resolveForge: () => forge,
-      pull: async () => {},
+      pull: async () => null,
       now: () => now,
     });
     const session = create(s, { bootstrap: true, bootstrapPhase: 1 });

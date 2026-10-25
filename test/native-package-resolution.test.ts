@@ -127,7 +127,7 @@ describe("native entry points", () => {
     ["native/scripts/test-ios-app.sh", 1],
     ["native/scripts/ios-dev.sh", 1],
     ["native/scripts/archive-ios-app.sh", 1],
-    [".github/workflows/native.yml", 2],
+    [".github/workflows/native.yml", 1],
   ] as const)("finds the package-resolving calls in %s", (path, count) => {
     expect(calls(path).filter((call) => call.resolving).length).toBeGreaterThanOrEqual(count);
   });

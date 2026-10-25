@@ -240,6 +240,104 @@ exit 23
     });
   }
 
+  // Runs a native/scripts entry point against fake Xcode tools; returns each xcodebuild argv.
+  function xcodebuildArgs(script: string, args: string[], env: Record<string, string> = {}) {
+    const scripts = join(directory, "native/scripts");
+    const bin = join(directory, "bin");
+    mkdirSync(scripts, { recursive: true });
+    mkdirSync(join(directory, "native/Apps/ShepherdIOS"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    for (const name of [script, "select-ios-simulator.py"])
+      cpSync(resolve("native/scripts", name), join(scripts, name));
+    writeFileSync(join(scripts, "check-ios-results.py"), "pass\n");
+    const log = join(directory, "xcodebuild.log");
+    writeFileSync(log, "");
+    const devices = json("devices.json", {
+      devices: {
+        "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
+          { name: "iPhone 17", udid: "PHONE", state: "Booted", isAvailable: true },
+        ],
+      },
+    });
+    const resultPath = join(directory, "result.xcresult");
+    const executables = {
+      xcodegen: "#!/bin/bash\nexit 0\n",
+      xcrun: `#!/bin/bash\nif [[ "$1 $2" == "simctl list" ]]; then cat "$IOS_DEVICE_FILE"; else echo '{}'; fi\n`,
+      xcodebuild: `#!/bin/bash\necho "$*" >> "$IOS_TEST_LOG"\nmkdir -p "$IOS_TEST_RESULT"\n`,
+    };
+    for (const [name, source] of Object.entries(executables)) {
+      writeFileSync(join(bin, name), source);
+      chmodSync(join(bin, name), 0o755);
+    }
+    const result = Bun.spawnSync(["bash", join(scripts, script), ...args], {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        TMPDIR: directory,
+        IOS_DEVICE_FILE: devices,
+        IOS_TEST_LOG: log,
+        IOS_TEST_RESULT: resultPath,
+        SHEPHERD_IOS_SIMULATOR_SIGNING: "0",
+        ...env,
+      },
+    });
+    const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean);
+    return { result, calls: calls.map((line) => line.split(" ")) };
+  }
+
+  for (const [flags, action] of [
+    [[], "test"],
+    [["--without-building"], "test-without-building"],
+  ] as const) {
+    test(`test-ios-app.sh ${flags.join(" ") || "(default)"} runs xcodebuild ${action}`, () => {
+      const resultPath = join(directory, "result.xcresult");
+      const { result, calls } = xcodebuildArgs("test-ios-app.sh", [
+        "unit",
+        ...flags,
+        "--result-bundle-path",
+        resultPath,
+      ]);
+      expect(result.stderr.toString()).not.toContain("UNMET");
+      expect(result.exitCode).toBe(0);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.at(-1)).toBe(action);
+      expect(calls[0]!.join(" ")).toContain("platform=iOS Simulator,id=PHONE");
+    });
+  }
+
+  test("build-ios-app.sh --for-testing builds test bundles for the host architecture only", () => {
+    const arch = Bun.spawnSync(["uname", "-m"]).stdout.toString().trim();
+    const plain = xcodebuildArgs("build-ios-app.sh", ["Debug"]);
+    expect(plain.result.exitCode).toBe(0);
+    expect(plain.calls[0]!.at(-1)).toBe("build");
+    expect(plain.calls[0]!.some((token) => token.startsWith("ARCHS="))).toBe(false);
+    const forTesting = xcodebuildArgs("build-ios-app.sh", ["Debug", "--for-testing"]);
+    expect(forTesting.result.exitCode).toBe(0);
+    const call = forTesting.calls.at(-1)!;
+    expect(call.at(-1)).toBe("build-for-testing");
+    expect(call).toContain(`ARCHS=${arch}`);
+    expect(call.join(" ")).toContain("generic/platform=iOS Simulator");
+    const unknown = xcodebuildArgs("build-ios-app.sh", ["Debug", "--bogus"]);
+    expect(unknown.result.exitCode).not.toBe(0);
+    expect(unknown.result.stderr.toString()).toContain("UNMET:");
+  });
+
+  // `test-without-building` signs nothing, so the Xcode 27 ad-hoc opt-in must reach the build.
+  test("build-ios-app.sh honours the simulator signing opt-in", () => {
+    const unsigned = xcodebuildArgs("build-ios-app.sh", ["Debug", "--for-testing"]).calls[0]!;
+    expect(unsigned).toContain("CODE_SIGNING_ALLOWED=NO");
+    const signed = xcodebuildArgs("build-ios-app.sh", ["Debug", "--for-testing"], {
+      SHEPHERD_IOS_SIMULATOR_SIGNING: "1",
+    }).calls[0]!;
+    expect(signed).not.toContain("CODE_SIGNING_ALLOWED=NO");
+    for (const setting of [
+      "CODE_SIGNING_ALLOWED=YES",
+      "CODE_SIGN_STYLE=Manual",
+      "CODE_SIGN_IDENTITY=-",
+    ])
+      expect(signed).toContain(setting);
+  });
+
   test("ui/messages-only PRs don't start the iOS workflow; contract and native edits still do", () => {
     const workflow = Bun.YAML.parse(readFileSync(".github/workflows/native-ios.yml", "utf8")) as {
       on: Record<"pull_request" | "push", { paths: string[] }>;
@@ -254,6 +352,31 @@ exit 23
     expect(
       workflow.jobs.ios.steps.some((step) => step.run?.includes("bun run check:strings")),
     ).toBe(true);
+  });
+  test("CI builds once and rebuilds nothing; iPad UI only on push or ci:full-native", () => {
+    const workflow = Bun.YAML.parse(readFileSync(".github/workflows/native-ios.yml", "utf8")) as {
+      env: Record<string, string>;
+      jobs: { ios: { steps: { name?: string; if?: string; run?: string }[] } };
+    };
+    expect(workflow.env.FULL_NATIVE).toContain("github.event_name == 'push'");
+    expect(workflow.env.FULL_NATIVE).toContain("'ci:full-native'");
+    const steps = workflow.jobs.ios.steps;
+    const builds = steps.filter((step) => step.run?.includes("build-ios-app.sh"));
+    expect(builds).toHaveLength(1);
+    expect(builds[0]!.run).toContain("build-ios-app.sh Debug --for-testing");
+    const tests = steps.filter((step) => step.run?.includes("test-ios-app.sh"));
+    expect(
+      tests.map((step) => step.run!.match(/test-ios-app\.sh (unit|ui --family \w+)/)?.[1]),
+    ).toEqual(["unit", "ui --family iPhone", "ui --family iPad"]);
+    for (const step of tests) expect(step.run).toContain("--without-building");
+    const full = "env.FULL_NATIVE == 'true'";
+    expect(tests[0]!.if).toBeUndefined();
+    expect(tests[1]!.if).toBeUndefined();
+    expect(tests[2]!.if).toBe(full);
+    // The iPad simulator boots with the iPhone one shut down, never beside it.
+    const ipad = steps.indexOf(tests[2]!);
+    expect(steps[ipad - 1]!.run).toContain("xcrun simctl shutdown all");
+    expect(steps[ipad - 1]!.if).toBe(full);
   });
   test("rejects unsigned release export inputs before invoking Xcode", () => {
     const result = Bun.spawnSync(

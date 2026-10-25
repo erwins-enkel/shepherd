@@ -450,9 +450,11 @@ for mode in ("term", "kill", "exit"):
         {
           env?: Record<string, string>;
           needs?: string;
+          if?: string;
           "continue-on-error"?: boolean;
           steps: {
             name: string;
+            if?: string;
             run?: string;
             env?: Record<string, string>;
             "timeout-minutes"?: number;
@@ -477,7 +479,15 @@ for mode in ("term", "kill", "exit"):
       jobs: Record<string, { steps: { run?: string }[] }>;
     };
     expect(ci.jobs.static!.steps.some((step) => step.run === "bun run check:strings")).toBe(true);
-    expect(jobs["shepherd-mac-ui"]!["continue-on-error"]).toBe(true);
+    // PRs skip the Mac Release build, its packaging checks and XCUITest; push to main and a
+    // `ci:full-native` label run them.
+    const full = workflow.env!.FULL_NATIVE!;
+    expect(full).toContain("github.event_name == 'push'");
+    expect(full).toContain("'ci:full-native'");
+    const ui = jobs["shepherd-mac-ui"]!;
+    expect(ui["continue-on-error"]).toBe(true);
+    expect(ui.if).toContain("github.event_name == 'push'");
+    expect(ui.if).toContain("'ci:full-native'");
     const optedIn = kit.steps.filter((step) => step.env?.SHEPHERD_KEYCHAIN_TESTS === "1");
     expect(optedIn).toHaveLength(1);
     expect(optedIn[0]!.run).toContain("--no-parallel --filter ShepherdKitTests");
@@ -493,6 +503,11 @@ for mode in ("term", "kill", "exit"):
     const appRun = app.steps.map((step) => step.run ?? "").join("\n");
     expect(appRun).toContain("native/scripts/build-app.sh Release");
     expect(appRun).toContain("-only-testing:ShepherdTests");
+    const gated = (name: RegExp) => app.steps.find((step) => name.test(step.name))!.if;
+    for (const name of [/^Build Shepherd\.app$/, /update packaging/, /DMG/, /ad-hoc signed/])
+      expect(gated(name)).toBe("env.FULL_NATIVE == 'true'");
+    for (const name of [/^Unit tests$/, /update archive authentication/, /string catalog/])
+      expect(gated(name)).toBeUndefined();
     const kitRun = kit.steps.map((step) => step.run ?? "").join("\n");
     expect(kitRun).not.toMatch(/native\/scripts\/(build|test)-app\.sh|xcodegen/);
     expect(kitRun).toContain("swift build --package-path native --build-tests");
@@ -512,7 +527,8 @@ for mode in ("term", "kill", "exit"):
       }
     }
     const run = simulator.steps.map((step) => step.run ?? "").join("\n");
-    expect(run).toContain("generic/platform=iOS Simulator");
+    // One concrete-destination build (arm64), not a universal generic one on top.
+    expect(run).not.toContain("generic/platform=iOS Simulator");
     expect(run).toContain("platform=iOS Simulator,id=$CORE_SIMULATOR_UDID");
     expect(run).toContain("get test-results tests");
     expect(run).toContain("check-core-results.py");

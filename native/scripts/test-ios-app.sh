@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Usage: caller-lock test-ios-app.sh unit|ui|live [--family iPhone|iPad|DuoOuter|DuoInner] [--result-bundle-path PATH]
+# Usage: caller-lock test-ios-app.sh unit|ui|live [--family iPhone|iPad|DuoOuter|DuoInner] [--result-bundle-path PATH] [--without-building]
+# --without-building runs the bundles a prior `build-ios-app.sh Debug --for-testing` built.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../Apps/ShepherdIOS" && pwd)"
@@ -7,10 +8,12 @@ MODE="${1:-unit}"
 [[ $# -gt 0 ]] && shift
 FAMILY=iPhone
 RESULT=""
+ACTION="test"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --family) FAMILY="${2:?missing family}"; shift 2 ;;
     --result-bundle-path) RESULT="${2:?missing result path}"; shift 2 ;;
+    --without-building) ACTION=test-without-building; shift ;;
     *) echo 'UNMET: unknown test argument' >&2; exit 1 ;;
   esac
 done
@@ -57,7 +60,7 @@ xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Deb
   -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
   -only-testing:"$ONLY" -resultBundlePath "$RESULT" \
   -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system \
-  "${SIGNING[@]}" test 2>&1 | tail -n 40
+  "${SIGNING[@]}" "$ACTION" 2>&1 | tail -n 40
 TEST_STATUS=${PIPESTATUS[0]}
 set -e
 [[ -d "$RESULT" ]] || { echo 'UNMET: no test result bundle produced' >&2; exit 1; }

@@ -12,7 +12,13 @@ name: native
 #
 # The four jobs run in parallel: each checks out, installs and builds on its
 # own, and none consumes another's output. That costs up to 4 macOS slots per
-# run (Team plan: 5), so overlapping native runs may queue.
+# run, 3 on a PR (Team plan: 5), so overlapping native runs may queue.
+#
+# A PR runs the blocking gates only: ShepherdKit, the iOS-Simulator core and the
+# Mac app's script checks + unit tests. The Mac Release build with its packaging
+# and signature checks, and the advisory XCUITest job, run on push to main, or on
+# a PR labelled `ci:full-native` (from its next push: a re-run keeps the old
+# labels). Main, the nightly and native-release.yml still build Release.
 #
 # Per-platform split: the iOS app, its `*ios*` scripts and docs/markdown are
 # excluded (native-ios.yml covers the iOS app). Negations must stay last.
@@ -46,6 +52,9 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  FULL_NATIVE: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full-native') }}
 
 jobs:
   # The package gate only. The Shepherd.app build, signature check and unit tests
@@ -217,7 +226,8 @@ jobs:
 
   # Shepherd for Mac (sub-project 4a). Its Release build alone takes ~13 min, so it
   # runs beside the Kit job instead of after it; xcodebuild compiles ShepherdKit
-  # itself, so it needs nothing the Kit job produces.
+  # itself, so it needs nothing the Kit job produces. On a PR without
+  # `ci:full-native` only the script checks and the Debug unit tests run.
   shepherd-mac-app:
     name: Shepherd for Mac (app)
     runs-on: macos-latest
@@ -292,28 +302,33 @@ jobs:
         run: python3 native/scripts/test-mac-dev-preflight.py
 
       - name: Build Shepherd.app
+        if: env.FULL_NATIVE == 'true'
         run: |
           set -euo pipefail
           native/scripts/uitest-lock.sh native/scripts/build-app.sh Release 2>&1 | tail -n 40
 
       - name: Test update packaging with a disposable key
+        if: env.FULL_NATIVE == 'true'
         run: |
           native/scripts/test-package-update.sh \
             native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
             native/Apps/ShepherdMac/.build/SourcePackages/artifacts/sparkle/Sparkle/bin
 
       - name: Set up Python for DMG packaging
+        if: env.FULL_NATIVE == 'true'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
 
       - name: Test DMG installation from read-only image and Downloads
+        if: env.FULL_NATIVE == 'true'
         # dmgbuild installs into a disposable venv; no global pip/Homebrew deps.
         run: |
           native/scripts/test-package-dmg.sh \
             native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
 
       - name: Verify the bundle is ad-hoc signed with the hardened runtime
+        if: env.FULL_NATIVE == 'true'
         run: |
           APP=native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
           codesign -d --entitlements :- "$APP" 2>/dev/null > "$RUNNER_TEMP/ent.plist"
@@ -396,7 +411,8 @@ jobs:
           # Resolve packages without a github.com Keychain prompt (#2694): netrc instead
           # of the Keychain authorizes binary-artifact downloads, and the system git only
           # asks a credential helper after a 401, which public repositories never send.
-          "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore -destination 'generic/platform=iOS Simulator' -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system build 2>&1 | tail -n 40
+          # `test` builds for the concrete simulator only (arm64); a separate generic
+          # build would compile everything again for a universal binary.
           "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore -destination "platform=iOS Simulator,id=$CORE_SIMULATOR_UDID" -parallel-testing-enabled NO -only-testing:ShepherdAppCoreTests -resultBundlePath "$EVIDENCE/core.xcresult" -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system test 2>&1 | tail -n 40
 
       - name: Validate executed core identities and parameter arguments
@@ -419,6 +435,8 @@ jobs:
 
   shepherd-mac-ui:
     name: Shepherd for Mac (XCUITest)
+    # Job-level `if:` cannot read `env`, so this repeats FULL_NATIVE.
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full-native')
     runs-on: macos-latest
     # Non-blocking on purpose. XCUITest needs a real GUI login session; on a
     # hosted runner it is flaky in ways that have nothing to do with the diff.

@@ -2,26 +2,30 @@
 // The "how it works" pipeline animation — a ~17s, silent, autoplay, looping
 // story styled as a live instrument readout (mission telemetry, not
 // decoration). A single task token glides a gated pipeline — left → right on
-// wide screens, top → bottom at ≤640px — pausing only where it matters (the
-// plan gate), while ghost tasks flow on parallel lanes so the board always
-// reads as live. Colour is semantic, from global.css tokens: --blue = the task
-// in motion, --green = passed / landed, --amber = paused / needs-you,
-// --ink-dim = inert structure.
+// wide panels, top → bottom on narrow ones — pausing only where it matters
+// (the plan gate), while ghost tasks flow on parallel lanes so the board
+// always reads as live. Colour is semantic, from global.css tokens: --blue =
+// the task in motion, --green = passed / landed, --amber = paused /
+// needs-you, --ink-dim = inert structure.
 //
 // Thesis: Shepherd runs many agents at once (the parallel lanes flow the whole
 // time) and is built to stop (near the end the task on the innermost lane
 // bounces off a gate, turns amber, asks for you, while the others keep
 // flowing).
 //
-// Stage: plain HTML/CSS, not SVG. Static structure (rails, gate posts, station
-// boxes, terminal, labels as real text) is painted once. Station positions are
-// 0..1 fractions along the track (--p-*), the single source of truth for both
-// placement and token travel; --ax/--ay (1/0 horizontal, 0/1 vertical) pick
-// the axis, so the ≤640px layout only swaps those and the cross-axis lines
-// (--c-*) and the same @keyframes drive both. A token is a thin "carrier"
-// spanning the track (cross size = the dot) with its dot at the start, moved
-// by translate(p × 100%). A gate post sits --g past its p, so a token held at
-// p rests against it.
+// Stage: plain HTML/CSS, not SVG. Static structure (rails, gate posts,
+// station boxes, terminal, labels as real text) is painted once. Station
+// positions are 0..1 fractions along the track (--p-*), the single source of
+// truth for both placement and token travel; --ax/--ay (1/0 horizontal, 0/1
+// vertical) pick the axis, so the vertical layout only swaps those and the
+// cross-axis lines (--c-*) and the same @keyframes drive both. Layouts switch
+// on the panel's own width in rem (container queries), so a larger root font
+// or browser default font size moves the switch exactly like a narrower
+// screen would: vertical below 34.8rem (≈ a 40em viewport), compact vertical
+// below 17.5rem (320px phones, or 390px at a 20px root font) so labels never
+// clip. A token is a thin "carrier" spanning the track (cross size = the dot)
+// with its dot at the start, moved by translate(p × 100%). A gate post sits
+// --g past its p, so a token held at p rests against it.
 //
 // Perf contract: every @keyframes animates transform and opacity only — never
 // colour, size, position, filter or custom properties. Colour changes
@@ -31,12 +35,13 @@
 // loop therefore runs on the compositor: no per-frame paint or layout.
 //
 // One shared ~17s master timeline: every beat-driven element (class "m") uses
-// the same duration + infinite iteration, so all keyframe clocks stay in
-// lockstep and the loop restarts as one. Windows are weighted, not uniform —
-// the wordy beats (4 and 6) get more time so their captions stay readable,
-// while the short beats stay snappy. Ambient motion (ghost tasks, cursor, live
-// pip) runs on its own short clocks. The beat → % map below is the single
-// source of truth; the beat rail in the chrome strip mirrors it.
+// the same duration + infinite iteration, so the beats stay in step and the
+// loop restarts as one (the diff lines add 0.2–0.6s stagger delays on top).
+// Windows are weighted, not uniform — the wordy beats (4 and 6) get more time
+// so their captions stay readable, while the short beats stay snappy. Ambient
+// motion (ghost tasks, cursor, live pip) runs on its own short clocks. The
+// beat → % map below is the single source of truth; the beat rail in the
+// chrome strip mirrors it.
 //
 //   Beat                          window (% of ~17s loop)
 //   1 issue                         0 – 11
@@ -49,11 +54,12 @@
 //   8 payload (bounce / needs you) 82 – 100
 //
 // Playback: on load the script below pauses every figure animation at t=0
-// (beat 1); an IntersectionObserver restarts them from 0 whenever the figure
-// enters view after being fully hidden (including the first time), and they
-// pause again once it is fully hidden — so a visitor never lands mid-story.
-// The observer is only attached while paused (a live one makes Chromium run a
-// main-thread style pass on every compositor frame); while playing, a passive
+// (beat 1); an IntersectionObserver restarts them from 0 once the caption is
+// fully in view after the figure has been fully hidden (including the first
+// time), and they rewind and pause once the figure is fully hidden — so a
+// visitor starts on beat 1, not mid-story. The observer is only attached
+// while paused: measured on this figure, a live one made Chromium run a
+// main-thread style pass on every compositor frame. While playing, a passive
 // scroll/resize check spots the exit. With JS disabled the CSS simply plays
 // from load.
 //
@@ -63,7 +69,9 @@
 // no-preference): the same stage shows a frozen summary pose (every station,
 // the merge node landed green, the blocked task amber with its chip), captions
 // and beat rail hide, and an ordered list of the eight beats — outside the
-// role="img", so AT reads it — appears below.
+// role="img", so AT reads it — appears below. Under forced colors (Windows
+// contrast themes) the figure keeps its own palette, as the SVG it replaced
+// did (backgrounds would otherwise be forced away); the list still adapts.
 // Tokens only — no raw hex / rgba / ad-hoc px font sizes.
 
 const beats: string[] = [
@@ -214,7 +222,7 @@ const gates = ["plan", "checks", "review"];
         </i>
         <span class="pt needs-at"><span class="m needs">needs you</span></span>
 
-        <!-- station labels: one shared baseline (one shared column ≤640px) -->
+        <!-- station labels: one shared baseline (one shared column when vertical) -->
         <span class="pt lbl at-issue">issue</span>
         <span class="pt lbl at-wt">worktree</span>
         <span class="pt lbl gated at-plan">plan</span>
@@ -243,6 +251,7 @@ const gates = ["plan", "checks", "review"];
     --post-c: color-mix(in srgb, var(--ink-dim) 85%, transparent);
     --box: color-mix(in srgb, var(--ink-dim) 8%, var(--bg));
     --code: color-mix(in srgb, var(--ink-dim) 90%, transparent);
+    container: pipe / inline-size;
     margin: 0;
     width: 100%;
     overflow: clip;
@@ -319,6 +328,9 @@ const gates = ["plan", "checks", "review"];
     --p-brest: calc(var(--p-checks) - 0.035); /* blocked task's rebound */
     --g: 0.5rem; /* gate post offset past its p */
     --post: 1.1rem; /* half length of a gate post */
+    --card-w: 7rem;
+    --wt-w: 7.5rem;
+    --lbl-size: 0.8125rem;
     /* cross-axis lines */
     --c-l1: 0.7rem;
     --c-l2: 1.65rem;
@@ -339,14 +351,15 @@ const gates = ["plan", "checks", "review"];
     height: calc(var(--c-lbl) + 1.35rem);
   }
   /* frame = the track's extent: p 0 = issue centre, p 1 = merge node.
-     Insets = half the issue card / half the "merge" label, so the
-     diagram's outer edges sit equally far from the panel's. */
+     Insets = half the issue card / half the "merge" label (5 mono glyphs
+     × 0.6em advance ÷ 2 = 1.5em of the label size), so the diagram's
+     outer edges sit equally far from the panel's. */
   .frame {
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 3.5rem;
-    right: 1.2rem;
+    left: calc(var(--card-w) / 2);
+    right: calc(var(--lbl-size) * 1.5);
   }
 
   .at-issue {
@@ -526,7 +539,7 @@ const gates = ["plan", "checks", "review"];
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
-    width: 7rem;
+    width: var(--card-w);
     height: 3.4rem;
     padding: 0.45rem 0.5rem;
     border-radius: 0.55rem;
@@ -552,7 +565,7 @@ const gates = ["plan", "checks", "review"];
     width: 52%;
   }
   .wt {
-    width: 7.5rem;
+    width: var(--wt-w);
     height: 3.7rem;
     border-radius: 0.55rem;
   }
@@ -790,12 +803,13 @@ const gates = ["plan", "checks", "review"];
     --c: var(--c-lbl);
     translate: calc(var(--ax) * -50%) calc(var(--ay) * -50%);
     color: var(--ink-muted);
-    font: 0.8125rem/1rem var(--font-mono);
+    font: var(--lbl-size)/1rem var(--font-mono);
     white-space: nowrap;
   }
 
-  /* ---------- ≤640px: the same stage, top → bottom ---------- */
-  @media (max-width: 640px) {
+  /* ---------- narrow panel (< 34.8rem ≈ a 40em viewport at any font
+     size): the same stage, top → bottom ---------- */
+  @container pipe (max-width: 34.8rem) {
     .stage {
       --ax: 0;
       --ay: 1;
@@ -810,9 +824,10 @@ const gates = ["plan", "checks", "review"];
       --c-l4: 2.3rem;
       --c-rail: 9.7rem;
       --c-lbl: calc(var(--c-rail) + 4.2rem);
-      --c-cc: calc(var(--c-rail) - 2rem);
+      --c-cc: calc(var(--c-rail) - 1.75rem); /* ~6px clear of lane 4's tick */
       --c-diff0: calc(var(--c-rail) + 0.9rem);
-      --c-diff1: calc(var(--c-rail) + 5.6rem);
+      --c-diff1: calc(var(--c-lbl) - 0.5rem); /* stops short of the labels */
+      --lbl-size: 0.6875rem;
       --d-ghost: 0.45rem;
       --tick: 0.25rem;
       --ping: 1.1rem; /* stays clear of the neighbouring lane */
@@ -829,8 +844,50 @@ const gates = ["plan", "checks", "review"];
       left: 0;
       right: 0;
     }
-    .lbl {
-      font-size: 0.6875rem;
+  }
+
+  /* ---------- compact vertical (panel < 17.5rem: 320px phones, or 390px
+     at a 20px root font): tighter cross axis, the clean copy and the chip
+     wrap to two lines, so every label stays inside the panel ---------- */
+  @container pipe (max-width: 17.5rem) {
+    .stage {
+      --post: 0.9rem;
+      --wt-w: 7rem;
+      --c-l1: 0.3rem;
+      --c-l2: 0.85rem;
+      --c-l3: 1.4rem;
+      --c-l4: 1.95rem;
+      --c-rail: 7.22rem;
+      --c-lbl: calc(var(--c-rail) + 3.85rem);
+      --c-cc: calc(var(--c-rail) - 1.5rem);
+      --c-chip: calc(var(--c-l4) + 0.7rem);
+      --c-diff0: calc(var(--c-rail) + 0.7rem);
+      --d-ghost: 0.4rem;
+      --tick: 0.22rem;
+      --ping: 1rem;
+      width: 14.4rem;
+    }
+    .cc {
+      width: 3.2rem;
+      height: 4.1rem;
+      padding: 0.35rem 0.3rem;
+    }
+    .cc-h,
+    .needs {
+      white-space: normal;
+    }
+    .cc-body {
+      width: 1.3rem;
+    }
+    .verdict {
+      right: 0.3rem;
+      bottom: 0.4rem;
+    }
+    .needs {
+      width: min-content;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.6rem;
+      text-align: center;
     }
   }
 
@@ -866,6 +923,8 @@ const gates = ["plan", "checks", "review"];
      animations exist only when motion is welcome.
      ============================================================ */
   @media (prefers-reduced-motion: no-preference) {
+    /* "m" = on the shared 17s master clock; each element below only names
+       its keyframes (plus a stagger delay for the diff lines) */
     .m {
       animation-duration: 17s;
       animation-iteration-count: infinite;
@@ -1298,10 +1357,10 @@ const gates = ["plan", "checks", "review"];
       opacity: 0;
     }
     62.5%,
-    84% {
+    80% {
       opacity: 1;
     }
-    87%,
+    83.5%,
     100% {
       opacity: 0;
     }
@@ -1329,10 +1388,10 @@ const gates = ["plan", "checks", "review"];
       opacity: 0;
     }
     66%,
-    84% {
+    80% {
       opacity: 1;
     }
-    87%,
+    83.5%,
     100% {
       opacity: 0;
     }
@@ -1403,13 +1462,13 @@ const gates = ["plan", "checks", "review"];
       transform: translate(calc(var(--x) * var(--p-checks)), calc(var(--y) * var(--p-checks)));
       animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
     }
-    86%,
-    100% {
+    86% {
       transform: translate(calc(var(--x) * var(--p-brest)), calc(var(--y) * var(--p-brest)));
     }
     99.5%,
     100% {
       opacity: 0;
+      transform: translate(calc(var(--x) * var(--p-brest)), calc(var(--y) * var(--p-brest)));
     }
   }
   @keyframes pa-block-amber {
@@ -1720,31 +1779,56 @@ const gates = ["plan", "checks", "review"];
       display: grid;
     }
   }
+
+  /* forced colors (Windows contrast themes) would force every background —
+     rails, gates, tokens, diff — to Canvas; keep the figure's own palette
+     (an image, as the SVG was) but let the real-text beat list adapt */
+  @media (forced-colors: active) {
+    .pipe-anim {
+      forced-color-adjust: none;
+      border-radius: 0.6rem;
+      background: var(--panel);
+    }
+  }
 </style>
 
 <script>
-  // Hold the story at beat 1 until the figure is seen, restart it from 0 each
-  // time it comes back into view, pause it while hidden. Pure enhancement:
-  // with JS disabled the CSS animation just plays from load.
+  // Hold the story at beat 1 until it can be seen, restart it from 0 each
+  // time it comes back into view, rewind and pause it while hidden. Pure
+  // enhancement: with JS disabled the CSS animation just plays from load.
   //
-  // While any IntersectionObserver has a target attached, Chromium runs a
-  // main-thread style + prepaint pass on every frame a compositor animation
-  // ticks — which would undo the compositor-only loop. So the observer only
-  // watches for entry while the story is paused; while it plays, a passive
-  // scroll/resize check watches for it leaving view.
+  // Measured on this figure: while an IntersectionObserver had a target
+  // attached, Chromium ran a main-thread style + prepaint pass on every frame
+  // the compositor animation ticked, undoing the compositor-only loop. So the
+  // observer only watches for entry while the story is paused — entry = the
+  // caption fully in view, so beat 1 is actually read — and while it plays a
+  // passive check watches for the figure leaving view. That exit is only
+  // noticed on scroll or resize.
   const fig = document.querySelector<HTMLElement>(".pipe");
-  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const cap = fig?.querySelector<HTMLElement>(".caption");
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
 
-  if (fig && !still && "IntersectionObserver" in window) {
+  function player(fig: HTMLElement, cap: HTMLElement) {
     const each = (fn: (a: Animation) => void) =>
       fig.getAnimations({ subtree: true }).forEach(fn);
+    // paused on beat 1, so a figure coming back into view never shows a
+    // frozen mid-story frame
+    const hold = () =>
+      each((a) => {
+        a.pause();
+        a.currentTime = 0;
+      });
+    // strict, like the observer: an edge-adjacent figure still counts as in view
     const hidden = () => {
       const r = fig.getBoundingClientRect();
-      return r.bottom <= 0 || r.top >= innerHeight;
+      return r.bottom < 0 || r.top > innerHeight;
     };
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) start();
-    });
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.intersectionRatio > 0.99)) start();
+      },
+      { threshold: 1 },
+    );
     const onMove = () => {
       if (hidden()) stop();
     };
@@ -1760,14 +1844,18 @@ const gates = ["plan", "checks", "review"];
     const stop = () => {
       removeEventListener("scroll", onMove);
       removeEventListener("resize", onMove);
-      each((a) => a.pause());
-      io.observe(fig);
+      hold();
+      io.observe(cap);
     };
 
-    each((a) => {
-      a.pause();
-      a.currentTime = 0;
-    });
-    io.observe(fig);
+    hold();
+    io.observe(cap);
+  }
+
+  if (fig && cap && "IntersectionObserver" in window) {
+    // Reduced motion: nothing animates, so nothing to manage — unless the OS
+    // setting flips mid-session, which creates the animations.
+    if (!still.matches) player(fig, cap);
+    else still.addEventListener("change", () => player(fig, cap), { once: true });
   }
 </script>

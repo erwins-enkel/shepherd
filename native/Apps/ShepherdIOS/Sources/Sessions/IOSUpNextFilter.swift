@@ -7,7 +7,7 @@ import ShepherdKit
 /// servers disagree on reads as mixed until the operator picks one.
 @MainActor
 struct IOSUpNextFilter {
-    struct Source {
+    @MainActor struct Source {
         let name: String?
         let settings: IssueFilterSettingsModel
         let snapshot: UpNextSnapshot?

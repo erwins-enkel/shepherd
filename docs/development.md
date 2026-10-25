@@ -90,11 +90,11 @@ as per-repo automation:
   open product decisions as one numbered list and lands them, with the M0 candidates for the
   backlog, as one docs-only PR. Each merged bootstrap PR moves the repo's phase on, and approving
   the P4 backlog epic (its issues are created) moves it to the exit check. New Project's
-  "Bootstrap from PRD + design" kickoff imports the PRD and design export into `docs/prd` and
-  `docs/design` of the first commit; the Backlog then shows the bootstrap checklist with the one
-  next step — Shepherd proposes each session (checklist + push), the operator starts it. The phase
-  is persisted and re-derived at boot from merged bootstrap sessions and approved epic drafts, so a
-  restart mid-phase loses nothing.
+  default Bootstrap kickoff takes the PRD and design export attached in its Idea field (or dropped
+  on the dialog) into `docs/prd` and `docs/design` of the first commit; the Backlog then shows the
+  bootstrap checklist with the one next step — Shepherd proposes each session (checklist + push),
+  the operator starts it. The phase is persisted and re-derived at boot from merged bootstrap
+  sessions and approved epic drafts, so a restart mid-phase loses nothing.
 - **Plan gate** — before an autonomous run, the agent writes a plan and a separate read-only
   reviewer grills it adversarially; only a plan that survives review is released to implement.
 - **Critic** — the moment a PR's CI goes green, an isolated read-only agent reviews the full diff

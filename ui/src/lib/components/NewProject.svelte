@@ -1,11 +1,19 @@
 <script lang="ts">
-  import { createProject, getCommands, getGithubOwners, type ProjectDocFiles } from "#lib/api.js";
+  import { createProject, getCommands, getGithubOwners } from "#lib/api.js";
   import type { RepoEntry } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
   import { commandInsertable, commandProviders } from "#lib/slash.js";
   import { onMount } from "svelte";
   import NewProjectDocsPicker from "./new-project/NewProjectDocsPicker.svelte";
+  import {
+    docsOverCap,
+    emptyDocs,
+    filesFromDrop,
+    mergeDocs,
+    sortDropped,
+    type AttachedDocs,
+  } from "./new-project/project-docs";
 
   // Slug rule mirrors src/validate.ts PROJECT_SLUG_RE exactly.
   // Cross-reference: keep both patterns in sync when either changes.
@@ -58,14 +66,14 @@
   let ownerOrgs = $state<string[]>([]);
   let ownersLoaded = $state(false);
   // String sentinel for the select bind — avoids Svelte 5 reference-equality bug with object values.
-  // "__prd__" → { kind: "prd" }, "__bootstrap__" → { kind: "bootstrap" } (#3112), any other
-  // value → { kind: "command", name: value }.
-  let kickoffValue = $state<string>("__prd__");
+  // "__bootstrap__" → { kind: "bootstrap" } (#3112, the default since #3420), "__prd__" →
+  // { kind: "prd" }, any other value → { kind: "command", name: value }.
+  let kickoffValue = $state<string>("__bootstrap__");
   let kickoffCommands = $state<string[]>([]);
-  // #3112: the PRD + design export the bootstrap kickoff imports into docs/prd + docs/design.
-  let docs = $state<ProjectDocFiles>({ prd: [], design: [] });
-  // The PRD brief kickoff's optional ready-made PRD, committed as docs/prd/PRD.md.
-  let prdFile = $state<File | null>(null);
+  // The PRD + design export attached in the Idea field or dropped on the dialog (#3112, #3420).
+  // Sent with the create whatever the kickoff: it lands in docs/prd + docs/design.
+  let docs = $state<AttachedDocs>(emptyDocs());
+  let dragging = $state(false);
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let retry = $state<(() => void) | null>(null);
@@ -84,7 +92,17 @@
   const ideaLength = $derived(idea.trim().length);
   const ideaTooLong = $derived(ideaLength > IDEA_MAX);
 
-  const canSubmit = $derived(name.trim().length > 0 && !nameInvalid && !ideaTooLong && !submitting);
+  const docsTooBig = $derived(docsOverCap(docs));
+
+  const canSubmit = $derived(
+    name.trim().length > 0 && !nameInvalid && !ideaTooLong && !docsTooBig && !submitting,
+  );
+
+  const kickoffLabel = $derived.by(() => {
+    if (kickoffValue === "__bootstrap__") return m.newproject_kickoff_bootstrap();
+    if (kickoffValue === "__prd__") return m.newproject_kickoff_prd();
+    return `/${kickoffValue}`;
+  });
 
   // Lazily enumerate the GitHub owners the first time the box is checked. Set the
   // guard before awaiting so a toggle storm can't fire overlapping requests, and so a
@@ -107,7 +125,7 @@
         .map((c) => c.name.split(":").pop() ?? c.name)
         .filter((n) => KICKOFF_COMMANDS.has(n));
     } catch {
-      // Fetch failure: silently fall back to PRD-only
+      // Fetch failure: the select falls back to the built-in kickoffs only
       kickoffCommands = [];
     }
   });
@@ -145,32 +163,50 @@
     }
   }
 
-  const prdAttached = $derived(kickoffValue === "__prd__" && prdFile !== null);
-
-  // The picker unmounts outside the PRD brief kickoff; drop its file so a later return shows an
-  // empty input rather than a stale hint for a file it no longer holds.
-  $effect(() => {
-    if (kickoffValue !== "__prd__") prdFile = null;
-  });
-
   function resolveKickoff(): KickoffChoice {
     if (kickoffValue === "__prd__")
-      return prdAttached ? { kind: "prd", prdSupplied: true } : { kind: "prd" };
+      return docs.prd.length > 0 ? { kind: "prd", prdSupplied: true } : { kind: "prd" };
     if (kickoffValue === "__bootstrap__") return { kind: "bootstrap" };
     return { kind: "command", name: kickoffValue };
   }
 
-  function submitDocs(): ProjectDocFiles | undefined {
-    if (kickoffValue === "__bootstrap__") return docs;
-    if (prdAttached && prdFile) return { prd: [{ file: prdFile, path: "PRD.md" }], design: [] };
-    return undefined;
+  // #3420: the whole dialog is the drop target, so a near-miss on the scrim never makes the
+  // browser open the file. Text drags pass untouched — they still drop into the textarea.
+  const draggingFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
+
+  function onDragOver(e: DragEvent) {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    dragging = true;
+  }
+
+  function onDragLeave(e: DragEvent) {
+    if (!(e.currentTarget as Node).contains(e.relatedTarget as Node | null)) dragging = false;
+  }
+
+  async function onDrop(e: DragEvent) {
+    if (!e.dataTransfer || !draggingFiles(e)) return;
+    e.preventDefault();
+    dragging = false;
+    // A create is in flight: a retry must resend the file set that failed.
+    if (submitting) return;
+    // A new attempt retires the previous drop's failure; any other error stays.
+    if (error === m.newproject_drop_failed()) error = null;
+    // Captured before the first await: the drop's items are gone once the handler returns.
+    const pending = filesFromDrop(e.dataTransfer);
+    try {
+      docs = mergeDocs(docs, sortDropped(await pending));
+    } catch {
+      error = m.newproject_drop_failed();
+      retry = null;
+    }
   }
 
   async function submit(e: Event, customize = false) {
     e.preventDefault();
     const trimmedName = name.trim();
     const trimmedIdea = idea.trim();
-    if (!trimmedName || nameInvalid || ideaTooLong || submitting) return;
+    if (!canSubmit) return;
     submitting = true;
     error = null;
     retry = null;
@@ -183,7 +219,7 @@
           visibility,
           owner: createRemote ? owner : "",
         },
-        submitDocs(),
+        docs,
       );
       ondone(entry, resolveKickoff(), trimmedIdea, customize);
     } catch (err) {
@@ -202,10 +238,14 @@
   onclick={(e) => {
     if (e.target === e.currentTarget) onclose?.();
   }}
+  ondragover={onDragOver}
+  ondragleave={onDragLeave}
+  ondrop={onDrop}
 >
   <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
   <form
     class="card bracket"
+    class:dragging
     role="dialog"
     aria-modal="true"
     aria-label={m.newproject_title()}
@@ -242,36 +282,37 @@
       </p>
     {/if}
 
-    <!-- Idea field -->
+    <!-- Idea field: a composer with the PRD/design attachments in its toolbar (#3420). -->
     <label class="micro" for="np-idea">{m.newproject_idea_label()}</label>
-    <textarea
-      id="np-idea"
-      bind:value={idea}
-      placeholder={m.newproject_idea_placeholder()}
-      rows={3}
-      autocomplete="off"
-      autocapitalize="off"
-      spellcheck={false}
-      aria-describedby="np-idea-count"
-      aria-invalid={ideaTooLong}
-      data-1p-ignore></textarea>
-    <p id="np-idea-count" class="idea-count" class:over={ideaTooLong}>
-      {m.newproject_idea_count({ count: ideaLength, max: IDEA_MAX })}
-    </p>
+    <div class="composer">
+      <textarea
+        id="np-idea"
+        bind:value={idea}
+        placeholder={m.newproject_idea_placeholder()}
+        rows={3}
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck={false}
+        aria-describedby="np-idea-count"
+        aria-invalid={ideaTooLong}
+        data-1p-ignore></textarea>
+      <NewProjectDocsPicker
+        bind:docs
+        count={m.newproject_idea_count({ count: ideaLength, max: IDEA_MAX })}
+        countOver={ideaTooLong}
+      />
+    </div>
     {#if ideaTooLong}
       <p class="field-err" role="alert">{m.newproject_failed_idea_too_long({ max: IDEA_MAX })}</p>
     {/if}
-
-    {#if kickoffValue === "__prd__"}
-      <label class="micro" for="np-prd-file">{m.newproject_prd_file_label()}</label>
-      <input
-        id="np-prd-file"
-        type="file"
-        accept=".md,.markdown,.txt,text/markdown,text/plain"
-        onchange={(e) => (prdFile = e.currentTarget.files?.[0] ?? null)}
-      />
-      {#if prdFile}
-        <p class="preview">{m.newproject_prd_file_hint({ name: prdFile.name })}</p>
+    {#if docs.prd.length + docs.design.length > 0}
+      <p class="preview">
+        {m.newproject_docs_summary({ prd: docs.prd.length, design: docs.design.length })}
+      </p>
+      {#if docsTooBig}
+        <p class="field-err" role="alert">{m.newproject_failed_docs_size()}</p>
+      {:else if kickoffValue === "__bootstrap__"}
+        <p class="preview">{m.newproject_docs_bootstrap_note()}</p>
       {/if}
     {/if}
 
@@ -304,19 +345,20 @@
       {/if}
     {/if}
 
-    <!-- Kickoff selection -->
-    <label class="micro" for="np-kickoff">{m.newproject_kickoff_label()}</label>
-    <select id="np-kickoff" bind:value={kickoffValue}>
-      <option value="__prd__">{m.newproject_kickoff_prd()}</option>
-      <option value="__bootstrap__">{m.newproject_kickoff_bootstrap()}</option>
-      {#each kickoffCommands as cmd (cmd)}
-        <option value={cmd}>/{cmd}</option>
-      {/each}
-    </select>
-
-    {#if kickoffValue === "__bootstrap__"}
-      <NewProjectDocsPicker bind:docs />
-    {/if}
+    <!-- Kickoff selection: Bootstrap is the default, so the choice folds away (#3420). -->
+    <details class="advanced">
+      <summary class="micro">{m.newproject_advanced_summary({ choice: kickoffLabel })}</summary>
+      <div class="advanced-body">
+        <label class="micro" for="np-kickoff">{m.newproject_kickoff_label()}</label>
+        <select id="np-kickoff" bind:value={kickoffValue}>
+          <option value="__bootstrap__">{m.newproject_kickoff_bootstrap()}</option>
+          <option value="__prd__">{m.newproject_kickoff_prd()}</option>
+          {#each kickoffCommands as cmd (cmd)}
+            <option value={cmd}>/{cmd}</option>
+          {/each}
+        </select>
+      </div>
+    </details>
 
     {#if error}
       <div class="err" role="alert">
@@ -364,6 +406,10 @@
     flex-direction: column;
     gap: 6px;
   }
+  .card.dragging {
+    border-color: var(--color-amber);
+    box-shadow: inset 0 0 30px -16px var(--color-amber);
+  }
   .bracket::before,
   .bracket::after {
     content: "";
@@ -405,32 +451,41 @@
     margin-top: 6px;
   }
   input[type="text"],
-  textarea,
-  select {
+  select,
+  .composer {
     background: var(--color-inset);
     border: 1px solid var(--color-line);
-    color: var(--color-ink-bright);
-    font: inherit;
-    font-size: var(--fs-base);
-    padding: 8px 10px;
     border-radius: 2px;
     width: 100%;
     box-sizing: border-box;
   }
+  input[type="text"],
+  textarea,
+  select {
+    color: var(--color-ink-bright);
+    font: inherit;
+    font-size: var(--fs-base);
+    padding: 8px 10px;
+  }
   input[type="text"]:focus,
-  textarea:focus,
   select:focus {
     outline: none;
     border-color: var(--color-line-bright);
   }
+  /* The composer's border is the field's: the textarea inside has none of its own. */
+  .composer:focus-within {
+    border-color: var(--color-line-bright);
+  }
   textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    background: transparent;
+    border: 0;
     resize: vertical;
   }
-  input[type="file"] {
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-meta);
-    max-width: 100%;
+  textarea:focus {
+    outline: none;
   }
   .preview {
     font-size: var(--fs-meta);
@@ -444,15 +499,21 @@
     margin: 0;
     padding: 2px 0;
   }
-  .idea-count {
-    font-size: var(--fs-micro);
-    color: var(--color-faint);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-    margin: 0;
+  .advanced summary {
+    width: fit-content;
+    cursor: pointer;
   }
-  .idea-count.over {
-    color: var(--color-red);
+  .advanced summary:hover {
+    color: var(--color-ink-bright);
+  }
+  .advanced summary:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .advanced-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
   .check-row {
     display: flex;
@@ -563,6 +624,12 @@
       overflow-y: auto;
       animation: sheet-up 0.18s ease-out;
     }
+    /* The corner brackets sit 1px outside the card: on the borderless full-screen sheet they would
+       only add a sideways scroll (same as CodexUpdateModal / HerdrUpdateModal). */
+    .bracket::before,
+    .bracket::after {
+      display: none;
+    }
     input[type="text"],
     textarea,
     select {
@@ -572,6 +639,12 @@
     .run,
     .customize {
       min-height: 44px;
+    }
+    /* Padding, not flex: a flex summary would lose its native disclosure marker. */
+    .advanced summary {
+      min-height: 44px;
+      box-sizing: border-box;
+      padding: 12px 0;
     }
     .chead {
       margin-bottom: 6px;

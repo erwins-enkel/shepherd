@@ -1348,3 +1348,40 @@ describe("buildMembraneFlags shared Claude state (F04/F06)", () => {
     );
   });
 });
+
+describe("buildMembraneFlags reviewer membrane (audit N10)", () => {
+  test("no gh/gitconfig binds, git common dir RO; everything else unchanged", () => {
+    const base = buildMembraneFlags(fakeMembrane(), detDeps);
+    const f = buildMembraneFlags(fakeMembrane({ reviewer: true }), detDeps);
+    expect(f.some((v) => v.includes(".config/gh") || v.endsWith("/.gitconfig"))).toBe(false);
+    expect(hasTriple(f, "--ro-bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(true);
+    expect(hasTriple(f, "--bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(false);
+    // Task session keeps both binds + the RW common dir.
+    expect(hasTriple(base, "--ro-bind-try", "/home/me/.config/gh", "/home/me/.config/gh")).toBe(
+      true,
+    );
+    expect(hasTriple(base, "--bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(true);
+    // Exactly the two 3-token gh/gitconfig binds are gone.
+    expect(f.length).toBe(base.length - 6);
+  });
+
+  test("reviewer: false is byte-identical to absent", () => {
+    expect(buildMembraneFlags(fakeMembrane({ reviewer: false }), detDeps)).toEqual(
+      buildMembraneFlags(fakeMembrane(), detDeps),
+    );
+  });
+});
+
+describe("buildMembraneFlags ingress spawn files (#3337)", () => {
+  test("each file bound RO (no -try) at the same path; none when absent", () => {
+    const files = [
+      "/home/me/.shepherd/agent-spawn/s1.settings.json",
+      "/home/me/.shepherd/agent-spawn/s1.key",
+    ];
+    const f = buildMembraneFlags(fakeMembrane({ ingressFiles: files }), detDeps);
+    for (const p of files) expect(hasTriple(f, "--ro-bind", p, p)).toBe(true);
+    expect(buildMembraneFlags(fakeMembrane({ ingressFiles: [] }), detDeps)).toEqual(
+      buildMembraneFlags(fakeMembrane(), detDeps),
+    );
+  });
+});

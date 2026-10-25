@@ -29,7 +29,7 @@ The membrane keeps two token surfaces readable to any in-membrane tool call
   The api-key helper script is instead bound RO at its own path so the
   `apiKeyHelper` settings entry resolves inside the sandbox.
 - `~/.config/gh` — bound **RO** (the gh token, needed to `git push` /
-  `gh pr create`).
+  `gh pr create`). **Task sessions only.**
 
 `--clearenv` strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,
@@ -52,6 +52,53 @@ break the unmodified-CLI + subscription-OAuth-refresh stance.
 **Compensating controls.** On the autonomous profile the egress allowlist
 (#601) bounds **where** a leaked token can go; `--clearenv` keeps env-resident
 secrets out of the membrane entirely.
+
+## Reviewer roles (audit N10)
+
+The critic, the standalone PR critic, the plan-gate reviewer and the maintain
+diagnosis read untrusted input and hand a verdict or draft back to the server,
+which does all forge writes. They get a narrower membrane
+(`MembraneInputs.reviewer`, chosen by `reviewerMembraneKind` in
+`src/spawn-membrane.ts`): no `~/.gitconfig` and no `~/.config/gh` bind, and the
+git common dir bound **RO**. The doc agent and plugin agents keep the task-session
+membrane.
+
+With no sandbox backend, nothing confines a role. The standalone critic then
+**refuses fork PRs** (`isCrossRepository`; logged once per head). Same-repo PRs,
+the session critic, the plan gate and maintain still run unconfined there, an
+operator-accepted narrowing that keeps critics working on hosts without `bwrap`.
+
+Everything these roles post or file (review body, post-merge comment, maintain
+issue title/body) passes through `redactSecretText` first.
+
+**Residual: credentials RW.** `.credentials.json` stays bound RW and `CODEX_HOME`
+stays RW for every membrane. A read-only or per-membrane copy breaks
+refresh-token rotation: the first in-membrane refresh rotates the token and
+strands the host copy. Closing it needs a host-brokered refresh, which is not
+built.
+
+## Agent-ingress key (#3337)
+
+The agent-ingress listener is exempt from the operator's auth gate. A session's
+UUID rides argv and env that any local user can read from `/proc`, so it is not
+the capability. Every ingress call must carry
+`X-Shepherd-Ingress-Key: HMAC(key, sessionId)` (`ingressKeyAllowed`,
+`src/server.ts`). The key file is `~/.shepherd/assistant-ingress.key`. A missing
+or broken key file means every call is refused. The `browser` route is exempt:
+it has its own HMAC `?token=`.
+
+- **Claude:** `--settings` (hook headers) and `--mcp-config` reach claude as
+  paths to 0600 files in `~/.shepherd/agent-spawn/` (the Operator Assistant uses
+  `assistant-spawn/`), never as argv JSON. Rewritten on every spawn and resume,
+  removed on archive.
+- **Codex and agent skills:** `SHEPHERD_INGRESS_KEY_FILE` names the 0600
+  `<id>.key` file. The curl directives send
+  `-H "x-shepherd-ingress-key: $(cat "$SHEPHERD_INGRESS_KEY_FILE")"`, and an
+  agent skill calling the ingress (for example video-brief's self-rename) must
+  send the same header.
+- **Membrane:** a sandboxed session gets only its own three files, RO-bound.
+- **Upgrade:** a session spawned before this change carries no key. Its hooks
+  fall back to polling and its MCP tools fail until its next resume or relaunch.
 
 ## Shared Claude state and agent-written files
 

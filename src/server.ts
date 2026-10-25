@@ -688,8 +688,8 @@ export interface AppDeps {
   actionWaitMs?: number;
   /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
   browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
-  /** Operator Assistant ingress-key verifier (audit F08); absent → the agent ingress refuses
-   *  every call addressed to an assistant. */
+  /** Agent-ingress key verifier (audit F08, every session since #3337); absent → the agent
+   *  ingress refuses every call except the token-gated `browser` route. */
   assistantIngress?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
@@ -12173,7 +12173,7 @@ const ROUTE_HANDLERS = [
  *
  * `skipAuth` bypasses the human cookie/token gate (issue #1079) — used ONLY by the loopback
  * agent-ingress listener (makeAgentIngressApp), whose loopback bind + route allowlist + per-session
- * UUID IS the agent's auth. The `Origin` (CSRF) check still applies. The main server never sets it.
+ * ingress key (#3337) IS the agent's auth. The `Origin` (CSRF) check still applies. The main server never sets it.
  */
 export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
   const app = {
@@ -12255,7 +12255,9 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *   - `queue`: PUT authors/replaces; GET is the "inspect the current queue" / re-GET-for-ids read.
  *   - `epic-draft`: PUT authors/replaces the draft; GET inspects it (issue #1507).
  *   - `rename`: the session's own retitle (issue #2053) — the write half of the coordinates the
- *     public `video-brief` skill uses to name a session after the recording it just watched. */
+ *     public `video-brief` skill uses to name a session after the recording it just watched. Like
+ *     every route here except `browser` it needs the ingress key header (#3337), which a skill reads
+ *     from the file named by `SHEPHERD_INGRESS_KEY_FILE`. */
 const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["hooks", ["POST"]],
   ["assistant-view", ["POST"]],
@@ -12275,16 +12277,16 @@ const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
  * lens is addressed (`GET /api/sessions/done` → every recently-archived session across every repo,
  * see handleSessionReads). A shape-only "no fourth segment ⇒ allow GET" rule would hand every
  * spawned agent that enumeration. Requiring a UUID excludes `done` — and any reserved literal added
- * later — structurally, and states in code what this file already claims in prose: the unguessable
- * per-session id IS the capability.
+ * later — structurally. The UUID is only the ADDRESS: since #3337 the capability is the per-session
+ * ingress key checked in ingressKeyAllowed.
  */
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Method+path allowlist for the restricted agent-ingress listener: EXACTLY the agent→server
  *  control-plane routes the spawn directives (and, since #2053, an agent skill) call. `parts` is
  *  url.pathname.split("/").filter(Boolean), e.g. ["api","sessions","<id>","hooks"]. The session id
- *  segment is an unguessable per-session UUID the agent only knows for its own session, so it is the
- *  de-facto per-session capability; the listener exposes no enumeration route. NOTE: /queue/approve
+ *  segment is a per-session UUID; the capability is the ingress key bound to it (#3337, see
+ *  ingressKeyAllowed), and the listener exposes no enumeration route. NOTE: /queue/approve
  *  is deliberately EXCLUDED — it is the human/autopilot gate, not an agent action. */
 export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[2])) return false;
@@ -12297,16 +12299,13 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   return method === "POST" && sub === "queue" && parts[4] === "steps" && !!parts[5] && !parts[6];
 }
 
-/** The Operator Assistant's ingress needs its key on top of the UUID (audit F08): the UUID rides
- *  argv that any local user can read, and the assistant's MCP endpoint runs operator actions. A
- *  still-spawning assistant has no row yet — its in-flight capabilities identify it. Every other
- *  session passes (its UUID stays its capability). */
-function assistantIngressAllowed(deps: AppDeps, id: string, req: Request): boolean {
-  const row = deps.store.get(id);
-  const assistant = row
-    ? isOperatorAssistant(row)
-    : deps.service.spawningAgentCapabilities(id)?.operatorActions === true;
-  if (!assistant) return true;
+/** Every session's ingress needs its key on top of the UUID (audit F08, all sessions since #3337):
+ *  the UUID rides argv and env that any local user can read. The key is HMAC(key, sessionId), so a
+ *  still-spawning session (no row yet) verifies the same way. `browser` is exempt — it carries its
+ *  own HMAC `?token=` (ADR 0001), and a CDP WebSocket client cannot add a header. No signer (broken
+ *  key file) → every call refused. */
+function ingressKeyAllowed(deps: AppDeps, id: string, sub: string, req: Request): boolean {
+  if (sub === "browser") return true;
   return deps.assistantIngress?.verify(id, req.headers.get(ASSISTANT_INGRESS_HEADER)) === true;
 }
 
@@ -12314,7 +12313,7 @@ function assistantIngressAllowed(deps: AppDeps, id: string, req: Request): boole
  *  DELEGATE to the full app. Built with `skipAuth` (issue #1079): spawned agents carry neither a
  *  human session cookie nor (by default) a bearer token — autonomous agents run under `--clearenv`
  *  which strips any env var — so the human gate must NOT apply here. The ingress's loopback-only
- *  bind + isAgentIngressRoute allowlist + unguessable per-session UUID IS the agent's auth. The
+ *  bind + isAgentIngressRoute allowlist + the per-session ingress key (#3337) IS the agent's auth. The
  *  `checkOrigin` (CSRF) guard still applies (agents send no Origin → allowed). This preserves the
  *  pre-#1079 effective behaviour (token-null ⇒ checkAuth was already a no-op here). */
 export function makeAgentIngressApp(deps: AppDeps) {
@@ -12324,7 +12323,7 @@ export function makeAgentIngressApp(deps: AppDeps) {
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean);
       if (!isAgentIngressRoute(req.method, parts)) return json({ error: "not found" }, 404);
-      if (!assistantIngressAllowed(deps, parts[2]!, req))
+      if (!ingressKeyAllowed(deps, parts[2]!, parts[3] ?? "", req))
         return json({ error: "unauthorized" }, 401);
       return app.fetch(req); // delegate — preserves checkOrigin (CSRF) + the real handlers
     },
@@ -12333,7 +12332,7 @@ export function makeAgentIngressApp(deps: AppDeps) {
 
 /** Start the agent-ingress listener bound to LOOPBACK ONLY (never config.host, which may be 0.0.0.0).
  *  slirp maps the netns's 10.0.2.2 to the host's 127.0.0.1, so loopback is the correct + safest bind.
- *  The `port` is PINNED (config.agentIngressPort) so the URL baked into a live agent's --settings argv
+ *  The `port` is PINNED (config.agentIngressPort) so the URL baked into a live agent's 0600 --settings file
  *  survives a restart/deploy (issue #1083); `0` falls back to an ephemeral port. We rely on Bun's
  *  default SO_REUSEADDR for clean-restart rebind and deliberately do NOT set reusePort (SO_REUSEPORT) —
  *  that is concurrent co-binding, which on this auth-exempt listener would let any same-UID local

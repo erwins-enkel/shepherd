@@ -6,6 +6,8 @@ import { makeApp, serve, makeAgentIngressApp, type AppDeps } from "../src/server
 import { config } from "../src/config";
 import { signCookie, hashPassword, SESSION_COOKIE, SESSION_TTL_MS } from "../src/operator-auth";
 import type { TokenScope } from "../src/token-scopes";
+import { BrowserTokenSigner } from "../src/browser-token";
+import { ASSISTANT_INGRESS_HEADER } from "../src/assistant-ingress";
 
 const SECRET = "test-cookie-signing-secret";
 const PASSWORD = "operator-password";
@@ -373,8 +375,9 @@ test("WS /events: a valid cookie but evil Origin is still 403 (CSWSH guard kept)
 
 // ── agent-transport regression: exempt ingress vs gated main port ────────────
 
-test("agent-transport: an uncredentialed hook POST is 2xx on the ingress but 401 on the main port", async () => {
-  const deps = makeDeps();
+test("agent-transport: a hook POST with no operator credential is 2xx on the ingress but 401 on the main port", async () => {
+  const signer = new BrowserTokenSigner(Buffer.alloc(32, 4));
+  const deps = { ...makeDeps(), assistantIngress: signer };
   const s = await deps.service.create({
     repoPath: "/repo",
     baseBranch: "main",
@@ -382,14 +385,18 @@ test("agent-transport: an uncredentialed hook POST is 2xx on the ingress but 401
     model: null,
     images: [],
   });
+  // Only the per-session ingress key (#3337) — never an operator cookie or token.
   const hookReq = () =>
     new Request(`http://x/api/sessions/${s.id}/hooks`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        [ASSISTANT_INGRESS_HEADER]: signer.sign(s.id),
+      },
       body: JSON.stringify({ hook_event_name: "Stop" }),
     });
 
-  // exempt ingress transport: agent reaches the handler with NO credential
+  // exempt ingress transport: agent reaches the handler with NO operator credential
   const ingress = makeAgentIngressApp(deps);
   const viaIngress = await ingress.fetch(hookReq());
   expect(viaIngress.status).not.toBe(401);

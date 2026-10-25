@@ -1,7 +1,7 @@
 import { isEpicChild } from "./epic-branch";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { misroutedTargetFor, routedIssueDirective } from "./target-repo";
@@ -117,8 +117,9 @@ import { SESSION_MARKER_ENV } from "./process-reaper";
 import type { BrowserTokenSigner } from "./browser-token";
 import {
   ASSISTANT_INGRESS_HEADER,
-  removeAssistantSpawnFiles,
-  writeAssistantSpawnFiles,
+  ingressSpawnPaths,
+  removeIngressSpawnFiles,
+  writeIngressSpawnFiles,
 } from "./assistant-ingress";
 import {
   browserConfigPath,
@@ -404,11 +405,13 @@ export interface ServiceDeps {
   /** Dir holding per-session Browser Attach config files (seam); default
    *  `config.browserAttachDir`. */
   browserAttachDir?: string;
-  /** Operator Assistant ingress-key signer (audit F08). Absent (tests / broken key) → the
-   *  assistant's spawn files carry no key, and the ingress refuses its calls. */
+  /** Agent-ingress key signer (audit F08, every session since #3337). Absent (tests / broken key)
+   *  → the spawn files carry no key, and the ingress refuses the session's calls. */
   assistantIngress?: Pick<BrowserTokenSigner, "sign">;
   /** Dir holding the assistant's 0600 spawn files (seam); default `config.assistantSpawnDir`. */
   assistantSpawnDir?: string;
+  /** Dir holding task sessions' 0600 ingress spawn files (seam); default `config.agentSpawnDir`. */
+  agentSpawnDir?: string;
   /** The Operator Assistant's working dir (seam); default `config.operatorAssistantDir`. */
   operatorAssistantDir?: string;
   /** Pre-accept Claude's workspace trust for the assistant dir (seam); default
@@ -676,8 +679,8 @@ export function spawnSettingsOverlay(
  * Phase-3 #710 SubagentStart/SubagentStop sub-agent fan-out lifecycle), matcher `"*"`, short
  * fail-open timeout, pointed at `POST <baseUrl>/api/sessions/<sessionId>/hooks`.
  *
- * Auth (Finding 2): the `--settings` JSON rides the spawn process argv (ps-visible), NOT the
- * transcript — so we NEVER bake the literal token. When a token is configured we emit a
+ * Auth (Finding 2): the `--settings` JSON is a file the agent itself can read (a 0600 path since
+ * #3337, RO-bound into its membrane) — so we NEVER bake the literal token. When a token is configured we emit a
  * `$SHEPHERD_TOKEN` placeholder + `allowedEnvVars`; Claude Code resolves it from the hook
  * process env (only listed vars are interpolated). With no token (open loopback) we omit the
  * `headers` + `allowedEnvVars` keys entirely, matching the queue route's no-auth path.
@@ -685,8 +688,8 @@ export function spawnSettingsOverlay(
  * Token + `autonomous` (issue #711, DELIBERATE): under the autonomous membrane `--clearenv`
  * strips `SHEPHERD_TOKEN`, so `$SHEPHERD_TOKEN` interpolates empty → the ingress listener 401s
  * → hooks fail-open to polling (today's behaviour). We keep the placeholder rather than baking
- * the literal token here ON PURPOSE: the hook header rides the ps-visible argv and is readable
- * from the autonomous agent's own `/proc/self/cmdline`, so baking it would hand a hijacked agent
+ * the literal token here ON PURPOSE: the hook header is readable from the autonomous agent's own
+ * `--settings` file, so baking it would hand a hijacked agent
  * the control-plane token — defeating the containment the autonomous profile exists to provide.
  * This placeholder is now the ONLY place a Shepherd spawn carries the control-plane token at all
  * (issue #2003): the build-queue and epic-authoring directives used to bake the literal token into
@@ -720,8 +723,8 @@ export function buildHooksFragment(input: HookTarget): Record<string, unknown> {
   };
 }
 
-/** Where a session's http hooks post. `ingressKey` (the Operator Assistant only, audit F08) is
- *  sent literally — its overlay reaches claude as a 0600 file, never argv (src/assistant-ingress.ts). */
+/** Where a session's http hooks post. `ingressKey` (every session — audit F08, #3337) is sent
+ *  literally — the overlay reaches claude as a 0600 file, never argv (src/assistant-ingress.ts). */
 type HookTarget = {
   sessionId: string;
   baseUrl: string;
@@ -730,7 +733,7 @@ type HookTarget = {
 };
 
 /** An http hook's auth: the `$SHEPHERD_TOKEN` placeholder, never the literal token (see
- *  buildHooksFragment); no token → no header at all. Plus the assistant's ingress key. */
+ *  buildHooksFragment); no token → no header at all. Plus the session's ingress key. */
 function hookAuthFields(token: string | null, ingressKey?: string): Record<string, unknown> {
   const key = ingressKey ? { [ASSISTANT_INGRESS_HEADER]: ingressKey } : {};
   if (token === null) return ingressKey ? { headers: key } : {};
@@ -1314,6 +1317,15 @@ function researchDirective(agentProvider: AgentProvider): string {
   );
 }
 
+/** Env var carrying the PATH of a session's 0600 ingress key file (issue #3337, see
+ *  src/assistant-ingress.ts). Only the path rides the env — it reaches argv via bwrap `--setenv`
+ *  and herdr's env shim — and the curl directives / agent skills read the key from the file. */
+const INGRESS_KEY_FILE_ENV = "SHEPHERD_INGRESS_KEY_FILE";
+
+/** The ingress-key header line every Codex curl directive carries (the agent ingress refuses a
+ *  keyless request). Shell-expanded by the agent, so the key never appears in the prompt. */
+const INGRESS_CURL_HEADER = `     -H "${ASSISTANT_INGRESS_HEADER}: $(cat "$${INGRESS_KEY_FILE_ENV}")" \\\n`;
+
 /**
  * Injected as the highest-priority directive for an attended EPIC-AUTHORING task
  * (`epicAuthoring: true`, issue #1507). The session shapes a rough product idea into a reviewable
@@ -1351,13 +1363,14 @@ export function epicAuthoringDirective(args: {
         'time. `key` is a stable temp id you assign per child (e.g. "c1") used only for ' +
         "`blockedBy` edges:\n\n" +
         `   curl -s -X PUT \\\n` +
+        INGRESS_CURL_HEADER +
         `     -H "Content-Type: application/json" \\\n` +
         `     -d '{"parent":{"title":"…","body":"…","acceptanceCriteria":["…"],"nonGoals":["…"]},` +
         `"children":[{"key":"c1","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":[]},` +
         `{"key":"c2","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":["c1"]}]}' \\\n` +
         `     ${draftUrl}\n` +
         `   Re-PUT the whole draft to revise it when the operator asks for changes (the amend loop). ` +
-        `Inspect the current draft any time with a GET on ${draftUrl}.\n\n`
+        `Inspect the current draft any time with a GET on ${draftUrl} (same key header).\n\n`
       : "- Submit the draft with the `epic_draft` tool (on the `shepherd` MCP server), then STOP " +
         "and wait for the operator to review it in the UI. Re-submit the whole draft to revise it " +
         "when the operator asks for changes (the amend loop).\n";
@@ -1442,7 +1455,7 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
  * Provider-split (issue #2003), and this is the whole point of the slice:
  *
  *  - **Claude** drives the queue through TOOLS (`mcp__shepherd__queue_write` /
- *    `queue_step`, served by src/agent-control.ts and wired at spawn by `pushAgentMcpFlag`). The
+ *    `queue_step`, served by src/agent-control.ts and wired at spawn by `sessionSpawnFileArgs`). The
  *    tool signatures carry the mechanics the prose used to spell out — the status vocabulary is an
  *    enum, step ids are a required parameter, and the "call it when you start / when you finish"
  *    rule is one line of tool description read at the call site. So this block keeps ONLY what a
@@ -1501,6 +1514,7 @@ export function buildQueueDirective(args: {
     "Build-queue API (use these exact curl commands):\n\n" +
     "1. Author / replace the whole plan (do this first, before starting any work):\n" +
     `   curl -s -X PUT \\\n` +
+    INGRESS_CURL_HEADER +
     `     -H "Content-Type: application/json" \\\n` +
     `     -d '{"steps":[{"id":"s1","title":"Step title","detail":"Optional detail"}]}' \\\n` +
     `     ${queueUrl}\n` +
@@ -1510,10 +1524,12 @@ export function buildQueueDirective(args: {
     "`approved` flag.\n\n" +
     "2. Mark a step's progress (use the `id` values from the PUT/GET response):\n" +
     `   curl -s -X POST \\\n` +
+    INGRESS_CURL_HEADER +
     `     -H "Content-Type: application/json" \\\n` +
     '     -d \'{"status":"active"}\' \\\n' +
     `     ${queueUrl}/steps/{stepId}     # when you start a step\n` +
     `   curl -s -X POST \\\n` +
+    INGRESS_CURL_HEADER +
     `     -H "Content-Type: application/json" \\\n` +
     '     -d \'{"status":"done"}\' \\\n' +
     `     ${queueUrl}/steps/{stepId}     # when you finish a step\n` +
@@ -1534,7 +1550,7 @@ export function buildQueueDirective(args: {
     "exact match; a server UUID may also be posted as an unambiguous prefix of ≥8 chars (a 409 " +
     "means the prefix matched several steps — use a longer prefix or the full id).\n\n" +
     "3. Inspect the current queue at any time:\n" +
-    `   curl -s ${queueUrl}\n\n` +
+    `   curl -s -H "${ASSISTANT_INGRESS_HEADER}: $(cat "$${INGRESS_KEY_FILE_ENV}")" ${queueUrl}\n\n` +
     "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +
     "Only add, change, or remove steps that are still PENDING. ALWAYS include each carried step " +
     "with its existing `id` (its status is kept server-side) — that is how completed and " +
@@ -3135,6 +3151,77 @@ export class SessionService {
     return this.deps.assistantSpawnDir ?? config.assistantSpawnDir;
   }
 
+  /** Where a session's ingress spawn files live (issue #3337): the assistant keeps its own dir. */
+  private ingressSpawnDir(operatorAssistant: boolean): string {
+    return operatorAssistant
+      ? this.assistantSpawnDir()
+      : (this.deps.agentSpawnDir ?? config.agentSpawnDir);
+  }
+
+  /**
+   * A Claude task session's `--settings` overlay and its `--mcp-config` for the session's own MCP
+   * endpoint (issue #2003), written as 0600 files carrying the session's ingress key (issue #3337);
+   * returns the argv tail with their PATHS. `--mcp-config` only when the session actually has tools
+   * (the read tools on every non-plain session, plus build-queue / epic-draft tools), so a plain
+   * session's context surface is untouched.
+   *
+   * Claude-only, and it must ride BOTH the spawn and the Claude resume argv: both flags are
+   * per-process, so a resumed/compacted session that didn't re-pass them would silently lose the
+   * tools mid-run. Codex keeps the prose directive (see buildQueueDirective).
+   */
+  private async sessionSpawnFileArgs(
+    sessionId: string,
+    baseUrl: string,
+    overlay: Omit<Parameters<typeof spawnSettingsOverlay>[0] & object, "hooks">,
+    caps: AgentCapabilities,
+  ): Promise<string[]> {
+    const ingressKey = this.deps.assistantIngress?.sign(sessionId);
+    if (!ingressKey)
+      console.warn(`[ingress] no ingress key for ${sessionId} — its calls will be refused`);
+    const tools = hasAgentTools(caps);
+    const files = await writeIngressSpawnFiles(this.ingressSpawnDir(false), sessionId, {
+      settings: spawnSettingsOverlay({
+        ...overlay,
+        hooks: { sessionId, baseUrl, token: config.token, ingressKey },
+      }),
+      ...(tools
+        ? {
+            mcpConfig: agentMcpConfigArg(
+              sessionId,
+              baseUrl,
+              ingressKey ? { [ASSISTANT_INGRESS_HEADER]: ingressKey } : undefined,
+            ),
+          }
+        : {}),
+    });
+    return ["--settings", files.settings, ...(tools ? ["--mcp-config", files.mcpConfig] : [])];
+  }
+
+  /** Write the session's 0600 ingress key file (both providers) and return its env (the key
+   *  file's path) plus the spawn files that exist, for the membrane's RO binds. No signer → no key
+   *  file, no env. */
+  private async sessionIngressFiles(
+    sessionId: string,
+    operatorAssistant: boolean,
+  ): Promise<{ env: Record<string, string>; files: string[] }> {
+    const dir = this.ingressSpawnDir(operatorAssistant);
+    const key = this.deps.assistantIngress?.sign(sessionId);
+    if (key) await writeIngressSpawnFiles(dir, sessionId, { key });
+    const paths = ingressSpawnPaths(dir, sessionId);
+    const present = await Promise.all(
+      Object.values(paths).map((p) =>
+        access(p).then(
+          () => p,
+          () => null,
+        ),
+      ),
+    );
+    return {
+      env: key ? { [INGRESS_KEY_FILE_ENV]: paths.key } : {},
+      files: present.filter((p): p is string => p !== null),
+    };
+  }
+
   private browserConfigFile(sessionId: string): string {
     return browserConfigPath(this.deps.browserAttachDir ?? config.browserAttachDir, sessionId);
   }
@@ -3210,6 +3297,9 @@ export class SessionService {
     const browserEnv: Record<string, string> = browserConfigFile
       ? { [BROWSER_CONFIG_ENV]: browserConfigFile }
       : {};
+    // #3337: the ingress key file; only its path rides the env, beside AGENT_API_URL_ENV.
+    const ingress = await this.sessionIngressFiles(ctx.sessionId, ctx.operatorAssistant === true);
+    const ingressEnv = ingress.env;
 
     // Renderer env for the MAIN session ONLY (satellites call herdr.start directly and keep the
     // classic pin). Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped
@@ -3255,6 +3345,7 @@ export class SessionService {
             ...patchEnv,
             [SESSION_MARKER_ENV]: ctx.sessionId,
             [AGENT_API_URL_ENV]: agentApiUrl,
+            ...ingressEnv,
             ...browserEnv,
           },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
@@ -3266,6 +3357,8 @@ export class SessionService {
           agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
           // This session's Browser Attach config only (single-file RO bind); null otherwise.
           browserConfigFile,
+          // This session's own ingress spawn files only (#3337) — read by claude at startup.
+          ingressFiles: ingress.files,
           claudeJsonCopy: await this.prepareSessionClaudeState(ctx.sessionId, ctx.worktreePath),
         }
       : ({} as MembraneInputs);
@@ -3300,6 +3393,7 @@ export class SessionService {
       ...patchEnv,
       [SESSION_MARKER_ENV]: ctx.sessionId,
       [AGENT_API_URL_ENV]: agentApiUrl,
+      ...ingressEnv,
       ...browserEnv,
     };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
@@ -3523,27 +3617,6 @@ export class SessionService {
     return spawnModel;
   }
 
-  /**
-   * Push `--mcp-config` for the session's own MCP endpoint (issue #2003) — the control plane the
-   * build-queue / epic-draft prose used to teach as `curl`. Pushed only when the session actually
-   * has tools (the read tools on every non-plain session, plus build-queue / epic-draft tools), so
-   * a plain session's argv and context surface are untouched.
-   *
-   * Claude-only, and it must ride BOTH the spawn and the Claude resume argv: `--mcp-config` is
-   * per-process, so a resumed/compacted session that didn't re-pass it would silently lose the
-   * tools mid-run. Codex keeps the prose directive (see buildQueueDirective) — its MCP wiring is
-   * a separate, unverified path.
-   */
-  private pushAgentMcpFlag(
-    argv: string[],
-    sessionId: string,
-    baseUrl: string,
-    caps: AgentCapabilities,
-  ): void {
-    if (!hasAgentTools(caps)) return;
-    argv.push("--mcp-config", agentMcpConfigArg(sessionId, baseUrl));
-  }
-
   private codexAuthMode(): CodexAuthMode {
     return this.deps.readCodexAuthMode?.() ?? readCodexAuthMode();
   }
@@ -3735,7 +3808,7 @@ export class SessionService {
     }
   }
 
-  private buildSpawnArgv(
+  private async buildSpawnArgv(
     input: StandardCreateInput,
     claudeSessionId: string,
     sessionId: string,
@@ -3745,7 +3818,7 @@ export class SessionService {
     trim: Awaited<ReturnType<typeof trimDecision>>,
     baseUrl: string,
     profile: SandboxProfile,
-  ): string[] {
+  ): Promise<string[]> {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     this.spawnConnectorStamp.set(sessionId, repoConfig.claudeAiConnectorsEnabled);
     // `--add-dir` (#2002) rides FIRST, where the next token is always a flag: it is variadic and
@@ -3757,14 +3830,6 @@ export class SessionService {
       "--session-id",
       claudeSessionId,
     ];
-    argv.push(
-      "--settings",
-      spawnSettingsOverlay({
-        ...trim.overlayOpts,
-        claudeAiConnectors: repoConfig.claudeAiConnectorsEnabled,
-        hooks: { sessionId, baseUrl, token: config.token },
-      }),
-    );
     // Capabilities come from the create inputs, not the store: `create` pre-generates the session
     // id and builds this argv BEFORE the row exists, so a store read here would always say "none".
     // The queue capability carries the SAME non-code-mode suppression composeSystemPromptBlocks
@@ -3778,7 +3843,15 @@ export class SessionService {
       operatorDiag: false,
       operatorActions: false,
     };
-    this.pushAgentMcpFlag(argv, sessionId, baseUrl, caps);
+    // #3337: `--settings` / `--mcp-config` as 0600 file paths carrying the ingress key.
+    argv.push(
+      ...(await this.sessionSpawnFileArgs(
+        sessionId,
+        baseUrl,
+        { ...trim.overlayOpts, claudeAiConnectors: repoConfig.claudeAiConnectorsEnabled },
+        caps,
+      )),
+    );
     // Serve the endpoint until the row exists; `create` clears this however the spawn ends.
     if (hasAgentTools(caps)) this.spawningMcp.set(sessionId, caps);
     argv.push(
@@ -3874,7 +3947,7 @@ export class SessionService {
     return argv;
   }
 
-  private buildClaudeResumeArgv(s: Session, trim: TrimDecision): string[] {
+  private async buildClaudeResumeArgv(s: Session, trim: TrimDecision): Promise<string[]> {
     const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
     const connectors = this.deps.store.getRepoConfig(s.repoPath).claudeAiConnectorsEnabled;
     this.spawnConnectorStamp.set(s.id, connectors);
@@ -3886,14 +3959,14 @@ export class SessionService {
       "--dangerously-skip-permissions",
       "--resume",
       s.claudeSessionId,
-      "--settings",
-      spawnSettingsOverlay({
-        ...trim.overlayOpts,
-        claudeAiConnectors: connectors,
-        hooks: { sessionId: s.id, baseUrl, token: config.token },
-      }),
+      // #3337: rewritten on every resume — claude reads them at startup.
+      ...(await this.sessionSpawnFileArgs(
+        s.id,
+        baseUrl,
+        { ...trim.overlayOpts, claudeAiConnectors: connectors },
+        sessionCapabilities(this.deps, s.id),
+      )),
     ];
-    this.pushAgentMcpFlag(argv, s.id, baseUrl, sessionCapabilities(this.deps, s.id));
     // A resume re-passes the FULL directive set, recomposed for the session as it stands NOW
     // (#2608). Claude Code replays the prompt it recorded at the conversation's first request, so
     // this value is dormant right after the resume — but a compaction re-renders the prompt from
@@ -4312,7 +4385,7 @@ export class SessionService {
             isolated: wt.isolated,
             baseUrl,
           })
-        : this.buildSpawnArgv(
+        : await this.buildSpawnArgv(
             spawnInput,
             claudeSessionId,
             sessionId,
@@ -4936,7 +5009,7 @@ export class SessionService {
     if (!ingressKey)
       console.warn("[operator-assistant] no ingress key — its tools will be refused");
     const hook = { sessionId: s.id, baseUrl, token: config.token, ingressKey };
-    const files = await writeAssistantSpawnFiles(this.assistantSpawnDir(), s.id, {
+    const files = await writeIngressSpawnFiles(this.assistantSpawnDir(), s.id, {
       settings: spawnSettingsOverlay({
         hooks: hook,
         permissions: operatorAssistantPermissions(
@@ -7275,11 +7348,9 @@ export class SessionService {
     removeMembraneState(id);
     this.deps.netnsDevForward?.drop(id);
     await this.removeBrowserAttachConfig(s.id);
-    if (isOperatorAssistant(s)) {
-      await removeAssistantSpawnFiles(this.assistantSpawnDir(), s.id).catch((err: unknown) =>
-        console.warn(`[operator-assistant] spawn files for ${s.id} not removed:`, err),
-      );
-    }
+    await removeIngressSpawnFiles(this.ingressSpawnDir(isOperatorAssistant(s)), s.id).catch(
+      (err: unknown) => console.warn(`[ingress] spawn files for ${s.id} not removed:`, err),
+    );
     this.deps.store.archive(id, reason);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
     // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive

@@ -126,6 +126,8 @@ export function resolveSpawnMembrane(args: {
   extraEnv?: Record<string, string>;
   /** This spawn's `.claude.json` copy from {@link resolveAuxPatch}; null → host file RO. */
   claudeJsonCopy?: string | null;
+  /** Narrower reviewer membrane (see {@link reviewerMembraneKind}). */
+  reviewer?: boolean;
 }): { wrapped: string[]; backend: SandboxBackend } {
   const backend = resolveBackend(args.seams);
   const env = resolveMembraneEnv(args.seams);
@@ -163,9 +165,17 @@ export function resolveSpawnMembrane(args: {
     // "the guard exists wherever a Shepherd-spawned agent runs" true if one ever does.
     agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
     claudeJsonCopy: args.claudeJsonCopy ?? null,
+    ...(args.reviewer ? { reviewer: true } : {}),
   };
   const wrapped = wrapArgv(args.argv, { profile: "standard", backend, membrane });
   return { wrapped, backend };
+}
+
+/** Aux kinds that only READ untrusted input and hand a verdict/draft back to the server (audit
+ *  N10): they get the reviewer membrane — no gh token, no gitconfig, git common dir RO. The doc
+ *  agent and plugin agents keep the task-session membrane. */
+function reviewerMembraneKind(kind: SpawnDescriptor["kind"]): boolean {
+  return kind === "review" || kind === "plan-gate" || kind === "maintain";
 }
 
 /** Fold a plugin SpawnPatch (issue #1124/#1205) into spawn inputs: patch.env plus
@@ -261,6 +271,8 @@ export interface AuxPatch {
   baseEnv: Record<string, string> | undefined;
   patchEnv: Record<string, string>;
   extraArgs: string[];
+  /** Narrower reviewer membrane, from the descriptor kind ({@link reviewerMembraneKind}). */
+  reviewer: boolean;
 }
 
 export interface AuxSpawnArgs {
@@ -364,6 +376,7 @@ export async function resolveAuxPatch(
     baseEnv,
     patchEnv: folded.patchEnv,
     extraArgs: folded.extraArgs,
+    reviewer: reviewerMembraneKind(args.descriptor.kind),
   };
 }
 
@@ -455,6 +468,7 @@ export function assembleAuxSpawn(
     seams: args.seams,
     extraEnv: patch.patchEnv,
     claudeJsonCopy: patch.claudeJsonCopy,
+    reviewer: patch.reviewer,
   });
 
   // Merge order lives in mergeAuxEnv — shared with resolveAuxPatch's trust seed.

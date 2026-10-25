@@ -71,6 +71,10 @@ const assistantIngressKeyPath = join(dirname(dbPath), "assistant-ingress.key");
 // A sibling of the assistant dir (never inside it — every assistant scope shares that dir), so
 // SHEPHERD_ASSISTANT_DIR relocates both.
 const assistantSpawnDir = join(dirname(operatorAssistantDir), "assistant-spawn");
+/** Every task session's 0600 ingress spawn files — `--settings`, `--mcp-config`, ingress key
+ *  (issue #3337; see src/assistant-ingress.ts). Beside `assistant-spawn` (so SHEPHERD_ASSISTANT_DIR
+ *  relocates it too, as the test preload does), never inside a worktree. */
+const agentSpawnDir = join(dirname(operatorAssistantDir), "agent-spawn");
 
 // herdr session id ("default" for a single-session install; a named daemon otherwise) and
 // the Unix-socket path for herdr's native JSON-RPC API (issue #1529). Resolved via the shared
@@ -670,6 +674,7 @@ export const config = {
   browserAttachDir,
   assistantIngressKeyPath,
   assistantSpawnDir,
+  agentSpawnDir,
   // Shared Browser binary override; null → PATH lookup in src/shared-browser.ts.
   chromiumBin: process.env.SHEPHERD_CHROMIUM_BIN || null,
   pluginsDir,

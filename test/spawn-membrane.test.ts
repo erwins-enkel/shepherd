@@ -861,3 +861,36 @@ describe("#2112 trustDir pre-seed", () => {
     expect(called).toBe(false);
   });
 });
+
+describe("reviewer membrane for reviewer-style kinds (audit N10)", () => {
+  async function flagsFor(kind: "review" | "plan-gate" | "maintain" | "doc" | "plugin") {
+    const result = await resolveAuxSpawn({
+      argv: ["claude", "-p"],
+      worktreePath: "/wt/task",
+      repoPath: "/repo",
+      worktree: worktreeStub(),
+      seams: { detectBackend: () => "bwrap", membraneEnv: () => stubEnv, membraneLaunch: okLaunch },
+      descriptor: { sessionId: "s-1", kind },
+    });
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
+    return result.wrapped;
+  }
+
+  for (const kind of ["review", "plan-gate", "maintain"] as const) {
+    test(`${kind}: no gh/gitconfig, git common dir RO`, async () => {
+      const f = await flagsFor(kind);
+      expect(f.some((v) => v.includes(".config/gh") || v.endsWith("/.gitconfig"))).toBe(false);
+      expect(hasTriple(f, "--ro-bind", "/wt/task/.git", "/wt/task/.git")).toBe(true);
+    });
+  }
+
+  for (const kind of ["doc", "plugin"] as const) {
+    test(`${kind}: keeps the task-session membrane`, async () => {
+      const f = await flagsFor(kind);
+      expect(hasTriple(f, "--ro-bind-try", "/stub/home/.config/gh", "/stub/home/.config/gh")).toBe(
+        true,
+      );
+      expect(hasTriple(f, "--bind", "/wt/task/.git", "/wt/task/.git")).toBe(true);
+    });
+  }
+});

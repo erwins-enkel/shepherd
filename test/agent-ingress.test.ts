@@ -14,6 +14,8 @@ import type { CdpClient, CdpPipeClient } from "../src/cdp-pipe";
 import { SharedBrowserError, type BrowserConfinement } from "../src/shared-browser";
 import { autonomousOriginPolicy } from "../src/browser-broker";
 import { LoginRequestService } from "../src/login-request";
+import { inlineSpawnFiles } from "./helpers/spawn-files";
+import { ASSISTANT_INGRESS_HEADER } from "../src/assistant-ingress";
 
 // A representative per-session UUID — the de-facto capability segment the agent only knows
 // for its own session.
@@ -113,6 +115,25 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
 });
 
 // ── makeAgentIngressApp: 404-at-gate vs delegate-to-real-app ────────────────────
+
+/** The ingress key signer every session in this file is spawned with (#3337). */
+const SIGNER = new BrowserTokenSigner(Buffer.alloc(32, 9));
+
+/** `request` with the ingress key of the session its path addresses — what a spawned agent's
+ *  `--settings` / `--mcp-config` (or a curl directive) sends. */
+function withKey(request: Request): Request {
+  const id = new URL(request.url).pathname.split("/")[3];
+  const headers = new Headers(request.headers);
+  if (id) headers.set(ASSISTANT_INGRESS_HEADER, SIGNER.sign(id));
+  return new Request(request, { headers });
+}
+
+/** makeAgentIngressApp, called the way a keyed agent calls it. */
+function keyedIngressApp(deps: AppDeps) {
+  const app = makeAgentIngressApp(deps);
+  return { fetch: (request: Request) => app.fetch(withKey(request)) };
+}
+
 function makeDeps(
   start: (argv: string[]) => Promise<{ terminalId: string }> = async () => ({
     terminalId: "term_x",
@@ -122,6 +143,7 @@ function makeDeps(
   const events = new EventHub();
   const service = new SessionService({
     store,
+    assistantIngress: SIGNER,
     namer: async () => "x",
     worktree: {
       create: () => ({ worktreePath: "/wt", branch: "shepherd/x", isolated: true }),
@@ -150,7 +172,7 @@ function makeDeps(
     }),
     projections: () => [],
   };
-  return { store, service, events, usageLimits };
+  return { store, service, events, usageLimits, assistantIngress: SIGNER };
 }
 
 test("makeAgentIngressApp: a DENIED route 404s AT THE GATE (never reaches a handler)", async () => {
@@ -164,7 +186,7 @@ test("makeAgentIngressApp: a DENIED route 404s AT THE GATE (never reaches a hand
     model: null,
     images: [],
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
 
   // POST /api/sessions/:id/queue/approve is a real, working route on the full app — but the gate
   // must 404 it (it's the human gate). Assert containment: the build queue is NOT approved after.
@@ -186,7 +208,7 @@ test("makeAgentIngressApp: an agent cannot amend its OWN task (#2225 containment
     model: null,
     images: [],
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
   const res = await app.fetch(
     new Request(`http://x/api/sessions/${s.id}/amendments`, {
       method: "POST",
@@ -201,7 +223,7 @@ test("makeAgentIngressApp: an agent cannot amend its OWN task (#2225 containment
 
 test("makeAgentIngressApp: POST /api/sessions (spawn) is 404'd at the gate (no firewall escape)", async () => {
   const deps = makeDeps();
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
   const res = await app.fetch(
     new Request("http://x/api/sessions", {
       method: "POST",
@@ -222,7 +244,7 @@ test("makeAgentIngressApp: an ALLOWED route DELEGATES to the full app (reaches t
     model: null,
     images: [],
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
 
   // PUT /api/sessions/:id/queue with an INVALID body reaches putBuildQueue, which validates and
   // returns 400 "invalid build steps" — a NON-404 sentinel proving delegation past the gate.
@@ -262,7 +284,7 @@ test("makeAgentIngressApp: GET /api/sessions/:id/queue delegates — the agent c
     model: null,
     images: [],
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
 
   const put = await app.fetch(
     new Request(`http://x/api/sessions/${s.id}/queue`, {
@@ -292,7 +314,7 @@ test("makeAgentIngressApp: GET /api/sessions/:id delegates to the canonical sess
     model: null,
     images: [],
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
 
   const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}`));
   expect(res.status).toBe(200);
@@ -307,7 +329,7 @@ test("makeAgentIngressApp: GET /api/sessions/done is 404'd at the gate (no enume
   // Same path SHAPE as the self-read above, but `done` is the Done-lens enumeration route: every
   // recently-archived session across every repo. The UUID gate is what separates them.
   const deps = makeDeps();
-  const res = await makeAgentIngressApp(deps).fetch(new Request("http://x/api/sessions/done"));
+  const res = await keyedIngressApp(deps).fetch(new Request("http://x/api/sessions/done"));
   expect(res.status).toBe(404);
   expect(await res.json()).toEqual({ error: "not found" });
 });
@@ -327,7 +349,7 @@ test("makeAgentIngressApp: POST /api/sessions/:id/rename delegates to the canoni
   deps.events.subscribe((event, data) => {
     if (event === "session:renamed") renamed.push(data);
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
 
   const res = await app.fetch(
     new Request(`http://x/api/sessions/${s.id}/rename`, {
@@ -372,7 +394,7 @@ test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue throu
     model: null,
     images: [],
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
   const rpc = async (method: string, params?: unknown) =>
     app.fetch(
       new Request(`http://x/api/sessions/${s.id}/mcp`, {
@@ -406,7 +428,7 @@ test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue throu
 
 /** The session id a spawn argv's `--mcp-config` points at. */
 function mcpSessionId(argv: string[]): string {
-  const cfg = JSON.parse(argv[argv.indexOf("--mcp-config") + 1]!);
+  const cfg = JSON.parse(inlineSpawnFiles(argv)[argv.indexOf("--mcp-config") + 1]!);
   return cfg.mcpServers.shepherd.url.split("/").at(-2);
 }
 
@@ -439,7 +461,7 @@ test("makeAgentIngressApp: the MCP endpoint answers WHILE the spawn is in flight
     ...deps.store.getRepoConfig("/repo"),
     buildQueueEnabled: true,
   });
-  app = makeAgentIngressApp(deps);
+  app = keyedIngressApp(deps);
   const s = await deps.service.create({
     repoPath: "/repo",
     baseBranch: "main",
@@ -465,7 +487,7 @@ test("makeAgentIngressApp: the MCP endpoint answers WHILE the spawn is in flight
 });
 
 test("makeAgentIngressApp: GET on the MCP endpoint is 405 — no SSE stream offered, per spec", async () => {
-  const res = await makeAgentIngressApp(makeDeps()).fetch(
+  const res = await keyedIngressApp(makeDeps()).fetch(
     new Request(`http://x/api/sessions/${ID}/mcp`, { headers: { accept: "text/event-stream" } }),
   );
   expect(res.status).toBe(405);
@@ -489,7 +511,7 @@ test("a failed spawn leaves no in-flight MCP entry behind", async () => {
   ).rejects.toThrow();
   expect(id).not.toBe("");
   expect(deps.service.spawningAgentCapabilities(id)).toBeNull();
-  const res = await makeAgentIngressApp(deps).fetch(
+  const res = await keyedIngressApp(deps).fetch(
     new Request(`http://x/api/sessions/${id}/mcp`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -512,7 +534,7 @@ test("makeAgentIngressApp: the ingress transport is EXEMPT from the human auth g
     model: null,
     images: [],
   });
-  const app = makeAgentIngressApp(deps);
+  const app = keyedIngressApp(deps);
   const prevSecret = config.cookieSecret;
   const prevToken = config.token;
   config.cookieSecret = "test-cookie-secret"; // gate configured (would 401 un-credentialed on main app)
@@ -575,7 +597,11 @@ test("serveAgentIngress: rebinds the SAME port after a real server-closed connec
   // Real allowlisted request over the actual socket; server actively closes (Connection: close).
   const res = await fetch(`http://127.0.0.1:${p}/api/sessions/${s.id}/queue`, {
     method: "PUT",
-    headers: { "content-type": "application/json", connection: "close" },
+    headers: {
+      "content-type": "application/json",
+      connection: "close",
+      [ASSISTANT_INGRESS_HEADER]: SIGNER.sign(s.id),
+    },
     body: JSON.stringify({ steps: [{ title: "do a thing" }] }),
   });
   expect(res.status).toBe(200);
@@ -894,7 +920,10 @@ async function loginSession(waitMs: number) {
   const callLogin = () =>
     fetch(`http://127.0.0.1:${server.port}/api/sessions/${s.id}/mcp`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        [ASSISTANT_INGRESS_HEADER]: SIGNER.sign(s.id),
+      },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,

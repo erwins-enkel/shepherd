@@ -221,6 +221,13 @@ export interface MembraneInputs {
   /** Codex CLI support — set only for a `codex` inner argv (see membraneForArgv).
    *  Absent (claude spawns): flags stay byte-identical to the historical output. */
   codex?: CodexMembraneInputs;
+  /** Reviewer-style aux spawn (critic, plan gate, maintain — audit N10): no `~/.gitconfig` or
+   *  `~/.config/gh` bind (the server, not the role, talks to the forge) and the git common dir
+   *  READ-ONLY. Absent → task-session flags, byte-identical. */
+  reviewer?: boolean;
+  /** This session's 0600 ingress spawn files (`--settings`, `--mcp-config`, key — see
+   *  assistant-ingress.ts), bound RO at the same path. Not `-try`: the spawn just wrote them. */
+  ingressFiles?: string[];
 }
 
 // ── codex CLI membrane support ────────────────────────────────────────────────
@@ -535,6 +542,32 @@ function gitStoreReadOnlyFlags(gitDir: string): string[] {
   ]);
 }
 
+/** `~/.gitconfig` (commit identity) + `~/.config/gh` (the gh token) RO — task sessions only. A
+ *  reviewer-style role never pushes or calls the forge (the server does), so it gets neither. */
+function forgeIdentityFlags(home: string, reviewer: boolean | undefined): string[] {
+  if (reviewer) return [];
+  return [
+    ...["--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`],
+    ...["--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`],
+  ];
+}
+
+/** Isolated: the worktree (rw) + the ABSOLUTE shared object store (rw; RO for a reviewer). Else
+ *  the whole repo (its .git is inside). Then the store's RO carve-outs either way. */
+function worktreeFlags(inputs: MembraneInputs): string[] {
+  if (!inputs.isolated) {
+    return [
+      ...["--bind", inputs.repoPath, inputs.repoPath],
+      ...gitStoreReadOnlyFlags(`${inputs.repoPath}/.git`),
+    ];
+  }
+  return [
+    ...["--bind", inputs.worktreePath, inputs.worktreePath],
+    ...[inputs.reviewer ? "--ro-bind" : "--bind", inputs.gitCommonDir, inputs.gitCommonDir],
+    ...gitStoreReadOnlyFlags(inputs.gitCommonDir),
+  ];
+}
+
 /**
  * The frozen, host-derived membrane flag list (validated against real claude
  * 2.1.173 on the reference host). Returns the bwrap argv PREFIX flags only —
@@ -655,9 +688,8 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // through the tmpfs.
   f.push(...codexCliFlags(inputs.codex));
 
-  // ── commit identity + gh token ───────────────────────────────────────────
-  f.push("--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`);
-  f.push("--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`);
+  // ── commit identity + gh token (task sessions only: a reviewer never pushes) ──
+  f.push(...forgeIdentityFlags(home, inputs.reviewer));
 
   // ── api-key helper (api-key mode only) ────────────────────────────────────
   // Bind the apiKeyHelper script RO at the SAME path so the `apiKeyHelper` entry
@@ -673,18 +705,11 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // ── Browser Attach config (ADR 0001) ─────────────────────────────────────
   f.push(...browserConfigFlags(inputs.browserConfigFile));
 
+  // ── agent-ingress spawn files (issue #3337) ──────────────────────────────
+  f.push(...(inputs.ingressFiles ?? []).flatMap((p) => ["--ro-bind", p, p]));
+
   // ── worktree / git store ─────────────────────────────────────────────────
-  if (inputs.isolated) {
-    // worktree (rw) + the ABSOLUTE shared object store (rw).
-    f.push("--bind", inputs.worktreePath, inputs.worktreePath);
-    f.push("--bind", inputs.gitCommonDir, inputs.gitCommonDir);
-  } else {
-    // whole repo (its .git is inside).
-    f.push("--bind", inputs.repoPath, inputs.repoPath);
-  }
-  f.push(
-    ...gitStoreReadOnlyFlags(inputs.isolated ? inputs.gitCommonDir : `${inputs.repoPath}/.git`),
-  );
+  f.push(...worktreeFlags(inputs));
 
   // ── env + process hardening ──────────────────────────────────────────────
   // Clear ALL inherited env first, then re-set only what a compliant session needs.

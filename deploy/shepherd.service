@@ -17,6 +17,9 @@ RestartSec=2
 # 78 (EX_CONFIG) = herdr preflight failed: binary missing on PATH. A human must install
 # herdr — restarting won't fix it, so don't crash-loop on this exit code.
 RestartPreventExitStatus=78
+# Owner-only by default (#3404): the db, shepherd.log (append: below is created under this umask)
+# and everything else the server writes into ~/.shepherd hold secrets.
+UMask=0077
 
 # Event-loop watchdog (src/loop-watchdog.ts). The server is one Bun event loop; code that spins on
 # it freezes HTTP, the web terminal AND its own SIGTERM handler, so without this a frozen HUD stays

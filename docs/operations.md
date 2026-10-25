@@ -255,6 +255,11 @@ since the core reads `ui/build` from disk per request.
 Per-deployment overrides (token, repo root, alternate hosts) go in `~/.shepherd/env`
 (`KEY=value` lines), read by the unit if present.
 
+The state dir (`~/.shepherd`, or the dir of `SHEPHERD_DB`) is owner-only: 0700, with
+`shepherd.db` (+ SQLite side files) and `shepherd.log*` at 0600. The server tightens them at every
+boot, the unit runs with `UMask=0077`, and `install.sh` / `bun run update` tighten an existing
+install. A path that is a symlink or owned by another user is left alone with a warning (#3404).
+
 ## Sharing a repo's queue across people
 
 Several people can drive the same repo's auto-drain queue together, each on their own Claude

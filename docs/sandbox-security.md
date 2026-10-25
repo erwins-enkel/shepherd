@@ -598,6 +598,18 @@ but not pinned. In the session's own admin dir, `HEAD`, `index`, `logs/`,
 `refs/`, `gitdir` and `info/sparse-checkout` stay writable. Git reads none of
 them as config or attributes.
 
+## State directory permissions (#3404)
+
+`shepherd.db` holds the cookie-signing secret, the password hash and tokens; `shepherd.log` can
+carry the first-boot generated password. So the state dir is 0700 and those files 0600 regardless
+of the process umask: `openPrivateStore` (`src/state-perms.ts`) creates the dir 0700, opens the db
+under umask 077 and tightens the db, its `-journal`/`-wal`/`-shm` and the log at every boot (later
+SQLite side files inherit the db's mode). `shepherd.service` and `shepherd-logrotate.service` set
+`UMask=0077`, `scripts/backup.ts` writes `backups/` owner-only, the installers create and tighten
+the dir, and the Mac supervisor tightens `~/.shepherd` before launching. Residual: a symlinked
+path or one owned by another uid is never chmod'ed — boot only warns, so a custom `SHEPHERD_DB` in
+a shared dir keeps the permissions its owner chose.
+
 ## Doc-agent finalize (audit run-2 R2-F04)
 
 The doc agent's worktree is agent-writable, and in re-target mode it is a code

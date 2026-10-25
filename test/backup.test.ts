@@ -1,6 +1,14 @@
 import { describe, expect, it, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readdirSync,
+  existsSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,6 +19,7 @@ import {
   snapshot,
   verifyIntegrity,
   rotate,
+  runBackup,
   GFS,
 } from "../scripts/backup";
 
@@ -174,6 +183,42 @@ describe("snapshot + integrity + rotate (live db)", () => {
       expect(existsSync(join(dir, snapTmp))).toBe(false);
       expect(existsSync(join(dir, gzTmp))).toBe(false);
       expect(existsSync(join(dir, name(new Date(Date.UTC(2026, 5, 25)))))).toBe(true);
+    },
+    IO_TIMEOUT_MS,
+  );
+});
+
+describe("runBackup owner-only modes (#3404)", () => {
+  let dir: string;
+  let prevUmask: number;
+  const mode = (p: string) => statSync(p).mode & 0o777;
+
+  beforeEach(() => {
+    prevUmask = process.umask(0o022);
+    dir = mkdtempSync(join(tmpdir(), "shep-backup-perms-"));
+    const db = new Database(join(dir, "shepherd.db"));
+    db.run("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    db.close();
+  }, IO_TIMEOUT_MS);
+  afterEach(() => {
+    process.umask(prevUmask);
+    rmSync(dir, { recursive: true, force: true });
+  }, IO_TIMEOUT_MS);
+
+  it(
+    "writes backups dir 0700 and every file 0600 under umask 022, tightening existing ones",
+    async () => {
+      const backups = join(dir, "backups");
+      mkdirSync(backups, { mode: 0o755 });
+      writeFileSync(join(backups, "backup.log"), "old\n", { mode: 0o644 });
+      const old = name(hoursAgo(new Date(), 1));
+      writeFileSync(join(backups, old), "x", { mode: 0o644 });
+      await runBackup({ SHEPHERD_DB: join(dir, "shepherd.db"), SHEPHERD_BACKUP_DIR: backups });
+      expect(mode(backups)).toBe(0o700);
+      const files = readdirSync(backups);
+      expect(files).toContain(".last-success");
+      expect(files.filter((f) => f.endsWith(".db.gz")).length).toBeGreaterThanOrEqual(2);
+      for (const f of files) expect(mode(join(backups, f))).toBe(0o600);
     },
     IO_TIMEOUT_MS,
   );

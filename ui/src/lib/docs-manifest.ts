@@ -151,7 +151,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Security",
     path: "/reference/security/",
     keywords:
-      "sandbox membrane, egress firewall, and accepted security residuals. per-spawn overrides from access tokens (audit run-2 r2-f07) r3 — in-membrane token readability (accepted) reviewer roles (audit n10) agent-ingress key (#3337) operator assistant approvals shared claude state and agent-written files attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture shared browser host-side git doc-agent finalize (audit run-2 r2-f04) see also",
+      "sandbox membrane, egress firewall, and accepted security residuals. per-spawn overrides from access tokens (audit run-2 r2-f07) r3 — in-membrane token readability (accepted) reviewer roles (audit n10) agent-ingress key (#3337) operator assistant approvals shared claude state and agent-written files attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture shared browser host-side git state directory permissions (#3404) doc-agent finalize (audit run-2 r2-f04) see also",
   },
   {
     title: "Sentry",

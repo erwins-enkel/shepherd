@@ -444,7 +444,8 @@ export function installService(
   // and does NOT create parent dirs. The server only makes ~/.shepherd at runtime — too
   // late for the first `systemctl --user start`, which would otherwise fail to activate
   // (EXIT_STDOUT, status 209) on a genuinely fresh host.
-  run("mkdir", ["-p", join(home, ".shepherd")]);
+  // Owner-only (#3404); update.sh (run below) tightens a pre-existing dir.
+  run("mkdir", ["-p", "-m", "700", join(home, ".shepherd")]);
   // Template (not a verbatim copy): point WorkingDirectory at the ACTUAL checkout
   // so a custom SHEPHERD_DIR install runs against the right dir, not the unit's
   // hardcoded %h/.shepherd/app. Default repo (~/.shepherd/app) ⇒ identical output.
@@ -513,7 +514,7 @@ export function installService(
   // Mark this host as backup-EXPECTED before enabling the timer: the server's staleness check
   // treats marker-present + no recent success as a failure, so a box whose backup is broken from
   // the very first run is flagged (a no-marker host, e.g. macOS/core-only, stays silent).
-  run("mkdir", ["-p", resolveBackupDir(env)]);
+  run("mkdir", ["-p", "-m", "700", resolveBackupDir(env)]);
   fileIO.write(backupConfiguredMarker(env), "shepherd-backup.timer enabled\n");
   run("systemctl", ["--user", "enable", "--now", "shepherd-backup.timer"]);
   // Enable the (already-written) hourly log-rotation timer. #1212

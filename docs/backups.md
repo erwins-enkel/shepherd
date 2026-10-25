@@ -40,6 +40,10 @@ the snapshot duration on a small DB.
 
 Overrides go in `~/.shepherd/env` (read by both `shepherd.service` and `shepherd-backup.service`).
 
+Backups are owner-only (#3404): each run sets umask 077, keeps the backup dir at 0700 and every
+file in it (snapshots, temp files, `backup.log`, `.last-success`) at 0600 — tightening files an
+older run left at 0644.
+
 > **Same-disk caveat.** Backups land on the same disk as the DB by default — this protects against
 > corruption and accidental deletion, **not** disk/host failure (out of scope for v1). Point
 > `SHEPHERD_BACKUP_DIR` at a different mount for that.

@@ -397,6 +397,7 @@ describe("extracted helpers (direct)", () => {
     const shepherdDir = join("/home/op", ".shepherd");
     const shepherdMkdirIdx = calls.findIndex((c) => c[0] === "mkdir" && c.includes(shepherdDir));
     expect(shepherdMkdirIdx).toBeGreaterThanOrEqual(0);
+    expect(calls[shepherdMkdirIdx]).toContain("700"); // owner-only (#3404)
     // it must precede the build/start delegation to update.sh
     const updateIdx = calls.findIndex((c) => c.join(" ").includes("deploy/update.sh"));
     expect(shepherdMkdirIdx).toBeLessThan(updateIdx);

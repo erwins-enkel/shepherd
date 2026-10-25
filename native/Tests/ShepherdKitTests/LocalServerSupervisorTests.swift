@@ -586,4 +586,18 @@ func processCommandCount(containing needle: String) -> Int {
   }
 }
 
+/// #3404: the state dir is owner-only even when it already existed with a looser mode.
+@Suite struct LocalServerStateDirectoryTests {
+  @Test(.timeLimit(.minutes(1))) func stateDirectoryIsTightenedToOwnerOnly() throws {
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent("s3404-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+    LocalServerSupervisor.ensurePrivateStateDirectory(dir)
+    let attrs = try FileManager.default.attributesOfItem(atPath: dir.path)
+    #expect((attrs[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+  }
+}
+
 #endif

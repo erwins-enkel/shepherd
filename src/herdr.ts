@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { recordPowerPane } from "./power-panes";
 import { config } from "./config";
@@ -692,6 +693,13 @@ export { posixShellJoin };
  * byte-identical. Codex spawns never get the token. Sandboxed spawns don't need it: the membrane
  * binds `~/.local/share/claude` and `~/.local/bin` read-only under a `--tmpfs $HOME`, so an
  * in-sandbox updater cannot plant on the host in the first place.
+ *
+ * Puts `scripts/winch-relay.sh` in front of an argv carrying bwrap `--new-session` — the one extra
+ * process layer, sandboxed spawns only. `--new-session` detaches the sandbox from the pane's
+ * controlling terminal, so a PTY resize never SIGWINCHes the agent and it keeps painting at its
+ * launch width. The relay stays in the pane's foreground job and forwards the signal into the
+ * sandbox. herdr's foreground list still names `bwrap` beside the relay's `bash`, which keeps the
+ * pane out of the idle-shell checks (`awaitPaneLeftShell`, the tab reaper).
  */
 export function buildWrappedArgv(argv: string[], env?: Record<string, string>): string[] {
   const envTokens = env
@@ -717,8 +725,14 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
     ...(callerSetRenderer ? [] : ["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"]),
     ...(pinAutoupdater ? ["DISABLE_AUTOUPDATER=1"] : []),
     ...envTokens,
+    ...(argv.includes("--new-session") ? [winchRelayPath(), "--"] : []),
     ...argv,
   ];
+}
+
+/** `scripts/winch-relay.sh`, resolved like `egressRunnerPath()`: src/ → repo root. */
+export function winchRelayPath(): string {
+  return join(resolve(import.meta.dir, ".."), "scripts", "winch-relay.sh");
 }
 
 /** Index of the actual command in a (possibly membrane-wrapped) argv: `bwrap … -- claude …`

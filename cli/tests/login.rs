@@ -143,3 +143,25 @@ async fn login_honors_shepherd_url_and_stores_it() {
     assert_eq!(h2.run(&["sessions", "list"]).await, 0, "{}", h2.err.text());
     assert!(!h2.err.text().contains("not sending"), "{}", h2.err.text());
 }
+
+#[tokio::test]
+async fn login_refuses_a_listener_owned_by_another_user() {
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.env.remove("SHEPHERD_TOKEN");
+    h.foreign_when()
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        h.run(&["--url", &s.uri(), "login", "--token", "shp_good"])
+            .await,
+        1
+    );
+    assert!(h.err.text().contains("another user"), "{}", h.err.text());
+    assert!(s.received_requests().await.unwrap().is_empty());
+    assert!(config_text(&h).is_none());
+}

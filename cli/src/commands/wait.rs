@@ -214,6 +214,7 @@ struct Watch {
 
 impl Watch {
     async fn read(&mut self, ctx: &mut Ctx<'_>, wanted: &[WaitState]) -> Result<View> {
+        ctx.guard()?;
         let (sessions, holds, git) = tokio::join!(
             list_sessions(&ctx.client, WAIT),
             ctx.client.get_holds().send(),
@@ -348,6 +349,7 @@ impl Watch {
         let mut first = true;
         let mut backoff = Duration::from_secs(1);
         loop {
+            ctx.guard()?;
             match connect(&url, token.as_deref(), WAIT).await {
                 Ok(mut socket) => {
                     let connected = Instant::now();

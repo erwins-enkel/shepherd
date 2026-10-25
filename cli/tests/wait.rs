@@ -384,3 +384,22 @@ async fn unknown_session_and_bad_flags() {
         assert_eq!(exit(spawn(&h, &s, &args)).await, 2, "{args:?}");
     }
 }
+
+#[tokio::test]
+async fn reconnect_rechecks_the_listener_before_sending_a_profile_token() {
+    let s = Server::start(running()).await;
+    let mut h = Harness::new();
+    h.profile(&s.url, "shp_profile");
+    let foreign = h.foreign_when();
+    let mut io = h.io();
+    let task =
+        tokio::spawn(
+            async move { shepherd_cli::run(["shepherd", "wait", "TASK-01"], &mut io).await },
+        );
+    s.reads(1).await;
+    foreign.store(true, Ordering::SeqCst);
+    let _ = s.frames.send(CLOSE.to_string());
+    assert_eq!(exit(task).await, 1, "{}", h.err.text());
+    assert!(h.err.text().contains("another user"), "{}", h.err.text());
+    assert_eq!(s.reads.load(Ordering::SeqCst), 1);
+}

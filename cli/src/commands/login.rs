@@ -44,6 +44,17 @@ pub async fn run(
             .or(stored_url.as_deref())
             .unwrap_or(config::DEFAULT_URL),
     )?;
+    // Same owner check as every other command's stored token, but fatal: this token is about to
+    // be sent and, on a 200, stored.
+    if (io.foreign_listener)(&url) {
+        return Err(CliError::new(
+            Exit::Failure,
+            format!(
+                "not sending the token to {url}: the local listener on that port belongs to \
+                 another user"
+            ),
+        ));
+    }
     let target = Target {
         url: url.clone(),
         token: Some(token.to_string()),

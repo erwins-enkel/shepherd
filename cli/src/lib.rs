@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
@@ -36,6 +37,9 @@ pub struct Io {
     pub stdout_is_tty: bool,
     pub env: HashMap<String, String>,
     pub cwd: PathBuf,
+    /// Does another user own the loopback listener behind this URL? [`loopback::check`] in
+    /// production; asked right before each connection that would carry a stored token.
+    pub foreign_listener: Arc<dyn Fn(&str) -> bool + Send + Sync>,
 }
 
 impl Io {
@@ -47,6 +51,7 @@ impl Io {
             stdout_is_tty: std::io::stdout().is_terminal(),
             env: std::env::vars().collect(),
             cwd: std::env::current_dir().unwrap_or_default(),
+            foreign_listener: Arc::new(loopback::check),
         }
     }
 
@@ -74,6 +79,33 @@ pub struct Ctx<'a> {
     pub mode: Mode,
     pub target: Target,
     pub client: api::Client,
+}
+
+impl Ctx<'_> {
+    /// Re-checks the loopback listener before a new connection carries a stored profile token,
+    /// so a port another user bound since dispatch (e.g. across a server restart) never gets it.
+    /// `SHEPHERD_TOKEN` is exempt, as at dispatch.
+    pub fn guard(&self) -> Result<()> {
+        if profile_token(&self.io.env)
+            && self.target.token.is_some()
+            && (self.io.foreign_listener)(&self.target.url)
+        {
+            return Err(CliError::new(
+                Exit::Failure,
+                format!(
+                    "not sending profile '{}' token to {}: the local listener on that port \
+                     belongs to another user",
+                    self.target.profile, self.target.url
+                ),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// True when the token (if any) comes from a profile rather than `SHEPHERD_TOKEN`.
+fn profile_token(env: &HashMap<String, String>) -> bool {
+    env.get("SHEPHERD_TOKEN").is_none_or(|t| t.is_empty())
 }
 
 pub fn http_client(target: &Target) -> Result<api::Client> {
@@ -145,8 +177,7 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
             target.profile, target.url
         ));
     }
-    let profile_token = io.env.get("SHEPHERD_TOKEN").is_none_or(|t| t.is_empty());
-    if profile_token && target.token.is_some() && loopback::check(&target.url) {
+    if profile_token(&io.env) && target.token.is_some() && (io.foreign_listener)(&target.url) {
         target.token = None;
         io.warn(&format!(
             "warning: not sending profile '{}' token to {}: the local listener on that port \

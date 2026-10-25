@@ -206,6 +206,7 @@ async fn tail_loop(ctx: &mut Ctx<'_>, filter: Filter, with_snapshot: bool) -> Re
     let mut first = true;
     let mut backoff = Duration::from_secs(1);
     loop {
+        ctx.guard()?;
         match connect(&url, token.as_deref(), TAIL).await {
             Ok(socket) => {
                 if first && let Ok(h) = ctx.client.get_health().send().await {

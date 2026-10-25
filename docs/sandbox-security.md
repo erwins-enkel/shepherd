@@ -154,7 +154,10 @@ profile, the operator's own `claude`) execute or read as instructions writable
 - **`shell-snapshots/`, `todos/`, `statsig/`** — per-membrane tmpfs.
 - **`projects/`** — RO; only the spawn's own transcript dir
   (`projects/<dashified cwd>`) is RW, with its `memory/` RO.
-- **Preview** — the agent-authored `<git-common-dir>/shepherd/preview-start.sh`
+- **Preview** — `<git-common-dir>/shepherd/preview-start.sh` is authored by a
+  session agent on request. Only an unconfined session can write it, because
+  `shepherd/` is read-only inside the membrane. A confined session without a
+  script gets the plain start steer instead. The script
   runs inside the membrane with `--clearenv` (credentials masked) whenever the
   repo's resolved profile or the session's applied profile is sandboxed
   (`SessionService.previewLaunch`). **Residual:** it keeps host networking so the
@@ -541,18 +544,37 @@ credential lookup run from `/`).
   Shepherd's own `scripts/json-union-merge.mjs`, by absolute path. The driver
   self-test and the driver registration also run Shepherd's own copies, never
   the branch's.
-- **Membrane (defense in depth).** After the read-write git-store bind,
-  `buildMembraneFlags` re-binds `<git-store>/hooks` and `<git-store>/shepherd`
-  read-only. `config` stays read-write, because git rewrites it by lock and
-  rename.
+- **Membrane.** After the read-write git-store bind, `buildMembraneFlags`
+  re-binds the store's `config`, `commondir`, `config.worktree`, `hooks/`,
+  `shepherd/`, `modules/` and `worktrees/` read-only (`gitStoreReadOnlyFlags`).
+  Inside `worktrees/`, only the session's own admin dir (found by its trusted
+  backlink) is read-write again, minus its `commondir`. Git follows a
+  `commondir` file in any git dir, so before the spawn the server writes the
+  store's own as `.`, which names the store itself and is a no-op for git. A
+  `commondir` that points anywhere else fails the spawn. This fails closed: there is
+  never a `-try` bind. An absent directory is mounted as an empty read-only
+  tmpfs, and an absent `config.worktree` as an empty file, so the agent can't
+  create them either. bwrap leaves empty mount-point stubs on the host. With
+  `config` read-only, git's own config writes inside the membrane fail.
+  Examples are `git config` and recording the upstream on `push -u`. Branch,
+  commit and push still work. A membrane agent can't add or prune worktrees.
+  A reviewer's store is read-only whole, so it gets
+  no carve-outs. A non-isolated session gets the same carve-outs on
+  `<repo>/.git` when that is a real store directory. `.git` is first bound
+  onto itself, so it is a mount point that can't be renamed or replaced from
+  inside.
 
 Server-made commits (doc agent, gitignore adoption, maintenance, plugin agents,
 repo bootstrap) no longer run repo hooks.
 
 **Scope:** the neutralized set is deliberately narrow — only keys the operator's
 own setup never needs from repo config. Non-isolated sessions in a confining
-profile have no pin anchor (the agent owns the whole repo), and
-`WorktreeMgr.remove` and the preview-script lookup are hardened but not pinned.
+profile have no pin anchor (the agent owns the whole repo, working tree
+included), and `WorktreeMgr.remove` and the preview-script lookup are hardened
+but not pinned. The session's own `worktrees/<id>/config.worktree` stays
+writable. It is honored only when the operator has enabled
+`extensions.worktreeConfig`, which the agent can't set now that `config` is
+read-only.
 
 ## Doc-agent finalize (audit run-2 R2-F04)
 

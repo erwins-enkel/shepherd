@@ -5420,6 +5420,10 @@ async function sendPreviewSetupSteer(
   command: string | null,
   probesUnavailable: boolean,
 ): Promise<Response | null> {
+  // A confined agent sees `<git-common-dir>/shepherd/` read-only (src/sandbox.ts), so it can't
+  // author the script: fall through to the legacy start steer instead.
+  const confined = (s.sandboxApplied ?? "trusted") !== "trusted" && !s.sandboxDegraded;
+  if (confined) return null;
   const canonicalScript = await launcher.scriptPath(s.worktreePath);
   const setupScriptPath =
     cfg.previewStartScript === canonicalScript ? cfg.previewStartScript : canonicalScript;

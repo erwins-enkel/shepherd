@@ -11,7 +11,7 @@ import { mapBounded } from "./map-bounded";
 import { parseEpicBody } from "./epic-parse";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import type { GitForge } from "./forge/types";
-import { reconcileRealPathsToRaw, type RepoEntry } from "./repos";
+import { reconcileRealPathRecordToRaw, reconcileRealPathsToRaw, type RepoEntry } from "./repos";
 import type { ReadinessScorer, ReadinessInputOf } from "./up-next-readiness";
 import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "./issue-filter";
 import {
@@ -220,7 +220,13 @@ export class UpNextService {
   /** Build, rerank and publish a snapshot from the cached input with the current filter. */
   private build(): UpNextSnapshot {
     const { repos, failedRepoCount, inputOf, fetchedAt } = this.input!;
-    const filter = this.deps.issueFilter?.() ?? DEFAULT_ISSUE_FILTER;
+    const stored = this.deps.issueFilter?.() ?? DEFAULT_ISSUE_FILTER;
+    // Overrides are realpath-keyed (like repo_config); items carry the raw listRepos path.
+    const repoOverrides = reconcileRealPathRecordToRaw(
+      stored.repoOverrides ?? {},
+      repos.map((r) => ({ path: r.repoPath })),
+    );
+    const filter = { ...stored, repoOverrides };
     const raw = buildSnapshot(repos, fetchedAt, null, failedRepoCount, filter);
     this.raw = { snapshot: raw, inputOf };
     const readiness = this.activeReadiness();

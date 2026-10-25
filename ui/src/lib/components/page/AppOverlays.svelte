@@ -136,6 +136,7 @@
     settingsMobileView = "list",
     focusPluginId = null,
     focusSteerId = null,
+    focusWorkspace = null,
     showPairing = false,
     onsettingsclose,
     onsettingsherdrupdate,
@@ -280,6 +281,7 @@
     settingsMobileView?: "list" | "detail";
     focusPluginId?: string | null;
     focusSteerId?: string | null;
+    focusWorkspace?: "repo-overrides" | null;
     showPairing?: boolean;
     onsettingsclose: () => void;
     onsettingsherdrupdate: () => void;
@@ -629,6 +631,7 @@
         onpluginschanged={async () => store.setPlugins(await getPlugins())}
         {focusPluginId}
         {focusSteerId}
+        {focusWorkspace}
         onclose={onsettingsclose}
         herdrUpdate={store.herdrUpdate}
         onherdrupdate={onsettingsherdrupdate}

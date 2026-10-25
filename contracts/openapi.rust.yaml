@@ -5190,7 +5190,7 @@ components:
         hiddenBy:
           type: object
           additionalProperties: true
-          description: "Each hidden item counted once, under the first rule that drops it: scope, then forks, then labels."
+          description: "Each hidden item counted once, under the first rule that drops it: the repo's override (repo) or else scope then forks, then labels."
           required:
             - scope
             - forks
@@ -5202,6 +5202,9 @@ components:
               type: integer
             labels:
               type: integer
+            repo:
+              type: integer
+              description: Items a per-repo override drops.
         hiddenByRepo:
           type: object
           description: repoPath → hidden items in that repo; repos with none are omitted.
@@ -7094,10 +7097,15 @@ components:
           type: boolean
         hideBlocked:
           type: boolean
+        repoOverrides:
+          type: object
+          description: "Per-repo exceptions (#3020): realpath repo key → override replacing scope and forks for that repo (hiddenLabels still apply). An absent key follows the global rules."
+          additionalProperties:
+            type: string
     IssueFilterSettingsPatch:
       type: object
       additionalProperties: false
-      description: A partial IssueFilterSettings, merged onto the stored value. hiddenLabels are trimmed, de-duplicated case-insensitively and capped at 50.
+      description: A partial IssueFilterSettings, merged onto the stored value field by field. hiddenLabels are trimmed, de-duplicated case-insensitively and capped at 50.
       properties:
         scope:
           type: string
@@ -7121,6 +7129,17 @@ components:
           type: boolean
         hideBlocked:
           type: boolean
+        repoOverrides:
+          type: object
+          description: Replaces the whole map. Keys are normalized to the repo's realpath; unknown repo keys are kept, unknown values refused. At most 500 entries.
+          maxProperties: 500
+          additionalProperties:
+            type: string
+            enum:
+              - all
+              - mine_unassigned
+              - mine
+              - hide
     RepoBootstrapUpdateEvent:
       type: object
       additionalProperties: true

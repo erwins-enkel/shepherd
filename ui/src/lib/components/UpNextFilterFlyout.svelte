@@ -41,8 +41,9 @@
     onchange: (patch: Partial<IssueFilterSettings>) => void;
     onreset: () => void;
     onclose: () => void;
-    /** Open Settings › Workspace, where the whole default filter lives (#3019). */
-    onsettings?: () => void;
+    /** Open Settings › Workspace, where the whole default filter lives (#3019); with
+     *  "repo-overrides", at its per-repo exceptions (#3020). */
+    onsettings?: (focus?: "repo-overrides") => void;
   } = $props();
 
   const id = $props.id();
@@ -215,6 +216,14 @@
           onclose();
           onsettings();
         }}>{m.upnext_filter_all_settings()}</button
+      >
+      <button
+        type="button"
+        class="unf-settings"
+        onclick={() => {
+          onclose();
+          onsettings("repo-overrides");
+        }}>{m.upnext_filter_repo_overrides()}</button
       >
     {/if}
     <button type="button" class="unf-reset" onclick={onreset}>{m.upnext_filter_reset()}</button>

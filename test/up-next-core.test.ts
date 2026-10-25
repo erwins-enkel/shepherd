@@ -682,7 +682,7 @@ describe("issue filter", () => {
     ]);
     expect(build(mixed())).toEqual(snap);
     expect(snap.filter.hiddenCount).toBe(2);
-    expect(snap.filter.hiddenBy).toEqual({ scope: 2, forks: 0, labels: 0 });
+    expect(snap.filter.hiddenBy).toEqual({ scope: 2, forks: 0, labels: 0, repo: 0 });
     expect(snap.filter.hiddenByRepo).toEqual({ "/r/a": 2 });
   });
 
@@ -767,7 +767,7 @@ describe("issue filter", () => {
     const snap = build(r, { scope: "mine_unassigned", forks: "own", hiddenLabels: ["wip"] });
     expect(nums(snap)).toEqual([4]);
     expect(snap.filter.hiddenCount).toBe(3);
-    expect(snap.filter.hiddenBy).toEqual({ scope: 1, forks: 1, labels: 1 });
+    expect(snap.filter.hiddenBy).toEqual({ scope: 1, forks: 1, labels: 1, repo: 0 });
     expect(snap.filter.hiddenByRepo).toEqual({ "/r/a": 3 });
   });
 
@@ -791,6 +791,54 @@ describe("issue filter", () => {
       forks: { all: 4, own: 3, hide: 3 },
     });
     expect(nums(snap).length).toBe(snap.filter.optionCounts.scope.all);
+  });
+
+  test("repo override beats the global scope/forks in both directions", () => {
+    const r = [
+      repo({
+        repoPath: "/r/a",
+        viewer: ME,
+        openIssues: [issue(1, { assignees: [ME] }), issue(2)],
+      }),
+      repo({
+        repoPath: "/r/f",
+        repoLabel: "f",
+        viewer: ME,
+        isFork: true,
+        openIssues: [issue(3, { assignees: ["x"] }), issue(4, { labels: ["wip"] })],
+      }),
+    ];
+    // Hide a repo while the global setting shows everything.
+    const hidden = build(r, { scope: "all", repoOverrides: { "/r/a": "hide" } });
+    expect(nums(hidden).sort()).toEqual([3, 4]);
+    expect(hidden.filter.hiddenBy).toEqual({ scope: 0, forks: 0, labels: 0, repo: 2 });
+    expect(hidden.filter.hiddenByRepo).toEqual({ "/r/a": 2 });
+    // Show everything in a fork while the global setting is own/mine; labels still apply.
+    const shown = build(r, {
+      scope: "mine",
+      forks: "own",
+      hiddenLabels: ["wip"],
+      repoOverrides: { "/r/f": "all" },
+    });
+    expect(nums(shown).sort()).toEqual([1, 3]);
+    expect(shown.filter.hiddenBy).toEqual({ scope: 1, forks: 0, labels: 1, repo: 0 });
+    // A mine override drops under the repo bucket.
+    const mine = build(r, { scope: "all", repoOverrides: { "/r/f": "mine" } });
+    expect(mine.filter.hiddenBy).toEqual({ scope: 0, forks: 0, labels: 0, repo: 2 });
+  });
+
+  test("optionCounts: overridden repos are unaffected by the global options", () => {
+    const r = [
+      repo({
+        repoPath: "/r/a",
+        viewer: ME,
+        openIssues: [issue(1), issue(2, { assignees: ["x"] })],
+      }),
+      repo({ repoPath: "/r/o", viewer: ME, openIssues: [issue(3, { assignees: ["x"] })] }),
+    ];
+    const snap = build(r, { scope: "all", repoOverrides: { "/r/o": "all" } });
+    expect(snap.filter.optionCounts.scope).toEqual({ all: 3, mine_unassigned: 2, mine: 1 });
+    expect(snap.filter.optionCounts.forks).toEqual({ all: 3, own: 3, hide: 3 });
   });
 
   test("excluded and linked-PR items are not counted as hidden", () => {

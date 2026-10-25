@@ -8628,10 +8628,22 @@ function putIssueFilter(value: unknown, deps: Ctx["deps"]): Response {
   const current = storedIssueFilter(deps.store.getSetting(ISSUE_FILTER_SETTING));
   const parsed = parseIssueFilterPatch(value, current);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
+  if (value && typeof value === "object" && Object.hasOwn(value, "repoOverrides")) {
+    parsed.value.repoOverrides = realpathRepoKeys(parsed.value.repoOverrides);
+  }
   deps.store.setSetting(ISSUE_FILTER_SETTING, JSON.stringify(parsed.value));
   deps.events.emit("settings:issue-filter", { issueFilter: parsed.value });
   deps.upNext?.refilter();
   return json({ issueFilter: parsed.value });
+}
+
+/** Key repo overrides the way repo_config is keyed (safeRepoDir/realpath), so a raw path under a
+ *  symlinked repoRoot lands on the same key. A key that doesn't resolve (repo gone for now) is
+ *  kept verbatim. */
+function realpathRepoKeys<V>(record: Record<string, V>): Record<string, V> {
+  return Object.fromEntries(
+    Object.entries(record).map(([k, v]) => [safeRepoDir(k, config.repoRoot) ?? k, v]),
+  );
 }
 
 /** The operator's House Stack (#3108): packages whose current stable versions a bootstrap pins. */

@@ -7115,5 +7115,22 @@
   "settings_issue_filter_unavailable": "Dieser Server unterstützt noch keinen Standardfilter für Issues.",
   "upnext_filter_all_settings": "Alle Filter in den Einstellungen →",
   "feat_default_issue_filter_title": "Ein Standardfilter für Issues überall",
-  "feat_default_issue_filter_body": "Backlog und Neue Aufgabe nutzen jetzt denselben auf dem Server gespeicherten Issue-Filter wie Als Nächstes: Zuständigkeit, Fork-Repos, ausgeblendete Labels und die Ausblenden-Schalter. Änderst du ihn an einer Stelle oder unter Einstellungen › Arbeitsbereich, folgen alle Ansichten und Geräte. Deine bisherigen Filtereinstellungen wurden übernommen."
+  "feat_default_issue_filter_body": "Backlog und Neue Aufgabe nutzen jetzt denselben auf dem Server gespeicherten Issue-Filter wie Als Nächstes: Zuständigkeit, Fork-Repos, ausgeblendete Labels und die Ausblenden-Schalter. Änderst du ihn an einer Stelle oder unter Einstellungen › Arbeitsbereich, folgen alle Ansichten und Geräte. Deine bisherigen Filtereinstellungen wurden übernommen.",
+  "issues_filter_all_repo_override": "Die Ausnahme für dieses Repo in deinem Standardfilter blendet seine Issues aus — ändern unter Einstellungen › Arbeitsbereich",
+  "settings_repo_overrides_title": "Ausnahmen pro Repo",
+  "settings_repo_overrides_summary": "Gib einem Repo eine eigene Regel statt Zuständigkeit und Fork-Einstellung des Standardfilters. Ausgeblendete Labels gelten weiterhin überall.",
+  "settings_repo_overrides_col_repo": "Repo",
+  "settings_repo_overrides_col_rule": "Angezeigte Issues",
+  "settings_repo_overrides_opt_standard": "Standard",
+  "settings_repo_overrides_opt_all": "Alle Issues",
+  "settings_repo_overrides_opt_mine_unassigned": "Meine & nicht zugewiesene",
+  "settings_repo_overrides_opt_mine": "Nur meine",
+  "settings_repo_overrides_opt_hide": "Ausblenden",
+  "settings_repo_overrides_select_aria": "Ausnahme für {repo}",
+  "settings_repo_overrides_none": "Unter dem Repo-Stammverzeichnis gibt es noch keine Repos.",
+  "settings_repo_overrides_differs": "Weicht vom Standard ab",
+  "upnext_filter_repo_overrides": "Ausnahmen pro Repo →",
+  "upnext_filter_empty_by_repo": "{count} durch Ausnahmen pro Repo",
+  "feat_repo_issue_filter_overrides_title": "Ausnahmen pro Repo im Issue-Filter",
+  "feat_repo_issue_filter_overrides_body": "Gib einem einzelnen Repo eine eigene Regel — alle Issues, meine & nicht zugewiesene, nur meine oder ausgeblendet — statt des Standardfilters. Einstellbar unter Einstellungen › Arbeitsbereich › Ausnahmen pro Repo; Als Nächstes, Backlog und Neue Aufgabe folgen."
 }

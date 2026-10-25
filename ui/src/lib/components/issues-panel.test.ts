@@ -190,6 +190,37 @@ describe("applyDefaultFilter (mirrors src/issue-filter.ts)", () => {
       m.issues_filter_all_assigned_to_others(),
     );
   });
+  describe("repo override (#3020)", () => {
+    const fork = (override: "all" | "mine_unassigned" | "mine" | "hide") => ({
+      viewer: me as string | null,
+      isFork: true,
+      override,
+    });
+
+    it("all beats the global scope/forks in a fork; hidden labels still apply", () => {
+      expect(kept(all, { scope: "mine", forks: "own" }, fork("all"))).toEqual(all);
+      const wip = issue(8, "Wip", "", ["WIP"], []);
+      expect(kept([wip, theirs], { hiddenLabels: ["wip"] }, fork("all"))).toEqual([theirs]);
+    });
+
+    it("hide drops everything, exempt rows included; mine acts as the scope, forks ignored", () => {
+      expect(
+        applyDefaultFilter(all, fork("hide"), { ...RULES, scope: "all" }, () => true).afterLabels,
+      ).toEqual([]);
+      expect(kept(all, { scope: "all", forks: "hide" }, fork("mine"))).toEqual([
+        mine,
+        mineAndTheirs,
+        authored,
+      ]);
+    });
+
+    it("attributes an emptied list to the override", () => {
+      const ctx = fork("hide");
+      const f = { ...RULES, scope: "all" as const };
+      expect(defaultFilterEmptiedBy(1, applyDefaultFilter([mine], ctx, f), ctx, f)).toBe("repo");
+      expect(defaultFilterEmptyMessage("repo", "all")).toBe(m.issues_filter_all_repo_override());
+    });
+  });
 });
 
 describe("assignedOthers", () => {

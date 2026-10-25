@@ -1,4 +1,4 @@
-import type { RepoEntry } from "./types";
+import type { IssueFilterRepoOverride, RepoEntry } from "./types";
 import { listRepos } from "./api";
 
 // Client cache of the repo index. Loaded once on app start. Repos are keyed by NAME
@@ -44,6 +44,19 @@ class ReposStore {
   isFork(repoPath: string): boolean {
     const name = this.nameFor(repoPath);
     return name != null && this.entries.some((e) => e.name === name && e.isFork === true);
+  }
+
+  /** The default issue filter's override for the repo at a path (#3020). Overrides are keyed by
+   *  realpath (like the server's repo_config), so either path form resolves; unknown repo ⇒ the
+   *  key as given. */
+  repoOverride(
+    overrides: Record<string, IssueFilterRepoOverride> | undefined,
+    repoPath: string,
+  ): IssueFilterRepoOverride | undefined {
+    if (!overrides) return undefined;
+    const name = this.nameFor(repoPath);
+    const entry = name == null ? undefined : this.entries.find((e) => e.name === name);
+    return (entry && (overrides[entry.realPath] ?? overrides[entry.path])) ?? overrides[repoPath];
   }
 
   /** Sorted, unique repo names — the allowlist picker's candidate set. */

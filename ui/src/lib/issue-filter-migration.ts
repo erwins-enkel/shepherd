@@ -17,6 +17,7 @@ export const DEFAULT_ISSUE_FILTER: IssueFilterSettings = {
   hideActive: false,
   hideSubIssues: true,
   hideBlocked: true,
+  repoOverrides: {},
 };
 
 export function isDefaultIssueFilter(f: IssueFilterSettings): boolean {
@@ -27,7 +28,8 @@ export function isDefaultIssueFilter(f: IssueFilterSettings): boolean {
     f.hiddenLabels.length === 0 &&
     f.hideActive === d.hideActive &&
     f.hideSubIssues === d.hideSubIssues &&
-    f.hideBlocked === d.hideBlocked
+    f.hideBlocked === d.hideBlocked &&
+    Object.keys(f.repoOverrides ?? {}).length === 0
   );
 }
 

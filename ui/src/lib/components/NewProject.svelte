@@ -25,7 +25,9 @@
   ]);
 
   export type KickoffChoice =
-    { kind: "prd" } | { kind: "bootstrap" } | { kind: "command"; name: string };
+    | { kind: "prd"; prdSupplied?: boolean }
+    | { kind: "bootstrap" }
+    | { kind: "command"; name: string };
 
   let {
     onclose,
@@ -55,6 +57,8 @@
   let kickoffCommands = $state<string[]>([]);
   // #3112: the PRD + design export the bootstrap kickoff imports into docs/prd + docs/design.
   let docs = $state<ProjectDocFiles>({ prd: [], design: [] });
+  // The PRD brief kickoff's optional ready-made PRD, committed as docs/prd/PRD.md.
+  let prdFile = $state<File | null>(null);
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let retry = $state<(() => void) | null>(null);
@@ -134,10 +138,25 @@
     }
   }
 
+  const prdAttached = $derived(kickoffValue === "__prd__" && prdFile !== null);
+
+  // The picker unmounts outside the PRD brief kickoff; drop its file so a later return shows an
+  // empty input rather than a stale hint for a file it no longer holds.
+  $effect(() => {
+    if (kickoffValue !== "__prd__") prdFile = null;
+  });
+
   function resolveKickoff(): KickoffChoice {
-    if (kickoffValue === "__prd__") return { kind: "prd" };
+    if (kickoffValue === "__prd__")
+      return prdAttached ? { kind: "prd", prdSupplied: true } : { kind: "prd" };
     if (kickoffValue === "__bootstrap__") return { kind: "bootstrap" };
     return { kind: "command", name: kickoffValue };
+  }
+
+  function submitDocs(): ProjectDocFiles | undefined {
+    if (kickoffValue === "__bootstrap__") return docs;
+    if (prdAttached && prdFile) return { prd: [{ file: prdFile, path: "PRD.md" }], design: [] };
+    return undefined;
   }
 
   async function submit(e: Event) {
@@ -157,7 +176,7 @@
           visibility,
           owner: createRemote ? owner : "",
         },
-        kickoffValue === "__bootstrap__" ? docs : undefined,
+        submitDocs(),
       );
       ondone(entry, resolveKickoff(), trimmedIdea);
     } catch (err) {
@@ -234,6 +253,19 @@
     </p>
     {#if ideaTooLong}
       <p class="field-err" role="alert">{m.newproject_failed_idea_too_long({ max: IDEA_MAX })}</p>
+    {/if}
+
+    {#if kickoffValue === "__prd__"}
+      <label class="micro" for="np-prd-file">{m.newproject_prd_file_label()}</label>
+      <input
+        id="np-prd-file"
+        type="file"
+        accept=".md,.markdown,.txt,text/markdown,text/plain"
+        onchange={(e) => (prdFile = e.currentTarget.files?.[0] ?? null)}
+      />
+      {#if prdFile}
+        <p class="preview">{m.newproject_prd_file_hint({ name: prdFile.name })}</p>
+      {/if}
     {/if}
 
     <!-- GitHub checkbox -->
@@ -378,6 +410,12 @@
   }
   textarea {
     resize: vertical;
+  }
+  input[type="file"] {
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-meta);
+    max-width: 100%;
   }
   .preview {
     font-size: var(--fs-meta);

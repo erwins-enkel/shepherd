@@ -46,7 +46,7 @@ function fakeMembrane(over: Partial<MembraneInputs> = {}): MembraneInputs {
 // Deterministic path probes: nothing exists.
 const detDeps = { exists: () => false };
 // Host git-store prep stubbed out, for seams that claim the (fake) store exists.
-const noGitStore = { pinCommondir: () => {}, adminDir: () => null };
+const noGitStore = { pinCommondir: () => {}, ensureWorktreeConfig: () => {}, adminDir: () => null };
 
 describe("isSandboxProfile / SANDBOX_PROFILES", () => {
   test("SANDBOX_PROFILES is the three profiles in order", () => {
@@ -430,24 +430,30 @@ describe("buildMembraneFlags", () => {
     const at = (f: string[], ...seq: string[]) =>
       f.findIndex((_, i) => seq.every((x, j) => f[i + j] === x));
     const G = "/repos/proj/.git";
-    const DIRS = ["hooks", "shepherd", "modules", "worktrees"];
+    const DIRS = ["hooks", "shepherd", "modules", "worktrees", "info", "remotes", "branches"];
     // Only the store's `config` exists (a real git dir); every carve-out target is absent.
     const storeOnly = { exists: (p: string) => p === `${G}/config` };
     const ADMIN = `${G}/worktrees/wt-1`;
     const pinned: string[] = [];
+    const ensured: string[] = [];
     const gitStore = {
       pinCommondir: (store: string) => void pinned.push(store),
+      ensureWorktreeConfig: (dir: string) => void ensured.push(dir),
       adminDir: () => ADMIN,
     };
     const allPresent = { exists: (p: string) => p.startsWith(G), gitStore };
 
-    test("isolated: config RO, absent dirs as RO tmpfs, absent config.worktree as /dev/null — after the rw bind", () => {
+    test("isolated: config + config.worktree RO, absent dirs as RO tmpfs — after the rw bind", () => {
       const f = buildMembraneFlags(fakeMembrane({ isolated: true }), storeOnly);
       const rw = at(f, "--bind", G, G);
       expect(rw).toBeGreaterThan(-1);
       expect(at(f, "--ro-bind", `${G}/config`, `${G}/config`)).toBeGreaterThan(rw);
       expect(at(f, "--ro-bind", `${G}/commondir`, `${G}/commondir`)).toBeGreaterThan(rw);
-      expect(at(f, "--ro-bind", "/dev/null", `${G}/config.worktree`)).toBeGreaterThan(rw);
+      // Never a /dev/null stub: bwrap binds are nodev, so git couldn't open it.
+      expect(f.includes("/dev/null")).toBe(false);
+      expect(at(f, "--ro-bind", `${G}/config.worktree`, `${G}/config.worktree`)).toBeGreaterThan(
+        rw,
+      );
       for (const sub of DIRS) {
         const p = `${G}/${sub}`;
         expect(at(f, "--tmpfs", p, "--remount-ro", p)).toBeGreaterThan(rw);
@@ -463,12 +469,18 @@ describe("buildMembraneFlags", () => {
 
     test("isolated: commondir pinned on the host; only the own admin dir RW under RO worktrees/", () => {
       pinned.length = 0;
+      ensured.length = 0;
       const f = buildMembraneFlags(fakeMembrane({ isolated: true }), allPresent);
       expect(pinned).toEqual([G]);
+      // config.worktree made on the host for both the store and the own admin dir.
+      expect(ensured).toEqual([G, ADMIN]);
       const roWts = at(f, "--ro-bind", `${G}/worktrees`, `${G}/worktrees`);
       const own = at(f, "--bind", ADMIN, ADMIN);
       expect(own).toBeGreaterThan(roWts);
       expect(at(f, "--ro-bind", `${ADMIN}/commondir`, `${ADMIN}/commondir`)).toBeGreaterThan(own);
+      expect(
+        at(f, "--ro-bind", `${ADMIN}/config.worktree`, `${ADMIN}/config.worktree`),
+      ).toBeGreaterThan(own);
     });
 
     test("an unresolvable admin dir or a redirected commondir fails the build", () => {
@@ -519,6 +531,10 @@ describe("buildMembraneFlags", () => {
       for (const sub of DIRS) {
         expect(at(f, "--tmpfs", `${G}/${sub}`)).toBeGreaterThan(rw);
       }
+      // No admin dir outside an isolated worktree.
+      expect(f.some((x) => x.endsWith("/config.worktree") && x !== `${G}/config.worktree`)).toBe(
+        false,
+      );
     });
 
     test("non-isolated with a gitfile .git (no store dir): no carve-outs", () => {
@@ -1505,9 +1521,9 @@ describe("buildMembraneFlags reviewer membrane (audit N10)", () => {
     );
     expect(hasTriple(base, "--bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(true);
     // Exactly the two 3-token gh/gitconfig binds and the git-store carve-outs are gone (the store
-    // is RO whole): config + commondir + config.worktree (3 each), hooks/shepherd/modules/worktrees
-    // RO tmpfs (4 each).
-    expect(f.length).toBe(base.length - 6 - 25);
+    // is RO whole): config + commondir + config.worktree (3 each), hooks/shepherd/modules/
+    // worktrees/info/remotes/branches RO tmpfs (4 each).
+    expect(f.length).toBe(base.length - 6 - 37);
   });
 
   test("reviewer: false is byte-identical to absent", () => {

@@ -562,17 +562,24 @@ credential lookup run from `/`).
   the branch's.
 - **Membrane.** After the read-write git-store bind, `buildMembraneFlags`
   re-binds the store's `config`, `commondir`, `config.worktree`, `hooks/`,
-  `shepherd/`, `modules/` and `worktrees/` read-only (`gitStoreReadOnlyFlags`).
-  Inside `worktrees/`, only the session's own admin dir (found by its trusted
-  backlink) is read-write again, minus its `commondir`. Git follows a
+  `shepherd/`, `modules/`, `worktrees/`, `info/` (attributes, excludes),
+  `remotes/` and `branches/` (legacy remote definitions) read-only
+  (`gitStoreReadOnlyFlags`). Inside `worktrees/`, only the session's own admin
+  dir (found by its trusted backlink) is read-write again, minus its
+  `commondir` and `config.worktree`. Git reads a worktree's
+  `config.worktree` whenever the repo has `extensions.worktreeConfig` set,
+  so it stays read-only whether or not that extension is on. Git follows a
   `commondir` file in any git dir, so before the spawn the server writes the
   store's own as `.`, which names the store itself and is a no-op for git. A
   `commondir` that points anywhere else fails the spawn. This fails closed: there is
   never a `-try` bind. An absent directory is mounted as an empty read-only
-  tmpfs, and an absent `config.worktree` as an empty file, so the agent can't
-  create them either. bwrap leaves empty mount-point stubs on the host. With
+  tmpfs, so the agent can't create it either. An absent `config.worktree` (the
+  store's and the session's own) is created empty on the host before the
+  spawn. A `/dev/null` stub won't do, because git can't open a device node
+  under bwrap's binds. bwrap leaves empty mount-point stubs on the host. With
   `config` read-only, git's own config writes inside the membrane fail.
-  Examples are `git config` and recording the upstream on `push -u`. Branch,
+  Examples are `git config`, `git config --worktree`, `git sparse-checkout`
+  and recording the upstream on `push -u`. Branch,
   commit and push still work. A membrane agent can't add or prune worktrees.
   A reviewer's store is read-only whole, so it gets
   no carve-outs. A non-isolated session gets the same carve-outs on
@@ -587,10 +594,9 @@ repo bootstrap) no longer run repo hooks.
 own setup never needs from repo config. Non-isolated sessions in a confining
 profile have no pin anchor (the agent owns the whole repo, working tree
 included), and `WorktreeMgr.remove` and the preview-script lookup are hardened
-but not pinned. The session's own `worktrees/<id>/config.worktree` stays
-writable. It is honored only when the operator has enabled
-`extensions.worktreeConfig`, which the agent can't set now that `config` is
-read-only.
+but not pinned. In the session's own admin dir, `HEAD`, `index`, `logs/`,
+`refs/`, `gitdir` and `info/sparse-checkout` stay writable. Git reads none of
+them as config or attributes.
 
 ## Doc-agent finalize (audit run-2 R2-F04)
 

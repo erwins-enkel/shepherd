@@ -1,6 +1,7 @@
 // Real-bwrap regression for the membrane's git-store carve-outs (audit run-2 R2-F01/R2-F06):
-// nothing an in-membrane agent writes into the shared store's config/hooks/shepherd/modules may
-// survive for host git to execute — whether or not those paths existed at spawn.
+// nothing an in-membrane agent writes into the shared store's config/hooks/shepherd/modules (or
+// the config.worktree / info/attributes / legacy remotes git reads) may survive for host git to
+// execute — whether or not those paths existed at spawn, or optional extensions are enabled.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -60,6 +61,8 @@ describe.skipIf(!membraneWorks)("membrane git store (real bwrap)", () => {
     git(repo, "worktree", "add", "-q", "-b", "wt", wt);
     git(repo, "worktree", "add", "-q", "-b", "other", other);
     rmSync(join(common, "hooks"), { recursive: true, force: true });
+    // Host git honors worktrees/<id>/config.worktree only with this extension: pre-set it.
+    git(repo, "config", "extensions.worktreeConfig", "true");
   });
 
   test("store config, commondir, hooks/, shepherd/, modules/, worktrees/ are not writable", () => {
@@ -92,6 +95,47 @@ describe.skipIf(!membraneWorks)("membrane git store (real bwrap)", () => {
     expect(readFileSync(join(common, "commondir"), "utf8")).toBe(".\n");
     expect(readFileSync(join(common, "worktrees", "other", "commondir"), "utf8")).toBe("../..\n");
     expect(spawnSync("git", ["status"], { cwd: repo }).status).toBe(0);
+  });
+
+  test("with extensions.worktreeConfig: own config.worktree, info/, remotes/, branches/ are not writable", () => {
+    const own = join(common, "worktrees", "wt", "config.worktree");
+    const exclude = readFileSync(join(common, "info", "exclude"), "utf8");
+    expect(existsSync(join(common, "info", "attributes"))).toBe(false);
+    const attempts = [
+      "git config --worktree core.fsmonitor /bin/true",
+      `printf '[core]\\n' > '${own}'`,
+      `printf '* filter=x\\n' > '${common}/info/attributes'`,
+      `printf x >> '${common}/info/exclude'`,
+      `mkdir '${common}/remotes/x'`,
+      `touch '${common}/branches/x'`,
+    ];
+    expect(run(`touch '${wt}/ok2'`).status).toBe(0);
+    for (const a of attempts) expect(run(a).status).not.toBe(0);
+    expect(readFileSync(own, "utf8")).toBe("");
+    expect(existsSync(join(common, "info", "attributes"))).toBe(false);
+    expect(readFileSync(join(common, "info", "exclude"), "utf8")).toBe(exclude);
+    for (const p of ["remotes", "branches"]) {
+      expect(spawnSync("ls", ["-A", join(common, p)], { encoding: "utf8" }).stdout).toBe("");
+    }
+    const st = spawnSync("git", ["config", "--worktree", "--get", "core.fsmonitor"], { cwd: wt });
+    expect(st.status).not.toBe(0);
+    expect(spawnSync("git", ["status"], { cwd: wt }).status).toBe(0);
+  });
+
+  test("with extensions.worktreeConfig: git works in a fresh worktree (no config.worktree yet)", () => {
+    const fresh = join(root, "fresh");
+    git(repo, "worktree", "add", "-q", "-b", "fresh", fresh);
+    const own = join(common, "worktrees", "fresh", "config.worktree");
+    // `worktree add` may copy one in under the extension; a pre-existing worktree has none.
+    rmSync(own, { force: true });
+    const r = run(
+      "git status --short && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x",
+      { worktreePath: fresh },
+    );
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    // Created empty on the host before the spawn, then bound RO.
+    expect(readFileSync(own, "utf8")).toBe("");
   });
 
   test("non-isolated: .git can't be renamed away or its config replaced", () => {

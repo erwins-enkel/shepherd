@@ -125,7 +125,7 @@
         .map((c) => c.name.split(":").pop() ?? c.name)
         .filter((n) => KICKOFF_COMMANDS.has(n));
     } catch {
-      // Fetch failure: silently fall back to PRD-only
+      // Fetch failure: the select falls back to the built-in kickoffs only
       kickoffCommands = [];
     }
   });
@@ -188,6 +188,8 @@
     if (!e.dataTransfer || !draggingFiles(e)) return;
     e.preventDefault();
     dragging = false;
+    // A create is in flight: a retry must resend the file set that failed.
+    if (submitting) return;
     // A new attempt retires the previous drop's failure; any other error stays.
     if (error === m.newproject_drop_failed()) error = null;
     // Captured before the first await: the drop's items are gone once the handler returns.

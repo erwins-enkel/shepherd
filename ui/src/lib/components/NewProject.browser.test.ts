@@ -186,6 +186,27 @@ describe("NewProject drop target (#3420)", () => {
     expect(names(fd, "design")).toEqual(["logo.png"]);
   });
 
+  it("ignores a drop while the create is in flight", async () => {
+    let release: (r: Response) => void = () => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).startsWith("/api/projects"))
+        return new Promise<Response>((res) => (release = res));
+      return new Response(JSON.stringify({ commands: [] }), { status: 200 });
+    });
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    await submitButton().click();
+    await expect.element(page.getByText(m.newproject_creating())).toBeVisible();
+    const dt = new DataTransfer();
+    dt.items.add(prdMd());
+    const drop = new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true });
+    dialogEl().dispatchEvent(drop);
+    expect(drop.defaultPrevented).toBe(true);
+    await new Promise((r) => setTimeout(r, 100));
+    await expect.element(page.getByText("prd.md", { exact: true })).not.toBeInTheDocument();
+    release(new Response(JSON.stringify(ENTRY), { status: 201 }));
+  });
+
   it("names a drop it could not read until a later drop succeeds", async () => {
     mockApi();
     const unreadable = {

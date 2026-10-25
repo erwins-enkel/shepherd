@@ -157,7 +157,7 @@ export function docChips(docs: AttachedDocs): DocChip[] {
       const next: DocChip = {
         area,
         key,
-        name: folder ? d.folder! : d.path,
+        name: d.folder ?? d.path,
         target: folder ? `docs/${area}/` : `docs/${area}/${d.path}`,
         count: 1,
         folder,

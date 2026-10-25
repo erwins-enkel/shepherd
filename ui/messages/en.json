@@ -7115,5 +7115,22 @@
   "settings_issue_filter_unavailable": "This server doesn't support a default issue filter yet.",
   "upnext_filter_all_settings": "All filters in Settings →",
   "feat_default_issue_filter_title": "One default issue filter everywhere",
-  "feat_default_issue_filter_body": "Backlog and New Task now use the same server-saved issue filter as Up Next: who an issue is assigned to, fork repos, hidden labels and the hide toggles. Change it in any of them, or under Settings › Workspace, and every surface and device follows. Your earlier filter choices were carried over."
+  "feat_default_issue_filter_body": "Backlog and New Task now use the same server-saved issue filter as Up Next: who an issue is assigned to, fork repos, hidden labels and the hide toggles. Change it in any of them, or under Settings › Workspace, and every surface and device follows. Your earlier filter choices were carried over.",
+  "issues_filter_all_repo_override": "This repo's exception in your default issue filter hides its issues — change it under Settings › Workspace",
+  "settings_repo_overrides_title": "Per-repo exceptions",
+  "settings_repo_overrides_summary": "Give a repo its own rule instead of the default scope and fork setting. Hidden labels still apply everywhere.",
+  "settings_repo_overrides_col_repo": "Repo",
+  "settings_repo_overrides_col_rule": "Issues shown",
+  "settings_repo_overrides_opt_standard": "Default",
+  "settings_repo_overrides_opt_all": "All issues",
+  "settings_repo_overrides_opt_mine_unassigned": "Mine & unassigned",
+  "settings_repo_overrides_opt_mine": "Only mine",
+  "settings_repo_overrides_opt_hide": "Hide",
+  "settings_repo_overrides_select_aria": "Exception for {repo}",
+  "settings_repo_overrides_none": "No repos found under the repo root yet.",
+  "settings_repo_overrides_differs": "Differs from the default",
+  "upnext_filter_repo_overrides": "Per-repo exceptions →",
+  "upnext_filter_empty_by_repo": "{count} by per-repo exceptions",
+  "feat_repo_issue_filter_overrides_title": "Per-repo exceptions to the issue filter",
+  "feat_repo_issue_filter_overrides_body": "Give a single repo its own rule — all issues, mine & unassigned, only mine, or hidden — instead of the default issue filter. Set it under Settings › Workspace › Per-repo exceptions; Up Next, Backlog and New Task follow."
 }

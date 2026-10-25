@@ -510,8 +510,32 @@ describe("UpNextService issue filter (#3017)", () => {
     expect(published).toEqual([[1, 2], [2]]);
     const snap = s.snapshot()!;
     expect(snap.generatedAt).toBe(first.generatedAt);
-    expect(snap.filter.hiddenBy).toEqual({ scope: 0, forks: 0, labels: 1 });
+    expect(snap.filter.hiddenBy).toEqual({ scope: 0, forks: 0, labels: 1, repo: 0 });
     expect(snap.sections[0]!.items[0]!.mine).toBe(true);
+  });
+
+  test("a realpath-keyed override matches a repo listed under a symlinked root", async () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "up-next-override-")));
+    try {
+      const realRoot = join(base, "real");
+      mkdirSync(join(realRoot, "a"), { recursive: true });
+      const linkRoot = join(base, "link");
+      symlinkSync(realRoot, linkRoot, "dir");
+      const raw = join(linkRoot, "a");
+      const s = svc({
+        listForgeRepos: () => [{ repoPath: raw, repoSlug: "o/a", repoLabel: "a" }],
+        issueFilter: () => ({
+          ...DEFAULT_ISSUE_FILTER,
+          repoOverrides: { [join(realRoot, "a")]: "hide" },
+        }),
+      });
+      const snap = await s.refresh();
+      expect(numbers(snap)).toEqual([]);
+      expect(snap.filter.hiddenBy.repo).toBe(2);
+      expect(snap.filter.hiddenByRepo).toEqual({ [raw]: 2 });
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   test("refilter before any compute falls back to a full refresh", async () => {

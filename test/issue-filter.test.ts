@@ -96,7 +96,60 @@ describe("hidden labels", () => {
   });
 });
 
+describe("repo overrides", () => {
+  const ctx = (override?: "all" | "mine_unassigned" | "mine" | "hide", isFork = false) => ({
+    viewer: ME,
+    isFork,
+    override,
+  });
+  test("hide drops everything, even mine, under the repo rule", () => {
+    for (const s of [MINE_ASSIGNED, UNASSIGNED, OTHERS])
+      expect(hiddenByRule(s, ctx("hide"), f({ scope: "all" }))).toBe("repo");
+  });
+  test("all shows upstream issues in a fork while the global setting is own", () => {
+    const global = f({ scope: "mine", forks: "own" });
+    expect(hiddenByRule(OTHERS, ctx(undefined, true), global)).toBe("scope");
+    expect(hiddenByRule(OTHERS, ctx("all", true), global)).toBeNull();
+  });
+  test("mine / mine_unassigned replace scope and ignore forks", () => {
+    const global = f({ scope: "all", forks: "hide" });
+    expect(hiddenByRule(MINE_AUTHORED, ctx("mine", true), global)).toBeNull();
+    expect(hiddenByRule(UNASSIGNED, ctx("mine", true), global)).toBe("repo");
+    expect(hiddenByRule(UNASSIGNED, ctx("mine_unassigned", true), global)).toBeNull();
+    expect(hiddenByRule(OTHERS, ctx("mine_unassigned", true), global)).toBe("repo");
+  });
+  test("a null viewer fails open for mine overrides", () => {
+    expect(hiddenByRule(OTHERS, { viewer: null, isFork: false, override: "mine" }, f())).toBeNull();
+  });
+  test("hidden labels still apply globally", () => {
+    const s = subj({ labels: ["WIP"] });
+    expect(hiddenByRule(s, ctx("all"), f({ hiddenLabels: ["wip"] }))).toBe("labels");
+  });
+});
+
 describe("parseIssueFilterPatch", () => {
+  test("repoOverrides: replaces the map, keeps unknown keys, refuses unknown values", () => {
+    const r = parseIssueFilterPatch(
+      { repoOverrides: { "/gone/repo": "hide", "/r": "all" } },
+      f({ repoOverrides: { "/old": "mine" } }),
+    );
+    expect(r.ok && r.value.repoOverrides).toEqual({ "/gone/repo": "hide", "/r": "all" });
+    for (const bad of [
+      { repoOverrides: { "/r": "standard" } },
+      { repoOverrides: { "/r": 1 } },
+      { repoOverrides: { "": "all" } },
+      { repoOverrides: [] },
+      { repoOverrides: null },
+    ]) {
+      expect(parseIssueFilterPatch(bad, DEFAULT_ISSUE_FILTER).ok, JSON.stringify(bad)).toBe(false);
+    }
+    const proto = parseIssueFilterPatch(
+      JSON.parse('{"repoOverrides":{"__proto__":"hide"}}'),
+      DEFAULT_ISSUE_FILTER,
+    );
+    expect(proto.ok && Object.keys(proto.value.repoOverrides)).toEqual(["__proto__"]);
+  });
+
   test("partial merge keeps the other fields", () => {
     const r = parseIssueFilterPatch({ forks: "hide" }, f({ scope: "mine" }));
     expect(r).toEqual({ ok: true, value: f({ scope: "mine", forks: "hide" }) });

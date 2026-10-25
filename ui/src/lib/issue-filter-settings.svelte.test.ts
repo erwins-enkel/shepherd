@@ -10,6 +10,7 @@ const FILTER: IssueFilterSettings = {
   hideActive: false,
   hideSubIssues: true,
   hideBlocked: true,
+  repoOverrides: {},
 };
 const settings = (issueFilter?: IssueFilterSettings) => ({ issueFilter }) as unknown as Settings;
 

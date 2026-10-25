@@ -1,4 +1,4 @@
-import { promises as fsp } from "node:fs";
+import { constants, promises as fsp } from "node:fs";
 import { join, basename, extname, sep, normalize, isAbsolute } from "node:path";
 import { existingScratchpadDir } from "./tmp-sweep";
 import { worktreeUploadsDir } from "./uploads";
@@ -11,6 +11,8 @@ import {
   type BrowseEntry,
   type BrowseListing,
 } from "./fs-browse";
+
+const { O_CREAT, O_DIRECTORY, O_EXCL, O_NOFOLLOW, O_RDONLY, O_WRONLY } = constants;
 
 /**
  * Read-only browser of a session's scratchpad subtree (#1164). Every path the operator supplies
@@ -297,48 +299,56 @@ function sanitizeUploadName(rawName: string): string {
 }
 
 /**
- * Choose a non-colliding path for an uploaded file within `dirReal`.
+ * Create a new, non-colliding file for an upload within `dirReal` and return it open for writing.
  *
- * Collision detection uses `lstat` (not `stat`/`existsSync`) so that symlinks at the target
- * name are treated as collisions and skipped — this prevents a planted/dangling symlink from
- * being followed out of the root by `Bun.write`. The candidate is the first lstat-ENOENT name.
+ * Each candidate is created with `O_CREAT|O_EXCL|O_NOFOLLOW` (#3338): an existing entry of any
+ * kind — including a planted or dangling symlink — fails with `EEXIST` and the next suffix is
+ * tried, so nothing is ever written through a link and two concurrent same-name uploads can't
+ * pick the same name. On Linux the name is opened relative to a descriptor of `dirReal`
+ * (`/proc/self/fd/<fd>/<name>`), so swapping the directory after it was resolved doesn't redirect
+ * the write; elsewhere the full path is used with the same flags.
  *
- * NOTE: the lstat→Bun.write window is not atomic; two concurrent same-name uploads could pick
- * the same suffix. Acceptable for a single-operator tool — no lock needed.
- *
- * Returns `{ abs, rel }` or `null` if the final abs path fails the backstop containment check.
+ * Returns `{ handle, rel }` (the caller writes and closes) or `null` if the path fails the
+ * backstop containment check or the directory can't be opened.
  */
 export async function placeScratchpadUpload(
   rootReal: string,
   dirReal: string,
   rawName: string,
-): Promise<{ abs: string; rel: string } | null> {
+): Promise<{ handle: fsp.FileHandle; rel: string } | null> {
   const name = sanitizeUploadName(rawName);
 
   // Split into stem and extension for collision suffixing.
   const ext = extname(name); // e.g. ".pdf" or "" for extensionless
   const stem = ext ? name.slice(0, -ext.length) : name;
 
-  let candidate = name;
-  let n = 1;
-  for (;;) {
-    const target = join(dirReal, candidate);
-    try {
-      await fsp.lstat(target); // throws ENOENT when absent
-      // Entry exists (any type, incl. symlinks) — try next suffix.
+  let dir: fsp.FileHandle;
+  try {
+    dir = await fsp.open(dirReal, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  } catch {
+    return null;
+  }
+  try {
+    const base = process.platform === "linux" ? `/proc/self/fd/${dir.fd}` : dirReal;
+    let candidate = name;
+    for (let n = 1; ;) {
+      // Backstop containment re-validation.
+      const abs = join(dirReal, candidate);
+      if (!within(abs, rootReal)) return null;
+      try {
+        const handle = await fsp.open(
+          join(base, candidate),
+          O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+          0o644,
+        );
+        return { handle, rel: relFromRoot(rootReal, abs) };
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") return null;
+      }
       n++;
       candidate = ext ? `${stem} (${n})${ext}` : `${stem} (${n})`;
-    } catch {
-      // ENOENT — this candidate is free.
-      break;
     }
+  } finally {
+    await dir.close();
   }
-
-  const abs = join(dirReal, candidate);
-
-  // Backstop containment re-validation.
-  if (!within(abs, rootReal)) return null;
-
-  const rel = relFromRoot(rootReal, abs);
-  return { abs, rel };
 }

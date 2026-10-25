@@ -4932,7 +4932,12 @@ async function handleSessionScratchpadUpload({
   const placed = await placeScratchpadUpload(dir.rootReal, dir.dirReal, file.name);
   if (!placed) return json({ error: "not found" }, 404);
 
-  await Bun.write(placed.abs, file);
+  // Write through the descriptor the exclusive, no-follow create returned — never by path.
+  try {
+    await Bun.write(Bun.file(placed.handle.fd), file);
+  } finally {
+    await placed.handle.close();
+  }
   return json({ path: placed.rel });
 }
 

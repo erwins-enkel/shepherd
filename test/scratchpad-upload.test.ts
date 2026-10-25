@@ -289,13 +289,28 @@ test("POST upload: symlink at target name pointing outside → treated as collis
   const res = await app.fetch(makeUploadRequest(s.id, file));
   expect(res.status).toBe(200);
   const body = await res.json();
-  // Must not be the symlink name itself (collision detected via lstat)
+  // Must not be the symlink name itself (O_EXCL|O_NOFOLLOW treats it as taken)
   expect(body.path).not.toBe("target.txt");
   // The outside file must NOT be overwritten
   expect(await Bun.file(outsideFile).text()).toBe("original");
   // The actual written file must be inside the root
   const writtenPath = join(realpathSync(root), body.path);
   expect(writtenPath.startsWith(realpathSync(root))).toBe(true);
+});
+
+test("POST upload: concurrent same-name uploads land in distinct files, contents intact (#3338)", async () => {
+  const { app, store } = harness();
+  const s = makeSession(store);
+  const uploads = Array.from({ length: 6 }, (_, i) =>
+    app.fetch(makeUploadRequest(s.id, new File([`body-${i}`], "same.txt", { type: "text/plain" }))),
+  );
+  const paths = await Promise.all(
+    uploads.map(async (r) => ((await (await r).json()) as { path: string }).path),
+  );
+  expect(new Set(paths).size).toBe(6);
+  const root = realpathSync(sessionScratchpadDir(repoDir, SID));
+  const bodies = await Promise.all(paths.map((p) => Bun.file(join(root, p)).text()));
+  expect(bodies.sort()).toEqual(Array.from({ length: 6 }, (_, i) => `body-${i}`).sort());
 });
 
 // ── Unknown / archived session → 404 ────────────────────────────────────────

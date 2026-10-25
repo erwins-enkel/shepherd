@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.3.1](https://github.com/erwins-enkel/shepherd/compare/v2.3.0...v2.3.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **preview:** strip HUD session cookie from preview proxy ([#3332](https://github.com/erwins-enkel/shepherd/issues/3332)) ([92a7d02](https://github.com/erwins-enkel/shepherd/commit/92a7d020981b33ac407eb44a9e6794c5c75c5734))
+* **security:** bind epic approve to reviewed revision; ignore untrusted fences in parsers ([#3334](https://github.com/erwins-enkel/shepherd/issues/3334)) ([e85492e](https://github.com/erwins-enkel/shepherd/commit/e85492e1c6eec1fb5a6e9ca9bbc8c8c4a5d76dbc)), closes [#3324](https://github.com/erwins-enkel/shepherd/issues/3324) [#3325](https://github.com/erwins-enkel/shepherd/issues/3325)
+* **security:** harden HUD framing, markdown/SVG sanitizing, forge hrefs ([#3335](https://github.com/erwins-enkel/shepherd/issues/3335)) ([bf39e41](https://github.com/erwins-enkel/shepherd/commit/bf39e41cdce0a6c933e81c7f42d0195923fce0c9))
+* **security:** login admission control, proxy-only XFP trust, steer control filter ([#3333](https://github.com/erwins-enkel/shepherd/issues/3333)) ([781dd4d](https://github.com/erwins-enkel/shepherd/commit/781dd4dfc12350f4670ba832c3bebf7eeed52379)), closes [#2105](https://github.com/erwins-enkel/shepherd/issues/2105) [#2109](https://github.com/erwins-enkel/shepherd/issues/2109)
+* **security:** reviewer least-privilege membrane; ingress key for every session ([#3339](https://github.com/erwins-enkel/shepherd/issues/3339)) ([6181c1e](https://github.com/erwins-enkel/shepherd/commit/6181c1ecf7dbb16fdb094fa0b4d83646bec994fc))
+
 ## [2.3.0](https://github.com/erwins-enkel/shepherd/compare/v2.2.0...v2.3.0) (2026-10-24)
 
 

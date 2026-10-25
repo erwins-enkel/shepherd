@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
-import { parseEnvNumber, parsePort } from "../src/config";
+import { parseEnvNumber, parsePort, parseTrustedProxyUid } from "../src/config";
 
 describe("Codex model config seed", () => {
   test.each([
@@ -119,6 +119,18 @@ describe("parsePort", () => {
       expect(() => parsePort(raw, "SHEPHERD_PORT", 7330)).toThrow(/SHEPHERD_PORT/);
     },
   );
+});
+
+describe("parseTrustedProxyUid", () => {
+  test("unset and blank default to root; integers parse", () => {
+    expect(parseTrustedProxyUid(undefined)).toBe(0);
+    expect(parseTrustedProxyUid(" ")).toBe(0);
+    expect(parseTrustedProxyUid("33")).toBe(33);
+  });
+
+  test.each([["root"], ["-1"], ["1.5"]])("%s throws, naming the key", (raw) => {
+    expect(() => parseTrustedProxyUid(raw)).toThrow(/SHEPHERD_TRUSTED_PROXY_UID/);
+  });
 });
 
 describe("config seeds reject non-numeric env values", () => {

@@ -34,27 +34,41 @@ export class AttemptBudget {
   }
 }
 
-/** Proxy headers whose presence marks a loopback request as fronted by a proxy. */
+/** Proxy headers whose presence marks a loopback request as possibly fronted by a proxy. */
 const PROXY_HEADERS = ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"];
 const MAX_KEY_CHARS = 256;
 
 export type ThrottleKey = { proxied: boolean; key: string };
+
+/** Whether a loopback peer is the configured proxy, by its socket's kernel owner (#3368):
+ *  "unavailable" ⇒ this platform has no lookup (macOS), so headers decide as before. */
+export type ProxyTrust = "trusted" | "untrusted" | "unavailable";
+
+export function hasProxyHeaders(req: Request): boolean {
+  return req.headers.has("tailscale-user-login") || PROXY_HEADERS.some((n) => req.headers.has(n));
+}
 
 /** Bucket key for an unauthenticated attempt (#3368). A loopback proxy (`tailscale serve`) delivers
  *  every tailnet request from 127.0.0.1, so a bare peer key lets any raw local client (agent,
  *  other local user) drain the operator's budget. Raw loopback callers share one bucket; proxied
  *  ones key on the identity the proxy asserts (Tailscale strips client copies of
  *  `Tailscale-User-*`; the last X-Forwarded-For hop is the one the nearest proxy appended).
- *  Residual: a raw client can forge these headers — it then lands in the proxied class, where it
- *  can only hit a key it can name or exhaust that class's own cap. */
-export function throttleKey(req: Request, peer: string | null | undefined): ThrottleKey {
+ *  Headers alone are forgeable by any local client, so they count only when `trust` is not
+ *  "untrusted" — i.e. the socket is the proxy's, or (residual, macOS only) no lookup exists. */
+export function throttleKey(
+  req: Request,
+  peer: string | null | undefined,
+  trust: ProxyTrust,
+): ThrottleKey {
   if (!peer || !isLoopbackPeer(peer)) return { proxied: false, key: peer || "unknown" };
+  const raw = { proxied: false, key: "loopback" };
+  if (trust === "untrusted") return raw;
   const login = req.headers.get("tailscale-user-login");
   if (login) return { proxied: true, key: `ts:${login}`.slice(0, MAX_KEY_CHARS) };
   const hop = req.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
   if (hop) return { proxied: true, key: `xff:${hop}`.slice(0, MAX_KEY_CHARS) };
   if (PROXY_HEADERS.some((name) => req.headers.has(name))) return { proxied: true, key: "proxied" };
-  return { proxied: false, key: "loopback" };
+  return raw;
 }
 
 /** Two independent {@link AttemptBudget}s, so proxied identities and direct/raw peers never share

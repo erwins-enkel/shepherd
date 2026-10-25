@@ -558,6 +558,24 @@ export function parsePort(raw: string | undefined, key: string, def: number): nu
   return n;
 }
 
+/**
+ * `SHEPHERD_TRUSTED_PROXY_UID` (#3368): the kernel UID whose loopback sockets count as the proxy for
+ * login/pair throttling. Unset/blank ⇒ 0 (root tailscaled); anything but a non-negative integer
+ * THROWS, like `parsePort` — a typo must not silently trust (or distrust) a different user.
+ *
+ * Exported for tests.
+ */
+export function parseTrustedProxyUid(raw: string | undefined): number {
+  if (raw == null || raw.trim() === "") return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `SHEPHERD_TRUSTED_PROXY_UID is invalid: must be a non-negative integer UID (got '${raw}'). Fix it or unset it to use 0 (root).`,
+    );
+  }
+  return n;
+}
+
 /** Mode for the runaway-orphan reaper (issue #1144). Mirrors `ReapMarkedOptions["mode"]`. */
 type ReapRunawayMode = "armed" | "observe" | "off";
 
@@ -724,6 +742,8 @@ export const config = {
   // from the store + PUT /api/settings) so long as it stays inside `rootCeiling`.
   repoRoot: process.env.SHEPHERD_REPO_ROOT ?? process.env.HOME ?? "/",
   allowedOriginHosts: resolveAllowedOriginHosts(process.env.SHEPHERD_ALLOWED_HOSTS),
+  // Loopback sockets owned by this UID are the trusted proxy for login/pair throttling (#3368).
+  trustedProxyUid: parseTrustedProxyUid(process.env.SHEPHERD_TRUSTED_PROXY_UID),
   token: process.env.SHEPHERD_TOKEN ?? null, // optional operator bearer (CLI/curl); agents use the loopback ingress, not this
   // Single-operator auth (issue #1079). `password` (env) is authoritative when set: it re-seeds
   // the persisted argon2id `passwordHash` every boot. Unset ⇒ the persisted hash is used as-is

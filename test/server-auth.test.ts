@@ -3,6 +3,7 @@ import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeApp, serve, makeAgentIngressApp, type AppDeps } from "../src/server";
+import type { ProxyTrust } from "../src/attempt-budget";
 import { config } from "../src/config";
 import { signCookie, hashPassword, SESSION_COOKIE, SESSION_TTL_MS } from "../src/operator-auth";
 import type { TokenScope } from "../src/token-scopes";
@@ -227,20 +228,77 @@ test("login: 11th attempt per peer → 429 with Retry-After, before any verify",
   expect(res.headers.get("set-cookie")).toBeNull();
 });
 
-test("login: raw loopback client at 429 does not lock out a proxied operator (#3368)", async () => {
-  await withServer(async (port) => {
-    const attempt = (headers: Record<string, string> = {}) =>
-      fetch(`http://127.0.0.1:${port}/api/login`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...headers },
-        body: JSON.stringify({ password: "wrong" }),
-      });
-    for (let i = 0; i < 10; i++) expect((await attempt()).status).toBe(401);
-    expect((await attempt()).status).toBe(429);
-    const proxied = await attempt({ "tailscale-user-login": "op@example.com" });
-    expect(proxied.status).toBe(401);
+// ── loopback proxy trust (#3368, audit run-2 R2-F12 follow-up) ──────────────
+
+/** POSTs to a live listener, so the peer really is loopback. */
+const unauthPost =
+  (port: number, route: "login" | "pair") =>
+  (headers: Record<string, string> = {}) =>
+    fetch(`http://127.0.0.1:${port}/api/${route}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(route === "login" ? { password: "wrong" } : { code: "wrong" }),
+    });
+const OPERATOR = { "tailscale-user-login": "op@example.com", "x-forwarded-for": "100.64.0.7" };
+const REFUSED = { login: 401, pair: 401 } as const;
+
+/** Deps whose proxy-trust verdict the test flips between attacker and operator phases. */
+function trustDeps(initial: ProxyTrust) {
+  const deps = makeDeps();
+  const state = { trust: initial };
+  deps.proxyTrust = async () => state.trust;
+  return { deps, state };
+}
+
+for (const route of ["login", "pair"] as const) {
+  test(`${route}: forged proxy headers from an untrusted loopback socket cannot 429 the operator`, async () => {
+    const { deps, state } = trustDeps("untrusted");
+    await withServer(async (port) => {
+      const attempt = unauthPost(port, route);
+      // Rotating forged XFF + the operator's own Tailscale login, well past the proxied cap (30).
+      const statuses: number[] = [];
+      for (let i = 0; i < 35; i++) {
+        const forged = { "x-forwarded-for": `10.0.${i}.1`, forwarded: `for=10.0.${i}.1` };
+        statuses.push((await attempt(i % 2 ? forged : OPERATOR)).status);
+      }
+      // All of it shares the single raw-loopback bucket: 10 through, then refused.
+      expect(statuses.slice(0, 10).every((s) => s === REFUSED[route])).toBe(true);
+      expect(statuses.slice(10).every((s) => s === 429)).toBe(true);
+      state.trust = "trusted";
+      expect((await attempt(OPERATOR)).status).toBe(REFUSED[route]);
+    }, deps);
   });
-});
+
+  test(`${route}: brute force from one trusted proxied identity is still throttled`, async () => {
+    const { deps } = trustDeps("trusted");
+    await withServer(async (port) => {
+      const attempt = unauthPost(port, route);
+      for (let i = 0; i < 10; i++) expect((await attempt(OPERATOR)).status).toBe(REFUSED[route]);
+      expect((await attempt(OPERATOR)).status).toBe(429);
+    }, deps);
+  });
+
+  test(`${route}: without a UID lookup (macOS) a plain loopback flood still spares the operator (#3386)`, async () => {
+    const { deps } = trustDeps("unavailable");
+    await withServer(async (port) => {
+      const attempt = unauthPost(port, route);
+      for (let i = 0; i < 10; i++) expect((await attempt()).status).toBe(REFUSED[route]);
+      expect((await attempt()).status).toBe(429);
+      expect((await attempt(OPERATOR)).status).toBe(REFUSED[route]);
+    }, deps);
+  });
+}
+
+test.if(process.platform === "linux" && process.getuid?.() !== config.trustedProxyUid)(
+  "login: the default kernel lookup puts a non-proxy client's forged headers in the raw bucket",
+  async () => {
+    await withServer(async (port) => {
+      const attempt = unauthPost(port, "login");
+      for (let i = 0; i < 10; i++) expect((await attempt()).status).toBe(401);
+      expect((await attempt(OPERATOR)).status).toBe(429);
+    });
+  },
+);
 
 test("login: body over 4 KiB → 413 (declared Content-Length)", async () => {
   const app = makeApp(makeDeps());

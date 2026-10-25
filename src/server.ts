@@ -56,6 +56,7 @@ import {
   isBlockJudgeMode,
   type CreateSessionInput,
   type MaintainBlock,
+  type HeldReason,
   type StandardCreateInput,
   type UsageJudgeSpend,
 } from "./types";
@@ -332,6 +333,7 @@ import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { deadBaseSession } from "./dead-base";
+import { predecessorLanded } from "./task-deps";
 import { type PrCache, gitStateChanged, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
@@ -3951,6 +3953,32 @@ function createErrorResponse(e: unknown): Response {
   return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
 }
 
+/** `afterSession` (#2589): resolve the predecessor (id or desig) to its session id. Not landed yet
+ *  → park as an `after` hold (the 30s release tick spawns it once the PR lands). Already landed →
+ *  create normally, without the field. Archived without landing would wait forever → 409. */
+function afterGate(
+  value: StandardCreateInput,
+  deps: AppDeps,
+  token?: VerifiedToken | null,
+): StandardCreateInput | Response {
+  const ref = value.afterSessionId;
+  if (!ref) return value;
+  const found = deps.store.get(ref) ?? deps.store.getByDesig(ref);
+  // A repo-scoped token must not learn about tasks outside its grant: same answer as unknown.
+  const pred = found && tokenRepoAllowed(token, found.repoPath) ? found : null;
+  if (!pred) return json({ error: `no task ${ref}`, code: "after_not_found" }, 404);
+  const prGit = (id: string) => deps.prCache?.get(id);
+  if (predecessorLanded(deps.store, prGit, pred)) {
+    return { ...value, afterSessionId: undefined };
+  }
+  if (pred.status === "archived")
+    return json(
+      { error: `${pred.desig} was archived without its PR landing`, code: "after_not_landed" },
+      409,
+    );
+  return persistHeldTask({ ...value, afterSessionId: pred.id }, deps, "after");
+}
+
 function bindHeldCodexAccount(deps: AppDeps, id: string, input: StandardCreateInput): void {
   if ((input.agentProvider ?? config.defaultAgentProvider) !== "codex") return;
   const account = deps.codexAccountId?.();
@@ -3959,11 +3987,7 @@ function bindHeldCodexAccount(deps: AppDeps, id: string, input: StandardCreateIn
 
 /** Check hold gate; if triggered, persist the held task and return the 200 response.
  *  Returns null when the task should proceed to normal creation. */
-function persistHeldTask(
-  value: StandardCreateInput,
-  deps: AppDeps,
-  reason: "usage" | "capacity",
-): Response {
+function persistHeldTask(value: StandardCreateInput, deps: AppDeps, reason: HeldReason): Response {
   const id = randomUUID();
   const createdAt = Date.now();
   deps.store.addHeldTask({
@@ -3975,7 +3999,7 @@ function persistHeldTask(
   });
   bindHeldCodexAccount(deps, id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
-  return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
+  return json({ held: true, id, count: deps.store.countHeldTasks(), reason }, 200);
 }
 
 async function tryHoldNewTask(
@@ -4186,6 +4210,12 @@ async function routeCreate(
   const sentTo = dispatchId && deps.store.getRemoteDispatchByKey(dispatchId)?.instanceId;
   const named = target.instanceId !== null && !target.self ? target.instanceId : null;
   if (sentTo || named) {
+    // A predecessor (#2589) names a task in THIS machine's namespace; another machine can't resolve it.
+    if (isRecord(target.body) && target.body.afterSession != null)
+      return json(
+        { error: "afterSession tasks run on this machine; drop target", code: "after_remote" },
+        400,
+      );
     const instanceId = (sentTo || named)!;
     return createOnMachine(ctx, {
       body: target.body as Record<string, unknown>,
@@ -4199,7 +4229,9 @@ async function routeCreate(
   if (!result.ok) return json({ error: result.error }, 400);
   const repoErr = repositoryInputError(token, result.value);
   if (repoErr) return repoErr;
-  const placed = await placeCreate(ctx, result.value, { self: target.self, raw, dispatchId });
+  // A dependent task (#2589) stays here: its predecessor is resolved and waited on locally.
+  const self = target.self || (result.value.terminal !== true && !!result.value.afterSessionId);
+  const placed = await placeCreate(ctx, result.value, { self, raw, dispatchId });
   if (placed instanceof Response) return placed;
   const create = () => createValidatedSession(req, body, placed, deps, token);
   if (dispatchId === undefined) return create();
@@ -4592,6 +4624,11 @@ async function createValidatedSession(
   const profileErr = tokenProfileError(token, routed, deps);
   if (profileErr) return profileErr;
   value = routed;
+
+  // ── --after dependency gate (#2589) ────────────────────────────────────────
+  const after = afterGate(value, deps, token);
+  if (after instanceof Response) return after;
+  value = after;
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
   const held = await tryHoldNewTask(body, value, deps);
@@ -9244,7 +9281,16 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
 // ── /api/held — usage-hold queue management ──────────────────────────────────
 
 function heldList(deps: AppDeps, token?: VerifiedToken | null): Response {
-  return json(deps.store.listHeldTasks().filter((h) => tokenRepoAllowed(token, h.input.repoPath)));
+  const rows = deps.store.listHeldTasks().filter((h) => tokenRepoAllowed(token, h.input.repoPath));
+  // An `after` hold names its predecessor by designation too (#2589), so a list reads "waiting on
+  // TASK-07" without a second lookup. null once the predecessor row is gone.
+  return json(
+    rows.map((h) =>
+      h.input.afterSessionId
+        ? { ...h, afterDesig: deps.store.get(h.input.afterSessionId)?.desig ?? null }
+        : h,
+    ),
+  );
 }
 
 function parseHeldSpawnProvider(body: unknown): { ok: true; value?: AgentProvider } | Response {
@@ -9336,6 +9382,8 @@ async function heldUpdate(
   // Same for an explicit base commit (#2761): the composer has no field for it, and an edit must
   // never silently re-base a task that was pinned to a revision. An edit that names one wins.
   value.baseCommit ??= existing.input.baseCommit;
+  // Nor for the predecessor (#2589): an edit keeps the dependency it was held on.
+  value.afterSessionId = existing.input.afterSessionId;
   // The record of the machine choice (#2772) is the placer's, never an edit's: carried forward.
   value.placement = existing.input.placement;
   const profileErr = tokenProfileError(token, value, deps);

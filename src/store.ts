@@ -43,6 +43,7 @@ import type {
   PrReview,
   PostMergeStep,
   PostMergeSteps,
+  HeldReason,
   HeldTask,
   DispatchRecord,
   DispatchOutcome,
@@ -1505,6 +1506,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       reason TEXT NOT NULL DEFAULT 'usage'
     )`);
     this.migrateHeldTaskColumns();
+    // Base-moved notice state (#2589): the base tip a session was last told about (or already
+    // contains) and when it was last steered. No row = anchor at the session's baseCommit.
+    this.db.run(`CREATE TABLE IF NOT EXISTS base_notices (
+      sessionId TEXT PRIMARY KEY,
+      sha TEXT NOT NULL,
+      notifiedAt INTEGER
+    )`);
     // small key/value store for runtime-configurable settings (e.g. repoRoot)
     this.db.run(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
@@ -6381,6 +6389,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `DELETE FROM task_amendments WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
+      this.db.run(
+        `DELETE FROM base_notices WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
       // NOTE: post_merge_steps is INTENTIONALLY NOT cascaded here (#1061) — owed manual steps must
       // outlive the archived session AND this prune. Its display fields are denormalized so it
       // renders fine once the sessions row below is gone. The same holds for delivery_facts
@@ -7479,7 +7491,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     repoPath: string;
     input: StandardCreateInput;
     createdAt: number;
-    reason: "usage" | "capacity";
+    reason: HeldReason;
   }): void {
     this.db.run(
       `INSERT INTO held_tasks (id, repoPath, input, createdAt, reason) VALUES (?, ?, ?, ?, ?)`,
@@ -7502,7 +7514,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return rows.map((r) => ({
       ...r,
       input: JSON.parse(r.input) as StandardCreateInput,
-      reason: r.reason as "usage" | "capacity",
+      reason: r.reason as HeldReason,
     }));
   }
 
@@ -7520,7 +7532,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return {
       ...r,
       input: JSON.parse(r.input) as StandardCreateInput,
-      reason: r.reason as "usage" | "capacity",
+      reason: r.reason as HeldReason,
     };
   }
 
@@ -7537,6 +7549,27 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       JSON.stringify(input),
       id,
     ]);
+  }
+
+  // ── base-moved notices (#2589) ─────────────────────────────────────────────
+
+  getBaseNotice(sessionId: string): { sha: string; notifiedAt: number | null } | null {
+    return (
+      (this.db
+        .query(`SELECT sha, notifiedAt FROM base_notices WHERE sessionId = ?`)
+        .get(sessionId) as { sha: string; notifiedAt: number | null } | null) ?? null
+    );
+  }
+
+  /** Record the base tip a session now knows about. `notifiedAt` null keeps the previous steer
+   *  time (a silent advance — the session already contains the tip). */
+  setBaseNotice(sessionId: string, sha: string, notifiedAt: number | null): void {
+    this.db.run(
+      `INSERT INTO base_notices (sessionId, sha, notifiedAt) VALUES (?, ?, ?)
+       ON CONFLICT(sessionId) DO UPDATE SET sha = excluded.sha,
+         notifiedAt = COALESCE(excluded.notifiedAt, base_notices.notifiedAt)`,
+      [sessionId, sha, notifiedAt],
+    );
   }
 
   countHeldTasks(): number {

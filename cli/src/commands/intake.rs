@@ -241,7 +241,10 @@ async fn held_list(ctx: &mut Ctx<'_>) -> Result<()> {
     for h in &list {
         t.add_row(vec![
             h.id.clone(),
-            or_dash(h.reason.as_ref().map(|r| r.0.clone())),
+            or_dash(h.reason.as_ref().map(|r| match &h.after_desig {
+                Some(d) => format!("{} {d}", r.0),
+                None => r.0.clone(),
+            })),
             h.repo_path.clone(),
             ago(h.created_at),
             summary(&h.input.prompt),

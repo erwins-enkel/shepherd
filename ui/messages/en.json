@@ -7064,5 +7064,10 @@
   "automation_autodrain_sandbox_held": "Held: this repo runs Standard, which is interactive-only. Unattended spawns need Autonomous (confined) or Trusted (unconfined) — change Sandbox below.",
   "diagnostics_hint_sandbox_membrane_unavailable": "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing or blocked). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded.",
   "feat_sandbox_default_standard_title": "New repos are sandboxed by default",
-  "feat_sandbox_default_standard_body": "New repos now follow the default sandbox profile: Standard (filesystem-confined) where this host can sandbox, Trusted otherwise. Existing repos keep their setting. Standard can't push over an SSH remote and holds auto-drain — pick Trusted or Autonomous in Sandbox if you need either."
+  "feat_sandbox_default_standard_body": "New repos now follow the default sandbox profile: Standard (filesystem-confined) where this host can sandbox, Trusted otherwise. Existing repos keep their setting. Standard can't push over an SSH remote and holds auto-drain — pick Trusted or Autonomous in Sandbox if you need either.",
+  "topbar_held_after": "Waiting on {task} to land",
+  "topbar_held_after_unknown": "Waiting on another task to land",
+  "native_held_reason_after": "Held until its predecessor's PR lands.",
+  "feat_task_after_title": "Tasks that wait for each other",
+  "feat_task_after_body": "Start a task with shepherd new --after TASK-07 and it waits in Held tasks until TASK-07's PR has merged, then starts on the fresh base. Running agents are also told when their base branch gains new commits, with the list, so they can rebase."
 }

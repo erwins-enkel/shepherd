@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { releaseHeldTasks, type HeldReleaseDeps } from "../src/held-release";
-import type { StandardCreateInput, Session } from "../src/types";
+import type { HeldReason, StandardCreateInput, Session } from "../src/types";
 import type { UsageLimits } from "../src/usage-limits";
 import { SandboxAutoRefused } from "../src/sandbox";
 
@@ -22,7 +22,7 @@ function makeInput(prompt: string, issueNumber?: number): StandardCreateInput {
 }
 
 function makeDeps(
-  tasks: { id: string; input: StandardCreateInput }[],
+  tasks: { id: string; input: StandardCreateInput; reason?: HeldReason }[],
   limits: Partial<UsageLimits> = {},
   createFn?: (input: StandardCreateInput) => Promise<Session>,
 ): HeldReleaseDeps & {
@@ -31,7 +31,7 @@ function makeDeps(
   labeled: number[];
 } {
   const rows = tasks.map((t, i) => ({
-    reason: "usage" as const,
+    reason: "usage" as HeldReason,
     ...t,
     repoPath: "/tmp/repo",
     createdAt: i + 1,
@@ -376,4 +376,89 @@ test("Codex capacity review: held release preserves the account captured at admi
   expect(expected).toEqual(["account-a"]);
   account = "account-a";
   expect((await releaseHeldTasks(deps, cfg, 0)).released).toBe(1);
+});
+
+// ── --after dependency gate (#2589) ───────────────────────────────────────────
+
+const LOW = { session5h: { pct: 10, resetAt: 0 }, week: null };
+
+function withPredecessor<D extends HeldReleaseDeps>(
+  deps: D,
+  pred: Partial<Session> | null,
+  prState?: "open" | "merged",
+): D {
+  const row = pred ? ({ id: "pred", repoPath: "/r", status: "idle", ...pred } as Session) : null;
+  deps.taskDeps = {
+    store: { get: (id) => (row && id === row.id ? row : null), isEpicIntegratedChild: () => false },
+    prGit: () => (prState ? { state: prState } : undefined),
+  };
+  return deps;
+}
+
+const afterInput = (prompt: string) => ({ ...makeInput(prompt), afterSessionId: "pred" });
+
+test("after-task waits while the predecessor PR is open, without blocking later tasks", async () => {
+  const deps = withPredecessor(
+    makeDeps(
+      [
+        { id: "a", input: afterInput("dependent"), reason: "after" },
+        { id: "b", input: makeInput("plain") },
+      ],
+      LOW,
+    ),
+    { status: "running" },
+    "open",
+  );
+  const r = await releaseHeldTasks(deps, { enabled: true, holdPct: 80, autoRelease: true }, 0);
+  expect(r.released).toBe(1);
+  expect(deps.creates.map((c) => c.prompt)).toEqual(["plain"]);
+  expect(deps.store.listHeldTasks().map((t) => t.id)).toEqual(["a"]);
+});
+
+test("after-task releases once the predecessor PR merged", async () => {
+  const deps = withPredecessor(
+    makeDeps([{ id: "a", input: afterInput("dependent"), reason: "after" }], LOW),
+    { status: "idle" },
+    "merged",
+  );
+  const r = await releaseHeldTasks(deps, { enabled: true, holdPct: 80, autoRelease: true }, 0);
+  expect(r.released).toBe(1);
+});
+
+test("landed after-task still waits for usage headroom, but not for manual release", async () => {
+  const held = () =>
+    withPredecessor(
+      makeDeps([{ id: "a", input: afterInput("dependent"), reason: "after" }], {
+        session5h: { pct: 95, resetAt: 0 },
+        week: null,
+      }),
+      { status: "archived", archiveReason: "merged" },
+    );
+  const high = held();
+  expect(
+    (await releaseHeldTasks(high, { enabled: true, holdPct: 80, autoRelease: true }, 0)).released,
+  ).toBe(0);
+  const manual = withPredecessor(
+    makeDeps([{ id: "a", input: afterInput("dependent"), reason: "after" }], LOW),
+    { status: "archived", archiveReason: "merged" },
+  );
+  expect(
+    (await releaseHeldTasks(manual, { enabled: true, holdPct: 80, autoRelease: false }, 0))
+      .released,
+  ).toBe(1);
+});
+
+test("after-task with a pruned predecessor releases; without taskDeps it stays", async () => {
+  const pruned = withPredecessor(
+    makeDeps([{ id: "a", input: afterInput("dependent"), reason: "after" }], LOW),
+    null,
+  );
+  expect(
+    (await releaseHeldTasks(pruned, { enabled: true, holdPct: 80, autoRelease: true }, 0)).released,
+  ).toBe(1);
+  const unwired = makeDeps([{ id: "a", input: afterInput("dependent"), reason: "after" }], LOW);
+  expect(
+    (await releaseHeldTasks(unwired, { enabled: true, holdPct: 80, autoRelease: true }, 0))
+      .released,
+  ).toBe(0);
 });

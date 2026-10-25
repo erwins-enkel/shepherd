@@ -52,6 +52,16 @@ pub fn print_create_result(ctx: &mut Ctx<'_>, created: CreateSessionSuccess) -> 
                     ),
                 );
             }
+            if h.reason.as_ref().is_some_and(|r| r.0 == "after") {
+                return output::line(
+                    &mut ctx.io.stdout,
+                    &format!(
+                        "held: waiting for its predecessor's PR to land, queued as {} ({} held). \
+                         It spawns once that PR merges.",
+                        h.id, h.count
+                    ),
+                );
+            }
             output::line(
                 &mut ctx.io.stdout,
                 &format!(
@@ -70,6 +80,11 @@ pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
         return Err(CliError::new(Exit::Usage, "the prompt is empty"));
     }
     let repo = repo_path(ctx, args.repo)?;
+    let after = args
+        .after
+        .map(|a| a.parse())
+        .transpose()
+        .map_err(|_| CliError::new(Exit::Usage, "--after takes a task id or designation"))?;
     let check = VersionCheck::start(&ctx.client);
     let result = ctx
         .client
@@ -90,6 +105,9 @@ pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
             }
             if args.force {
                 b = b.force(Some(true));
+            }
+            if let Some(after) = after {
+                b = b.after_session(Some(after));
             }
             b
         })

@@ -7064,5 +7064,10 @@
   "automation_autodrain_sandbox_held": "Angehalten: Dieses Repo läuft mit Standard, das nur interaktiv ist. Unbeaufsichtigte Starts brauchen Autonom (abgeschottet) oder Vertraut (ohne Sandbox) — Sandbox unten ändern.",
   "diagnostics_hint_sandbox_membrane_unavailable": "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt oder ist blockiert). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert.",
   "feat_sandbox_default_standard_title": "Neue Repos laufen standardmäßig in der Sandbox",
-  "feat_sandbox_default_standard_body": "Neue Repos folgen jetzt dem Standard-Sandbox-Profil: Standard (Dateisystem abgeschottet), wo dieser Host abschotten kann, sonst Vertraut. Bestehende Repos behalten ihre Einstellung. Standard kann nicht über ein SSH-Remote pushen und hält Auto-Drain an — wähle bei Bedarf Vertraut oder Autonom unter Sandbox."
+  "feat_sandbox_default_standard_body": "Neue Repos folgen jetzt dem Standard-Sandbox-Profil: Standard (Dateisystem abgeschottet), wo dieser Host abschotten kann, sonst Vertraut. Bestehende Repos behalten ihre Einstellung. Standard kann nicht über ein SSH-Remote pushen und hält Auto-Drain an — wähle bei Bedarf Vertraut oder Autonom unter Sandbox.",
+  "topbar_held_after": "Wartet, bis {task} gemergt ist",
+  "topbar_held_after_unknown": "Wartet, bis eine andere Aufgabe gemergt ist",
+  "native_held_reason_after": "Zurückgehalten, bis der PR der Vorgänger-Aufgabe gemergt ist.",
+  "feat_task_after_title": "Aufgaben, die aufeinander warten",
+  "feat_task_after_body": "Starte eine Aufgabe mit shepherd new --after TASK-07, dann wartet sie unter Zurückgehaltene Aufgaben, bis der PR von TASK-07 gemergt ist, und startet danach auf der frischen Basis. Laufende Agenten erfahren außerdem, wenn ihr Basis-Branch neue Commits bekommt, samt Liste, damit sie rebasen können."
 }

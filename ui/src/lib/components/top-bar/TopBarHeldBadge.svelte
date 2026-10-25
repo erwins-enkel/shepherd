@@ -5,6 +5,7 @@
   import { AGENT_PROVIDERS, type AgentProvider, type HeldTask } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { portal } from "#lib/portal.js";
+  import HeldAfterLabel from "./HeldAfterLabel.svelte";
 
   const fallbackProvider: AgentProvider = "claude";
 
@@ -122,6 +123,7 @@
   >
   <div class="held-row-meta">
     <span class="held-row-repo">{task.repoPath.split("/").at(-1) ?? task.repoPath}</span>
+    <HeldAfterLabel {task} />
     {#if clippedPrompts[task.id]}
       <button
         type="button"

@@ -895,6 +895,7 @@
 "native_firstrun_failed" = "Shepherd konnte diesen Ordner nicht verwenden: %1$@";
 "native_firstrun_title" = "Wähle deinen Arbeitsordner";
 "native_held_discard_confirm" = "Diese zurückgehaltene Aufgabe verwerfen?";
+"native_held_reason_after" = "Zurückgehalten, bis der PR der Vorgänger-Aufgabe gemergt ist.";
 "native_held_reason_capacity" = "Zurückgehalten, weil kein Konto Kapazität hat.";
 "native_held_reason_unknown" = "Zurückgehalten — Grund nicht verfügbar.";
 "native_held_reason_usage" = "Zurückgehalten, weil die Nutzung hoch ist.";

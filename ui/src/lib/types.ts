@@ -3442,6 +3442,10 @@ export interface HeldTask {
   repoPath: string;
   input: StandardCreateInput;
   createdAt: number;
+  /** `after` = waiting for a predecessor's PR to land (#2589). */
+  reason?: "usage" | "capacity" | "after";
+  /** The predecessor's designation for an `after` hold; null once it is gone. */
+  afterDesig?: string | null;
 }
 
 /** Returned by POST /api/sessions when the task is held instead of spawned immediately. */

@@ -501,6 +501,9 @@ pub struct NewArgs {
     /// Bypass the usage hold and spawn now
     #[arg(long)]
     pub force: bool,
+    /// Hold the task until this task's PR has landed (id or designation, e.g. TASK-07)
+    #[arg(long, value_name = "TASK")]
+    pub after: Option<String>,
 }
 
 fn parse_effort(s: &str) -> Result<Effort, String> {

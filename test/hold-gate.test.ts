@@ -515,3 +515,104 @@ test("PATCH /api/held/:id with invalid input → 400, row unchanged", async () =
   expect(res.status).toBe(400);
   expect(store.getHeldTask("held-1")?.input.prompt).toBe("keep me");
 });
+
+// ── --after dependency gate (#2589) ──────────────────────────────────────────
+
+function predecessor(store: SessionStore) {
+  return store.create({
+    name: "pred",
+    prompt: "first",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "shepherd/pred",
+    worktreePath: repoDir,
+    isolated: false,
+    herdrSession: "sess-p",
+    herdrAgentId: "agent-p",
+    claudeSessionId: "claude-p",
+    model: null,
+  });
+}
+
+test("afterSession (desig) with an unlanded predecessor → held reason after, resolved id", async () => {
+  config.usageHoldEnabled = false;
+  const { app, store, creates } = harness();
+  const pred = predecessor(store);
+  const res = await postSession(app, { afterSession: pred.desig });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body).toMatchObject({ held: true, reason: "after" });
+  expect(creates).toHaveLength(0);
+  const row = store.getHeldTask(body.id);
+  expect(row?.reason).toBe("after");
+  expect(row?.input.afterSessionId).toBe(pred.id);
+});
+
+test("afterSession with a landed predecessor → spawns now, without the field", async () => {
+  config.usageHoldEnabled = false;
+  const { app, store, creates } = harness();
+  const pred = predecessor(store);
+  store.archive(pred.id, "merged");
+  const res = await postSession(app, { afterSession: pred.id });
+  expect(res.status).toBe(201);
+  expect(creates).toHaveLength(1);
+  expect((creates[0] as { afterSessionId?: string }).afterSessionId).toBeUndefined();
+});
+
+test("afterSession unknown → 404; archived without landing → 409", async () => {
+  const { app, store } = harness();
+  const missing = await postSession(app, { afterSession: "TASK-999" });
+  expect(missing.status).toBe(404);
+  expect((await missing.json()).code).toBe("after_not_found");
+  const pred = predecessor(store);
+  store.archive(pred.id, "operator");
+  const dead = await postSession(app, { afterSession: pred.desig });
+  expect(dead.status).toBe(409);
+  expect((await dead.json()).code).toBe("after_not_landed");
+  expect(store.countHeldTasks()).toBe(0);
+});
+
+test("afterSession malformed → 400", async () => {
+  const { app } = harness();
+  const res = await postSession(app, { afterSession: "../x" });
+  expect(res.status).toBe(400);
+});
+
+test("PATCH /api/held/:id keeps the predecessor an edit can't name", async () => {
+  const { app, store } = harness();
+  store.addHeldTask({
+    id: "held-after",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "dependent",
+      model: null,
+      images: [],
+      afterSessionId: "pred-id",
+    },
+    createdAt: 1000,
+    reason: "after",
+  });
+  const res = await patchHeld(app, "held-after", {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "dependent (edited)",
+    model: null,
+    images: [],
+    afterSession: "other",
+  });
+  expect(res.status).toBe(200);
+  expect(store.getHeldTask("held-after")?.input.afterSessionId).toBe("pred-id");
+});
+
+test("GET /api/held names an after hold's predecessor by designation", async () => {
+  config.usageHoldEnabled = false;
+  const { app, store } = harness();
+  const pred = predecessor(store);
+  await postSession(app, { afterSession: pred.id });
+  const res = await app.fetch(new Request("http://x/api/held"));
+  const rows = (await res.json()) as { reason: string; afterDesig?: string | null }[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ reason: "after", afterDesig: pred.desig });
+});

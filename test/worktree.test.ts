@@ -686,3 +686,46 @@ test("behindBase: false when up-to-date, true when base advanced", async () => {
   expect(await wt.behindBase(dir, "main")).toBe(true);
   rmSync(dir, { recursive: true, force: true });
 });
+
+test("baseTip + commitsMissingFromHead report base commits a worktree lacks (#2589)", async () => {
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  const parent = mkdtempSync(join(tmpdir(), "shepherd-wt-drift-"));
+  const clone = join(parent, "clone");
+  try {
+    execFileSync("git", ["clone", "-q", repo, clone]);
+    const wt = new WorktreeMgr();
+    const created = wt.create(clone, "main", "drift");
+    const commit = (msg: string) => {
+      execFileSync("git", ["commit", "-q", "--allow-empty", "-m", msg], { cwd: repo, env: gitEnv });
+      return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+    };
+    const first = commit("upstream one");
+    const tip = commit("upstream two");
+
+    expect(await wt.baseTip(clone, "main")).toBe(tip);
+    expect(await wt.baseTip(clone, "-bad")).toBeNull();
+    const all = await wt.commitsMissingFromHead(clone, created.worktreePath, tip, null, 20);
+    expect(all?.total).toBe(2);
+    expect(all?.lines[0]).toMatch(/^[0-9a-f]+ upstream two$/);
+    // Excluding a commit the session was already told about leaves only the newer one.
+    const since = await wt.commitsMissingFromHead(clone, created.worktreePath, tip, first, 1);
+    expect(since).toEqual({ total: 1, lines: [expect.stringMatching(/upstream two$/)] });
+    // An exclude that no longer resolves falls back to the full range.
+    const fallback = await wt.commitsMissingFromHead(
+      clone,
+      created.worktreePath,
+      tip,
+      "f".repeat(40),
+      20,
+    );
+    expect(fallback?.total).toBe(2);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});

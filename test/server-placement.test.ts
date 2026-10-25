@@ -326,6 +326,28 @@ describe("automatic machine choice", () => {
     }
   });
 
+  test("a dependent task (afterSession) stays on the machine that knows its predecessor (#2589)", async () => {
+    const { linux, mac } = await pair();
+    const pred = (await create(mac, { ...task(mac), target: { instanceId: mac.id } })).body as {
+      desig: string;
+    };
+    mac.created.length = 0;
+    // The automatic choice would send it to Linux; the predecessor lives here, so it waits here.
+    const res = await create(mac, task(mac, { afterSession: pred.desig }));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ held: true, reason: "after" });
+    expect(res.body.host).toBeUndefined();
+    expect(ranOn([linux, mac])).toEqual([]);
+    // Naming another machine is refused: it can't resolve this machine's task.
+    const named = await create(mac, {
+      ...task(mac, { afterSession: pred.desig }),
+      target: { instanceId: linux.id },
+    });
+    expect(named.status).toBe(400);
+    expect(named.body.code).toBe("after_remote");
+    expect(linux.created).toHaveLength(0);
+  });
+
   test("the preview names the machine the create then uses (the form and the API agree)", async () => {
     const { linux, mac } = await pair();
     for (const at of [linux, mac]) {

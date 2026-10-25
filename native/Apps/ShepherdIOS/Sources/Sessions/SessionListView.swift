@@ -156,7 +156,7 @@ struct SessionListView: View {
         return IOSMergedSessionPresentation.merge([.init(profile: profile, groups: model.groups,
             sessions: app.store?.sessions ?? model.sessions, rendered: (app.store?.sessions ?? model.sessions).map(model.rendered),
             git: herd?.git ?? [:], finished: queues?.finishedSessions ?? [], owed: merge?.snapshot.owed ?? [],
-            remote: app.store?.remoteSessions ?? [])], selectedRepos: model.activeRepos)
+            remote: app.store?.remoteSessions ?? [])], selectedRepos: model.activeRepos, lens: model.lens)
     }
     private func setLens(_ value: HerdLens) { if let hub { hub.setLens(value) } else { model.lens = value } }
     private func toggleRepo(_ paths: Set<String>) {
@@ -236,7 +236,7 @@ struct SessionListView: View {
                 if band.onTop, lens != .done, lens != .owed { completedEpicsSection(band, now: now) }
                 switch lens {
                 case .all, .ready:
-                    if groups.isEmpty, snapshot.epicGroups.isEmpty, lens != .all || snapshot.machines.isEmpty,
+                    if groups.isEmpty, snapshot.epicGroups.isEmpty,
                        hub?.hasLoadedList ?? (app.store?.connection == .live) {
                         empty(SidebarCopy.empty(lens: lens, repos: activeRepos))
                     }
@@ -274,14 +274,9 @@ struct SessionListView: View {
                             groupHeader(group.stage, title: heading, rows: group.rows)
                         }
                         if group.stage == .active || !collapsedStages.contains(group.stage) {
-                            ForEach(group.rows) { row in card(row, showCli: showCli, now: now) }
-                        }
-                    }
-                    // Sessions of connected machines, after the servers' own (All lens, #2768).
-                    if lens == .all {
-                        ForEach(snapshot.machines) { machine in
-                            machineHeader(machine)
-                            ForEach(machine.rows) { row in mirroredCard(row, now: now) }
+                            ForEach(group.rows) { row in
+                                if row.mirrored { mirroredCard(row, now: now) } else { card(row, showCli: showCli, now: now) }
+                            }
                         }
                     }
                 case .done:
@@ -588,29 +583,6 @@ struct SessionListView: View {
                 refreshError = "\(L.t("toast_clear_merged_failed")): \(ShepherdErrorCopy.message(error))"
             }
         }
-    }
-
-    /// One connected machine: its name, platform and the state of the link.
-    private func machineHeader(_ machine: IOSMergedSessionPresentation.MachineGroup) -> some View {
-        let offline = RemoteSessionCopy.isDisconnected(machine.connection)
-        return HStack(spacing: 10) {
-            Circle().fill(SessionListStyle.machineTint(machine.host.instanceId)).frame(width: 6, height: 6)
-            Text(verbatim: machine.host.name).foregroundStyle(SessionListStyle.ink)
-            Text(verbatim: RemoteSessionCopy.platformName(machine.host.platform).uppercased())
-                .foregroundStyle(SessionListStyle.slate)
-            Text(verbatim: L.t("native_ios_server_mirror_via", machine.via.name))
-                .foregroundStyle(SessionListStyle.muted).lineLimit(1)
-            Spacer(minLength: 0)
-            Text(verbatim: RemoteSessionCopy.stateLabel(machine.connection).uppercased())
-                .foregroundStyle(offline ? SessionListStyle.amber : SessionListStyle.slate)
-        }
-        .sessionFont(label: true, weight: .semibold)
-        .padding(.top, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityLabel(L.t("remote_group_aria", machine.host.name))
-        .accessibilityIdentifier("herd-machine-\(machine.host.instanceId)")
-        .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
     }
 
     /// A session mirrored from a connected machine: read-only, so no swipe actions and none of

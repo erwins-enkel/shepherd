@@ -112,6 +112,13 @@ public enum HerdClassifier {
         stageOf(session, git: git, ctx: ctx)
     }
 
+    /// A session mirrored from a connected machine (#3055): the PR state its machine reports
+    /// (`session.git`) places it like a local session; the signals no machine mirrors (a review or
+    /// rework in flight, working-while-blocked) read as unset — the web's `shownMirrored`.
+    public static func mirroredStage(_ session: Session, now: Int) -> HerdStage {
+        stageOf(session, git: session.git, ctx: HerdContext(now: now))
+    }
+
     /// herd-partition.ts:165-183: terminal cascade, then green-idle handoff, then active.
     /// The raw status check is intentional (:174-176); displayStatus must not drive handoff.
     static func stageOf(_ session: Session, git: GitState?, ctx: HerdContext) -> HerdStage {

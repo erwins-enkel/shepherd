@@ -20,6 +20,8 @@ enum IOSMergedSessionPresentation {
     struct Row: Identifiable {
         let profile: ServerProfile
         let session: Session
+        /// Mirrored from a connected machine (#2768): read-only, labelled with that machine.
+        var mirrored = false
         var id: IOSSessionIdentity { .init(profileID: profile.id, sessionID: session.id) }
     }
     struct OwedRow: Identifiable {
@@ -41,15 +43,6 @@ enum IOSMergedSessionPresentation {
         let rows: [Row]
         let heading: String?
         var id: HerdStage { stage }
-    }
-    /// One connected machine's mirrored sessions, after the lifecycle groups (All lens).
-    struct MachineGroup: Identifiable {
-        let host: SessionHost
-        let connection: SessionConnection
-        let rows: [Row]
-        /// The connected server these sessions come through (`über <Server>` in the header).
-        var via: ServerProfile { rows[0].profile }
-        var id: String { host.instanceId }
     }
     /// One machine a connected server mirrors, as the server list shows it under that server.
     struct MirroredMachine: Identifiable, Equatable {
@@ -75,7 +68,6 @@ enum IOSMergedSessionPresentation {
     struct Snapshot {
         let epicGroups: [EpicGroup]
         let groups: [Group]
-        let machines: [MachineGroup]
         let finished: [Row]
         let owed: [OwedRow]
         let chips: [Chip]
@@ -123,7 +115,8 @@ enum IOSMergedSessionPresentation {
         }
     }
 
-    static func merge(_ sources: [Source], selectedRepos: Set<String>) -> Snapshot {
+    static func merge(_ sources: [Source], selectedRepos: Set<String>, lens: HerdLens = .all,
+                      now: Int = Int(Date().timeIntervalSince1970 * 1_000)) -> Snapshot {
         let ownership = Ownership(sources)
         var counts: [String: Int] = [:]
         for source in sources {
@@ -147,6 +140,19 @@ enum IOSMergedSessionPresentation {
                 }
             }
         }
+        // Sessions of connected machines join the lifecycle groups in the All lens (#3055), placed
+        // by the PR state their machine reports. Never narrowed by the repo filter: its chips name
+        // checkouts of the connected servers, not of the machines they mirror.
+        var mirrored: [HerdStage: [Row]] = [:]
+        var seenMirrored: Set<String> = []
+        for source in sources where lens == .all {
+            for session in source.remote {
+                guard let host = session.host, session.connection != nil, !ownership.ownedDirectly(session),
+                      seenMirrored.insert("\(host.instanceId)\u{1}\(session.id)").inserted else { continue }
+                mirrored[HerdClassifier.mirroredStage(session, now: now), default: []]
+                    .append(Row(profile: source.profile, session: session, mirrored: true))
+            }
+        }
         var epics: [String: EpicGroup] = [:]
         let groups = HerdStage.allCases.compactMap { stage -> Group? in
             var rows = sources.flatMap { source in
@@ -154,7 +160,7 @@ enum IOSMergedSessionPresentation {
                     .filter { shown($0.repoPath) && ownership.shows($0, from: source) }
                     .map { Row(profile: source.profile, session: $0) }
             }
-            guard !rows.isEmpty else { return nil }
+            guard !rows.isEmpty || mirrored[stage] != nil else { return nil }
             // Core preserves the server's ORDER BY createdAt. Across servers use that same
             // key, with a stable tie; a single server keeps its exact existing ordering.
             if sources.count > 1 {
@@ -180,9 +186,27 @@ enum IOSMergedSessionPresentation {
                 epics[key]?.prNumbers[row.session.id] = source?.git[row.session.id]?.number
                 return false
             }
+            // Mirrored sessions skip epic grouping (they are not this server's own) and interleave
+            // by start time, the local order kept — the web's `joinMirrored`.
+            if let remote = mirrored[stage] {
+                var joined: [Row] = []
+                var next = 0
+                let byStart = remote.enumerated().sorted {
+                    $0.element.session.createdAt == $1.element.session.createdAt ? $0.offset < $1.offset
+                        : $0.element.session.createdAt < $1.element.session.createdAt
+                }.map(\.element)
+                for row in rows {
+                    while next < byStart.count, byStart[next].session.createdAt < row.session.createdAt {
+                        joined.append(byStart[next]); next += 1
+                    }
+                    joined.append(row)
+                }
+                rows = joined + byStart[next...]
+            }
             guard !rows.isEmpty else { return nil }
             let names = rows.map { row in
-                sources.first { $0.profile.id == row.profile.id }?.git[row.session.id]?.handoffWho
+                row.mirrored ? row.session.git?.handoffWho
+                    : sources.first { $0.profile.id == row.profile.id }?.git[row.session.id]?.handoffWho
             }.map { $0?.isEmpty == false ? $0 : nil }
             let who = Set(names).count == 1 ? names.first.flatMap { $0 } : nil
             let count = String(rows.count)
@@ -209,32 +233,13 @@ enum IOSMergedSessionPresentation {
             let left = $0.element.record.createdAt, right = $1.element.record.createdAt
             return left == right ? $0.offset < $1.offset : left > right
         }.map(\.element)
-        // Mirrored sessions are never narrowed by the repo filter: its chips name checkouts of the
-        // connected servers, not of the machines they mirror (the web's machine groups before
-        // #3055).
-        var machineOrder: [String] = []
-        var machineRows: [String: [Row]] = [:]
-        var seenMirrored: Set<String> = []
-        for source in sources {
-            for session in source.remote {
-                guard let host = session.host, session.connection != nil, !ownership.ownedDirectly(session),
-                      seenMirrored.insert("\(host.instanceId)\u{1}\(session.id)").inserted else { continue }
-                if machineRows[host.instanceId] == nil { machineOrder.append(host.instanceId) }
-                machineRows[host.instanceId, default: []].append(Row(profile: source.profile, session: session))
-            }
-        }
-        let machines = machineOrder.compactMap { id -> MachineGroup? in
-            guard let rows = machineRows[id], let first = rows.first?.session,
-                  let host = first.host, let connection = first.connection else { return nil }
-            return MachineGroup(host: host, connection: connection, rows: rows)
-        }
         let epicGroups = epics.values.sorted {
             let byRepo = $0.repoName.localizedStandardCompare($1.repoName)
             if byRepo != .orderedSame { return byRepo == .orderedAscending }
             if $0.parentNumber != $1.parentNumber { return $0.parentNumber < $1.parentNumber }
             return $0.id < $1.id
         }
-        return Snapshot(epicGroups: epicGroups, groups: groups, machines: machines, finished: finished, owed: owed,
+        return Snapshot(epicGroups: epicGroups, groups: groups, finished: finished, owed: owed,
             chips: Dictionary(grouping: counts.keys) { ($0 as NSString).lastPathComponent }
                 .map { Chip(name: $0.key, paths: Set($0.value), count: $0.value.reduce(0) { $0 + counts[$1]! }) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
@@ -269,7 +274,7 @@ enum IOSMergedSessionPresentation {
     }
 
     @MainActor static func snapshot(_ hub: IOSServerHub) -> Snapshot {
-        merge(sources(hub), selectedRepos: hub.selectedRepos)
+        merge(sources(hub), selectedRepos: hub.selectedRepos, lens: hub.lens)
     }
 
     @MainActor static func sources(_ hub: IOSServerHub) -> [Source] {

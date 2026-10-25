@@ -11,6 +11,11 @@ struct SessionCardView: View {
     var chain: EpicChain? = nil
     let select: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The color of the machine a mirrored session runs on, while its link is up (#3055).
+    private var machine: Color? {
+        guard let host = card.session.host, !RemoteSessionCopy.isDisconnected(card.session.connection) else { return nil }
+        return SessionListStyle.machineTint(host.instanceId)
+    }
 
     var body: some View {
         Button(action: select) {
@@ -19,7 +24,7 @@ struct SessionCardView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(alignment: .top, spacing: 10) { status; title }
                         promptAndSummary
-                        SessionBadgeFlow(badges: card.badges)
+                        SessionBadgeFlow(badges: card.badges, machine: machine)
                         HStack { Spacer(); age }
                     }
                 } else {
@@ -27,7 +32,7 @@ struct SessionCardView: View {
                         status.frame(width: 12).padding(.top, 4)
                         VStack(alignment: .leading, spacing: 5) { title; promptAndSummary }
                         VStack(alignment: .trailing, spacing: 5) {
-                            SessionBadgeFlow(badges: card.badges, stacked: true)
+                            SessionBadgeFlow(badges: card.badges, machine: machine, stacked: true)
                             age
                         }
                         .fixedSize(horizontal: true, vertical: true)
@@ -150,6 +155,8 @@ struct SessionCardView: View {
 
 struct SessionBadgeFlow: View {
     let badges: [SessionBadge]
+    /// Paints the machine badge in its machine's color, a dot and an outline (the web's `MachineBadge`).
+    var machine: Color? = nil
     var stacked = false
     var body: some View {
         if stacked {
@@ -160,7 +167,9 @@ struct SessionBadgeFlow: View {
     }
     private var badgeItems: some View {
         ForEach(badges) { badge in
+            let machine = badge.id == "machine" ? self.machine : nil
             HStack(spacing: 4) {
+                if let machine { Circle().fill(machine).frame(width: 5, height: 5) }
                 Text(verbatim: badge.text.uppercased())
                 ForEach(badge.markers) { marker in
                     if let symbol = marker.symbol {
@@ -173,7 +182,7 @@ struct SessionBadgeFlow: View {
             .sessionFont(label: true, weight: .medium)
             .foregroundStyle(SessionListStyle.badgeTint(badge.tint))
             .padding(.horizontal, 5).padding(.vertical, 2)
-            .overlay { RoundedRectangle(cornerRadius: 2).stroke(SessionListStyle.badgeTint(badge.tint), lineWidth: 0.5) }
+            .overlay { RoundedRectangle(cornerRadius: 2).stroke(machine ?? SessionListStyle.badgeTint(badge.tint), lineWidth: 0.5) }
             .accessibilityLabel(Text(verbatim: badge.text))
         }
     }

@@ -323,6 +323,47 @@ test("preview/start: missing local script sends one-time repo setup steer", asyn
   expect(ensured).toBe(false);
 });
 
+test("preview/start: confined session with no script gets the legacy start, not the setup steer", async () => {
+  const replies: string[] = [];
+  const started: string[] = [];
+  const { store } = harness();
+  const id = makeSession(store, "/wt/confined");
+  store.setSandboxState(id, { applied: "standard", degraded: false });
+
+  const app = makeApp({
+    store,
+    service: {
+      reply: async (_id: string, text: string) => {
+        replies.push(text);
+        return true;
+      },
+      startPreview: async (_id: string, command: string) => {
+        started.push(command);
+        return true;
+      },
+    } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    preview: { snapshot: () => ({}) },
+    previewLauncher: {
+      findDevPort: async () => null,
+      scriptExists: async () => false,
+      scriptPath: async () => "/git/shepherd/preview-start.sh",
+      ensureScript: async () => "/git/shepherd/preview-start.sh",
+      startScript: async () => {},
+    },
+  });
+
+  const res = await app.fetch(
+    postJson(`/api/sessions/${id}/preview/start`, { command: "bun run dev" }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ ok: true, mode: "agent", command: "bun run dev" });
+  expect(started).toEqual(["bun run dev"]);
+  expect(replies).toHaveLength(0);
+  expect(store.getRepoConfig("/r").previewStartScript ?? null).toBeNull();
+});
+
 test("preview/start: existing dev port binds preview without spawning or steering", async () => {
   const ensured: { id: string; port: number }[] = [];
   let spawned = false;

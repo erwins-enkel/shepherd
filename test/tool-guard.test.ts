@@ -440,13 +440,18 @@ describe("#2002 the guard is reachable inside the membrane", () => {
     home: "/home/u",
     nodeBinReal: "/usr/lib/node/bin/node",
   };
+  // Every path "exists"; the host git-store prep is stubbed so nothing touches the real fs.
+  const allExist = {
+    exists: () => true,
+    gitStore: { pinCommondir: () => {}, adminDir: () => null },
+  };
 
   it("binds every support path RO at the same path", () => {
     // The notices these paths replace are dropped host-side, so an unbound script would leave a
     // sandboxed session with neither the notice nor the deny.
     const flags = buildMembraneFlags(
       { ...membrane, agentSupportPaths: ["/opt/shepherd/scripts/tool-guard.mjs"] },
-      { exists: () => true },
+      allExist,
     );
     const i = flags.indexOf("/opt/shepherd/scripts/tool-guard.mjs");
     expect(i).toBeGreaterThan(0);
@@ -455,10 +460,8 @@ describe("#2002 the guard is reachable inside the membrane", () => {
   });
 
   it("adds no flags when there are no support paths", () => {
-    const base = buildMembraneFlags(membrane, { exists: () => true });
-    expect(
-      buildMembraneFlags({ ...membrane, agentSupportPaths: [] }, { exists: () => true }),
-    ).toEqual(base);
+    const base = buildMembraneFlags(membrane, allExist);
+    expect(buildMembraneFlags({ ...membrane, agentSupportPaths: [] }, allExist)).toEqual(base);
   });
 });
 

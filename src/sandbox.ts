@@ -16,13 +16,14 @@
  * `*-bind-try` for every host-variable path so an absent source is skipped
  * rather than hard-failing the spawn.
  */
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
 import { claudeConfigPath, dashify } from "./claude-trust";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "./instrument";
 import { CODEX_ROLE_SCHEMA_DIR } from "./codex-role-output-schema";
 import { resolveNodeBin } from "./node-bin";
+import { resolveWorktreePinSync } from "./safe-git";
 import type { EgressBackend } from "./egress";
 
 /** realpath that falls back to the input on any error (broken/missing path). */
@@ -95,7 +96,39 @@ export interface PathProbeDeps {
   exists?: (p: string) => boolean;
   /** Directory listing; default a safe readdirSync wrapper returning [] on error. */
   readdir?: (p: string) => string[];
+  /** Host-side git-store prep for the membrane's carve-outs; default {@link hostGitStore}. */
+  gitStore?: GitStoreDeps;
 }
+
+export interface GitStoreDeps {
+  /** Ensure `<store>/commondir` exists and resolves to the store itself; throws otherwise. */
+  pinCommondir(store: string): void;
+  /** The worktree's own admin dir under `<store>/worktrees` (trusted backlink match).
+   *  @throws UntrustedGitDirError when none matches. */
+  adminDir(repoPath: string, worktreePath: string): string | null;
+}
+
+/**
+ * Git honors a `commondir` file in ANY gitdir and then reads `<target>/config`, so the store's own
+ * must exist (to be bound RO) yet stay a no-op: "." names the store itself. An empty one would make
+ * host git die, so it is written on the host before the spawn, never stubbed by bwrap.
+ */
+const hostGitStore: GitStoreDeps = {
+  pinCommondir(store) {
+    const file = join(store, "commondir");
+    try {
+      writeFileSync(file, ".\n", { flag: "wx" });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+    const target = resolve(store, readFileSync(file, "utf8").trim());
+    if (realpathSync(target) !== realpathSync(store)) {
+      throw new Error(`git store ${store}: commondir points outside the store`);
+    }
+  },
+  adminDir: (repoPath, worktreePath) =>
+    resolveWorktreePinSync(repoPath, worktreePath)?.gitDir ?? null,
+};
 
 /** readdirSync that returns [] on any error (missing dir, perms). */
 function safeReaddir(p: string): string[] {
@@ -562,17 +595,56 @@ function claudeJsonFlags(target: string, copy: string | null | undefined): strin
 }
 
 /**
- * Audit F05 defense in depth: re-bind the git store's `hooks/` and `shepherd/` (preview-start.sh)
- * read-only AFTER its rw bind (bwrap applies binds in order), so an agent can't plant a hook or
- * launcher that host-side git / Shepherd would later run. `config` stays rw — git rewrites it by
- * lock+rename, which a ro bind would break; the host-side invariant lives in src/safe-git.ts.
+ * Audit F05 / run-2 R2-F01 + R2-F06: re-bind the git store's exec-capable state read-only AFTER
+ * its rw bind (bwrap applies binds in order), so an agent can't plant config, a commondir
+ * redirect, a hook, a submodule git dir or a launcher that unconfined host git / Shepherd later
+ * runs. Fail closed — never `-try`: a present path is `--ro-bind`; an absent dir becomes an empty
+ * RO tmpfs and an absent `config.worktree` an empty `/dev/null` file, so the agent can't create it
+ * either (bwrap leaves an empty mount-point stub on the host). `config` and `commondir` (pinned by
+ * {@link hostGitStore}) are required. With config RO, git's own config writes (`push -u`
+ * upstream, `git config`) fail with EBUSY; branch/commit/push still succeed.
  */
-function gitStoreReadOnlyFlags(gitDir: string): string[] {
-  return ["hooks", "shepherd"].flatMap((sub) => [
-    "--ro-bind-try",
-    `${gitDir}/${sub}`,
-    `${gitDir}/${sub}`,
-  ]);
+function gitStoreReadOnlyFlags(
+  gitDir: string,
+  exists: (p: string) => boolean,
+  adminDir: string | null,
+): string[] {
+  const p = (sub: string) => `${gitDir}/${sub}`;
+  const dirs = ["hooks", "shepherd", "modules", "worktrees"].flatMap((sub) =>
+    exists(p(sub)) ? ["--ro-bind", p(sub), p(sub)] : ["--tmpfs", p(sub), "--remount-ro", p(sub)],
+  );
+  const worktreeConfig = exists(p("config.worktree")) ? p("config.worktree") : "/dev/null";
+  return [
+    ...["--ro-bind", p("config"), p("config")],
+    ...["--ro-bind", p("commondir"), p("commondir")],
+    ...["--ro-bind", worktreeConfig, p("config.worktree")],
+    ...dirs,
+    ...ownAdminDirFlags(adminDir),
+  ];
+}
+
+/** Under the RO `worktrees/`, only the session's own admin dir (HEAD, index, logs) is RW again —
+ *  minus its `commondir`, which host git in that worktree would follow. */
+function ownAdminDirFlags(adminDir: string | null): string[] {
+  if (adminDir === null) return [];
+  const commondir = `${adminDir}/commondir`;
+  return ["--bind", adminDir, adminDir, "--ro-bind", commondir, commondir];
+}
+
+/** Host prep + carve-outs for a store bound RW at `store`. The prep only runs for a store that is
+ *  there (an absent one fails the RW bind anyway), so flag-shape tests stay pure. */
+function writableStoreFlags(
+  store: string,
+  inputs: MembraneInputs,
+  exists: (p: string) => boolean,
+  gitStore: GitStoreDeps,
+): string[] {
+  if (exists(store)) gitStore.pinCommondir(store);
+  const adminDir =
+    inputs.isolated && exists(`${store}/worktrees`)
+      ? gitStore.adminDir(inputs.repoPath, inputs.worktreePath)
+      : null;
+  return ["--bind", store, store, ...gitStoreReadOnlyFlags(store, exists, adminDir)];
 }
 
 /** `~/.gitconfig` (commit identity) + `~/.config/gh` (the gh token) RO — task sessions only. A
@@ -585,19 +657,29 @@ function forgeIdentityFlags(home: string, reviewer: boolean | undefined): string
   ];
 }
 
-/** Isolated: the worktree (rw) + the ABSOLUTE shared object store (rw; RO for a reviewer). Else
- *  the whole repo (its .git is inside). Then the store's RO carve-outs either way. */
-function worktreeFlags(inputs: MembraneInputs): string[] {
+/** Isolated: the worktree (rw) + the ABSOLUTE shared object store (rw; RO for a reviewer, which
+ *  needs no carve-outs — and can't take them: no mount point can be made under a RO bind). Else
+ *  the whole repo, plus — only when its `.git` is a real store dir (a gitfile `.git` binds no
+ *  store) — the same store self-bind + carve-outs. */
+function worktreeFlags(
+  inputs: MembraneInputs,
+  exists: (p: string) => boolean,
+  gitStore: GitStoreDeps,
+): string[] {
   if (!inputs.isolated) {
+    const gitDir = `${inputs.repoPath}/.git`;
     return [
       ...["--bind", inputs.repoPath, inputs.repoPath],
-      ...gitStoreReadOnlyFlags(`${inputs.repoPath}/.git`),
+      // Self-bind pins `.git` as a mount point (no rename/replace from inside), as in isolated.
+      ...(exists(`${gitDir}/config`) ? writableStoreFlags(gitDir, inputs, exists, gitStore) : []),
     ];
   }
+  const store = inputs.gitCommonDir;
   return [
     ...["--bind", inputs.worktreePath, inputs.worktreePath],
-    ...[inputs.reviewer ? "--ro-bind" : "--bind", inputs.gitCommonDir, inputs.gitCommonDir],
-    ...gitStoreReadOnlyFlags(inputs.gitCommonDir),
+    ...(inputs.reviewer
+      ? ["--ro-bind", store, store]
+      : writableStoreFlags(store, inputs, exists, gitStore)),
   ];
 }
 
@@ -608,7 +690,8 @@ function worktreeFlags(inputs: MembraneInputs): string[] {
  *
  * Every host-variable path uses `*-bind-try` so an absent source is SKIPPED, not
  * a hard fail. Only paths guaranteed to exist on any Linux host (/usr, /etc) use
- * a plain `--ro-bind`.
+ * a plain `--ro-bind` — plus the git-store carve-outs, which must fail closed
+ * ({@link gitStoreReadOnlyFlags}).
  */
 export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps = {}): string[] {
   const exists = deps.exists ?? existsSync;
@@ -742,7 +825,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push(...(inputs.ingressFiles ?? []).flatMap((p) => ["--ro-bind", p, p]));
 
   // ── worktree / git store ─────────────────────────────────────────────────
-  f.push(...worktreeFlags(inputs));
+  f.push(...worktreeFlags(inputs, exists, deps.gitStore ?? hostGitStore));
 
   // ── env + process hardening ──────────────────────────────────────────────
   // Clear ALL inherited env first, then re-set only what a compliant session needs.

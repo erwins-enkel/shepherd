@@ -991,7 +991,8 @@ describe("SessionService.previewLaunch (F03)", () => {
         const bi = l.argv.findIndex((x, k) => x === "--bind" && l.argv[k + 1] === log);
         expect(l.argv[bi + 2]).toBe(log);
         const roShepherd = l.argv.findIndex(
-          (x, k) => x === "--ro-bind-try" && l.argv[k + 1] === "/repo/.git/shepherd",
+          // Fail-closed RO carve-out: absent on this host → empty RO tmpfs.
+          (x, k) => x === "--remount-ro" && l.argv[k + 1] === "/repo/.git/shepherd",
         );
         expect(roShepherd).toBeGreaterThan(0);
         expect(bi).toBeGreaterThan(roShepherd);

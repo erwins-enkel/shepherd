@@ -45,6 +45,8 @@ function fakeMembrane(over: Partial<MembraneInputs> = {}): MembraneInputs {
 
 // Deterministic path probes: nothing exists.
 const detDeps = { exists: () => false };
+// Host git-store prep stubbed out, for seams that claim the (fake) store exists.
+const noGitStore = { pinCommondir: () => {}, adminDir: () => null };
 
 describe("isSandboxProfile / SANDBOX_PROFILES", () => {
   test("SANDBOX_PROFILES is the three profiles in order", () => {
@@ -424,19 +426,111 @@ describe("buildMembraneFlags", () => {
     ).toBe(false);
   });
 
-  test("git store hooks/ + shepherd/ re-bound read-only AFTER the rw bind (audit F05)", () => {
-    const at = (f: string[], flag: string, p: string) =>
-      f.findIndex((x, i) => x === flag && f[i + 1] === p && f[i + 2] === p);
-    const iso = buildMembraneFlags(fakeMembrane({ isolated: true }), detDeps);
-    const rw = at(iso, "--bind", "/repos/proj/.git");
-    for (const sub of ["hooks", "shepherd"]) {
-      expect(at(iso, "--ro-bind-try", `/repos/proj/.git/${sub}`)).toBeGreaterThan(rw);
-    }
-    const non = buildMembraneFlags(fakeMembrane({ isolated: false }), detDeps);
-    const rwRepo = at(non, "--bind", "/repos/proj");
-    for (const sub of ["hooks", "shepherd"]) {
-      expect(at(non, "--ro-bind-try", `/repos/proj/.git/${sub}`)).toBeGreaterThan(rwRepo);
-    }
+  describe("git store read-only carve-outs (audit F05, run-2 R2-F01/R2-F06)", () => {
+    const at = (f: string[], ...seq: string[]) =>
+      f.findIndex((_, i) => seq.every((x, j) => f[i + j] === x));
+    const G = "/repos/proj/.git";
+    const DIRS = ["hooks", "shepherd", "modules", "worktrees"];
+    // Only the store's `config` exists (a real git dir); every carve-out target is absent.
+    const storeOnly = { exists: (p: string) => p === `${G}/config` };
+    const ADMIN = `${G}/worktrees/wt-1`;
+    const pinned: string[] = [];
+    const gitStore = {
+      pinCommondir: (store: string) => void pinned.push(store),
+      adminDir: () => ADMIN,
+    };
+    const allPresent = { exists: (p: string) => p.startsWith(G), gitStore };
+
+    test("isolated: config RO, absent dirs as RO tmpfs, absent config.worktree as /dev/null — after the rw bind", () => {
+      const f = buildMembraneFlags(fakeMembrane({ isolated: true }), storeOnly);
+      const rw = at(f, "--bind", G, G);
+      expect(rw).toBeGreaterThan(-1);
+      expect(at(f, "--ro-bind", `${G}/config`, `${G}/config`)).toBeGreaterThan(rw);
+      expect(at(f, "--ro-bind", `${G}/commondir`, `${G}/commondir`)).toBeGreaterThan(rw);
+      expect(at(f, "--ro-bind", "/dev/null", `${G}/config.worktree`)).toBeGreaterThan(rw);
+      for (const sub of DIRS) {
+        const p = `${G}/${sub}`;
+        expect(at(f, "--tmpfs", p, "--remount-ro", p)).toBeGreaterThan(rw);
+      }
+    });
+
+    test("isolated: present paths are plain --ro-bind", () => {
+      const f = buildMembraneFlags(fakeMembrane({ isolated: true }), allPresent);
+      for (const sub of [...DIRS, "config", "commondir", "config.worktree"]) {
+        expect(at(f, "--ro-bind", `${G}/${sub}`, `${G}/${sub}`)).toBeGreaterThan(-1);
+      }
+    });
+
+    test("isolated: commondir pinned on the host; only the own admin dir RW under RO worktrees/", () => {
+      pinned.length = 0;
+      const f = buildMembraneFlags(fakeMembrane({ isolated: true }), allPresent);
+      expect(pinned).toEqual([G]);
+      const roWts = at(f, "--ro-bind", `${G}/worktrees`, `${G}/worktrees`);
+      const own = at(f, "--bind", ADMIN, ADMIN);
+      expect(own).toBeGreaterThan(roWts);
+      expect(at(f, "--ro-bind", `${ADMIN}/commondir`, `${ADMIN}/commondir`)).toBeGreaterThan(own);
+    });
+
+    test("an unresolvable admin dir or a redirected commondir fails the build", () => {
+      const fail = (over: object) => () =>
+        buildMembraneFlags(fakeMembrane({ isolated: true }), {
+          exists: allPresent.exists,
+          gitStore: { ...gitStore, ...over },
+        });
+      expect(
+        fail({
+          adminDir: () => {
+            throw new Error("untrusted");
+          },
+        }),
+      ).toThrow("untrusted");
+      expect(
+        fail({
+          pinCommondir: () => {
+            throw new Error("redirect");
+          },
+        }),
+      ).toThrow("redirect");
+    });
+
+    test("isolated: config is bound even when the probe misses it (fails closed)", () => {
+      const f = buildMembraneFlags(fakeMembrane({ isolated: true }), detDeps);
+      expect(at(f, "--ro-bind", `${G}/config`, `${G}/config`)).toBeGreaterThan(-1);
+    });
+
+    test("no git-store path uses a -try bind", () => {
+      for (const deps of [detDeps, storeOnly, allPresent]) {
+        for (const isolated of [true, false]) {
+          const f = buildMembraneFlags(fakeMembrane({ isolated }), deps);
+          f.forEach((x, i) => {
+            if (x.endsWith("-try")) expect(f[i + 1]!.startsWith(`${G}/`)).toBe(false);
+          });
+        }
+      }
+    });
+
+    test("non-isolated: same carve-outs on <repo>/.git after the repo bind", () => {
+      const f = buildMembraneFlags(fakeMembrane({ isolated: false }), storeOnly);
+      const rw = at(f, "--bind", "/repos/proj", "/repos/proj");
+      // .git self-bound (a mount point the agent can't rename away) between the two.
+      const store = at(f, "--bind", G, G);
+      expect(store).toBeGreaterThan(rw);
+      expect(at(f, "--ro-bind", `${G}/config`, `${G}/config`)).toBeGreaterThan(store);
+      for (const sub of DIRS) {
+        expect(at(f, "--tmpfs", `${G}/${sub}`)).toBeGreaterThan(rw);
+      }
+    });
+
+    test("non-isolated with a gitfile .git (no store dir): no carve-outs", () => {
+      const f = buildMembraneFlags(fakeMembrane({ isolated: false }), detDeps);
+      expect(f.some((x) => x.startsWith(`${G}/`))).toBe(false);
+    });
+
+    test("reviewer: store RO, no carve-outs (mount points can't be made under a RO bind)", () => {
+      const f = buildMembraneFlags(fakeMembrane({ isolated: true, reviewer: true }), storeOnly);
+      expect(at(f, "--ro-bind", G, G)).toBeGreaterThan(-1);
+      expect(f.some((x) => x.startsWith(`${G}/`))).toBe(false);
+    });
   });
 
   test("node toolchain root derived from nodeBinReal (linuxbrew)", () => {
@@ -480,7 +574,10 @@ describe("buildMembraneFlags", () => {
     // A mise-managed agent launcher reshims on every invocation; under the bare RO bind that write
     // is EROFS and the agent never starts (the role then burns its whole verdict timeout in
     // silence). bwrap applies ops in order, so the tmpfs is only effective AFTER the bind.
-    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me" }), { exists: () => true });
+    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me" }), {
+      gitStore: noGitStore,
+      exists: () => true,
+    });
     const root = "/home/me/.local/share/mise";
     const bind = f.findIndex((x, j) => x === "--ro-bind-try" && f[j + 1] === root);
     expect(bind).toBeGreaterThanOrEqual(0);
@@ -494,7 +591,10 @@ describe("buildMembraneFlags", () => {
   });
 
   test("mise installs stay read-only — only shims is punched through", () => {
-    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me" }), { exists: () => true });
+    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me" }), {
+      gitStore: noGitStore,
+      exists: () => true,
+    });
     const tmpfsTargets = f.filter((x, j) => f[j - 1] === "--tmpfs" && x.includes("/mise"));
     expect(tmpfsTargets).toEqual(["/home/me/.local/share/mise/shims"]);
   });
@@ -1327,7 +1427,11 @@ describe("buildMembraneFlags shared Claude state (F04/F06)", () => {
   const RW = new Set(["--bind", "--bind-try"]);
   const rwDests = (f: string[]) =>
     f.flatMap((x, i) => (RW.has(x) && i + 2 < f.length ? [f[i + 2]] : []));
-  const allExist = { exists: () => true, readdir: () => ["projects", "shell-snapshots"] };
+  const allExist = {
+    gitStore: noGitStore,
+    exists: () => true,
+    readdir: () => ["projects", "shell-snapshots"],
+  };
 
   for (const [shape, extra] of [
     ["subscription", {}],
@@ -1379,7 +1483,7 @@ describe("buildMembraneFlags shared Claude state (F04/F06)", () => {
   test("own transcript dir follows projectsBindSource (#1213)", () => {
     const f = buildMembraneFlags(
       fakeMembrane({ claudeDir: "/pool/x", projectsBindSource: "/active/projects" }),
-      { exists: () => true },
+      { gitStore: noGitStore, exists: () => true },
     );
     const dash = wt.replace(/[^a-zA-Z0-9]/g, "-");
     expect(hasTriple(f, "--bind", `/active/projects/${dash}`, `/pool/x/projects/${dash}`)).toBe(
@@ -1400,8 +1504,10 @@ describe("buildMembraneFlags reviewer membrane (audit N10)", () => {
       true,
     );
     expect(hasTriple(base, "--bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(true);
-    // Exactly the two 3-token gh/gitconfig binds are gone.
-    expect(f.length).toBe(base.length - 6);
+    // Exactly the two 3-token gh/gitconfig binds and the git-store carve-outs are gone (the store
+    // is RO whole): config + commondir + config.worktree (3 each), hooks/shepherd/modules/worktrees
+    // RO tmpfs (4 each).
+    expect(f.length).toBe(base.length - 6 - 25);
   });
 
   test("reviewer: false is byte-identical to absent", () => {
@@ -1432,6 +1538,7 @@ describe("buildMembraneFlags bun toolchain (#3351)", () => {
   test("bun under a bound mise root: no extra bind, its real dir on PATH after node", () => {
     const bunDir = "/home/me/.local/share/mise/installs/bun/1.4.4/bin";
     const f = buildMembraneFlags(fakeMembrane({ bunBinReal: `${bunDir}/bun` }), {
+      gitStore: noGitStore,
       exists: () => true,
     });
     expect(roBindTargets(f)).not.toContain(bunDir);

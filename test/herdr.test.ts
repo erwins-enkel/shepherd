@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { statSync } from "node:fs";
 import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
@@ -12,6 +13,7 @@ import {
   parseAgents,
   posixShellJoin,
   stopViaRecordedTab,
+  winchRelayPath,
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
@@ -1675,5 +1677,37 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
     expect(
       buildWrappedArgv(["bwrap", "--ro-bind", "/x", "/x", "--", "codex", "exec"]),
     ).not.toContain(PIN);
+  });
+});
+
+// ── resize relay for `bwrap --new-session` ───────────────────────────────────
+// The membrane's setsid cuts the agent off the pane's SIGWINCH; without the relay a sandboxed
+// session keeps painting at its launch width after every resize.
+describe("buildWrappedArgv: resize relay", () => {
+  const RELAY = winchRelayPath();
+
+  test("points at the real, executable relay script", () => {
+    expect(RELAY.endsWith("/scripts/winch-relay.sh")).toBe(true);
+    expect(statSync(RELAY).mode & 0o111).not.toBe(0);
+  });
+
+  test("a --new-session membrane runs behind the relay, after the env shim", () => {
+    const argv = ["bwrap", "--die-with-parent", "--new-session", "--", "claude", "-p"];
+    const w = buildWrappedArgv(argv, { CLAUDE_CONFIG_DIR: "/pool" });
+    expect(w[0]).toBe("env");
+    expect(w.slice(w.indexOf(RELAY))).toEqual([RELAY, "--", ...argv]);
+  });
+
+  test("the relay wraps the egress runner too, so it stays the pane's foreground job", () => {
+    const argv = ["/repo/scripts/egress-runner.sh", "--tmp", "/t", "--", "bwrap", "--new-session"];
+    const w = buildWrappedArgv([...argv, "--", "claude"]);
+    expect(w.slice(w.indexOf(RELAY))).toEqual([RELAY, "--", ...argv, "--", "claude"]);
+  });
+
+  test("trusted and setsid-free spawns stay byte-identical", () => {
+    expect(buildWrappedArgv(["claude", "go"])).not.toContain(RELAY);
+    expect(buildWrappedArgv(["bwrap", "--ro-bind", "/x", "/x", "--", "claude"])).not.toContain(
+      RELAY,
+    );
   });
 });

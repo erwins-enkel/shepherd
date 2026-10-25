@@ -1,4 +1,5 @@
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { timed } from "./instrument";
 import { eachJsonlObject } from "./jsonl";
 
@@ -163,19 +164,37 @@ export function readTranscriptTail(path: string, maxBytes = MAX_TAIL_BYTES): str
       const readBytes = Math.min(size, maxBytes);
       const buf = Buffer.allocUnsafe(readBytes);
       const n = readSync(fd, buf, 0, readBytes, size - readBytes);
-      const text = buf.subarray(0, n).toString("utf8");
-      // started mid-file → drop the leading partial line. nl === -1 means the
-      // whole window is one partial record (a single record > maxBytes): yield ""
-      // → null signal this tick, self-healing once a newer complete record lands.
-      if (size > maxBytes) {
-        const nl = text.indexOf("\n");
-        return nl === -1 ? "" : text.slice(nl + 1);
-      }
-      return text;
+      return tailText(buf.subarray(0, n).toString("utf8"), size > maxBytes);
     } finally {
       closeSync(fd);
     }
   });
+}
+
+/** Started mid-file → drop the leading partial line. nl === -1 means the whole window is one
+ *  partial record (a single record > maxBytes): yield "" → null signal this tick, self-healing
+ *  once a newer complete record lands. */
+function tailText(text: string, truncated: boolean): string {
+  if (!truncated) return text;
+  const nl = text.indexOf("\n");
+  return nl === -1 ? "" : text.slice(nl + 1);
+}
+
+/** {@link readTranscriptTail} off the event loop, for reads repeated per listed session. */
+export async function readTranscriptTailAsync(
+  path: string,
+  maxBytes = MAX_TAIL_BYTES,
+): Promise<string> {
+  const fh = await open(path, "r");
+  try {
+    const { size } = await fh.stat();
+    const readBytes = Math.min(size, maxBytes);
+    const buf = Buffer.allocUnsafe(readBytes);
+    const { bytesRead } = await fh.read(buf, 0, readBytes, size - readBytes);
+    return tailText(buf.subarray(0, bytesRead).toString("utf8"), size > maxBytes);
+  } finally {
+    await fh.close();
+  }
 }
 
 /**

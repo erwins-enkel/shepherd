@@ -7022,6 +7022,24 @@ export class SessionService {
   }
 
   /**
+   * The chat release (#2586): the operator answered an approved planning session in free text
+   * (`POST /api/sessions/:id/reply`) instead of clicking Go — that answer is the go-ahead, so the
+   * session enters execution and its build queue is approved, exactly as Go does. Sends no steer:
+   * the operator's own words already reached the agent. Only the `/reply` route calls this; task
+   * amendments, broadcast and internal steers never release. Returns true on a real transition.
+   */
+  releasePlanOnOperatorReply(id: string): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.planPhase !== "planning") return false;
+    if (!this.deps.store.getPlanGate(id)?.approved) return false;
+    this.#enterExecution(id);
+    // Same predicate as Go: only a session that holds the queue tools has a queue to approve.
+    if (this.deps.store.getRepoConfig(s.repoPath).buildQueueEnabled && !isNonCodeMode(s))
+      this.#approveQueueOnGo(id, "operator");
+    return true;
+  }
+
+  /**
    * Register a launched merge train as LIVE (the train session owns it). `repoPath`
    * scopes which active sessions a reconcile may mark; `prNumbers` is the scoped
    * queue (the PR numbers the train will land). A train is "running" iff it has a

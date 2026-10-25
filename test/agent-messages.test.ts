@@ -7,6 +7,7 @@ import {
   parseClaudeMessages,
   parseCodexMessages,
   sessionMessages,
+  awaitingInput,
 } from "../src/agent-messages";
 import type { SessionStatus } from "../src/types";
 
@@ -263,6 +264,12 @@ describe("sessionMessages", () => {
       includeUser: false,
     });
     expect(gone.unavailable).toBe("file-missing");
+  });
+  test("awaitingInput agrees with sessionMessages, never throws", async () => {
+    expect(await awaitingInput(at("done"), path)).toBe(true);
+    expect(await awaitingInput(at("running"), path)).toBe(false);
+    expect(await awaitingInput(at("done"), null)).toBe(false);
+    expect(await awaitingInput(at("done"), join(dir, "gone.jsonl"))).toBe(false);
   });
   test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
 });

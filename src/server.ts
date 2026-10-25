@@ -281,6 +281,7 @@ import {
 import { sessionActivity } from "./activity";
 import { steerLog } from "./steer-log";
 import { sessionMessages } from "./agent-messages";
+import { SessionPhaseService } from "./session-phase";
 import { firstRun } from "./first-run";
 import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES, MAX_REQUEST_BODY_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
@@ -614,6 +615,9 @@ export interface AppDeps {
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
   codexTranscripts?: CodexTranscriptLocator;
+  /** Derives each session's `phase` (#2586) for the session reads; the `sessionPhases(deps)`
+   *  accessor lazily builds one. */
+  sessionPhases?: SessionPhaseService;
   /** Server-side plugin registry (issue #1124); absent → `/api/plugins/*` 404s and the
    *  Settings → Plugins panel stays hidden (the zero-plugin invariant). */
   pluginRegistry?: PluginRegistry;
@@ -1122,6 +1126,21 @@ function repoConfigSvc(deps: AppDeps): RepoConfigService {
 }
 function codexTranscripts(deps: AppDeps): CodexTranscriptLocator {
   return (deps.codexTranscripts ??= new CodexTranscriptLocator());
+}
+function sessionPhases(deps: AppDeps): SessionPhaseService {
+  return (deps.sessionPhases ??= new SessionPhaseService({
+    store: deps.store,
+    // Read through `deps` on each call: both are wired (and swapped in tests) after construction.
+    prCache: { get: (id) => deps.prCache?.get(id) },
+    blocks: { snapshot: () => deps.blocks?.snapshot() ?? {} },
+    transcriptPath: (s) => transcriptPathFor(s, deps),
+  }));
+}
+/** The transcript the message reads parse: a Codex session has a rollout, not JSONL. */
+function transcriptPathFor(s: Session, deps: AppDeps): string | null {
+  return (s.agentProvider ?? "claude") === "codex"
+    ? codexTranscripts(deps).pathFor(s)
+    : resolveTranscript(s).path;
 }
 function accessTokens(deps: AppDeps): AccessTokenService {
   return (deps.accessTokens ??= new AccessTokenService(deps.store));
@@ -4594,10 +4613,7 @@ async function sessionMessagesRead(id: string, url: URL, deps: AppDeps): Promise
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
   // Same per-provider path ladder as the Activity read: a Codex session has a rollout, not JSONL.
-  const path =
-    (s.agentProvider ?? "claude") === "codex"
-      ? codexTranscripts(deps).pathFor(s)
-      : resolveTranscript(s).path;
+  const path = transcriptPathFor(s, deps);
   const raw = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
   const limit = Number.isNaN(raw)
     ? MESSAGES_DEFAULT_LIMIT
@@ -4658,10 +4674,12 @@ async function sessionRead(key: string, deps: AppDeps): Promise<Response> {
   // By id or designation, archived included: `TASK-1490` is what an operator or the CLI holds (#2590).
   const s = sessionByTaskKey(key, deps);
   if (!s) return json({ error: "not found" }, 404);
-  if (s.status === "archived") return json(s);
+  const phase = await sessionPhases(deps).phaseOf(s);
+  if (s.status === "archived") return json({ ...s, phase });
   return json({
     ...s,
     hasScratchpadFiles: await scratchpadHasFiles(s.worktreePath, s.claudeSessionId),
+    phase,
   });
 }
 
@@ -4739,13 +4757,15 @@ function reachesMachines(url: URL, token: VerifiedToken | null | undefined): boo
 async function sessionListRead({ req, url, deps, token }: Ctx): Promise<Response> {
   if (url.searchParams.get("host") === "local")
     incomingMirrors(deps).refresh(token?.id ?? null, parseMirrorClaim(req.headers));
-  const local = await withScratchpadFlags(
-    deps.store
-      .list({ activeOnly: true })
-      // The Operator Assistant is not herd work: its own route serves it (#1446).
-      .filter(
-        (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
-      ),
+  const local = await sessionPhases(deps).withPhases(
+    await withScratchpadFlags(
+      deps.store
+        .list({ activeOnly: true })
+        // The Operator Assistant is not herd work: its own route serves it (#1446).
+        .filter(
+          (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
+        ),
+    ),
   );
   const remote = mirroredSessions(url, deps, token);
   return conditionalSnapshot(req, remote.length > 0 ? [...local, ...remote] : local);
@@ -5075,7 +5095,12 @@ async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response 
 }
 
 // POST /api/sessions/:id/reply — steer a running session.
-async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleSessionReply({
+  req,
+  parts,
+  deps,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "reply")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
@@ -5089,7 +5114,12 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   // once per session when the message signals epic intent (#1405). Internal steers keep calling
   // service.reply() directly, so they never trip that path.
   const ok = await deps.service.operatorReply(parts[2], (body as { text: string }).text);
-  return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
+  if (!ok) return json({ error: "not found" }, 404);
+  // A reply to an approved planning session is the go-ahead given in chat (#2586) — from the
+  // operator only. A skip-auth caller (the agent ingress, the Operator Assistant's in-process
+  // session_steer) may steer but never release: plan_release and queue_approve are gated apart.
+  if (!agentIngress) deps.service.releasePlanOnOperatorReply(parts[2]);
+  return json({ ok: true });
 }
 
 // ── operator task amendments (issue #2225) ──────────────────────────────────
@@ -6610,6 +6640,7 @@ function mcpDeps(deps: AppDeps): AgentControlDeps {
     ...deps,
     operatorDiag: operatorDiagDeps(deps),
     operatorActions: operatorActionDeps(deps),
+    sessionPhase: (s) => sessionPhases(deps).phaseOf(s),
     ...(browser && {
       openLoginTab: async (repoPath: string, url: string, sessionId: string) => {
         await browser.open(repoPath, url, { sessionId });

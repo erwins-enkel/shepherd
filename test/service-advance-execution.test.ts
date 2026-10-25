@@ -164,3 +164,55 @@ test("regatePlanGate: no-ops off the executing phase, on a gateless session, and
   const ghost = harness({ session: null });
   expect(await ghost.svc.regatePlanGate("ghost")).toBe(false);
 });
+
+// ── releasePlanOnOperatorReply (#2586) ──────────────────────────────────────
+
+function releaseHarness(opts: {
+  session: ReturnType<typeof sess> | null;
+  approved?: boolean;
+  queue?: boolean;
+}) {
+  const h = harness({
+    session: opts.session,
+    gate: opts.approved == null ? null : { approved: opts.approved },
+  });
+  const approvals: { id: string; kind: string }[] = [];
+  const store = (h.svc as any).deps.store;
+  store.getRepoConfig = () => ({ buildQueueEnabled: opts.queue ?? false });
+  store.getBuildQueue = () => ({ approved: false, steps: [] });
+  store.setBuildQueueApproved = (id: string, _a: boolean, kind: string) =>
+    approvals.push({ id, kind });
+  return { ...h, approvals };
+}
+
+test("releasePlanOnOperatorReply: approved planning session → executing, queue approved, no steer", () => {
+  const h = releaseHarness({ session: sess(), approved: true, queue: true });
+  expect(h.svc.releasePlanOnOperatorReply("s1")).toBe(true);
+  expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
+  expect(h.emitted).toContainEqual({
+    event: "session:plangate",
+    data: { id: "s1", planPhase: "executing" },
+  });
+  expect(h.approvals).toEqual([{ id: "s1", kind: "operator" }]);
+  expect(h.sent).toHaveLength(0);
+});
+
+test("releasePlanOnOperatorReply: no build queue → executing, no queue approval", () => {
+  const h = releaseHarness({ session: sess(), approved: true, queue: false });
+  expect(h.svc.releasePlanOnOperatorReply("s1")).toBe(true);
+  expect(h.approvals).toHaveLength(0);
+});
+
+test("releasePlanOnOperatorReply: unapproved, missing gate, executing or unknown → no-op", () => {
+  for (const h of [
+    releaseHarness({ session: sess(), approved: false }),
+    releaseHarness({ session: sess() }),
+    releaseHarness({ session: sess({ planPhase: "executing" }), approved: true }),
+    releaseHarness({ session: sess({ planPhase: null }), approved: true }),
+    releaseHarness({ session: null, approved: true }),
+  ]) {
+    expect(h.svc.releasePlanOnOperatorReply("s1")).toBe(false);
+    expect(h.setPhaseCalls).toHaveLength(0);
+    expect(h.emitted).toHaveLength(0);
+  }
+});

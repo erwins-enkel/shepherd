@@ -496,6 +496,10 @@ components:
       type: string
       enum: [idle, working, blocked, done, unknown]
       x-shepherd-open-enum: true
+    SessionPhase:
+      type: string
+      enum: [planning, plan_ready, working, needs_input, pr_open, idle, finished, halted]
+      x-shepherd-open-enum: true
     SessionArchiveReason:
       type: string
       enum: [operator, merged, drain, relaunch, stale]
@@ -613,6 +617,20 @@ components:
           $ref: "#/components/schemas/SessionStatus"
         lastState:
           $ref: "#/components/schemas/HerdrState"
+        phase:
+          $ref: "#/components/schemas/SessionPhase"
+          description: >-
+            What a session needs, derived server-side (#2586); first match wins: `finished` (archived,
+            PR merged, halted as completed, or autopilot judged the task complete), `halted` (any other
+            halt), `needs_input` (blocked, a live prompt, autopilot handed back a question, an unanswered
+            plan question or plan changes requested, or a turn that ended on a question), `plan_ready`
+            (plan approved, waiting for Go), `planning`, `working` (agent running, also with an open PR),
+            `pr_open` (at rest with an open PR), `idle` (at rest, nothing open). An orchestrator acts on
+            `plan_ready`, `needs_input`, `pr_open`, `halted` and `idle`, and waits on `planning` and
+            `working`.
+            Derived on every read of GET /api/sessions and GET /api/sessions/{id}; never on
+            `/events` frames. Absent from servers before #2586, and on a mirrored session whose
+            machine predates it.
         createdAt: { type: integer }
         updatedAt: { type: integer }
         settledAt: { type: [integer, "null"] }

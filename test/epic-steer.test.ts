@@ -347,6 +347,7 @@ describe("POST /api/sessions/:id/reply", () => {
           calls.push([id, text]);
           return true;
         },
+        releasePlanOnOperatorReply: () => false,
       } as any,
       usageLimits: { limits: () => ({}) } as any,
     };

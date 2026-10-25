@@ -605,6 +605,7 @@ test("assistant actions run the operator's own routes in-process: interrupt and 
   deps.service = {
     interrupt: async (id: string) => (seen.push(`interrupt ${id}`), true),
     operatorReply: async (id: string, text: string) => (seen.push(`reply ${id} ${text}`), true),
+    releasePlanOnOperatorReply: () => false,
   } as unknown as SessionService;
   const assistant = assistantRow(store);
   const worker = workerRow(store);
@@ -650,6 +651,36 @@ test("assistant actions run the operator's own routes in-process: interrupt and 
     }),
   );
   expect(viaIngress.status).toBe(404);
+});
+
+test("session_steer never releases a plan gate: plan_release/queue_approve stay in approve (#2586)", async () => {
+  const saved = config.assistantPermissions;
+  restore = () => (config.assistantPermissions = saved);
+  config.assistantPermissions = { ...saved, steer: "allow", approve: "off" };
+  const { deps, store } = setup();
+  const assistant = assistantRow(store);
+  const worker = workerRow(store);
+  store.setPlanPhase(worker.id, "planning");
+  const released: string[] = [];
+  deps.service = {
+    operatorReply: async () => true,
+    // Does what the real release does, so a call would show in the store.
+    releasePlanOnOperatorReply: (id: string) => {
+      released.push(id);
+      store.setPlanPhase(id, "executing");
+      store.setBuildQueueApproved(id, true, "operator");
+      return true;
+    },
+  } as unknown as SessionService;
+  const app = makeApp(deps);
+  const steered = await callTool(app, assistant.id, "session_steer", {
+    desig: worker.desig,
+    text: "go ahead",
+  });
+  expect(steered.isError).toBe(false);
+  expect(released).toEqual([]);
+  expect(store.get(worker.id)!.planPhase).toBe("planning");
+  expect(store.getBuildQueue(worker.id).approved).toBe(false);
 });
 
 test("an action of a group turned off never reaches its route, even with the route's service wired", async () => {

@@ -164,6 +164,9 @@ finds an archived session by its designation, with `archivedAt` set.
 | `shepherd reviews`                 | Critic reviews running right now, with the provider, model and effort of each    |
 | `shepherd messages <session>`      | The agent's last messages, and the question it waits on (needs a `full` token)   |
 
+Both `sessions list` and `sessions show` report each session's `phase` (the `PHASE` column, the
+`phase` row, or the `phase` field in JSON). See [Session phase](#session-phase).
+
 `messages` reads the agent's transcript on the server (Claude or Codex), so no SSH is needed.
 `-n <N>` sets how many of the newest messages to show (default 5, at most 100). `--include-user`
 adds the user's and the operator's steering messages, which are otherwise left out.
@@ -216,6 +219,46 @@ worktree or enters `.git` is not found (exit `5`).
 shepherd --json git TASK-07 | jq '.worktree | {behindBase, unpushedCount, dirty}'
 shepherd diff TASK-07 --stat -- src/
 shepherd cat TASK-07 .superpowers/plan.md
+```
+
+### Session phase
+
+`phase` says in one field whether a session needs you. `status` doesn't: `done` means the agent
+ended its turn, not that the task is finished. The server derives `phase` on every read of
+`GET /api/sessions` and `GET /api/sessions/{id}`, from the session, its pull request, its plan
+gate, any prompt on screen and the end of the transcript. The MCP `sessions_list` and
+`sessions_show` tools report it too. It is not on `/events` frames, and a server older than the
+CLI leaves it out (`-` in a table). When several rules hold, the first one wins:
+
+| Phase         | Holds when                                                                                                                                      | You     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `finished`    | Archived, PR merged, halted as completed, or autopilot judged the task complete                                                                 | nothing |
+| `halted`      | Halted for any other reason: usage limit, operator or error                                                                                     | act     |
+| `needs_input` | A prompt is on screen, autopilot handed back a question, the plan gate has open questions or requested changes, or the turn ended on a question | act     |
+| `plan_ready`  | Planning, and the plan gate approved the plan                                                                                                   | act     |
+| `planning`    | Planning: writing the plan or under review                                                                                                      | wait    |
+| `working`     | The agent is running, also while a PR is open                                                                                                   | wait    |
+| `pr_open`     | At rest with an open PR                                                                                                                         | act     |
+| `idle`        | At rest with no open PR and no question                                                                                                         | act     |
+
+"Turn ended on a question" is the `awaitingInput` check described under [Read](#read). The
+`phase` itself is readable with a `read` token; the question text still needs `full`.
+
+The usual transitions:
+
+- A plan-gated session starts in `planning`, others in `working`.
+- `planning` → `needs_input` (questions, requested changes) → `planning` → `plan_ready` once the
+  reviewer approves.
+- `plan_ready` → `working` on `shepherd go`, on auto-release, or when you answer the session with
+  `shepherd steer`: a reply to a session whose plan is approved counts as the go-ahead and moves
+  its `planPhase` to `executing`. Task amendments and the Operator Assistant's steer don't. A pull
+  request appearing while still planning moves it to `executing` as well.
+- Each turn ends in `needs_input`, `pr_open` or `idle`, and the next steer goes back to `working`.
+- Any phase → `halted` on a halt, and back on retry.
+- `pr_open` → `finished` when the PR merges. Archiving finishes any session.
+
+```bash
+shepherd --json sessions list | jq -r '.[] | select(.phase | IN("plan_ready","needs_input","pr_open","halted","idle")) | .desig'
 ```
 
 ### Events

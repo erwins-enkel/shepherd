@@ -46,12 +46,15 @@ pub async fn sessions_list(ctx: &mut Ctx<'_>, all: bool) -> Result<()> {
     if ctx.mode == Mode::Json {
         output::json(&mut ctx.io.stdout, &sessions)?;
     } else {
-        let mut t = output::table(&["DESIG", "NAME", "STATUS", "REPO", "BRANCH", "UPDATED"]);
+        let mut t = output::table(&[
+            "DESIG", "NAME", "STATUS", "PHASE", "REPO", "BRANCH", "UPDATED",
+        ]);
         for s in &sessions {
             t.add_row(vec![
                 s.desig.clone(),
                 s.name.clone(),
                 s.status.0.clone(),
+                or_dash(s.phase.as_ref().map(|p| p.0.clone())),
                 repo_name(&s.repo_path).to_string(),
                 or_dash(s.branch.as_ref()),
                 ago(s.updated_at),
@@ -106,12 +109,13 @@ fn print_session(ctx: &mut Ctx<'_>, s: &Session, a: Awaiting) -> Result<()> {
     }
     let awaiting = a.awaiting_input.map(|b| if b { "yes" } else { "no" });
     let mut t = output::table(&["FIELD", "VALUE"]);
-    let rows: [(&str, String); 14] = [
+    let rows: [(&str, String); 15] = [
         ("id", s.id.clone()),
         ("desig", s.desig.clone()),
         ("name", s.name.clone()),
         ("status", s.status.0.clone()),
         ("state", s.last_state.0.clone()),
+        ("phase", or_dash(s.phase.as_ref().map(|p| p.0.clone()))),
         ("repo", s.repo_path.clone()),
         ("branch", or_dash(s.branch.as_ref())),
         ("base", s.base_branch.clone()),

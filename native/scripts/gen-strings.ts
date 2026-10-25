@@ -109,6 +109,7 @@ export const KEYS_CORE: readonly string[] = [
   "native_ios_welcome_subtitle",
   "native_keychain_unavailable",
   "native_keychain_waiting",
+  "native_login_rate_limited",
   "native_login_sheet_title",
   "native_mac_remote_actions_body",
   "native_mac_remote_stale",

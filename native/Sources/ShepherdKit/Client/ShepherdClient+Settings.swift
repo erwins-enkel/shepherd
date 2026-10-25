@@ -180,9 +180,12 @@ extension ShepherdClient {
             switch try await generated.login(.init(body: .json(.init(password: password)))) {
             case .ok: return
             case .unauthorized: throw ShepherdError.unauthenticated
+            case .contentTooLarge(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .tooManyRequests: throw ProfileSetup.LoginError.rateLimited
             case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "login")
             }
-        } catch { throw ShepherdError.from(error, route: "login") }
+        } catch let error as ProfileSetup.LoginError { throw error }
+          catch { throw ShepherdError.from(error, route: "login") }
     }
     public func listAccessTokens() async throws -> Components.Schemas.AccessTokenList {
         do {

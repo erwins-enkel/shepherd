@@ -192,6 +192,26 @@ describe("auth", () => {
     expect(res.status).toBe(401);
   });
 
+  test("POST /api/login 413 (oversized body) and 429 (attempt budget) conform", async () => {
+    const login = (password: string) =>
+      fetch(`${s.baseUrl}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+    try {
+      const big = await login("x".repeat(5000));
+      await validateResponse("POST", "/api/login", big);
+      expect(big.status).toBe(413);
+      let last: Response | undefined;
+      for (let i = 0; i < 10; i++) last = await login("nope");
+      await validateResponse("POST", "/api/login", last!);
+      expect(last!.status).toBe(429);
+    } finally {
+      s.deps.loginAttempts = undefined; // fresh budget for any later login in this file
+    }
+  });
+
   test("bearer token passes the gate; no credential is 401", async () => {
     const ok = await fetch(`${s.baseUrl}/api/settings`, { headers: bearer(token) });
     expect(ok.status).toBe(200);

@@ -1204,6 +1204,7 @@
 "native_local_update_updating" = "Updating backend…";
 "native_local_update_what_body" = "Downloads main, installs dependencies and rebuilds the web UI. A running local server restarts to load the new code; a stopped server stays stopped. Running agent sessions survive in herdr. Local changes must be committed or saved elsewhere first; see the log if the update fails.";
 "native_local_update_what_title" = "What happens during the update?";
+"native_login_rate_limited" = "Too many sign-in attempts. Wait a minute and try again.";
 "native_login_sheet_title" = "Sign in to %1$@";
 "native_mac_remote_actions_body" = "Session actions run on %1$@. Steering templates are saved on the server you are connected to. When the machine is disconnected, session actions are disabled until it reconnects.";
 "native_mac_remote_stale" = "Some data from %1$@ could not be refreshed. The last known state is shown.";

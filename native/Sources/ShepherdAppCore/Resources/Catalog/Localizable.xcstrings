@@ -20718,6 +20718,23 @@
         }
       }
     },
+    "native_login_rate_limited": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Anmeldeversuche. Warte eine Minute und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many sign-in attempts. Wait a minute and try again."
+          }
+        }
+      }
+    },
     "native_login_sheet_title": {
       "comment": "%1$@ = server",
       "extractionState": "manual",

@@ -3,6 +3,7 @@ import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-in
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { recapSummary } from "./recap-core";
 import { PairingCodeService } from "./pairing-codes";
+import { AttemptBudget } from "./attempt-budget";
 import { routeCaller, withGhCaller } from "./forge/gh-caller";
 import { ACCESS_TOKEN_NAME_MAX } from "./access-tokens";
 import { localHealthIdentity } from "./local-health";
@@ -575,6 +576,8 @@ export interface AppDeps {
    *  instance no matter which dispatch entry point the request arrived through. */
   accessTokens?: AccessTokenService;
   pairingCodes?: PairingCodeService;
+  /** Per-peer `POST /api/login` budget (#2105); lazily built like `pairingCodes`. */
+  loginAttempts?: AttemptBudget;
   /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
@@ -1283,7 +1286,7 @@ function maybeRestamp(req: Request, res: Response): Response {
   const headers = new Headers(res.headers);
   headers.append(
     "Set-Cookie",
-    serializeCookie(signCookie(secret), { secure: isSecureRequest(req) }),
+    serializeCookie(signCookie(secret), { secure: isSecureRequest(req, requestPeers.get(req)) }),
   );
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
@@ -1445,16 +1448,53 @@ function repositoryInputError(
   return null;
 }
 
+// Peer identity comes from Bun, never spoofable request headers. Pure dispatch tests share
+// an "unknown" bucket; a reverse proxy also shares its upstream bucket deliberately.
+// Used for the /api/pair + /api/login budgets and isSecureRequest's proxy trust.
+const requestPeers = new WeakMap<Request, string>();
+
 // ── single-operator auth routes (issue #1079) ──────────────────────────────
 // login is the only unauthenticated mutation (isPublicRequest); logout + me sit behind the gate.
 
-async function handleLogin({ req, parts }: Ctx): Promise<Response | null> {
+/** A login body is a single short password; the listener-wide cap is sized for uploads. */
+const LOGIN_MAX_BODY_BYTES = 4096;
+
+/** Read `req`'s body as UTF-8, or null once it exceeds `max` bytes — checked against the declared
+ *  Content-Length first, then while streaming, so a chunked body is never buffered past the cap. */
+async function readCappedText(req: Request, max: number): Promise<string | null> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) return null;
+  if (!req.body) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = req.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      void reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function handleLogin({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "login" || parts[2]) return null;
+  // Admission control before any body buffering or argon2id work (#2105), mirroring /api/pair.
+  if (
+    !(deps.loginAttempts ??= new AttemptBudget()).allowAttempt(requestPeers.get(req) ?? "unknown")
+  ) {
+    return json({ error: "login_rate_limited" }, 429, { "Retry-After": "60" });
+  }
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
+  const text = await readCappedText(req, LOGIN_MAX_BODY_BYTES);
+  if (text === null) return json({ error: "payload too large" }, 413);
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse(text);
   } catch {
     return json({ error: "invalid json" }, 400);
   }
@@ -1471,7 +1511,9 @@ async function handleLogin({ req, parts }: Ctx): Promise<Response | null> {
   const headers = new Headers({ "content-type": "application/json" });
   headers.append(
     "Set-Cookie",
-    serializeCookie(signCookie(config.cookieSecret), { secure: isSecureRequest(req) }),
+    serializeCookie(signCookie(config.cookieSecret), {
+      secure: isSecureRequest(req, requestPeers.get(req)),
+    }),
   );
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
@@ -1479,7 +1521,10 @@ async function handleLogin({ req, parts }: Ctx): Promise<Response | null> {
 function handleLogout({ req, parts }: Ctx): Response | null {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "logout" || parts[2]) return null;
   const headers = new Headers({ "content-type": "application/json" });
-  headers.append("Set-Cookie", clearCookie({ secure: isSecureRequest(req) }));
+  headers.append(
+    "Set-Cookie",
+    clearCookie({ secure: isSecureRequest(req, requestPeers.get(req)) }),
+  );
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
@@ -1500,10 +1545,6 @@ function handleMe({ req, parts, token }: Ctx): Response | null {
       : {}),
   });
 }
-
-// Peer identity comes from Bun, never spoofable request headers. Pure dispatch tests share
-// an "unknown" bucket; a reverse proxy also shares its upstream bucket deliberately.
-const pairingPeers = new WeakMap<Request, string>();
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -1531,7 +1572,7 @@ async function handlePairing({ req, parts, deps }: Ctx): Promise<Response | null
   if (parts[1] === "pairing-codes") {
     return requireOperatorSession(req) ?? json(svc.mint(), 201, NO_STORE);
   }
-  if (!svc.allowAttempt(pairingPeers.get(req) ?? "unknown")) {
+  if (!svc.allowAttempt(requestPeers.get(req) ?? "unknown")) {
     return json({ error: "pairing_rate_limited" }, 429, { "Retry-After": "60" });
   }
   const ctErr = requireJsonContentType(req);
@@ -13000,7 +13041,7 @@ export function serve(deps: AppDeps, port: number) {
     // layer, before the app-level MAX_UPLOAD_BYTES check ever runs.
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     fetch(req, server) {
-      pairingPeers.set(req, server.requestIP(req)?.address ?? "unknown");
+      requestPeers.set(req, server.requestIP(req)?.address ?? "unknown");
       const authErr = checkAuth(req, deps);
       if (authErr instanceof Response) return authErr;
       const tokenId = authErr?.id;

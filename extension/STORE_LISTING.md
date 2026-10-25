@@ -47,12 +47,11 @@ research report (#1359, `docs/research/extension-chrome-web-store-readiness.md` 
 
 ## Per-permission justifications
 
-| Permission  | Justification                                                                                                            |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `activeTab` | Screenshot + read metadata of the current tab, only when the user invokes the action.                                    |
-| `scripting` | Inject the element-picker overlay and the axe-core accessibility audit into the active page on user request.             |
-| `tabs`      | Read the active tab's URL and title to build the capture context and apply URL→repo routing rules.                       |
-| `storage`   | Persist local settings (server base URL, token, repo path, base branch, model, routing rules) in `chrome.storage.local`. |
+| Permission  | Justification                                                                                                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `activeTab` | Screenshot + read the current tab's URL and title (capture context, URL→repo routing), only when the user invokes the action. |
+| `scripting` | Inject the element-picker overlay and the axe-core accessibility audit into the active page on user request.                  |
+| `storage`   | Persist local settings (server base URL, token, repo path, base branch, model, routing rules) in `chrome.storage.local`.      |
 
 ## Host-permission justifications
 

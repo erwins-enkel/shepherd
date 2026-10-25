@@ -148,14 +148,26 @@ test("parseCookie extracts the session value among others", () => {
 
 // ── conditional Secure detection ─────────────────────────────────────────────
 
-test("isSecureRequest: X-Forwarded-Proto https ⇒ true; plain loopback ⇒ false; https url ⇒ true", () => {
+test("isSecureRequest: X-Forwarded-Proto trusted only from a loopback peer; https url ⇒ true", () => {
+  const xfp = () =>
+    new Request("http://127.0.0.1:7330/api/me", { headers: { "x-forwarded-proto": "https" } });
+  expect(isSecureRequest(xfp(), "127.0.0.1")).toBe(true);
+  expect(isSecureRequest(xfp(), "::1")).toBe(true);
+  expect(isSecureRequest(xfp(), "::ffff:127.0.0.1")).toBe(true);
+  // A non-loopback (or unknown) peer could set the header itself (#2109).
+  expect(isSecureRequest(xfp(), "100.64.0.7")).toBe(false);
+  expect(isSecureRequest(xfp(), "::ffff:10.0.0.1")).toBe(false);
+  expect(isSecureRequest(xfp())).toBe(false);
+  // A loopback proxy saying http is honoured even for an https URL.
   expect(
     isSecureRequest(
-      new Request("http://127.0.0.1:7330/api/me", { headers: { "x-forwarded-proto": "https" } }),
+      new Request("https://host.ts.net/api/me", { headers: { "x-forwarded-proto": "http" } }),
+      "127.0.0.1",
     ),
-  ).toBe(true);
-  expect(isSecureRequest(new Request("http://127.0.0.1:7330/api/me"))).toBe(false);
+  ).toBe(false);
+  expect(isSecureRequest(new Request("http://127.0.0.1:7330/api/me"), "127.0.0.1")).toBe(false);
   expect(isSecureRequest(new Request("https://host.ts.net/api/me"))).toBe(true);
+  expect(isSecureRequest(new Request("https://host.ts.net/api/me"), "100.64.0.7")).toBe(true);
 });
 
 // ── fail-closed bootstrap ────────────────────────────────────────────────────

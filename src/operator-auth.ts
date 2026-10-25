@@ -22,8 +22,8 @@ export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ── password (argon2id via Bun.password) ─────────────────────────────────────
 
-/** Hash a plaintext password with argon2id (Bun.password defaults). ~100ms — that cost IS the
- *  brute-force control (no lockout counters, per the settled single-operator threat model). */
+/** Hash a plaintext password with argon2id (Bun.password defaults). ~100ms; together with the
+ *  per-peer `POST /api/login` attempt budget (#2105) that bounds online guessing. */
 export function hashPassword(password: string): Promise<string> {
   return Bun.password.hash(password, { algorithm: "argon2id" });
 }
@@ -146,14 +146,23 @@ export function parseCookie(
   return null;
 }
 
+/** True for a loopback socket address (IPv4 127/8, `::1`, IPv4-mapped 127/8). */
+function isLoopbackPeer(peer: string | null | undefined): boolean {
+  if (!peer) return false;
+  const v4 = peer.startsWith("::ffff:") ? peer.slice(7) : peer;
+  return v4.startsWith("127.") || peer === "::1";
+}
+
 /**
  * Decide whether the response cookie should carry `Secure`, from the request. True when the HUD
  * was reached over HTTPS — either a terminating proxy set `X-Forwarded-Proto: https` (Tailscale
- * serve) or the request URL is itself `https:`. Plain loopback HTTP ⇒ false.
+ * serve) or the request URL is itself `https:`. Plain loopback HTTP ⇒ false. The header is only
+ * honoured from a loopback `peer` (where the local proxy connects from, #2109); any other client
+ * could set it freely, so it then falls back to the URL.
  */
-export function isSecureRequest(req: Request): boolean {
+export function isSecureRequest(req: Request, peer?: string | null): boolean {
   const xfp = req.headers.get("x-forwarded-proto");
-  if (xfp) return xfp.split(",")[0]!.trim().toLowerCase() === "https";
+  if (xfp && isLoopbackPeer(peer)) return xfp.split(",")[0]!.trim().toLowerCase() === "https";
   try {
     return new URL(req.url).protocol === "https:";
   } catch {

@@ -7042,5 +7042,7 @@
   "feat_machine_load_body": "Automatic keeps your machine preference. When that host is busy, a suitable machine with spare capacity can take the new task. The selection explains why; manual choices stay yours.",
   "native_mac_remote_actions_body": "Session actions run on {machine}. Steering templates are saved on the server you are connected to. When the machine is disconnected, session actions are disabled until it reconnects.",
   "native_mac_remote_stale": "Some data from {machine} could not be refreshed. The last known state is shown.",
-  "recap_detail_load_failed": "Recap details could not be loaded."
+  "recap_detail_load_failed": "Recap details could not be loaded.",
+  "login_rate_limited": "Too many sign-in attempts. Wait a minute and try again.",
+  "native_login_rate_limited": "Too many sign-in attempts. Wait a minute and try again."
 }

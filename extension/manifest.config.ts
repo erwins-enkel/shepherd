@@ -68,7 +68,9 @@ export default defineManifest({
     service_worker: "src/background.ts",
     type: "module",
   },
-  permissions: ["activeTab", "scripting", "tabs", "storage"],
+  // No `tabs`: every tab URL/title read is the active tab after a user gesture (popup,
+  // `_execute_action`, picker on that tab), which `activeTab` covers (#2109).
+  permissions: ["activeTab", "scripting", "storage"],
   host_permissions: ["http://localhost:7330/*"],
   // Requested on demand (chrome.permissions.request), never granted at install:
   // - `https://*.ts.net/*` — the configured remote (Tailscale) Shepherd core,

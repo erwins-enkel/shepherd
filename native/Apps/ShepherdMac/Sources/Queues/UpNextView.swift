@@ -12,6 +12,7 @@ struct UpNextView: View {
     @State private var state = UpNextPanelState()
     @State private var command = SessionCommandState()
     @State private var presentationGeneration = 0
+    @State private var filterOpen = false
 
     private var model: QueuesModel? { app.extension(QueuesModel.self) }
     private var repos: Set<String> { app.extension(SidebarModel.self)?.activeRepos ?? [] }
@@ -19,6 +20,10 @@ struct UpNextView: View {
         UpNextPresentation.groups(model?.upNext, sort: state.sort, repos: repos)
     }
     private var items: [UpNextItem] { groups.flatMap(\.items) }
+    private var filterSettings: IssueFilterSettingsModel? { app.extension(IssueFilterSettingsModel.self) }
+    /// nil for a server without the default filter: no filter UI at all.
+    private var filter: IssueFilterSettings? { filterSettings?.value }
+    private var filterSummary: UpNextFilterSummary? { UpNextFilterSummary(model?.upNext) }
 
     var body: some View {
         let run = startRunner()
@@ -34,10 +39,21 @@ struct UpNextView: View {
                 }
                 .fixedSize()
                 .accessibilityIdentifier("queues-upnext-sort")
-                Button(L.t("upnext_refresh")) {
+                Button {
                     Task { await model?.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
+                .help(L.t("upnext_refresh"))
+                .accessibilityLabel(L.t("upnext_refresh"))
+                .accessibilityIdentifier("queues-upnext-refresh")
                 .disabled(model == nil || model?.isRefreshing == true)
+                if let filter { filterButton(filter) }
+            }
+            if let filter { filterChips(filter) }
+            if let error = filterSettings?.error {
+                NoticeBar(message: error, tone: .warning, onDismiss: { filterSettings?.clearError() })
+                    .accessibilityIdentifier("queues-upnext-filter-error")
             }
             if let snapshot = model?.upNext {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -83,9 +99,13 @@ struct UpNextView: View {
         case .failed:
             Text(L.t("common_issues_load_failed")).accessibilityIdentifier("queues-upnext-failed")
         case .empty:
-            Text(repos.isEmpty ? L.t("upnext_empty")
-                 : L.t("upnext_repo_filter_empty", repos.sorted().map(DonePresentation.repoBasename).joined(separator: ", ")))
-                .foregroundStyle(.secondary).accessibilityIdentifier("queues-upnext-empty")
+            if let summary = filterSummary, summary.hidden(repos: repos) > 0 {
+                filteredEmpty(summary)
+            } else {
+                Text(repos.isEmpty ? L.t("upnext_empty")
+                     : L.t("upnext_repo_filter_empty", repos.sorted().map(DonePresentation.repoBasename).joined(separator: ", ")))
+                    .foregroundStyle(.secondary).accessibilityIdentifier("queues-upnext-empty")
+            }
         case .ready:
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
@@ -126,8 +146,14 @@ struct UpNextView: View {
                     Label("#\(parent.number) \(parent.title)", systemImage: "square.stack.3d.up")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text(verbatim: item.repoLabel.isEmpty ? DonePresentation.repoBasename(item.repoPath) : item.repoLabel)
-                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(verbatim: item.repoLabel.isEmpty ? DonePresentation.repoBasename(item.repoPath) : item.repoLabel)
+                    if let tag = UpNextFilterPresentation.forkTag(item) {
+                        Text(verbatim: tag).padding(.horizontal, 5).background(.quaternary, in: Capsule())
+                            .accessibilityIdentifier("queues-upnext-tag-\(UpNextPresentation.key(item))")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     if item.priority { Text(L.t("upnext_pill_priority")).foregroundStyle(.orange) }
                     if item.kind.rawValue == "epic" { Text(L.t("upnext_pill_epic")) }
@@ -142,6 +168,67 @@ struct UpNextView: View {
         }
         .disabled(command.busy)
         .accessibilityIdentifier("queues-upnext-row-\(UpNextPresentation.key(item))")
+    }
+
+    private func filterButton(_ filter: IssueFilterSettings) -> some View {
+        let count = filter.activeRuleCount
+        return Button { filterOpen.toggle() } label: {
+            HStack(spacing: 3) {
+                Image(systemName: count > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(count > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                if count > 0 { Text(verbatim: String(count)).font(.caption.monospacedDigit()) }
+            }
+        }
+        .help(L.t("upnext_filter_title"))
+        .accessibilityLabel(L.t("upnext_filter_button_aria", String(count)))
+        .accessibilityIdentifier("queues-upnext-filter")
+        .popover(isPresented: $filterOpen, arrowEdge: .trailing) {
+            if let settings = filterSettings {
+                UpNextFilterPopover(settings: settings, summary: filterSummary, snapshot: model?.upNext)
+            }
+        }
+    }
+
+    /// The active rules under the title, plus "N hidden", which opens the popover.
+    @ViewBuilder
+    private func filterChips(_ filter: IssueFilterSettings) -> some View {
+        let chips = UpNextFilterPresentation.chips(filter)
+        let hidden = filterSummary?.hidden(repos: repos) ?? 0
+        if !chips.isEmpty || hidden > 0 {
+            HStack(spacing: 6) {
+                ForEach(chips, id: \.self) { chip in
+                    Text(verbatim: chip).padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
+                }
+                if hidden > 0 {
+                    Button(L.t("upnext_filter_hidden_count", String(hidden))) { filterOpen = true }
+                        .buttonStyle(.link)
+                        .accessibilityIdentifier("queues-upnext-filter-hidden")
+                }
+            }
+            .font(.caption)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(L.t("upnext_filter_chips_aria",
+                                    chips.isEmpty ? L.t("upnext_filter_standard") : chips.joined(separator: ", "),
+                                    String(hidden)))
+            .accessibilityIdentifier("queues-upnext-filter-chips")
+        }
+    }
+
+    /// Everything startable is hidden by the default filter: hidden, not done.
+    private func filteredEmpty(_ summary: UpNextFilterSummary) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L.t("upnext_filter_empty_title")).font(.headline)
+            Text(L.t("upnext_filter_empty_body", String(summary.hidden(repos: repos)))).foregroundStyle(.secondary)
+            ForEach(summary.reasons(repos: repos), id: \.self) { reason in
+                Text(verbatim: "• " + reason).font(.caption).foregroundStyle(.secondary)
+            }
+            Button(L.t("upnext_filter_adjust")) { filterOpen = true }
+                .buttonStyle(.link)
+                .accessibilityIdentifier("queues-upnext-filtered-adjust")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("queues-upnext-filtered-empty")
     }
 
     private func batchActions(run: @escaping @MainActor ([UpNextItem]) async -> Void) -> some View {

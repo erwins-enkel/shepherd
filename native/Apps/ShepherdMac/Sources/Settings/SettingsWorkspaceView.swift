@@ -5,6 +5,7 @@ import ShepherdKit
 struct SettingsWorkspaceView: View {
     let model: SettingsModel
     let client: ShepherdClient
+    var issueFilter: IssueFilterSettingsModel?
     var body: some View {
         @Bindable var model = model
         Form {
@@ -37,6 +38,9 @@ struct SettingsWorkspaceView: View {
                 if let parent = listing.parent { Button(L.t("native_settings_parent")) { browse(parent) } }
                 ForEach(listing.entries,id:\.path) { row in Button(row.name) { browse(row.path) } }
                 Button(L.t("native_settings_use_folder")) { model.requestWorkspaceAction("root") }
+            }
+            if let issueFilter {
+                SettingsIssueFilterSection(settings: issueFilter, repos: (model.snapshot?.repos ?? []).filter { !$0.hidden })
             }
         }.padding().disabled(model.busy)
         .confirmationDialog(L.t("native_settings_repo_confirm"),isPresented:Binding(

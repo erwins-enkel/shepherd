@@ -7370,7 +7370,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssuePickerTests.swift\",\"CoreSeamTests.IssuePickerTests\",\"filterCountAndPersistence()\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: #3021 moved the default issue filter to the server; the test now asserts the new rule count (scope, forks, hidden labels) and that nothing persists in UserDefaults, while the default rules write through IssueFilterSettingsModel and author/labels stay view-only"
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IssuePickerTests.swift\",\"IssuePickerTests\",\"hidingBlockedPrunesAnUnavailableSelectedLabel() async\"]",
@@ -7442,7 +7444,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssuePickerTests.swift\",\"CoreSeamTests.IssuePickerTests\",\"stagesAttributeTheFirstEmptyResult()\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: #3021 replaced the hide-others stage with the server's repo-override, scope, forks and hidden-label stages (src/issue-filter.ts order); each stage still empties a one-row list and is attributed, and the active-plus-others row is now attributed to scope"
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LaunchEnvironmentTests.swift\",\"IsolatedLaunchOrphanSweepTests\",\"sweepsOnlyDeadOrphansSharingTheIsolatedPrefix() throws\"]",
@@ -12940,7 +12944,23 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/CredentialGateTests.swift\",\"CredentialGateTests\",\"writesPassThrough() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLiveIdentityTests.swift\",\"LocalServerLiveIdentityTests\",\"liveIdentityHoldsOnlyWhileTheRunningChildAnswersAsItself() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"signingOutOfAnUnverifiedLocalServerRevokesNothingAndClearsTheToken() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"signingOutOfAVerifiedLocalServerRevokesWithTheToken() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"signingOutOfAVerifiedLocalServerRevokesWithTheToken() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterParityTests.swift\",\"CoreSeamTests.IssueFilterParityTests\",\"applyAttributesTheDefaultRulesInServerOrder()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterParityTests.swift\",\"CoreSeamTests.IssueFilterParityTests\",\"hiddenLabelsAreCaseInsensitiveAndAttributedLast()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterParityTests.swift\",\"CoreSeamTests.IssueFilterParityTests\",\"isMineIsAssigneeOrAuthorNeverWithANilViewer()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterParityTests.swift\",\"CoreSeamTests.IssueFilterParityTests\",\"nilViewerFailsOpen()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterParityTests.swift\",\"CoreSeamTests.IssueFilterParityTests\",\"repoOverrides()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterParityTests.swift\",\"CoreSeamTests.IssueFilterParityTests\",\"scopeTimesForks()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"failedWriteRevertsToTheConfirmedValue() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"generatedValueRoundTripsThroughTheMirror() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"loadThenOptimisticWriteSettlesOnTheServerValue() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"patchCarriesOnlyChangedFieldsAndDecodesAsTheGeneratedBody() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"pushReplacesTheValue() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"repoContextResolvesEitherPathForm() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"supersededWriteLeavesTheOutcomeToTheLatest() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"unknownWireValuesFailOpen() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextTests.swift\",\"CoreSeamTests.UpNextTests\",\"defaultFilterSummaryDescribesWhatTheServerHid() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssuePickerTests.swift\",\"CoreSeamTests.IssuePickerTests\",\"serverSideHideBlockedPrunesAnUnavailableSelectedLabel() async\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

@@ -21,7 +21,7 @@ public final class ComposeModel {
             generation += 1
             listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
             viewer = viewers[repoPath]; issuesFailed = false
-            filter.author = nil; filter.labels = []; expanded = false; issueQuery = ""
+            filterAuthor = nil; filterLabels = []; expanded = false; issueQuery = ""
             loading = false
         }
     }
@@ -67,12 +67,35 @@ public final class ComposeModel {
             }
         }
     }
+    /// The server's default issue filter (#3021). Without it (previews, tests, a server lacking the
+    /// setting) the rules stay in memory for this composer only.
+    public var issueFilterSettings: IssueFilterSettingsModel?
+    private var localFilterSettings = IssueFilterSettings.defaults
+    private var filterAuthor: String? = nil
+    private var filterLabels: Set<String> = []
+    private var defaultFilter: IssueFilterSettings { issueFilterSettings?.value ?? localFilterSettings }
+    /// The default rules come from (and write to) the server; author and labels are view-only.
     public var filter: IssueFilterState {
-        didSet {
-            if filter.hideBlocked != oldValue.hideBlocked {
-                filter.labels.formIntersection(Set(labels))
+        get {
+            IssueFilterState(settings: defaultFilter,
+                             // hideBlocked is server-owned and can change elsewhere: a selection whose
+                             // label the picker no longer lists must not keep filtering unseen.
+                             author: filterAuthor, labels: filterLabels.intersection(labels))
+        }
+        set {
+            let old = filter
+            filterAuthor = newValue.author
+            filterLabels = newValue.labels
+            if newValue.settings != old.settings {
+                if let issueFilterSettings, issueFilterSettings.value != nil {
+                    issueFilterSettings.update(newValue.settings.patch(from: old.settings))
+                } else {
+                    localFilterSettings = newValue.settings
+                }
             }
-            persistFilter()
+            if newValue.hideBlocked != old.hideBlocked {
+                filterLabels.formIntersection(Set(labels))
+            }
         }
     }
     public var source: ComposeSource = .issues
@@ -102,7 +125,6 @@ public final class ComposeModel {
         public let provider: AgentProvider
     }
     public private(set) var providerConstraint: ProviderConstraint? { didSet { normalizeRunConfig() } }
-    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let fetchIssues: (String) async throws -> IssueListing
     @ObservationIgnored private let fetchCommands: (String, AgentProvider) async throws -> CommandListing
     @ObservationIgnored private let fetchEpics: (String) async throws -> EpicListing
@@ -121,6 +143,7 @@ public final class ComposeModel {
                   runOn: RunOnModel(client: client))
     }
 
+    /// `defaults` is no longer read: the issue filter lives on the server (#3021).
     init(defaults: UserDefaults, repoBranches: RepoBranchModel, loadIssues: @escaping (String) async throws -> IssueListing,
          loadCommands: @escaping (String, AgentProvider) async throws -> CommandListing,
          loadEpics: @escaping (String) async throws -> EpicListing, attachments: AttachmentModel? = nil,
@@ -133,13 +156,7 @@ public final class ComposeModel {
         self.runDefaults = runDefaults
         self.attachments = attachments ?? AttachmentModel(upload: { _, _ in throw ShepherdError.cancelled })
         self.repoBranches = repoBranches
-        self.defaults = defaults
         fetchIssues = loadIssues; fetchCommands = loadCommands; fetchEpics = loadEpics
-        filter = IssueFilterState(
-            hideOthers: defaults.object(forKey: "shepherd:issues-hide-others") as? Bool ?? true,
-            hideActive: defaults.bool(forKey: "shepherd:issues-hide-active"),
-            hideSubIssues: defaults.object(forKey: "shepherd:issues-hide-subissues") as? Bool ?? true,
-            hideBlocked: defaults.object(forKey: "shepherd:issues-hide-blocked") as? Bool ?? true)
         provider = initialProvider ?? runDefaults.provider
         let safeInitial = initialModel.map {
             ComposeRunConfig.isFable($0) && !runDefaults.fableAvailable ? "default" : $0
@@ -265,13 +282,6 @@ public final class ComposeModel {
         }
     }
 
-    private func persistFilter() {
-        defaults.set(filter.hideOthers, forKey: "shepherd:issues-hide-others")
-        defaults.set(filter.hideActive, forKey: "shepherd:issues-hide-active")
-        defaults.set(filter.hideSubIssues, forKey: "shepherd:issues-hide-subissues")
-        defaults.set(filter.hideBlocked, forKey: "shepherd:issues-hide-blocked")
-    }
-
     public func loadSources() async {
         guard !repoPath.isEmpty, loadedGeneration != generation else { return }
         let mine = generation, repo = repoPath
@@ -355,12 +365,17 @@ public final class ComposeModel {
     public var openCount: Int? { listing?.slug != nil && !issuesFailed ? issues.count : nil }
     public var activeIssue: Issue? { attachedRepoPath == repoPath ? attached : nil }
     public var filteredIssues: (visible: [Issue], emptiedBy: IssueFilter.Stage?) {
-        IssueFilter.apply(issues, viewer: viewer, epicParents: epicParents, subIssues: subIssues, state: filter)
+        IssueFilter.apply(issues, viewer: viewer, epicParents: epicParents, subIssues: subIssues, state: filter,
+                          repo: issueFilterSettings?.repoContext(for: repoPath) ?? .init())
+    }
+    /// Why the filters left nothing, when they did.
+    public var filteredEmptyMessage: String? {
+        filteredIssues.emptiedBy?.message(scope: filter.scope)
     }
     public var authors: [String] { Array(Set(issues.compactMap(\.author))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
     public var labels: [String] {
         Array(Set(issues.flatMap(\.labels))).filter {
-            $0 != "shepherd:active" && (!filter.hideBlocked || !IssueFilter.isBlocked($0))
+            $0 != "shepherd:active" && (!defaultFilter.hideBlocked || !IssueFilter.isBlocked($0))
         }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 

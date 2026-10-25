@@ -102,6 +102,7 @@ public enum StreamRegistrations {
         requiredHost.compose(app)          // S11: composer and session actions
         CoreStreamInstallers.installMerge(into: app)            // S9: composes the sidebar and complete action bar
         Wave2Seams.connect(app)
+        app.register(IssueFilterSettingsModel.self)            // #3021: default issue filter (Up Next, compose, settings)
         CoreStreamInstallers.installSettings(into: app)        // S12: installed after its signal/delivery producers
         SettingsNotificationBridge.git = { $0.extension(HerdSignals.self)?.git ?? [:] }
         SettingsNotificationBridge.reviewing = { app, id in

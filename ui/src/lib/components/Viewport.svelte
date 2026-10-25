@@ -96,6 +96,7 @@
   import EpicDraftPanel from "#lib/components/EpicDraftPanel.svelte";
   import EpicDraftModal from "#lib/components/EpicDraftModal.svelte";
   import AskQuestionDialog from "#lib/components/AskQuestionDialog.svelte";
+  import { openDialogs } from "#lib/open-dialogs.svelte.js";
   import { epicDrafts } from "#lib/epic-draft.svelte.js";
   import SessionRecap from "#lib/components/SessionRecap.svelte";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
@@ -626,7 +627,8 @@
   // AskUserQuestion answer dialog (#3165), listing this session's question first and every other
   // session's beside it. Auto-opens ONCE per tool_use id while this session is shown — closing it
   // is a decision the next block re-emit must not undo — and closes as soon as no question is left
-  // (answered in the terminal, cancelled) or the session switched.
+  // (answered in the terminal, cancelled) or the session switched. Waits while another dialog is
+  // open (e.g. New Task) so it never pulls focus out from under the operator's typing.
   // Hosted down the file next to EpicDraftModal for the same transform reason.
   const askSeen = new SvelteSet<string>();
   let askOpenFor = $state<string | null>(null);
@@ -638,7 +640,7 @@
   });
   $effect(() => {
     const id = ask?.toolUseId ?? null;
-    if (id && !askSeen.has(id)) {
+    if (id && !askSeen.has(id) && (askOpenFor || openDialogs.count === 0)) {
       askSeen.add(id);
       askOpenFor = session.id;
     }

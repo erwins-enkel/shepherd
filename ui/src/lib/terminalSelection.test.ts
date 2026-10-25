@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { trimTrailingWhitespace } from "./terminalSelection";
+import { bufferText, trimTrailingWhitespace } from "./terminalSelection";
 
 describe("trimTrailingWhitespace", () => {
   it("strips trailing spaces after a backslash-continued line (the reported case)", () => {
@@ -34,5 +34,41 @@ describe("trimTrailingWhitespace", () => {
 
   it("returns empty string unchanged", () => {
     expect(trimTrailingWhitespace("")).toBe("");
+  });
+});
+
+describe("bufferText", () => {
+  const buf = (rows: [string, boolean?][]) => ({
+    length: rows.length,
+    getLine: (i: number) =>
+      rows[i] && { translateToString: () => rows[i][0], isWrapped: rows[i][1] ?? false },
+  });
+
+  it("joins rows with newlines and trims each row's padding", () => {
+    expect(bufferText(buf([["$ ls   "], ["a  b    "]]))).toBe("$ ls\na  b");
+  });
+
+  it("joins a soft-wrapped row onto its predecessor without a newline", () => {
+    expect(bufferText(buf([["abcdef"], ["ghi  ", true], ["next"]]))).toBe("abcdefghi\nnext");
+  });
+
+  it("keeps a space at the wrap column of a row the next row continues", () => {
+    const wrapped = {
+      length: 2,
+      getLine: (i: number) =>
+        [
+          { isWrapped: false, translateToString: (trim?: boolean) => (trim ? "fix" : "fix ") },
+          { isWrapped: true, translateToString: () => "the bug" },
+        ][i],
+    };
+    expect(bufferText(wrapped)).toBe("fix the bug");
+  });
+
+  it("drops the blank rows below the last output", () => {
+    expect(bufferText(buf([["out"], ["   "], [""]]))).toBe("out");
+  });
+
+  it("returns an empty string for an empty buffer", () => {
+    expect(bufferText(buf([]))).toBe("");
   });
 });

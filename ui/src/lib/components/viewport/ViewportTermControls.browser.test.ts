@@ -18,6 +18,7 @@ const baseProps = () => ({
   uploadFailed: false,
   attachFiles: () => {},
   onsummon: () => {},
+  onselect: () => {},
 });
 
 afterEach(() => {
@@ -34,6 +35,15 @@ describe("ViewportTermControls attach picker", () => {
     expect(input).not.toBeNull();
     expect(input!.hasAttribute("accept")).toBe(false);
     expect(input!.multiple).toBe(true);
+  });
+});
+
+describe("ViewportTermControls select-text chip", () => {
+  it("opens the select sheet on tap", async () => {
+    const onselect = vi.fn();
+    render(ViewportTermControls, { ...baseProps(), onselect });
+    await page.getByRole("button", { name: "Select text" }).click();
+    expect(onselect).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -51,7 +51,7 @@
     scratchpadDownloadUrl,
   } from "#lib/api.js";
   import { imageFilesFromItems } from "#lib/clipboard.js";
-  import { trimTrailingWhitespace } from "#lib/terminalSelection.js";
+  import { bufferText, trimTrailingWhitespace } from "#lib/terminalSelection.js";
   import { composeKeystrokes } from "#lib/compose.js";
   import { findCommandLinks } from "#lib/slashLinks.js";
   import { desigIndex, findDesigLinks } from "#lib/desigLinks.js";
@@ -109,6 +109,7 @@
   import BrowserPanel from "./viewport/BrowserPanel.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
+  import TerminalSelectSheet from "./viewport/TerminalSelectSheet.svelte";
   import { handleOsc52 } from "#lib/osc52.js";
   import type { BuildQueue, LoginRequest, PendingAsk, PendingPlan } from "#lib/types.js";
   import type { AskEntry } from "#lib/ask-center.js";
@@ -439,6 +440,15 @@
   // Text stashed from an OSC 52 clipboard write that the browser refused (async writes need
   // a user gesture); the ClipboardPill offers a one-click retry that runs inside a real click.
   let pendingCopy = $state<string | null>(null);
+  // Touch select sheet: a plain-text snapshot of the buffer while open (null = closed).
+  // Touch has no xterm selection, so long-press / the Select chip opens it instead.
+  let selectText = $state<string | null>(null);
+  function openSelect() {
+    if (termRef) selectText = bufferText(termRef.buffer.active);
+  }
+  $effect(() => {
+    if (tab !== "term") selectText = null;
+  });
   // true when another device took over this terminal — show a take-over prompt
   let parked = $state(false);
   // true once the current attach has delivered output, i.e. the PTY socket is open and a send
@@ -2325,6 +2335,20 @@
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd);
+    // a stationary long-press opens the select sheet (touch layouts only; read at
+    // fire time so the device props don't become deps of this terminal effect).
+    // longPress cancels on movement, so drag-to-scroll is untouched, and it eats
+    // the trailing click so tap-to-focus doesn't pop the soft keyboard.
+    const selectPress = longPress(el, {
+      onTrigger: () => {
+        if (!(mobile || touch)) return false;
+        openSelect();
+        return selectText !== null;
+      },
+    });
+    // Android Chrome's native long-press contextmenu would touchcancel the timer
+    // above; capture phase so xterm's own handlers can't swallow it first.
+    el.addEventListener("contextmenu", onTriggerContextMenu, true);
 
     // refit after layout settles (mount may start hidden during mobile nav)
     requestAnimationFrame(() => {
@@ -2444,6 +2468,9 @@
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);
+      selectPress.destroy();
+      el?.removeEventListener("contextmenu", onTriggerContextMenu, true);
+      selectText = null;
       el?.removeEventListener("wheel", onWheelTrack, { capture: true });
       typingCounter.destroy();
       stopFling();
@@ -3340,6 +3367,13 @@
       }}
       ondrop={onTermDrop}
     ></div>
+    {#if tab === "term" && selectText !== null}
+      <TerminalSelectSheet
+        text={selectText}
+        fontSize={appliedFontSize}
+        onclose={() => (selectText = null)}
+      />
+    {/if}
     {#if tab === "term" && pendingCopy}
       <ClipboardPill
         text={pendingCopy}
@@ -3571,6 +3605,7 @@
       composeDictate = false;
       composeOpen = true;
     }}
+    onselect={openSelect}
   />
   {#if composeOpen}
     <ComposeBar

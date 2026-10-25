@@ -1,5 +1,5 @@
 ---
-// Twelve-card feature grid — the capabilities you operate. The discipline GATES
+// Fifteen-card feature grid — the capabilities you operate. The discipline GATES
 // (plan gate, critic, merge train, hygiene) live in their own
 // Guardrails section below, so they are not duplicated here. Copy is faithful
 // to the README and the feature-announcement catalog
@@ -16,6 +16,18 @@ const features: Feature[] = [
   {
     title: "Interactive agent control",
     body: "Spawn, watch, and steer a herd of real agent sessions in isolated git worktrees, from your browser or phone.",
+  },
+  {
+    title: "Native iPhone and Mac apps",
+    body: "Run the herd from native SwiftUI apps, not web views. On iPhone: a live terminal, steers, plan gates, answers to agent questions in a native sheet, and push notifications, paired with a QR code. On the Mac: the whole operator loop, with an optional local server.",
+  },
+  {
+    title: "Operator Assistant",
+    body: "Ask in plain words why the herd stalled or an epic won't drain. The assistant reads Shepherd's own state, explains, and starts sessions for you. What else it may change, you decide in Settings. Press ⌘J or Ctrl+J to open it.",
+  },
+  {
+    title: "Multiple machines",
+    body: "Connect the Shepherd on your MacBook as a machine and start tasks there from your usual Shepherd. Tasks that need Xcode go to the Mac on their own, and its sessions show up in your herd.",
   },
   {
     title: "Multi-CLI",

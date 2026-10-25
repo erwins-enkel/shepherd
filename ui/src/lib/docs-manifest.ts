@@ -178,6 +178,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "a native mac app, a terminal cli, production errors and red ci that turn into fix prs, and a fast judge behind shepherd's decisions. shepherd for mac the shepherd cli sentry auto-fix ci watch the judge shepherd in your omarchy bar also new upgrading",
   },
   {
+    title: "What's new since 2.0",
+    path: "/releases/2-5/",
+    keywords:
+      "an iphone app, the operator assistant, tasks on your other machines, a shared logged-in browser, and two rounds of security hardening — the highlights of shepherd 2.1 to 2.5. shepherd for iphone the operator assistant run tasks on another machine shared browser epics and projects more from the cli security hardening also new upgrading",
+  },
+  {
     title: "Shared browser",
     path: "/shared-browser/",
     keywords:

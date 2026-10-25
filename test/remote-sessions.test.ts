@@ -254,6 +254,14 @@ describe("session mirror", () => {
       "session:new",
       expect.objectContaining({ id: S3, remoteSlug: "erwins-enkel/shepherd" }),
     ]);
+    // A slug the machine itself sends is dropped (#3338); only the repo index names a project.
+    t.events.length = 0;
+    const s4 = "5f0e8a52-1c2d-4e3f-8a4b-000000000004";
+    send(socket, "session:new", { ...s3, id: s4, remoteSlug: "evil/forged" });
+    expect(t.events).toHaveLength(1);
+    expect(t.events[0]![1]).toMatchObject({ id: s4 });
+    expect(t.events[0]![1]).not.toHaveProperty("remoteSlug");
+    expect(t.mirror.session(s4)).not.toHaveProperty("remoteSlug");
   });
 
   test("machine-wide, malformed and already-mirrored input is ignored", async () => {
@@ -776,7 +784,11 @@ test("native session state and queue frames keep the owning machine", async () =
       connection: t.mirror.session(S1)!.connection,
     },
   ]);
-  const created = t.mirror.acceptSession(B, { ...s1, id: S3 });
+  // An answer for an ID the request was not forwarded for is annotated but never routed (#3338).
+  const foreign = t.mirror.acceptSession(B, { ...s1, id: S3 }, S1);
+  expect(foreign?.host.instanceId).toBe(B);
+  expect(t.mirror.route(S3)).toBeNull();
+  const created = t.mirror.acceptSession(B, { ...s1, id: S3 }, S3);
   expect(created?.host.instanceId).toBe(B);
   expect(t.mirror.route(S3)?.host.instanceId).toBe(B);
 });

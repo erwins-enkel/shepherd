@@ -287,12 +287,18 @@ export class RemoteSessionMirror {
     return [...this.links.values()].filter((link) => link.connection).map((l) => this.routeOf(l));
   }
 
-  /** An HTTP create can beat session:new. Register its route now without replacing a newer
-   * socket snapshot for an already-known ID. The normal mirror remains the authority. */
-  acceptSession(instanceId: string, session: RemoteRow): MirroredSession | undefined {
+  /** A forwarded answer can beat session:new. Register its route now without replacing a newer
+   * socket snapshot for an already-known ID — but only for the session the request was forwarded
+   * for (#3338): any other ID the machine answers with waits for its own session:new, so a peer
+   * cannot plant routes for IDs it was never asked about. The normal mirror remains the authority. */
+  acceptSession(
+    instanceId: string,
+    session: RemoteRow,
+    forwardedId: string,
+  ): MirroredSession | undefined {
     const link = this.links.get(instanceId);
     if (!link?.connection) return undefined;
-    if (!link.sessions.has(session.id) && UUID_RE.test(session.id)) {
+    if (session.id === forwardedId && !link.sessions.has(session.id) && UUID_RE.test(session.id)) {
       link.sessions.set(session.id, session);
       this.publish(link);
     }
@@ -612,9 +618,12 @@ export class RemoteSessionMirror {
     const git = link.git.get(row.id);
     const remoteSlug =
       typeof row.repoPath === "string" ? link.repoSlugs.get(row.repoPath) : undefined;
+    // Only this side derives `remoteSlug` (#3338): a machine-sent one is dropped, never trusted.
+    const own = { ...row };
+    delete own.remoteSlug;
     return {
       ...(git ? { git } : {}),
-      ...row,
+      ...own,
       ...(remoteSlug ? { remoteSlug } : {}),
       host: link.host,
       connection: link.connection!,

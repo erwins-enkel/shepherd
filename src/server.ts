@@ -1969,7 +1969,7 @@ async function handleRemoteSessionRoute({
   }
   return forwardSessionRequest(req, url, parts, route, {
     annotateSession: deps.remoteSessions.acceptSession
-      ? (session) => deps.remoteSessions!.acceptSession!(route.host.instanceId, session)
+      ? (session) => deps.remoteSessions!.acceptSession!(route.host.instanceId, session, id)
       : undefined,
   });
 }

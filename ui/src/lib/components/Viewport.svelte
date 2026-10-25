@@ -110,7 +110,7 @@
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "#lib/osc52.js";
-  import type { BuildQueue, LoginRequest, PendingAsk } from "#lib/types.js";
+  import type { BuildQueue, LoginRequest, PendingAsk, PendingPlan } from "#lib/types.js";
   import type { AskEntry } from "#lib/ask-center.js";
   import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
@@ -158,6 +158,7 @@
     backgroundBusy = {},
     authUrl = null,
     ask = null,
+    plan = null,
     pendingAsks = [],
     consumeAutoFocusTerm = () => variant !== "assistant",
     drain = null,
@@ -243,6 +244,8 @@
     /** The open AskUserQuestion dialog on this session's block (#3165): auto-opens the native
      *  answer dialog once per tool_use id, and a top strip reopens it. */
     ask?: PendingAsk | null;
+    /** The plan waiting for approval on this session's block (#2779), shown in a top strip. */
+    plan?: PendingPlan | null;
     /** Every session's open question, this one's included: the dialog lists the others beside
      *  this session's `ask` so they can be answered in one go. */
     pendingAsks?: AskEntry[];
@@ -3367,6 +3370,7 @@
       {stranded}
       {authUrl}
       {ask}
+      {plan}
       openAsk={() => (askOpenFor = session.id)}
       sessionId={session.id}
       {loginRequest}

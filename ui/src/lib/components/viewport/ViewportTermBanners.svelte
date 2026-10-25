@@ -1,10 +1,11 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { terminalOwnerTitle } from "#lib/terminal-client.js";
-  import type { LoginRequest, PendingAsk, TerminalClientInfo } from "#lib/types.js";
+  import type { LoginRequest, PendingAsk, PendingPlan, TerminalClientInfo } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerLoginRequest } from "#lib/login-request.js";
   import type { PtyEndReason } from "#lib/pty.js";
+  import PlanApprovalStrip from "./PlanApprovalStrip.svelte";
 
   let {
     tab,
@@ -22,6 +23,7 @@
     stranded = false,
     authUrl = null,
     ask = null,
+    plan = null,
     openAsk,
     sessionId,
     loginRequest = null,
@@ -53,6 +55,8 @@
     /** The open AskUserQuestion dialog (#3165); its strip reopens the answer dialog. */
     ask?: PendingAsk | null;
     openAsk?: () => void;
+    /** The plan waiting for approval (#2779); its strip shows the plan, approval stays in the terminal. */
+    plan?: PendingPlan | null;
     sessionId: string;
     /** The session's open Login Request (#2897) — answered in place with Done/Cancel. */
     loginRequest?: LoginRequest | null;
@@ -113,7 +117,7 @@
     </button>
   </div>
 {/if}
-{#if tab === "term" && !parked && (authUrl || loginRequest || ask)}
+{#if tab === "term" && !parked && (authUrl || loginRequest || ask || plan)}
   <div class="top-strips">
     {#if ask}
       <!-- AskUserQuestion (#3165): the agent waits on a dialog Shepherd can answer natively. The
@@ -132,6 +136,9 @@
           </button>
         </div>
       </div>
+    {/if}
+    {#if plan}
+      <PlanApprovalStrip {plan} {sessionId} />
     {/if}
     {#if authUrl}
       <!-- Non-modal top strip: an MCP OAuth prompt (e.g. Notion/Vercel) whose URL Claude
@@ -232,7 +239,8 @@
 {/if}
 
 <style>
-  /* top-strips: the absolute top anchor; auth + login strips stack when both pend. */
+  /* top-strips: the absolute top anchor; auth + login strips stack when both pend. The shared strip
+     chrome (`auth-*`) is :global under it so a child strip (PlanApprovalStrip, #2779) wears it too. */
   .top-strips {
     position: absolute;
     top: 0;
@@ -247,7 +255,7 @@
      actionable "needs you" state, not a success. The session stalls silently until the
      operator acts, so the strip is deliberately loud: amber-washed surface, slide-down
      entry, and a continuous "breathing" halo (below) for as long as the URL is pending. */
-  .auth-banner {
+  .top-strips :global(.auth-banner) {
     position: relative; /* containing block for the ::after halo */
     isolation: isolate; /* own stacking context: the z-index -1 halo stays above this background */
     display: flex;
@@ -274,7 +282,7 @@
      box-shadow renders outside the border-box only, so nothing inside the strip is
      tinted; z-index -1 keeps it under the text/buttons within the banner's own
      stacking context (isolation above). */
-  .auth-banner::after {
+  .top-strips :global(.auth-banner)::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -302,35 +310,35 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .auth-banner {
+    .top-strips :global(.auth-banner) {
       animation: none;
     }
-    .auth-banner::after {
+    .top-strips :global(.auth-banner)::after {
       /* No motion — the halo rests at a steady mid opacity so the banner still reads
          clearly louder than the terminal behind it. */
       animation: none;
       opacity: 0.6;
     }
   }
-  .auth-icon {
+  .top-strips :global(.auth-icon) {
     color: var(--color-amber);
     font-size: var(--fs-xl);
     line-height: 1;
     flex: none;
   }
-  .auth-text {
+  .top-strips :global(.auth-text) {
     display: flex;
     flex-direction: column;
     gap: 1px;
     min-width: 0; /* let the URL truncate instead of overflowing the row */
     flex: 1 1 auto;
   }
-  .auth-title {
+  .top-strips :global(.auth-title) {
     color: var(--color-ink-bright);
     font-size: var(--fs-lg); /* ≥16px body-text floor */
     line-height: 1.2;
   }
-  .auth-url {
+  .top-strips :global(.auth-url) {
     /* --color-ink, not muted: muted lands marginally under the 4.5:1 AA floor on the
        amber-washed surface (≈4.4:1 in dark and light themes). */
     color: var(--color-ink);
@@ -362,12 +370,12 @@
     line-clamp: 2;
     overflow: hidden;
   }
-  .auth-actions {
+  .top-strips :global(.auth-actions) {
     display: flex;
     gap: 6px;
     flex: none;
   }
-  .auth-btn {
+  .top-strips :global(.auth-btn) {
     min-height: 32px;
     padding: 0 12px;
     border-radius: 6px;
@@ -381,24 +389,24 @@
       background 0.12s ease,
       border-color 0.12s ease;
   }
-  .auth-btn:disabled {
+  .top-strips :global(.auth-btn:disabled) {
     cursor: progress;
     opacity: 0.7;
   }
-  .auth-btn:hover:not(:disabled) {
+  .top-strips :global(.auth-btn:hover:not(:disabled)) {
     background: var(--color-hover);
   }
-  .auth-btn.primary {
+  .top-strips :global(.auth-btn.primary) {
     border-color: color-mix(in srgb, var(--color-amber) 70%, var(--color-line-bright));
     background: color-mix(in srgb, var(--color-amber) 18%, var(--color-bg));
     color: var(--color-ink-bright);
   }
-  .auth-btn.primary:hover {
+  .top-strips :global(.auth-btn.primary:hover) {
     background: color-mix(in srgb, var(--color-amber) 28%, var(--color-bg));
   }
   /* Coarse pointers (touch): 44px tap-target floor. */
   @media (pointer: coarse) {
-    .auth-btn {
+    .top-strips :global(.auth-btn) {
       min-height: 44px;
       padding: 0 16px;
     }

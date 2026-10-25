@@ -67,6 +67,36 @@ describe("IssueFilterSettingsStore", () => {
     expect(store.value).toMatchObject({ scope: "all", forks: "own" });
   });
 
+  test("two failed writes in a row revert to the server-confirmed value", async () => {
+    const rejects: ((e: Error) => void)[] = [];
+    const write = vi.fn(() => new Promise<never>((_, r) => rejects.push(r)));
+    const store = new IssueFilterSettingsStore(vi.fn(), write);
+    store.apply(FILTER);
+    const first = store.update({ scope: "all" });
+    const second = store.update({ scope: "mine" });
+    rejects[0]!(new Error("x"));
+    await first;
+    rejects[1]!(new Error("x"));
+    await second;
+    expect(store.value).toEqual(FILTER);
+  });
+
+  test("a failed write after an earlier success reverts to that success", async () => {
+    let reject!: (e: Error) => void;
+    const write = vi
+      .fn()
+      .mockResolvedValueOnce({ issueFilter: { ...FILTER, scope: "all" } })
+      .mockImplementationOnce(() => new Promise((_, r) => (reject = r)));
+    const store = new IssueFilterSettingsStore(vi.fn(), write);
+    store.apply(FILTER);
+    const first = store.update({ scope: "all" });
+    const second = store.update({ scope: "mine" });
+    await first;
+    reject(new Error("x"));
+    await second;
+    expect(store.value).toEqual({ ...FILTER, scope: "all" });
+  });
+
   test("reset restores the Up Next defaults only", async () => {
     const write = vi.fn().mockRejectedValue(new Error("x"));
     const store = new IssueFilterSettingsStore(vi.fn(), write);

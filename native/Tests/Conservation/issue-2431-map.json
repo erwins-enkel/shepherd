@@ -3742,7 +3742,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionsModelTests.swift\",\"CoreSeamTests.ActionsModelTests\",\"everyReconnectReReadsTheSnapshotAndTeardownStopsThat() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: source read goes through ConnectionBox.read() and the drop waits via settle until the watcher re-read the source (reads > before) instead of trusting the 50-yield window alone (#3363); read-count and no-read-on-drop assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ActionsModelTests.swift\",\"ActionsModelTests\",\"outcomeNoteIsOneShotAndOnlyAnswersItsOwnSessionID()\"]",
@@ -9548,7 +9550,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PlanModelCoreTests.swift\",\"CoreSeamTests.PlanModelTests\",\"reconnectReconcilesAndRearmedWatcherFinishesOnTeardown() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: source read goes through PlanConnectionBox.read() and the fixed 50-yield wait after the drop becomes a settle until the watcher re-read the source (#3363); reconcile and teardown assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/PlanModelTests.swift\",\"PlanModelTests\",\"redundantStartUpdatesEnvironmentWithoutClearingActivity() throws\"]",
@@ -11126,7 +11130,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SidebarModelTests.swift\",\"CoreSeamTests.SidebarModelTests\",\"enteringLiveTriggersExactlyOneReRead() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: source read goes through ConnectionBox.read() and the fixed 20-yield wait after the pre-teardown drop becomes a settle until the watcher re-read the source (#3363); re-read counts retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SidebarModelTests.swift\",\"SidebarModelTests\",\"groupsTalliesAndTheLensAllGoThroughHerdPartition()\"]",

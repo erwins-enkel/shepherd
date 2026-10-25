@@ -299,7 +299,7 @@ struct ActionsModelTests {
             now: { 1_800_000_000_000 })
         let box = ConnectionBox()
         box.state = .connecting
-        m.connectionSource = ConnectionSource(read: { box.state }, abandon: {})
+        m.connectionSource = ConnectionSource(read: { box.read() }, abandon: {})
         m.watchConnection()
 
         box.state = .live
@@ -308,8 +308,12 @@ struct ActionsModelTests {
         #expect(await settle(until: { m.recap(for: "s1") != nil }), "and installs what it read")
 
         // A drop and a retry that never reach `.live` read nothing.
+        let readsBeforeDrop = box.reads
         box.state = .offline(message: "down")
         box.state = .connecting
+        // Wait until the watcher has sampled the drop: a fixed yield count can elapse before a
+        // starved watcher wakes, and one that first looks after `.live` is back sees no drop.
+        #expect(await settle(until: { box.reads > readsBeforeDrop }), "the watcher sees the drop")
         #expect(await settle(until: { counter.count > 1 }, yields: 50) == false)
 
         box.state = .live

@@ -246,13 +246,16 @@ async fn train_status(ctx: &mut Ctx<'_>) -> Result<()> {
     }
     let mut t = output::table(&["REPO", "ENABLED", "STATE", "SESSION", "DETAIL"]);
     for a in &list {
-        t.add_row(vec![
-            a.repo_path.clone(),
-            if a.enabled { "on" } else { "off" }.to_string(),
-            or_dash(a.state.as_ref()),
-            or_dash(a.session_id.as_ref()),
-            or_dash(a.detail.as_ref()),
-        ]);
+        output::add_row(
+            &mut t,
+            [
+                a.repo_path.clone(),
+                if a.enabled { "on" } else { "off" }.to_string(),
+                or_dash(a.state.as_ref()),
+                or_dash(a.session_id.as_ref()),
+                or_dash(a.detail.as_ref()),
+            ],
+        );
     }
     output::print_table(&mut ctx.io.stdout, &t)
 }

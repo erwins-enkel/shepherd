@@ -6,7 +6,6 @@ use std::io::Write;
 use futures::StreamExt;
 use serde_json::json;
 
-use super::read::plain;
 use super::{VersionCheck, list_sessions};
 use crate::api::Client;
 use crate::api::types::{DiffFile, WorktreeStatus};
@@ -57,9 +56,9 @@ fn print_status(ctx: &mut Ctx<'_>, desig: &str, w: &WorktreeStatus, pr: String) 
         ),
     ];
     for (k, v) in rows {
-        t.add_row(vec![k.to_string(), v]);
+        output::add_row(&mut t, [k.to_string(), v]);
     }
-    t.add_row(vec!["pr".to_string(), pr]);
+    output::add_row(&mut t, ["pr".to_string(), pr]);
     let out = &mut ctx.io.stdout;
     output::print_table(out, &t)?;
     if !w.unpushed.is_empty() {
@@ -67,7 +66,7 @@ fn print_status(ctx: &mut Ctx<'_>, desig: &str, w: &WorktreeStatus, pr: String) 
         output::line(out, "unpushed commits (newest first):")?;
         for c in &w.unpushed {
             let sha: String = c.sha.chars().take(10).collect();
-            output::line(out, &format!("  {sha} {}", plain(&c.subject)))?;
+            output::line(out, &format!("  {sha} {}", c.subject))?;
         }
     }
     Ok(())
@@ -139,7 +138,7 @@ fn print_stat(out: &mut dyn Write, files: &[DiffFile]) -> Result<()> {
                 "{:>6} {:>6}  {}{mark}",
                 format!("+{}", f.additions),
                 format!("-{}", f.deletions),
-                plain(&f.path)
+                f.path
             ),
         )?;
     }
@@ -153,8 +152,8 @@ fn print_stat(out: &mut dyn Write, files: &[DiffFile]) -> Result<()> {
 /// line body (a pure rename, an empty added/deleted file, a mode change).
 fn patchless_note(f: &DiffFile) -> String {
     let path = match f.old_path.as_deref() {
-        Some(old) if old != f.path => format!("{} -> {}", plain(old), plain(&f.path)),
-        _ => plain(&f.path),
+        Some(old) if old != f.path => format!("{old} -> {}", f.path),
+        _ => f.path.clone(),
     };
     if f.binary {
         format!("# {path}: binary (+{} -{})", f.additions, f.deletions)
@@ -164,14 +163,14 @@ fn patchless_note(f: &DiffFile) -> String {
             f.additions, f.deletions
         )
     } else {
-        format!("# {path}: {}", plain(&f.status.0))
+        format!("# {path}: {}", f.status.0)
     }
 }
 
 fn print_patches(out: &mut dyn Write, files: &[DiffFile]) -> Result<()> {
     for f in files {
         match &f.patch {
-            Some(patch) => output::line(out, &plain(patch))?,
+            Some(patch) => output::line(out, patch)?,
             None => output::line(out, &patchless_note(f))?,
         }
     }
@@ -244,7 +243,7 @@ pub async fn cat(ctx: &mut Ctx<'_>, key: &str, path: &str) -> Result<()> {
         }
     }
     if ctx.mode == Mode::Human {
-        let shown = plain(&String::from_utf8_lossy(&text));
+        let shown = output::plain(&String::from_utf8_lossy(&text), true);
         ctx.io
             .stdout
             .write_all(shown.as_bytes())

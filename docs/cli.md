@@ -112,7 +112,9 @@ The server's `403` doesn't say which scope was missing. The CLI names it for you
 
 ## Output
 
-- **Tables** when stdout is a terminal.
+- **Tables** when stdout is a terminal. On a terminal, control characters (ANSI/OSC escapes
+  included) and bidi overrides in server, agent and peer text are dropped from stdout and stderr;
+  JSON output is unaltered.
 - **JSON** when stdout is not a terminal, or when you pass `--json`. Each command prints one
   JSON document; list commands such as `sessions list` print one array.
 - **NDJSON** from `events tail`, always.

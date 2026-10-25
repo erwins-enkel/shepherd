@@ -29,14 +29,30 @@ fn write_failed(e: std::io::Error) -> CliError {
     CliError::new(Exit::Failure, format!("cannot write output: {e}"))
 }
 
+/// Server, agent and peer text is untrusted: on a terminal, drop control characters (C0, DEL, C1:
+/// ANSI/OSC escapes included) and bidi overrides so it can't drive or spoof the terminal. `\n` and
+/// `\t` stay when `multiline`, else become a space. JSON output is escaped by serde instead.
+pub fn plain(text: &str, multiline: bool) -> String {
+    text.chars()
+        .filter_map(|c| match c {
+            '\n' | '\t' if multiline => Some(c),
+            '\n' | '\t' => Some(' '),
+            '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' => None,
+            c if c.is_control() => None,
+            c => Some(c),
+        })
+        .collect()
+}
+
+/// One human-mode line, sanitized with [`plain`].
 pub fn line(out: &mut dyn Write, text: &str) -> Result<()> {
-    writeln!(out, "{text}").map_err(write_failed)
+    writeln!(out, "{}", plain(text, true)).map_err(write_failed)
 }
 
 pub fn json(out: &mut dyn Write, value: &impl Serialize) -> Result<()> {
     let text = serde_json::to_string(value)
         .map_err(|e| CliError::new(Exit::Failure, format!("cannot encode JSON: {e}")))?;
-    line(out, &text)
+    writeln!(out, "{text}").map_err(write_failed)
 }
 
 /// Below this width wrapping makes a table unreadable (and a pty with no size reports 0).
@@ -51,6 +67,16 @@ pub fn table(header: &[&str]) -> Table {
     };
     t.set_content_arrangement(arrangement);
     t
+}
+
+/// Adds one row, each cell sanitized to a single line before layout so widths stay right.
+pub fn add_row(table: &mut Table, cells: impl IntoIterator<Item = impl Into<String>>) {
+    table.add_row(
+        cells
+            .into_iter()
+            .map(|c| plain(&c.into(), false))
+            .collect::<Vec<_>>(),
+    );
 }
 
 pub fn print_table(out: &mut dyn Write, table: &Table) -> Result<()> {
@@ -89,6 +115,15 @@ mod tests {
         assert_eq!(Mode::pick(false, true), Mode::Human);
         assert_eq!(Mode::pick(true, true), Mode::Json);
         assert_eq!(Mode::pick(false, false), Mode::Json);
+    }
+
+    #[test]
+    fn plain_drops_controls_and_bidi() {
+        let raw = "a\u{1b}]0;x\u{7}b\u{1b}[2Jc\u{9b}31md\u{7f}e\u{202e}f\u{2066}g\r";
+        assert_eq!(plain(raw, true), "a]0;xb[2Jc31mdefg");
+        assert_eq!(plain("x\ny\tz", true), "x\ny\tz");
+        assert_eq!(plain("x\ny\tz", false), "x y z");
+        assert_eq!(plain("Grüße · ✓ 日本", false), "Grüße · ✓ 日本");
     }
 
     #[test]

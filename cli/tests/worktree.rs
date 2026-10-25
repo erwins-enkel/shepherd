@@ -1,6 +1,6 @@
 mod common;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use serde_json::json;
 use shepherd_cli::test_support::session_json;
 use wiremock::matchers::{method, path, query_param};
@@ -226,4 +226,25 @@ async fn cat_missing_file_is_not_found() {
         h.run(&["--url", &s.uri(), "cat", "TASK-01", "../x"]).await,
         5
     );
+}
+
+#[tokio::test]
+async fn tty_cat_strips_terminal_sequences() {
+    let s = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1/worktree/download"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(format!("{EVIL}\n").into_bytes(), "application/octet-stream"),
+        )
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    let args = ["--url", &s.uri(), "cat", "TASK-01", "a.txt"];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
+    assert_eq!(h.out.text(), "x]0;pwn[2J31my\n");
+    h.assert_clean();
 }

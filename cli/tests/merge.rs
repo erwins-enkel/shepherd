@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use serde_json::json;
 use shepherd_cli::test_support::{repo_config_json, session_json};
 use wiremock::matchers::{body_json, method, path, query_param};
@@ -479,4 +479,24 @@ async fn train_launch_without_ready_prs_is_refused() {
         .filter(|r| r.method.as_str() == "POST")
         .count();
     assert_eq!(posts, 0);
+}
+
+#[tokio::test]
+async fn tty_train_status_strips_terminal_sequences() {
+    let s = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/automerge"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+            "repoPath": EVIL, "enabled": true, "state": "idle", "detail": EVIL,
+            "sessionId": null
+        }])))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    assert_eq!(h.run(&["--url", &s.uri(), "train", "status"]).await, 0);
+    assert!(h.out.text().contains("x]0;pwn"), "{}", h.out.text());
+    h.assert_clean();
 }

@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use serde_json::json;
 use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -320,4 +320,34 @@ async fn parent_zero_is_a_usage_error() {
         let args = ["--url", &s.uri(), "epics", verb, "0", "--repo", "/r"];
         assert_eq!(h.run(&args).await, 2, "{verb}");
     }
+}
+
+#[tokio::test]
+async fn tty_show_strips_terminal_sequences() {
+    let s = MockServer::start().await;
+    let mut epic = epic_json("running", "auto");
+    epic["parentTitle"] = json!(EVIL);
+    epic["warnings"] = json!([EVIL]);
+    epic["children"][0]["title"] = json!(EVIL);
+    Mock::given(method("GET"))
+        .and(path("/api/epic"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(epic))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    let args = [
+        "--url",
+        &s.uri(),
+        "epics",
+        "show",
+        "12",
+        "--repo",
+        "/work/repo",
+    ];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
+    assert!(h.out.text().contains("x]0;pwn"), "{}", h.out.text());
+    h.assert_clean();
 }

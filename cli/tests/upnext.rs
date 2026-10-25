@@ -5,7 +5,7 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use common::Harness;
+use common::{EVIL, Harness};
 use futures::SinkExt;
 use serde_json::{Value, json};
 use shepherd_cli::test_support::session_json;
@@ -40,6 +40,8 @@ fn item(repo: &str, slug: &str, n: i64) -> Value {
 
 fn snapshot() -> Value {
     let a5 = item("alpha", "o/alpha", 5);
+    let mut evil_item = item("beta", "o/beta", 7);
+    evil_item["title"] = json!(EVIL);
     json!({
         "generatedAt": 0, "repoCount": 2, "fallback": null, "failedRepoCount": 0,
         "sections": [
@@ -48,7 +50,7 @@ fn snapshot() -> Value {
             {"kind": "repo", "repoPath": "/work/alpha", "repoSlug": "o/alpha",
              "repoLabel": "alpha", "items": [a5, item("alpha", "o/alpha", 7)], "totalCount": 2},
             {"kind": "repo", "repoPath": "/work/beta", "repoSlug": "o/beta",
-             "repoLabel": "beta", "items": [item("beta", "o/beta", 7)], "totalCount": 1}
+             "repoLabel": "beta", "items": [evil_item], "totalCount": 1}
         ]
     })
 }
@@ -188,6 +190,7 @@ async fn list_refreshes_then_reads_the_changed_snapshot_over_http() {
     // The priority section repeats o/alpha#5; it is listed once.
     assert_eq!(out.matches("o/alpha#5").count(), 1, "{out}");
     assert!(out.contains("o/beta#7"));
+    h.assert_clean();
     assert_eq!(state.reads.lock().unwrap().len(), 2);
 }
 

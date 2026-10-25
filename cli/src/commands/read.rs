@@ -50,28 +50,23 @@ pub async fn sessions_list(ctx: &mut Ctx<'_>, all: bool) -> Result<()> {
             "DESIG", "NAME", "STATUS", "PHASE", "REPO", "BRANCH", "UPDATED",
         ]);
         for s in &sessions {
-            t.add_row(vec![
-                s.desig.clone(),
-                s.name.clone(),
-                s.status.0.clone(),
-                or_dash(s.phase.as_ref().map(|p| p.0.clone())),
-                repo_name(&s.repo_path).to_string(),
-                or_dash(s.branch.as_ref()),
-                ago(s.updated_at),
-            ]);
+            output::add_row(
+                &mut t,
+                [
+                    s.desig.clone(),
+                    s.name.clone(),
+                    s.status.0.clone(),
+                    or_dash(s.phase.as_ref().map(|p| p.0.clone())),
+                    repo_name(&s.repo_path).to_string(),
+                    or_dash(s.branch.as_ref()),
+                    ago(s.updated_at),
+                ],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
     }
     check.finish(ctx.io).await;
     Ok(())
-}
-
-/// Transcript text is untrusted agent output: on a terminal, drop control characters (ANSI escapes
-/// included) so it can't drive the terminal. Newlines and tabs stay. JSON output is escaped anyway.
-pub(super) fn plain(text: &str) -> String {
-    text.chars()
-        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
-        .collect()
 }
 
 async fn get_messages(
@@ -123,14 +118,11 @@ fn print_session(ctx: &mut Ctx<'_>, s: &Session, a: Awaiting) -> Result<()> {
         ("updated", ago(s.updated_at)),
         ("archived", or_dash(s.archived_at.map(ago))),
         ("awaiting", or_dash(awaiting)),
-        (
-            "question",
-            or_dash(a.pending_question.as_deref().map(plain)),
-        ),
+        ("question", or_dash(a.pending_question.as_ref())),
         ("prompt", s.prompt.clone()),
     ];
     for (k, v) in rows {
-        t.add_row(vec![k.to_string(), v]);
+        output::add_row(&mut t, [k.to_string(), v]);
     }
     output::print_table(&mut ctx.io.stdout, &t)
 }
@@ -189,7 +181,7 @@ pub async fn messages(ctx: &mut Ctx<'_>, key: &str, limit: i64, include_user: bo
     } else {
         let out = &mut ctx.io.stdout;
         if let Some(q) = &m.pending_question {
-            output::line(out, &format!("awaiting input: {}", plain(q)))?;
+            output::line(out, &format!("awaiting input: {q}"))?;
         }
         if let Some(reason) = &m.unavailable {
             output::line(out, &format!("(no transcript: {reason})"))?;
@@ -198,8 +190,8 @@ pub async fn messages(ctx: &mut Ctx<'_>, key: &str, limit: i64, include_user: bo
         }
         for msg in &m.messages {
             let when = if msg.ts > 0 { ago(msg.ts) } else { "-".into() };
-            output::line(out, &format!("── {} · {when} ──", plain(&msg.role)))?;
-            output::line(out, &plain(&msg.text))?;
+            output::line(out, &format!("── {} · {when} ──", msg.role))?;
+            output::line(out, &msg.text)?;
         }
     }
     check.finish(ctx.io).await;
@@ -284,7 +276,10 @@ pub async fn holds(ctx: &mut Ctx<'_>) -> Result<()> {
                 .as_ref()
                 .and_then(|p| serde_json::to_string(p).ok())
                 .unwrap_or_else(|| "-".into());
-            t.add_row(vec![label(&sessions, id), reason.code.0.clone(), params]);
+            output::add_row(
+                &mut t,
+                [label(&sessions, id), reason.code.0.clone(), params],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
     }
@@ -318,15 +313,18 @@ pub async fn git(ctx: &mut Ctx<'_>) -> Result<()> {
             "TITLE",
         ]);
         for (id, g) in rows {
-            t.add_row(vec![
-                label(&sessions, id),
-                or_dash(g.number.map(|n| format!("#{n}"))),
-                g.state.0.clone(),
-                or_dash(g.is_draft),
-                g.checks.0.clone(),
-                or_dash(g.mergeable),
-                or_dash(g.title.as_ref()),
-            ]);
+            output::add_row(
+                &mut t,
+                [
+                    label(&sessions, id),
+                    or_dash(g.number.map(|n| format!("#{n}"))),
+                    g.state.0.clone(),
+                    or_dash(g.is_draft),
+                    g.checks.0.clone(),
+                    or_dash(g.mergeable),
+                    or_dash(g.title.as_ref()),
+                ],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
     }
@@ -350,12 +348,15 @@ pub async fn reviews(ctx: &mut Ctx<'_>) -> Result<()> {
         let sessions = sessions.unwrap_or_default();
         let mut t = output::table(&["SESSION", "PROVIDER", "MODEL", "EFFORT"]);
         for r in &inflight.0 {
-            t.add_row(vec![
-                label(&sessions, &r.id),
-                or_dash(r.provider.as_ref().map(|p| p.0.clone())),
-                or_dash(r.model.as_ref()),
-                or_dash(r.effort.as_ref()),
-            ]);
+            output::add_row(
+                &mut t,
+                [
+                    label(&sessions, &r.id),
+                    or_dash(r.provider.as_ref().map(|p| p.0.clone())),
+                    or_dash(r.model.as_ref()),
+                    or_dash(r.effort.as_ref()),
+                ],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
     }

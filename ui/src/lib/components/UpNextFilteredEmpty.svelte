@@ -22,6 +22,9 @@
           hiddenBy.scope > 0 ? m.upnext_filter_empty_by_scope({ count: hiddenBy.scope }) : null,
           hiddenBy.forks > 0 ? m.upnext_filter_empty_by_forks({ count: hiddenBy.forks }) : null,
           hiddenBy.labels > 0 ? m.upnext_filter_empty_by_labels({ count: hiddenBy.labels }) : null,
+          (hiddenBy.repo ?? 0) > 0
+            ? m.upnext_filter_empty_by_repo({ count: hiddenBy.repo ?? 0 })
+            : null,
         ].filter((r) => r !== null)
       : [],
   );

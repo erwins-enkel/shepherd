@@ -45,8 +45,9 @@
     onsettings = undefined,
   }: {
     onbacklog?: () => void;
-    /** Open Settings › Workspace (the default issue filter's full editor, #3019). */
-    onsettings?: () => void;
+    /** Open Settings › Workspace (the default issue filter's full editor, #3019); with
+     *  "repo-overrides", at its per-repo exceptions (#3020). */
+    onsettings?: (focus?: "repo-overrides") => void;
     repoFilter?: ReadonlySet<string>;
     filteredRepo?: string | null;
     launchContext?: UpNextLaunchContext | null;

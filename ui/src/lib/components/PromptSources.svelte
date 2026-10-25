@@ -224,7 +224,11 @@
   // is kept so an empty list can be attributed to the filter that caused it. Scope fails open
   // when the viewer is unknown.
   const issueFilter = $derived(issueFilterSettings.effective);
-  const filterCtx = $derived({ viewer, isFork: repos.isFork(repoPath) });
+  const filterCtx = $derived({
+    viewer,
+    isFork: repos.isFork(repoPath),
+    override: repos.repoOverride(issueFilter.repoOverrides, repoPath),
+  });
   onMount(() => void issueFilterSettings.ensureLoaded());
   // Repo-scoped author + label filters (shared UI recipe with IssuesPanel). Selection is
   // local, reset on repo change and pruned on refresh (see the effects below); options are

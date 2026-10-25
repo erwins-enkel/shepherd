@@ -57,7 +57,7 @@ export const snapshot: UpNextSnapshot = {
   ],
   filter: {
     hiddenCount: 3,
-    hiddenBy: { scope: 1, forks: 1, labels: 1 },
+    hiddenBy: { scope: 1, forks: 1, labels: 1, repo: 0 },
     hiddenByRepo: { "/repo": 3 },
     optionCounts: {
       scope: { all: 3, mine_unassigned: 1, mine: 1 },

@@ -1017,6 +1017,15 @@ describe("UpNextPanel default issue filter", () => {
     await expect.poll(() => filterBtn().getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("links to the per-repo exceptions in Settings (#3020)", async () => {
+    const onsettings = vi.fn();
+    render(UpNextPanel, { onsettings });
+    filterBtn().click();
+    await page.getByRole("button", { name: m.upnext_filter_repo_overrides() }).click();
+    expect(onsettings).toHaveBeenCalledWith("repo-overrides");
+    await expect.poll(() => filterBtn().getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("reverts a failed write", async () => {
     vi.mocked(putIssueFilter).mockRejectedValueOnce(new Error("down"));
     render(UpNextPanel, {});

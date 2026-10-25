@@ -61,11 +61,13 @@ export interface UpNextItem {
 export interface UpNextFilterStats {
   /** Startable items the filter hides. */
   hiddenCount: number;
-  /** Each hidden item counted once, under the first rule that drops it (scope → forks → labels). */
+  /** Each hidden item counted once, under the first rule that drops it: the repo's override (else
+   *  scope → forks), then labels. */
   hiddenBy: Record<IssueFilterRule, number>;
   /** repoPath → hidden items in that repo; repos with none are omitted. */
   hiddenByRepo: Record<string, number>;
-  /** The visible count were that option picked, the other settings unchanged. */
+  /** The visible count were that option picked, the other settings unchanged. Repos with an
+   *  override don't follow the global options, so their items count the same in every option. */
   optionCounts: {
     scope: Record<IssueFilterScope, number>;
     forks: Record<IssueFilterForks, number>;
@@ -306,7 +308,17 @@ function repoCandidates(repo: RepoInput): Candidate[] {
   return out;
 }
 
-type RuleFilter = Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels">;
+/** The rules buildSnapshot applies. `repoOverrides` is keyed by RAW `repoPath` (the service
+ *  reconciles the stored realpath keys first). */
+type RuleFilter = Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels"> &
+  Partial<Pick<IssueFilterSettings, "repoOverrides">>;
+
+/** A repo's candidates, carrying its override (if any) in the filter context. */
+function overriddenCandidates(repo: RepoInput, filter: RuleFilter): Candidate[] {
+  const override = filter.repoOverrides?.[repo.repoPath];
+  const out = repoCandidates(repo);
+  return override ? out.map((c) => ({ ...c, ctx: { ...c.ctx, override } })) : out;
+}
 
 function visibleCount(candidates: Candidate[], filter: RuleFilter): number {
   return candidates.filter((c) => hiddenByRule(c.subject, c.ctx, filter) === null).length;
@@ -329,7 +341,7 @@ function applyFilter(
   filter: RuleFilter,
 ): { visible: UpNextItem[]; stats: UpNextFilterStats } {
   const visible: UpNextItem[] = [];
-  const hiddenBy: Record<IssueFilterRule, number> = { scope: 0, forks: 0, labels: 0 };
+  const hiddenBy: Record<IssueFilterRule, number> = { scope: 0, forks: 0, labels: 0, repo: 0 };
   const hiddenByRepo: Record<string, number> = {};
   for (const c of candidates) {
     const rule = hiddenByRule(c.subject, c.ctx, filter);
@@ -371,7 +383,7 @@ export function buildSnapshot(
 ): UpNextSnapshot {
   const rank = warmRanks(repos);
   const { visible: all, stats } = applyFilter(
-    repos.flatMap((r) => repoCandidates(r)),
+    repos.flatMap((r) => overriddenCandidates(r, filter)),
     filter,
   );
 

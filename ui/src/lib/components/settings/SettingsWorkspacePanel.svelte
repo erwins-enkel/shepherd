@@ -6,6 +6,7 @@
   import HighlightText from "./HighlightText.svelte";
   import SettingsHouseStackBlock from "./SettingsHouseStackBlock.svelte";
   import SettingsIssueFilterBlock from "./SettingsIssueFilterBlock.svelte";
+  import SettingsRepoOverridesBlock from "./SettingsRepoOverridesBlock.svelte";
 
   let {
     repoRoot,
@@ -15,6 +16,7 @@
     onclose,
     query = "",
     payload = null,
+    focusWorkspace = null,
   }: {
     // resolved by the parent's single getSettings() call (no second fetch here):
     // repoRoot drives the initial browse, repoRootDisplay is the current-root label.
@@ -28,6 +30,8 @@
     query?: string;
     /** The parent's single getSettings() payload; seeds the House Stack block. */
     payload?: Settings | null;
+    /** Group to expand + scroll into view on open (the Up Next flyout's link, #3020). */
+    focusWorkspace?: "repo-overrides" | null;
   } = $props();
 
   // the persisted root (display form), authoritative from the parent
@@ -84,6 +88,9 @@
 
 <div class="stack"><SettingsHouseStackBlock {payload} {query} /></div>
 <div class="stack"><SettingsIssueFilterBlock {query} /></div>
+<div class="stack">
+  <SettingsRepoOverridesBlock focus={focusWorkspace === "repo-overrides"} />
+</div>
 
 <style>
   .micro {

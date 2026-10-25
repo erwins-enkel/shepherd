@@ -614,7 +614,10 @@ underneath are:
   allowlist, so an agent can never amend its own task.
 
 - `GET /api/sessions` — list active sessions; `GET /api/sessions/:id/diff`,
-  `/activity`, `/usage` for inspection. `GET /api/sessions/:id/diff/annotations`
+  `/activity`, `/usage` for inspection. The diff is committed-only
+  (`<base>...HEAD`) by default; `?worktree=1` (or `true`) diffs the merge-base
+  against the working tree instead, so uncommitted tracked edits are included
+  (untracked files are not). `GET /api/sessions/:id/diff/annotations`
   returns best-effort per-line Diff-tab annotations (agent reasoning anchored to
   changed lines plus routed critic findings) as `{ "notes": [...] }`; it degrades
   to an empty list on any error rather than failing.
@@ -651,6 +654,13 @@ underneath are:
   resolve outside the worktree are surfaced as non-navigable `linkOutside`
   entries rather than dropped. There is no worktree upload route; both `404` on
   a missing/archived session.
+- `GET /api/sessions/:id/worktree/status` — live git state of the session's
+  worktree against its base (resolved the same way as `/diff`): `base`,
+  `baseRef`, `fetchFailed`, `head`, `headSha`, `mergeBase`, `baseSha`,
+  `behindBase`, `aheadOfBase`, `upstream` (`null` = never pushed),
+  `unpushedCount`, `unpushed` (`[{ sha, subject, authoredAt }]`, newest first,
+  capped) and `dirty`. Git fields are `null` for a non-isolated session. `404` on
+  a missing/archived session; a git failure answers `500`.
 - `POST /api/sessions/:id/scratchpad/upload[?path=<relDir>]` — upload an
   arbitrary binary file (multipart `file` field, no MIME restriction) into the
   session's scratchpad. `?path` selects a relative subdirectory within the

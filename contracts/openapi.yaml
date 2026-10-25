@@ -779,6 +779,14 @@ components:
             freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when
             it cannot be used. baseBranch stays the PR target. null or absent = resolve from
             baseBranch.
+        afterSession:
+          type: [string, "null"]
+          pattern: "^[A-Za-z0-9-]{1,64}$"
+          description: >-
+            Predecessor task (#2589), by session id or designation (TASK-07). Until its PR has
+            landed (merged, or squash-merged into its epic's integration branch) the task is held
+            (200 HeldTask with reason `after`) and spawns once it lands. Already landed → spawns
+            now. Unknown → 404 after_not_found; archived without landing → 409 after_not_landed.
         prompt: { type: string, minLength: 1, maxLength: 8000 }
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
@@ -852,6 +860,8 @@ components:
         held: { type: boolean, const: true }
         id: { type: string }
         count: { type: integer }
+        reason:
+          $ref: "#/components/schemas/HeldReason"
         host:
           $ref: "#/components/schemas/SessionHost"
         waiting: { type: boolean, const: true }
@@ -4226,7 +4236,7 @@ components:
     # Why this task is held (src/types.ts:1537-1545). usage is the usage gate; capacity is a plugin refusing for want of an account. The list is ordered ORDER BY (reason = 'capacity'), createdAt ASC — capacity holds sort last, everything else is FIFO.
     HeldReason:
       type: "string"
-      enum: ["usage", "capacity"]
+      enum: ["usage", "capacity", "after"]
       x-shepherd-open-enum: true
     HeldQueueInput:
       type: "object"
@@ -4235,6 +4245,19 @@ components:
       properties:
         repoPath: { "type": "string" }
         baseBranch: { "type": "string" }
+        afterSession:
+          type: [string, "null"]
+          pattern: "^[A-Za-z0-9-]{1,64}$"
+          description: >-
+            Predecessor task (#2589), by session id or designation (TASK-07). Until its PR has
+            landed (merged, or squash-merged into its epic's integration branch) the task is held
+            (200 HeldTask with reason `after`) and spawns once it lands. Already landed → spawns
+            now. Unknown → 404 after_not_found; archived without landing → 409 after_not_landed.
+        afterSessionId:
+          type: string
+          description: >-
+            Server-owned: the resolved predecessor session id an `after` hold waits on. Kept across
+            PATCH /api/held/{id} edits.
         baseCommit:
           type: [string, "null"]
           pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
@@ -4300,6 +4323,9 @@ components:
         input: { "$ref": "#/components/schemas/HeldQueueInput" }
         createdAt: { "type": "integer" }
         reason: { "$ref": "#/components/schemas/HeldReason" }
+        afterDesig:
+          type: [string, "null"]
+          description: "Designation of the predecessor an `after` hold waits on (#2589); null once that session is gone. Absent on other holds."
       description: "One row of GET /api/held. NOT the same object as the core HeldTask schema, which is the {held, id, count} answer POST /api/sessions gives when the gate trips. input is the create payload the task will spawn with, so editing a held task is editing this object."
     HeldQueueList:
       type: "array"
@@ -7276,7 +7302,7 @@ paths:
         "200":
           description: >-
             Usage hold tripped — queued as a held task instead of spawned (with `host`: held on
-            that machine). With `waiting`: chosen automatically for a machine that is out of
+            that machine), or waiting on its afterSession predecessor (reason `after`). With `waiting`: chosen automatically for a machine that is out of
             reach, the task waits here for it (#2775).
           content:
             application/json:
@@ -7289,13 +7315,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Session"
         "400":
-          description: Invalid input (see error text).
+          description: >-
+            Invalid input (see error text). Also afterSession with a target naming another machine
+            (after_remote): a dependent task runs where its predecessor lives, so the automatic
+            choice keeps it here.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: afterSession names no task (after_not_found).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
           description: >-
             First run pending, name taken, worktree occupied, or herdr restart required (see
@@ -7307,7 +7342,8 @@ paths:
             machine confirmed it and never starts under that key (remote_dispatch_canceled), or it
             was canceled here but the machine has not confirmed the cancel yet — the task may have
             reached it first and be running there; it is not sent again
-            (remote_dispatch_cancel_pending).
+            (remote_dispatch_cancel_pending). With afterSession also: the predecessor was archived
+            without its PR landing (after_not_landed).
           content:
             application/json:
               schema:

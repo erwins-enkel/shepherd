@@ -1237,6 +1237,25 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
     document.documentElement.style.removeProperty("--ui-scale");
   });
 
+  it("names the predecessor an after hold waits on (#2589)", async () => {
+    render(
+      TopBarHeldBadge,
+      props({
+        heldItems: [
+          { ...task, reason: "after", afterDesig: "TASK-1490" },
+          { ...task, id: "held-gone", reason: "after", afterDesig: null },
+          { ...task, id: "held-usage", reason: "usage" },
+        ],
+      }),
+    );
+    await nextFrame();
+    const labels = [...document.querySelectorAll(".held-row-after")].map((e) => e.textContent);
+    expect(labels).toEqual([
+      m.topbar_held_after({ task: "TASK-1490" }),
+      m.topbar_held_after_unknown(),
+    ]);
+  });
+
   it.each(["en", "de"] as const)(
     "shows the issue title without a click in a compact desktop row in %s",
     async (language) => {

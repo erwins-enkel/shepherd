@@ -895,6 +895,7 @@
 "native_firstrun_failed" = "Shepherd could not use that folder: %1$@";
 "native_firstrun_title" = "Choose your workspace folder";
 "native_held_discard_confirm" = "Discard this held task?";
+"native_held_reason_after" = "Held until its predecessor's PR lands.";
 "native_held_reason_capacity" = "Held because no account has capacity.";
 "native_held_reason_unknown" = "Held — reason unavailable.";
 "native_held_reason_usage" = "Held because usage is high.";

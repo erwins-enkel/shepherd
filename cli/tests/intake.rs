@@ -181,6 +181,25 @@ async fn held_list_spawn_discard() {
 }
 
 #[tokio::test]
+async fn held_list_names_the_predecessor_of_an_after_hold() {
+    let s = MockServer::start().await;
+    let mut row = held_json("h2");
+    row["reason"] = json!("after");
+    row["afterDesig"] = json!("TASK-1490");
+    Mock::given(method("GET"))
+        .and(path("/api/held"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([row])))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    assert_eq!(h.run(&["--url", &s.uri(), "held", "list"]).await, 0);
+    assert!(h.out.text().contains("after TASK-1490"), "{}", h.out.text());
+}
+
+#[tokio::test]
 async fn held_needs_submit_scope() {
     let s = MockServer::start().await;
     Mock::given(method("GET"))

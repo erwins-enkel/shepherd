@@ -420,6 +420,28 @@ describe("sessions", () => {
     expect(bad.status).toBe(400);
   });
 
+  test("POST /api/sessions afterSession: held (200), unknown (404), unlanded archive (409)", async () => {
+    const pred = await createSession("predecessor");
+    const held = await post({ prompt: "dependent", afterSession: pred.desig });
+    const body = (await validateResponse("POST", "/api/sessions", held)) as {
+      id: string;
+      reason?: string;
+    };
+    expect(held.status).toBe(200);
+    expect(body.reason).toBe("after");
+    s.deps.store.removeHeldTask(body.id);
+
+    const missing = await post({ prompt: "dependent", afterSession: "TASK-99999" });
+    await validateResponse("POST", "/api/sessions", missing);
+    expect(missing.status).toBe(404);
+
+    const gone = await createSession("abandoned predecessor");
+    s.deps.store.archive(gone.id, "operator");
+    const dead = await post({ prompt: "dependent", afterSession: gone.id });
+    await validateResponse("POST", "/api/sessions", dead);
+    expect(dead.status).toBe(409);
+  });
+
   test("POST /api/sessions is 409 while first run is pending", async () => {
     firstRun.pending = true;
     try {

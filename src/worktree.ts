@@ -615,6 +615,70 @@ export class WorktreeMgr {
     return null; // no usable base ref → unknown
   }
 
+  /** Fetch `origin/<baseBranch>` in the (trusted) main checkout and return its tip sha, or null
+   *  when the branch name is unsafe or no usable ref exists. A worktree shares the main checkout's
+   *  refs, so one fetch serves every session on that base (#2589). */
+  async baseTip(repoPath: string, baseBranch: string): Promise<string | null> {
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(baseBranch)) return null;
+    try {
+      await timedAsync("git fetch", () =>
+        execGit(["fetch", "origin", "--", baseBranch], { cwd: repoPath, timeout: 60_000 }),
+      );
+    } catch {
+      /* offline / no origin — compare against whatever remote ref is local */
+    }
+    try {
+      const { stdout } = await execGit(
+        ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${baseBranch}^{commit}`],
+        { cwd: repoPath, timeout: 10_000 },
+      );
+      return stdout.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Commits reachable from `tip` but neither from the worktree's HEAD nor from `exclude` (a
+   *  commit the session was already told about): `total` and the newest `max` as `<short> <subject>`
+   *  lines. Retries without `exclude` if it no longer resolves. null when git can't answer. */
+  async commitsMissingFromHead(
+    repoPath: string,
+    worktreePath: string,
+    tip: string,
+    exclude: string | null,
+    max: number,
+  ): Promise<{ total: number; lines: string[] } | null> {
+    let pin: GitPin | null;
+    try {
+      pin = await resolveWorktreePin(repoPath, worktreePath);
+    } catch {
+      return null;
+    }
+    const run = async (range: string[]) => {
+      const opts = { cwd: worktreePath, pin, timeout: 10_000 };
+      const count = await execGit(["rev-list", "--count", ...range, "--"], opts);
+      const log = await execGit(
+        ["log", `--max-count=${max}`, "--format=%h %s", ...range, "--"],
+        opts,
+      );
+      return {
+        total: Number(count.stdout.trim()) || 0,
+        lines: log.stdout.split("\n").filter((l) => l.length > 0),
+      };
+    };
+    const base = [tip, "^HEAD"];
+    try {
+      return await run(exclude ? [...base, `^${exclude}`] : base);
+    } catch {
+      if (!exclude) return null;
+    }
+    try {
+      return await run(base);
+    } catch {
+      return null;
+    }
+  }
+
   /** Whether `sha` is reachable from the branch tip checked out at `worktreePath`
    *  — i.e. the commit genuinely belongs to this session's branch. Used to reject
    *  a PR that `gh pr list --head <name>` matched purely on branch NAME: a prior,

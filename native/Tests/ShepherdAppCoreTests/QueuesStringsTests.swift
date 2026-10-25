@@ -28,7 +28,7 @@ struct QueuesStringsTests {
         "restore_not_archived", "retry_continue_steer", "retry_empty",
         "retry_failed", "retry_halted_badge", "retry_title",
         "toast_held_edit_saved", "toast_revive_all", "toast_revive_all_failed",
-        "native_held_reason_usage", "native_held_reason_capacity", "native_held_reason_unknown",
+        "native_held_reason_usage", "native_held_reason_capacity", "native_held_reason_after", "native_held_reason_unknown",
         "native_held_discard_confirm", "topbar_held_discard", "topbar_held_discard_failed", "topbar_held_discarding",
         "topbar_held_edit", "topbar_held_empty", "topbar_held_spawn_cli_label",
         "topbar_held_spawn_failed", "topbar_held_spawn_now", "topbar_held_spawning",

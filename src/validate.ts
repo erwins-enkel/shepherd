@@ -64,6 +64,7 @@ const ALLOWED_KEYS = new Set([
   "bootstrap",
   "mergeTrainPrs",
   "baseCommit",
+  "afterSession",
   "requirements",
   "placement",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
@@ -752,6 +753,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   bootstrap: boolean;
   mergeTrainPrs: number[] | undefined;
   baseCommit: string | undefined;
+  afterSessionId: string | undefined;
   requirements: Capability[] | undefined;
   placement: Placement | undefined;
 }> {
@@ -781,6 +783,8 @@ function validateOptions(obj: Record<string, unknown>): Field<{
 
   const baseCommit = validateBaseCommit(obj.baseCommit);
   if (!baseCommit.ok) return baseCommit;
+  const afterSessionId = validateAfterSession(obj.afterSession);
+  if (!afterSessionId.ok) return afterSessionId;
   const requirements = parseRequirements(obj.requirements);
   if (requirements && "error" in requirements) return err(requirements.error);
   const placement = parsePlacementRecord(obj.placement);
@@ -796,6 +800,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     bootstrap: bootstrap.value,
     mergeTrainPrs: mergeTrainPrs.value,
     baseCommit: baseCommit.value,
+    afterSessionId: afterSessionId.value,
     requirements,
     placement,
   });
@@ -809,6 +814,15 @@ function validateBaseCommit(value: unknown): Field<string | undefined> {
   if (value == null) return field(undefined);
   if (typeof value !== "string" || !COMMIT_RE.test(value))
     return err("baseCommit must be a full lowercase hex commit id");
+  return field(value);
+}
+
+/** afterSession — optional predecessor (#2589), a session id or designation (TASK-07). Carried as
+ *  `afterSessionId` UNRESOLVED; the create route resolves it to the session id before holding. */
+function validateAfterSession(value: unknown): Field<string | undefined> {
+  if (value == null) return field(undefined);
+  if (typeof value !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(value))
+    return err("afterSession must be a session id or designation");
   return field(value);
 }
 

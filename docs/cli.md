@@ -380,12 +380,22 @@ Flags for `new`:
   the server's defaults.
 - `--plan-gate`, `--autopilot`: turn on the plan gate or autopilot for this session.
 - `--force`: spawn now even if the usage hold would queue the task.
+- `--after <task>`: hold the task until that task's PR has landed (id or designation, e.g.
+  `TASK-1490`; merged, or squash-merged into its epic branch). It is queued as a held task with
+  reason `after` and spawns on a fresh base once the PR lands. A predecessor that already landed
+  spawns it now; an unknown one is `404`, one archived without landing is `409`. `held spawn`
+  starts it early, `held discard` drops it.
 
 When the usage hold trips, `new` still exits `0`. It prints the held task (`{"held": true, …}`)
 instead of a session.
 
+Once running, an idle agent is steered when its base branch gains commits it does not have
+(checked every 2 minutes, at most one notice per 30 minutes), with the list of new commits, so it
+can rebase if they affect its work.
+
 ```bash
 shepherd new --repo ~/Work/my-repo "Add OAuth login to the settings page"
+shepherd new --repo ~/Work/my-repo --after TASK-07 "Use the new OAuth hook on the profile page"
 echo "please rebase onto main" | shepherd steer TASK-07 -
 shepherd --json sessions list | jq -r '.[] | select(.status == "done") | .desig'
 ```

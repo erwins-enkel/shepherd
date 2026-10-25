@@ -150,6 +150,8 @@ extension ShepherdClient {
             case .ok(let ok): return .held(try ok.body.json)
             case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
+            // afterSession names no task (after_not_found, #2589).
+            case .notFound: throw ShepherdError.notFound
             case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
             case .unprocessableContent(let bad):
                 let body = try bad.body.json

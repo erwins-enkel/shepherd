@@ -260,6 +260,7 @@ import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { readTranscriptTail } from "./activity";
 import { verifyApiKey, VERIFY_KEY_LABEL } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
+import { BASE_DRIFT_INTERVAL_MS, BaseDriftService } from "./base-drift";
 import { PROVIDER_FAILOVER_FROM_KEY, releaseProviderFailover } from "./provider-failover";
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
@@ -3390,6 +3391,29 @@ const timerTask = (label: string, fn: () => Promise<unknown>) => () => {
     .finally(settled);
 };
 
+// Base-moved notice (#2589): steer idle agents whose base branch gained commits they lack. The
+// service drops a tick that lands while the previous pass is still fetching.
+const baseDrift = new BaseDriftService({
+  store,
+  git: {
+    baseTip: (repoPath, base) => worktree.baseTip(repoPath, base),
+    missing: (s, tip, exclude, max) =>
+      worktree.commitsMissingFromHead(s.repoPath, s.worktreePath, tip, exclude, max),
+  },
+  steer: (id, text) => service.reply(id, text, { automatic: true }),
+  rebaseOwned: (s) =>
+    s.mergingSince !== null ||
+    (prPoller.get(s.id)?.state === "open" && autopilot.rebasesWhenBehind(s)),
+  prState: (id) => prPoller.get(id)?.state,
+  refreshPr: (id) => prPoller.pollNow(id),
+});
+deferredStarts.push(() => {
+  setInterval(
+    timerTask("base-drift", () => baseDrift.sweep()),
+    BASE_DRIFT_INTERVAL_MS,
+  );
+});
+
 // Re-entrancy guard: a release can still be awaiting service.create() when the next
 // 30s tick fires; without this a second tick re-reads the not-yet-removed head task and
 // double-spawns it (or errors with agent_name_taken). Mirrors the `calibrating` flag below.
@@ -3408,7 +3432,15 @@ deferredStarts.push(() => {
       releasingHeld = true;
       try {
         await releaseHeldTasks(
-          { store, service, usageLimits, events, resolveForge, codexCapacity: codexReady },
+          {
+            store,
+            service,
+            usageLimits,
+            events,
+            resolveForge,
+            codexCapacity: codexReady,
+            taskDeps: { store, prGit: (id) => prPoller.get(id) },
+          },
           {
             enabled: config.usageHoldEnabled,
             holdPct: config.usageHoldPct,

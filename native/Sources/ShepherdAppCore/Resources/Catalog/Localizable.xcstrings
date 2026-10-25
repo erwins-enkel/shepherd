@@ -15398,6 +15398,23 @@
         }
       }
     },
+    "native_held_reason_after": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgehalten, bis der PR der Vorgänger-Aufgabe gemergt ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held until its predecessor's PR lands."
+          }
+        }
+      }
+    },
     "native_held_reason_capacity": {
       "extractionState": "manual",
       "localizations": {

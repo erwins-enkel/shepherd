@@ -12,6 +12,7 @@ import { claimLinkedIssue } from "./server";
 import type { SessionStore } from "./store";
 import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
+import { afterGateOpen, type PrSnapshot, type TaskDepsStore } from "./task-deps";
 
 export interface HeldReleaseDeps {
   codexCapacity?: (taskId?: string) => Promise<boolean>;
@@ -24,6 +25,9 @@ export interface HeldReleaseDeps {
   events: { emit(event: string, data: unknown): void };
   /** Resolve the forge for a repo so a released task's linked issue can be re-claimed. */
   resolveForge?: (repoDir: string) => GitForge | null;
+  /** `--after` gate (#2589): session reads + live PR snapshot. Absent → predecessors never land,
+   *  so an `after` task only leaves via the operator's spawn/discard. */
+  taskDeps?: { store: TaskDepsStore; prGit: PrSnapshot };
 }
 
 async function heldCapacityAvailable(
@@ -35,9 +39,16 @@ async function heldCapacityAvailable(
   if ((task.input.agentProvider ?? config.defaultAgentProvider) === "codex")
     return deps.codexCapacity?.(task.id) ?? true;
   if (!cfg.enabled) return true;
-  if (!cfg.autoRelease) return false;
+  // A dependency hold is not the operator's manual-release queue: once its predecessor landed it
+  // only waits for usage headroom.
+  if (!cfg.autoRelease && task.reason !== "after") return false;
   const lim = deps.usageLimits.limits(now);
   return Math.max(lim.session5h?.pct ?? 0, lim.week?.pct ?? 0) < cfg.holdPct;
+}
+
+function predecessorReady(deps: HeldReleaseDeps, afterSessionId: string | undefined): boolean {
+  const t = deps.taskDeps;
+  return t ? afterGateOpen(t.store, t.prGit, afterSessionId) : false;
 }
 
 /**
@@ -47,9 +58,13 @@ async function heldCapacityAvailable(
  * unconditionally — the operator turned the gate off, so nothing should remain blocked.
  *
  * When `cfg.autoRelease` is false (and the gate is still enabled) automatic release is
- * suppressed entirely: held tasks stay queued until the operator starts or discards each one
+ * suppressed for usage holds: they stay queued until the operator starts or discards each one
  * manually from the held-tasks popover. Turning the gate off (`enabled: false`) overrides this
  * and still flushes everything.
+ *
+ * `after` holds (#2589) are a dependency, not that manual queue: each is skipped until its
+ * predecessor's PR has landed, then released once usage is below holdPct — whatever
+ * `autoRelease` says.
  */
 export async function releaseHeldTasks(
   deps: HeldReleaseDeps,
@@ -62,6 +77,8 @@ export async function releaseHeldTasks(
 
   for (const task of tasks) {
     if (released >= maxPerTick) break;
+    // Waiting on a predecessor: skip, never block the tasks behind it.
+    if (task.reason === "after" && !predecessorReady(deps, task.input.afterSessionId)) continue;
     if (!(await heldCapacityAvailable(deps, task, cfg, now))) continue;
     try {
       const s = await deps.service.create(task.input);

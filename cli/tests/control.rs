@@ -104,6 +104,58 @@ async fn new_reports_a_task_waiting_for_its_machine() {
 }
 
 #[tokio::test]
+async fn new_after_sends_the_predecessor_and_reports_the_dependency_hold() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/sessions"))
+        .and(body_partial_json(json!({"afterSession": "TASK-1490"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "held": true, "id": "h-2", "count": 1, "reason": "after"
+        })))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(
+        h.run(&[
+            "--url",
+            &s.uri(),
+            "new",
+            "--repo",
+            "/r",
+            "--after",
+            "TASK-1490",
+            "Follow-up"
+        ])
+        .await,
+        0
+    );
+    let out = h.out.text();
+    assert!(out.contains("predecessor's PR to land"), "{out}");
+    assert!(!out.contains("usage hold"), "{out}");
+}
+
+#[tokio::test]
+async fn new_after_rejects_a_malformed_task_key() {
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&[
+            "--url",
+            "http://127.0.0.1:1",
+            "new",
+            "--repo",
+            "/r",
+            "--after",
+            "a b",
+            "x"
+        ])
+        .await,
+        2
+    );
+}
+
+#[tokio::test]
 async fn new_submit_scope_message() {
     let s = server().await;
     Mock::given(method("POST"))

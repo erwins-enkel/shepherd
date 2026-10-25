@@ -381,6 +381,9 @@ export interface StandardCreateInput {
    *  at exactly this commit — never freshened to `baseBranch`'s upstream tip; `baseBranch` stays
    *  the PR target. Absent → the base is resolved from `baseBranch` as usual. */
   baseCommit?: string;
+  /** Predecessor session id (#2589): the task stays held until that session's PR has landed.
+   *  Resolved from the request's `afterSession` (id or desig) at create. */
+  afterSessionId?: string;
   prompt: string;
   agentProvider?: AgentProvider;
   model: string | null; // null = provider default (no --model flag)
@@ -1590,9 +1593,12 @@ export interface HeldTask {
   /** The original CreateSessionInput, replayed through service.create() when released. */
   input: StandardCreateInput;
   createdAt: number;
-  /** Hold reason: `'usage'` = usage-gate hold; `'capacity'` = plugin-refused (no account). */
-  reason: "usage" | "capacity";
+  /** Hold reason: `'usage'` = usage-gate hold; `'capacity'` = plugin-refused (no account);
+   *  `'after'` = waiting for `input.afterSessionId`'s PR to land (#2589). */
+  reason: HeldReason;
 }
+
+export type HeldReason = "usage" | "capacity" | "after";
 
 /** Outcome states of a keyed submission (#2761, `src/dispatch.ts`). */
 export const DISPATCH_STATES = ["pending", "started", "held", "failed"] as const;

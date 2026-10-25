@@ -1426,6 +1426,7 @@ export const KEYS_QUEUES: readonly string[] = [
   "topbar_held_original_cli",
   "native_held_reason_usage",
   "native_held_reason_capacity",
+  "native_held_reason_after",
   "native_held_reason_unknown",
   "topbar_held_spawn_cli_label",
   "topbar_held_spawn_failed",

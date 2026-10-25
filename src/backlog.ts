@@ -11,12 +11,7 @@ import {
 import { EMPTY_BACKLOG_COUNTS } from "./forge/types";
 import type { ForgeMap, GitForge, RepoCounts } from "./forge/types";
 import { Semaphore } from "./semaphore";
-import {
-  countsPrsPart,
-  prsKey,
-  type GithubCacheEntry,
-  type GithubReadCache,
-} from "./github-read-cache";
+import { countsPrsPart, type GithubCacheEntry, type GithubReadCache } from "./github-read-cache";
 
 // RepoCounts now lives with the GitForge seam (each adapter returns it); re-export
 // so existing importers (backlog-poller, server) keep their "./backlog" path. (CiStatus
@@ -209,7 +204,7 @@ export class CountsService {
     if (fpKey == null || !fp || !prev || prev.negative) return null;
     const prKinds =
       this.snapshotKinds(slug, fp.openPrs) ??
-      (prev.contentKey != null && countsPrsPart(prev.contentKey) === prsKey(fp)
+      (prev.contentKey != null && countsPrsPart(prev.contentKey) === countsPrsPart(fpKey)
         ? prev.value.prKinds
         : null);
     if (!prKinds) return null;

@@ -227,12 +227,14 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
  * `checks: "pending"` is short-lived and the 120s sweep routinely sampled `none`
  * then `success` two sweeps later, never recording the running state, so the
  * list jumped straight to green and never showed the pulsing "CI running" dot.
- * The fast sweep routes its eligible (transient, in-window) open PRs through the
- * same per-repo batch path as `tick` (`buildBatches`/`batchForRepo` + count-gate):
- * a repo whose transient PRs dominate its open set is refreshed with one
- * `listOpenPrStatuses`; a repo with many stable open PRs beyond the few transient
- * ones falls back to bounded per-session polls (the gate protects the 15s points
- * budget). No per-PR cap or round-robin — every eligible PR is covered each tick.
+ * The fast sweep reads its eligible (transient, in-window) open PRs by head in one
+ * aliased `prStatusMany` query (~1 point per 20 heads), never the repo's open-PR
+ * snapshot (#2799). No per-PR cap or round-robin — every eligible PR is covered each tick.
+ *
+ * The full sweep reuses the shared snapshot while the repo's PR fingerprint (count, newest
+ * PR, default-branch head) holds, refetching it only when that moves or when the cached
+ * snapshot caught a PR mid-move. Transient and merge-train sessions are read by head instead.
+ * Below the GraphQL reserve both sweeps leave GitHub sessions alone.
  */
 export class PrPoller implements PrCache {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -260,6 +262,9 @@ export class PrPoller implements PrCache {
   private readonly queueCache = new Map<string, { read: Promise<QueueRead>; at: number }>();
   /** Epoch-ms of each session's last poll — gates {@link terminalPollMs}. */
   private readonly lastPolledAt = new Map<string, number>();
+  /** Epoch-ms of each session's last poll that did NOT read the repo batch (head lookup or
+   *  per-session) — a batch fetched before it is older than the cached state. */
+  private readonly directReadAt = new Map<string, number>();
 
   /** True when an open PR can still move without a human action — i.e. it is worth
    *  fast-polling. A PR that is fully settled (CI green, mergeable, clean) is parked. */
@@ -341,8 +346,9 @@ export class PrPoller implements PrCache {
      *  latency without per-sweep O(none-sessions) fan-out. */
     private noneRecheckMs = 600_000,
     /** Shared per-repo open-PR snapshot cache. When present, the full-sweep batch is sourced
-     *  from it (`refresh`, always-fresh) so the PRs tab reuses the poller's fetch; when absent
-     *  (older test wiring), the batch falls back to the forge's direct `listOpenPrStatuses`. */
+     *  from it (reused under an unchanged PR fingerprint, #2799) so the PRs tab shares the
+     *  poller's fetch; when absent (older test wiring), the batch falls back to the forge's
+     *  direct `listOpenPrStatuses`. */
     private snapshotSvc?: OpenPrSnapshotService,
     /** Current PR fingerprint content (plus own-write revision), or null without coverage. */
     private repoFreshness?: (repoPath: string) => string | null,
@@ -350,6 +356,10 @@ export class PrPoller implements PrCache {
     /** Background re-poll floor for a terminal session (merged/closed PR, or `done` with no PR)
      *  (#2743). Fingerprint moves don't override it; turn-end polls and merge-train sessions do. */
     private terminalPollMs = 600_000,
+    /** True while the GraphQL bucket is below the background reserve (#2799): both sweeps leave
+     *  GitHub sessions alone — no batch, head lookup or per-session read. Turn-end and
+     *  `pollNow` polls still run. */
+    private budgetPaused: () => boolean = () => false,
   ) {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
     this.hydrateTransientWindows();
@@ -446,23 +456,30 @@ export class PrPoller implements PrCache {
       const sessions = [...this.store.list({ activeOnly: true })];
       const recheckNone = this.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
       if (recheckNone) this.lastNoneRecheckAt = this.now();
+      const paused = this.budgetPaused();
       const due = sessions.filter(
-        (s) => this.shouldPoll(s, recheckNone) && !(graphqlLimited && this.terminalUnderBackoff(s)),
+        (s) =>
+          !(paused && this.resolveForge(s.repoPath)?.kind === "github") &&
+          this.shouldPoll(s, recheckNone) &&
+          !(graphqlLimited && this.terminalUnderBackoff(s)),
       );
       const batches = graphqlLimited
         ? new Map<string, PrBatch | null>()
         : await this.buildBatches(due, !this.repoFreshness);
+      const targeted = new Set(
+        due.filter((s) => this.wantsTargeted(s, this.batchFor(s, batches))).map((s) => s.id),
+      );
       const pre = graphqlLimited
         ? new Map<string, Prefetched>()
-        : await this.prefetchHeads(due, batches, recheckNone);
+        : await this.prefetchHeads(due, batches, recheckNone, targeted);
       const active = new Set<string>();
       for (const s of sessions) {
         active.add(s.id);
         if (!due.includes(s)) continue;
-        await this.withGh(() =>
-          this.refresh(s, this.batchFor(s, batches), recheckNone, pre.get(s.id)),
-        );
+        const batch = targeted.has(s.id) ? null : this.batchFor(s, batches);
+        await this.withGh(() => this.refresh(s, batch, recheckNone, pre.get(s.id)));
       }
+      if (!graphqlLimited) await this.refetchStale(sessions, paused);
       for (const id of [...this.cache.keys()]) {
         if (!active.has(id)) {
           this.drop(id);
@@ -480,6 +497,30 @@ export class PrPoller implements PrCache {
     const prev = this.cache.get(s.id);
     if (prev?.state === "merged" || prev?.state === "closed") return true;
     return s.status === "done" && (!prev || prev.state === "none");
+  }
+
+  /** Refetch each repo snapshot a head read found stale (#2799) — CI that settled past the
+   *  transient window — so the PRs tab doesn't keep showing what the poller already saw move. */
+  private async refetchStale(sessions: Session[], paused: boolean): Promise<void> {
+    const svc = this.snapshotSvc;
+    if (!svc) return;
+    const done = new Set<string>();
+    for (const s of sessions) {
+      const forge = this.resolveForge(s.repoPath);
+      if (!forge?.slug || done.has(forge.slug) || !svc.isStale(forge)) continue;
+      if (paused && forge.kind === "github") continue;
+      done.add(forge.slug);
+      await this.withGh(() => svc.refresh(forge));
+    }
+  }
+
+  /** A session the full sweep reads by head instead of from the repo snapshot (#2799): its PR can
+   *  move under an unchanged fingerprint (transient, merge train), or it was read directly after
+   *  the batch was fetched, so a batch hit could roll it back. */
+  private wantsTargeted(s: Session, batch: PrBatch | null): boolean {
+    const prev = this.cache.get(s.id);
+    if (s.mergingSince != null || (!!prev && this.isTransientSession(s, prev))) return true;
+    return batch != null && (this.directReadAt.get(s.id) ?? -Infinity) > batch.at;
   }
 
   private shouldPoll(s: Session, recheckNone: boolean): boolean {
@@ -518,23 +559,26 @@ export class PrPoller implements PrCache {
   /**
    * Read ahead, in one batched query per 20 heads across repos (#2743), every stored head the
    * per-session loop would otherwise look up one `prStatus` at a time: sessions without a usable
-   * batch, and batch misses that need confirming. Keyed by session id; a head the batch couldn't
-   * answer is absent, so `refresh` falls back to `prStatus` for it.
+   * batch, `targeted` ones ({@link wantsTargeted}), and batch misses that need confirming. Keyed
+   * by session id; a head the batch couldn't answer is absent, so `refresh` falls back to
+   * `prStatus` for it.
    */
   private async prefetchHeads(
     sessions: Session[],
     batches: Map<string, PrBatch | null>,
     recheckNone: boolean,
+    targeted: ReadonlySet<string> = new Set(),
   ): Promise<Map<string, Prefetched>> {
     const byRepo = new Map<string, { forge: GitForge; sessions: Session[] }>();
     for (const s of sessions) {
       const forge = s.branch ? this.resolveForge(s.repoPath) : null;
       if (!forge?.prStatusMany || forge.slug == null) continue;
       const batch = this.batchFor(s, batches);
-      if (batch?.statuses.has(s.branch!)) continue;
+      const pick = targeted.has(s.id);
+      if (batch?.statuses.has(s.branch!) && !pick) continue;
       const prev = this.cache.get(s.id);
       const needsConfirm =
-        s.mergingSince != null || prev == null || prev.state !== "none" || recheckNone;
+        pick || s.mergingSince != null || prev == null || prev.state !== "none" || recheckNone;
       if (batch && !needsConfirm) continue;
       const e = byRepo.get(forge.slug) ?? { forge, sessions: [] };
       e.sessions.push(s);
@@ -630,24 +674,24 @@ export class PrPoller implements PrCache {
    *  over ratio, or a transient fetch failure). All `gh` under `withGh`. */
   private async buildBatches(
     sessions: Session[],
-    fresh = true,
+    fresh: boolean,
   ): Promise<Map<string, PrBatch | null>> {
     const out = new Map<string, PrBatch | null>();
-    const byKey = new Map<string, { forge: GitForge; count: number; fresh: boolean }>();
+    const byKey = new Map<string, { forge: GitForge; count: number }>();
     for (const s of sessions) {
       if (!s.branch) continue;
       const forge = this.resolveForge(s.repoPath);
       if (!forge || forge.slug == null) continue;
       const e = byKey.get(forge.slug);
-      const prev = this.cache.get(s.id);
-      const force = fresh || !prev || this.isTransientSession(s, prev) || s.mergingSince != null;
-      if (e) {
-        e.count++;
-        e.fresh ||= force;
-      } else byKey.set(forge.slug, { forge, count: 1, fresh: force });
+      if (e) e.count++;
+      else byKey.set(forge.slug, { forge, count: 1 });
     }
-    for (const [key, { forge, count, fresh }] of byKey) {
-      out.set(key, await this.batchForRepo(forge, count, fresh));
+    for (const [key, { forge, count }] of byKey) {
+      // The cached snapshot is reused while its fingerprint holds, unless it caught a PR mid-move
+      // (#2799) — CI and mergeability settle without bumping `updatedAt`. A head read that
+      // disagrees with it is caught up by {@link refetchStale}.
+      const refetch = fresh || !!this.snapshotSvc?.hasTransient(forge, this.transientMaxMs);
+      out.set(key, await this.batchForRepo(forge, count, refetch));
     }
     return out;
   }
@@ -662,18 +706,15 @@ export class PrPoller implements PrCache {
 
   /** Accelerated re-poll of in-flight PRs (cached `state === "open"`) so the list
    *  overview tracks CI running/transition as live as the detail view, without the
-   *  120s sweep's lag. Routes the eligible (transient, in-window) open PRs through
-   *  the same per-repo batch path as the full sweep (`buildBatches`/`batchFor` +
-   *  count-gate): a repo whose transient PRs dominate its open set is refreshed
-   *  with one `listOpenPrStatuses`; a repo with stable open PRs beyond the few
-   *  transient ones trips the gate and falls back to bounded per-session polls. No
-   *  per-PR cap or round-robin — every eligible PR is covered each tick, O(repos)
-   *  when transient-dominant, O(eligible) per-session otherwise. Skipped while GraphQL is
-   *  limited: its per-session REST fallback costs a multiple of the batch (#2660), and the
-   *  full sweep still keeps every session moving. */
+   *  120s sweep's lag. Reads the eligible (transient, in-window) open PRs by head in one
+   *  `prStatusMany` query (~1 point per 20 heads) and never touches the repo's open-PR
+   *  snapshot (#2799); a head the query couldn't answer falls back to `prStatus`. No
+   *  per-PR cap or round-robin — every eligible PR is covered each tick. Skipped while
+   *  GraphQL is limited (its per-session REST fallback costs a multiple, #2660 — the full
+   *  sweep still keeps every session moving) or below the reserve. */
   async fastTick(): Promise<void> {
     // Cadence gates first: skip entirely when limited or not warm, before the activity-aware filter.
-    if (this.rateLimited() || !this.warm()) return;
+    if (this.rateLimited() || this.budgetPaused() || !this.warm()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
     if (open.length === 0) return;
@@ -688,24 +729,22 @@ export class PrPoller implements PrCache {
       return !!entry && now - entry.since < this.transientMaxMs;
     });
     if (eligible.length === 0) return;
-    // Resolve to live sessions (an archived/gone session is pruned by the next full
-    // tick); the count-gate is fed only this eligible-transient set, so it weighs a
-    // batch against the per-session calls we'd actually make this tick.
+    // Resolve to live sessions (an archived/gone session is pruned by the next full tick).
     const sessions = eligible
       .map((id) => this.store.get(id))
       .filter((s): s is Session => !!s && s.status !== "archived");
     if (sessions.length === 0) return;
-    // Flag BEFORE buildBatches so its countOpenPrs/listOpenPrStatuses probe runs
-    // inside the mutual-exclusion window — a concurrent full tick can't interleave.
+    // Flag BEFORE the head lookup so it runs inside the mutual-exclusion window — a
+    // concurrent full tick can't interleave.
     this.sweeping = true;
     try {
-      const batches = await this.buildBatches(sessions);
-      const pre = await this.prefetchHeads(sessions, batches, false);
+      // Head lookups only, never the repo snapshot (#2799): ~1 point per 20 heads.
+      const pre = await this.prefetchHeads(sessions, new Map(), false);
       for (const s of sessions) {
         if (this.inFlight.has(s.id)) continue; // a targeted pollSession is already covering it
         this.inFlight.add(s.id);
         try {
-          await this.withGh(() => this.refresh(s, this.batchFor(s, batches), false, pre.get(s.id)));
+          await this.withGh(() => this.refresh(s, null, false, pre.get(s.id)));
         } finally {
           this.inFlight.delete(s.id);
         }
@@ -770,6 +809,10 @@ export class PrPoller implements PrCache {
     const prefetched = fresh && fresh.revision === provenance.revision ? fresh.status : undefined;
     const raw = await this.rawStatus(s, forge, prev, currentBatch, recheckNone, prefetched);
     if (raw === null) return; // transient gh failure → keep last cached value
+    if (!currentBatch) {
+      this.directReadAt.set(s.id, this.now());
+      this.snapshotSvc?.noteHeadRead(forge, s.branch, raw);
+    }
     if (provenance.revision !== this.readProvenance(forge).revision) return;
 
     const linked = await this.linkIssue(s, raw, forge);
@@ -1067,6 +1110,7 @@ export class PrPoller implements PrCache {
   drop(id: string): void {
     this.forgetFreshness(id);
     this.lastPolledAt.delete(id);
+    this.directReadAt.delete(id);
     this.store.deleteSessionGitCache(id);
     this.cache.delete(id);
     this.issueLinks.delete(id);

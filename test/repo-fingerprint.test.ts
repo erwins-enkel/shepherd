@@ -203,6 +203,18 @@ test("below the reserve the background tick makes no call, coverage holds, ensur
   }
 });
 
+test("belowReserve: true below the reserve until the reset, false during a backoff (#2799)", () => {
+  const h = harness();
+  expect(h.svc.belowReserve()).toBe(false);
+  h.setRate({ remaining: 900, resetAt: h.now() + 30 * 60_000 });
+  expect(h.svc.belowReserve()).toBe(true);
+  h.setRate({ remaining: 900, resetAt: h.now() + 30 * 60_000, blocked: true });
+  expect(h.svc.belowReserve()).toBe(false);
+  h.setRate({ remaining: 900, resetAt: h.now() + 30 * 60_000 });
+  h.advance(30 * 60_000);
+  expect(h.svc.belowReserve()).toBe(false);
+});
+
 test("the reserve grows by what the rest of the account will spend before the reset (#2840)", async () => {
   let foreign: number | null = 2_000;
   const h = harness({ foreignPerHour: () => foreign });

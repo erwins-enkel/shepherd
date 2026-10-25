@@ -1764,6 +1764,8 @@ const prPoller = new PrPoller(
   openPrSnapshot, // shared per-repo open-PR snapshot cache (PRs tab reuses the poller's fetch)
   prFreshness,
   githubReadCache,
+  undefined, // terminalPollMs (default)
+  () => fingerprint.belowReserve(), // below the GraphQL reserve: background PR polling pauses
 );
 deferredStarts.push(() => {
   labelGhCalls("pr-poller:full");

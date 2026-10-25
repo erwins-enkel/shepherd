@@ -50,8 +50,9 @@ const GITHUB_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
 export const issuesKey = (f: RepoFingerprint) => `${f.openIssues}|${f.issuesUpdatedAt}`;
 export const countsKey = (f: RepoFingerprint) =>
   `${f.openIssues}|${f.openPrs}|${f.prsUpdatedAt}|${f.ciState}`;
-export const prsKey = (f: RepoFingerprint) => `${f.openPrs}|${f.prsUpdatedAt}`;
-/** The {@link prsKey} part of a {@link countsKey}. */
+/** The open-PR snapshot's identity: count, newest PR, and the default-branch head (#2799). */
+const prsKey = (f: RepoFingerprint) => `${f.openPrs}|${f.prsUpdatedAt}|${f.defaultHeadOid ?? ""}`;
+/** The PR count and newest-PR part of a {@link countsKey}. */
 export const countsPrsPart = (countsContentKey: string) =>
   countsContentKey.split("|").slice(1, 3).join("|");
 const key = (kind: string, slug: string, entryKey: string) =>
@@ -299,13 +300,16 @@ const pull = shape(
   },
 );
 const validators: Record<GithubCacheKind, ValueCheck> = {
-  fingerprint: shape({
-    openIssues: number,
-    issuesUpdatedAt: string,
-    openPrs: number,
-    prsUpdatedAt: string,
-    ciState: string,
-  }),
+  fingerprint: shape(
+    {
+      openIssues: number,
+      issuesUpdatedAt: string,
+      openPrs: number,
+      prsUpdatedAt: string,
+      ciState: string,
+    },
+    { defaultHeadOid: string },
+  ),
   issues: array(issue),
   counts: shape({
     openIssues: nullable(number),

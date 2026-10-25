@@ -5,8 +5,8 @@
  *
  * Per repo it reads the open issue and PR counts, the `updatedAt` of the most recently updated
  * issue and PR in ANY state (so opening, closing, labelling or editing one moves it), and the
- * default branch's CI rollup. A consumer re-fetches the full issue list or counts only when one
- * of those moved — see `RepoFingerprintService`.
+ * default branch's head commit and CI rollup. A consumer re-fetches the full issue list or
+ * counts only when one of those moved — see `RepoFingerprintService`.
  */
 import type { GhRunner } from "./github";
 import { RATE_LIMIT_SELECTION } from "./github-spend";
@@ -19,6 +19,10 @@ export interface RepoFingerprint {
   openPrs: number;
   prsUpdatedAt: string;
   ciState: string;
+  /** The default branch's head commit. A base move recomputes every PR's mergeability without
+   *  bumping its `updatedAt`, so the open-PR snapshot keys on it (#2799). Absent on fingerprints
+   *  persisted before it existed. */
+  defaultHeadOid?: string;
 }
 
 /** The in-query `rateLimit` reading. `resetAt` is epoch ms; `cost` is summed across chunks. */
@@ -46,7 +50,7 @@ const REPO_SELECTION =
   `lastIssue:issues(${LATEST}){nodes{updatedAt}} ` +
   "openPrs:pullRequests(states:OPEN){totalCount} " +
   `lastPr:pullRequests(${LATEST}){nodes{updatedAt}} ` +
-  "defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}";
+  "defaultBranchRef{target{oid ... on Commit{statusCheckRollup{state}}}}";
 
 /** `gh api graphql` args for one chunk. Owner and name travel as `-f` string variables, never
  *  inlined and never `-F` (which would type a numeric repo name as an Int). */
@@ -70,7 +74,9 @@ interface RawRepo {
   lastIssue?: { nodes?: Array<{ updatedAt?: string } | null> };
   openPrs?: { totalCount?: number };
   lastPr?: { nodes?: Array<{ updatedAt?: string } | null> };
-  defaultBranchRef?: { target?: { statusCheckRollup?: { state?: string } | null } | null } | null;
+  defaultBranchRef?: {
+    target?: { oid?: string; statusCheckRollup?: { state?: string } | null } | null;
+  } | null;
 }
 
 function toFingerprint(raw: RawRepo | null | undefined): RepoFingerprint | null {
@@ -81,6 +87,7 @@ function toFingerprint(raw: RawRepo | null | undefined): RepoFingerprint | null 
     openPrs: raw.openPrs?.totalCount ?? 0,
     prsUpdatedAt: raw.lastPr?.nodes?.[0]?.updatedAt ?? "",
     ciState: raw.defaultBranchRef?.target?.statusCheckRollup?.state ?? "",
+    defaultHeadOid: raw.defaultBranchRef?.target?.oid ?? "",
   };
 }
 

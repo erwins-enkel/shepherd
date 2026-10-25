@@ -1,4 +1,5 @@
-import type { GitForge, OpenPrSnapshot } from "./forge/types";
+import type { GitForge, OpenPrSnapshot, PrStatus } from "./forge/types";
+import { currentGhCaller } from "./forge/gh-caller";
 import { graphRateLimit } from "./forge/rate-limit";
 import { Semaphore } from "./semaphore";
 import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
@@ -8,6 +9,19 @@ import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
 export const SNAPSHOT_TTL_MS = 120_000;
 
 type CacheEntry = GithubCacheEntry<OpenPrSnapshot>;
+
+/** An open PR whose checks, mergeability or merge state can still move without bumping its
+ *  `updatedAt` — so a snapshot holding it can be stale under an unchanged fingerprint (#2799). */
+function isTransientPrStatus(st: PrStatus): boolean {
+  return (
+    st.state === "open" &&
+    (st.checks === "pending" ||
+      (st.runningChecks?.length ?? 0) > 0 ||
+      st.mergeable == null ||
+      st.mergeStateStatus === "unknown" ||
+      st.mergeStateStatus === "unstable")
+  );
+}
 
 /**
  * Per-repo open-PR snapshot cache. Keyed by `forge.slug` (NOT repoPath) so
@@ -23,6 +37,10 @@ export class OpenPrSnapshotService {
   /** Bounds simultaneous fetches. */
   private readonly gate: Semaphore;
   private readonly revisions = new Map<string, number>();
+  /** slug → `number:headSha` → when a snapshot first held that PR transient. */
+  private readonly transientSeen = new Map<string, Map<string, number>>();
+  /** slug → when a head read last disagreed with the cached snapshot ({@link noteHeadRead}). */
+  private readonly staleAt = new Map<string, number>();
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -107,6 +125,54 @@ export class OpenPrSnapshotService {
   }
 
   /**
+   * Cache-only: true when the cached snapshot holds a transient PR ({@link isTransientPrStatus})
+   * first seen transient less than `windowMs` ago. The window bounds the refetches a PR stuck
+   * pending can cause; a new head restarts it.
+   */
+  hasTransient(forge: GitForge, windowMs: number): boolean {
+    if (!this.isCapable(forge)) return false;
+    const entry = this.entry(forge);
+    if (!entry) return false;
+    const prev = this.transientSeen.get(forge.slug!);
+    const seen = new Map<string, number>();
+    let live = false;
+    for (const st of entry.value.statuses.values()) {
+      if (!isTransientPrStatus(st)) continue;
+      const id = `${st.number}:${st.headSha}`;
+      const since = prev?.get(id) ?? entry.at;
+      seen.set(id, since);
+      if (this.now() - since < windowMs) live = true;
+    }
+    this.transientSeen.set(forge.slug!, seen);
+    return live;
+  }
+
+  /**
+   * Record a head read newer than the cached snapshot (the poller's targeted poll). When it
+   * disagrees with the snapshot's entry for that head — state, head, checks or mergeability —
+   * the snapshot is {@link isStale} until a fetch that started after the read lands, so a PR that
+   * settled outside the transient window doesn't stay pending in the PRs tab.
+   */
+  noteHeadRead(forge: GitForge, head: string, st: PrStatus): void {
+    if (!this.isCapable(forge)) return;
+    const cached = this.entry(forge)?.value.statuses.get(head);
+    if (
+      cached &&
+      (cached.state !== st.state ||
+        cached.headSha !== st.headSha ||
+        cached.checks !== st.checks ||
+        cached.mergeable !== st.mergeable ||
+        cached.mergeStateStatus !== st.mergeStateStatus)
+    )
+      this.staleAt.set(forge.slug!, this.now());
+  }
+
+  /** True after {@link noteHeadRead} saw the cached snapshot disagree with a newer head read. */
+  isStale(forge: GitForge): boolean {
+    return this.isCapable(forge) && this.staleAt.has(forge.slug!);
+  }
+
+  /**
    * Drop the cached entry (and any in-flight fetch pointer) for forge.slug so the
    * NEXT get() is a guaranteed miss that starts a fresh fetch. Call after a write
    * that mutates the open-PR set (e.g. a merge) so a client refetch can't read the
@@ -122,6 +188,7 @@ export class OpenPrSnapshotService {
     const slug = forge.slug!;
     this.cache.delete(slug);
     this.inflight.delete(slug);
+    this.staleAt.delete(slug);
     if (forge.kind === "github") this.readCache?.invalidate(slug, ["prs", "session"]);
   }
 
@@ -162,13 +229,20 @@ export class OpenPrSnapshotService {
       // inflight pointer since we started, this fetch is stale (its list
       // predates the write that invalidated). It must neither write that stale
       // value back nor clear a newer fetch's inflight slot.
+      const caller = currentGhCaller();
+      const startedAt = this.now();
       const p: Promise<OpenPrSnapshot> = this.gate
         .run(() => forge.listOpenPrSnapshot!())
         .then(
           (v) => {
+            // Which caller pays for each fetch (#2799) — rare now that reads key on the fingerprint.
+            console.log(
+              `[open-pr-snapshot] ${slug}: ${v.prs.length} open PRs (${v.source ?? "graphql"}) for ${caller}`,
+            );
             if (this.inflight.get(slug) === p && revision === this.readCache?.revision(slug)) {
               this.cache.set(slug, { at: this.now(), value: v, contentKey: fpKey });
               if (forge.kind === "github") this.readCache?.put("prs", slug, fpKey, v);
+              if ((this.staleAt.get(slug) ?? Infinity) <= startedAt) this.staleAt.delete(slug);
               this.inflight.delete(slug);
             }
             return v;

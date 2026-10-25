@@ -112,18 +112,21 @@ the capability. Every ingress call must carry
 `X-Shepherd-Ingress-Key: HMAC(key, sessionId)` (`ingressKeyAllowed`,
 `src/server.ts`). The key file is `~/.shepherd/assistant-ingress.key`. A missing
 or broken key file means every call is refused. The `browser` route is exempt:
-it has its own HMAC `?token=`.
+it has its own HMAC `?token=`. An archived session's key is refused (#3370), so
+a leaked key cannot outlive its session.
 
 - **Claude:** `--settings` (hook headers) and `--mcp-config` reach claude as
   paths to 0600 files in `~/.shepherd/agent-spawn/` (the Operator Assistant uses
   `assistant-spawn/`), never as argv JSON. Rewritten on every spawn and resume,
   removed on archive.
-- **Codex and agent skills:** `SHEPHERD_INGRESS_KEY_FILE` names the 0600
-  `<id>.key` file. The curl directives send
-  `-H "x-shepherd-ingress-key: $(cat "$SHEPHERD_INGRESS_KEY_FILE")"`, and an
-  agent skill calling the ingress (for example video-brief's self-rename) must
-  send the same header.
-- **Membrane:** a sandboxed session gets only its own three files, RO-bound.
+- **Codex and agent skills:** `SHEPHERD_INGRESS_HEADER_FILE` names the 0600
+  `<id>.header` file holding the full `x-shepherd-ingress-key: <key>` line. The
+  curl directives send `-H @"$SHEPHERD_INGRESS_HEADER_FILE"`: curl reads the
+  file itself, so only its path reaches argv (#3370). An agent skill calling the
+  ingress (for example video-brief's self-rename) must do the same.
+  `SHEPHERD_INGRESS_KEY_FILE` (the bare `<id>.key`) stays for older skills;
+  never expand it into a command line.
+- **Membrane:** a sandboxed session gets only its own four files, RO-bound.
 - **Upgrade (#3341):** a session spawned without the current key carries none:
   pre-#3339, a rotated key file, or an older spawn-file version
   (`INGRESS_SPAWN_VERSION`). Each Claude spawn and resume records an

@@ -2327,6 +2327,7 @@ attachGitPush(events, store, push);
 attachCiSteer(events, store, {
   reply: (id, text) => service.reply(id, text, { automatic: true }),
   autopilotOn: (s) => effectiveAutopilot(s, store.getRepoConfig(s.repoPath).autopilotEnabled),
+  seed: prPoller.snapshot(),
 });
 attachMergePush(events, push);
 

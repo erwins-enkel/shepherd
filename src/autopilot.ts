@@ -92,6 +92,23 @@ export function openPrSteer(draftMode: boolean, baseBranch: string): string {
   return draftMode ? `${steer} ${DRAFT_PR_NOTE}` : steer;
 }
 
+/** Why an open+red PR was not steered this time — the `reason=` in a `ci-red skip` log line. */
+type CiSkipReason =
+  | "merging"
+  | "auth"
+  | "paused"
+  | "complete"
+  | "pending-classify"
+  | "owned-by-rebaser"
+  | "rebase-cap"
+  | "behind-defer"
+  | "no-head"
+  | "step-cap"
+  | "not-delivered"
+  | "no-capacity"
+  | "working"
+  | "background-busy";
+
 export const CI_FIX_STEER = [
   "You're in autopilot and CI is failing on your open pull request. The critic won't review a",
   "red PR, so this is on you: find the failing checks (`gh pr checks <n>` once, never `--watch`),",
@@ -299,6 +316,8 @@ export class AutopilotService {
   // deliver (the poller emits no `session:git` without a state change) — is owned by tick().
   private openSeen = new Set<string>();
   private ciNudged = new Map<string, string>();
+  // Last `head:reason` logged by skipCi per session, so each CI-red stand-down logs once per head.
+  private ciSkipLogged = new Map<string, string>();
   // Conflict fast path (onGit → nudgeConflict): the head SHA we last steered a rebase for on the
   // git EDGE, so a later `session:git` for the same still-dirty head (e.g. a checks flip) doesn't
   // re-steer. The sustained re-steer on an unchanged conflicting head stays tick()'s job.
@@ -436,8 +455,10 @@ export class AutopilotService {
 
   /** Steer `text` into the session and bump the step on a landed steer. Best-effort —
    *  a dead/unreachable pane just doesn't count. */
-  private async driveSteer(s: Session, text: string): Promise<void> {
-    if (await this.sendSteer(s, text)) this.bump(s);
+  private async driveSteer(s: Session, text: string): Promise<boolean> {
+    const landed = await this.sendSteer(s, text);
+    if (landed) this.bump(s);
+    return landed;
   }
 
   /** A classify-driven pre-PR nudge (proceed / open-a-PR) with a backoff: the judge classifies a
@@ -630,7 +651,7 @@ export class AutopilotService {
     // classify or steer a stop that hasn't happened. After the refreshPr kick (harmless, and a PR
     // opened earlier in the turn should still land in the snapshot).
     if (this.isBackgroundBusy(id)) return;
-    // Stuck-red full-auto: re-engage the CI-fix loop and stand down BEFORE classifying. The LLM
+    // Stuck-red PR: re-engage the CI-fix loop and stand down BEFORE classifying. The LLM
     // classifier could otherwise mark this idle red session complete/finished (silencing it AND
     // making the tick skip it, since complete/paused sessions are ineligible). Lower latency than
     // waiting for the next tick. reEngageCi returns true when it owned the session (steered/paused).
@@ -697,6 +718,7 @@ export class AutopilotService {
     this.nudges.delete(id);
     this.openSeen.delete(id);
     this.ciNudged.delete(id);
+    this.ciSkipLogged.delete(id);
     this.conflictNudged.delete(id);
     this.pending.delete(id);
   }
@@ -730,9 +752,11 @@ export class AutopilotService {
       // the handoff reset and the CI-fix nudge.
       this.openSeen.delete(id);
       this.ciNudged.delete(id);
+      this.ciSkipLogged.delete(id);
       this.conflictNudged.delete(id);
       return;
     }
+    this.rearmCiNudge(id, git);
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived" || !this.enabled(s)) return;
     if (!this.openSeen.has(id)) {
@@ -762,9 +786,17 @@ export class AutopilotService {
           .capacity(s)
           .then((ready) => {
             if (ready) this.considerCi(this.deps.store.get(id) ?? s, git);
+            else this.skipCi(s, git, "no-capacity", false);
           })
           .catch((err) => console.warn("[autopilot] capacity:", err));
     }
+  }
+
+  /** A non-red sample on the head we last steered (a rerun of the failed jobs) re-arms the edge,
+   *  so a rerun that fails again is steered too. Headless samples (REST fallback) prove nothing. */
+  private rearmCiNudge(id: string, git: GitState): void {
+    if (git.checks !== "failure" && git.headSha && this.ciNudged.get(id) === git.headSha)
+      this.ciNudged.delete(id);
   }
 
   /** Conflict fast path: the git-EDGE counterpart of tick()'s reEngageRebase. The PR poller emits
@@ -819,9 +851,10 @@ export class AutopilotService {
    *  the rebase); only this CI-fix entry point stands down. The mark is kept fresh by the 60s
    *  sweepStaleMerging. */
   private considerCi(s: Session, git: GitState): void {
-    if (s.mergingSince !== null) return; // merge train owns this session; don't double-steer its rebase
-    if (s.autopilotPaused) return; // already handed back; waits for operator
-    if (this.pending.has(s.id)) return; // a classify (gate/done path) is mid-flight
+    const skip = (reason: CiSkipReason) => void this.skipCi(s, git, reason, false);
+    if (s.mergingSince !== null) return skip("merging"); // merge train owns this session; don't double-steer its rebase
+    if (s.autopilotPaused) return skip("paused"); // already handed back; waits for operator
+    if (this.pending.has(s.id)) return skip("pending-classify"); // a classify (gate/done path) is mid-flight
     // Cap gate FIRST, matching reEngageCi where that order is load-bearing (there the stand-down
     // claims-without-acting, so evaluating it first would make the pause unreachable). Here both
     // arms are plain returns, so order does not affect behaviour — they are kept in the same
@@ -839,29 +872,30 @@ export class AutopilotService {
     // its own fullAuto gate). Without that term this orphans a NON-full-auto conflicting session
     // at the cap whose rebaseCandidate declines — e.g. a changes_requested verdict, where
     // rebaseReviewPassed's conflict branch returns false: reEngageRebase then bails at
-    // `if (!git) return false` BEFORE its pause, reEngageCi bails on fullAuto, and
-    // ownedByRebaser's non-full-auto arm is false too, so suppressing here would leave
-    // no actor at all — the same orphan the stand-down below exists to prevent, reached through
-    // the cap gate instead. For non-full-auto the CI-fix loop stays the backstop.
+    // `if (!git) return false` BEFORE its pause, and ownedByRebaser's non-full-auto arm is false
+    // too, so suppressing here would leave only the idle backstop — the same orphan risk the
+    // stand-down below guards against, reached through the cap gate instead. For non-full-auto
+    // the CI-fix loop stays the backstop.
     if (
       this.deps.fullAuto(s.id) &&
       trainRebaseInPlay(s, git) &&
       s.autoMergeRebaseCount >= this.rebaseCap
     )
-      return;
+      return skip("rebase-cap");
     // A red PR that is ALSO conflicting or behind failed CI against a STALE base — fixing that CI
     // is wasted work, and the rebase re-runs it anyway. Stand down only where a rebase actor has
     // actually taken the session; a declined one must keep its CI-fix loop or it is left with no
     // actor at all. After the cheap guards above because the non-full-auto arm re-runs
     // rebaseCandidate.
-    if (this.ownedByRebaser(s, git)) return;
+    if (this.ownedByRebaser(s, git)) return skip("owned-by-rebaser");
     // Edge deferral: a full-auto PR GitHub reports behind, not (yet) taken by the train. The
     // train pumps on this same `session:git` edge and decides first; ciNudged stays unset so
     // reEngageCi's idle tick backstops with the CI-fix steer if the train declined (no stamp).
-    if (this.deps.fullAuto(s.id) && git.mergeStateStatus === "behind") return;
-    if (!git.headSha) return; // can't dedup a headless rollup → skip rather than spam
+    if (this.deps.fullAuto(s.id) && git.mergeStateStatus === "behind") return skip("behind-defer");
+    if (!git.headSha) return skip("no-head"); // can't dedup a headless rollup → skip rather than spam
     if (this.ciNudged.get(s.id) === git.headSha) return; // already nudged this exact red head
     if (s.autopilotStepCount >= this.stepCap) {
+      skip("step-cap");
       this.pause(s, CI_CAP_MESSAGE); // runaway guard — stop thrashing CI, surface to operator
       return;
     }
@@ -869,17 +903,19 @@ export class AutopilotService {
     // Fire-and-forget (the caller chain onGit→considerCi is sync). driveSteer's best-effort
     // only covers falsy returns, not throws — resume() can reject (herdr down on the
     // dead-pane path) and onGit's chain has no catch, so net rejections here.
-    void this.driveSteer(s, CI_FIX_STEER).catch((err) =>
-      console.warn("[autopilot] ci-fix steer:", err),
-    );
+    void this.driveSteer(s, CI_FIX_STEER)
+      .then((landed) => {
+        if (!landed) skip("not-delivered");
+      })
+      .catch((err) => console.warn("[autopilot] ci-fix steer:", err));
   }
 
-  /** Re-engage an idle full-auto session stuck on an open+red PR, or hand it back at the cap.
+  /** Re-engage an idle autopilot session stuck on an open+red PR, or hand it back at the cap.
    *  This is the event-INDEPENDENT recovery: it reads the cached PR snapshot directly (prGit),
    *  so it works even when no `session:git` re-emits (unchanged red head). Returns true when it
    *  OWNED the session (re-engaged or paused), so onDone can short-circuit before classifying.
    *  Returns false for any ineligible session (no PR / green / pending / paused / complete /
-   *  autopilot-off / non-full-auto), leaving it untouched.
+   *  autopilot-off, or non-full-auto with a rebase actor owning it), leaving it untouched.
    *  Merge-train stand-down: while the session is merge-train-marked (`mergingSince !== null`) the
    *  train owns it and steers its own rebase. We CLAIM ownership (return true) so onDone
    *  short-circuits BEFORE classify — but we do NOT steer/bump/pause. Returning true (not false) is
@@ -892,15 +928,21 @@ export class AutopilotService {
   private reEngageCi(id: string): boolean {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived") return false;
-    if (s.mergingSince !== null) return true; // merge train owns this session: claim it so onDone short-circuits BEFORE classify, but don't steer/bump/pause — that state must not survive mark-clear
-    if (this.authPending.has(id)) return false; // human-only MCP OAuth pending — don't steer even an open+red PR
+    const git = this.redPr(id);
+    if (s.mergingSince !== null) return this.skipCi(s, git, "merging", true); // merge train owns this session: claim it so onDone short-circuits BEFORE classify, but don't steer/bump/pause — that state must not survive mark-clear
+    if (this.authPending.has(id)) return this.skipCi(s, git, "auth", false); // human-only MCP OAuth pending — don't steer even an open+red PR
     if (!this.enabled(s)) return false;
-    if (s.autopilotPaused) return false; // already handed back; waits for operator
-    if (s.autopilotComplete) return false; // terminal
-    if (this.pending.has(id)) return false; // a classify (onDone/onBlock) is mid-flight — its dispatch will act; don't race it
-    if (!this.deps.fullAuto(id)) return false; // only full-auto owns the post-PR CI loop
-    const git = this.deps.prGit(id);
-    if (!git || git.state !== "open" || git.checks !== "failure") return false;
+    if (s.autopilotPaused) return this.skipCi(s, git, "paused", false); // already handed back; waits for operator
+    if (s.autopilotComplete) return this.skipCi(s, git, "complete", false); // terminal
+    if (this.pending.has(id)) return this.skipCi(s, git, "pending-classify", false); // a classify (onDone/onBlock) is mid-flight — its dispatch will act; don't race it
+    if (!git) return false;
+    // Non-full-auto: the merge train never touches it, so this idle backstop is the only actor
+    // left once considerCi's one-shot edge steer is spent. A rebase actor that takes it
+    // (reEngageRebase, red+behind) goes first: return false so tick() falls through to it.
+    if (!this.deps.fullAuto(id)) {
+      if (this.ownedByRebaser(s, git)) return this.skipCi(s, git, "owned-by-rebaser", false);
+      return this.steerCiFix(s, git);
+    }
     // The budget is SHARED with the `behind` path, deliberately, and does NOT reset when a PR
     // transitions behind→dirty. So a PR that already spent all `rebaseCap` attempts on behind
     // rebases and then goes conflicting is handed back immediately, with zero attempts spent on
@@ -921,14 +963,22 @@ export class AutopilotService {
     // guard above: a LIVE train member must never have terminal state written under the mark
     // (it would survive mark-clear); its hand-back is the train's own rebase_cap hold + push.
     if (trainRebaseInPlay(s, git) && s.autoMergeRebaseCount >= this.rebaseCap) {
+      this.skipCi(s, git, "rebase-cap", true);
       this.pause(s, REBASE_CAP_MESSAGE);
       return true;
     }
     // A rebase actor already owns this conflicting session → claim it (so onDone short-circuits
     // before classify) but don't steer, exactly like the mergingSince guard above.
-    if (this.ownedByRebaser(s, git)) return true;
+    if (this.ownedByRebaser(s, git)) return this.skipCi(s, git, "owned-by-rebaser", true);
+    return this.steerCiFix(s, git);
+  }
+
+  /** The shared tail of reEngageCi: hand back at the step cap, else count the attempt and steer
+   *  CI_FIX_STEER. Always owns the session (returns true). */
+  private steerCiFix(s: Session, git: GitState): boolean {
     // Cap check BEFORE any bump/steer: at the budget, hand back instead of thrashing CI.
     if (s.autopilotStepCount >= this.stepCap) {
+      this.skipCi(s, git, "step-cap", true);
       this.pause(s, CI_CAP_MESSAGE);
       return true;
     }
@@ -941,10 +991,39 @@ export class AutopilotService {
     // (the steer coalesces at the PTY) and bounded by the cap — it only ever hastens the clean
     // hand-back, never a silent hang.
     this.bump(s);
-    void this.sendSteer(s, CI_FIX_STEER).catch((err) =>
-      console.warn("[autopilot] ci re-engage steer:", err),
-    );
+    void this.sendSteer(s, CI_FIX_STEER)
+      .then((landed) => {
+        if (!landed) this.skipCi(s, git, "not-delivered", true);
+      })
+      .catch((err) => console.warn("[autopilot] ci re-engage steer:", err));
     return true;
+  }
+
+  /** Log a red PR the tick skipped because its agent is working — a lingering background shell
+   *  would otherwise hold it silently forever. */
+  private skipWorkingCi(s: Session): void {
+    if (!this.enabled(s)) return;
+    const reason = this.isBackgroundBusy(s.id) ? "background-busy" : "working";
+    this.skipCi(s, this.redPr(s.id), reason, false);
+  }
+
+  /** The cached PR when it is open and red, else null. */
+  private redPr(id: string): GitState | null {
+    const git = this.deps.prGit(id);
+    return git?.state === "open" && git.checks === "failure" ? git : null;
+  }
+
+  /** Log why an open+red PR was NOT steered — once per (session, head, reason), so a session left
+   *  idling on red is diagnosable from shepherd.log. A no-op without a red PR. Returns `owned` so a
+   *  stand-down can log and return in one expression. */
+  private skipCi(s: Session, git: GitState | null, reason: CiSkipReason, owned: boolean): boolean {
+    if (!git) return owned;
+    const key = `${git.headSha ?? ""}:${reason}`;
+    if (this.ciSkipLogged.get(s.id) === key) return owned;
+    this.ciSkipLogged.set(s.id, key);
+    const head = git.headSha?.slice(0, 7) ?? "none";
+    console.log(`[autopilot] ci-red skip ${s.desig} head=${head} reason=${reason}`);
+    return owned;
   }
 
   /** Re-engage an idle NON-full-auto session whose open PR is behind its base (or conflicting)
@@ -1142,9 +1221,9 @@ export class AutopilotService {
    *  trigger that reliably re-fires while an agent idles on an UNCHANGED head — the case
    *  onGit/considerCi provably cannot reach. Only the idle filter lives here (status done/idle,
    *  i.e. NOT working() — mirrors the active grouping at poller.ts:314); all
-   *  eligibility/red/full-auto checks live inside the re-engage helpers. The two are disjoint by
-   *  the full-auto gate (reEngageCi acts only on full-auto, reEngageRebase only on non-full-auto),
-   *  so the guard just avoids a redundant second call when the first already owned the session. */
+   *  eligibility/red/full-auto checks live inside the re-engage helpers. reEngageCi runs first;
+   *  for a non-full-auto red PR a rebase actor owns (red+behind) it returns false so
+   *  reEngageRebase acts instead — the two never both steer one session in a tick. */
   private hasReengagementWork(s: Session): boolean {
     if (
       s.mergingSince !== null ||
@@ -1161,6 +1240,8 @@ export class AutopilotService {
         !!git && git.state === "open" && git.checks === "failure" && !this.ownedByRebaser(s, git)
       );
     }
+    const red = this.redPr(s.id);
+    if (red && !this.ownedByRebaser(s, red)) return true;
     const git = this.rebaseCandidate(s);
     return !!git && (git.mergeStateStatus === "behind" || isDefiniteConflict(git));
   }
@@ -1168,9 +1249,14 @@ export class AutopilotService {
   async tick(): Promise<void> {
     for (const s of this.deps.store.list()) {
       if (s.status === "archived") continue;
-      if (this.working(s)) continue; // working (incl. a background shell) — don't interrupt
-      if (this.deps.capacity && this.hasReengagementWork(s) && !(await this.deps.capacity(s)))
+      if (this.working(s)) {
+        this.skipWorkingCi(s); // working (incl. a background shell) — don't interrupt
         continue;
+      }
+      if (this.deps.capacity && this.hasReengagementWork(s) && !(await this.deps.capacity(s))) {
+        this.skipCi(s, this.redPr(s.id), "no-capacity", false);
+        continue;
+      }
       if (!this.reEngageCi(s.id)) this.reEngageRebase(s.id);
     }
   }

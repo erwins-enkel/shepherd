@@ -13,6 +13,9 @@ export interface CiSteerDeps {
   reply: (id: string, text: string) => Promise<boolean>;
   /** Whether autopilot is effective for the session: its CI_FIX_STEER already owns red CI. */
   autopilotOn: (s: Session) => boolean;
+  /** The persisted PR cache at attach time (PrPoller.snapshot()). Without it the first post-restart
+   *  transition of every session only primes and is never announced. */
+  seed?: Record<string, GitState>;
 }
 
 /** One check name as a short single line (names come from the repo's CI config). */
@@ -57,6 +60,12 @@ function inFlight(git: GitState): boolean {
   );
 }
 
+/** The announced-pair key: in-flight is part of it so a red head whose remaining jobs then finish
+ *  is a new pair — the steer waits for that, and then names every failure, not the first one. */
+function pairKey(git: GitState): string {
+  return `${git.headSha ?? ""}:${git.checks}:${inFlight(git) ? "running" : "done"}`;
+}
+
 /** Sessions the steer may address: a live agent session with an open PR, not planning and not
  *  owned by the merge train (which steers its own rebase). */
 function steerable(s: Session | null | undefined, git: GitState): s is Session {
@@ -75,7 +84,8 @@ function steerable(s: Session | null | undefined, git: GitState): s is Session {
  * Push a CI-finished steer to the task agent when its PR's checks turn terminal (#2852), so an
  * agent waiting for CI needs no `gh pr checks --watch` / `gh run watch` of its own. Fires once per
  * announced `(headSha, checks)` pair — a rerun that flips red→green on the same head steers again. The
- * first sighting of a session only primes (a restart must not re-announce settled CI). A red PR
+ * first sighting of a session only primes (a restart must not re-announce settled CI); `deps.seed`
+ * pre-primes from the persisted cache so a transition right after a restart still fires. A red PR
  * under autopilot is skipped: autopilot's CI_FIX_STEER already acts on it.
  */
 export function attachCiSteer(
@@ -83,7 +93,9 @@ export function attachCiSteer(
   store: Pick<SessionStore, "get">,
   deps: CiSteerDeps,
 ): void {
-  const last = new Map<string, string>();
+  const last = new Map<string, string>(
+    Object.entries(deps.seed ?? {}).map(([id, git]) => [id, pairKey(git)]),
+  );
   // Last pair actually announced: a rollup that flaps (pending again, a REST-fallback sample
   // without a head) and settles back on the same result must not announce it twice.
   const steered = new Map<string, string>();
@@ -96,10 +108,8 @@ export function attachCiSteer(
     }
     if (event !== "session:git") return;
     const { id, git } = data as { id: string; git: GitState };
-    // The in-flight flag is part of the key so a red head whose remaining jobs then finish is a
-    // new pair: the steer waits for that, and then names every failure, not the first one.
     const running = inFlight(git);
-    const key = `${git.headSha ?? ""}:${git.checks}:${running ? "running" : "done"}`;
+    const key = pairKey(git);
     const prev = last.get(id);
     last.set(id, key);
     // Jobs seen running again are a real new attempt (a rerun on the same head): forget the last

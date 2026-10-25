@@ -913,6 +913,27 @@ test("same failing head is nudged only once", async () => {
   expect(h.state().autopilotStepCount).toBe(1);
 });
 
+test("a rerun that goes red again on the same head re-steers once it was seen non-red", async () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  h.svc.onGit("s1", git({ headSha: "sha1", checks: "pending" })); // agent re-ran the failed job
+  h.svc.onGit("s1", git({ headSha: "sha1" })); // ...and it failed again
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(2);
+  expect(h.state().autopilotStepCount).toBe(2);
+});
+
+test("a headless non-red sample does not re-arm the same-head dedup", async () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  h.svc.onGit("s1", git({ headSha: undefined, checks: "pending" })); // REST-fallback sample
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(1);
+});
+
 test("a new failing head (agent pushed a fix that still fails) re-steers", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ headSha: "sha1" }));
@@ -1236,15 +1257,120 @@ test("negative: tick() ignores an autopilot-disabled session", () => {
   expect(h.events.length).toBe(0);
 });
 
-test("negative: tick() ignores a non-full-auto session (post-PR CI loop is full-auto only)", () => {
-  const h = harness({
-    session: sess({ status: "done" }),
+/** An idle non-full-auto autopilot session on an open+red PR (autopilot on, merge train off). */
+function stuckRedAttendedMerge(over: Partial<Session> = {}) {
+  return harness({
+    session: sess({ status: "done", ...over }),
     repoEnabled: true,
     fullAuto: false,
     prGit: git(),
   });
-  h.svc.tick();
-  expect(h.events.length).toBe(0);
+}
+
+test("non-full-auto: tick() re-engages an idle red PR (step++ + CI-fix steer)", async () => {
+  const h = stuckRedAttendedMerge();
+  await h.svc.tick();
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("non-full-auto: tick() hands back at the step cap with CI_CAP_MESSAGE", async () => {
+  const h = stuckRedAttendedMerge({ autopilotStepCount: 10 });
+  await h.svc.tick();
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.events).toContainEqual({ pause: "s1", q: CI_CAP_MESSAGE });
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("non-full-auto: tick() does not steer a working or background-busy red session", async () => {
+  const running = stuckRedAttendedMerge({ status: "running" });
+  await running.svc.tick();
+  expect(running.events.some((e) => "steer" in e)).toBe(false);
+  const busy = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: false,
+    prGit: git(),
+    backgroundBusy: () => true,
+  });
+  await busy.svc.tick();
+  expect(busy.events.some((e) => "steer" in e)).toBe(false);
+});
+
+/** Capture `ci-red skip` log lines emitted while `fn` runs. */
+async function ciSkipLogs(fn: () => Promise<void>): Promise<string[]> {
+  const lines: string[] = [];
+  const spy = mock((...args: unknown[]) => {
+    const line = args.map(String).join(" ");
+    if (line.includes("ci-red skip")) lines.push(line);
+  });
+  const orig = console.log;
+  console.log = spy;
+  try {
+    await fn();
+  } finally {
+    console.log = orig;
+  }
+  return lines;
+}
+
+test("ci-red skip: a paused red session logs its reason once per head", async () => {
+  let pr = git({ headSha: "aaaaaaa1" });
+  const h = harness({
+    session: sess({ status: "done", autopilotPaused: true }),
+    repoEnabled: true,
+    get prGit() {
+      return pr;
+    },
+  });
+  const lines = await ciSkipLogs(async () => {
+    h.svc.onGit("s1", pr);
+    await h.svc.tick();
+    await h.svc.tick();
+    pr = git({ headSha: "bbbbbbb2" });
+    await h.svc.tick();
+  });
+  expect(lines).toEqual([
+    "[autopilot] ci-red skip TASK-01 head=aaaaaaa reason=paused",
+    "[autopilot] ci-red skip TASK-01 head=bbbbbbb reason=paused",
+  ]);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("ci-red skip: a background-busy red session logs background-busy", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    prGit: git(),
+    backgroundBusy: () => true,
+  });
+  const lines = await ciSkipLogs(async () => {
+    await h.svc.tick();
+    await h.svc.tick();
+  });
+  expect(lines).toEqual(["[autopilot] ci-red skip TASK-01 head=sha1 reason=background-busy"]);
+});
+
+test("ci-red skip: a green PR logs nothing", async () => {
+  const h = harness({
+    session: sess({ status: "done", autopilotPaused: true }),
+    repoEnabled: true,
+    prGit: git({ checks: "success" }),
+  });
+  const lines = await ciSkipLogs(() => h.svc.tick());
+  expect(lines).toEqual([]);
+});
+
+test("non-full-auto: onDone on a red PR re-engages without classifying", async () => {
+  const h = stuckRedAttendedMerge();
+  h.svc.onGit("s1", git()); // edge steer for this head
+  await flush();
+  await h.svc.onDone("s1"); // idle again on the same red head
+  await flush();
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(2);
+  expect(h.state().autopilotStepCount).toBe(2);
 });
 
 test("negative: tick() ignores an archived session", () => {

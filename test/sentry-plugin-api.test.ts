@@ -137,6 +137,22 @@ describe("client", () => {
     expect((seen!.headers as Record<string, string>).Authorization).toBe("Bearer tok");
   });
 
+  test("sentryGet refuses http and never follows a redirect (#3338)", async () => {
+    let calls = 0;
+    let seen: RequestInit | undefined;
+    const fetch: Fetch = async (_url, init) => {
+      calls++;
+      seen = init;
+      return new Response("", { status: 302, headers: { location: "https://evil.example/" } });
+    };
+    const plain = await sentryGet({ fetch, host: "http://s.io", token: "tok" }, "x/");
+    expect(plain).toMatchObject({ ok: false, error: "host must be https" });
+    expect(calls).toBe(0);
+    const r = await sentryGet({ fetch, host: "https://s.io", token: "tok" }, "x/");
+    expect(r).toMatchObject({ ok: false, status: 302 });
+    expect(seen!.redirect).toBe("manual");
+  });
+
   test("sentryGet reports HTTP errors, network failures and oversize bodies without throwing", async () => {
     const c = (fetch: Fetch) => ({ fetch, host: "https://s.io", token: "tok" });
     expect(

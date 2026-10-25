@@ -16,10 +16,12 @@ import {
   readSettings,
   readStatus,
   readSuggestions,
+  readTokenHost,
   TIMES_SEEN,
   writeMappings,
   writeSettings,
   writeSuggestions,
+  writeTokenHost,
   type MappingSource,
   type Settings,
 } from "./state";
@@ -40,11 +42,12 @@ async function readBody(req: Request): Promise<Body> {
 
 const reply = (msg: string, status = 200) => new Response(msg, { status });
 
-/** `https://host[/path]` without a trailing slash, or null. */
+/** `https://host[/path]` without a trailing slash, or null. Plain http would send the token in
+ *  the clear (#3338). */
 export function normalizeHost(raw: string): string | null {
   try {
     const u = new URL(raw.trim());
-    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (u.protocol !== "https:") return null;
     if (u.username || u.password || u.search || u.hash) return null;
     return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
   } catch {
@@ -74,6 +77,10 @@ export function applySettingsForm(cur: Settings, b: Body, t: Strings): Settings 
 
 export default function register(ctx: PluginContext): void {
   const { state, log } = ctx;
+  // A token saved before host binding (#3338) is bound once to the host it was used with.
+  const legacyHost = readSettings(state).host;
+  if (ctx.secrets.get("token") && !readTokenHost(state) && normalizeHost(legacyHost) === legacyHost)
+    writeTokenHost(state, legacyHost);
   const poller: Poller = createPoller({
     state,
     secrets: ctx.secrets,
@@ -133,8 +140,10 @@ export default function register(ctx: PluginContext): void {
     const cur = readSettings(state);
     const next = applySettingsForm(cur, b, strings());
     if (typeof next === "string") return reply(next, 400);
-    if (typeof b.token === "string" && b.token.trim())
+    if (typeof b.token === "string" && b.token.trim()) {
       await ctx.secrets.set("token", b.token.trim());
+      writeTokenHost(state, next.host);
+    }
     writeSettings(state, next);
     if (next.enabled && !cur.enabled) background("detect", () => poller.detect());
     republish();

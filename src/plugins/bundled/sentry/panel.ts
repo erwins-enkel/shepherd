@@ -59,7 +59,7 @@ export const STRINGS = {
     addButton: "Add mapping",
     // route responses
     saved: "Saved.",
-    invalidHost: "Host must be an http(s) URL.",
+    invalidHost: "Host must be an https URL.",
     invalidOrg: "Organization must be a Sentry slug.",
     invalidProject: "Project must be a Sentry slug.",
     invalidRepo: "Unknown or local-only repository.",
@@ -110,7 +110,7 @@ export const STRINGS = {
     repo: "Repository",
     addButton: "Zuordnung hinzufügen",
     saved: "Gespeichert.",
-    invalidHost: "Host muss eine http(s)-URL sein.",
+    invalidHost: "Host muss eine https-URL sein.",
     invalidOrg: "Organisation muss ein Sentry-Slug sein.",
     invalidProject: "Projekt muss ein Sentry-Slug sein.",
     invalidRepo: "Unbekanntes oder rein lokales Repository.",

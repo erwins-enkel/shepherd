@@ -42,6 +42,7 @@ import {
   readMeta,
   readSettings,
   readStatus,
+  readTokenHost,
   writeFiled,
   writeMeta,
   writeStatus,
@@ -105,7 +106,12 @@ export function createPoller(deps: PollerDeps): Poller {
   const read = deps.readText ?? readText;
   let running = false;
 
-  const token = (): string | null => deps.secrets.get("token") || deps.envToken() || null;
+  /** The stored token only while the host is the one it was saved for (#3338); else the env one. */
+  const token = (): string | null => {
+    const stored = deps.secrets.get("token");
+    if (stored && readTokenHost(state) === readSettings(state).host) return stored;
+    return deps.envToken() || null;
+  };
 
   /** Forge-backed repo paths currently under the repo root. */
   function usableRepos(): PluginRepo[] {

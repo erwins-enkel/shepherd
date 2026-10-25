@@ -13,6 +13,7 @@ import {
   detectEgressHostLoopback,
   resetEgressHostLoopbackCache,
   SLIRP_HOST_GATEWAY,
+  DNSMASQ_QUERY_PORT,
   egressRunnerPath,
   egressTmpDir,
   writeEgressConfigFiles,
@@ -387,16 +388,31 @@ describe("buildEgressConfig", () => {
     expect(nftRuleset).toContain("ct state established,related accept");
   });
 
-  test("nftRuleset references resolver IP for DNS rules", () => {
+  // Audit N06: the resolver accept is bound to dnsmasq's fixed query port, so the agent can't
+  // query the upstream resolver directly and bypass the allowlist.
+  test("nftRuleset only lets dnsmasq's query port reach the resolver", () => {
     const { nftRuleset } = config();
-    expect(nftRuleset).toContain("ip daddr 10.0.2.3 udp dport 53 accept");
-    expect(nftRuleset).toContain("ip daddr 10.0.2.3 tcp dport 53 accept");
+    expect(nftRuleset).toContain(
+      `ip daddr 10.0.2.3 udp sport ${DNSMASQ_QUERY_PORT} udp dport 53 accept`,
+    );
+    expect(nftRuleset).not.toContain("ip daddr 10.0.2.3 udp dport 53 accept");
+    expect(nftRuleset).not.toContain("tcp dport 53");
+  });
+
+  test("dnsmasq sends upstream queries from the fixed query port", () => {
+    expect(config().dnsmasqArgv).toContain(`--query-port=${DNSMASQ_QUERY_PORT}`);
+  });
+
+  test("query port is privileged (the cap-dropped agent can't bind it)", () => {
+    expect(DNSMASQ_QUERY_PORT).toBeLessThan(1024);
+    expect(DNSMASQ_QUERY_PORT).toBeGreaterThan(0);
   });
 
   test("nftRuleset custom resolver IP propagated", () => {
     const { nftRuleset } = config({ resolver: "192.168.100.1" });
-    expect(nftRuleset).toContain("ip daddr 192.168.100.1 udp dport 53 accept");
-    expect(nftRuleset).toContain("ip daddr 192.168.100.1 tcp dport 53 accept");
+    expect(nftRuleset).toContain(
+      `ip daddr 192.168.100.1 udp sport ${DNSMASQ_QUERY_PORT} udp dport 53 accept`,
+    );
   });
 
   test("nftRuleset has ipv6 reject", () => {

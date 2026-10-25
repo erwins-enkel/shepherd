@@ -55,9 +55,10 @@ impl Io {
         }
     }
 
-    /// Best-effort stderr line; a closed stderr must not change the exit code.
+    /// Best-effort stderr line, sanitized like stdout (it carries server text); a closed stderr
+    /// must not change the exit code.
     pub fn warn(&mut self, text: &str) {
-        let _ = writeln!(self.stderr, "{text}");
+        let _ = writeln!(self.stderr, "{}", output::plain(text, true));
     }
 
     /// Reads `value`, or all of stdin when it is `-`.

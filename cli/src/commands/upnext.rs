@@ -193,12 +193,15 @@ async fn list(ctx: &mut Ctx<'_>) -> Result<()> {
         } else {
             item.kind.0.clone()
         };
-        t.add_row(vec![
-            item_ref(item),
-            kind,
-            summary(&item.title),
-            ago(item.created_at),
-        ]);
+        output::add_row(
+            &mut t,
+            [
+                item_ref(item),
+                kind,
+                summary(&item.title),
+                ago(item.created_at),
+            ],
+        );
     }
     output::print_table(&mut ctx.io.stdout, &t)
 }

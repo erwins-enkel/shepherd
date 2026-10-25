@@ -100,7 +100,7 @@ fn print_kv(ctx: &mut Ctx<'_>, value: &impl Serialize) -> Result<()> {
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     let mut t = output::table(&["KEY", "VALUE"]);
     for (k, v) in rows {
-        t.add_row(vec![k, cell(v)]);
+        output::add_row(&mut t, [k, cell(v)]);
     }
     output::print_table(&mut ctx.io.stdout, &t)
 }
@@ -294,12 +294,15 @@ fn print_snapshot(
         .iter()
         .filter(|c| only.is_none_or(|id| c.id == id))
     {
-        t.add_row(vec![
-            c.id.clone(),
-            c.state.to_string(),
-            c.hint_key.clone(),
-            or_dash(c.remediation.as_ref().or(c.fix_action_key.as_ref())),
-        ]);
+        output::add_row(
+            &mut t,
+            [
+                c.id.clone(),
+                c.state.to_string(),
+                c.hint_key.clone(),
+                or_dash(c.remediation.as_ref().or(c.fix_action_key.as_ref())),
+            ],
+        );
     }
     output::print_table(&mut ctx.io.stdout, &t)?;
     output::line(

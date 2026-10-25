@@ -8,6 +8,16 @@ use std::sync::{Arc, Mutex};
 
 use shepherd_cli::Io;
 
+/// A server/agent string carrying OSC (title + BEL), CSI and C1-CSI terminal sequences.
+pub const EVIL: &str = "x\u{1b}]0;pwn\u{7}\u{1b}[2J\u{9b}31my";
+
+/// No terminal control byte made it through to a terminal.
+pub fn assert_clean(text: &str) {
+    for c in ['\u{1b}', '\u{7}', '\u{9b}'] {
+        assert!(!text.contains(c), "{c:?} in {text:?}");
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Buf(Arc<Mutex<Vec<u8>>>);
 
@@ -76,6 +86,12 @@ impl Harness {
         let mut argv = vec!["shepherd"];
         argv.extend_from_slice(args);
         shepherd_cli::run(argv, &mut io).await
+    }
+
+    /// Neither stdout nor stderr carries a terminal control byte.
+    pub fn assert_clean(&self) {
+        assert_clean(&self.out.text());
+        assert_clean(&self.err.text());
     }
 
     pub fn json(&self) -> serde_json::Value {

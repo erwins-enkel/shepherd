@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use serde_json::json;
 use shepherd_cli::test_support::{repo_config_json, session_json};
 use wiremock::matchers::{body_json, method, path, query_param};
@@ -224,4 +224,27 @@ async fn repo_defaults_to_the_git_toplevel_and_fails_outside_one() {
     let h = Harness::new();
     assert_eq!(h.run(&["--url", "http://127.0.0.1:1", "issues"]).await, 2);
     assert!(h.err.text().contains("pass --repo"));
+}
+
+#[tokio::test]
+async fn tty_issues_strip_terminal_sequences() {
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "slug": "o/repo", "webUrl": null, "viewer": null, "issues": [{
+                "number": 12, "title": EVIL, "body": "", "url": EVIL,
+                "labels": [EVIL], "createdAt": 0, "assignees": []
+            }]
+        })))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    let args = ["--url", &s.uri(), "issues", "--repo", "/work/repo"];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
+    assert!(h.out.text().contains("x]0;pwn"), "{}", h.out.text());
+    h.assert_clean();
 }

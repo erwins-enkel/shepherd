@@ -1,6 +1,6 @@
 mod common;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use serde_json::json;
 use shepherd_cli::test_support::session_json;
 use wiremock::matchers::{body_json, body_partial_json, method, path};
@@ -420,4 +420,24 @@ async fn retry_with_nothing_halted_posts_nothing() {
     h.tty = true;
     assert_eq!(h.run(&["--url", &s.uri(), "retry"]).await, 0);
     assert!(h.out.text().contains("nothing to retry"));
+}
+
+#[tokio::test]
+async fn tty_new_strips_terminal_sequences() {
+    let s = server().await;
+    let mut created = session_json("id-9", "TASK-09");
+    created["name"] = json!(EVIL);
+    Mock::given(method("POST"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(created))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    let args = ["--url", &s.uri(), "new", "--repo", "/r", "go"];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
+    assert!(h.out.text().contains("x]0;pwn"), "{}", h.out.text());
+    h.assert_clean();
 }

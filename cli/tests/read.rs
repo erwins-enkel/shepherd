@@ -1,6 +1,6 @@
 mod common;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use serde_json::json;
 use shepherd_cli::test_support::session_json;
 use wiremock::matchers::{header, method, path, query_param};
@@ -554,4 +554,72 @@ async fn usage_errors_exit_2() {
     let h = Harness::new();
     assert_eq!(h.run(&["--version"]).await, 0);
     assert!(h.out.text().contains(shepherd_cli::CLI_VERSION));
+}
+
+#[tokio::test]
+async fn tty_output_strips_terminal_sequences() {
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/health"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"ok": true, "version": EVIL})),
+        )
+        .mount(&s)
+        .await;
+    let mut evil = session_json("id-1", "TASK-01");
+    evil["name"] = json!(EVIL);
+    evil["prompt"] = json!(format!("{EVIL}\n{EVIL}"));
+    Mock::given(method("GET"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([evil])))
+        .mount(&s)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [], "awaitingInput": true, "pendingQuestion": EVIL, "unavailable": null
+        })))
+        .mount(&s)
+        .await;
+    for args in [
+        ["sessions", "list"].as_slice(),
+        &["sessions", "show", "TASK-01"],
+    ] {
+        let h = Harness {
+            tty: true,
+            ..Harness::new()
+        };
+        let uri = s.uri();
+        let mut argv = vec!["--url", uri.as_str()];
+        argv.extend_from_slice(args);
+        h.run(&argv).await;
+        assert!(h.out.text().contains("x]0;pwn[2J31my"), "{}", h.out.text());
+        assert!(h.err.text().contains("server is v"), "{}", h.err.text());
+        h.assert_clean();
+    }
+    // JSON keeps the raw value; serde escapes it.
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "sessions", "list"]).await, 0);
+    assert_eq!(h.json()[0]["name"], EVIL);
+}
+
+#[tokio::test]
+async fn error_printer_strips_terminal_sequences() {
+    let s = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": EVIL})))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    assert_eq!(h.run(&["--url", &s.uri(), "sessions", "list"]).await, 8);
+    assert!(
+        h.err.text().contains("server error (500): x]0;pwn"),
+        "{}",
+        h.err.text()
+    );
+    h.assert_clean();
 }

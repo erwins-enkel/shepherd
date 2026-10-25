@@ -64,13 +64,16 @@ async fn list(ctx: &mut Ctx<'_>, repo: String) -> Result<()> {
     }
     let mut t = output::table(&["#", "TITLE", "STATUS", "DONE", "SOURCE"]);
     for e in &listing.epics {
-        t.add_row(vec![
-            e.parent_issue_number.to_string(),
-            summary(&e.parent_title),
-            e.status.to_string(),
-            format!("{}/{}", e.merged, e.total),
-            e.source.to_string(),
-        ]);
+        output::add_row(
+            &mut t,
+            [
+                e.parent_issue_number.to_string(),
+                summary(&e.parent_title),
+                e.status.to_string(),
+                format!("{}/{}", e.merged, e.total),
+                e.source.to_string(),
+            ],
+        );
     }
     output::print_table(&mut ctx.io.stdout, &t)
 }
@@ -151,18 +154,21 @@ fn print_epic(ctx: &mut Ctx<'_>, epic: &Epic) -> Result<()> {
             .map(|n| format!("#{n}"))
             .collect::<Vec<_>>()
             .join(",");
-        t.add_row(vec![
-            c.number.to_string(),
-            c.state.to_string(),
-            summary(&c.title),
-            if blocked.is_empty() {
-                "-".into()
-            } else {
-                blocked
-            },
-            or_dash(c.pr_number.map(|n| format!("#{n}"))),
-            or_dash(c.session_id.as_ref()),
-        ]);
+        output::add_row(
+            &mut t,
+            [
+                c.number.to_string(),
+                c.state.to_string(),
+                summary(&c.title),
+                if blocked.is_empty() {
+                    "-".into()
+                } else {
+                    blocked
+                },
+                or_dash(c.pr_number.map(|n| format!("#{n}"))),
+                or_dash(c.session_id.as_ref()),
+            ],
+        );
     }
     output::print_table(out, &t)
 }

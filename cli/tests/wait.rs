@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use shepherd_cli::test_support::session_json;
@@ -402,4 +402,25 @@ async fn reconnect_rechecks_the_listener_before_sending_a_profile_token() {
     assert_eq!(exit(task).await, 1, "{}", h.err.text());
     assert!(h.err.text().contains("another user"), "{}", h.err.text());
     assert_eq!(s.reads.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn human_line_strips_terminal_sequences() {
+    let s = Server::start(running()).await;
+    s.set(
+        &s.holds,
+        "id-1",
+        json!({"code": "autopilot-paused", "params": {"question": EVIL}}),
+    );
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    assert_eq!(exit(spawn(&h, &s, &["TASK-01"])).await, 10);
+    assert!(
+        h.out.text().contains("needs input: x]0;pwn"),
+        "{}",
+        h.out.text()
+    );
+    h.assert_clean();
 }

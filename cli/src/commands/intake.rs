@@ -41,14 +41,17 @@ pub async fn backlog(ctx: &mut Ctx<'_>) -> Result<()> {
     } else {
         let mut t = output::table(&["REPO", "KIND", "ISSUES", "PRS", "CI", "PATH"]);
         for p in payload.projects.iter().filter(|p| !p.hidden) {
-            t.add_row(vec![
-                p.slug.clone().unwrap_or_else(|| p.display.clone()),
-                p.kind.clone(),
-                or_dash(p.open_issues),
-                or_dash(p.open_p_rs),
-                or_dash(p.ci_status.as_ref()),
-                p.path.clone(),
-            ]);
+            output::add_row(
+                &mut t,
+                [
+                    p.slug.clone().unwrap_or_else(|| p.display.clone()),
+                    p.kind.clone(),
+                    or_dash(p.open_issues),
+                    or_dash(p.open_p_rs),
+                    or_dash(p.ci_status.as_ref()),
+                    p.path.clone(),
+                ],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
         output::line(
@@ -82,12 +85,15 @@ pub async fn issues(ctx: &mut Ctx<'_>, args: RepoArg) -> Result<()> {
         }
         let mut t = output::table(&["#", "TITLE", "LABELS", "AGE"]);
         for i in &listing.issues {
-            t.add_row(vec![
-                i.number.to_string(),
-                summary(&i.title),
-                i.labels.join(","),
-                ago(i.created_at),
-            ]);
+            output::add_row(
+                &mut t,
+                [
+                    i.number.to_string(),
+                    summary(&i.title),
+                    i.labels.join(","),
+                    ago(i.created_at),
+                ],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
     }
@@ -120,14 +126,17 @@ async fn drain_status(ctx: &mut Ctx<'_>) -> Result<()> {
                 (true, true) => format!("paused ({})", d.reason.as_deref().unwrap_or("-")),
                 (true, false) => "on".to_string(),
             };
-            t.add_row(vec![
-                d.repo_path.clone(),
-                state,
-                d.queued.to_string(),
-                format!("{}/{}", d.in_flight, d.max),
-                or_dash(d.epic_parent.map(|n| format!("#{n}"))),
-                or_dash(d.detail.as_ref()),
-            ]);
+            output::add_row(
+                &mut t,
+                [
+                    d.repo_path.clone(),
+                    state,
+                    d.queued.to_string(),
+                    format!("{}/{}", d.in_flight, d.max),
+                    or_dash(d.epic_parent.map(|n| format!("#{n}"))),
+                    or_dash(d.detail.as_ref()),
+                ],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
     }
@@ -147,7 +156,10 @@ async fn drain_queue(ctx: &mut Ctx<'_>, args: RepoArg) -> Result<()> {
     } else {
         let mut t = output::table(&["#", "TITLE", "URL"]);
         for i in &list {
-            t.add_row(vec![i.number.to_string(), summary(&i.title), i.url.clone()]);
+            output::add_row(
+                &mut t,
+                [i.number.to_string(), summary(&i.title), i.url.clone()],
+            );
         }
         output::print_table(&mut ctx.io.stdout, &t)?;
     }
@@ -239,16 +251,19 @@ async fn held_list(ctx: &mut Ctx<'_>) -> Result<()> {
     }
     let mut t = output::table(&["ID", "REASON", "REPO", "AGE", "PROMPT"]);
     for h in &list {
-        t.add_row(vec![
-            h.id.clone(),
-            or_dash(h.reason.as_ref().map(|r| match &h.after_desig {
-                Some(d) => format!("{} {d}", r.0),
-                None => r.0.clone(),
-            })),
-            h.repo_path.clone(),
-            ago(h.created_at),
-            summary(&h.input.prompt),
-        ]);
+        output::add_row(
+            &mut t,
+            [
+                h.id.clone(),
+                or_dash(h.reason.as_ref().map(|r| match &h.after_desig {
+                    Some(d) => format!("{} {d}", r.0),
+                    None => r.0.clone(),
+                })),
+                h.repo_path.clone(),
+                ago(h.created_at),
+                summary(&h.input.prompt),
+            ],
+        );
     }
     output::print_table(&mut ctx.io.stdout, &t)
 }

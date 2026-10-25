@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::Harness;
+use common::{EVIL, Harness};
 use serde_json::json;
 use shepherd_cli::test_support::repo_config_json;
 use wiremock::matchers::{body_json, method, path, query_param};
@@ -352,4 +352,32 @@ async fn diagnose_fix_posts_the_check() {
         "{}",
         h.err.text()
     );
+}
+
+#[tokio::test]
+async fn tty_settings_and_diagnose_strip_terminal_sequences() {
+    let s = MockServer::start().await;
+    let mut settings = settings_json();
+    settings["defaultModel"] = json!(EVIL);
+    Mock::given(method("GET"))
+        .and(path("/api/settings"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(settings))
+        .mount(&s)
+        .await;
+    let mut diag = diagnostics_json();
+    diag["checks"][1]["remediation"] = json!(EVIL);
+    Mock::given(method("GET"))
+        .and(path("/api/diagnostics"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(diag))
+        .mount(&s)
+        .await;
+    for verb in ["settings", "diagnose"] {
+        let h = Harness {
+            tty: true,
+            ..Harness::new()
+        };
+        h.run(&["--url", &s.uri(), verb]).await;
+        assert!(h.out.text().contains("x]0;pwn"), "{verb}: {}", h.out.text());
+        h.assert_clean();
+    }
 }

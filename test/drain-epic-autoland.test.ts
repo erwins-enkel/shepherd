@@ -6,6 +6,7 @@ import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { CompletedEpic } from "../src/completed-epic";
 import { epicIntegrationBranch } from "../src/epic-branch";
+import type { ReviewDecision } from "../src/types";
 
 const REPO = "/repo";
 const PARENT = 327;
@@ -113,10 +114,11 @@ function makeHarness(opts: {
   /** Skip pinning the integration branch (models an unpinned row). */
   noPin?: boolean;
   mergeWithoutCi?: boolean;
+  criticEnabled?: boolean;
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
-    criticEnabled: true,
+    criticEnabled: opts.criticEnabled ?? true,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
@@ -176,8 +178,26 @@ function makeHarness(opts: {
   return { store, drain, completedEmits, spy, setNow: (ms) => (nowMs = ms) };
 }
 
-/** Seed an epic_completed row already in landingState='open' with a pinned integration branch. */
-function seedOpenLanding(h: Harness, opts: { migrations?: string[]; pin?: boolean } = {}): void {
+/** Record the standalone critic's landing-PR verdict (pr_reviews) for `headSha`. */
+function seedVerdict(h: Harness, headSha: string, decision: ReviewDecision = "commented"): void {
+  h.store.putPrReview({
+    repoPath: REPO,
+    prNumber: LANDING_PR,
+    headSha,
+    patchId: "p",
+    decision,
+    reviewedPatchIds: [],
+    updatedAt: 1,
+  });
+}
+
+/** Seed an epic_completed row already in landingState='open' with a pinned integration branch.
+ *  Also seeds a clean critic verdict on readyPr()'s head unless `verdict: false`. */
+function seedOpenLanding(
+  h: Harness,
+  opts: { migrations?: string[]; pin?: boolean; verdict?: boolean } = {},
+): void {
+  if (opts.verdict !== false) seedVerdict(h, "deadbeef");
   h.store.recordEpicIntegrated(REPO, PARENT, 320, {
     number: 9320,
     url: "https://github.com/o/r/pull/9320",
@@ -422,6 +442,7 @@ describe("auto-land of integrated epics (#1044)", () => {
       },
     });
     seedOpenLanding(h);
+    seedVerdict(h, "head-A");
 
     // 3 failing ticks → at the cap, backed off.
     for (let i = 0; i < 3; i++) await h.drain.tick();
@@ -434,6 +455,7 @@ describe("auto-land of integrated epics (#1044)", () => {
 
     // A NEW head clears the backoff → merge is attempted again.
     head = "head-B";
+    seedVerdict(h, "head-B");
     await h.drain.tick();
     expect(h.spy.mergeCalls.length).toBe(4);
   });
@@ -487,5 +509,63 @@ describe("auto-land of integrated epics (#1044)", () => {
     expect(h.spy.mergeCalls).toHaveLength(1); // we did attempt the merge
     expect(row(h).landingState).toBe("merged"); // …but reconciled to merged, not error/open
     expect(h.completedEmits.at(-1)!.landingState).toBe("merged");
+  });
+
+  describe("critic verdict gate (#3367)", () => {
+    async function landsWith(
+      over: { criticEnabled?: boolean },
+      verdict: { headSha: string; decision: ReviewDecision } | null,
+    ): Promise<Harness> {
+      const h = makeHarness({ autoMergeEnabled: true, prStatus: async () => readyPr(), ...over });
+      seedOpenLanding(h, { verdict: false });
+      if (verdict) seedVerdict(h, verdict.headSha, verdict.decision);
+      await h.drain.tick();
+      return h;
+    }
+
+    test("critic ON, no verdict → held, no merge", async () => {
+      const h = await landsWith({}, null);
+      expect(h.spy.mergeCalls).toHaveLength(0);
+      expect(row(h).landingState).toBe("open");
+    });
+
+    test("critic ON, clean verdict on an older head → held (stale)", async () => {
+      const h = await landsWith({}, { headSha: "oldhead", decision: "commented" });
+      expect(h.spy.mergeCalls).toHaveLength(0);
+      expect(row(h).landingState).toBe("open");
+    });
+
+    test("critic ON, changes_requested on current head → held", async () => {
+      const h = await landsWith({}, { headSha: "deadbeef", decision: "changes_requested" });
+      expect(h.spy.mergeCalls).toHaveLength(0);
+      expect(row(h).landingState).toBe("open");
+    });
+
+    test("critic ON, error verdict on current head → held", async () => {
+      const h = await landsWith({}, { headSha: "deadbeef", decision: "error" });
+      expect(h.spy.mergeCalls).toHaveLength(0);
+      expect(row(h).landingState).toBe("open");
+    });
+
+    test("critic ON, clean verdict on current head → merged", async () => {
+      const h = await landsWith({}, { headSha: "deadbeef", decision: "commented" });
+      expect(h.spy.mergeCalls).toHaveLength(1);
+      expect(row(h).landingState).toBe("merged");
+    });
+
+    test("critic OFF, no verdict → merged (CI gate only)", async () => {
+      const h = await landsWith({ criticEnabled: false }, null);
+      expect(h.spy.mergeCalls).toHaveLength(1);
+      expect(row(h).landingState).toBe("merged");
+    });
+
+    test("critic OFF, stored changes_requested → held", async () => {
+      const h = await landsWith(
+        { criticEnabled: false },
+        { headSha: "oldhead", decision: "changes_requested" },
+      );
+      expect(h.spy.mergeCalls).toHaveLength(0);
+      expect(row(h).landingState).toBe("open");
+    });
   });
 });

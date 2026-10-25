@@ -1127,11 +1127,14 @@ const buildQueueReminder = new BuildQueueReminderService({
 });
 
 // Restart a repo's live Claude sessions, once each is settled, when its claude.ai-connector switch
-// no longer matches what they were spawned with. Kicked by the repo-config PUT; the 15s tick below
-// covers sessions still mid-turn at that moment and a mismatch left over from before a restart.
+// no longer matches what they were spawned with, or they lack the current ingress key (#3341).
+// Kicked by the repo-config PUT; the 15s tick below covers sessions still mid-turn at that moment
+// and a mismatch left over from before a restart.
 const connectorRestart = new ConnectorRestartService({
   store,
   livenessOf: (id) => poller.livenessOf(id),
+  // #3341: also restart sessions spawned without the current ingress key (e.g. across a deploy).
+  ingressStale: (s) => service.ingressStale(s),
   resume: (id) => service.resume(id, { force: true }),
 });
 

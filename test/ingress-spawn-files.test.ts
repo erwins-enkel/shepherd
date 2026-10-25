@@ -9,7 +9,7 @@ import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeAgentIngressApp, type AppDeps } from "../src/server";
 import { BrowserTokenSigner } from "../src/browser-token";
-import { ASSISTANT_INGRESS_HEADER } from "../src/assistant-ingress";
+import { ASSISTANT_INGRESS_HEADER, ingressStamp } from "../src/assistant-ingress";
 import { config } from "../src/config";
 
 const SIGNER = new BrowserTokenSigner(Buffer.alloc(32, 3));
@@ -200,4 +200,75 @@ test("ingress: no signer (broken key file) refuses every keyed call", async () =
     }),
   );
   expect(res.status).toBe(401);
+});
+
+// #3341: a session spawned without the current key is stale until a resume re-keys it.
+function unstamp(store: SessionStore, id: string): void {
+  (store as unknown as { db: { run: (sql: string, p: unknown[]) => void } }).db.run(
+    `UPDATE sessions SET ingressStamp=NULL WHERE id=?`,
+    [id],
+  );
+}
+
+test("spawn stamps the current ingress key; codex is never stamped", async () => {
+  const { svc, store } = harness();
+  const s = await create(svc);
+  const stamp = store.get(s.id)!.ingressStamp;
+  expect(stamp).toBe(ingressStamp(SIGNER));
+  expect(stamp).not.toContain(SIGNER.sign(s.id));
+  expect(await svc.ingressStale(store.get(s.id)!)).toBe(false);
+  const c = await create(svc, "codex");
+  expect(store.get(c.id)!.ingressStamp ?? null).toBeNull();
+});
+
+test("regression: keyless session → resume at idle → hook POST with key is accepted", async () => {
+  config.hooksIngest = true;
+  const { svc, store, spawnDir } = harness();
+  const s = await create(svc);
+  // Simulate a pre-#3339 spawn: no spawn files, no stamp.
+  for (const f of ["settings.json", "mcp.json", "key"]) rmSync(join(spawnDir, `${s.id}.${f}`));
+  unstamp(store, s.id);
+  expect(await svc.ingressStale(store.get(s.id)!)).toBe(true);
+
+  store.update(s.id, { status: "done", lastState: "done" });
+  expect(await svc.resume(s.id, { force: true })).not.toBeNull();
+  expect(store.get(s.id)!.ingressStamp).toBe(ingressStamp(SIGNER));
+  expect(await svc.ingressStale(store.get(s.id)!)).toBe(false);
+
+  const settings = JSON.parse(readFileSync(join(spawnDir, `${s.id}.settings.json`), "utf8"));
+  const key = settings.hooks.Stop[0].hooks[0].headers[ASSISTANT_INGRESS_HEADER];
+  const app = makeAgentIngressApp(ingressDeps(svc, store));
+  const post = (headers: Record<string, string>) =>
+    app.fetch(
+      new Request(`http://x/api/sessions/${s.id}/hooks`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify({ hook_event_name: "Stop", session_id: s.claudeSessionId }),
+      }),
+    );
+  expect((await post({ [ASSISTANT_INGRESS_HEADER]: key })).status).toBe(202); // the Stop ack
+  expect((await post({})).status).toBe(401);
+});
+
+test("a null stamp whose settings file already carries the key is backfilled, not stale", async () => {
+  config.hooksIngest = true;
+  const { svc, store } = harness();
+  const s = await create(svc);
+  unstamp(store, s.id);
+  expect(await svc.ingressStale(store.get(s.id)!)).toBe(false);
+  expect(store.get(s.id)!.ingressStamp).toBe(ingressStamp(SIGNER));
+});
+
+test("a stamp from another key or spawn-file version is stale", async () => {
+  const { svc, store } = harness();
+  const s = await create(svc);
+  store.setIngressStamp(s.id, "v0:deadbeefdeadbeef");
+  expect(await svc.ingressStale(store.get(s.id)!)).toBe(true);
+});
+
+test("no signer: never stale (a resume cannot help)", async () => {
+  const { svc, store } = harness({ signer: false });
+  const s = await create(svc);
+  expect(store.get(s.id)!.ingressStamp ?? null).toBeNull();
+  expect(await svc.ingressStale(store.get(s.id)!)).toBe(false);
 });

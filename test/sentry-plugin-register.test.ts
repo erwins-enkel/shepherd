@@ -91,6 +91,14 @@ test("settings route validates, stores the token as a secret, and never publishe
         .listPluginStateKeys("sentry")
         .some((k) => (store.getPluginState("sentry", k) ?? "").includes("sntrys_SECRET_TOKEN")),
     ).toBe(false);
+    // The token is bound to the host it was saved with; a later host change keeps that binding.
+    expect(JSON.parse(store.getPluginState("sentry", "tokenHost")!)).toBe(
+      "https://sentry.example.com",
+    );
+    expect((await post("settings", { host: "https://elsewhere.example" }))!.status).toBe(200);
+    expect(JSON.parse(store.getPluginState("sentry", "tokenHost")!)).toBe(
+      "https://sentry.example.com",
+    );
   } finally {
     cleanup();
   }
@@ -132,7 +140,8 @@ test("mapping routes: add/confirm validate repo + slug; lightweight repos refuse
 
 test("normalizeHost / applySettingsForm", () => {
   expect(normalizeHost("https://sentry.io/")).toBe("https://sentry.io");
-  expect(normalizeHost("http://sentry.local:9000/base/")).toBe("http://sentry.local:9000/base");
+  expect(normalizeHost("https://sentry.local:9000/base/")).toBe("https://sentry.local:9000/base");
+  expect(normalizeHost("http://sentry.local:9000/base/")).toBeNull();
   expect(normalizeHost("https://u:p@sentry.io")).toBeNull();
   expect(normalizeHost("javascript:alert(1)")).toBeNull();
   const t = STRINGS.en;

@@ -1,4 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
@@ -633,4 +636,57 @@ test("operator can set and edit canonical repo grants; bearers cannot widen them
     config.repoRoot = before;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ── plugin management + updates are operator-only (#3338) ──────────────────
+
+test("guard: a full bearer may read plugin lists but not install, remove, check or apply", async () => {
+  const pluginsDir = mkdtempSync(join(tmpdir(), "plugins-guard-"));
+  const status = { plugins: [], updateAvailable: false, checkedAt: 1 };
+  const calls: string[] = [];
+  const deps: AppDeps = {
+    ...makeDeps(),
+    pluginsDir,
+    pluginUpdates: {
+      current: () => status,
+      check: async () => (calls.push("check"), status),
+      apply: async () => (calls.push("apply"), { ok: false, error: "not_installed" }),
+    } as never,
+  };
+  const app = makeApp(deps);
+  const minted = (await (
+    await app.fetch(post({ name: "iPhone", expiresInDays: null }))
+  ).json()) as {
+    token: string;
+  };
+  const asBearer = { "content-type": "application/json", Authorization: `Bearer ${minted.token}` };
+  const req = (method: string, path: string, headers: Record<string, string>) =>
+    app.fetch(
+      new Request(`http://x${path}`, {
+        method,
+        headers,
+        body: method === "GET" ? undefined : JSON.stringify({ url: "x", folder: "x", id: "x" }),
+      }),
+    );
+
+  expect((await req("GET", "/api/plugins/manage/installed", asBearer)).status).toBe(200);
+  expect((await req("GET", "/api/plugin-update", asBearer)).status).toBe(200);
+  for (const [method, path] of [
+    ["POST", "/api/plugins/manage/install"],
+    ["POST", "/api/plugins/manage/activate"],
+    ["DELETE", "/api/plugins/manage/installed/x"],
+    ["POST", "/api/plugin-update/check"],
+    ["POST", "/api/plugin-update/apply"],
+  ] as const) {
+    const res = await req(method, path, asBearer);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "operator_session_required" });
+  }
+  expect(calls).toEqual([]);
+
+  // The operator's cookie session still reaches the handlers.
+  expect((await req("POST", "/api/plugin-update/check", asOperator())).status).toBe(200);
+  expect((await req("POST", "/api/plugin-update/apply", asOperator())).status).toBe(404);
+  expect(calls).toEqual(["check", "apply"]);
+  rmSync(pluginsDir, { recursive: true, force: true });
 });

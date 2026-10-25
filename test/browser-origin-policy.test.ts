@@ -134,6 +134,17 @@ describe("isDeniedAddress", () => {
     for (const a of ["93.184.216.34", "2606:2800:220:1::1", "::ffff:8.8.8.8"])
       expect(isDeniedAddress(a)).toBe(false);
   });
+
+  test("IPv4-embedding and deprecated IPv6 ranges denied (#3338)", () => {
+    for (const a of [
+      "::7f00:1", // ::/96 IPv4-compatible 127.0.0.1
+      "::ffff:7f00:1", // IPv4-mapped in hex form
+      "64:ff9b:1::a00:1", // local-use NAT64
+      "fec0::1", // site-local
+      "2001:0:4136:e378::1", // Teredo
+    ])
+      expect(isDeniedAddress(a)).toBe(true);
+  });
 });
 
 describe("resolvePreviewPort", () => {

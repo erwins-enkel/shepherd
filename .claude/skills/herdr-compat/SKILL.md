@@ -88,6 +88,10 @@ An analysis-only request produces findings without raising the ceiling.
    required there; read the relevant `.claude/rules/` files explicitly for those
    edits. For CLI docs, the generator resolves `herdr` via PATH: use the cached
    candidate directory on that command's PATH instead of replacing the installation.
+   Add the candidate's sha256 for every asset to `HERDR_SHA256` in
+   `src/herdr-install.ts` (read the GitHub release digests, e.g. `gh release view
+v<candidate> --repo herdrdev/herdr --json assets`). Without it, every install and
+   downgrade of the new ceiling refuses to run.
    Locate tests that treat the candidate as unsupported and move those cases to a
    still-unsupported version while retaining coverage of the block. Update the
    bump history under the SOP when the compatibility task authorizes that guidance

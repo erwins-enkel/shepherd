@@ -260,10 +260,14 @@ async function sentryRequest(
   url: string,
   init: RequestInit,
 ): Promise<SentryResult> {
+  // https only, and never follow a redirect: it would carry the token to another host (#3338).
+  if (!url.startsWith("https://"))
+    return { ok: false, status: 0, headers: new Headers(), error: "host must be https" };
   let res: Response;
   try {
     res = await c.fetch(url, {
       ...init,
+      redirect: "manual",
       headers: {
         Authorization: `Bearer ${c.token}`,
         Accept: "application/json",

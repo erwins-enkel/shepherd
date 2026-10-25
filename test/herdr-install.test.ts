@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -13,9 +14,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REMEDIATION_TIMEOUT_MS } from "../src/config";
-import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
+import {
+  HERDR_LAST_FULL_SANDBOX_STATUS_VERSION,
+  HERDR_LAST_SUPPORTED_VERSION,
+} from "../src/herdr-capabilities";
 import {
   HERDR_IN_APP_DOWNLOAD_WORST_CASE_MS,
+  HERDR_SHA256,
   HERDR_SERVE_WORST_CASE_MS,
   HERDR_VERIFY_WORST_CASE_MS,
   herdrAssetKey,
@@ -80,7 +85,9 @@ describe("herdrPinnedInstallCommand: shape", () => {
   });
 
   it("strips shell metacharacters out of the version", () => {
-    const evil = herdrPinnedInstallCommand('0.7.5"; rm -rf ~ #');
+    const evil = herdrPinnedInstallCommand('0.7.5"; rm -rf ~ #', {
+      sha256: pinnedTo("0".repeat(64)),
+    });
     expect(evil).toContain("/releases/download/v0.7.5/herdr-");
     expect(evil).not.toContain("rm -rf ~");
   });
@@ -117,6 +124,8 @@ interface Shim {
   home: string;
   installDir: string;
   curlLog: string;
+  /** sha256 of what the fake curl serves ("" when it fails) — the pin the program is built with. */
+  payloadSha: string;
 }
 
 function makeShim(opts: {
@@ -146,6 +155,7 @@ function makeShim(opts: {
     `#!/bin/sh\ncase "$1" in -s) echo '${opts.unameS ?? "Linux"}' ;; -m) echo '${opts.unameM ?? "x86_64"}' ;; *) echo '${opts.unameS ?? "Linux"}' ;; esac\n`,
   );
 
+  let payloadSha = "";
   if (opts.curl.mode === "fail") {
     write("curl", `#!/bin/sh\nprintf '%s\\n' "$*" >> '${curlLog}'\nexit 22\n`);
   } else {
@@ -161,6 +171,7 @@ function makeShim(opts: {
         ? "\u007fELF not runnable here\n"
         : `#!/bin/sh\necho "herdr ${version}"\nexit ${versionExit}\n`,
     );
+    payloadSha = createHash("sha256").update(readFileSync(payload)).digest("hex");
     write(
       "curl",
       `#!/bin/sh\nprintf '%s\\n' "$*" >> '${curlLog}'\n` +
@@ -170,12 +181,16 @@ function makeShim(opts: {
     );
   }
 
-  return { dir, home, installDir, curlLog };
+  return { dir, home, installDir, curlLog, payloadSha };
 }
+
+/** Every asset key pinned to the shim's payload, so the stub passes the sha256 gate. */
+const pinnedTo = (sum: string) =>
+  Object.fromEntries(Object.keys(HERDR_SHA256[PIN]!).map((key) => [key, sum]));
 
 function runProgram(
   shim: Shim,
-  cmd: string = herdrPinnedInstallCommand(),
+  cmd: string = herdrPinnedInstallCommand(PIN, { sha256: pinnedTo(shim.payloadSha) }),
 ): { code: number; stdout: string; stderr: string } {
   const r = spawnSync("sh", ["-c", cmd], {
     env: {
@@ -337,6 +352,41 @@ describe("herdrPinnedInstallCommand: execution branches", () => {
 // herdrAssetKey (TypeScript: the preflight banner + #1902's downgrade) and the shell `case` arms
 // (every real install) are independent tables that can silently diverge. No harness scenario runs
 // macOS, so this is the only seam that can catch the Darwin arms at all.
+
+describe("herdr sha256 pinning (#3338)", () => {
+  it("pins every published asset of the ceiling and the sandbox downgrade target", () => {
+    for (const v of [PIN, HERDR_LAST_FULL_SANDBOX_STATUS_VERSION]) {
+      const sums = HERDR_SHA256[v]!;
+      expect(Object.keys(sums).sort()).toEqual(
+        ["linux-aarch64", "linux-x86_64", "macos-aarch64", "macos-x86_64"].sort(),
+      );
+      for (const sum of Object.values(sums)) expect(sum).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it("refuses to build an install for a version without a pin", () => {
+    expect(() => herdrPinnedInstallCommand("0.0.1")).toThrow("no pinned sha256");
+  });
+
+  it("checks the hash before the artifact ever runs", () => {
+    const cmd = herdrPinnedInstallCommand();
+    expect(cmd).toContain(HERDR_SHA256[PIN]!["linux-x86_64"]!);
+    expect(cmd.indexOf('[ "$S" = "$H" ]')).toBeLessThan(cmd.indexOf('"$T" --version'));
+  });
+
+  it("sha256 mismatch: refuses to install, leaves no temp, never runs the artifact", () => {
+    const shim = makeShim({ curl: { mode: "stub" } });
+    try {
+      const r = runProgram(shim, herdrPinnedInstallCommand());
+      expect(r.code).not.toBe(0);
+      expect(r.stderr).toContain("does not match the pinned one");
+      expect(existsSync(join(shim.installDir, "herdr"))).toBe(false);
+      expect(strays(shim)).toEqual([]);
+    } finally {
+      rmSync(shim.dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("TS herdrAssetKey and the shell uname mapping agree", () => {
   const pairs: Array<{ platform: NodeJS.Platform; arch: string; s: string; m: string }> = [

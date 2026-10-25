@@ -13,9 +13,15 @@ test("update.sh defines a bounded retry helper for the transient install flake (
 });
 
 test("update.sh wraps both bun install steps in retry — no bare `bun install` remains", () => {
-  expect(src).toContain("retry 2 bun install");
-  expect(src).toContain("(cd ui && retry 2 bun install)");
+  expect(src).toContain("retry 2 bun install --frozen-lockfile\n");
+  expect(src).toContain("(cd ui && retry 2 bun install --frozen-lockfile)");
   // No un-retried root `bun install` at line start (fix-perms is `bun scripts`, build is `bun run`).
   const bareInstall = src.split("\n").filter((l) => /^\s*bun install\b/.test(l));
   expect(bareInstall).toEqual([]);
+});
+
+test("update.sh never lets bun rewrite the lockfile (#3338)", () => {
+  const installs = src.split("\n").filter((l) => /\bbun install\b/.test(l) && !/^\s*#/.test(l));
+  expect(installs.length).toBe(2);
+  for (const l of installs) expect(l).toContain("--frozen-lockfile");
 });

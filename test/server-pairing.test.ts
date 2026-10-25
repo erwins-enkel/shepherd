@@ -130,14 +130,15 @@ test("limiter ignores spoofed forwarding headers and resets with time", async ()
   expect((await app.fetch(post("pair", { code: "wrong" }))).status).toBe(401);
 });
 
-test("outstanding codes are capped and peer buckets are bounded", () => {
+test("outstanding codes are capped and attempts are bounded across all peers", () => {
   let now = 0;
   const svc = new PairingCodeService(() => now);
   const oldest = svc.mint();
   const next = Array.from({ length: 5 }, () => svc.mint());
   expect(svc.consume(oldest.code)).toBe(false);
   expect(svc.consume(next[0]!.code)).toBe(true);
-  for (let i = 0; i < 1024; i++) expect(svc.allowAttempt(`peer-${i}`)).toBe(true);
+  // 30 attempts a minute in total (#3338), however many distinct peers make them.
+  for (let i = 0; i < 30; i++) expect(svc.allowAttempt(`peer-${i}`)).toBe(true);
   expect(svc.allowAttempt("extra")).toBe(false);
   now = 60_000;
   expect(svc.allowAttempt("extra")).toBe(true);

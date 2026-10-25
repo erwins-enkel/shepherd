@@ -202,6 +202,16 @@ export function bumpDaily(state: PluginState, repo: string, day: string): void {
   state.set("daily", { day, counts } satisfies Daily);
 }
 
+/** The host the stored token was saved for (#3338): the token is only ever sent there. */
+export function readTokenHost(state: PluginState): string | null {
+  const h = state.get<string>("tokenHost");
+  return typeof h === "string" && h ? h : null;
+}
+
+export function writeTokenHost(state: PluginState, host: string | null): void {
+  state.set("tokenHost", host);
+}
+
 export function readStatus(state: PluginState): PollStatus {
   return { ...EMPTY_STATUS, ...(state.get<Partial<PollStatus>>("status") ?? {}) };
 }

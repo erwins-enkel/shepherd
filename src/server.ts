@@ -484,6 +484,7 @@ import {
 import { PluginSpawnAborted } from "./plugins/types";
 import { signedOff, type SignoffView } from "./signoff";
 import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage";
+import { isPublicHttpsUrl, type LookupFn } from "./browser-origin-policy";
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
@@ -654,6 +655,8 @@ export interface AppDeps {
    *  an on-demand re-scan, `apply()` to fetch-and-swap a plugin's new version on disk
    *  (issue #1124); absent when unwired. */
   pluginUpdates?: Pick<PluginUpdateService, "current" | "apply" | "check">;
+  /** DNS seam for the Web Push endpoint check (#3338); defaults to the system resolver. */
+  pushLookup?: LookupFn;
   /** one-click shepherd restart (optionally with a herdr live-handoff first);
    *  absent in environments where it isn't wired (tests). */
   restart?: Pick<RestartService, "apply">;
@@ -1518,8 +1521,13 @@ async function handleLogin({ req, parts, deps }: Ctx): Promise<Response | null> 
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
+/** Close hooks of every live `serve()` listener, run on logout (#3338). The cookie is stateless,
+ *  so logout closes every cookie-authed socket; other devices reconnect with their own cookie. */
+const logoutListeners = new Set<() => void>();
+
 function handleLogout({ req, parts }: Ctx): Response | null {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "logout" || parts[2]) return null;
+  for (const close of logoutListeners) close();
   const headers = new Headers({ "content-type": "application/json" });
   headers.append(
     "Set-Cookie",
@@ -1961,7 +1969,7 @@ async function handleRemoteSessionRoute({
   }
   return forwardSessionRequest(req, url, parts, route, {
     annotateSession: deps.remoteSessions.acceptSession
-      ? (session) => deps.remoteSessions!.acceptSession!(route.host.instanceId, session)
+      ? (session) => deps.remoteSessions!.acceptSession!(route.host.instanceId, session, id)
       : undefined,
   });
 }
@@ -3482,6 +3490,10 @@ async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
   ) {
     return json({ error: "body must be a PushSubscription" }, 400);
   }
+  // The server POSTs to this URL on every notification: never to plain http or a non-public host.
+  if (!(await isPublicHttpsUrl(body.endpoint, deps.pushLookup))) {
+    return json({ error: "endpoint must be a public https URL" }, 400);
+  }
   deps.push?.subscribe(
     {
       endpoint: body.endpoint,
@@ -4920,7 +4932,12 @@ async function handleSessionScratchpadUpload({
   const placed = await placeScratchpadUpload(dir.rootReal, dir.dirReal, file.name);
   if (!placed) return json({ error: "not found" }, 404);
 
-  await Bun.write(placed.abs, file);
+  // Write through the descriptor the exclusive, no-follow create returned — never by path.
+  try {
+    await Bun.write(Bun.file(placed.handle.fd), file);
+  } finally {
+    await placed.handle.close();
+  }
   return json({ path: placed.rel });
 }
 
@@ -10605,6 +10622,17 @@ async function pluginActivate(req: Request, registry: PluginRegistry): Promise<R
   return result.ok ? json({ plugin: result.plugin }) : json({ error: result.error }, 400);
 }
 
+/** Changing which plugin code runs in-process — install, activate, uninstall, update check/apply
+ *  — is operator-only, like token management (#3338): a paired device's `full` bearer may read
+ *  the plugin lists but not change them. Registered ahead of both plugin handlers. */
+function requireOperatorForPluginChanges({ req, parts }: Ctx): Response | null {
+  if (req.method !== "POST" && req.method !== "DELETE") return null;
+  const managed =
+    parts[0] === "api" &&
+    ((parts[1] === "plugins" && parts[2] === "manage") || parts[1] === "plugin-update");
+  return managed ? requireOperatorSession(req) : null;
+}
+
 async function handlePluginManagement({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "plugins" || parts[2] !== "manage") return null;
   const pluginsDir = deps.pluginsDir;
@@ -12032,6 +12060,7 @@ const ROUTE_HANDLERS = [
   handlePing,
   handleHealth,
   handleTerminalTransport,
+  requireOperatorForPluginChanges,
   handlePluginManagement,
   handlePluginRoutes,
   handleGitSnapshot,
@@ -12412,6 +12441,8 @@ type WsData = (
     }
 ) & {
   tokenId?: string;
+  /** Expiry of the operator cookie a cookie-authed socket opened with (#3338). */
+  cookieExp?: number;
   authUnsub?: () => void;
   expiryTimer?: ReturnType<typeof setTimeout>;
   authClosed?: boolean;
@@ -12633,6 +12664,10 @@ export function serve(deps: AppDeps, port: number) {
 
   function socketAuthorized(ws: ServerWebSocket<WsData>): boolean {
     if (ws.data.authClosed) return false;
+    if (ws.data.cookieExp !== undefined && ws.data.cookieExp <= Date.now()) {
+      closeTokenSocket(ws);
+      return false;
+    }
     if (!ws.data.tokenId) return true;
     const token = accessTokens(deps).current(ws.data.tokenId);
     const allowed =
@@ -12659,6 +12694,22 @@ export function serve(deps: AppDeps, port: number) {
     );
     ws.data.expiryTimer.unref();
   }
+
+  // A cookie socket closes when the cookie it opened with expires (#3338).
+  function armCookieExpiry(ws: ServerWebSocket<WsData>): void {
+    const exp = ws.data.cookieExp;
+    if (exp === undefined || !socketAuthorized(ws)) return;
+    ws.data.expiryTimer = setTimeout(
+      () => armCookieExpiry(ws),
+      Math.min(2_147_483_647, Math.max(1, exp - Date.now())),
+    );
+    ws.data.expiryTimer.unref();
+  }
+  const cookieSockets = new Set<ServerWebSocket<WsData>>();
+  const closeCookieSockets = () => {
+    for (const ws of cookieSockets) closeTokenSocket(ws);
+  };
+  logoutListeners.add(closeCookieSockets);
 
   function sendTokenEvent(ws: ServerWebSocket<WsData>, event: string, data: unknown): void {
     // Local or a machine's (#2764): each socket gets the merged map its token and kind may see.
@@ -12689,8 +12740,15 @@ export function serve(deps: AppDeps, port: number) {
     )
       ? null
       : new Response("forbidden: origin not allowed", { status: 403 });
-  const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined =>
-    server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 500 });
+  const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined => {
+    if (!data.tokenId && config.cookieSecret) {
+      const v = verifyCookie(config.cookieSecret, parseCookie(req.headers.get("cookie")));
+      if (v.ok) data.cookieExp = v.exp;
+    }
+    return server.upgrade(req, { data })
+      ? undefined
+      : new Response("upgrade failed", { status: 500 });
+  };
   function upgradePty(
     req: Request,
     url: URL,
@@ -12951,6 +13009,9 @@ export function serve(deps: AppDeps, port: number) {
         if (id === ws.data.tokenId) closeTokenSocket(ws);
       });
       armTokenExpiry(ws);
+    } else if (ws.data.cookieExp !== undefined) {
+      cookieSockets.add(ws);
+      armCookieExpiry(ws);
     }
     if (ws.data.kind === "events") {
       const unsub = deps.events.subscribe((event, data) => sendTokenEvent(ws, event, data));
@@ -13006,6 +13067,7 @@ export function serve(deps: AppDeps, port: number) {
     else ws.data.bridge?.write(frame);
   }
   function onSocketClose(ws: ServerWebSocket<WsData>): void {
+    cookieSockets.delete(ws);
     ws.data.authUnsub?.();
     if (ws.data.expiryTimer) clearTimeout(ws.data.expiryTimer);
     if (ws.data.kind === "events") {

@@ -1408,6 +1408,7 @@
   "plugins_err_folder_exists": "Ein Ordner mit diesem Repository-Namen existiert bereits.",
   "plugins_err_manifest": "Dieses Repository hat keine gültige plugin.json.",
   "plugins_err_disabled": "Dieses Plugin ist in seiner plugin.json deaktiviert.",
+  "plugins_err_operator_session": "Plugins kann nur die angemeldete Browser-Sitzung des Operators ändern, kein gekoppeltes Gerät.",
   "plugins_err_api_version": "Dieses Plugin zielt auf eine andere Plugin-API-Version.",
   "plugins_err_id_taken": "Ein Plugin mit dieser ID ist bereits installiert.",
   "plugins_err_clone_timeout": "Das Klonen hat das Zeitlimit überschritten.",

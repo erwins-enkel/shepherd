@@ -85,10 +85,16 @@ beforeEach(() => {
 afterEach(() => rmSync(repo, { recursive: true, force: true }));
 
 function setup(
-  over: { settings?: Partial<Settings>; autoDrain?: boolean; token?: string | null } = {},
+  over: {
+    settings?: Partial<Settings>;
+    autoDrain?: boolean;
+    token?: string | null;
+    tokenHost?: string;
+  } = {},
 ) {
   const state = memState();
   state.set("settings", { ...DEFAULT_SETTINGS, enabled: true, org: "acme", ...over.settings });
+  state.set("tokenHost", over.tokenHost ?? over.settings?.host ?? DEFAULT_SETTINGS.host);
   state.set("mappings", {
     [repo]: { project: "flowagent", autoDrain: over.autoDrain ?? false, source: "manual" },
   });
@@ -196,6 +202,12 @@ test("one org-wide list call with the rule query, then files the eligible issue"
 
   expect(state.get("map:4501")).toMatchObject({ repo, number: 101, attempts: 1 });
   expect(poller.hasToken()).toBe(true);
+});
+
+test("the stored token is only used for the host it was saved for (#3338)", async () => {
+  const { poller } = setup({ tokenHost: "https://sentry.example.com" });
+  expect(poller.hasToken()).toBe(false);
+  expect(setup().poller.hasToken()).toBe(true);
 });
 
 test("auto-drain mapping adds the repo's autoLabel", async () => {

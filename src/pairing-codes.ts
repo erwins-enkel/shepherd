@@ -3,6 +3,8 @@ import { AttemptBudget } from "./attempt-budget";
 
 export const PAIRING_TTL_MS = 5 * 60_000;
 const MAX_CODES = 5;
+/** All `/api/pair` attempts together per minute, whatever their source (#3338). */
+const GLOBAL_ATTEMPTS = 30;
 const hash = (code: string) => createHash("sha256").update(code).digest("hex");
 
 /** Ephemeral, hashed invitations. Consumption is synchronous: no await can reuse a code. */
@@ -10,7 +12,7 @@ export class PairingCodeService {
   private readonly codes = new Map<string, number>();
   private readonly attempts: AttemptBudget;
   constructor(private readonly now: () => number = Date.now) {
-    this.attempts = new AttemptBudget(now);
+    this.attempts = new AttemptBudget(now, GLOBAL_ATTEMPTS);
   }
 
   mint(): { code: string; expiresAt: number } {

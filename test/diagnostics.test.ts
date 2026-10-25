@@ -1286,13 +1286,19 @@ describe("DiagnosticsService remediation annotation", () => {
   it("check() sets remediation on a non-ok auto-fixable check, absent on ok checks", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      runVersion: versionRunner({ ...HEALTHY_VERSIONS, bun: new Error("ENOENT") }),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: new Error("ENOENT") }),
     });
     const snap = await svc.check(0);
-    const bun = byId(snap.checks, "bun");
-    expect(bun.state).toBe("error");
-    expect(bun.remediation).toBe(REMEDIATIONS.diagnostics_hint_bun_missing!);
-    assertPure(bun);
+    const herdr = byId(snap.checks, "herdr");
+    expect(herdr.state).toBe("error");
+    expect(herdr.remediation).toBe(REMEDIATIONS.diagnostics_hint_herdr_missing!);
+    assertPure(herdr);
+    // a guidance-only hint (#3338) carries no auto-fix remediation
+    const bunMissing = await new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, bun: new Error("ENOENT") }),
+    }).check(0);
+    expect("remediation" in byId(bunMissing.checks, "bun")).toBe(false);
     // every ok check stays bare (no remediation key)
     for (const c of snap.checks) {
       if (c.state === "ok") expect("remediation" in c).toBe(false);
@@ -1349,10 +1355,10 @@ describe("DiagnosticsService.fix", () => {
     const calls: string[] = [];
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      // bun missing until the remediation "installs" it, then healthy.
+      // herdr missing until the remediation "installs" it, then healthy.
       runVersion: async (bin, args) => {
+        if (bin === "herdr" && !installed) throw new Error("ENOENT");
         if (bin === "bun") {
-          if (!installed) throw new Error("ENOENT");
           return "1.3.10";
         }
         return versionRunner({ ...HEALTHY_VERSIONS })!(bin, args);
@@ -1362,10 +1368,9 @@ describe("DiagnosticsService.fix", () => {
         installed = true;
       },
     });
-    const snap = await svc.fix("bun", 0);
-    expect(calls).toEqual([REMEDIATIONS.diagnostics_hint_bun_missing!]);
-    const bun = byId(snap.checks, "bun");
-    expect(bun.state).toBe("ok");
+    const snap = await svc.fix("herdr", 0);
+    expect(calls).toEqual([REMEDIATIONS.diagnostics_hint_herdr_missing!]);
+    expect(byId(snap.checks, "herdr").state).toBe("ok");
   });
 
   // #1578: the outdated remediation runs `herdr update --handoff`. Success is NOT the shell's
@@ -1437,12 +1442,12 @@ describe("DiagnosticsService.fix", () => {
   it("propagates a runner rejection (fail-closed)", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      runVersion: versionRunner({ ...HEALTHY_VERSIONS, bun: new Error("ENOENT") }),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: new Error("ENOENT") }),
       runRemediation: async () => {
         throw new Error("remediation exited 1");
       },
     });
-    await expect(svc.fix("bun", 0)).rejects.toThrow("remediation exited 1");
+    await expect(svc.fix("herdr", 0)).rejects.toThrow("remediation exited 1");
   });
 
   // ── claude_trust (#1683): code-fix dispatch by hintKey — seeds trust, no shell command ──

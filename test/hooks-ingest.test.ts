@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import {
   validateHookEvent,
   HookIngest,
@@ -186,6 +186,30 @@ test("HookIngest: snapshot returns a copy (mutation does not leak back)", () => 
   const snap = h.snapshot("s1");
   snap.push(ev());
   expect(h.snapshot("s1")).toHaveLength(1);
+});
+
+test("HookIngest: agent-supplied strings reach the log without control chars (#3338)", () => {
+  const lines: string[] = [];
+  const log = spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+  const warn = spyOn(console, "warn").mockImplementation((line: string) => void lines.push(line));
+  try {
+    new HookIngest().record(
+      "s1",
+      ev({
+        event: "Evil\n[hooks] Stop session=forged",
+        toolName: "Bash\u001b[2J\r",
+        agentType: "x".repeat(500),
+        unknown: true,
+      }),
+    );
+  } finally {
+    log.mockRestore();
+    warn.mockRestore();
+  }
+  expect(lines).toHaveLength(2);
+  for (const line of lines) expect(line).not.toMatch(/\p{Cc}/u);
+  expect(lines[0]).toContain("tool=Bash[2J ");
+  expect(lines[0]).not.toContain("x".repeat(201));
 });
 
 test("HookIngest: snapshot of unknown session → []", () => {

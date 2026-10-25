@@ -244,6 +244,16 @@ export function toolUseSince(events: HookEvent[], since: number): boolean | null
  * single owner of the Phase-0 observable surface. `record` never throws — a malformed
  * forward must never crash the request loop.
  */
+const LOG_FIELD_MAX = 200;
+
+/** An agent-supplied value for one log field: control/format chars stripped, length capped,
+ *  `-` when absent (#3338). */
+function logSafe(v: string | undefined): string {
+  if (v === undefined) return "-";
+  const clean = v.replace(/[\p{Cc}\p{Cf}]/gu, "");
+  return clean.length > LOG_FIELD_MAX ? `${clean.slice(0, LOG_FIELD_MAX)}…` : clean || "-";
+}
+
 export class HookIngest {
   // sessionId → ring buffer (oldest-first; capped at RING_CAP).
   #buffers = new Map<string, HookEvent[]>();
@@ -288,16 +298,18 @@ export class HookIngest {
    */
   #logEvent(sessionId: string, ev: HookEvent): void {
     const latencyMs = Date.now() - ev.receivedAt;
+    // Every string here is agent-supplied: no control chars (forged log lines, terminal escapes).
+    const c = logSafe;
     console.log(
-      `[hooks] ${ev.event} session=${sessionId} match=${ev.match === false ? "mismatch" : "ok"} ` +
-        `latencyMs=${latencyMs} tool=${ev.toolName ?? "-"} status=${ev.status ?? "-"} ` +
-        `ntype=${ev.notificationType ?? "-"} exit=${ev.exitCode ?? "-"}` +
-        ` src=${ev.source ?? "-"} reason=${ev.reason ?? "-"} stopActive=${ev.stopHookActive ?? "-"}` +
-        ` agentId=${ev.agentId ?? "-"} agentType=${ev.agentType ?? "-"}`,
+      `[hooks] ${c(ev.event)} session=${c(sessionId)} match=${ev.match === false ? "mismatch" : "ok"} ` +
+        `latencyMs=${latencyMs} tool=${c(ev.toolName)} status=${ev.status ?? "-"} ` +
+        `ntype=${c(ev.notificationType)} exit=${ev.exitCode ?? "-"}` +
+        ` src=${c(ev.source)} reason=${c(ev.reason)} stopActive=${ev.stopHookActive ?? "-"}` +
+        ` agentId=${c(ev.agentId)} agentType=${c(ev.agentType)}`,
     );
     if (ev.unknown) {
       console.warn(
-        `[hooks] unknown event/notification type — event=${ev.event} ntype=${ev.notificationType ?? "-"} session=${sessionId}`,
+        `[hooks] unknown event/notification type — event=${c(ev.event)} ntype=${c(ev.notificationType)} session=${c(sessionId)}`,
       );
     }
   }

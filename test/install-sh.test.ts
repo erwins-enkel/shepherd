@@ -149,7 +149,7 @@ describe("install_deps", () => {
   it("node-gyp first, then bun install in $SHEPHERD_DIR", () => {
     const { dir, r, log } = run(0);
     expect(r.status).toBe(0);
-    expect(calls(log)).toEqual([`${dir}|add -g node-gyp`, `${dir}|install`]);
+    expect(calls(log)).toEqual([`${dir}|add -g node-gyp`, `${dir}|install --frozen-lockfile`]);
   });
 
   it("transient failure ⇒ retried, then continues to bun install", () => {
@@ -158,7 +158,7 @@ describe("install_deps", () => {
     expect(calls(log)).toEqual([
       `${dir}|add -g node-gyp`,
       `${dir}|add -g node-gyp`,
-      `${dir}|install`,
+      `${dir}|install --frozen-lockfile`,
     ]);
   });
 
@@ -170,7 +170,7 @@ describe("install_deps", () => {
   });
 
   it("persistent bun install failure ⇒ non-zero exit with a clear message", () => {
-    const { r, log } = run(0, "install");
+    const { r, log } = run(0, "install --frozen-lockfile");
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain("bun install failed");
     expect(calls(log)).toHaveLength(3);

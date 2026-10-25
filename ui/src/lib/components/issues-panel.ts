@@ -1,7 +1,13 @@
 /**
  * Pure logic extracted from IssuesPanel.svelte — unit-testable without a DOM.
  */
-import type { Issue, EpicSummary, EpicChild, IssueFilterSettings } from "#lib/types.js";
+import type {
+  Issue,
+  EpicSummary,
+  EpicChild,
+  IssueFilterRepoOverride,
+  IssueFilterSettings,
+} from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
 /** Which "someone else is working / owns this epic" signal (#1616) fired, highest-priority first. */
@@ -175,14 +181,18 @@ export function filterByLabels(issues: readonly Issue[], selected: ReadonlySet<s
 //     `forks: own` hide nothing).
 //   - scope: all | mine_unassigned (mine or unassigned) | mine.
 //   - forks (repo is a fork): all | own (only mine) | hide (everything).
+//   - repo override (#3020) replaces scope + forks for its repo: all | mine_unassigned | mine
+//     (as the scope) | hide (everything).
 //   - hiddenLabels: case-insensitive intersection drops the issue.
-//   - attributed to the FIRST rule that drops it: scope → forks → labels.
+//   - attributed to the FIRST rule that drops it: repo override (else scope → forks) → labels.
 
-export type DefaultFilterRule = "scope" | "forks" | "labels";
+export type DefaultFilterRule = "scope" | "forks" | "labels" | "repo";
 
 export interface DefaultFilterContext {
   viewer: string | null;
   isFork: boolean;
+  /** This repo's override, when it has one. */
+  override?: IssueFilterRepoOverride;
 }
 
 /** Assigned to or authored by the viewer. The `?? []` guard tolerates a stale payload. */
@@ -194,6 +204,10 @@ export function isMine(issue: Issue, viewer: string | null): boolean {
 function scopeHides(issue: Issue, viewer: string | null, scope: IssueFilterSettings["scope"]) {
   if (scope === "all" || viewer == null || isMine(issue, viewer)) return false;
   return scope === "mine" || (issue.assignees ?? []).length > 0;
+}
+
+function overrideHides(issue: Issue, viewer: string | null, override: IssueFilterRepoOverride) {
+  return override === "hide" || scopeHides(issue, viewer, override);
 }
 
 function forksHides(issue: Issue, ctx: DefaultFilterContext, forks: IssueFilterSettings["forks"]) {
@@ -210,8 +224,10 @@ type RuleFilter = Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels">;
 
 /**
  * Apply the default filter's scope → forks → labels rules, returning each stage so an empty
- * list can be attributed to the rule that emptied it. `exemptFromScope` keeps a row the scope
- * rule would drop — the Backlog's flagged epics (#1616), whose pill names who owns them.
+ * list can be attributed to the rule that emptied it. With a repo override, `afterScope` and
+ * `afterForks` both hold what the override keeps. `exemptFromScope` keeps a row the scope rule
+ * (or a mine override) would drop — the Backlog's flagged epics (#1616), whose pill names who
+ * owns them; a `hide` override drops them too.
  */
 export function applyDefaultFilter(
   issues: readonly Issue[],
@@ -219,11 +235,22 @@ export function applyDefaultFilter(
   filter: RuleFilter,
   exemptFromScope: (issue: Issue) => boolean = () => false,
 ): { afterScope: Issue[]; afterForks: Issue[]; afterLabels: Issue[] } {
+  const override = ctx.override;
+  const hidden = new Set(filter.hiddenLabels.map((l) => l.toLowerCase()));
+  if (override) {
+    const kept = issues.filter(
+      (i) => !overrideHides(i, ctx.viewer, override) || (override !== "hide" && exemptFromScope(i)),
+    );
+    return {
+      afterScope: kept,
+      afterForks: kept,
+      afterLabels: kept.filter((i) => !labelsHide(i, hidden)),
+    };
+  }
   const afterScope = issues.filter(
     (i) => !scopeHides(i, ctx.viewer, filter.scope) || exemptFromScope(i),
   );
   const afterForks = afterScope.filter((i) => !forksHides(i, ctx, filter.forks));
-  const hidden = new Set(filter.hiddenLabels.map((l) => l.toLowerCase()));
   const afterLabels = afterForks.filter((i) => !labelsHide(i, hidden));
   return { afterScope, afterForks, afterLabels };
 }
@@ -236,6 +263,10 @@ export function defaultFilterEmptiedBy(
   filter: RuleFilter,
 ): DefaultFilterRule | null {
   if (total === 0) return null;
+  if (ctx.override) {
+    if (stages.afterScope.length === 0) return "repo";
+    return stages.afterLabels.length === 0 ? "labels" : null;
+  }
   if (stages.afterScope.length === 0 && ctx.viewer != null && filter.scope !== "all")
     return "scope";
   if (stages.afterScope.length > 0 && stages.afterForks.length === 0) return "forks";
@@ -248,6 +279,7 @@ export function defaultFilterEmptyMessage(
   rule: DefaultFilterRule,
   scope: IssueFilterSettings["scope"],
 ): string {
+  if (rule === "repo") return m.issues_filter_all_repo_override();
   if (rule === "forks") return m.issues_filter_all_forks();
   if (rule === "labels") return m.issues_filter_all_hidden_labels();
   return scope === "mine"

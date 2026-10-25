@@ -1,5 +1,13 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, realpathSync, existsSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  realpathSync,
+  existsSync,
+  readFileSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -1713,4 +1721,37 @@ test("issueFilter: default on GET, partial PATCH merges + persists, emits, refil
   expect((await get()).issueFilter).toEqual(both);
   expect(frames).toHaveLength(2);
   expect(refilters).toBe(2);
+});
+
+test("issueFilter.repoOverrides: raw keys stored as realpath, unknown keys kept, bad values refused", async () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "issue-filter-overrides-")));
+  try {
+    const realRoot = join(base, "real");
+    mkdirSync(join(realRoot, "app"), { recursive: true });
+    const linkRoot = join(base, "link");
+    symlinkSync(realRoot, linkRoot);
+    config.repoRoot = linkRoot;
+    const store = new SessionStore(":memory:");
+    const app = makeApp({
+      store,
+      events: new EventHub(),
+      service: {} as any,
+      usageLimits: { limits: () => ({}) } as any,
+      readCodexAuthMode: () => "unknown",
+    });
+    const res = await patch(app, {
+      issueFilter: { repoOverrides: { [join(linkRoot, "app")]: "hide", "/gone/repo": "all" } },
+    });
+    expect(res.status).toBe(200);
+    const want = { [join(realRoot, "app")]: "hide", "/gone/repo": "all" };
+    expect((await res.json()).issueFilter.repoOverrides).toEqual(want);
+    expect(JSON.parse(store.getSetting("issueFilter")!).repoOverrides).toEqual(want);
+    // Another field's patch leaves the overrides as they are.
+    const other = await patch(app, { issueFilter: { scope: "all" } });
+    expect((await other.json()).issueFilter.repoOverrides).toEqual(want);
+    const bad = await patch(app, { issueFilter: { repoOverrides: { "/r": "standard" } } });
+    expect(bad.status).toBe(400);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });

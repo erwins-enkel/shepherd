@@ -2309,6 +2309,22 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
       await expect.poll(() => titles()).toEqual(["Mine issue"]);
     });
 
+    it("honors a per-repo override keyed by the repo's realpath (#3020)", async () => {
+      repos.entries = [
+        { name: "repo", path: "/repo", realPath: "/real/repo", display: "repo", isFork: true },
+      ] as typeof repos.entries;
+      // The global rules would show only mine; the repo's `all` override shows everything.
+      pushIssueFilter({ scope: "mine", forks: "own", repoOverrides: { "/real/repo": "all" } });
+      seedMixed("octocat");
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => titles().length).toBeGreaterThan(1);
+
+      pushIssueFilter({ repoOverrides: { "/real/repo": "hide" } });
+      await expect
+        .poll(() => document.body.textContent)
+        .toContain(m.issues_filter_all_repo_override());
+    });
+
     it("hides issues carrying a hidden label (case-insensitive)", async () => {
       pushIssueFilter({ scope: "all", hiddenLabels: ["DOCS"] });
       mockListIssues.mockResolvedValue({

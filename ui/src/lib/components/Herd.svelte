@@ -194,7 +194,8 @@
     // first-run empty state: quick-launch is invisible until the standard command
     // is set → surface a quiet nudge pointing at Settings.
     issueActionsUnset?: boolean;
-    onsettings?: () => void;
+    /** "repo-overrides": the Up Next flyout's per-repo exceptions link (#3020). */
+    onsettings?: (focus?: "repo-overrides") => void;
     // when true, the session list renders at natural height (no internal scroll)
     // so the parent page can drive scrolling; default false preserves existing behavior
     flow?: boolean;

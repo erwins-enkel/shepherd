@@ -151,7 +151,11 @@
   // The operator's server-side default issue filter (#3019), shared with Up Next + New Task;
   // the defaults until it loads. A change anywhere arrives over the settings:issue-filter push.
   const issueFilter = $derived(issueFilterSettings.effective);
-  const filterCtx = $derived({ viewer, isFork: repos.isFork(repoPath) });
+  const filterCtx = $derived({
+    viewer,
+    isFork: repos.isFork(repoPath),
+    override: repos.repoOverride(issueFilter.repoOverrides, repoPath),
+  });
   onMount(() => void issueFilterSettings.ensureLoaded());
   // "Oldest first" from the repo overview (#2638): least recently changed first.
   let oldestFirst = $state(false);

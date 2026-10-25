@@ -3121,6 +3121,8 @@ export interface UpNextItem {
 // Default issue filter (#3007/#3017). Mirrors src/issue-filter.ts.
 export type IssueFilterScope = "all" | "mine_unassigned" | "mine";
 export type IssueFilterForks = "all" | "own" | "hide";
+/** Per-repo exception (#3020): replaces scope + forks for that repo. */
+export type IssueFilterRepoOverride = "all" | "mine_unassigned" | "mine" | "hide";
 export interface IssueFilterSettings {
   scope: IssueFilterScope;
   forks: IssueFilterForks;
@@ -3128,12 +3130,15 @@ export interface IssueFilterSettings {
   hideActive: boolean;
   hideSubIssues: boolean;
   hideBlocked: boolean;
+  /** realpath repo key → override; an absent repo follows scope/forks. Optional: an older
+   *  server doesn't send it. */
+  repoOverrides?: Record<string, IssueFilterRepoOverride>;
 }
 /** What the issue filter hides from Up Next (server: UpNextFilterStats). */
 export interface UpNextFilterStats {
   hiddenCount: number;
   /** Each hidden item counted once, under the first rule that drops it. */
-  hiddenBy: { scope: number; forks: number; labels: number };
+  hiddenBy: { scope: number; forks: number; labels: number; repo?: number };
   /** repoPath → hidden items in that repo; repos with none are omitted. */
   hiddenByRepo: Record<string, number>;
   /** The visible count were that option picked, the other settings unchanged. */

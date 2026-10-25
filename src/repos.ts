@@ -174,6 +174,19 @@ export function listReposPathForReal(realDir: string, repoRoot: string): string 
   return match?.path ?? realDir;
 }
 
+/** realpath → raw listRepos path for the given repos; unresolvable entries are skipped. */
+function realToRawMap(repos: readonly { path: string }[]): Map<string, string> {
+  const realToRaw = new Map<string, string>();
+  for (const r of repos) {
+    try {
+      realToRaw.set(realpathSync(r.path), r.path);
+    } catch {
+      // broken symlink / vanished entry — can't be matched, skip it
+    }
+  }
+  return realToRaw;
+}
+
 /**
  * Batch counterpart to {@link listReposPathForReal}: translate a set of realpath-
  * resolved repo dirs (e.g. repo_config keys written via safeRepoDir) into the raw
@@ -186,17 +199,22 @@ export function reconcileRealPathsToRaw(
   realPaths: Iterable<string>,
   repos: readonly { path: string }[],
 ): Set<string> {
-  const realToRaw = new Map<string, string>();
-  for (const r of repos) {
-    try {
-      realToRaw.set(realpathSync(r.path), r.path);
-    } catch {
-      // broken symlink / vanished entry — can't be matched, skip it
-    }
-  }
+  const realToRaw = realToRawMap(repos);
   const out = new Set<string>();
   for (const p of realPaths) out.add(realToRaw.get(p) ?? p);
   return out;
+}
+
+/** {@link reconcileRealPathsToRaw} for a realpath-keyed record (e.g. issueFilter.repoOverrides):
+ *  the same entries, re-keyed into raw listRepos space. Unmatched keys pass through. */
+export function reconcileRealPathRecordToRaw<V>(
+  record: Record<string, V>,
+  repos: readonly { path: string }[],
+): Record<string, V> {
+  const keys = Object.keys(record);
+  if (keys.length === 0) return {};
+  const realToRaw = realToRawMap(repos);
+  return Object.fromEntries(keys.map((k) => [realToRaw.get(k) ?? k, record[k]!]));
 }
 
 const TODO = "TODO.md";

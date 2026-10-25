@@ -967,21 +967,36 @@ safe against a `start()`/`stop()` race, as its own doc comment explains.
 
 ## CI
 
-`.github/workflows/native.yml` runs two jobs on `macos-latest`, paths-filtered to `native/**`,
-`contracts/**`, `scripts/gen-contract-swift.ts` and `ui/messages/*.json` (the app's string
-catalog source).
+Two workflows run on `macos-latest`, each paths-filtered: `.github/workflows/native.yml` (the
+package and the Mac app) and `.github/workflows/native-ios.yml` (the iOS app). The string catalog
+check (`bun run check:strings`) also runs on Linux for every PR, so `ui/messages/*.json` is not
+in either filter.
 
-Job `shepherdkit` (blocking) runs `bun run check:contract-swift`,
-`./native/scripts/sync-contract.sh --check`, `swift build --package-path native` and
-`swift test --package-path native` for the package, then builds and tests the Mac app:
+`native.yml` runs four jobs in parallel:
 
-1. `bun run check:strings` — the committed string catalog must match `ui/messages/{en,de}.json`.
-2. `native/scripts/build-app.sh Release` — the app must build.
-3. A signature check — the bundle must be ad-hoc signed, hardened-runtime and sandbox-off.
-4. `native/scripts/test-app.sh -only-testing:ShepherdTests` — the unit bundle.
+- **`shepherdkit`** (blocking): contract freshness (`bun run check:contract-swift`,
+  `./native/scripts/sync-contract.sh --check`), then `swift build --build-tests` and the
+  `ShepherdKitTests` / `ShepherdAppCoreTests` suites on macOS.
+- **`shepherd-app-core-simulator`** (blocking): `ShepherdAppCoreTests` on an iOS Simulator, with
+  the per-argument conservation check.
+- **`shepherd-mac-app`** (blocking): the string catalog and the update/dev-launch script checks,
+  then `native/scripts/test-app.sh -only-testing:ShepherdTests` (the unit bundle). On a full run
+  it also builds `native/scripts/build-app.sh Release` and checks update packaging, DMG
+  installation and the signature (ad-hoc, hardened runtime, sandbox off).
+- **`shepherd-mac-ui`** (`continue-on-error: true`, **non-blocking**, full runs only):
+  `native/scripts/test-app.sh -only-testing:ShepherdUITests`. XCUITest needs a real GUI login
+  session, so a red run there is a prompt to investigate, not a merge blocker.
 
-Job `shepherd-mac-ui` (`continue-on-error: true`, **non-blocking**) runs
-`native/scripts/test-app.sh -only-testing:ShepherdUITests`. XCUITest needs a real GUI login
-session, so a red run there is a prompt to investigate, not a merge blocker. Both bundles launch
-the app isolated (see [Isolated launches](#isolated-launches)), so neither can stall on a Keychain
-prompt; `LiveSmokeUITests` skips itself there, because CI sets neither live variable.
+`native-ios.yml` builds the app and both test bundles once (`build-ios-app.sh Debug
+--for-testing`, arm64 only), then runs them without rebuilding (`test-ios-app.sh …
+--without-building`): the unit bundle and the iPhone UI bundle, plus the iPad UI bundle on a full
+run.
+
+**Full runs** happen on push to `main`, or on a PR labelled `ci:full-native`. The label takes
+effect from the PR's next push, because a re-run keeps the labels the run started with. Add it
+when a PR changes Release packaging, signing or iPad layout. Everything a PR skips runs on
+`main`, and the nightly and `native-release.yml` build Release again before anything ships.
+
+All bundles launch the app isolated (see [Isolated launches](#isolated-launches)), so none can
+stall on a Keychain prompt. `LiveSmokeUITests` skips itself there, because CI sets neither live
+variable.

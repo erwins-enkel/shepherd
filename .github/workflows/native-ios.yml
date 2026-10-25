@@ -12,6 +12,12 @@ name: native-ios
 # Per-platform split: the Mac app, package tests (`native/Tests/**`, never run
 # here), Mac-only scripts and docs/markdown are excluded (native.yml covers
 # them). Negations must stay last.
+#
+# One build, no rebuilds: `build-ios-app.sh --for-testing` compiles the app and
+# both test bundles once, for arm64 only, and every test step runs them with
+# `--without-building`. A PR runs the unit and iPhone UI bundles. The iPad UI
+# bundle needs a second simulator boot, so it runs on push to main, or on a PR
+# labelled `ci:full-native` (from its next push: a re-run keeps the old labels).
 on:
   pull_request:
     branches: [main, "epic/**"]
@@ -77,6 +83,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FULL_NATIVE: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci:full-native') }}
+
 jobs:
   ios:
     name: iOS simulator build and isolated tests
@@ -98,10 +107,10 @@ jobs:
           bun run check:contract-swift
           native/scripts/sync-contract.sh --check
           bun run check:strings
-      - name: Build generic iOS Simulator application
-        run: native/scripts/uitest-lock.sh native/scripts/build-ios-app.sh Debug
+      - name: Build the application and test bundles for the iOS Simulator
+        run: native/scripts/uitest-lock.sh native/scripts/build-ios-app.sh Debug --for-testing
       - name: Run isolated hosted unit tests
-        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit --result-bundle-path "$RUNNER_TEMP/ios-unit.xcresult"
+        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit --without-building --result-bundle-path "$RUNNER_TEMP/ios-unit.xcresult"
       - name: Diagnose reconnect failures with Address Sanitizer
         if: failure()
         timeout-minutes: 15
@@ -116,9 +125,15 @@ jobs:
             -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system \
             CODE_SIGNING_ALLOWED=NO test
       - name: Run isolated iPhone UI tests
-        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh ui --family iPhone --result-bundle-path "$RUNNER_TEMP/ios-iphone.xcresult"
+        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh ui --family iPhone --without-building --result-bundle-path "$RUNNER_TEMP/ios-iphone.xcresult"
+      # The runner has 7 GB: booting the iPad beside the still-running iPhone
+      # simulator took up to 8 minutes.
+      - name: Shut down the iPhone simulator
+        if: env.FULL_NATIVE == 'true'
+        run: xcrun simctl shutdown all
       - name: Run isolated iPad UI tests
-        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh ui --family iPad --result-bundle-path "$RUNNER_TEMP/ios-ipad.xcresult"
+        if: env.FULL_NATIVE == 'true'
+        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh ui --family iPad --without-building --result-bundle-path "$RUNNER_TEMP/ios-ipad.xcresult"
       - name: Preserve simulator results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

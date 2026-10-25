@@ -82,6 +82,9 @@ without changing test isolation or CI defaults:
 SHEPHERD_IOS_SIMULATOR_SIGNING=1 native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit
 ```
 
+When you test with `--without-building` (below), set it for `build-ios-app.sh … --for-testing`
+instead: that build signs the products, and a run without building signs nothing.
+
 Install the repository's Swift 6.2+ Xcode toolchain and XcodeGen 2.46+. SwiftTerm
 1.20.0 also compiles Metal shaders; Xcode installations with optional toolchain
 components need `xcodebuild -downloadComponent MetalToolchain` once. From the
@@ -94,6 +97,11 @@ LOCK=/Users/kai.osthoff/.claude/projects/-Users-kai-osthoff-githubrepos-shepherd
 "$LOCK" native/scripts/test-ios-app.sh ui --family iPhone
 "$LOCK" native/scripts/test-ios-app.sh ui --family iPad
 ```
+
+To build once and test without rebuilding, as CI does, build with
+`build-ios-app.sh Debug --for-testing` (host architecture only, test bundles included) and pass
+`--without-building` to each `test-ios-app.sh` run. CI runs the iPad UI bundle only on push to
+`main` or on a PR labelled `ci:full-native`; see [CI](development.md#ci).
 
 CI uses `native/scripts/uitest-lock.sh`. Tests select available iOS 18+ devices by
 numeric runtime version, then name and UDID. The family selector refuses to replace

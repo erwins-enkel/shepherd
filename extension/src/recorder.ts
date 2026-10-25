@@ -2,10 +2,13 @@
 // while the user has opted into console/network capture. Keeps a bounded ring
 // buffer on window.__shepherdCapture that background.ts reads at capture time.
 // Buffer + failure-classification logic lives in lib/recorder-core (unit-tested).
-import { isFailedResponse, normalizeConsoleArgs, pushCapped } from "./lib/recorder-core";
+import {
+  isFailedResponse,
+  normalizeConsoleArgs,
+  pushCapped,
+  RECORDER_CAP as CAP,
+} from "./lib/recorder-core";
 import type { ConsoleEntry, NetworkEntry } from "./lib/signals";
-
-const CAP = 50;
 
 interface CaptureBuffer {
   console: ConsoleEntry[];

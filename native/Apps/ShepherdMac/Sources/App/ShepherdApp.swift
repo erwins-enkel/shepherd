@@ -28,6 +28,16 @@ struct ShepherdApp: App {
         appUpdater = AppUpdater(isIsolated: launch.isIsolated, startImmediately: false)
         installation = AppInstallationPrompt(isIsolated: launch.isIsolated)
         let appModel = isolation?.makeModel() ?? AppModel(notifications: MacNotificationEnvironment.make(configuration: launch))
+        // A `.local` token goes only to the server the supervisor can vouch for.
+        // Not for an isolated launch: its LocalServerModel supervises and
+        // discovers nothing, so the gate could never open, and its credentials
+        // are throwaway stores seeded through remote profiles.
+        if isolation == nil {
+            let localServer = LocalServerModel.shared
+            appModel.localCredentialGate = CredentialGate { profile in
+                await localServer.verifyLocalIdentity(for: profile)
+            }
+        }
         // Settings is a native scene and can be opened before RootView's task.
         // Register its factories against the same model now; AppModel.register is
         // idempotent and builds them immediately if an activation already exists.

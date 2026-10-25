@@ -803,6 +803,27 @@ final class LocalServerModel {
         return .accessSettings
     }
 
+    /// The app's local credential gate asks this before the profile's token may
+    /// leave the app. Only this model's own endpoint qualifies, and only while
+    /// the listener proves it is the supervised child or the external install
+    /// the operator acknowledged: a fresh health identity must match.
+    func verifyLocalIdentity(for profile: ServerProfile) async -> Bool {
+        guard Self.targetsEndpoint(profile, endpoint: baseURL) else { return false }
+        switch state {
+        case .running:
+            return await supervisor.verifyLiveIdentity()
+        case .externallyManaged:
+            guard externalAcknowledged, let expected = externalIdentity,
+                  let metadata = await discoverExternal()?.localInstall else { return false }
+            // Re-read after the suspension: a refresh may have replaced the
+            // observation, which also withdraws the acknowledgement.
+            return state == .externallyManaged && externalAcknowledged && externalIdentity == expected
+                && expected.matches(LocalServerIdentity(metadata))
+        default:
+            return false
+        }
+    }
+
     func acknowledgeExternalServer() {
         guard state == .externallyManaged else { return }
         externalAcknowledged = true

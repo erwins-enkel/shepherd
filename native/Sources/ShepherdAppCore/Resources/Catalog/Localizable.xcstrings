@@ -19876,6 +19876,23 @@
         }
       }
     },
+    "native_local_server_unverified": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd wartet, bis der lokale Server seine Identität bestätigt, bevor die Anmeldung erfolgt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for Shepherd's local server to confirm its identity before signing in."
+          }
+        }
+      }
+    },
     "native_local_start": {
       "extractionState": "manual",
       "localizations": {

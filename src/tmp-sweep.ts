@@ -183,12 +183,69 @@ export function sessionScratchpadDirCandidates(
   return [...new Set([primary, legacy])];
 }
 
+/** `lstat` facts {@link isPrivateDirStat} judges — a subset of `fs.Stats`, so tests can fake it. */
+export interface DirStatLike {
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+  uid: number;
+  mode: number;
+}
+
 /**
- * Resolve which scratchpad root a session ACTUALLY uses: the first candidate that exists, else the
+ * A directory only this uid controls: a real directory (an `lstat` result, so a symlink is
+ * rejected, not followed) owned by `ownerUid`, and — when `requireMode` is given — with exactly
+ * those permission bits.
+ */
+export function isPrivateDirStat(st: DirStatLike, ownerUid: number, requireMode?: number): boolean {
+  if (!st.isDirectory() || st.isSymbolicLink() || st.uid !== ownerUid) return false;
+  return requireMode === undefined || (st.mode & 0o777) === requireMode;
+}
+
+/**
+ * Is a LEGACY scratchpad dir (under the world-writable system tmp) one this uid created? Walks every
+ * component from `legacyClaudeTmpRoot()` down to `dir` with `lstat`: the root must be a private
+ * 0700 directory, and each component below it a real directory owned by this uid. Another local user
+ * can pre-create `/tmp/claude-$uid` (e.g. after a reboot clears /tmp) or plant a symlink in the tree;
+ * adopting either would expose the operator's uploads or redirect them (audit N11).
+ */
+async function legacyScratchpadIsPrivate(dir: string): Promise<boolean> {
+  const root = legacyClaudeTmpRoot();
+  if (!isUnder(dir, root)) return false;
+  const parts = dir.slice(root.length).split("/").filter(Boolean);
+  let path = root;
+  try {
+    if (!isPrivateDirStat(await fsp.lstat(path), uid(), 0o700)) return false;
+    for (const part of parts) {
+      path = join(path, part);
+      if (!isPrivateDirStat(await fsp.lstat(path), uid())) return false;
+    }
+    return true;
+  } catch {
+    return false; // missing or unreadable → not adoptable
+  }
+}
+
+/**
+ * A scratchpad candidate a session may use: the primary (Shepherd's own private root) whenever it
+ * exists; a distinct legacy candidate only when {@link legacyScratchpadIsPrivate} vouches for it.
+ */
+async function usableScratchpadCandidate(dir: string, primary: string): Promise<boolean> {
+  if (dir !== primary) return legacyScratchpadIsPrivate(dir);
+  try {
+    await fsp.access(dir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve which scratchpad root a session ACTUALLY uses: the first usable candidate, else the
  * primary (for creation). Rule: a live disk session → disk; a legacy-only (adopted) session →
- * legacy tmpfs; if BOTH exist (e.g. a respawned session) → prefer disk (the live root). Keeps a
- * SINGLE root per session so reads, downloads, and uploads never split across roots. Returns the
- * primary on a blank `claudeSessionId` (callers already guard that separately).
+ * legacy tmpfs, but only if that tree is private to this uid (else the primary); if BOTH exist
+ * (e.g. a respawned session) → prefer disk (the live root). Keeps a SINGLE root per session so
+ * reads, downloads, and uploads never split across roots. Returns the primary on a blank
+ * `claudeSessionId` (callers already guard that separately).
  */
 export async function existingScratchpadDir(
   worktreePath: string,
@@ -196,12 +253,7 @@ export async function existingScratchpadDir(
 ): Promise<string> {
   const primary = sessionScratchpadDir(worktreePath, claudeSessionId);
   for (const dir of sessionScratchpadDirCandidates(worktreePath, claudeSessionId)) {
-    try {
-      await fsp.access(dir);
-      return dir;
-    } catch {
-      // try the next candidate
-    }
+    if (await usableScratchpadCandidate(dir, primary)) return dir;
   }
   return primary;
 }
@@ -219,7 +271,9 @@ export async function scratchpadHasFiles(
   claudeSessionId: string,
 ): Promise<boolean> {
   if (!claudeSessionId) return false;
+  const primary = sessionScratchpadDir(worktreePath, claudeSessionId);
   for (const dir of sessionScratchpadDirCandidates(worktreePath, claudeSessionId)) {
+    if (dir !== primary && !(await legacyScratchpadIsPrivate(dir))) continue;
     try {
       const entries = await fsp.readdir(dir);
       if (entries.length > 0) return true;

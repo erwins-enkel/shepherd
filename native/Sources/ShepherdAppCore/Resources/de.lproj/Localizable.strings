@@ -1155,6 +1155,7 @@
 "native_local_path_unknown" = "Unbekannt – dieser Server hat seinen Pfad nicht gemeldet";
 "native_local_recheck" = "Erneut prüfen";
 "native_local_restart" = "Neu starten";
+"native_local_server_unverified" = "Shepherd wartet, bis der lokale Server seine Identität bestätigt, bevor die Anmeldung erfolgt.";
 "native_local_start" = "Server starten";
 "native_local_start_on_launch" = "Lokalen Server beim Öffnen der App starten";
 "native_local_state_external" = "Ein Server antwortet bereits lokal. Prüfe ihn vor dem Verbinden.";

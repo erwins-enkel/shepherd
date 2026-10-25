@@ -87,6 +87,8 @@ token = "shp_…"
 **Where the token comes from:** `SHEPHERD_TOKEN`, then the profile's `token`. A profile's token is
 sent only to that profile's own URL. If `--url` or `SHEPHERD_URL` points somewhere else, the CLI
 withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authenticate there.
+On Linux, the CLI also withholds a stored token from a loopback URL when the process listening on
+that port belongs to another user, because any local account can bind a free loopback port.
 
 `--profile <name>` picks a profile. Without it the CLI uses `default_profile`, and falls back to
 `default` when that isn't set.

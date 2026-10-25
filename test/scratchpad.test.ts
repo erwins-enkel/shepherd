@@ -1,5 +1,13 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  rmSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionScratchpadDir, scratchpadHasFiles } from "../src/tmp-sweep";
@@ -56,8 +64,11 @@ async function withDualRoots(
   const legacyBase = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-legacy-")));
   process.env.SHEPHERD_TMP_SWEEP_DIR = diskRoot; // claudeTmpRoot() → disk primary
   process.env.TMPDIR = legacyBase; // legacyClaudeTmpRoot() → legacyBase/claude-$uid
+  const uidn = process.getuid?.() ?? 1000;
+  // A private legacy root, as claude itself creates it (N11: anything else is never adopted).
+  mkdirSync(join(legacyBase, `claude-${uidn}`), { mode: 0o700 });
   try {
-    await fn({ diskRoot, legacyBase, uidn: process.getuid?.() ?? 1000 });
+    await fn({ diskRoot, legacyBase, uidn });
   } finally {
     rmSync(diskRoot, { recursive: true, force: true });
     rmSync(legacyBase, { recursive: true, force: true });
@@ -100,6 +111,57 @@ test("upload: targets the session's existing (legacy) root, else creates the dis
     const freshSid = "fresh-sid";
     const fresh = await resolveScratchpadUploadDir(wt, freshSid, "");
     expect(fresh?.rootReal).toBe(realpathSync(join(diskRoot, dash, freshSid, "scratchpad")));
+  });
+});
+
+test("upload/list: a legacy tree that is not private to this uid is never adopted", async () => {
+  await withDualRoots(async ({ diskRoot, legacyBase, uidn }) => {
+    const wt = "/home/u/Work/legacyproj";
+    const dash = wt.replace(/[/.]/g, "-");
+    const root = join(legacyBase, `claude-${uidn}`);
+
+    // Group/world-accessible legacy root (e.g. pre-created by another user) → primary instead.
+    const sid = "open-root";
+    const planted = join(root, dash, sid, "scratchpad");
+    mkdirSync(planted, { recursive: true });
+    writeFileSync(join(planted, "planted.txt"), "x");
+    chmodSync(root, 0o755);
+    const up = await resolveScratchpadUploadDir(wt, sid, "");
+    expect(up?.rootReal).toBe(realpathSync(join(diskRoot, dash, sid, "scratchpad")));
+    expect((await listScratchpad(wt, sid, ""))?.entries.map((e) => e.name)).toEqual([]);
+    expect(await scratchpadHasFiles(wt, sid)).toBe(false);
+    chmodSync(root, 0o700);
+
+    // Symlinked `scratchpad` leaf → never followed; uploads go to the primary.
+    const target = mkdtempSync(join(tmpdir(), "shepherd-target-"));
+    try {
+      const linkSid = "link-leaf";
+      mkdirSync(join(root, dash, linkSid), { recursive: true });
+      symlinkSync(target, join(root, dash, linkSid, "scratchpad"));
+      const viaLink = await resolveScratchpadUploadDir(wt, linkSid, "");
+      expect(viaLink?.rootReal).toBe(realpathSync(join(diskRoot, dash, linkSid, "scratchpad")));
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+});
+
+test("upload: a symlinked legacy claude-$uid root is never adopted", async () => {
+  await withDualRoots(async ({ diskRoot, legacyBase, uidn }) => {
+    const wt = "/home/u/Work/legacyproj";
+    const dash = wt.replace(/[/.]/g, "-");
+    const sid = "link-root";
+    const root = join(legacyBase, `claude-${uidn}`);
+    const elsewhere = mkdtempSync(join(tmpdir(), "shepherd-elsewhere-"));
+    try {
+      rmSync(root, { recursive: true });
+      symlinkSync(elsewhere, root);
+      mkdirSync(join(elsewhere, dash, sid, "scratchpad"), { recursive: true });
+      const up = await resolveScratchpadUploadDir(wt, sid, "");
+      expect(up?.rootReal).toBe(realpathSync(join(diskRoot, dash, sid, "scratchpad")));
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
   });
 });
 

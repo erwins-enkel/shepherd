@@ -34,7 +34,7 @@ function consoleSection(entries: ConsoleEntry[]): string[] {
   const shown = entries.slice(0, CONSOLE_MAX);
   return [
     `Console (${entries.length}):`,
-    ...shown.map((e) => `[${e.level}] ${sanitize(truncate(e.text, CONSOLE_MSG_MAX))}`),
+    ...shown.map((e) => `[${sanitize(e.level)}] ${sanitize(truncate(e.text, CONSOLE_MSG_MAX))}`),
     ...moreMarker(entries.length, shown.length),
   ];
 }
@@ -44,7 +44,8 @@ function networkSection(entries: NetworkEntry[]): string[] {
   return [
     `Failed requests (${entries.length}):`,
     ...shown.map(
-      (e) => `${sanitize(e.method)} ${sanitize(truncate(e.url, NETWORK_URL_MAX))} → ${e.status}`,
+      (e) =>
+        `${sanitize(e.method)} ${sanitize(truncate(e.url, NETWORK_URL_MAX))} → ${sanitize(String(e.status))}`,
     ),
     ...moreMarker(entries.length, shown.length),
   ];
@@ -57,7 +58,7 @@ function a11ySection(findings: A11yFinding[]): string[] {
     ...shown.map((f) => {
       const sel = f.sampleSelectors.map(sanitize).filter(Boolean).join(", ");
       const tail = sel ? ` · ${sel}` : "";
-      return `[${f.impact}] ${sanitize(f.id)} — ${sanitize(f.help)} (${f.nodeCount} nodes)${tail}`;
+      return `[${sanitize(f.impact)}] ${sanitize(f.id)} — ${sanitize(f.help)} (${sanitize(String(f.nodeCount))} nodes)${tail}`;
     }),
     ...moreMarker(findings.length, shown.length),
   ];
@@ -74,7 +75,7 @@ export function formatContextBlock(meta: PageMetadata, signals?: CapturedSignals
     "Shepherd Capture — browser context",
     `URL: ${sanitize(meta.url)}`,
     `Title: ${sanitize(meta.title)}`,
-    `Viewport: ${meta.viewportW}×${meta.viewportH} @${meta.devicePixelRatio}x`,
+    `Viewport: ${sanitize(String(meta.viewportW))}×${sanitize(String(meta.viewportH))} @${sanitize(String(meta.devicePixelRatio))}x`,
     `User agent: ${sanitize(meta.userAgent)}`,
     `Locale: ${sanitize(meta.locale)}`,
     `Captured: ${sanitize(meta.timestamp)}`,

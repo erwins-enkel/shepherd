@@ -1155,6 +1155,7 @@
 "native_local_path_unknown" = "Unavailable — this server did not report its path";
 "native_local_recheck" = "Recheck";
 "native_local_restart" = "Restart";
+"native_local_server_unverified" = "Waiting for Shepherd's local server to confirm its identity before signing in.";
 "native_local_start" = "Start server";
 "native_local_start_on_launch" = "Start local server when the app opens";
 "native_local_state_external" = "A server is already answering locally. Review it before connecting.";

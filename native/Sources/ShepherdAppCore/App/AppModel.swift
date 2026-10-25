@@ -288,6 +288,17 @@ public final class AppModel {
     @ObservationIgnored private var credentialRecovery: Task<Void, Never>?
     public var credentialAccessWarning: String?
 
+    /// Withholds a `.local` profile's token until the server on its port proves
+    /// its identity (the Mac app verifies against its supervised child). `nil`
+    /// — iOS, tests — sends the token as before. Remote profiles never use it.
+    @ObservationIgnored public var localCredentialGate: CredentialGate?
+    /// How long an unverified local server waits before the next check.
+    /// Internal so tests can shorten it.
+    @ObservationIgnored var localGateRetryInterval: Duration = .seconds(2)
+    /// Re-checks an unverified local server until it passes, then starts the
+    /// activation. Cancelled with every activation and teardown.
+    @ObservationIgnored private var localGateRetry: Task<Void, Never>?
+
     @ObservationIgnored private let persistence: ProfileStore
     @ObservationIgnored private let credentials: any CredentialStore
     /// Runs `SessionStore.start()` — bootstrap plus the event loop.
@@ -503,7 +514,7 @@ public final class AppModel {
         }
         // `logout` revokes and clears the local item; the explicit delete covers
         // the paths where it bailed out before getting there.
-        try? await logout(profile, credentials)
+        try? await logout(profile, await revocationCredentials(for: profile))
         try? credentials.delete(for: profile.credentialKey)
         profiles.removeAll { $0.id == profile.id }
         persist()
@@ -546,6 +557,8 @@ public final class AppModel {
         }
         credentialRecovery?.cancel()
         credentialRecovery = nil
+        localGateRetry?.cancel()
+        localGateRetry = nil
         credentialAccessWarning = nil
 
         connectionWatcher?.cancel()
@@ -605,11 +618,11 @@ public final class AppModel {
                 let result = await read.value
                 guard !Task.isCancelled, let self,
                       generation == self.activationGeneration else { return }
-                self.finishActivation(profile, generation: generation, credentialResult: result)
+                await self.finishActivation(profile, generation: generation, credentialResult: result)
             }
             return
         }
-        finishActivation(profile, generation: generation, credentialResult: await read.value)
+        await finishActivation(profile, generation: generation, credentialResult: await read.value)
     }
 
     public func retryCredentialAccess() async {
@@ -623,7 +636,7 @@ public final class AppModel {
     private func finishActivation(
         _ profile: ServerProfile, generation: Int,
         credentialResult: Result<StoredCredential?, any Error>
-    ) {
+    ) async {
         guard generation == activationGeneration else { return }
         credentialReads[profile.credentialKey] = nil
         if case .failure = credentialResult {
@@ -637,6 +650,38 @@ public final class AppModel {
             sheet = .login(profile)
             return
         }
+        guard profile.mode == .local, let gate = localCredentialGate else {
+            startActivation(profile, generation: generation, credentials: credentials)
+            return
+        }
+        // No store exists until the server has proved itself: everything it
+        // would start — bootstrap, events, health — reads the token.
+        let gated = GatedCredentialStore(base: credentials, gate: gate)
+        let verified = await gate.refresh(for: profile)
+        guard generation == activationGeneration else { return }
+        if verified {
+            startActivation(profile, generation: generation, credentials: gated)
+            return
+        }
+        credentialAccessWarning = L.t("native_local_server_unverified")
+        let interval = localGateRetryInterval
+        localGateRetry = Task { @MainActor [weak self] in
+            while true {
+                do { try await Task.sleep(for: interval) } catch { return }
+                guard self?.activationGeneration == generation else { return }
+                guard await gate.refresh(for: profile) else { continue }
+                guard !Task.isCancelled, let self, generation == self.activationGeneration else { return }
+                self.credentialAccessWarning = nil
+                self.startActivation(profile, generation: generation, credentials: gated)
+                return
+            }
+        }
+    }
+
+    /// Builds the activation's store and arms everything that hangs off it.
+    private func startActivation(
+        _ profile: ServerProfile, generation: Int, credentials: any CredentialStore
+    ) {
         let store: SessionStore
         do {
             let client = try makeClient(profile, credentials, liveRequestAudit)
@@ -874,7 +919,7 @@ public final class AppModel {
     private func completePairing(profile: ServerProfile, link: PairingLink, deviceName: String, generation: Int) async throws {
         try await pairingExchange(profile, link.code, deviceName, credentials)
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id }) else {
-            try? await logout(profile, credentials)
+            try? await logout(profile, await revocationCredentials(for: profile))
             try? credentials.delete(for: profile.credentialKey)
             throw CancellationError()
         }
@@ -919,7 +964,7 @@ public final class AppModel {
             // The token this login just stored must not outlive the row it
             // was minted for — left behind, it is exactly the orphaned,
             // un-revokable credential `remove(_:)` exists to prevent.
-            try? await logout(profile, credentials)
+            try? await logout(profile, await revocationCredentials(for: profile))
             try? credentials.delete(for: profile.credentialKey)
             return
         }
@@ -965,7 +1010,7 @@ public final class AppModel {
         guard generation == activationGeneration else { return nil }
         var failure: (any Error)?
         do {
-            try await logout(profile, credentials)
+            try await logout(profile, await revocationCredentials(for: profile))
         } catch {
             Log.connect.error(
                 """
@@ -1141,9 +1186,12 @@ public final class AppModel {
                         // park this task on a signal no write can ever send.
                         guard let latest = source.read() else { return }
                         if latest != current {
+                            let previous = current
                             current = latest
                             routed = true
-                            self.routeSheet(for: latest, profile: profile)
+                            if !self.gateLocalCredentials(from: previous, to: latest, profile: profile) {
+                                self.routeSheet(for: latest, profile: profile)
+                            }
                         }
                     }
                 }
@@ -1229,11 +1277,58 @@ public final class AppModel {
         }
     }
 
+    /// The store a `logout` reads the token to revoke from. A revocation sends
+    /// the token as Bearer, so for a gated `.local` profile it may leave the app
+    /// only for a server that proves its identity now; otherwise the store
+    /// shows nothing and `logout` just clears the credential locally.
+    private func revocationCredentials(for profile: ServerProfile) async -> any CredentialStore {
+        guard profile.mode == .local, let gate = localCredentialGate else { return credentials }
+        if gate.isVerified(for: profile.credentialKey) { return credentials }
+        if await gate.check(profile) { return credentials }
+        // A fresh gate starts closed: reads see nothing, the delete passes through.
+        return GatedCredentialStore(base: credentials, gate: CredentialGate { _ in false })
+    }
+
+    /// Keeps the local credential gate honest across a dropped connection.
+    /// Returns `true` when it consumed `latest` instead of `routeSheet`.
+    ///
+    /// Losing a live connection closes the gate before anything reconnects,
+    /// then re-verifies: what answers the reconnect may no longer be the server
+    /// that was verified. A `.needsLogin` that arrives while the gate is closed
+    /// came from an anonymous request — the middleware cleared nothing — so it
+    /// re-activates, which waits for verification, instead of asking for a
+    /// password the operator has already given.
+    private func gateLocalCredentials(
+        from previous: ConnectionState, to latest: ConnectionState, profile: ServerProfile
+    ) -> Bool {
+        guard profile.mode == .local, let gate = localCredentialGate else { return false }
+        switch latest {
+        case .connecting, .offline:
+            switch previous {
+            case .live, .firstRunPending:
+                gate.close()
+            default:
+                // A bootstrap retry loop: re-check only a gate that is still
+                // closed, since a refresh would close an open one under it.
+                guard !gate.isVerified(for: profile.credentialKey) else { return false }
+            }
+            Task { await gate.refresh(for: profile) }
+            return false
+        case .needsLogin where !gate.isVerified(for: profile.credentialKey):
+            Task { @MainActor [weak self] in await self?.activate(profile) }
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Internal, not private: the unit tests end an activation directly.
     func teardown() {
         pendingComposeHandover = nil
         credentialRecovery?.cancel()
         credentialRecovery = nil
+        localGateRetry?.cancel()
+        localGateRetry = nil
         credentialAccessWarning = nil
         activationGeneration &+= 1
         connectionWatcher?.cancel()

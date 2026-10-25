@@ -1,6 +1,7 @@
 import { summarizeAxeResults, type AxeResults } from "./lib/a11y";
 import { buildMetadata, dataUrlToBlob, type PageInfo } from "./lib/capture";
 import { loadConfig } from "./lib/config";
+import { parseRecorderBuffer } from "./lib/recorder-core";
 import {
   clearPickerToggles,
   getPickerToggles,
@@ -108,7 +109,8 @@ async function readRecorderBuffer(
         (window as unknown as { __shepherdCapture?: { console: unknown[]; network: unknown[] } })
           .__shepherdCapture ?? null,
     });
-    return (result as { console: ConsoleEntry[]; network: NetworkEntry[] } | null) ?? null;
+    // Page-owned global: validate, never trust its shape (see parseRecorderBuffer).
+    return parseRecorderBuffer(result);
   } catch {
     return null;
   }

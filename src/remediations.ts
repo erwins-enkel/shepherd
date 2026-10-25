@@ -188,13 +188,16 @@ export const REMEDIATIONS: Record<string, string> = {
 };
 
 /** Hints that have a verbatim REMEDIATIONS command but that the in-app Fix surface
- *  must NOT auto-run — it presents them as guidance, not a one-click fix. Two reasons
+ *  must NOT auto-run — it presents them as guidance, not a one-click fix. Three reasons
  *  qualify a hint:
  *   - running the command never clears the check unattended — tailscale: installing
  *     the binary leaves `resolveNodeHost` null until an interactive tailnet login;
  *   - the fix is a privileged system-package install — git, chromium: an apt/apk/dnf/pacman
  *     install that needs root/sudo we can't assume for the Shepherd service user,
  *     even though it DOES clear the check when run with privilege.
+ *   - the fix pipes an unpinned upstream installer into a shell — bun, node (fnm), claude,
+ *     codex (#3338): the in-app Fix would run whatever that URL serves today, unverified.
+ *     herdr is the exception: its install is version- and sha256-pinned.
  *  This is the in-app analogue of the harness `detectionOnly` split in scenarios.ts.
  *  `remediationsFor` stays guidance-agnostic, so the harness (running as root) still
  *  applies these and reaches green. */
@@ -202,6 +205,13 @@ export const GUIDANCE_ONLY: ReadonlySet<string> = new Set([
   "diagnostics_hint_tailscale_missing",
   "diagnostics_hint_git_missing",
   "diagnostics_hint_chromium_missing",
+  "diagnostics_hint_bun_missing",
+  "diagnostics_hint_node_missing",
+  "diagnostics_hint_node_outdated",
+  "diagnostics_hint_claude_missing",
+  "diagnostics_hint_claude_optional",
+  "diagnostics_hint_codex_missing",
+  "diagnostics_hint_codex_optional",
 ]);
 
 /** One verbatim remediation resolved for a non-ok check. `optional` mirrors the

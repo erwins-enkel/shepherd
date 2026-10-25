@@ -33,9 +33,24 @@ describe("remediations catalog", () => {
   });
 
   it("autoFixCommandFor returns the command for an auto-fixable hintKey", () => {
-    expect(autoFixCommandFor("diagnostics_hint_bun_missing")).toBe(
-      REMEDIATIONS.diagnostics_hint_bun_missing,
+    expect(autoFixCommandFor("diagnostics_hint_herdr_offline")).toBe(
+      REMEDIATIONS.diagnostics_hint_herdr_offline,
     );
+  });
+
+  it("unpinned curl|sh installers are guidance-only in-app, still applied by the harness (#3338)", () => {
+    for (const hint of [
+      "diagnostics_hint_bun_missing",
+      "diagnostics_hint_node_missing",
+      "diagnostics_hint_node_outdated",
+      "diagnostics_hint_claude_missing",
+      "diagnostics_hint_claude_optional",
+      "diagnostics_hint_codex_missing",
+      "diagnostics_hint_codex_optional",
+    ]) {
+      expect(REMEDIATIONS[hint]).toBeDefined();
+      expect(autoFixCommandFor(hint)).toBeUndefined();
+    }
   });
 
   it("autoFixCommandFor gates guidance-only hints to undefined even when they have a REMEDIATIONS entry", () => {

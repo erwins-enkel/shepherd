@@ -1,5 +1,5 @@
 // Global, localStorage-backed toggles for the PRs-tab filters (hide drafts / hide
-// conflicts / hide failed CI). Mirrors issues-filter.svelte.ts so the PR view's
+// conflicts / hide failed CI), so the PR view's
 // preferences survive reloads and stay in sync wherever the PRs list is shown.
 // All three default OFF — absence of a key means "off", so "1" is the value we
 // persist when a toggle is ON (hiding is opt-in; hiding conflicting/failing PRs

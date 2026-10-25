@@ -1,7 +1,7 @@
 /**
  * Pure logic extracted from IssuesPanel.svelte — unit-testable without a DOM.
  */
-import type { Issue, EpicSummary, EpicChild } from "#lib/types.js";
+import type { Issue, EpicSummary, EpicChild, IssueFilterSettings } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
 /** Which "someone else is working / owns this epic" signal (#1616) fired, highest-priority first. */
@@ -169,48 +169,90 @@ export function filterByLabels(issues: readonly Issue[], selected: ReadonlySet<s
   });
 }
 
-/**
- * Narrow an issue list to "mine & unassigned" (#824): keep an issue when it has
- * no assignees OR the viewer is one of its assignees; drop issues assigned only
- * to other people.
- *
- * Fails open — returns every issue unchanged — when `enabled` is false or
- * `viewer` is null (offline/unauth/local forge: we don't know who "me" is, so we
- * must never hide everything). The `?? []` guard tolerates a stale/old-shape
- * payload that predates the server's `assignees` field, so the helper can never
- * throw on a missing array.
- */
-export function hideOthers(
-  issues: readonly Issue[],
-  viewer: string | null,
-  enabled: boolean,
-): Issue[] {
-  if (!enabled || viewer == null) return [...issues];
-  return issues.filter((issue) => {
-    const assignees = issue.assignees ?? [];
-    return assignees.length === 0 || assignees.includes(viewer);
-  });
+// ── Default issue filter (#3007/#3019) ──────────────────────────────────────────────────
+// Mirrors src/issue-filter.ts (the server applies the same rules to Up Next); keep in sync:
+//   - mine: viewer known AND (assignee OR author). A null viewer fails open (scope and
+//     `forks: own` hide nothing).
+//   - scope: all | mine_unassigned (mine or unassigned) | mine.
+//   - forks (repo is a fork): all | own (only mine) | hide (everything).
+//   - hiddenLabels: case-insensitive intersection drops the issue.
+//   - attributed to the FIRST rule that drops it: scope → forks → labels.
+
+export type DefaultFilterRule = "scope" | "forks" | "labels";
+
+export interface DefaultFilterContext {
+  viewer: string | null;
+  isFork: boolean;
 }
 
+/** Assigned to or authored by the viewer. The `?? []` guard tolerates a stale payload. */
+export function isMine(issue: Issue, viewer: string | null): boolean {
+  if (viewer == null) return false;
+  return (issue.assignees ?? []).includes(viewer) || issue.author === viewer;
+}
+
+function scopeHides(issue: Issue, viewer: string | null, scope: IssueFilterSettings["scope"]) {
+  if (scope === "all" || viewer == null || isMine(issue, viewer)) return false;
+  return scope === "mine" || (issue.assignees ?? []).length > 0;
+}
+
+function forksHides(issue: Issue, ctx: DefaultFilterContext, forks: IssueFilterSettings["forks"]) {
+  if (!ctx.isFork || forks === "all") return false;
+  if (forks === "hide") return true;
+  return ctx.viewer != null && !isMine(issue, ctx.viewer);
+}
+
+function labelsHide(issue: Issue, hidden: ReadonlySet<string>) {
+  return hidden.size > 0 && (issue.labels ?? []).some((l) => hidden.has(l.toLowerCase()));
+}
+
+type RuleFilter = Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels">;
+
 /**
- * Like {@link hideOthers}, but never drops a **flagged epic parent** (#1616): an epic that others
- * are working on (in-flight children / parent assigned to others / authored by another) stays
- * visible with its pill even when the "mine & unassigned" filter would hide an assigned-to-others
- * row. The base assignee rule is unchanged for every non-flagged issue. `epicByNumber` maps a
- * parent issue number to its summary; a row absent from it (a plain issue) is filtered normally.
+ * Apply the default filter's scope → forks → labels rules, returning each stage so an empty
+ * list can be attributed to the rule that emptied it. `exemptFromScope` keeps a row the scope
+ * rule would drop — the Backlog's flagged epics (#1616), whose pill names who owns them.
  */
-export function hideOthersExceptFlaggedEpics(
+export function applyDefaultFilter(
   issues: readonly Issue[],
-  viewer: string | null,
-  enabled: boolean,
-  epicByNumber: ReadonlyMap<number, EpicSummary>,
-): Issue[] {
-  if (!enabled || viewer == null) return [...issues];
-  return issues.filter((issue) => {
-    const assignees = issue.assignees ?? [];
-    if (assignees.length === 0 || assignees.includes(viewer)) return true;
-    return epicFlagForOthers(epicByNumber.get(issue.number)) != null;
-  });
+  ctx: DefaultFilterContext,
+  filter: RuleFilter,
+  exemptFromScope: (issue: Issue) => boolean = () => false,
+): { afterScope: Issue[]; afterForks: Issue[]; afterLabels: Issue[] } {
+  const afterScope = issues.filter(
+    (i) => !scopeHides(i, ctx.viewer, filter.scope) || exemptFromScope(i),
+  );
+  const afterForks = afterScope.filter((i) => !forksHides(i, ctx, filter.forks));
+  const hidden = new Set(filter.hiddenLabels.map((l) => l.toLowerCase()));
+  const afterLabels = afterForks.filter((i) => !labelsHide(i, hidden));
+  return { afterScope, afterForks, afterLabels };
+}
+
+/** Which default-filter rule emptied a non-empty list, or null when it didn't. */
+export function defaultFilterEmptiedBy(
+  total: number,
+  stages: ReturnType<typeof applyDefaultFilter>,
+  ctx: DefaultFilterContext,
+  filter: RuleFilter,
+): DefaultFilterRule | null {
+  if (total === 0) return null;
+  if (stages.afterScope.length === 0 && ctx.viewer != null && filter.scope !== "all")
+    return "scope";
+  if (stages.afterScope.length > 0 && stages.afterForks.length === 0) return "forks";
+  if (stages.afterForks.length > 0 && stages.afterLabels.length === 0) return "labels";
+  return null;
+}
+
+/** The empty-state copy for a list the default filter emptied. */
+export function defaultFilterEmptyMessage(
+  rule: DefaultFilterRule,
+  scope: IssueFilterSettings["scope"],
+): string {
+  if (rule === "forks") return m.issues_filter_all_forks();
+  if (rule === "labels") return m.issues_filter_all_hidden_labels();
+  return scope === "mine"
+    ? m.issues_filter_all_not_mine()
+    : m.issues_filter_all_assigned_to_others();
 }
 
 /**
@@ -513,49 +555,65 @@ export interface FilterChip {
   clear: () => void;
 }
 
-/** The toggle filters a chip can show and clear (the shared issuesFilter store). */
-export interface ChipToggles {
-  hideOthers: boolean;
-  hideActive: boolean;
-  hideBlocked: boolean;
-  set(v: boolean): void;
-  setActive(v: boolean): void;
-  setBlocked(v: boolean): void;
+/** The default issue filter a chip can show and clear (the shared issueFilterSettings store). */
+export interface ChipFilter {
+  filter: IssueFilterSettings;
+  update(patch: Partial<IssueFilterSettings>): void;
 }
 
 /**
  * Every filter that currently hides issues, as removable chips — including the default-on
- * toggles, so hidden content is never invisible. "mine & unassigned" only counts when
- * `mineOffered` (a known viewer; otherwise the filter fails open and hides nothing). Sub-issues
- * get no chip: the panel lists them inside their epic and offers no toggle for them.
+ * rules, so hidden content is never invisible. The scope rule only counts when `mineOffered` (a
+ * known viewer; otherwise it fails open and hides nothing), the fork rule only in a fork repo.
+ * Sub-issues get no chip: the panel lists them inside their epic and offers no toggle for them.
  */
 export function activeFilterChips(opts: {
-  toggles: ChipToggles;
+  toggles: ChipFilter;
   mineOffered: boolean;
+  isFork: boolean;
   author: string | null;
   labels: Iterable<string>;
   clearAuthor: () => void;
   clearLabel: (label: string) => void;
 }): FilterChip[] {
-  const { toggles } = opts;
+  const { filter, update } = opts.toggles;
   const chips: FilterChip[] = [];
-  if (toggles.hideActive)
+  if (filter.hideActive)
     chips.push({
       id: "active",
       label: m.issues_filter_chip_active(),
-      clear: () => toggles.setActive(false),
+      clear: () => update({ hideActive: false }),
     });
-  if (toggles.hideBlocked)
+  if (filter.hideBlocked)
     chips.push({
       id: "blocked",
       label: m.issues_filter_chip_blocked(),
-      clear: () => toggles.setBlocked(false),
+      clear: () => update({ hideBlocked: false }),
     });
-  if (opts.mineOffered && toggles.hideOthers)
+  if (opts.mineOffered && filter.scope !== "all")
     chips.push({
       id: "others",
-      label: m.issues_filter_chip_others(),
-      clear: () => toggles.set(false),
+      label:
+        filter.scope === "mine" ? m.upnext_filter_chip_scope_mine() : m.issues_filter_chip_others(),
+      clear: () => update({ scope: "all" }),
+    });
+  if (opts.isFork && filter.forks !== "all")
+    chips.push({
+      id: "forks",
+      label:
+        filter.forks === "hide"
+          ? m.upnext_filter_chip_forks_hide()
+          : m.upnext_filter_chip_forks_own(),
+      clear: () => update({ forks: "all" }),
+    });
+  for (const label of filter.hiddenLabels)
+    chips.push({
+      id: `hidden:${label}`,
+      label: m.upnext_filter_chip_label({ label }),
+      clear: () =>
+        update({
+          hiddenLabels: filter.hiddenLabels.filter((l) => l.toLowerCase() !== label.toLowerCase()),
+        }),
     });
   if (opts.author != null)
     chips.push({

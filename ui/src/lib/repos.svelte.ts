@@ -39,6 +39,13 @@ class ReposStore {
     return this.pathIndex.get(repoPath) ?? null;
   }
 
+  /** Whether the repo at a path (either form) is a fork — drives the default issue filter's
+   *  fork rule (#3019). Unknown repo ⇒ false. */
+  isFork(repoPath: string): boolean {
+    const name = this.nameFor(repoPath);
+    return name != null && this.entries.some((e) => e.name === name && e.isFork === true);
+  }
+
   /** Sorted, unique repo names — the allowlist picker's candidate set. */
   knownNames = $derived([...new Set(this.entries.map((e) => e.name))].sort());
 }

@@ -6126,7 +6126,24 @@ export class SessionService {
     return provider === "codex" ? this.deps.store.get(s.id)!.providerSessionId! : null;
   }
 
+  /** Archived sessions mid-`restore()` (#3370): the agent spawns before `store.unarchive`, so its
+   *  startup MCP connect and hooks must pass the ingress's archived-session refusal. */
+  private readonly restoring = new Set<string>();
+
+  isRestoring(id: string): boolean {
+    return this.restoring.has(id);
+  }
+
   async restore(id: string): Promise<Session | null> {
+    this.restoring.add(id);
+    try {
+      return await this.restoreArchived(id);
+    } finally {
+      this.restoring.delete(id);
+    }
+  }
+
+  private async restoreArchived(id: string): Promise<Session | null> {
     const s = this.deps.store.get(id);
     if (!s) return null;
 

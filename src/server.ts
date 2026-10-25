@@ -12458,10 +12458,11 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
  *  still-spawning session (no row yet) verifies the same way. `browser` is exempt — it carries its
  *  own HMAC `?token=` (ADR 0001), and a CDP WebSocket client cannot add a header. No signer (broken
  *  key file) → every call refused. An archived session's key is dead (#3370), so a leaked key
- *  cannot outlive its session. */
+ *  cannot outlive its session — except while `restore()` respawns it (the row is unarchived only
+ *  after the spawn). */
 function ingressKeyAllowed(deps: AppDeps, id: string, sub: string, req: Request): boolean {
   if (sub === "browser") return true;
-  if (deps.store.get(id)?.status === "archived") return false;
+  if (deps.store.get(id)?.status === "archived" && !deps.service.isRestoring(id)) return false;
   return deps.assistantIngress?.verify(id, req.headers.get(ASSISTANT_INGRESS_HEADER)) === true;
 }
 

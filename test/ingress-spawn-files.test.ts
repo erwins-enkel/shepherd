@@ -21,7 +21,13 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function harness(opts: { profile?: "trusted" | "standard"; signer?: boolean } = {}) {
+function harness(
+  opts: {
+    profile?: "trusted" | "standard";
+    signer?: boolean;
+    onStart?: () => Promise<void>;
+  } = {},
+) {
   const spawnDir = mkdtempSync(join(tmpdir(), "agent-spawn-"));
   dirs.push(spawnDir);
   const store = new SessionStore(":memory:");
@@ -41,6 +47,7 @@ function harness(opts: { profile?: "trusted" | "standard"; signer?: boolean } = 
     worktree: {
       create: () => ({ worktreePath: "/wt/x", branch: "shepherd/x", isolated: true }),
       ensureBaseRef: async () => {},
+      restoreExisting: () => {},
       branchExists: () => false,
       remove: () => {},
       gitCommonDir: () => "/wt/x/.git",
@@ -48,6 +55,7 @@ function harness(opts: { profile?: "trusted" | "standard"; signer?: boolean } = 
     herdr: {
       start: async (_n: string, _c: string, argv: string[], env: Record<string, string>) => {
         started.push({ argv, env });
+        await opts.onStart?.();
         return { terminalId: "t1", agentStatus: "working" } as any;
       },
       listAsync: async () => [],
@@ -218,6 +226,33 @@ test("ingress: an archived session's key is refused (#3370)", async () => {
     }),
   );
   expect(res.status).toBe(401);
+});
+
+test("ingress: a restore's own startup calls pass while the row still reads archived", async () => {
+  const duringSpawn: number[] = [];
+  let probe: (() => Promise<void>) | undefined;
+  const { svc, store } = harness({ onStart: async () => probe?.() });
+  const s = await create(svc);
+  await svc.archive(s.id);
+  const app = makeAgentIngressApp(ingressDeps(svc, store));
+  const call = async () =>
+    (
+      await app.fetch(
+        new Request(`http://x/api/sessions/${s.id}/queue`, {
+          headers: { [ASSISTANT_INGRESS_HEADER]: SIGNER.sign(s.id) },
+        }),
+      )
+    ).status;
+  probe = async () => {
+    expect(store.get(s.id)!.status).toBe("archived");
+    duringSpawn.push(await call());
+  };
+  expect(await svc.restore(s.id)).not.toBeNull();
+  expect(duringSpawn).toEqual([200]);
+  probe = undefined;
+  expect(await call()).toBe(200);
+  await svc.archive(s.id);
+  expect(await call()).toBe(401);
 });
 
 test("ingress: no signer (broken key file) refuses every keyed call", async () => {

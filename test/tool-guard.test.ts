@@ -443,7 +443,7 @@ describe("#2002 the guard is reachable inside the membrane", () => {
   // Every path "exists"; the host git-store prep is stubbed so nothing touches the real fs.
   const allExist = {
     exists: () => true,
-    gitStore: { pinCommondir: () => {}, adminDir: () => null },
+    gitStore: { pinCommondir: () => {}, ensureWorktreeConfig: () => {}, adminDir: () => null },
   };
 
   it("binds every support path RO at the same path", () => {

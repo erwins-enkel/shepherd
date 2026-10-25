@@ -16,7 +16,14 @@
  * `*-bind-try` for every host-variable path so an absent source is skipped
  * rather than hard-failing the spawn.
  */
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { basename, dirname, join, resolve } from "node:path";
@@ -103,6 +110,9 @@ export interface PathProbeDeps {
 export interface GitStoreDeps {
   /** Ensure `<store>/commondir` exists and resolves to the store itself; throws otherwise. */
   pinCommondir(store: string): void;
+  /** Ensure `<dir>/config.worktree` exists as a regular file (empty when created); throws
+   *  otherwise. */
+  ensureWorktreeConfig(dir: string): void;
   /** The worktree's own admin dir under `<store>/worktrees` (trusted backlink match).
    *  @throws UntrustedGitDirError when none matches. */
   adminDir(repoPath: string, worktreePath: string): string | null;
@@ -125,6 +135,16 @@ const hostGitStore: GitStoreDeps = {
     if (realpathSync(target) !== realpathSync(store)) {
       throw new Error(`git store ${store}: commondir points outside the store`);
     }
+  },
+  // A `/dev/null` stub won't do: bwrap binds are nodev, so git can't open it and dies.
+  ensureWorktreeConfig(dir) {
+    const file = join(dir, "config.worktree");
+    try {
+      writeFileSync(file, "", { flag: "wx" });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+    if (!lstatSync(file).isFile()) throw new Error(`git dir ${dir}: config.worktree not a file`);
   },
   adminDir: (repoPath, worktreePath) =>
     resolveWorktreePinSync(repoPath, worktreePath)?.gitDir ?? null,
@@ -598,9 +618,10 @@ function claudeJsonFlags(target: string, copy: string | null | undefined): strin
  * Audit F05 / run-2 R2-F01 + R2-F06: re-bind the git store's exec-capable state read-only AFTER
  * its rw bind (bwrap applies binds in order), so an agent can't plant config, a commondir
  * redirect, a hook, a submodule git dir or a launcher that unconfined host git / Shepherd later
- * runs. Fail closed — never `-try`: a present path is `--ro-bind`; an absent dir becomes an empty
- * RO tmpfs and an absent `config.worktree` an empty `/dev/null` file, so the agent can't create it
- * either (bwrap leaves an empty mount-point stub on the host). `config` and `commondir` (pinned by
+ * runs, or attributes / legacy remote definitions (`info/`, `remotes/`, `branches/`) it reads.
+ * Fail closed — never `-try`: a present path is `--ro-bind`; an absent dir becomes an empty RO
+ * tmpfs, so the agent can't create it either (bwrap leaves an empty mount-point stub on the
+ * host). `config`, `commondir` and `config.worktree` (the latter two made on the host by
  * {@link hostGitStore}) are required. With config RO, git's own config writes (`push -u`
  * upstream, `git config`) fail with EBUSY; branch/commit/push still succeed.
  */
@@ -610,25 +631,35 @@ function gitStoreReadOnlyFlags(
   adminDir: string | null,
 ): string[] {
   const p = (sub: string) => `${gitDir}/${sub}`;
-  const dirs = ["hooks", "shepherd", "modules", "worktrees"].flatMap((sub) =>
+  const dirs = ["hooks", "shepherd", "modules", "worktrees", "info", "remotes", "branches"];
+  const dirFlags = dirs.flatMap((sub) =>
     exists(p(sub)) ? ["--ro-bind", p(sub), p(sub)] : ["--tmpfs", p(sub), "--remount-ro", p(sub)],
   );
-  const worktreeConfig = exists(p("config.worktree")) ? p("config.worktree") : "/dev/null";
   return [
     ...["--ro-bind", p("config"), p("config")],
     ...["--ro-bind", p("commondir"), p("commondir")],
-    ...["--ro-bind", worktreeConfig, p("config.worktree")],
-    ...dirs,
+    ...worktreeConfigFlags(gitDir),
+    ...dirFlags,
     ...ownAdminDirFlags(adminDir),
   ];
 }
 
+/** `<dir>/config.worktree` RO — git reads it under `extensions.worktreeConfig`. */
+function worktreeConfigFlags(dir: string): string[] {
+  const target = `${dir}/config.worktree`;
+  return ["--ro-bind", target, target];
+}
+
 /** Under the RO `worktrees/`, only the session's own admin dir (HEAD, index, logs) is RW again —
- *  minus its `commondir`, which host git in that worktree would follow. */
+ *  minus its `commondir`, which host git in that worktree would follow, and its
+ *  `config.worktree`. */
 function ownAdminDirFlags(adminDir: string | null): string[] {
   if (adminDir === null) return [];
   const commondir = `${adminDir}/commondir`;
-  return ["--bind", adminDir, adminDir, "--ro-bind", commondir, commondir];
+  return [
+    ...["--bind", adminDir, adminDir, "--ro-bind", commondir, commondir],
+    ...worktreeConfigFlags(adminDir),
+  ];
 }
 
 /** Host prep + carve-outs for a store bound RW at `store`. The prep only runs for a store that is
@@ -639,11 +670,15 @@ function writableStoreFlags(
   exists: (p: string) => boolean,
   gitStore: GitStoreDeps,
 ): string[] {
-  if (exists(store)) gitStore.pinCommondir(store);
+  if (exists(store)) {
+    gitStore.pinCommondir(store);
+    gitStore.ensureWorktreeConfig(store);
+  }
   const adminDir =
     inputs.isolated && exists(`${store}/worktrees`)
       ? gitStore.adminDir(inputs.repoPath, inputs.worktreePath)
       : null;
+  if (adminDir !== null) gitStore.ensureWorktreeConfig(adminDir);
   return ["--bind", store, store, ...gitStoreReadOnlyFlags(store, exists, adminDir)];
 }
 

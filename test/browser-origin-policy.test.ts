@@ -173,6 +173,13 @@ describe("cookieMatchesHosts", () => {
     expect(cookieMatchesHosts("evil-example.com", ["example.com"], false)).toBe(false);
     expect(cookieMatchesHosts("sub.app.example.com", ["app.example.com"], false)).toBe(false);
   });
+  test("host-only cookies match only an identical host (#3366)", () => {
+    expect(cookieMatchesHosts("example.com", ["app.example.com"], false)).toBe(false);
+    expect(cookieMatchesHosts(".example.com", ["app.example.com"], false)).toBe(true);
+    expect(cookieMatchesHosts("app.example.com", ["app.example.com"], false)).toBe(true);
+    expect(cookieMatchesHosts("App.Example.com", ["app.example.com"], false)).toBe(true);
+    expect(cookieMatchesHosts(".app.example.com", ["app.example.com"], false)).toBe(true);
+  });
   test("localhost cookies only when the Preview origin is allowed", () => {
     expect(cookieMatchesHosts("localhost", [], true)).toBe(true);
     expect(cookieMatchesHosts("localhost", [], false)).toBe(false);

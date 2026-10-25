@@ -6,13 +6,13 @@ import Testing
 extension CoreSeamTests {
 @MainActor
 @Suite struct IssuePickerTests {
-    private func issue(_ number: Int = 412, labels: [String] = [], assignees: [String] = [], author: String? = "operator") -> ShepherdKit.Issue {
+    private func issue(_ number: Int = 412, labels: [String] = [], assignees: [String] = [], author: String? = nil) -> ShepherdKit.Issue {
         ShepherdKit.Issue(number: number, title: "Rate-limit the admin route", body: "Private issue body",
               url: "https://example.test/i/\(number)", labels: labels, createdAt: 1_800_000_000_000,
               assignees: assignees, author: author)
     }
     private var unfiltered: IssueFilterState {
-        IssueFilterState(hideOthers: false, hideActive: false, hideSubIssues: false, hideBlocked: false)
+        IssueFilterState(settings: .init(scope: .all, hideSubIssues: false, hideBlocked: false))
     }
     private func defaults() -> UserDefaults { UserDefaults(suiteName: "IssuePickerTests.\(UUID())")! }
     private func model(
@@ -35,15 +35,20 @@ extension CoreSeamTests {
         for stage in IssueFilter.Stage.allCases {
             var state = unfiltered
             let row: ShepherdKit.Issue
+            var repo = IssueFilter.RepoContext()
             switch stage {
-            case .others: state.hideOthers = true; row = issue(assignees: ["other"])
+            case .repo: repo.override = .hide; row = issue()
+            case .scope: state.scope = .mine; row = issue(assignees: ["other"], author: "other")
+            case .forks: state.forks = .hide; repo.isFork = true; row = issue()
+            case .hiddenLabels: state.settings.hiddenLabels = ["BUG"]; row = issue(labels: ["bug"])
             case .active: state.hideActive = true; row = issue(labels: ["shepherd:active"])
             case .subIssues: state.hideSubIssues = true; row = issue()
             case .blocked: state.hideBlocked = true; row = issue(labels: ["status/Blocked-upstream"])
             case .author: state.author = "other"; row = issue()
             case .labels: state.labels = ["bug", "urgent"]; row = issue(labels: ["bug"])
             }
-            let result = IssueFilter.apply([row], viewer: "operator", epicParents: [], subIssues: [412], state: state)
+            let result = IssueFilter.apply([row], viewer: "operator", epicParents: [], subIssues: [412], state: state,
+                                           repo: repo)
             #expect(result.visible.isEmpty)
             #expect(result.emptiedBy == stage)
         }
@@ -52,7 +57,7 @@ extension CoreSeamTests {
         var state = IssueFilterState(); state.hideActive = true
         let result = IssueFilter.apply([issue(labels: ["shepherd:active"], assignees: ["other"])],
                                        viewer: "operator", epicParents: [], subIssues: [], state: state)
-        #expect(result.emptiedBy == .others)
+        #expect(result.emptiedBy == .scope)
     }
 
     @Test func nilViewerFailsOpenAndEpicParentsStayVisible() {
@@ -79,14 +84,23 @@ extension CoreSeamTests {
         #expect(state.activeCount(hasViewer: true) == 3)
         #expect(state.activeCount(hasViewer: false) == 2)
         state.hideActive = true; state.author = "operator"; state.labels = ["bug", "urgent"]
-        #expect(state.activeCount(hasViewer: true) == 7)
+        state.forks = .own; state.settings.hiddenLabels = ["wip"]
+        #expect(state.activeCount(hasViewer: true) == 9)
+        // Nothing persists locally any more: a second composer starts from the defaults.
         let prefs = defaults()
         let first = model(defaults: prefs)
         first.filter = state
-        let second = model(defaults: prefs)
-        #expect(second.filter.hideActive)
-        #expect(second.filter.author == nil)
-        #expect(second.filter.labels.isEmpty)
+        #expect(model(defaults: prefs).filter == IssueFilterState())
+        // With the shared model, the default rules write to the server; author/labels stay local.
+        let settings = IssueFilterSettingsModel(reads: .init(read: { nil }, write: { _ in nil }), initial: .defaults)
+        defer { settings.teardown() }
+        let composed = model()
+        composed.issueFilterSettings = settings
+        composed.filter.hideActive = true
+        composed.filter.author = "operator"
+        #expect(settings.value?.hideActive == true)
+        #expect(composed.filter.author == "operator")
+        #expect(settings.value?.scope == .mineUnassigned)
     }
 
     @Test func issueTriggerUsesTextBeforeCaretIncludingUnicode() {
@@ -210,6 +224,22 @@ extension CoreSeamTests {
         m.filter.hideBlocked = false
         m.filter.labels = ["blocked-upstream"]
         m.filter.hideBlocked = true
+        #expect(m.filter.labels.isEmpty)
+        #expect(m.filteredIssues.visible.map(\.number) == [413])
+    }
+
+    @Test func serverSideHideBlockedPrunesAnUnavailableSelectedLabel() async {
+        let rows = [issue(labels: ["blocked-upstream"]), issue(413, labels: ["bug"])]
+        let settings = IssueFilterSettingsModel(reads: .init(read: { nil }, write: { _ in nil }),
+                                                initial: .init(scope: .all, hideBlocked: false))
+        defer { settings.teardown() }
+        let m = model(issues: { _ in IssueListing(slug: "o/r", issues: rows) })
+        m.issueFilterSettings = settings
+        m.repoPath = "/repo"; await m.loadSources()
+        m.filter.labels = ["blocked-upstream"]
+        #expect(m.filteredIssues.visible.map(\.number) == [412])
+        // Turned on elsewhere (Settings, another device's push), not through this composer.
+        await settings.update(.init(hideBlocked: true))?.value
         #expect(m.filter.labels.isEmpty)
         #expect(m.filteredIssues.visible.map(\.number) == [413])
     }

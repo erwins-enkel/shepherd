@@ -58,6 +58,7 @@ struct IOSComposeContent: View {
                     diagnostics: app.extension(BackendRecoveryModel.self)?.diagnostics,
                     holdLikely: ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(for: app), settings: settings))
             })
+        if model.issueFilterSettings == nil { model.issueFilterSettings = app.extension(IssueFilterSettingsModel.self) }
         if !initialPrompt.isEmpty { model.prompt = initialPrompt }
         if !initialRepoPath.isEmpty { model.repoPath = initialRepoPath }
         if let initialRunOn {

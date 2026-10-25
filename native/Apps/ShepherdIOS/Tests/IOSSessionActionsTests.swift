@@ -705,6 +705,98 @@ final class IOSSessionActionsTests: XCTestCase {
         XCTAssertNil(fixture.decommissionedID)
     }
 
+    func testHeldDecommissionArchivesAtOnceWhenNothingIsLeftToChoose() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.git = try IOSActionFixture.decodeGit(extra: ["state": "none"])
+        await fixture.state.decommissionHeld()
+        XCTAssertEqual(Set(fixture.calls.prefix(2)), ["leftovers", "git"])
+        XCTAssertEqual(fixture.calls.last, "archive")
+        XCTAssertNil(fixture.reap)
+        XCTAssertNil(fixture.state.sheet)
+        XCTAssertNil(fixture.state.error)
+        XCTAssertFalse(fixture.state.busy)
+        XCTAssertEqual(fixture.decommissionedID, fixture.session.id)
+
+        // A host that cannot detect leftovers is a notice, not a choice: the hold still archives.
+        let unknown = IOSActionFixture()
+        defer { unknown.merge.teardown() }
+        unknown.git = try IOSActionFixture.decodeGit(extra: ["state": "none"])
+        unknown.leftovers = try IOSActionFixture.decodeLeftovers([], probesUnavailable: true)
+        await unknown.state.decommissionHeld()
+        XCTAssertEqual(unknown.calls.last, "archive")
+        XCTAssertNil(unknown.state.sheet)
+        XCTAssertEqual(unknown.decommissionedID, unknown.session.id)
+    }
+
+    func testHeldDecommissionOpensTheSheetOnlyForAnOpenPROrLeftovers() async throws {
+        let pr = IOSActionFixture()
+        defer { pr.merge.teardown() }
+        await pr.state.decommissionHeld()
+        XCTAssertEqual(Set(pr.calls), ["leftovers", "git"])
+        XCTAssertEqual(pr.state.sheet, .decommission)
+        XCTAssertTrue(pr.state.decommission.loaded)
+        XCTAssertTrue(pr.state.decommission.asksAboutPR)
+        XCTAssertNotNil(pr.state.presentedAt)
+        XCTAssertFalse(pr.state.busy)
+        XCTAssertNil(pr.decommissionedID)
+
+        let leftovers = IOSActionFixture()
+        defer { leftovers.merge.teardown() }
+        leftovers.git = try IOSActionFixture.decodeGit(extra: ["state": "none"])
+        leftovers.leftovers = try IOSActionFixture.decodeLeftovers(["vite"])
+        await leftovers.state.decommissionHeld()
+        XCTAssertEqual(leftovers.state.sheet, .decommission)
+        XCTAssertEqual(leftovers.state.decommission.leftovers.map(\.key), ["vite"])
+        XCTAssertEqual(leftovers.state.decommission.choices, [.keep])
+        XCTAssertFalse(leftovers.calls.contains("archive"))
+        leftovers.state.decommission.reap = ["vite"]
+        await leftovers.state.confirmDecommission(.keep, now: .distantFuture)
+        XCTAssertEqual(leftovers.calls.last, "archive")
+        XCTAssertEqual(leftovers.reap, ["vite"])
+        XCTAssertEqual(leftovers.decommissionedID, leftovers.session.id)
+    }
+
+    func testHeldDecommissionProbeFailuresFallBackToTheCachedPR() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.failures = ["leftovers": .notFound, "git": .notFound]
+        await fixture.state.decommissionHeld()
+        XCTAssertEqual(fixture.state.sheet, .decommission, "The cached snapshot still shows the open PR")
+        XCTAssertEqual(fixture.state.decommission.git?.number, 42)
+        XCTAssertNil(fixture.state.error)
+        XCTAssertFalse(fixture.calls.contains("archive"))
+    }
+
+    func testHeldDecommissionArchiveFailureStaysOnTheSession() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.git = try IOSActionFixture.decodeGit(extra: ["state": "none"])
+        fixture.failures = ["archive": .notFound]
+        await fixture.state.decommissionHeld()
+        XCTAssertEqual(fixture.calls.last, "archive")
+        XCTAssertEqual(fixture.state.error, L.t("native_archive_failed", ShepherdErrorCopy.message(ShepherdError.notFound)))
+        XCTAssertNil(fixture.state.sheet)
+        XCTAssertNil(fixture.decommissionedID)
+    }
+
+    func testHeldDecommissionIsGatedLikeTheSheet() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.git = try IOSActionFixture.decodeGit(extra: ["state": "none"])
+        fixture.session.status = .init(known: .archived)
+        await fixture.state.decommissionHeld()
+        fixture.session.status = .init(known: .done); fixture.writable = false
+        await fixture.state.decommissionHeld()
+        fixture.writable = true; fixture.selected = false
+        await fixture.state.decommissionHeld()
+        fixture.selected = true; fixture.state.invalidate()
+        await fixture.state.decommissionHeld()
+        XCTAssertTrue(fixture.calls.isEmpty)
+        XCTAssertNil(fixture.state.sheet)
+        XCTAssertNil(fixture.decommissionedID)
+    }
+
     func testMergeAvailableMatchesTheWebPredicate() throws {
         func pr(_ over: [String: Any]) throws -> GitState {
             let base: [String: Any] = ["kind": "github", "state": "open", "number": 12, "checks": "success", "deployConfigured": false]

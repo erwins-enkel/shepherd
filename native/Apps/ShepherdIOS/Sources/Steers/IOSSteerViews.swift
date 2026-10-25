@@ -67,16 +67,16 @@ struct IOSSteerChips: View {
 }
 
 /// The panel a left swipe reveals: every steer of this session's bar, the two
-/// interrupting keys and the session lifecycle. Decommissioning needs a hold before
-/// its sheet opens, so the swipe that opened the panel can never start it by accident.
+/// interrupting keys and the session lifecycle. Decommissioning needs a hold, so the
+/// swipe that opened the panel can never start it by accident.
 struct IOSSteerPanel: View {
     let session: Session
     let steers: [ComposeSteer]
     let loadError: String?
     let terminal: IOSTerminalPresentation
-    /// Opens the decommission sheet; nil while writes are not allowed (read-only, wrong
-    /// activation, archived).
-    let decommission: (() -> Void)?
+    /// A completed hold decommissions; VoiceOver's activation, which cannot hold, opens the
+    /// sheet instead. Nil while writes are not allowed (read-only, wrong activation, archived).
+    let decommission: (held: () -> Void, activated: () -> Void)?
     let close: () -> Void
     /// Opens the steer editor: an existing steer, or nil for a new one. Nil while the
     /// steers cannot be written.
@@ -260,7 +260,8 @@ struct IOSSteerPanel: View {
                     if let error = state.error { Text(verbatim: error).foregroundStyle(ComposePalette.red) }
                 }
                 if let decommission {
-                    IOSHoldToConfirmButton(title: L.t("native_ios_steers_end_hold"), confirm: decommission)
+                    IOSHoldToConfirmButton(title: L.t("native_ios_steers_end_hold"), confirm: decommission.held,
+                        accessibilityActivate: decommission.activated)
                         .accessibilityIdentifier("steer-end-session")
                 }
             }
@@ -275,11 +276,12 @@ struct IOSSteerPanel: View {
     }
 }
 
-/// Fills while held; fires once the hold completes. VoiceOver cannot hold, so its
-/// activation fires at once — what it opens has to be a confirmation of its own.
+/// Fills while held; confirms once the hold completes. VoiceOver cannot hold, so its
+/// activation runs `accessibilityActivate`, which has to open a confirmation of its own.
 struct IOSHoldToConfirmButton: View {
     let title: String
     let confirm: () -> Void
+    let accessibilityActivate: () -> Void
     var duration = 1.2
     @State private var progress: CGFloat = 0
 
@@ -308,6 +310,6 @@ struct IOSHoldToConfirmButton: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { confirm() }
+        .accessibilityAction { accessibilityActivate() }
     }
 }

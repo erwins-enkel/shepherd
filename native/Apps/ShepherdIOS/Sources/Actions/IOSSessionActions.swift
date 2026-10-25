@@ -145,6 +145,8 @@ struct IOSDecommissionDraft {
     var prSettled = false
 
     var asksAboutPR: Bool { !prSettled && git?.state.known == .open && git?.number != nil }
+    /// Whether a held decommission still needs the sheet: a PR to settle or leftovers to pick.
+    var asksForChoice: Bool { asksAboutPR || !leftovers.isEmpty }
     /// `DecommissionPrDialog.svelte`: keep and close always, merge only where the forge can.
     var choices: [IOSDecommissionChoice] {
         guard asksAboutPR else { return [.keep] }
@@ -383,15 +385,49 @@ final class IOSSessionActionState {
     }
 
     private func loadDecommission(_ id: String, revision: Int) async {
+        let draft = await probeDecommission(id)
+        guard decommissionIsCurrent(revision) else { return }
+        decommission = draft
+        presentedAt = Date()
+    }
+
+    /// The hold is the confirmation: archive at once, keeping the PR and reaping nothing, unless
+    /// the probe leaves a choice — an open PR or leftovers — which the sheet then asks for.
+    func decommissionHeld() async {
+        guard canDecommission, !busy, isSelected(), let session = readSession() else { return }
+        command.clear(); mergeError = nil; outcome.note = nil
+        presentationRevision &+= 1
+        candidate = nil; presentedAt = nil
+        decommission = IOSDecommissionDraft()
+        let revision = presentationRevision
+        var draft = IOSDecommissionDraft()
+        // The probe runs inside the command so the whole hold reads as one busy decommission.
+        let ok = await command.run({
+            draft = await probeDecommission(session.id)
+            guard !draft.asksForChoice else { return }
+            try await operations.archive(session.id, nil)
+        }, failureCopy: { L.t("native_archive_failed", $0) },
+        isCurrent: { self.allowsWrites && revision == self.presentationRevision })
+        guard ok else { return }
+        if draft.asksForChoice {
+            decommission = draft; sheet = .decommission; presentedAt = Date()
+        } else if isSelected() {
+            decommissioned(session.id)
+        }
+    }
+
+    /// Leftovers and the PR as the server sees them now. A failed probe never blocks: no
+    /// leftovers reads as "cannot detect", a failed PR read falls back to the herd's snapshot.
+    private func probeDecommission(_ id: String) async -> IOSDecommissionDraft {
         async let listing = probeLeftovers(id)
         async let git = freshGit(id)
         let (found, fresh) = await (listing, git)
-        guard decommissionIsCurrent(revision) else { return }
-        decommission.leftovers = found?.leftovers ?? []
-        decommission.probesUnavailable = found?.probesUnavailable ?? true
-        decommission.git = fresh ?? readGit()
-        decommission.loaded = true
-        presentedAt = Date()
+        var draft = IOSDecommissionDraft()
+        draft.leftovers = found?.leftovers ?? []
+        draft.probesUnavailable = found?.probesUnavailable ?? true
+        draft.git = fresh ?? readGit()
+        draft.loaded = true
+        return draft
     }
 
     private func probeLeftovers(_ id: String) async -> ComposeLeftovers? { try? await operations.leftovers(id) }

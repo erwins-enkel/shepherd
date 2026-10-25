@@ -132,18 +132,35 @@ export function clearCookie(opts: { secure: boolean }): string {
   return attrs.join("; ");
 }
 
-/** Pull one cookie value out of a `Cookie:` request header. Null when absent. */
-export function parseCookie(
-  header: string | null | undefined,
-  name = SESSION_COOKIE,
-): string | null {
-  if (!header) return null;
+/** Pull every value of one cookie out of a `Cookie:` request header, in header order. Empty when
+ *  absent. A header can carry several: same name, different Path/Domain (#3365). */
+export function parseCookies(header: string | null | undefined, name = SESSION_COOKIE): string[] {
+  if (!header) return [];
+  const values: string[] = [];
   for (const part of header.split(";")) {
     const eq = part.indexOf("=");
     if (eq < 0) continue;
-    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+    if (part.slice(0, eq).trim() === name) values.push(part.slice(eq + 1).trim());
   }
-  return null;
+  return values;
+}
+
+/**
+ * Verify the session cookie(s) in a `Cookie:` header. Accepts when ANY `shepherd_session` value
+ * verifies, so a junk sibling — e.g. one planted path-scoped by preview-origin JS, which the
+ * browser sends first (#3365) — can't shadow a valid session. Several valid ⇒ the latest expiry.
+ */
+export function verifySessionCookie(
+  secret: string,
+  header: string | null | undefined,
+  now = Date.now(),
+): { ok: true; iat: number; exp: number } | { ok: false } {
+  let best: { ok: true; iat: number; exp: number } | { ok: false } = { ok: false };
+  for (const value of parseCookies(header)) {
+    const v = verifyCookie(secret, value, now);
+    if (v.ok && (!best.ok || v.exp > best.exp)) best = v;
+  }
+  return best;
 }
 
 /** True for a loopback socket address (IPv4 127/8, `::1`, IPv4-mapped 127/8). */

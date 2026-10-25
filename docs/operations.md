@@ -179,7 +179,10 @@ hostname is allowlisted — closing the blind-mutation vector. The preview `<ifr
 Residual: cookies are host-scoped (shared across ports on one host), so a same-host preview can make
 the browser attach the HUD session cookie to requests. The preview proxy strips that cookie
 (`shepherd_session`) before forwarding to the dev server and drops any upstream `Set-Cookie` for it,
-so agent code never sees or overwrites it; the app's own cookies pass through unchanged. The cookie
+so agent code never sees or overwrites it; the app's own cookies pass through unchanged. Preview JS
+can still plant a sibling `shepherd_session` (e.g. path-scoped) that the browser sends first; the
+HUD accepts a request if any of its `shepherd_session` values verifies, so such a sibling can't
+shadow or lock out the operator's session. The cookie
 is `HttpOnly`/`SameSite=Strict` and the HUD rejects preview-range origins for writes, but full
 per-origin cookie isolation is tracked in
 [#398](https://github.com/erwins-enkel/shepherd/issues/398).

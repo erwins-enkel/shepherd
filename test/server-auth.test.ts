@@ -321,6 +321,48 @@ test("re-stamp: a cookie past half-life gets a fresh Set-Cookie on a 2xx respons
   expect(res.headers.get("set-cookie")).toContain(`${SESSION_COOKIE}=`);
 });
 
+// ── sibling cookies (#3365) ──────────────────────────────────────────────────
+// Preview-origin JS can plant `shepherd_session=junk; Path=/api`; the browser sends it before the
+// operator's Path=/ cookie. A junk sibling must not shadow a valid session.
+
+const junkThen = (value: string) => ({
+  Cookie: `${SESSION_COOKIE}=junk; ${SESSION_COOKIE}=${value}`,
+});
+
+test("sibling cookie: junk before a valid session still authenticates", async () => {
+  const app = makeApp(makeDeps());
+  const res = await app.fetch(
+    new Request("http://x/api/me", { headers: junkThen(signCookie(SECRET)) }),
+  );
+  expect(res.status).toBe(200);
+});
+
+test("sibling cookie: operator-session-only route accepts junk + valid", async () => {
+  const app = makeApp(makeDeps());
+  const res = await app.fetch(
+    new Request("http://x/api/access-tokens", { headers: junkThen(signCookie(SECRET)) }),
+  );
+  expect(res.status).toBe(200);
+});
+
+test("sibling cookie: a past-half-life valid cookie behind junk is still re-stamped", async () => {
+  const app = makeApp(makeDeps());
+  const old = signCookie(SECRET, SESSION_TTL_MS, Date.now() - SESSION_TTL_MS * 0.6);
+  const res = await app.fetch(new Request("http://x/api/me", { headers: junkThen(old) }));
+  expect(res.status).toBe(200);
+  expect(res.headers.get("set-cookie")).toContain(`${SESSION_COOKIE}=`);
+});
+
+test("sibling cookie: only junk values stay 401", async () => {
+  const app = makeApp(makeDeps());
+  const res = await app.fetch(
+    new Request("http://x/api/me", {
+      headers: { Cookie: `${SESSION_COOKIE}=junk; ${SESSION_COOKIE}=${signCookie("other")}` },
+    }),
+  );
+  expect(res.status).toBe(401);
+});
+
 test("re-stamp: a fresh cookie (within first half) gets no Set-Cookie", async () => {
   const app = makeApp(makeDeps());
   const res = await app.fetch(

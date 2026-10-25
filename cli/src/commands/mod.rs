@@ -10,6 +10,7 @@ pub mod read;
 pub mod settings;
 pub mod upnext;
 pub mod wait;
+pub mod worktree;
 
 use std::path::Path;
 use std::time::Duration;

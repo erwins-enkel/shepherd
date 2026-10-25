@@ -173,7 +173,16 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
         }
         Command::Status => commands::read::status(&mut ctx).await,
         Command::Holds => commands::read::holds(&mut ctx).await,
-        Command::Git => commands::read::git(&mut ctx).await,
+        Command::Git { session: None } => commands::read::git(&mut ctx).await,
+        Command::Git {
+            session: Some(session),
+        } => commands::worktree::git_session(&mut ctx, &session).await,
+        Command::Diff {
+            session,
+            stat,
+            paths,
+        } => commands::worktree::diff(&mut ctx, &session, stat, &paths).await,
+        Command::Cat { session, path } => commands::worktree::cat(&mut ctx, &session, &path).await,
         Command::Reviews => commands::read::reviews(&mut ctx).await,
         Command::Messages {
             session,

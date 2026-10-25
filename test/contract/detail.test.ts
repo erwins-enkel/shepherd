@@ -174,6 +174,42 @@ describe("detail: reads", () => {
     await validateResponse("GET", "/api/sessions/{id}/worktree", missing);
     expect(missing.status).toBe(404);
   });
+
+  test("GET /diff?worktree=true takes the same branchless short circuit", async () => {
+    const res = await get(`/api/sessions/${ok}/diff?worktree=true`);
+    const body = (await validateResponse("GET", "/api/sessions/{id}/diff", res)) as {
+      files: unknown[];
+    };
+    expect(body.files).toEqual([]);
+  });
+
+  test("GET /worktree/status answers nulls for a branchless session, 500s without a worktree, 404s for an unknown id", async () => {
+    const res = await get(`/api/sessions/${ok}/worktree/status`);
+    const body = (await validateResponse("GET", "/api/sessions/{id}/worktree/status", res)) as {
+      head: string | null;
+      unpushedCount: number | null;
+    };
+    expect(res.status).toBe(200);
+    expect(body.head).toBe(null);
+    expect(body.unpushedCount).toBe(null);
+    const failed = await get(`/api/sessions/${broken}/worktree/status`);
+    await validateResponse("GET", "/api/sessions/{id}/worktree/status", failed);
+    expect(failed.status).toBe(500);
+    const missing = await get(`/api/sessions/nope/worktree/status`);
+    await validateResponse("GET", "/api/sessions/{id}/worktree/status", missing);
+    expect(missing.status).toBe(404);
+  });
+
+  test("GET /worktree/download streams a file; an escaping path is 404", async () => {
+    const res = await get(`/api/sessions/${ok}/worktree/download?path=README.md`);
+    await validateResponse("GET", "/api/sessions/{id}/worktree/download", res);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/octet-stream");
+    expect(await res.text()).toBe("hi\n");
+    const bad = await get(`/api/sessions/${ok}/worktree/download?path=../escape`);
+    await validateResponse("GET", "/api/sessions/{id}/worktree/download", bad);
+    expect(bad.status).toBe(404);
+  });
 });
 
 describe("detail: git", () => {

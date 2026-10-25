@@ -43,8 +43,31 @@ pub enum Command {
     Status,
     /// Sessions parked by a hold, and why
     Holds,
-    /// Every session's cached pull-request state
-    Git,
+    /// Every session's cached pull-request state; with a session, also its live worktree state
+    /// (base, behind/ahead, unpushed commits, dirty; needs a `full` token)
+    Git {
+        /// Session id or designation (TASK-07)
+        session: Option<String>,
+    },
+    /// The session's worktree against its fork point from the base, uncommitted edits included
+    /// (needs a `full` token)
+    Diff {
+        /// Session id or designation (TASK-07)
+        session: String,
+        /// Per-file added/deleted line counts instead of the patch
+        #[arg(long)]
+        stat: bool,
+        /// Only these files or directories, relative to the worktree root
+        #[arg(last = true, value_name = "PATH")]
+        paths: Vec<String>,
+    },
+    /// Print one file from the session's worktree (needs a `full` token)
+    Cat {
+        /// Session id or designation (TASK-07)
+        session: String,
+        /// File relative to the worktree root
+        path: String,
+    },
     /// Critic reviews running right now
     Reviews,
     /// An agent's last messages, and whether it waits on a question (needs a `full` token)

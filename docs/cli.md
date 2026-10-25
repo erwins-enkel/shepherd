@@ -97,11 +97,11 @@ that port belongs to another user, because any local account can bind a free loo
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                                                                                                                                                                                                                                                       |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `wait` (active sessions), `login`                                                                                                                                                                                                      |
-| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                                                                                                              |
-| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `messages`, `sessions list --all`, `sessions show` or `wait` of an archived session, and the `awaitingInput`/`pendingQuestion` fields of `sessions show` |
+| Scope    | Commands                                                                                                                                                                                                                                                                                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git` (all sessions), `reviews`, `events tail`, `wait` (active sessions), `login`                                                                                                                                                                                                                       |
+| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                                                                                                                                              |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `messages`, `git <session>`, `diff`, `cat`, `sessions list --all`, `sessions show` or `wait` of an archived session, and the `awaitingInput`/`pendingQuestion` fields of `sessions show` |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -154,6 +154,9 @@ finds an archived session by its designation, with `archivedAt` set.
 | `shepherd status`                  | Server URL and version, CLI version, session counts by status, held sessions     |
 | `shepherd holds`                   | Sessions parked by a hold, and why                                               |
 | `shepherd git`                     | Each session's cached pull-request state                                         |
+| `shepherd git <session>`           | Its cached PR state plus the live worktree state (needs a `full` token)          |
+| `shepherd diff <session>`          | The worktree against its fork point from the base (needs a `full` token)         |
+| `shepherd cat <session> <path>`    | One file from the worktree (needs a `full` token)                                |
 | `shepherd reviews`                 | Critic reviews running right now, with the provider, model and effort of each    |
 | `shepherd messages <session>`      | The agent's last messages, and the question it waits on (needs a `full` token)   |
 
@@ -171,6 +174,44 @@ a token below `full`, both fields are `null` and a warning goes to stderr.
 ```bash
 shepherd --json sessions show TASK-07 | jq '{awaitingInput, pendingQuestion}'
 shepherd messages TASK-07 -n 3 --include-user
+```
+
+### Worktree state
+
+`git <session>`, `diff` and `cat` show what a task has done before it opens a pull request, so no
+SSH is needed. All three need a `full` token and work only for active sessions.
+
+`git <session>` adds the worktree's live state to the cached PR state. The server fetches the
+base first. The base is the PR's base when there is a PR, and otherwise the session's own base.
+
+| Field                       | Meaning                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `mergeBase`                 | The commit the branch forked from                                             |
+| `baseSha`                   | The base's tip (`baseRef`, usually `origin/<base>`)                           |
+| `behindBase`, `aheadOfBase` | Commits on the base that the branch lacks, and the reverse                    |
+| `upstream`                  | `origin/<branch>`, or `null` when the branch was never pushed                 |
+| `unpushedCount`, `unpushed` | Commits past `upstream` (past the base when there is none), newest first, ≤50 |
+| `dirty`                     | Uncommitted or untracked changes in the worktree                              |
+
+A session without its own branch reports these fields as `null`. JSON output is
+`{"session", "pr", "worktree"}`, and `pr` is `null` when the session has no cached PR.
+
+`diff` compares the fork point with the working tree, so uncommitted edits to tracked files show
+up. Untracked files don't (see `dirty`). `--stat` prints per-file line counts instead of the
+patch. `-- <path>…` keeps only those files and directories. A file without a patch shows as a
+one-line note instead: a binary file, a file with more than 2000 changed lines (`too large to
+show`), or a change with no changed lines, such as a pure rename (`old -> new: renamed`), an empty
+added or deleted file, or a mode change. JSON output is the server's diff with the same filter
+applied.
+
+`cat` prints the file's bytes as they are when stdout is redirected (or with `--json`). On a
+terminal it drops control characters, as for any text an agent wrote. A path that leaves the
+worktree or enters `.git` is not found (exit `5`).
+
+```bash
+shepherd --json git TASK-07 | jq '.worktree | {behindBase, unpushedCount, dirty}'
+shepherd diff TASK-07 --stat -- src/
+shepherd cat TASK-07 .superpowers/plan.md
 ```
 
 ### Events

@@ -2487,6 +2487,89 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DiffFile"
+    UnpushedCommit:
+      type: object
+      additionalProperties: true
+      required:
+        - sha
+        - subject
+        - authoredAt
+      properties:
+        sha:
+          type: string
+        subject:
+          type: string
+        authoredAt:
+          type: integer
+          description: Epoch ms.
+    WorktreeStatus:
+      type: object
+      additionalProperties: true
+      description: Git fields are null for a non-isolated session (no branch of its own).
+      required:
+        - base
+        - baseRef
+        - fetchFailed
+        - head
+        - headSha
+        - mergeBase
+        - baseSha
+        - behindBase
+        - aheadOfBase
+        - upstream
+        - unpushedCount
+        - unpushed
+        - dirty
+      properties:
+        base:
+          type: string
+          description: Logical base branch, e.g. "main".
+        baseRef:
+          type: string
+          description: Ref compared against, e.g. "origin/main".
+        fetchFailed:
+          type: boolean
+          description: git fetch failed; the local base was used.
+        head:
+          type: string
+          nullable: true
+          description: Session branch.
+        headSha:
+          type: string
+          nullable: true
+        mergeBase:
+          type: string
+          nullable: true
+          description: The commit the branch forked from.
+        baseSha:
+          type: string
+          nullable: true
+          description: Tip of baseRef.
+        behindBase:
+          type: integer
+          nullable: true
+          description: Commits on baseRef that HEAD lacks.
+        aheadOfBase:
+          type: integer
+          nullable: true
+          description: Commits on HEAD that baseRef lacks.
+        upstream:
+          type: string
+          nullable: true
+          description: origin/<branch> when that ref exists; null when the branch was never pushed.
+        unpushedCount:
+          type: integer
+          nullable: true
+          description: Commits past upstream, or past baseRef when there is no upstream.
+        unpushed:
+          type: array
+          description: Newest first, at most 50.
+          items:
+            $ref: "#/components/schemas/UnpushedCommit"
+        dirty:
+          type: boolean
+          nullable: true
+          description: Uncommitted or untracked changes in the worktree.
     DiffNoteKind:
       type: string
     DiffNoteSide:
@@ -9417,6 +9500,12 @@ paths:
         required: true
         schema:
           type: string
+      - name: worktree
+        in: query
+        required: false
+        description: "true diffs the fork point (merge-base of base and HEAD) against the working tree, so uncommitted edits to tracked files show; untracked files never do. Default: committed only."
+        schema:
+          type: boolean
     get:
       operationId: getSessionDiff
       description: The session branch against its base. Files carry `patch`, not parsed hunks.
@@ -9523,6 +9612,69 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           description: Unknown or archived session, or a path that is not a directory under the root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/worktree/status:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionWorktreeStatus
+      description: "Live git state of the worktree against its base (the PR's base, else the session's): fork point, behind/ahead, unpushed commits and the dirty flag. Fetches the base first."
+      responses:
+        "200":
+          description: Worktree status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorktreeStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown or archived session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: git failed (missing worktree, unresolvable base).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/worktree/download:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: path
+        in: query
+        required: true
+        description: File relative to the worktree root.
+        schema:
+          type: string
+    get:
+      operationId: getSessionWorktreeFile
+      description: One worktree file's bytes, as an attachment. `.git`, root escapes and symlinks out of the root are refused as 404.
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown or archived session, or a path that is not a file under the root.
           content:
             application/json:
               schema:

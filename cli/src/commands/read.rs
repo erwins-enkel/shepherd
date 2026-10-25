@@ -65,7 +65,7 @@ pub async fn sessions_list(ctx: &mut Ctx<'_>, all: bool) -> Result<()> {
 
 /// Transcript text is untrusted agent output: on a terminal, drop control characters (ANSI escapes
 /// included) so it can't drive the terminal. Newlines and tabs stay. JSON output is escaped anyway.
-fn plain(text: &str) -> String {
+pub(super) fn plain(text: &str) -> String {
     text.chars()
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
         .collect()

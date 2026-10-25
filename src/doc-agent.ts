@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { devNull } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { EmptyDiffError } from "./forge/types";
@@ -17,7 +17,7 @@ import type { RoleEnvironment } from "./default-model";
 import type { SessionUsage } from "./usage";
 import { readReviewerSpawnUsage } from "./reviewer-usage";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { execGit } from "./safe-git";
+import { execGit, resolveWorktreePin, type GitPin } from "./safe-git";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import type { WorktreeMgr } from "./worktree";
 
@@ -25,8 +25,14 @@ const execFileP = promisify(execFile);
 
 /** Async git runner (returns stdout) — keeps the single-process event loop unblocked during the
  *  finalize stage/commit/push and the boot sweep (house rule: no blocking subprocess on the loop). */
-async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execGit(args, { cwd });
+type GitRunner = (cwd: string, args: string[], opts?: { pin?: GitPin | null }) => Promise<string>;
+
+async function defaultGit(
+  cwd: string,
+  args: string[],
+  opts: { pin?: GitPin | null } = {},
+): Promise<string> {
+  const { stdout } = await execGit(args, { cwd, pin: opts.pin });
   return stdout;
 }
 
@@ -122,26 +128,43 @@ const DOCS_MANIFEST_GENERATOR = "ui/scripts/gen-docs-manifest.ts";
  * therefore leaves the manifest stale and `check:docs-manifest` red. Without this the red landed on
  * the doc agent's OWN commit, two hops and one author away from the change that caused it (#2163).
  *
+ * TRUST: this runs on the host, outside the doc agent's membrane, so it executes ONLY the server
+ * install's copy of the generator (and, through it, the install's `sync-docs.mjs` and prettier
+ * config). The worktree — agent-writable, and in re-target mode a code PR's branch — is passed as
+ * `--root` and only ever read as data. The env is {@link genDocsEnv}'s allowlist, not the server's.
+ *
  * WHY THE PRETTIER PIN: the disposable worktree has NO node_modules — every transient agent spawns
  * with `disableAllHooks` (transient-agent-argv.ts), so the repo's ensure-deps SessionStart hook
- * never runs there. Bun would then silently satisfy the generator's bare `import("prettier")` by
- * AUTO-INSTALLING prettier from its global cache: an unpinned version whose formatting can differ
- * from the repo's, emitting a manifest that fails its own `--check` — i.e. re-creating the very
- * failure this closes. `SHEPHERD_PRETTIER_MODULE` pins the server install's copy instead.
+ * never runs there. `SHEPHERD_PRETTIER_MODULE` pins the server install's prettier so the output
+ * matches the repo's own `--check`.
  *
  * `cwd` is SERVER_INSTALL_ROOT for the same reason as {@link defaultPrettierWrite}: prettier
- * resolves the bare plugin specifiers in `.prettierrc` relative to cwd. That does NOT retarget the
- * generator — it derives the repo root from its own `import.meta.url`, so running the WORKTREE's
- * copy from a foreign cwd still reads and writes the worktree. `process.execPath` is this server's
- * own bun binary, so the spawn does not depend on `bun` being on the service's PATH. */
-async function defaultGenDocs(args: { worktreePath: string }): Promise<void> {
-  await execFileP(process.execPath, ["run", join(args.worktreePath, DOCS_MANIFEST_GENERATOR)], {
-    cwd: SERVER_INSTALL_ROOT,
-    env: {
-      ...process.env,
-      SHEPHERD_PRETTIER_MODULE: join(SERVER_INSTALL_ROOT, "node_modules", "prettier", "index.mjs"),
-    },
-  });
+ * resolves the bare plugin specifiers in `.prettierrc` relative to cwd. `process.execPath` is this
+ * server's own bun binary, so the spawn does not depend on `bun` being on the service's PATH. */
+export async function defaultGenDocs(args: {
+  worktreePath: string;
+  pin: GitPin | null;
+}): Promise<void> {
+  await execFileP(
+    process.execPath,
+    ["run", join(SERVER_INSTALL_ROOT, DOCS_MANIFEST_GENERATOR), "--root", args.worktreePath],
+    { cwd: SERVER_INSTALL_ROOT, env: genDocsEnv(args.pin) },
+  );
+}
+
+/** The generator's whole environment: PATH/HOME, the pinned prettier module, and the trusted git
+ *  pin (so its `git ls-files` never reads the worktree's agent-writable `.git` gitfile). Nothing
+ *  else from the server's env — no tokens or keys reach a process reading agent-written files. */
+export function genDocsEnv(
+  pin: GitPin | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  return {
+    PATH: env.PATH ?? "",
+    HOME: env.HOME ?? "",
+    SHEPHERD_PRETTIER_MODULE: join(SERVER_INSTALL_ROOT, "node_modules", "prettier", "index.mjs"),
+    ...(pin ? { GIT_DIR: pin.gitDir, GIT_WORK_TREE: pin.workTree } : {}),
+  };
 }
 
 /** Thrown by stageInScope when the Docs-manifest regen fails, so finalize can fail-closed the same
@@ -155,6 +178,51 @@ export class DocsManifestError extends Error {
     super(`docs-manifest regeneration failed for ${repoPath}`, options);
     this.name = "DocsManifestError";
   }
+}
+
+/** Thrown by stageInScope when the worktree is outside what finalize will process: a modified or
+ *  untracked path beyond {@link IN_SCOPE_PATHS}, an in-scope path that is not a regular file inside
+ *  the worktree, or no trusted git pin. Fail-closed like {@link PrettierFormatError}. */
+class DocScopeError extends Error {
+  constructor(
+    readonly repoPath: string,
+    readonly reason: string,
+    options?: { cause?: unknown },
+  ) {
+    super(`doc-agent worktree out of scope for ${repoPath}: ${reason}`, options);
+    this.name = "DocScopeError";
+  }
+}
+
+/** Real-fs check that `rel` is a regular file (not a symlink) whose parent resolves inside
+ *  `root`. A committed or agent-made symlink would otherwise let prettier `--write` follow it. */
+function isContainedRegularFile(root: string, rel: string): boolean {
+  try {
+    const rootReal = realpathSync(root);
+    const parent = realpathSync(dirname(join(root, rel)));
+    if (parent !== rootReal && !parent.startsWith(rootReal + sep)) return false;
+    return lstatSync(join(root, rel)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** The scope gate's seams, defaulted (kept out of the constructor's branch count). */
+function scopeSeams(
+  deps: DocAgentDeps,
+): Required<Pick<DocAgentDeps, "resolvePin" | "isContainedFile">> {
+  return {
+    resolvePin: deps.resolvePin ?? resolveWorktreePin,
+    isContainedFile: deps.isContainedFile ?? isContainedRegularFile,
+  };
+}
+
+/** Paths `git status --porcelain=v1 -z --no-renames` reports (one per NUL record, `XY path`). */
+export function porcelainPaths(out: string): string[] {
+  return out
+    .split("\0")
+    .filter((r) => r.length > 3)
+    .map((r) => r.slice(3));
 }
 
 /** Prefix for ephemeral doc-agent herdr names. Each run appends 8 hex of a fresh UUID so an
@@ -269,6 +337,9 @@ interface InFlight {
   ownerSessionId?: string;
   /** The code PR head SHA at re-target start — the worktree base + the ff safety guard (retarget). */
   headSha?: string;
+  /** Trusted git pin for {@link worktreePath}, set by the finalize scope gate; every later git call
+   *  in the worktree uses it so none reads the agent-writable `.git` gitfile. */
+  pin?: GitPin | null;
 }
 
 /** Re-target grounding context: the open code PR the doc agent is checked out at the head of. */
@@ -311,10 +382,14 @@ export interface DocAgentDeps extends MembraneSeams {
   // Injectable seams (tests).
   /** Local `YYYY-MM-DD` for `now` — the nightly once/day key. */
   dayKey?: (now: number) => string;
-  git?: (cwd: string, args: string[]) => Promise<string>;
+  git?: GitRunner;
   prettier?: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
   /** Regenerate the committed Docs manifest in the worktree (default {@link defaultGenDocs}). */
-  genDocs?: (args: { worktreePath: string }) => Promise<void>;
+  genDocs?: (args: { worktreePath: string; pin: GitPin | null }) => Promise<void>;
+  /** Trusted git pin for a worktree (default {@link resolveWorktreePin}). */
+  resolvePin?: (repoPath: string, worktreePath: string) => Promise<GitPin | null>;
+  /** Regular-file-inside-root check for in-scope paths (default real fs). */
+  isContainedFile?: (root: string, rel: string) => boolean;
   fileExists?: (p: string) => boolean;
   readSentinel?: (worktreePath: string) => string | null;
   /** Cached PR state per session (Task 2 wires it to `prPoller.get`). The re-target sweep reads it
@@ -363,9 +438,11 @@ function computeDocAgentOutcome(
 export class DocAgentService {
   private inflight = new Map<string, InFlight>();
   private starting = new Set<string>();
-  private git: (cwd: string, args: string[]) => Promise<string>;
+  private git: GitRunner;
   private prettier: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
-  private genDocs: (args: { worktreePath: string }) => Promise<void>;
+  private genDocs: (args: { worktreePath: string; pin: GitPin | null }) => Promise<void>;
+  private resolvePin: (repoPath: string, worktreePath: string) => Promise<GitPin | null>;
+  private isContainedFile: (root: string, rel: string) => boolean;
   private now: () => number;
   private timeoutMs: number;
   private nightlyHour: number;
@@ -385,6 +462,7 @@ export class DocAgentService {
     this.git = deps.git ?? defaultGit;
     this.prettier = deps.prettier ?? defaultPrettierWrite;
     this.genDocs = deps.genDocs ?? defaultGenDocs;
+    ({ resolvePin: this.resolvePin, isContainedFile: this.isContainedFile } = scopeSeams(deps));
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 20 * 60 * 1000;
     this.nightlyHour = deps.nightlyHour ?? 3;
@@ -980,8 +1058,16 @@ export class DocAgentService {
    * posture, and the returned diff includes it.
    */
   private async stageInScope(f: InFlight): Promise<string> {
+    const pin = await this.assertWorktreeInScope(f);
     const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
     if (inScope.length === 0) return "";
+    const unsafe = inScope.filter((p) => !this.isContainedFile(f.worktreePath, p));
+    if (unsafe.length > 0) {
+      throw new DocScopeError(
+        f.repoPath,
+        `not a regular file in the worktree: ${unsafe.join(", ")}`,
+      );
+    }
     const absDocs = inScope
       .filter((p) => p.startsWith("docs/"))
       .map((p) => join(f.worktreePath, p));
@@ -989,7 +1075,8 @@ export class DocAgentService {
       try {
         await this.prettier({
           cwd: SERVER_INSTALL_ROOT,
-          configPath: join(f.worktreePath, ".prettierrc"),
+          // The install's config, never the worktree's: a config can name plugins, which prettier runs.
+          configPath: join(SERVER_INSTALL_ROOT, ".prettierrc"),
           files: absDocs,
         });
       } catch (err) {
@@ -998,10 +1085,42 @@ export class DocAgentService {
         throw new PrettierFormatError(f.repoPath, absDocs, { cause: err });
       }
     }
-    await this.git(f.worktreePath, ["add", "--", ...inScope]);
-    const staged = (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
+    await this.wtGit(f, ["add", "--", ...inScope]);
+    const staged = (await this.wtGit(f, ["diff", "--cached", "--name-only"])).trim();
     if (staged.length === 0) return staged; // nothing changed — no PR, and nothing to keep in sync
-    return (await this.stageDocsManifest(f)) ?? staged;
+    return (await this.stageDocsManifest(f, pin)) ?? staged;
+  }
+
+  /** Fail-closed gate before any host-side processing: resolve the trusted git pin, then refuse a
+   *  worktree with ANY modified or untracked path beyond {@link IN_SCOPE_PATHS} (+ the run's own
+   *  {@link SENTINEL} / {@link RETARGET_MARKER}). Staging alone would merely leave such edits out of
+   *  the commit; aborting keeps them from reaching anything finalize runs. Returns the pin. */
+  private async assertWorktreeInScope(f: InFlight): Promise<GitPin | null> {
+    let pin: GitPin | null;
+    try {
+      pin = await this.resolvePin(f.repoPath, f.worktreePath);
+    } catch (err) {
+      throw new DocScopeError(f.repoPath, "no trusted git dir", { cause: err });
+    }
+    const status = await this.git(
+      f.worktreePath,
+      ["status", "--porcelain=v1", "-z", "-uall", "--no-renames"],
+      { pin },
+    );
+    const allowed = new Set([...IN_SCOPE_PATHS, SENTINEL, RETARGET_MARKER]);
+    const stray = porcelainPaths(status).filter((p) => !allowed.has(p));
+    if (stray.length > 0) {
+      throw new DocScopeError(f.repoPath, `out-of-scope changes: ${stray.join(", ")}`);
+    }
+    f.pin = pin;
+    return pin;
+  }
+
+  /** Git in the doc worktree, pinned by the scope gate. Throws if the gate has not run, so no
+   *  finalize path can fall back to the worktree's own `.git` gitfile. */
+  private wtGit(f: InFlight, args: string[]): Promise<string> {
+    if (f.pin === undefined) throw new Error(`doc-agent: no git pin for ${f.worktreePath}`);
+    return this.git(f.worktreePath, args, { pin: f.pin });
   }
 
   /**
@@ -1018,7 +1137,7 @@ export class DocAgentService {
    * would rot silently. One unconditional regen on a run that already has changes is cheaper than
    * that. The regen is idempotent, so staging it is a no-op when nothing actually drifted.
    */
-  private async stageDocsManifest(f: InFlight): Promise<string | null> {
+  private async stageDocsManifest(f: InFlight, pin: GitPin | null): Promise<string | null> {
     if (!this.fileExists(join(f.worktreePath, DOCS_MANIFEST_GENERATOR))) {
       console.log(
         `[doc-agent] ${f.repoPath} has no ${DOCS_MANIFEST_GENERATOR} — skipping docs-manifest regen`,
@@ -1026,19 +1145,19 @@ export class DocAgentService {
       return null;
     }
     try {
-      await this.genDocs({ worktreePath: f.worktreePath });
+      await this.genDocs({ worktreePath: f.worktreePath, pin });
     } catch (err) {
       // Fail-closed, same posture as prettier: finalize catches this, records an `error` outcome
       // and cleans up. A skipped doc update beats a doc PR that lands check:docs-manifest red.
       throw new DocsManifestError(f.repoPath, { cause: err });
     }
-    await this.git(f.worktreePath, ["add", "--", DOCS_MANIFEST]);
-    return (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
+    await this.wtGit(f, ["add", "--", DOCS_MANIFEST]);
+    return (await this.wtGit(f, ["diff", "--cached", "--name-only"])).trim();
   }
 
   /** Stage the in-scope docs and publish them. Returns the run's url (null if nothing
    *  published / observe phase), whether anything was staged, and whether a fail-closed staging
-   *  abort (prettier or the docs-manifest regen) killed the run. Any other error propagates
+   *  abort (scope gate, prettier or the docs-manifest regen) killed the run. Any other error propagates
    *  (handled by tick()). */
   private async stageAndPublish(
     f: InFlight,
@@ -1054,6 +1173,13 @@ export class DocAgentService {
         console.error(
           `[doc-agent] aborting run — prettier failed for ${f.repoPath}; refusing to commit unformatted docs (fail-closed): ${err.files.join(", ")}`,
           err.cause ?? err,
+        );
+        return { url: null, hadStagedChanges: false, stageFailed: true };
+      }
+      if (err instanceof DocScopeError) {
+        console.error(
+          `[doc-agent] aborting run — ${err.message}; refusing to process the worktree (fail-closed)`,
+          err.cause ?? "",
         );
         return { url: null, hadStagedChanges: false, stageFailed: true };
       }
@@ -1166,7 +1292,7 @@ export class DocAgentService {
       );
       return false;
     }
-    await this.git(f.worktreePath, ["commit", "--no-verify", "-m", COMMIT_MSG]);
+    await this.wtGit(f, ["commit", "--no-verify", "-m", COMMIT_MSG]);
     return true;
   }
 
@@ -1231,12 +1357,7 @@ export class DocAgentService {
     forge: GitForge,
   ): Promise<string | null> {
     try {
-      await this.git(f.worktreePath, [
-        "push",
-        "--force",
-        "origin",
-        `HEAD:refs/heads/${existing.headBranch}`,
-      ]);
+      await this.wtGit(f, ["push", "--force", "origin", `HEAD:refs/heads/${existing.headBranch}`]);
     } catch (err) {
       console.warn(
         `[doc-agent] roll-up: force-push onto ${existing.headBranch} failed for ${f.repoPath} — deferring:`,
@@ -1270,7 +1391,7 @@ export class DocAgentService {
     sentinel: string | null,
     forge: GitForge,
   ): Promise<string | null> {
-    await this.git(f.worktreePath, ["push", "-u", "origin", f.branch]);
+    await this.wtGit(f, ["push", "-u", "origin", f.branch]);
     try {
       const status = await forge.openPr({
         head: f.branch,
@@ -1330,7 +1451,7 @@ export class DocAgentService {
 
     // Push the doc commit onto the code PR's OWN head branch (never force, explicit refspec).
     try {
-      await this.git(f.worktreePath, ["push", "origin", `HEAD:refs/heads/${f.headBranch}`]);
+      await this.wtGit(f, ["push", "origin", `HEAD:refs/heads/${f.headBranch}`]);
     } catch (err) {
       // Non-ff or other push failure → defer to the nightly fresh path; do NOT throw or force.
       console.warn(
@@ -1352,13 +1473,17 @@ export class DocAgentService {
    */
   private async ffOwnerBranch(f: InFlight): Promise<void> {
     if (!f.ownerWorktreePath || !f.headBranch || !f.headSha) return;
+    const owner = f.ownerWorktreePath;
     try {
-      const dirty = (await this.git(f.ownerWorktreePath, ["status", "--porcelain"])).trim();
+      // The owner worktree is agent-writable too: pin it from the trusted repo path as well.
+      const pin = await this.resolvePin(f.repoPath, owner);
+      const git = (args: string[]) => this.git(owner, args, { pin });
+      const dirty = (await git(["status", "--porcelain"])).trim();
       if (dirty.length > 0) return; // uncommitted work — never touch it
-      const head = (await this.git(f.ownerWorktreePath, ["rev-parse", "HEAD"])).trim();
+      const head = (await git(["rev-parse", "HEAD"])).trim();
       if (head !== f.headSha) return; // owner moved on since we forked — leave it alone
-      await this.git(f.ownerWorktreePath, ["fetch", "origin", f.headBranch]);
-      await this.git(f.ownerWorktreePath, ["merge", "--ff-only", `origin/${f.headBranch}`]);
+      await git(["fetch", "origin", f.headBranch]);
+      await git(["merge", "--ff-only", `origin/${f.headBranch}`]);
     } catch (err) {
       console.warn(
         `[doc-agent] re-target: owner-branch ff skipped for ${f.ownerWorktreePath}:`,

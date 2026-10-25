@@ -19,9 +19,9 @@
 // (--check) regenerates in-memory and fails on drift. Output is prettier-formatted so it
 // matches the committed file byte-for-byte and passes `prettier --check`.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — .mjs sibling script without types; PAGES is a plain data array.
 import { PAGES } from "../../docs-site/scripts/sync-docs.mjs";
@@ -29,10 +29,45 @@ import { PAGES } from "../../docs-site/scripts/sync-docs.mjs";
 export type DocsPage = { title: string; path: string; keywords: string };
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const uiRoot = resolve(scriptDir, "..");
-const repoRoot = resolve(scriptDir, "..", "..");
+/** This script's own checkout. Its `.prettierrc` and `sync-docs.mjs` are the trusted inputs. */
+const ownRepoRoot = resolve(scriptDir, "..", "..");
 const DOCS_CONTENT = "docs-site/src/content/docs"; // relative to repoRoot
-const OUT = join(uiRoot, "src", "lib", "docs-manifest.ts");
+const OUT_REL = join("ui", "src", "lib", "docs-manifest.ts");
+
+/** The repo to read pages from and write the manifest into: `--root <dir>`, else this script's
+ *  own checkout. Shepherd's doc agent passes `--root <worktree>` and runs the SERVER's copy of this
+ *  script, so the worktree is only ever data — none of its code or config is loaded. */
+export function parseRoot(argv: readonly string[], fallback: string = ownRepoRoot): string {
+  const i = argv.indexOf("--root");
+  if (i < 0) return fallback;
+  const dir = argv[i + 1];
+  if (!dir || dir.startsWith("--")) throw new Error("--root needs a directory");
+  return resolve(dir);
+}
+
+/** Throw unless `abs` lies inside `root` without following a symlink out: `abs` itself must not
+ *  be a symlink (when it exists) and its parent must realpath inside `root`. Guards every read and
+ *  the manifest write against a committed symlink pointing outside the repo. */
+export function assertContainedFile(root: string, abs: string): void {
+  const rootReal = realpathSync(root);
+  const parentReal = realpathSync(dirname(abs));
+  if (parentReal !== rootReal && !parentReal.startsWith(rootReal + sep)) {
+    throw new Error(`refusing path outside ${root}: ${abs}`);
+  }
+  let st;
+  try {
+    st = lstatSync(abs);
+  } catch {
+    return; // not there yet (the manifest on first write)
+  }
+  if (!st.isFile()) throw new Error(`refusing non-regular file: ${abs}`);
+}
+
+function readContained(root: string, rel: string): string {
+  const abs = join(root, rel);
+  assertContainedFile(root, abs);
+  return readFileSync(abs, "utf8");
+}
 
 /** Split a markdown file into its leading `---` frontmatter block and body. Sources
  *  without frontmatter (the sync-docs inputs) yield an empty `fm` and the whole `body`. */
@@ -83,19 +118,24 @@ export function keywordsOf(description: string, headings: string[]): string {
     .toLowerCase();
 }
 
-function build(): DocsPage[] {
+function build(repoRoot: string): DocsPage[] {
   const entries: DocsPage[] = [];
 
-  // (a) Committed authored pages — never the sync-written destinations.
-  const tracked = execFileSync("git", ["ls-files", DOCS_CONTENT], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  })
+  // (a) Committed authored pages — never the sync-written destinations. Hooks and fsmonitor off:
+  //     the repo's own config must not run anything here (GIT_DIR may be pinned by the caller).
+  const tracked = execFileSync(
+    "git",
+    ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "ls-files", DOCS_CONTENT],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+    },
+  )
     .split("\n")
     .filter((l) => /\.(md|mdx)$/.test(l));
 
   for (const rel of tracked) {
-    const md = readFileSync(join(repoRoot, rel), "utf8");
+    const md = readContained(repoRoot, rel);
     const { fm, body } = splitFrontmatter(md);
     const title = fmValue(fm, "title");
     if (!title) continue; // pages without a title are not linkable results
@@ -116,7 +156,7 @@ function build(): DocsPage[] {
     title: string;
     description: string;
   }[]) {
-    const source = readFileSync(join(repoRoot, page.srcDir, page.src), "utf8");
+    const source = readContained(repoRoot, join(page.srcDir, page.src));
     entries.push({
       title: page.title,
       path: slugFor(page.dest),
@@ -152,14 +192,18 @@ export type DocsPage = { title: string; path: string; keywords: string };
 export const DOCS_PAGES: readonly DocsPage[] = ${JSON.stringify(pages)};
 `;
   const prettier = await import(prettierModuleSpecifier());
-  const config = (await prettier.resolveConfig(OUT)) ?? {};
+  // Config from this script's own checkout, never `--root`'s: a JS prettier config there would run.
+  const config = (await prettier.resolveConfig(join(ownRepoRoot, OUT_REL))) ?? {};
   return prettier.format(src, { ...config, parser: "typescript" });
 }
 
 // CLI entry only — guarded so importing this module (e.g. from unit tests, which
 // exercise the pure helpers above) never shells out to git, reads docs, or writes files.
 if ((import.meta as ImportMeta & { main?: boolean }).main) {
-  const pages = build();
+  const repoRoot = parseRoot(process.argv);
+  const OUT = join(repoRoot, OUT_REL);
+  assertContainedFile(repoRoot, OUT);
+  const pages = build(repoRoot);
   const output = await render(pages);
   if (process.argv.includes("--check")) {
     let current = "";

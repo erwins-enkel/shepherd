@@ -13,6 +13,7 @@ import {
   assertPrettierClean,
   defaultPrettierWrite,
   isDocRelevantMerge,
+  porcelainPaths,
   type DocAgentFinalize,
   type DocAgentDeps,
 } from "../src/doc-agent";
@@ -43,6 +44,7 @@ function withAuth(
 interface GitCall {
   cwd: string;
   args: string[];
+  pin?: { gitDir: string; workTree: string } | null;
 }
 
 interface PrettierCall {
@@ -55,6 +57,7 @@ interface PrettierCall {
 
 interface GenDocsCall {
   worktreePath: string;
+  pin: { gitDir: string; workTree: string } | null;
   /** Snapshot of gitCalls op-target pairs at the instant genDocs was called (ordering assertions). */
   gitCallsAtCall: string[][];
 }
@@ -197,6 +200,12 @@ function mkHarness(opts?: {
   genDocsThrows?: boolean;
   /** Whether ui/scripts/gen-docs-manifest.ts exists in the worktree (the regen layout guard). */
   manifestGeneratorPresent?: boolean;
+  /** Doc-worktree `git status --porcelain=v1 -z` output (the out-of-scope gate). */
+  worktreeStatus?: string;
+  /** In-scope paths the contained-regular-file check rejects (e.g. a symlink). */
+  uncontainedPaths?: string[];
+  /** When true, the trusted git-pin resolution throws. */
+  pinThrows?: boolean;
   /** Sessions the re-target sweep iterates (store.list()). */
   sessions?: Session[];
   /** Cached PR state per session id (the gitState seam). */
@@ -249,6 +258,9 @@ function mkHarness(opts?: {
     prettierThrows: false,
     genDocsThrows: false,
     manifestGeneratorPresent: true,
+    worktreeStatus: "",
+    uncontainedPaths: [] as string[],
+    pinThrows: false,
     sessions: [] as Session[],
     gitStateById: {} as Record<string, GitState | undefined>,
     markerFiles: {} as Record<string, string>,
@@ -331,8 +343,12 @@ function mkHarness(opts?: {
   };
   let mergeCalls = 0;
 
-  const git = async (cwd: string, args: string[]): Promise<string> => {
-    gitCalls.push({ cwd, args });
+  const git = async (
+    cwd: string,
+    args: string[],
+    opts?: { pin?: { gitDir: string; workTree: string } | null },
+  ): Promise<string> => {
+    gitCalls.push({ cwd, args, pin: opts?.pin });
     if (args[0] === "diff" && args[1] === "--cached") return o.stagedNames;
     if (args[0] === "worktree" && args[1] === "list") return o.worktreeListPorcelain;
     if (args[0] === "for-each-ref") {
@@ -365,6 +381,7 @@ function mkHarness(opts?: {
     }
     if (args[0] === "rev-parse" && args[1] === "HEAD") return o.ownerHead;
     if (args[0] === "status" && args[1] === "--porcelain") return o.ownerStatusPorcelain;
+    if (args[0] === "status" && args[1] === "--porcelain=v1") return o.worktreeStatus;
     if (args[0] === "push" && args[1] === "--force" && o.forcePushThrows)
       throw new Error("non-ff (stub)");
     return "";
@@ -497,10 +514,16 @@ function mkHarness(opts?: {
     genDocs: async (args) => {
       genDocsCalls.push({
         worktreePath: args.worktreePath,
+        pin: args.pin,
         gitCallsAtCall: gitCalls.map((c) => c.args),
       });
       if (o.genDocsThrows) throw new Error("gen:docs failed (stub)");
     },
+    resolvePin: async (_repo, wt) => {
+      if (o.pinThrows) throw new Error("no admin dir (stub)");
+      return { gitDir: "/repo/.git/worktrees/x", workTree: wt };
+    },
+    isContainedFile: (_root, rel) => !o.uncontainedPaths.includes(rel),
     detectBackend: () => null,
     membraneEnv: () => ({ claudeDir: "/c", home: "/h", nodeBinReal: "/n", extraEnv: {} }),
     runSpawnHooks: o.runSpawnHooks as DocAgentDeps["runSpawnHooks"],
@@ -1128,7 +1151,7 @@ test("Codex doc agent persists the provider environment used for its spawn", asy
 
 // ── prettier pre-format (fix: doc-agent auto-PRs fail CI lint gate) ─────────────
 
-test("prettier: called exactly once with cwd=SERVER_INSTALL_ROOT and worktree .prettierrc", async () => {
+test("prettier: called exactly once with cwd=SERVER_INSTALL_ROOT and the install's .prettierrc", async () => {
   const h = mkHarness({ act: true });
   await h.svc.consider("/repo");
   await h.svc.tick();
@@ -1137,8 +1160,8 @@ test("prettier: called exactly once with cwd=SERVER_INSTALL_ROOT and worktree .p
   const call = h.prettierCalls[0]!;
   // cwd must be the SERVER's install root (not the worktree — the worktree may have no node_modules)
   expect(call.cwd).toBe(SERVER_INSTALL_ROOT);
-  // config must come from the managed repo's worktree so CI's own formatting rules drive the output
-  expect(call.configPath).toMatch(/^\/wt\/docs-update-[0-9a-f]{8}\/.prettierrc$/);
+  // config is the server install's, never the worktree's (a worktree config could name plugins)
+  expect(call.configPath).toBe(join(SERVER_INSTALL_ROOT, ".prettierrc"));
 });
 
 test("prettier: files are the absolute worktree paths of the root docs/*.md in-scope files", async () => {
@@ -1148,7 +1171,7 @@ test("prettier: files are the absolute worktree paths of the root docs/*.md in-s
 
   const call = h.prettierCalls[0]!;
   // The three root docs/*.md entries from IN_SCOPE_PATHS (abs paths under the worktree).
-  const wtBase = call.configPath.replace("/.prettierrc", "");
+  const wtBase = h.genDocsCalls[0]!.worktreePath;
   expect(call.files).toEqual([
     `${wtBase}/docs/external-task-api.md`,
     `${wtBase}/docs/sandbox-security.md`,
@@ -1243,6 +1266,85 @@ test("DocsManifestError: is exported, carries repoPath + cause, name is set corr
   expect(err.repoPath).toBe("/repo");
   expect(err.cause).toBe(cause);
   expect(err.message).toContain("/repo");
+});
+
+// ── out-of-scope gate (audit run-2 R2-F04) ─────────────────────────────────────
+// finalize post-processes the worktree on the host, so it refuses one with any change beyond the
+// in-scope docs before running prettier or the manifest regen — in observe mode too.
+
+for (const act of [false, true]) {
+  test(`scope gate (act=${act}): an out-of-scope change aborts before prettier/genDocs, no commit`, async () => {
+    const h = mkHarness({
+      act,
+      worktreeStatus:
+        " M docs/sandbox-security.md\0 M ui/scripts/gen-docs-manifest.ts\0?? ui/src/lib/x.mjs\0",
+    });
+    await h.svc.consider("/repo");
+    await h.svc.tick();
+
+    expect(h.prettierCalls).toHaveLength(0);
+    expect(h.genDocsCalls).toHaveLength(0);
+    expect(h.gitCalls.some((c) => c.args[0] === "add" || c.args[0] === "commit")).toBe(false);
+    expect(h.openPrInputs).toHaveLength(0);
+    expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "error" }]);
+    expect(h.removedWorktrees).toHaveLength(1);
+  });
+}
+
+test("scope gate: in-scope edits + the run's own sentinel/marker pass; status runs pinned", async () => {
+  const h = mkHarness({
+    act: true,
+    worktreeStatus:
+      " M docs/sandbox-security.md\0?? .shepherd-doc-update.md\0?? .shepherd-doc-retarget.json\0",
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.finalizes[0]!.outcome).toBe("pr");
+  const status = h.gitCalls.find((c) => c.args[0] === "status" && c.args[1] === "--porcelain=v1");
+  expect(status).toBeDefined();
+  expect(h.genDocsCalls[0]!.pin).toEqual({
+    gitDir: "/repo/.git/worktrees/x",
+    workTree: h.genDocsCalls[0]!.worktreePath,
+  });
+});
+
+test("scope gate: every finalize git call in the doc worktree is pinned (add/diff/commit/push)", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.finalizes[0]!.outcome).toBe("pr");
+  const wt = h.genDocsCalls[0]!.worktreePath;
+  const inWt = h.gitCalls.filter((c) => c.cwd === wt);
+  for (const op of ["status", "add", "diff", "commit", "push"]) {
+    expect(inWt.some((c) => c.args[0] === op)).toBe(true);
+  }
+  for (const c of inWt) expect(c.pin).toEqual({ gitDir: "/repo/.git/worktrees/x", workTree: wt });
+});
+
+test("scope gate: an in-scope path that is not a contained regular file aborts before prettier", async () => {
+  const h = mkHarness({ act: true, uncontainedPaths: ["docs/sandbox-security.md"] });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.prettierCalls).toHaveLength(0);
+  expect(h.genDocsCalls).toHaveLength(0);
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "error" }]);
+});
+
+test("scope gate: no trusted git pin aborts the run", async () => {
+  const h = mkHarness({ act: true, pinThrows: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.prettierCalls).toHaveLength(0);
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "error" }]);
+});
+
+test("porcelainPaths: parses NUL-separated porcelain v1 records", () => {
+  expect(porcelainPaths(" M a.md\0?? dir/b c.ts\0")).toEqual(["a.md", "dir/b c.ts"]);
+  expect(porcelainPaths("")).toEqual([]);
 });
 
 test("docs-manifest failure path: a failing regen ABORTS the run (no commit/push/PR), records error, cleans up (fail-closed)", async () => {

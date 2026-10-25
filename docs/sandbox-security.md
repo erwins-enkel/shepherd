@@ -554,6 +554,28 @@ own setup never needs from repo config. Non-isolated sessions in a confining
 profile have no pin anchor (the agent owns the whole repo), and
 `WorktreeMgr.remove` and the preview-script lookup are hardened but not pinned.
 
+## Doc-agent finalize (audit run-2 R2-F04)
+
+The doc agent's worktree is agent-writable, and in re-target mode it is a code
+PR's branch. Finalize post-processes it on the host, outside the membrane, so
+it treats the worktree as data only:
+
+- **Scope gate.** Before anything runs, finalize resolves the trusted git pin
+  and runs `git status`. Any modified or untracked path outside the in-scope
+  doc list (plus the run's sentinel and re-target marker) aborts the run with an
+  `error` outcome. Observe mode is covered too. An in-scope path that is a
+  symlink, or that resolves outside the worktree, also aborts.
+- **Pinned git.** Every finalize git call in the doc worktree (status, add,
+  diff, commit, push) and in the re-target owner worktree uses that pin, never
+  the worktree's own `.git` gitfile.
+- **Trusted code and config.** Prettier uses the server install's
+  `.prettierrc`. The Docs-manifest regen runs the install's
+  `ui/scripts/gen-docs-manifest.ts` with `--root <worktree>`. Its page list
+  (`sync-docs.mjs`) and prettier config also come from the install. The
+  generator refuses symlinked reads and writes.
+- **Minimal env.** The generator gets only `PATH`, `HOME`, the pinned prettier
+  module and the git pin (`GIT_DIR`/`GIT_WORK_TREE`), never the server's env.
+
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/membrane-state.ts`, `src/service.ts`, `src/autopilot.ts`,

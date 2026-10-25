@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
+  assertContainedFile,
+  parseRoot,
   slugFor,
   extractHeadings,
   keywordsOf,
@@ -70,5 +75,48 @@ describe("gen-docs-manifest — prettierModuleSpecifier", () => {
 
   it("falls back to the bare specifier when the override is set but empty", () => {
     expect(prettierModuleSpecifier({ SHEPHERD_PRETTIER_MODULE: "" })).toBe("prettier");
+  });
+});
+
+describe("gen-docs-manifest — --root", () => {
+  it("defaults to the fallback root and resolves an explicit --root", () => {
+    expect(parseRoot(["bun", "x.ts", "--check"], "/own")).toBe("/own");
+    expect(parseRoot(["bun", "x.ts", "--root", "wt"], "/own")).toBe(resolve("wt"));
+  });
+
+  it("rejects --root without a directory", () => {
+    expect(() => parseRoot(["--root"])).toThrow();
+    expect(() => parseRoot(["--root", "--check"])).toThrow();
+  });
+});
+
+describe("gen-docs-manifest — assertContainedFile", () => {
+  let root: string;
+  let outside: string;
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "gdm-root-"));
+    outside = mkdtempSync(join(tmpdir(), "gdm-out-"));
+    writeFileSync(join(outside, "secret.md"), "x");
+    mkdirSync(join(root, "docs"));
+    writeFileSync(join(root, "docs", "ok.md"), "x");
+    symlinkSync(join(outside, "secret.md"), join(root, "docs", "link.md"));
+    symlinkSync(outside, join(root, "escape"));
+  });
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("accepts a regular file and a not-yet-existing file inside root", () => {
+    expect(() => assertContainedFile(root, join(root, "docs", "ok.md"))).not.toThrow();
+    expect(() => assertContainedFile(root, join(root, "docs", "new.ts"))).not.toThrow();
+  });
+
+  it("refuses a symlinked file", () => {
+    expect(() => assertContainedFile(root, join(root, "docs", "link.md"))).toThrow();
+  });
+
+  it("refuses a path whose parent resolves outside root", () => {
+    expect(() => assertContainedFile(root, join(root, "escape", "secret.md"))).toThrow();
   });
 });

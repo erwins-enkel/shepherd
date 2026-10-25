@@ -12967,7 +12967,10 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"unknownWireValuesFailOpen() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextTests.swift\",\"CoreSeamTests.UpNextTests\",\"defaultFilterSummaryDescribesWhatTheServerHid() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssuePickerTests.swift\",\"CoreSeamTests.IssuePickerTests\",\"serverSideHideBlockedPrunesAnUnavailableSelectedLabel() async\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerStateDirectoryTests\",\"stateDirectoryIsTightenedToOwnerOnly() throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerStateDirectoryTests\",\"stateDirectoryIsTightenedToOwnerOnly() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchivesAtOnceOnlyWithNothingToReap() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchiveFailureKeepsTheSessionAndExplains() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseOpensNoSheetForASessionTheOperatorLeft() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

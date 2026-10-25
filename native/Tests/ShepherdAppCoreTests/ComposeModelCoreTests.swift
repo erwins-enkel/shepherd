@@ -134,6 +134,54 @@ extension CoreSeamTests {
         #expect(!updated.readyToMerge)
     }
 
+    private static func closeHeldStore(_ mode: String) throws -> (SessionStore, URLSession) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ComposeCloseHeldProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Close-Fixture": mode]
+        let transport = URLSession(configuration: configuration)
+        let client = try ShepherdClient(profile: .init(name: "fixture", baseURL: URL(string: "https://close.invalid")!,
+            mode: .remote), credentials: InMemoryCredentialStore(), urlSession: transport)
+        let store = SessionStore(client: client)
+        store.apply(.sessionNew(PreviewData.session(id: "held-close")))
+        return (store, transport)
+    }
+
+    @Test func heldCloseArchivesAtOnceOnlyWithNothingToReap() async throws {
+        let cases: [(mode: String, asks: Bool)] = [("empty", false), ("leftovers", true), ("probe-fails", true)]
+        for (mode, asks) in cases {
+            let (store, transport) = try Self.closeHeldStore(mode)
+            defer { transport.invalidateAndCancel(); store.stop() }
+            let session = try #require(store.session(id: "held-close"))
+            let command = SessionCommandState()
+            let opens = await ComposeActions.closeHeld(session, store: store, command: command, isCurrent: { true })
+            #expect(opens == asks, "\(mode)")
+            #expect((store.session(id: session.id) == nil) == !asks, "\(mode)")
+            #expect(command.message == nil, "\(mode)")
+            #expect(!command.busy, "\(mode)")
+        }
+    }
+
+    @Test func heldCloseArchiveFailureKeepsTheSessionAndExplains() async throws {
+        let (store, transport) = try Self.closeHeldStore("archive-fails")
+        defer { transport.invalidateAndCancel(); store.stop() }
+        let session = try #require(store.session(id: "held-close"))
+        let command = SessionCommandState()
+        #expect(await ComposeActions.closeHeld(session, store: store, command: command, isCurrent: { true }) == false)
+        #expect(store.session(id: session.id) != nil)
+        #expect(command.message == L.t("native_archive_failed",
+            ShepherdErrorCopy.message(ShepherdError.upstreamFailure(code: nil, message: "teardown failed"))))
+    }
+
+    @Test func heldCloseOpensNoSheetForASessionTheOperatorLeft() async throws {
+        let (store, transport) = try Self.closeHeldStore("leftovers")
+        defer { transport.invalidateAndCancel(); store.stop() }
+        let session = try #require(store.session(id: "held-close"))
+        let command = SessionCommandState()
+        #expect(await ComposeActions.closeHeld(session, store: store, command: command, isCurrent: { false }) == false)
+        #expect(store.session(id: session.id) != nil)
+        #expect(command.message == nil)
+    }
+
     @Test func recommendationDropsCompletionOnSessionSwitchBeforeDisappearance() async throws {
         let actions = ComposeActions(provider: .claude)
         defer { actions.teardown() }
@@ -1027,6 +1075,37 @@ private final class ComposeBootstrapProtocol: URLProtocol {
         }
         guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 200,
             httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// Fixture responses for a held close; the header picks the probe and archive outcome, no shared state.
+private final class ComposeCloseHeldProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let mode = request.value(forHTTPHeaderField: "X-Close-Fixture"), let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        let status: Int, body: String
+        switch (request.httpMethod, url.path) {
+        case ("GET", "/api/sessions/held-close/leftovers"):
+            let leftovers = mode == "leftovers" ? #"[{"kind":"process","name":"vite","port":5173,"key":"vite"}]"# : "[]"
+            status = mode == "probe-fails" ? 500 : 200
+            body = mode == "probe-fails" ? #"{"error":"probe failed"}"# : #"{"probesUnavailable":false,"leftovers":"# + leftovers + "}"
+        case ("DELETE", "/api/sessions/held-close"):
+            status = mode == "archive-fails" ? 500 : 200
+            body = mode == "archive-fails" ? #"{"error":"teardown failed"}"# : #"{"ok":true}"#
+        default:
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)

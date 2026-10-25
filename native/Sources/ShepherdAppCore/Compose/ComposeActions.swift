@@ -98,6 +98,22 @@ public final class ComposeActions {
         sessionID == nil || sessionID == selectedID
     }
 
+    /// A held close is its own confirmation: with nothing left to reap it archives at once. The
+    /// close sheet still asks when leftovers remain, or when the probe failed and it has to read
+    /// them itself.
+    /// - Returns: whether the close sheet has to open.
+    public static func closeHeld(_ session: Session, store: SessionStore, command: SessionCommandState,
+                                 isCurrent: () -> Bool) async -> Bool {
+        var asks = false
+        await command.run({
+            guard let listing = try? await store.client.sessionLeftovers(id: session.id),
+                  listing.leftovers.isEmpty else { asks = true; return }
+            try await store.archive(id: session.id)
+            if session.host == nil { store.apply(.sessionArchived(.init(id: session.id))) }
+        }, failureCopy: { L.t("native_archive_failed", $0) }, isCurrent: isCurrent)
+        return asks && isCurrent()
+    }
+
     public func teardown() { active = false; generation += 1; busy = false }
 
     private static func message(_ error: any Error) -> String {

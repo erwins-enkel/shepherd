@@ -104,6 +104,48 @@ test("expiry, malformed bodies and name limits do not mint tokens", async () => 
   expect(new AccessTokenService(deps.store).list()).toHaveLength(1);
 });
 
+test("pair: body over 1 KiB → 413 (declared Content-Length), no token minted", async () => {
+  const deps = makeDeps();
+  deps.pairingCodes = new PairingCodeService();
+  const { code } = deps.pairingCodes.mint();
+  const app = makeApp(deps);
+  const res = await app.fetch(post("pair", { code, deviceName: "x".repeat(2000) }));
+  expect(res.status).toBe(413);
+  expect(deps.store.listAccessTokens()).toHaveLength(0);
+  expect((await app.fetch(post("pair", { code }))).status).toBe(201); // code not consumed
+});
+
+test("pair: streamed body over 1 KiB without Content-Length → 413", async () => {
+  const app = makeApp(makeDeps());
+  const chunk = new TextEncoder().encode("x".repeat(256));
+  let sent = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent++ < 64) controller.enqueue(chunk);
+      else controller.close();
+    },
+  });
+  const req = new Request("http://x/api/pair", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: stream,
+  });
+  expect(req.headers.get("content-length")).toBeNull();
+  const res = await app.fetch(req);
+  expect(res.status).toBe(413);
+  expect(sent).toBeLessThan(64); // stopped reading at the cap, never buffered the whole body
+});
+
+test("pair: malformed json within the cap → 400", async () => {
+  const app = makeApp(makeDeps());
+  const req = new Request("http://x/api/pair", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{not json",
+  });
+  expect((await app.fetch(req)).status).toBe(400);
+});
+
 test("concurrent redemption yields only one token", async () => {
   const deps = makeDeps();
   deps.pairingCodes = new PairingCodeService();

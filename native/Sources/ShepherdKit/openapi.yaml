@@ -9241,6 +9241,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "413":
+          description: Request body over 1 KiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           description: Too many pairing attempts; retry after sixty seconds.
           content:

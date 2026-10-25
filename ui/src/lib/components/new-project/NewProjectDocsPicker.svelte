@@ -228,6 +228,17 @@
       min-height: 44px;
       padding: 0 12px;
     }
+    /* The ✕ grows to a 44px tap target and takes over the chip's right/vertical padding. */
+    .chip {
+      padding: 0 0 0 7px;
+    }
+    .chip-x {
+      min-width: 44px;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
     .char-count {
       font-size: var(--fs-meta);
     }

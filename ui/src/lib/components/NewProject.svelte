@@ -188,6 +188,8 @@
     if (!e.dataTransfer || !draggingFiles(e)) return;
     e.preventDefault();
     dragging = false;
+    // A new attempt retires the previous drop's failure; any other error stays.
+    if (error === m.newproject_drop_failed()) error = null;
     // Captured before the first await: the drop's items are gone once the handler returns.
     const pending = filesFromDrop(e.dataTransfer);
     try {
@@ -620,6 +622,12 @@
       overflow-y: auto;
       animation: sheet-up 0.18s ease-out;
     }
+    /* The corner brackets sit 1px outside the card: on the borderless full-screen sheet they would
+       only add a sideways scroll (same as CodexUpdateModal / HerdrUpdateModal). */
+    .bracket::before,
+    .bracket::after {
+      display: none;
+    }
     input[type="text"],
     textarea,
     select {
@@ -630,22 +638,11 @@
     .customize {
       min-height: 44px;
     }
-    /* A flex summary loses its native disclosure marker (WebKit's would linger), so it draws
-       its own. */
+    /* Padding, not flex: a flex summary would lose its native disclosure marker. */
     .advanced summary {
-      display: flex;
-      align-items: center;
-      gap: 6px;
       min-height: 44px;
-    }
-    .advanced summary::-webkit-details-marker {
-      display: none;
-    }
-    .advanced summary::before {
-      content: "▶" / "";
-    }
-    .advanced[open] summary::before {
-      content: "▼" / "";
+      box-sizing: border-box;
+      padding: 12px 0;
     }
     .chead {
       margin-bottom: 6px;

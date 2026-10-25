@@ -87,6 +87,20 @@ describe("NewProject attachments (#3420)", () => {
     expect(posts[0]?.type).toBe("application/json");
   });
 
+  it("shows no attachment summary or bootstrap note without attachments", async () => {
+    mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    await expect.element(page.getByText(m.newproject_idea_label())).toBeVisible();
+    await expect
+      .element(page.getByText(m.newproject_docs_summary({ prd: 0, design: 0 })))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.newproject_docs_bootstrap_note()))
+      .not.toBeInTheDocument();
+    await expect.element(chipList()).not.toBeInTheDocument();
+  });
+
   it("lists a picked PRD as a chip and sends it as multipart", async () => {
     const posts = mockApi();
     render(NewProject, { ondone: vi.fn() });
@@ -120,7 +134,7 @@ describe("NewProject attachments (#3420)", () => {
     expect(fd.getAll("prd")).toEqual([]);
   });
 
-  it("drops a file again with its chip's ✕", async () => {
+  it("removes a file with its chip's ✕", async () => {
     const posts = mockApi();
     render(NewProject, { ondone: vi.fn() });
     await fillName();
@@ -147,6 +161,9 @@ describe("NewProject attachments (#3420)", () => {
     await expect
       .element(page.getByRole("button", { name: m.newproject_submit_customize() }))
       .toBeDisabled();
+    // requestSubmit() bypasses the disabled button, so this hits the submit handler's own guard.
+    dialogEl().requestSubmit();
+    await new Promise((r) => setTimeout(r, 50));
     expect(posts.length).toBe(0);
   });
 });
@@ -169,7 +186,7 @@ describe("NewProject drop target (#3420)", () => {
     expect(names(fd, "design")).toEqual(["logo.png"]);
   });
 
-  it("names a drop it could not read", async () => {
+  it("names a drop it could not read until a later drop succeeds", async () => {
     mockApi();
     const unreadable = {
       name: "prd.md",
@@ -177,15 +194,25 @@ describe("NewProject drop target (#3420)", () => {
       isFile: true,
       file: (_ok: unknown, bad: (e: Error) => void) => bad(new Error("gone")),
     } as unknown as FileSystemEntry;
-    vi.spyOn(DataTransferItem.prototype, "webkitGetAsEntry").mockReturnValue(unreadable);
+    const entry = vi
+      .spyOn(DataTransferItem.prototype, "webkitGetAsEntry")
+      .mockReturnValue(unreadable);
     render(NewProject, { ondone: vi.fn() });
-    const dt = new DataTransfer();
-    dt.items.add(prdMd());
-    dialogEl().dispatchEvent(
-      new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
-    );
+    const drop = () => {
+      const dt = new DataTransfer();
+      dt.items.add(prdMd());
+      dialogEl().dispatchEvent(
+        new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
+      );
+    };
+    drop();
     await expect.element(page.getByText(m.newproject_drop_failed())).toBeVisible();
     await expect.element(chipList()).not.toBeInTheDocument();
+    // No entry → the getAsFile() fallback reads it.
+    entry.mockReturnValue(null);
+    drop();
+    await expect.element(chipList().getByText("prd.md", { exact: true })).toBeVisible();
+    await expect.element(page.getByText(m.newproject_drop_failed())).not.toBeInTheDocument();
   });
 
   it("claims file drags only, so text still drops into the idea", async () => {
@@ -213,6 +240,25 @@ describe("NewProject drop target (#3420)", () => {
     expect(fileOver.defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(dialogEl().classList.contains("dragging")).toBe(true));
   });
+
+  it("keeps the drag highlight inside the dialog and clears it when the drag leaves", async () => {
+    mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    const files = new DataTransfer();
+    files.items.add(prdMd());
+    const leave = (relatedTarget: EventTarget | null) =>
+      dialogEl().dispatchEvent(new DragEvent("dragleave", { bubbles: true, relatedTarget }));
+    dialogEl().dispatchEvent(
+      new DragEvent("dragover", { dataTransfer: files, bubbles: true, cancelable: true }),
+    );
+    await vi.waitFor(() => expect(dialogEl().classList.contains("dragging")).toBe(true));
+    // Crossing onto a child (the idea field) is not leaving.
+    leave(document.getElementById("np-idea"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dialogEl().classList.contains("dragging")).toBe(true);
+    leave(null);
+    await vi.waitFor(() => expect(dialogEl().classList.contains("dragging")).toBe(false));
+  });
 });
 
 describe("NewProject kickoff (#3420)", () => {
@@ -236,6 +282,28 @@ describe("NewProject kickoff (#3420)", () => {
     const fd = await submitForm(posts);
     expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd", prdSupplied: true });
     // The PRD keeps its own name under docs/prd/ — no rename to PRD.md.
+    expect(names(fd, "prd")).toEqual(["prd.md"]);
+  });
+
+  it("keeps an explicitly picked PRD brief when a PRD is attached afterwards", async () => {
+    const posts = mockApi();
+    const ondone = vi.fn();
+    render(NewProject, { ondone });
+    await fillName();
+    await openAdvanced(m.newproject_kickoff_bootstrap());
+    await page.getByLabelText(m.newproject_kickoff_label()).selectOptions("__prd__");
+    pickPrd([prdMd()]);
+    await expect.element(chipList().getByText("prd.md", { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByText(m.newproject_docs_bootstrap_note()))
+      .not.toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(m.newproject_advanced_summary({ choice: m.newproject_kickoff_prd() })),
+      )
+      .toBeVisible();
+    const fd = await submitForm(posts);
+    expect(ondone.mock.calls[0]![1]).toEqual({ kind: "prd", prdSupplied: true });
     expect(names(fd, "prd")).toEqual(["prd.md"]);
   });
 
@@ -324,19 +392,22 @@ describe("NewProject mobile (#3420)", () => {
   // Back to vitest's default viewport for whatever runs after.
   afterEach(() => page.viewport(414, 896));
 
-  it("keeps the attach toolbar tappable and the chips inside 375px", async () => {
+  it("keeps the attach toolbar and chips tappable and inside 375px", async () => {
     await page.viewport(375, 812);
     mockApi();
     render(NewProject, { ondone: vi.fn() });
-    // Baseline before attaching: it already counts the decorative corner bracket, which sits 1px
-    // outside the card by design.
-    const scrollWidth = dialogEl().scrollWidth;
     pickPrd([new File(["# PRD"], `${"very-long-product-requirements-".repeat(3)}.md`)]);
     pickDesign([folderFile("export/a.png")]);
     await expect.element(chipList()).toBeVisible();
-    expect(dialogEl().scrollWidth).toBe(scrollWidth);
+    const card = dialogEl();
+    expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
     for (const name of [m.newproject_attach_prd(), m.newproject_attach_design()])
       expectMinPx(page.getByRole("button", { name }).element().getBoundingClientRect().height, 44);
+    for (const x of chipList().getByRole("button").elements()) {
+      const box = x.getBoundingClientRect();
+      expectMinPx(box.width, 44, "chip ✕ width");
+      expectMinPx(box.height, 44, "chip ✕ height");
+    }
     expectMinPx(
       document.querySelector(".advanced summary")!.getBoundingClientRect().height,
       44,

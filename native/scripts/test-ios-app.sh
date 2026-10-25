@@ -49,19 +49,35 @@ SIGNING=(CODE_SIGNING_ALLOWED=NO)
 if [[ "${SHEPHERD_IOS_SIMULATOR_SIGNING:-0}" == 1 ]]; then
   SIGNING=(CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-)
 fi
+if [[ "$ACTION" == test-without-building ]]; then
+  # Run the .xctestrun the build wrote, so xcodebuild skips loading the project and
+  # resolving the package graph (#3354).
+  shopt -s nullglob
+  XCTESTRUNS=(.build/Build/Products/*.xctestrun)
+  shopt -u nullglob
+  [[ ${#XCTESTRUNS[@]} -eq 1 ]] || { echo 'UNMET: expected one .xctestrun; run build-ios-app.sh Debug --for-testing' >&2; exit 1; }
+  XCTESTRUN="$APP_DIR/${XCTESTRUNS[0]}"
+fi
 # Finish cold simulator boot before XCTest starts its first app-launch timeout.
 xcrun simctl bootstatus "$UDID" -b
 set +e
-# Resolve packages without a github.com Keychain prompt (#2694): netrc instead
-# of the Keychain authorizes binary-artifact downloads, and the system git only
-# asks a credential helper after a 401, which public repositories never send.
-xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Debug \
-  -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath .build \
-  -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
-  -only-testing:"$ONLY" -resultBundlePath "$RESULT" \
-  -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system \
-  "${SIGNING[@]}" "$ACTION" 2>&1 | tail -n 40
-TEST_STATUS=${PIPESTATUS[0]}
+if [[ "$ACTION" == test-without-building ]]; then
+  xcodebuild -xctestrun "$XCTESTRUN" -destination "platform=iOS Simulator,id=$UDID" \
+    -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
+    -only-testing:"$ONLY" -resultBundlePath "$RESULT" "$ACTION" 2>&1 | tail -n 40
+  TEST_STATUS=${PIPESTATUS[0]}
+else
+  # Resolve packages without a github.com Keychain prompt (#2694): netrc instead
+  # of the Keychain authorizes binary-artifact downloads, and the system git only
+  # asks a credential helper after a 401, which public repositories never send.
+  xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Debug \
+    -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath .build \
+    -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
+    -only-testing:"$ONLY" -resultBundlePath "$RESULT" \
+    -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system \
+    "${SIGNING[@]}" "$ACTION" 2>&1 | tail -n 40
+  TEST_STATUS=${PIPESTATUS[0]}
+fi
 set -e
 [[ -d "$RESULT" ]] || { echo 'UNMET: no test result bundle produced' >&2; exit 1; }
 xcrun xcresulttool get test-results summary --path "$RESULT" > "$RESULT.summary.json"

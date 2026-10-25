@@ -241,11 +241,18 @@ exit 23
   }
 
   // Runs a native/scripts entry point against fake Xcode tools; returns each xcodebuild argv.
-  function xcodebuildArgs(script: string, args: string[], env: Record<string, string> = {}) {
+  function xcodebuildArgs(
+    script: string,
+    args: string[],
+    env: Record<string, string> = {},
+    xctestruns = ["ShepherdIOS_iphonesimulator26.5-arm64.xctestrun"],
+  ) {
     const scripts = join(directory, "native/scripts");
     const bin = join(directory, "bin");
+    const products = join(directory, "native/Apps/ShepherdIOS/.build/Build/Products");
     mkdirSync(scripts, { recursive: true });
-    mkdirSync(join(directory, "native/Apps/ShepherdIOS"), { recursive: true });
+    mkdirSync(products, { recursive: true });
+    for (const name of xctestruns) writeFileSync(join(products, name), "");
     mkdirSync(bin, { recursive: true });
     for (const name of [script, "select-ios-simulator.py"])
       cpSync(resolve("native/scripts", name), join(scripts, name));
@@ -302,6 +309,35 @@ exit 23
       expect(calls).toHaveLength(1);
       expect(calls[0]!.at(-1)).toBe(action);
       expect(calls[0]!.join(" ")).toContain("platform=iOS Simulator,id=PHONE");
+      // #3354: without building, run the build's .xctestrun and skip loading the project.
+      const xctestrun = calls[0]!.indexOf("-xctestrun");
+      if (action === "test") {
+        expect(xctestrun).toBe(-1);
+        expect(calls[0]).toContain("-project");
+      } else {
+        expect(calls[0]![xctestrun + 1]).toEndWith(
+          "/.build/Build/Products/ShepherdIOS_iphonesimulator26.5-arm64.xctestrun",
+        );
+        expect(calls[0]).not.toContain("-project");
+        expect(calls[0]).toContain("-only-testing:ShepherdIOSTests");
+      }
+    });
+  }
+
+  for (const [label, files] of [
+    ["no", []],
+    ["two", ["A.xctestrun", "B.xctestrun"]],
+  ] as const) {
+    test(`test-ios-app.sh --without-building refuses ${label} .xctestrun files`, () => {
+      const { result, calls } = xcodebuildArgs(
+        "test-ios-app.sh",
+        ["unit", "--without-building", "--result-bundle-path", join(directory, "result.xcresult")],
+        {},
+        [...files],
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("UNMET:");
+      expect(calls).toEqual([]);
     });
   }
 

@@ -268,6 +268,7 @@ test("bootstrapDirective: workflows are actionlinted and CI must really run (#34
   expect(text).toContain("A run with 0 jobs");
   expect(text).toContain('"workflow file issue"');
   expect(text).toContain("is NOT green");
+  expect(text).toContain("`self_status` shows no checks for your pushed head");
 });
 
 test("bootstrapDirective: codex asks in chat; a missing stack fails closed", () => {

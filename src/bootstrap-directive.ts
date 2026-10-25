@@ -137,9 +137,10 @@ export function bootstrapDirective(args: {
     "- The PR is green in CI and leaves the Readiness greenfield must-haves satisfiable: pinned " +
       "stack, scaffold builds, CI on the default branch, git hooks + pre-push, dead-code audit. " +
       "Forge settings are applied by the operator from the Readiness tab — say so in the PR.",
-    "- Green means the PR's workflow runs actually ran jobs and all passed. After Shepherd reports " +
-      "CI finished (or `self_status` shows it), check ONCE with `gh run list --branch <branch>` " +
-      "and `gh run view <id> --json conclusion,jobs`. A run with 0 jobs, a " +
+    "- Green means the PR's workflow runs actually ran jobs and all passed. Check ONCE with " +
+      "`gh run list --branch <branch>` and `gh run view <id> --json conclusion,jobs` when Shepherd " +
+      "reports CI finished, OR when `self_status` shows no checks for your pushed head — a broken " +
+      "workflow reports no checks, so no CI-finished steer will ever arrive. A run with 0 jobs, a " +
       '"workflow file issue" failure, or "no checks reported" is NOT green: fix the workflow ' +
       "(actionlint) and push again.",
     "- You are attended: ask on genuine product decisions; otherwise keep going until the PR is up.",

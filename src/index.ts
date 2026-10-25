@@ -1991,7 +1991,7 @@ const reviewService = new ReviewService({
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   // Hold the critic on a behind PR only when a rebase actor will steer it (autopilot is built
   // below; this is only called at runtime).
-  rebasesWhenBehind: (s) => autopilot.rebasesWhenBehind(s),
+  rebasesWhenBehind: (s): boolean => autopilot.rebasesWhenBehind(s),
   // #1944: clamp/refusal sidecar. A SEPARATE channel from `onChange` on purpose — those carry a
   // verdict, and a clamped or refused spawn must never synthesize one.
   onSpawnNotice: (id) =>
@@ -1999,6 +1999,15 @@ const reviewService = new ReviewService({
   onReviewing: (id, reviewing, env) => events.emit("session:reviewing", { id, reviewing, env }),
   onHeld: (id, held) => events.emit("session:review-held", { id, kind: "critic", held }),
   onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
+  // #3426: a pending-CI head is reviewed once the agent rests — not while a background shell
+  // (e.g. `git push` running pre-push gates) still runs.
+  isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
+  // #3426: the findings steer carried the head's CI failure — both CI steerers count it delivered.
+  // autopilot / ciSteer are declared below; this only runs at finalize, long after boot.
+  onCiSteered: (id, headSha): void => {
+    autopilot.noteCiSteered(id, headSha);
+    ciSteer.noteCriticSteered(id, headSha);
+  },
   // auto-address: steer critic findings straight into the task agent's PTY (same path
   // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
   // round cap below stops it ping-ponging forever.
@@ -2267,7 +2276,7 @@ const reKickReapedReview = (id: string) => {
     // skip a redundant same-head re-review, keeping the spawn-ceiling cost guard intact. This also
     // matches the cold-cache branch below, which can only run a non-force consider via the
     // subscription — so both paths have identical semantics (consider itself no-ops if the PR
-    // isn't open+green, so a stale kick is safe).
+    // isn't open or the head isn't due yet, so a stale kick is safe).
     void reviewService
       .consider(s, git)
       .catch((err) => console.warn("[review] reap re-kick consider failed:", err));
@@ -2347,10 +2356,12 @@ deferredStarts.push(() => {
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
 // #2852: tell the task agent when its PR's checks finish, so it never polls CI itself.
-attachCiSteer(events, store, {
+const ciSteer = attachCiSteer(events, store, {
   reply: (id, text) => service.reply(id, text, { automatic: true }),
   autopilotOn: (s) => effectiveAutopilot(s, store.getRepoConfig(s.repoPath).autopilotEnabled),
   seed: prPoller.snapshot(),
+  // #3426: hold a red result while the critic reviews its head.
+  criticReviewing: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
 });
 attachMergePush(events, push);
 
@@ -2368,7 +2379,8 @@ const readyNotifier = new ReadyNotifier({
 deferredStarts.push(() => {
   readyNotifier.start();
 });
-// drive the critic off PR-state changes: open + CI green + unreviewed head → review
+// drive the critic off PR-state changes: open + unreviewed head + (agent resting or CI cleared)
+// → review (#3426: in parallel with CI, not after it).
 onSessionGit(({ id, git }) => {
   const s = store.get(id);
   // consider() is async (it may fetch PR notes); swallow rejections so a throw in the
@@ -2377,6 +2389,22 @@ onSessionGit(({ id, git }) => {
     void reviewService
       .consider(s, git)
       .catch((err) => console.warn("[review] consider failed:", err));
+});
+// #3426: …and off the agent coming to rest (turn end, or its background shell exiting), when a
+// pushed head the poller already holds was skipped because the agent was still working.
+events.subscribe((event, data) => {
+  const rested =
+    (event === "session:status" &&
+      ["idle", "done"].includes((data as { status: string }).status)) ||
+    (event === "session:background-busy" && !(data as { busy: boolean }).busy);
+  if (!rested) return;
+  const { id } = data as { id: string };
+  const s = store.get(id);
+  const git = prPoller.get(id);
+  if (s && s.status !== "archived" && git)
+    void reviewService
+      .consider(s, git)
+      .catch((err) => console.warn("[review] rest-edge consider failed:", err));
 });
 
 // When a PR appears for a session that is still in the planning phase, auto-advance it to
@@ -2817,6 +2845,8 @@ const autopilot = new AutopilotService({
   },
   getReview: (id) => store.getReview(id),
   isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
+  // #3426: a critic reviewing the red head holds the CI-fix steer (its findings steer carries it).
+  criticReviewing: (id, headSha): boolean => reviewService.ciSteerHeld(id, headSha),
   refreshPr: (id) => prPoller.pollSession(id),
   pollPrNow: (id) => prPoller.pollNow(id),
   onPause: (id, question) => {

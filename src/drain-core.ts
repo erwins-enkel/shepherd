@@ -218,9 +218,9 @@ export interface DrainRepoState {
  *  an unsigned green PR (draft OR briefly-flipped-ready) cannot retire until signed off.
  *
  *  non-draftMode: the original behavior — changes_requested/error blocks; with the critic
- *  ENABLED we additionally require a clean verdict for the CURRENT head, so a first-time auto
- *  PR can't be retired in the same CI-green tick the critic fires on, before it's posted a
- *  verdict. */
+ *  ENABLED we additionally require a clean verdict for the CURRENT head, so a PR can't be
+ *  retired when CI goes green before the critic (started on push, #3426 — or by that same
+ *  CI-green tick, its backstop trigger) has posted a verdict for that head. */
 /** Sign-off view for a draft-mode gate, projected off the flat AutoSessionView (head from
  *  the cached PR snapshot). Mirrors automerge-core's `signoffView` so the two cores read
  *  identically and the literal lives in one place per core. */

@@ -84,10 +84,12 @@ the live agent as you record it.
 
 ### Critic
 
-Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is
-green and posts a verdict. Its built-in lenses are the floor; a repository can
-add passes and known exclusions with a committed `REVIEW.md` — see
-[Review policy](/reference/review-policy/). Every point it raises carries a
+Shepherd's isolated, read-only review agent that inspects each new push of a PR
+and posts a verdict. It starts once the agent finishes its turn, in parallel with
+CI (at the latest when CI goes green); if CI fails on the reviewed push, the
+failure and the findings reach the agent as one message. Its built-in lenses are
+the floor; a repository can add passes and known exclusions with a committed
+`REVIEW.md` — see [Review policy](/reference/review-policy/). Every point it raises carries a
 severity: **important** is blocking work, sent back to the agent; **nit** is
 non-blocking and only appears in the posted review's `Nits (non-blocking):`
 section. A verdict that raises nothing important is a comment, never a request

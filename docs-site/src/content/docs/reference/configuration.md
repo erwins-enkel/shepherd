@@ -208,7 +208,7 @@ maintain loop's own triples live with their features, further down this page.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_CRITIC_CLI` | `inherit` | **PR critic** — reviews a green PR and posts a verdict, driving both the session critic and the standalone PR critic |
+| `SHEPHERD_CRITIC_CLI` | `inherit` | **PR critic** — reviews a PR's newest push and posts a verdict (the session critic in parallel with CI; the standalone PR critic once CI is green), driving both |
 | `SHEPHERD_CRITIC_MODEL` | `default` | Model the critic runs on |
 | `SHEPHERD_CRITIC_EFFORT` | `high` | The one role seeded **above** the global default. The critic is a rigor role: a value resolving below `high` measurably weakens PR review, so Shepherd warns at boot (and on the Settings/PATCH paths) instead of silently accepting it. It still accepts the value — this is a warning, not a floor |
 | `SHEPHERD_PLANNER_CLI` | `inherit` | **Plan-gate reviewer** — adversarially critiques a plan before execution is allowed to start |

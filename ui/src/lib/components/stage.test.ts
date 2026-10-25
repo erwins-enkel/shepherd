@@ -138,6 +138,21 @@ describe("deriveStage — review stage", () => {
     expect(s.index).toBe(3);
   });
 
+  // #3426: the critic starts on push, in parallel with CI.
+  it.each(["pending", "failure"] as ChecksState[])(
+    "reviewing with CI %s still reaches review, tinted reviewing",
+    (checks) => {
+      const s = deriveStage({
+        git: git({ state: "open", checks }),
+        reviewing: true,
+        readyToMerge: false,
+      });
+      expect(s.index).toBe(REVIEW_INDEX);
+      expect(s.review).toBe("reviewing");
+      expect(s.ci).toBe(checks);
+    },
+  );
+
   it("review does not pull a no-PR session below implementing", () => {
     // no git, but reviewing → review still wins via max()
     const s = deriveStage({ reviewing: true, readyToMerge: false });

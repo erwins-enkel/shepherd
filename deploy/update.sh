@@ -113,12 +113,12 @@ fi
 note "installing deps (root + ui)"
 # Retry only the network-bound install (transient node-pty tarball-extract flake, #1602);
 # fix-perms + build below are local + deterministic.
-retry 2 bun install
+retry 2 bun install --frozen-lockfile
 # node-pty ships spawn-helper without the exec bit + Bun keeps tarball perms, so on
 # macOS posix_spawn fails ("posix_spawnp failed.") and panes stay black. Re-set it
 # after install (a silent no-op on Linux, where the forkpty path uses no helper).
 bun scripts/fix-node-pty-perms.mjs
-(cd ui && retry 2 bun install)
+(cd ui && retry 2 bun install --frozen-lockfile)
 
 note "building UI"
 (cd ui && bun run build)

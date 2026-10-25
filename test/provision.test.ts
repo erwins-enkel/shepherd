@@ -459,6 +459,10 @@ describe("extracted helpers (direct)", () => {
     buildOnly("/repo", run, { PATH: "/x" });
     const flat = calls.map((c) => c.join(" "));
     expect(flat.some((c) => c.includes('cd "/repo" && bun install'))).toBe(true);
+    // Never let bun rewrite either lockfile on an install (#3338).
+    expect(
+      flat.filter((c) => c.includes("bun install")).every((c) => c.includes("--frozen-lockfile")),
+    ).toBe(true);
     expect(flat.some((c) => c.includes('cd "/repo/ui" && bun run build'))).toBe(true);
     // buildOnly issues no systemctl COMMAND of its own (HERDR_SERVE's string may name it).
     expect(calls.some((c) => c[0] === "systemctl")).toBe(false);

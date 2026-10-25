@@ -526,7 +526,7 @@ export function buildOnly(
   runWithRetry(
     run,
     "bash",
-    ["-c", `cd "${repo}" && bun install`],
+    ["-c", `cd "${repo}" && bun install --frozen-lockfile`],
     { env: buildEnv },
     retry.attempts,
     retry.delayMs,
@@ -538,7 +538,7 @@ export function buildOnly(
   runWithRetry(
     run,
     "bash",
-    ["-c", `cd "${repo}/ui" && bun install`],
+    ["-c", `cd "${repo}/ui" && bun install --frozen-lockfile`],
     { env: buildEnv },
     retry.attempts,
     retry.delayMs,

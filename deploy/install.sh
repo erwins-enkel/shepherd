@@ -219,7 +219,7 @@ install_deps() {
   note "installing node-gyp (node-pty build dep)"
   retry 2 bun add -g node-gyp || die "node-gyp install failed"
   note "installing dependencies (bun install)"
-  retry 2 bun install || die "bun install failed in $SHEPHERD_DIR"
+  retry 2 bun install --frozen-lockfile || die "bun install failed in $SHEPHERD_DIR"
 }
 
 # ── source resolve ────────────────────────────────────────────────────────────

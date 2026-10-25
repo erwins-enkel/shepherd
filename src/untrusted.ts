@@ -26,9 +26,12 @@ export function randomFenceToken(): string {
 
 // Unusual bracket glyphs (unlikely to occur in real issue text) + a per-fence random nonce make the
 // closing marker unguessable; the scrub below is belt-and-suspenders for the rare literal collision.
-const FENCE_TOKEN_RE = /⟦\/?UNTRUSTED:[^⟧]*⟧/g;
+// The `⟧` tail is optional: an unterminated `⟦UNTRUSTED` would otherwise survive and merge with
+// the fence's own closer (#3371).
+const FENCE_TOKEN_RE = /⟦\/?UNTRUSTED(?::[^⟧⟦\n]*⟧)?/g;
 
-/** Replace any literal fence marker in `text` so it cannot open or close a fence. Pure. */
+/** Replace any literal fence marker in `text`, complete or not, so it cannot open or close a
+ *  fence. Pure. */
 export function scrubFenceTokens(text: string): string {
   return text.replace(FENCE_TOKEN_RE, "[fence-token removed]");
 }
@@ -57,7 +60,8 @@ export function fenceUntrusted(
   return [`⟦UNTRUSTED:${label}:${nonce}⟧`, scrubbed, `⟦/UNTRUSTED:${label}:${nonce}⟧`].join("\n");
 }
 
-const FENCE_MARKER_RE = /⟦(\/?)UNTRUSTED:([^⟧]*)⟧/g;
+// The id can't hold `⟦` or a newline, so a stray partial marker can't swallow a real one (#3371).
+const FENCE_MARKER_RE = /⟦(\/?)UNTRUSTED:([^⟧⟦\n]*)⟧/g;
 
 type FenceMarkers = {
   opens: { id: string; at: number }[];

@@ -22,6 +22,19 @@ The toolchain is bound read-only: node's bin dir and the server's own bun
 
 This note records two residuals the operator has **accepted** after the audit.
 
+## Per-spawn overrides from access tokens (audit run-2 R2-F07)
+
+A per-spawn `sandboxProfile`, an explicit `agentProvider: "codex"` (always
+`trusted`) and the research / epic-authoring / bootstrap downgrade can loosen a
+spawn below its repo's profile. Only the operator cookie and `full` tokens may do
+that. A minted token below `full` may only tighten: `tokenProfileError`
+(`src/server.ts`) compares `SessionService.spawnProfile` with
+`repoEffectiveProfile` on the create, held-task edit and held-task spawn paths,
+before any hold or spawn. A create forwarded to another machine
+(`tokenRemoteProfileError`) cannot see that machine's repo profile, so a token
+below `full` may only omit the override or ask for `autonomous` there. Held tasks
+released by the server itself carry an input already checked when they were held.
+
 ## R3 — in-membrane token readability (accepted)
 
 The membrane keeps two token surfaces readable to any in-membrane tool call

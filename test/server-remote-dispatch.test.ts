@@ -501,8 +501,12 @@ describe("starting a task on a connected machine", () => {
     expect((await create(linux, body, { token: read })).status).toBe(403);
     expect(mac.created).toEqual([]);
 
+    // Below full, a machine's repo profile is unknown here: only the tightest override passes.
     const submit = linux.deps.accessTokens!.mint("cli", null, "submit", null).token;
-    expect((await create(linux, body, { token: submit })).status).toBe(201);
+    expect((await create(linux, body, { token: submit })).status).toBe(403);
+    expect(mac.created).toEqual([]);
+    const tightest = { ...body, sandboxProfile: "autonomous" };
+    expect((await create(linux, tightest, { token: submit })).status).toBe(201);
     expect(mac.created).toHaveLength(1);
   });
 

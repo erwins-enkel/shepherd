@@ -519,3 +519,86 @@ test("repo boundary: full token may fetch own recap but never foreign recap", as
   expect((await own.json()).blocks).toEqual(recap.blocks);
   expect((await request(token, `/api/sessions/${sessions[1]!.id}/recap`)).status).toBe(404);
 });
+
+// Audit run-2 R2-F07: a token below `full` may only tighten a spawn's sandbox profile.
+test("sandbox floor: a submit token can tighten but never loosen the repo's profile", async () => {
+  deps.usageLimits = { limits: () => ({ session5h: null, week: null }) } as never;
+  const setProfile = (repoPath: string, sandboxProfile: "standard" | "autonomous") =>
+    deps.store.setRepoConfig(repoPath, { ...deps.store.getRepoConfig(repoPath), sandboxProfile });
+  setProfile(a, "standard");
+  setProfile(b, "autonomous");
+  const create = spyOn(deps.service, "create").mockImplementation(async (input) =>
+    deps.store.create({
+      name: "new",
+      prompt: "task",
+      repoPath: input.repoPath,
+      baseBranch: "main",
+      branch: "shepherd/new",
+      worktreePath: input.repoPath,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "new-terminal",
+    }),
+  );
+  const submit = mint("submit", [a, b]).token;
+  const task = (repoPath: string, extra: Record<string, unknown>) => ({
+    repoPath,
+    baseBranch: "main",
+    prompt: "task",
+    force: true,
+    ...extra,
+  });
+  for (const [repoPath, extra] of [
+    [a, { sandboxProfile: "trusted" }],
+    [a, { agentProvider: "codex" }],
+    [b, { sandboxProfile: "standard" }],
+    [b, { research: true }],
+    [a, { sandboxProfile: "trusted", target: { instanceId: "elsewhere" } }],
+    [a, { agentProvider: "codex", target: { instanceId: "elsewhere" } }],
+    [a, { sandboxProfile: "standard", target: { instanceId: "elsewhere" } }],
+  ] as const) {
+    const res = await request(submit, "/api/sessions", "POST", task(repoPath, extra));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("sandbox_override_not_allowed");
+  }
+  expect(create).not.toHaveBeenCalled();
+  expect(
+    (await request(submit, "/api/sessions", "POST", task(a, { sandboxProfile: "autonomous" })))
+      .status,
+  ).toBe(201);
+  expect((await request(submit, "/api/sessions", "POST", task(b, {}))).status).toBe(201);
+  // A full credential keeps the operator's right to loosen a single spawn.
+  const full = mint("full", null).token;
+  expect(
+    (await request(full, "/api/sessions", "POST", task(a, { sandboxProfile: "trusted" }))).status,
+  ).toBe(201);
+  expect(create).toHaveBeenCalledTimes(3);
+
+  const held = (id: string, extra: Record<string, unknown> = {}) =>
+    deps.store.addHeldTask({
+      id,
+      repoPath: a,
+      createdAt: 1,
+      reason: "usage",
+      input: { repoPath: a, baseBranch: "main", prompt: "task", images: [], ...extra } as never,
+    });
+  held("held-edit");
+  const edit = await request(submit, "/api/held/held-edit", "PATCH", {
+    repoPath: a,
+    baseBranch: "main",
+    prompt: "edited",
+    sandboxProfile: "trusted",
+  });
+  expect(edit.status).toBe(403);
+  expect(deps.store.getHeldTask("held-edit")?.input.prompt).toBe("task");
+  const codex = await request(submit, "/api/held/held-edit/spawn", "POST", {
+    agentProvider: "codex",
+  });
+  expect(codex.status).toBe(403);
+  expect(deps.store.getHeldTask("held-edit")).not.toBeNull();
+  held("held-trusted", { sandboxProfile: "trusted" });
+  expect((await request(submit, "/api/held/held-trusted/spawn", "POST")).status).toBe(403);
+  expect(create).toHaveBeenCalledTimes(3);
+  expect((await request(submit, "/api/held/held-edit/spawn", "POST")).status).toBe(201);
+  expect((await request(full, "/api/held/held-trusted/spawn", "POST")).status).toBe(201);
+});

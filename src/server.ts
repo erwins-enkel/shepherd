@@ -470,6 +470,7 @@ import {
   SANDBOX_PROFILES,
   isRepoSandboxSetting,
   type RepoSandboxSetting,
+  type SandboxProfile,
   SandboxAutoRefused,
 } from "./sandbox";
 import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
@@ -1469,6 +1470,41 @@ function repositoryInputError(
     return json({ error: "attachment_not_allowed" }, 403);
   }
   return null;
+}
+
+/** Weakest first: a spawn may move right of its repo's profile, never left. */
+const PROFILE_RANK: Record<SandboxProfile, number> = { trusted: 0, standard: 1, autonomous: 2 };
+
+/** Below `full`, a token may only tighten the profile a spawn runs under (audit run-2 R2-F07):
+ *  a per-spawn override, an explicit Codex provider (always trusted) or an open-egress kind's
+ *  downgrade must not leave it weaker than the repo's own. Called on validated inputs before
+ *  holds and spawns. */
+function tokenProfileError(
+  token: VerifiedToken | null | undefined,
+  value: CreateSessionInput,
+  deps: AppDeps,
+): Response | null {
+  if (!token || token.scope === "full" || value.terminal === true) return null;
+  const spawn = deps.service.spawnProfile(value);
+  const repo = deps.service.repoEffectiveProfile(value.repoPath);
+  return PROFILE_RANK[spawn] < PROFILE_RANK[repo] ? sandboxOverrideRefused() : null;
+}
+
+/** A create sent to another machine: its repo profile is unknown here, so below `full` only what
+ *  can never loosen one passes — no override but `autonomous`, no Codex, no open-egress kind. */
+function tokenRemoteProfileError(
+  token: VerifiedToken | null | undefined,
+  value: CreateSessionInput,
+): Response | null {
+  if (!token || token.scope === "full" || value.terminal === true) return null;
+  const tightest = value.sandboxProfile == null || value.sandboxProfile === "autonomous";
+  const loosens =
+    value.agentProvider === "codex" || value.research || value.epicAuthoring || value.bootstrap;
+  return tightest && !loosens ? null : sandboxOverrideRefused();
+}
+
+function sandboxOverrideRefused(): Response {
+  return json({ error: "sandbox_override_not_allowed" }, 403);
 }
 
 // Peer identity comes from Bun, never spoofable request headers. Pure dispatch tests share
@@ -4410,7 +4446,8 @@ async function createOnMachine(
 ): Promise<Response> {
   const result = validateCreate(req.body, config.repoRoot, { remote: true });
   if (!result.ok) return json({ error: result.error }, 400);
-  const repoErr = repositoryInputError(token, result.value);
+  const repoErr =
+    repositoryInputError(token, result.value) ?? tokenRemoteProfileError(token, result.value);
   if (repoErr) return repoErr;
   if (req.clientKey && deps.store.getDispatch(req.clientKey)) return keyReusedResponse();
   const project = repoRemoteSlug(deps.resolveForge?.(result.value.repoPath));
@@ -4536,6 +4573,8 @@ async function createValidatedSession(
   // The routed repo needs the token's grant too — routing must not promote a body into authority.
   const routedErr = repositoryInputError(token, routed);
   if (routedErr) return routedErr;
+  const profileErr = tokenProfileError(token, routed, deps);
+  if (profileErr) return profileErr;
   value = routed;
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
@@ -9203,12 +9242,19 @@ function parseHeldSpawnProvider(body: unknown): { ok: true; value?: AgentProvide
   return { ok: true, value: provider };
 }
 
-async function heldSpawn(id: string, deps: AppDeps, body: unknown = null): Promise<Response> {
+async function heldSpawn(
+  id: string,
+  deps: AppDeps,
+  body: unknown = null,
+  token?: VerifiedToken | null,
+): Promise<Response> {
   const h = deps.store.getHeldTask(id);
   if (!h) return json({ error: "not found" }, 404);
   const provider = parseHeldSpawnProvider(body);
   if (provider instanceof Response) return provider;
   const input = provider.value ? { ...h.input, agentProvider: provider.value } : h.input;
+  const profileErr = tokenProfileError(token, input, deps);
+  if (profileErr) return profileErr;
   let s;
   try {
     s = await deps.service.create(input);
@@ -9272,6 +9318,8 @@ async function heldUpdate(
   value.baseCommit ??= existing.input.baseCommit;
   // The record of the machine choice (#2772) is the placer's, never an edit's: carried forward.
   value.placement = existing.input.placement;
+  const profileErr = tokenProfileError(token, value, deps);
+  if (profileErr) return profileErr;
   deps.store.updateHeldTask(id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json(deps.store.getHeldTask(id), 200);
@@ -9288,7 +9336,7 @@ async function handleHeld({ req, parts, deps, token }: Ctx): Promise<Response | 
     const b = firstRunBlock();
     if (b) return b;
     const body = await req.json().catch(() => null);
-    return heldSpawn(parts[2], deps, body);
+    return heldSpawn(parts[2], deps, body, token);
   }
 
   // PATCH /api/held/:id — edit a held task's input while it stays held

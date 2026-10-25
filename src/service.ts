@@ -4225,15 +4225,8 @@ export class SessionService {
     repoConfig: RepoConfig,
     sessionId: string,
   ): string | null | undefined {
-    const effectiveProfile = resolveProfile(
-      input.sandboxProfile,
-      repoConfig.sandboxProfile,
-      this.defaultProfile,
-    );
-    if (
-      (input.research || input.epicAuthoring || input.bootstrap) &&
-      effectiveProfile === "autonomous"
-    ) {
+    const override = this.openEgressProfileOverride(input, repoConfig.sandboxProfile);
+    if (override !== input.sandboxProfile) {
       const kind = input.research
         ? "research"
         : input.epicAuthoring
@@ -4243,9 +4236,38 @@ export class SessionService {
         `[sandbox] ${kind} ${sessionId}: downgrading autonomous → standard ` +
           `(needs open web/repo egress; the autonomous egress firewall would block web search)`,
       );
-      return "standard";
     }
-    return input.sandboxProfile;
+    return override;
+  }
+
+  /** researchSafeProfileOverride without the warning: `"standard"` where the downgrade applies. */
+  private openEgressProfileOverride(
+    input: StandardCreateInput,
+    repoSetting: string | null | undefined,
+  ): string | null | undefined {
+    const effectiveProfile = resolveProfile(input.sandboxProfile, repoSetting, this.defaultProfile);
+    return (input.research || input.epicAuthoring || input.bootstrap) &&
+      effectiveProfile === "autonomous"
+      ? "standard"
+      : input.sandboxProfile;
+  }
+
+  /** A repo's profile as create() resolves it with no per-spawn override. */
+  repoEffectiveProfile(repoPath: string): SandboxProfile {
+    return resolveProfile(
+      undefined,
+      this.deps.store.getRepoConfig(repoPath).sandboxProfile,
+      this.defaultProfile,
+    );
+  }
+
+  /** The profile create() would spawn `input` under (audit run-2 R2-F07). Only an explicit Codex
+   *  provider counts as trusted here: a configured Codex default is the operator's own choice. */
+  spawnProfile(input: StandardCreateInput): SandboxProfile {
+    if (input.agentProvider === "codex") return "trusted";
+    const repoSetting = this.deps.store.getRepoConfig(input.repoPath).sandboxProfile;
+    const override = this.openEgressProfileOverride(input, repoSetting);
+    return resolveProfile(override, repoSetting, this.defaultProfile);
   }
 
   /**

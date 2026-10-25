@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RepoBootstrapView } from "#lib/api.js";
 import { checklistAction, checklistStepKind, checklistSteps } from "./bootstrap-checklist";
-import { docPath, toDocs } from "./new-project/project-docs";
+import { pickedDocs } from "./new-project/project-docs";
 
 const view = (phase: number, next: RepoBootstrapView["next"]): RepoBootstrapView => ({
   state: "active",
@@ -70,7 +70,7 @@ describe("checklistStepKind (#3421)", () => {
   });
 });
 
-describe("docPath (#3112)", () => {
+describe("pickedDocs (#3112)", () => {
   const picked = (name: string, rel = "") => {
     const f = new File(["x"], name);
     if (rel) Object.defineProperty(f, "webkitRelativePath", { value: rel });
@@ -78,13 +78,15 @@ describe("docPath (#3112)", () => {
   };
 
   it("keeps a file pick's name and drops a folder pick's top folder", () => {
-    expect(docPath(picked("prd.md"))).toBe("prd.md");
-    expect(docPath(picked("a.png", "export/screens/a.png"))).toBe("screens/a.png");
+    expect(pickedDocs([picked("prd.md")]).map((d) => d.path)).toEqual(["prd.md"]);
+    expect(pickedDocs([picked("a.png", "export/screens/a.png")]).map((d) => d.path)).toEqual([
+      "screens/a.png",
+    ]);
   });
 
   it("skips hidden files", () => {
-    expect(docPath(picked(".DS_Store", "export/.DS_Store"))).toBeNull();
-    expect(docPath(picked("config", "export/.git/config"))).toBeNull();
-    expect(toDocs([picked("a.md"), picked(".x")]).map((d) => d.path)).toEqual(["a.md"]);
+    expect(pickedDocs([picked(".DS_Store", "export/.DS_Store")])).toEqual([]);
+    expect(pickedDocs([picked("config", "export/.git/config")])).toEqual([]);
+    expect(pickedDocs([picked("a.md"), picked(".x")]).map((d) => d.path)).toEqual(["a.md"]);
   });
 });

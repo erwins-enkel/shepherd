@@ -90,9 +90,12 @@
               aria-current={current ? "true" : undefined}
               onclick={() => (upNextUi.previewKey = key)}>{it.title}</button
             >
-            {#if showRepo || it.kind === "epic" || labels.length > 0}
+            {#if showRepo || it.kind === "epic" || it.fromFork || labels.length > 0}
               <span class="un-sub">
                 {#if it.kind === "epic"}<span class="un-pill">{m.upnext_pill_epic()}</span>{/if}
+                {#if it.fromFork}<span class="un-pill un-fork"
+                    >{it.mine ? m.upnext_filter_tag_fork() : m.upnext_filter_tag_upstream()}</span
+                  >{/if}
                 {#if showRepo}<span>{it.repoLabel || repoBase(it.repoPath)}</span>{/if}
                 <IssueLabelChips {labels} labelColors={it.labelColors} all />
               </span>
@@ -257,6 +260,10 @@
     border-radius: 2px;
     padding: 0 4px;
     color: var(--color-ink-bright);
+  }
+  /* Fork origin is context, not a call to action — quieter than the epic pill. */
+  .un-fork {
+    color: var(--color-muted);
   }
   .un-meta {
     flex: none;

@@ -10,6 +10,10 @@ import ShepherdKit
 @MainActor
 final class ConnectionBox {
     var state: ConnectionState = .idle
+    /// How often a watcher sampled `state` through `read()`: lets a test wait until the
+    /// watcher has provably seen a drop instead of guessing with a yield count.
+    @ObservationIgnored var reads = 0
+    func read() -> ConnectionState { reads += 1; return state }
 }
 
 /// Holds an injected async step open until the test says otherwise, so a

@@ -500,7 +500,7 @@ struct SidebarModelTests {
         let ledger = ReadLedger()
         let m = SidebarModel(reads: counting(ledger), now: { 0 })
         let box = ConnectionBox()
-        m.watchConnection { box.state }
+        m.watchConnection { box.read() }
 
         #expect(
             !(await settle(until: { await ledger.count >= 1 }, yields: 50)),
@@ -521,9 +521,11 @@ struct SidebarModelTests {
         // A drop and a genuine RE-entry is a second reconciliation. The two writes need a turn
         // between them: `withObservationTracking` reports that *something* changed, not what it
         // changed to, so two writes in one main-actor turn coalesce and the watcher would only ever
-        // see the newer value. A real drop and reconnect are always turns apart.
+        // see the newer value. A real drop and reconnect are always turns apart. Wait until the
+        // watcher has actually sampled the drop: a fixed yield count can elapse first.
+        let readsBeforeDrop = box.reads
         box.state = .offline(message: "down")
-        _ = await settle(until: { false }, yields: 20)
+        #expect(await settle(until: { box.reads > readsBeforeDrop }), "the watcher sees the drop")
         box.state = .live
         #expect(await settle(until: { await ledger.count >= 2 }))
         #expect(await ledger.count == 2)

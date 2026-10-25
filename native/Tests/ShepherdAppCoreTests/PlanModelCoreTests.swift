@@ -25,6 +25,8 @@ private actor PlanReadLatch {
 @Observable @MainActor
 private final class PlanConnectionBox {
     var state: ConnectionState = .idle
+    @ObservationIgnored var reads = 0
+    func read() -> ConnectionState { reads += 1; return state }
 }
 
 extension CoreSeamTests {
@@ -339,15 +341,17 @@ struct PlanModelTests {
             await latch.enter(); return ["s1": expected]
         }, inflight: { [] }))
         let box = PlanConnectionBox()
-        m.watchConnection { box.state }
-        m.watchConnection { box.state }
+        m.watchConnection { box.read() }
+        m.watchConnection { box.read() }
         for _ in 0..<50 { await Task.yield() }
         #expect(m.isWatchingConnection)
         box.state = .live
         #expect(await settle { m.gates["s1"] != nil })
         #expect(await latch.count == 1)
+        let readsBeforeDrop = box.reads
         box.state = .offline(message: "down")
-        for _ in 0..<50 { await Task.yield() }
+        // The watcher must sample the drop before `.live` is back, or it sees no transition.
+        #expect(await settle { box.reads > readsBeforeDrop })
         box.state = .live
         #expect(await settle { await latch.count == 2 })
         m.teardown()

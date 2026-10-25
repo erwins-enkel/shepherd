@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { buildTransientAgentArgv, type TransientAgentKind } from "../src/transient-agent-argv";
+import {
+  allowedToolsFor,
+  buildTransientAgentArgv,
+  disallowedToolsFor,
+  type TransientAgentKind,
+} from "../src/transient-agent-argv";
 import { config } from "../src/config";
 import { codexRoleArgv } from "../src/codex-role-argv";
 
@@ -313,6 +318,30 @@ test("api-key mode (unconfigured): no apiKeyHelper key emitted", () => {
         .apiKeyHelper,
     ).toBeUndefined();
   });
+});
+
+// ── N12: read-only git must not write files ───────────────────────────────────────────────────
+
+test("reviewer + doc deny git's file-writing / exec options; writer kinds carry no deny list", () => {
+  for (const kind of ["reviewer", "doc"] as const) {
+    const { argv } = buildTransientAgentArgv(kind, { model: null, prompt: "P" });
+    const at = argv.indexOf("--disallowedTools");
+    expect(at).toBeGreaterThan(argv.indexOf("--allowedTools"));
+    const deny = argv.slice(at + 1, at + 1 + disallowedToolsFor(kind).length);
+    for (const sub of ["diff", "log", "show"]) {
+      for (const opt of ["--output", "--ext-diff", "--textconv"]) {
+        expect(deny).toContain(`Bash(git ${sub} *${opt}*)`);
+      }
+    }
+    expect(argv[at + 1 + deny.length]!.startsWith("--")).toBe(true); // never swallows the prompt
+    // No `git *`-style allow rule: global options like `-c` stay outside every allowed prefix.
+    expect(allowedToolsFor(kind).some((t) => /^Bash\(git \*/.test(t))).toBe(false);
+  }
+  for (const kind of ["writer-ro", "writer-only"] as const) {
+    expect(buildTransientAgentArgv(kind, { model: null, prompt: "P" }).argv).not.toContain(
+      "--disallowedTools",
+    );
+  }
 });
 
 // ── Byte-identity spot-check: verify-key's historical argv (writer-only + model "haiku") ─────────

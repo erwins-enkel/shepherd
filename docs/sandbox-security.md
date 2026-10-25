@@ -72,6 +72,13 @@ With no sandbox backend, nothing confines a role. The standalone critic then
 the session critic, the plan gate and maintain still run unconfined there, an
 operator-accepted narrowing that keeps critics working on hosts without `bwrap`.
 
+The `reviewer` and `doc` allowlists' `Bash(git diff|log|show *)` prefixes admit
+any trailing option, so both kinds also pass `--disallowedTools` deny rules for
+`--output`, `--ext-diff` and `--textconv` (`READONLY_GIT_DENY` in
+`src/transient-agent-argv.ts`, audit N12). Deny beats allow. This is
+defense-in-depth for the unconfined case: the rules match the command string,
+so a shell-quoted spelling may slip past.
+
 Everything these roles post or file (review body, post-merge comment, maintain
 issue title/body) passes through `redactSecretText` first.
 

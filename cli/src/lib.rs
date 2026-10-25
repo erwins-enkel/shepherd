@@ -6,6 +6,7 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod error;
+pub mod loopback;
 pub mod output;
 pub mod resolve;
 #[doc(hidden)]
@@ -136,11 +137,20 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
         Some(p) => config::load(p)?,
         None => config::ConfigFile::default(),
     };
-    let target = config::resolve(&cfg, &io.env, cli.url.as_deref(), cli.profile.as_deref())?;
+    let mut target = config::resolve(&cfg, &io.env, cli.url.as_deref(), cli.profile.as_deref())?;
     if target.withheld_token {
         io.warn(&format!(
             "warning: not sending profile '{}' token to {} (a different server); \
              set SHEPHERD_TOKEN to authenticate there",
+            target.profile, target.url
+        ));
+    }
+    let profile_token = io.env.get("SHEPHERD_TOKEN").is_none_or(|t| t.is_empty());
+    if profile_token && target.token.is_some() && loopback::check(&target.url) {
+        target.token = None;
+        io.warn(&format!(
+            "warning: not sending profile '{}' token to {}: the local listener on that port \
+             belongs to another user",
             target.profile, target.url
         ));
     }

@@ -153,9 +153,24 @@ const READONLY_GIT = [
   "Bash(git status)",
 ];
 
+/**
+ * Deny rules paired with READONLY_GIT (audit N12). The `git diff|log|show *` prefixes admit ANY
+ * trailing option, and some of those write or exec: `--output=<path>` writes the command's output to
+ * a caller-chosen file (e.g. the shared git common dir's `config`), `--ext-diff`/`--textconv` run
+ * configured external programs. Deny beats allow in Claude Code, so these carve the writers out.
+ * With bwrap the reviewer's git common dir is RO anyway; this covers the unconfined no-backend case.
+ * Defense-in-depth only: rules match the command string, so shell-quoted spellings may slip past.
+ * Global `-c` needs no rule — it sits before the subcommand, outside every allowed prefix.
+ */
+const READONLY_GIT_DENY = ["diff", "log", "show"].flatMap((sub) =>
+  ["--output", "--ext-diff", "--textconv"].map((opt) => `Bash(git ${sub} *${opt}*)`),
+);
+
 interface KindPreset {
   /** The exact --allowedTools set for this kind. */
   allowedTools: string[];
+  /** --disallowedTools deny rules (beat any allow rule); omitted → flag not emitted. */
+  disallowedTools?: string[];
   /** true → emit BOTH --safe-mode AND enableAllProjectMcpServers (the coupled MCP-isolation pair). */
   mcpIsolated: boolean;
 }
@@ -182,11 +197,30 @@ interface KindPreset {
  *                of input trust, NOT because the input is untrusted.
  */
 const PRESETS: Record<TransientAgentKind, KindPreset> = {
-  reviewer: { allowedTools: [...READONLY_GIT, "Write"], mcpIsolated: true },
-  doc: { allowedTools: [...READONLY_GIT, "Write", "Edit"], mcpIsolated: true },
+  reviewer: {
+    allowedTools: [...READONLY_GIT, "Write"],
+    disallowedTools: READONLY_GIT_DENY,
+    mcpIsolated: true,
+  },
+  doc: {
+    allowedTools: [...READONLY_GIT, "Write", "Edit"],
+    disallowedTools: READONLY_GIT_DENY,
+    mcpIsolated: true,
+  },
   "writer-ro": { allowedTools: ["Read", "Grep", "Glob", "Write"], mcpIsolated: false },
   "writer-only": { allowedTools: ["Write"], mcpIsolated: false },
 };
+
+/** `--allowedTools …` plus, when the kind has deny rules, `--disallowedTools …`. Both are variadic;
+ *  the caller always pushes a flag next, so neither swallows the trailing prompt. */
+function toolRuleArgs(preset: KindPreset): string[] {
+  const deny = preset.disallowedTools ?? [];
+  return [
+    "--allowedTools",
+    ...preset.allowedTools,
+    ...(deny.length ? ["--disallowedTools", ...deny] : []),
+  ];
+}
 
 /** The exact `--allowedTools` set a transient kind runs with. Exported as the SINGLE SOURCE for
  *  tests that must assert a prompt only names commands the role can actually run: the critic runs
@@ -195,6 +229,11 @@ const PRESETS: Record<TransientAgentKind, KindPreset> = {
  *  Returns a copy — callers must not mutate the preset. */
 export function allowedToolsFor(kind: TransientAgentKind): string[] {
   return [...PRESETS[kind].allowedTools];
+}
+
+/** The `--disallowedTools` deny rules a transient kind runs with (empty → flag omitted). Copy. */
+export function disallowedToolsFor(kind: TransientAgentKind): string[] {
+  return [...(PRESETS[kind].disallowedTools ?? [])];
 }
 
 /** child_process.spawn rejects any argv arg containing a NUL. Keep one shared prompt sanitizer so
@@ -276,7 +315,7 @@ export function buildTransientAgentArgv(
     "--disable-slash-commands",
   ];
   if (preset.mcpIsolated) argv.push("--safe-mode");
-  argv.push("--allowedTools", ...preset.allowedTools);
+  argv.push(...toolRuleArgs(preset));
   if (opts.model) argv.push("--model", opts.model);
   const effortTier = effortForSpawn(opts.effort ?? null);
   if (effortTier) argv.push("--effort", effortTier);

@@ -407,6 +407,19 @@ public actor LocalServerSupervisor {
   public func logLines() async -> [String] { await log.lines }
   public func clearCapturedPassword() { capturedPassword = nil }
 
+  /// Whether the listener on the port is, right now, the child this supervisor
+  /// runs: a fresh `/api/health` whose install identity matches the one
+  /// recorded at launch or adoption. The instance ID is minted per launch, so
+  /// a process that took the port after the child went cannot know it. The
+  /// app's credential gate asks this before any request carries the token.
+  public func verifyLiveIdentity() async -> Bool {
+    guard state.isRunning, let expected = ownership?.identity ?? launchIdentity else { return false }
+    // `health` answers only for a listener whose identity matches `expected`.
+    guard await health(expected) != nil else { return false }
+    // Actor reentrancy: the child may have exited during the health read.
+    return state.isRunning
+  }
+
   /// Spawns the child and waits until it answers `/api/health`. A no-op only
   /// while already `.running`, or while a spawn is already in flight
   /// (`.starting` with a live `process`) — not "idempotent" in general.

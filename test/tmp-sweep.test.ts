@@ -1,5 +1,13 @@
 import { test, expect, describe, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, existsSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  utimesSync,
+  existsSync,
+} from "node:fs";
 import * as fsp from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +34,7 @@ import {
   sessionScratchpadDirCandidates,
   existingScratchpadDir,
   scratchpadHasFiles,
+  isPrivateDirStat,
   sessionScratchRootCandidates,
   removeHelperScratch,
   sweepOrphanedScratch,
@@ -899,11 +908,44 @@ describe("agent tmp dir geometry (#1875)", () => {
     const sid = "sess-legacy";
     const dash = wt.replace(/[/.]/g, "-");
     const legacyDir = join(legacyBase, nested, dash, sid, "scratchpad");
+    mkdirSync(join(legacyBase, nested), { mode: 0o700 }); // private, as claude creates it (N11)
     mkdirSync(legacyDir, { recursive: true });
     writeFileSync(join(legacyDir, "note.txt"), "x");
     // Only the legacy dir exists → resolver falls back to it, and the Files-tab gate lights.
     expect(await existingScratchpadDir(wt, sid)).toBe(legacyDir);
     expect(await scratchpadHasFiles(wt, sid)).toBe(true);
+  });
+
+  test("isPrivateDirStat: real dir owned by this uid, optional exact mode", () => {
+    const st = (o: { dir?: boolean; link?: boolean; uid?: number; mode?: number }) => ({
+      isDirectory: () => o.dir ?? true,
+      isSymbolicLink: () => o.link ?? false,
+      uid: o.uid ?? 1000,
+      mode: o.mode ?? 0o40700,
+    });
+    expect(isPrivateDirStat(st({}), 1000, 0o700)).toBe(true);
+    expect(isPrivateDirStat(st({ mode: 0o40755 }), 1000)).toBe(true);
+    expect(isPrivateDirStat(st({ mode: 0o40755 }), 1000, 0o700)).toBe(false);
+    expect(isPrivateDirStat(st({ uid: 1001 }), 1000, 0o700)).toBe(false);
+    expect(isPrivateDirStat(st({ link: true }), 1000)).toBe(false);
+    expect(isPrivateDirStat(st({ dir: false }), 1000)).toBe(false);
+  });
+
+  test("existingScratchpadDir: a legacy tree that is not private to this uid → primary", async () => {
+    const diskRoot = mkTmp();
+    const legacyBase = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", diskRoot);
+    setEnv("TMPDIR", legacyBase);
+    const wt = "/home/u/Work/proj";
+    const sid = "sess-open";
+    const dash = wt.replace(/[/.]/g, "-");
+    mkdirSync(join(legacyBase, nested), { mode: 0o700 });
+    chmodSync(join(legacyBase, nested), 0o755); // e.g. pre-created by another local user
+    const legacyDir = join(legacyBase, nested, dash, sid, "scratchpad");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, "planted"), "x");
+    expect(await existingScratchpadDir(wt, sid)).toBe(join(diskRoot, dash, sid, "scratchpad"));
+    expect(await scratchpadHasFiles(wt, sid)).toBe(false);
   });
 
   test("existingScratchpadDir: prefers the disk root when BOTH exist", async () => {

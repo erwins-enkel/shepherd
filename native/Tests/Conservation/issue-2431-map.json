@@ -12927,7 +12927,20 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsDecodeEmptySnapshots(hasETag: Bool) async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"conditionalListsPreserveValidators(validator: String) async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"loginRateLimited() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"inheritRepoSettingFollowsTheServersGlobalDefault()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"inheritRepoSettingFollowsTheServersGlobalDefault()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"aDroppedConnectionClosesTheGateAndAnAnonymous401AsksForNoPassword() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"anUnverifiedLocalServerGetsNoTokenUntilItProvesItself() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"aVerifiedLocalServerStartsAtOnceWithTheToken() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"withoutAGateTheLocalTokenIsSentAsBefore() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/CredentialGateTests.swift\",\"CredentialGateTests\",\"boundToTheVerifiedKey() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/CredentialGateTests.swift\",\"CredentialGateTests\",\"closedByDefault() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/CredentialGateTests.swift\",\"CredentialGateTests\",\"closeWithholds() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/CredentialGateTests.swift\",\"CredentialGateTests\",\"refreshFollowsTheVerdict() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/CredentialGateTests.swift\",\"CredentialGateTests\",\"staleVerificationStaysClosed() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/CredentialGateTests.swift\",\"CredentialGateTests\",\"writesPassThrough() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLiveIdentityTests.swift\",\"LocalServerLiveIdentityTests\",\"liveIdentityHoldsOnlyWhileTheRunningChildAnswersAsItself() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"signingOutOfAnUnverifiedLocalServerRevokesNothingAndClearsTheToken() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/LocalCredentialGateTests.swift\",\"CoreSeamTests.LocalCredentialGateTests\",\"signingOutOfAVerifiedLocalServerRevokesWithTheToken() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

@@ -236,7 +236,10 @@ function forgeGateFailure(s: MergeSessionView): MergeWaitCode | null {
 
 /** The verdict half of the gate. A stale `changes_requested`/`error` (older head) still blocks,
  *  but reads as `critic_pending`: the re-review of the new head is what clears it. */
-function verdictGateFailure(s: MergeSessionView, criticEnabled: boolean): MergeWaitCode | null {
+export function verdictGateFailure(
+  s: Pick<MergeSessionView, "reviewDecision" | "reviewHeadSha" | "headSha">,
+  criticEnabled: boolean,
+): MergeWaitCode | null {
   const staleVerdict = criticEnabled && s.reviewHeadSha !== s.headSha;
   if (s.reviewDecision === "changes_requested")
     return staleVerdict ? "critic_pending" : "changes_requested";

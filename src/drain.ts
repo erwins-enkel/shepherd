@@ -92,6 +92,7 @@ import { collectLandingManualSteps } from "./epic-landing-steps";
 import { parseEpicBody } from "./epic-parse";
 import { diagnoseEpic, type EpicDiagnosis } from "./epic-diagnosis";
 import { noCiMergeHeld, repoHasNoCiCached } from "./checks-gate";
+import { verdictGateFailure } from "./automerge-core";
 import {
   EmptyDiffError,
   MergeEnqueuedError,
@@ -371,6 +372,7 @@ export interface DrainDeps {
     | "getRepoConfig"
     | "getRepoBootstrap"
     | "getReview"
+    | "getPrReview"
     | "archive"
     | "getEpicRun"
     | "setEpicRun"
@@ -4261,7 +4263,8 @@ export class DrainService {
    * {@link tick} alongside {@link ensureLandingPrsForRepo} — the session-less landing PR has no
    * managed session, so it can't ride the session-owned `AutoMergeService`; the drain (which
    * already OPENS these PRs) is its home. Mirrors the manual land endpoint's action
-   * (`forge.merge` + landingState→'merged') and AutoMergeService's guardrails, scoped to landing PRs.
+   * (`forge.merge` + landingState→'merged') and AutoMergeService's guardrails, scoped to landing PRs
+   * — including its critic verdict gate (#3367), read from the standalone critic's pr_reviews row.
    *
    * Opt-in gate: `draftMode ? false : autoMergeEnabled` — the SAME effective merge predicate the
    * session train uses (isFullAuto's merge half), so draftMode suppresses auto-land too.
@@ -4315,7 +4318,7 @@ export class DrainService {
    *   - PR merged out-of-band → reconcile row to 'merged' (covers a manual land / external merge,
    *     and closes the manual-vs-auto DB-staleness window).
    *   - PR closed/none → reconcile to terminal 'none' (human-closed/vanished) so we stop re-polling.
-   *   - draft / not-ready / backed-off → skip.
+   *   - draft / not-ready / no critic clearance for this head (#3367) / backed-off → skip.
    *   - ready → forge.merge; success → reconcile 'merged' + clear backoff; failure → see
    *     {@link handleAutoLandMergeError} (lost race reconciles; genuine failure arms the backoff).
    */
@@ -4343,11 +4346,14 @@ export class DrainService {
     // not green / mergeable yet (no-CI repos: a terminal checks:"none" + clean mergeStateStatus is ready)
     const noCi = repoHasNoCiCached(forge.kind, repoPath);
     if (!computeLandingReady(pr, noCi)) return;
+    const cfg = this.deps.store.getRepoConfig(repoPath);
     // #3104: no CI ran on it — hold for the operator (Land CTA) unless the repo opts in.
-    if (noCiMergeHeld(pr.checks, noCi, this.deps.store.getRepoConfig(repoPath).mergeWithoutCi))
-      return;
+    if (noCiMergeHeld(pr.checks, noCi, cfg.mergeWithoutCi)) return;
     // F09: bind the merge to the head just read as ready; without one there is nothing to bind.
     if (!pr.headSha) return;
+    // #3367: the session train's verdict gate, on the landing PR's pr_reviews row — the critic
+    // must have cleared this exact head. Held → Land CTA (or the next sweep's verdict).
+    if (this.landingVerdictHeld(repoPath, prNumber, pr.headSha, cfg.criticEnabled)) return;
     const key = `${repoPath}#${parentIssueNumber}`;
     if (this.landMergeBlocked(key, pr.headSha)) return; // backed off on this head
     try {
@@ -4365,6 +4371,24 @@ export class DrainService {
     }
     this.landMergeFail.delete(key); // success clears any backoff
     this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", pr);
+  }
+
+  /** Whether the standalone critic's landing-PR verdict holds the merge of `headSha`. Same
+   *  semantics as the session train ({@link verdictGateFailure}): critic ON needs a non-blocking
+   *  verdict for this exact head; a stored changes_requested/error blocks either way. */
+  private landingVerdictHeld(
+    repoPath: string,
+    prNumber: number,
+    headSha: string,
+    criticEnabled: boolean,
+  ): boolean {
+    const review = this.deps.store.getPrReview(repoPath, prNumber);
+    const view = {
+      reviewDecision: review?.decision || null, // "" = row without a verdict yet
+      reviewHeadSha: review?.headSha ?? null,
+      headSha,
+    };
+    return verdictGateFailure(view, criticEnabled) !== null;
   }
 
   /**

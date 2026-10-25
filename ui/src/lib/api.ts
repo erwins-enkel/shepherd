@@ -29,6 +29,7 @@ import type {
   MergeMethod,
   Settings,
   HouseStack,
+  IssueFilterSettings,
   HouseStackResolution,
   DirListing,
   ScratchListing,
@@ -1052,6 +1053,11 @@ export const putMachinePlatformOrder = (
 ): Promise<{ machinePlatformOrder: string[] }> => patchSettings({ machinePlatformOrder: order });
 
 /** The operator's House Stack (#3108); the server validates and normalizes it. */
+/** Partial default issue filter (#3017), merged onto the stored value server-side. */
+export const putIssueFilter = (
+  issueFilter: Partial<IssueFilterSettings>,
+): Promise<{ issueFilter: IssueFilterSettings }> => patchSettings({ issueFilter });
+
 export const putHouseStack = (houseStack: HouseStack): Promise<{ houseStack: HouseStack }> =>
   patchSettings({ houseStack });
 

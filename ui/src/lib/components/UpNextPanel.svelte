@@ -14,6 +14,18 @@
   import UpNextPreview from "./UpNextPreview.svelte";
   import UpNextSortMenu from "./UpNextSortMenu.svelte";
   import UpNextStartPicker from "./UpNextStartPicker.svelte";
+  import UpNextFilterFlyout from "./UpNextFilterFlyout.svelte";
+  import UpNextFilterChips from "./UpNextFilterChips.svelte";
+  import UpNextFilteredEmpty from "./UpNextFilteredEmpty.svelte";
+  import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import {
+    activeChips,
+    activeRuleCount,
+    forkRepos,
+    hiddenFor,
+    labelOptions,
+  } from "./up-next-filter";
 
   type SortMode = "recommended" | "newest" | "oldest" | "title-asc" | "title-desc";
   type RenderGroup = UpNextBandGroup;
@@ -42,6 +54,7 @@
   onMount(() => {
     sortMode = readStoredSortMode();
     readStoredCollapsed();
+    void issueFilterSettings.ensureLoaded();
     return upNext.open();
   });
 
@@ -167,6 +180,23 @@
       (upNext.loadError && sections.length === 0),
   );
   const isEmpty = $derived(computed && !loadFailed && sections.length === 0);
+
+  // The default issue filter (#3018): the server applies it; the panel shows what it hides.
+  const filter = $derived(issueFilterSettings.value);
+  const ruleCount = $derived(filter ? activeRuleCount(filter) : 0);
+  const filterChips = $derived(filter ? activeChips(filter) : []);
+  const hidden = $derived(hiddenFor(snap?.filter, repoFilter));
+  // hiddenBy covers the whole queue, so the per-rule breakdown only shows unscoped.
+  const hiddenBy = $derived(repoFilter.size === 0 ? snap?.filter?.hiddenBy : undefined);
+  let panelEl = $state<HTMLElement>();
+  let headEl = $state<HTMLElement>();
+  let filterBtn = $state<HTMLButtonElement>();
+  let chipsEl = $state<HTMLButtonElement>();
+  let filterOpen = $state(false);
+  function closeFilter() {
+    filterOpen = false;
+    filterBtn?.focus();
+  }
   const updatedAgo = $derived(
     snap?.generatedAt != null ? formatAgo(clock.current - snap.generatedAt) : null,
   );
@@ -319,14 +349,32 @@
 {#if flowPreview}
   <UpNextPreview {launchContext} onback={() => (upNextUi.previewKey = null)} />
 {:else}
-  <section class="upnext" class:flow aria-label={m.upnext_title()}>
-    <header class="un-head">
+  <section class="upnext" class:flow aria-label={m.upnext_title()} bind:this={panelEl}>
+    <header class="un-head" bind:this={headEl}>
       <div class="un-head-text">
         <span class="un-title-h">{m.upnext_title()}</span>
         {#if updatedAgo}
           <span class="un-updated">{m.upnext_updated_ago({ ago: updatedAgo })}</span>
         {/if}
       </div>
+      {#if filter}
+        <button
+          bind:this={filterBtn}
+          type="button"
+          class={["un-filterbtn", { active: filterOpen || ruleCount > 0 }]}
+          aria-haspopup="dialog"
+          aria-expanded={filterOpen}
+          aria-label={m.upnext_filter_button_aria({ count: ruleCount })}
+          title={m.upnext_filter_title()}
+          onclick={() => (filterOpen ? closeFilter() : (filterOpen = true))}
+          use:coachTarget={"upnext-filter"}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M1.5 2.5h11L8.25 7.4v3.6l-2.5 1.2V7.4L1.5 2.5Z" stroke="currentColor" />
+          </svg>
+          {#if ruleCount > 0}<span class="badge" aria-hidden="true">{ruleCount}</span>{/if}
+        </button>
+      {/if}
       <button
         type="button"
         class="un-refresh"
@@ -350,6 +398,15 @@
       </div>
     </header>
 
+    {#if filterChips.length > 0}
+      <UpNextFilterChips
+        bind:el={chipsEl}
+        chips={filterChips}
+        {hidden}
+        onopen={() => (filterOpen = true)}
+      />
+    {/if}
+
     <div class="un-body">
       {#if loadFailed}
         <!-- Fetch failed (GET threw, or every-/some-repo issue fetch errored into an empty queue):
@@ -358,6 +415,13 @@
       {:else if !computed}
         <!-- No server snapshot yet (first compute in flight) → loading, never the all-clear. -->
         <p class="un-muted">{m.common_loading()}</p>
+      {:else if isEmpty && hidden > 0}
+        <UpNextFilteredEmpty
+          {hidden}
+          {hiddenBy}
+          onadjust={filter ? () => (filterOpen = true) : undefined}
+          {onbacklog}
+        />
       {:else if isEmpty}
         <div class="un-empty">
           <p class="un-muted">
@@ -431,6 +495,22 @@
   />
 {/if}
 
+{#if filterOpen && filter && panelEl && headEl}
+  <UpNextFilterFlyout
+    reference={flow ? headEl : panelEl}
+    trigger={filterBtn}
+    inside={[filterBtn, chipsEl]}
+    {flow}
+    {filter}
+    stats={snap?.filter}
+    labels={labelOptions(snap, filter.hiddenLabels)}
+    forkRepos={forkRepos(snap)}
+    onchange={(patch) => void issueFilterSettings.update(patch)}
+    onreset={() => void issueFilterSettings.reset()}
+    onclose={closeFilter}
+  />
+{/if}
+
 <UpNextStartPicker {starter} />
 
 <style>
@@ -491,7 +571,8 @@
     display: inline-flex;
   }
   .un-refresh,
-  .un-sortbtn {
+  .un-sortbtn,
+  .un-filterbtn {
     flex: none;
     display: inline-flex;
     align-items: center;
@@ -512,14 +593,39 @@
       border-color 0.12s ease;
   }
   .un-refresh:hover:not(:disabled),
-  .un-sortbtn:hover {
+  .un-sortbtn:hover,
+  .un-filterbtn:hover {
     color: var(--color-amber);
     border-color: var(--color-amber);
   }
   .un-refresh:focus-visible,
-  .un-sortbtn:focus-visible {
+  .un-sortbtn:focus-visible,
+  .un-filterbtn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* Funnel + active-rule badge: the IssueFilterPopover icon-only .filter-chip + .badge recipe. */
+  .un-filterbtn {
+    gap: 4px;
+  }
+  .un-filterbtn.active {
+    color: var(--color-ink-bright);
+    background: var(--color-inset);
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    font-family: var(--font-mono);
+    line-height: 1;
   }
   .un-refresh:disabled {
     opacity: 0.4;
@@ -630,6 +736,7 @@
   .un-empty .un-muted {
     padding: 0;
   }
+
   .un-backlog-link {
     background: none;
     border: 0;

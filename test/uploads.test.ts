@@ -22,6 +22,7 @@ import {
   worktreeUploadsDir,
   copyStagedIntoWorktree,
   sweepStaging,
+  sweepAssistantUploads,
   uploadExtension,
   uploadExtensionFromName,
   uploadFilename,
@@ -158,6 +159,47 @@ test("sweepStaging is a no-op when staging dir is absent", () => {
   expect(() => sweepStaging(root, 1000, Date.now())).not.toThrow();
 });
 
+const backdate = (p: string, now: number) => {
+  const sec = (now - 48 * 3600_000) / 1000;
+  utimesSync(p, sec, sec);
+};
+
+test("sweepAssistantUploads drops assistant uploads past the 24h TTL, keeps fresh ones", () => {
+  const dir = worktreeUploadsDir(root);
+  mkdirSync(dir, { recursive: true });
+  const old = join(dir, "old.png");
+  const fresh = join(dir, "fresh.png");
+  writeFileSync(old, "x");
+  writeFileSync(fresh, "y");
+  const now = Date.now();
+  backdate(old, now);
+
+  sweepAssistantUploads(root, now);
+
+  expect(existsSync(old)).toBe(false);
+  expect(existsSync(fresh)).toBe(true);
+});
+
+test("sweepAssistantUploads never sweeps through a symlinked uploads dir", () => {
+  const host = join(root, "host");
+  mkdirSync(host);
+  const victim = join(host, "keep.png");
+  writeFileSync(victim, "x");
+  const now = Date.now();
+  backdate(victim, now);
+  const assistant = join(root, "assistant");
+  mkdirSync(assistant);
+  symlinkSync(host, worktreeUploadsDir(assistant));
+
+  sweepAssistantUploads(assistant, now);
+
+  expect(existsSync(victim)).toBe(true);
+});
+
+test("sweepAssistantUploads is a no-op when the uploads dir is absent", () => {
+  expect(() => sweepAssistantUploads(join(root, "none"), Date.now())).not.toThrow();
+});
+
 test("uploadExtension derives bounded safe extensions for staged attachments", () => {
   expect(uploadExtension(new File(["x"], "report.pdf", { type: "application/pdf" }))).toBe("pdf");
   // MIME fallback for a nameless video — unit-level only: Bun's multipart round-trip
@@ -232,6 +274,36 @@ test("handleUpload saves staged non-image attachments when no session given", as
     expect(existsSync(body.path)).toBe(true);
   }
 });
+
+for (const operatorAssistant of [true, false]) {
+  test(`handleUpload into ${operatorAssistant ? "the assistant" : "a task session"} ${operatorAssistant ? "sweeps" : "keeps"} uploads past the TTL`, async () => {
+    const store = new SessionStore(":memory:");
+    const wt = join(root, "wt-sweep");
+    mkdirSync(worktreeUploadsDir(wt), { recursive: true });
+    const old = join(worktreeUploadsDir(wt), "old.png");
+    writeFileSync(old, "x");
+    backdate(old, Date.now());
+    const s = store.create({
+      name: "n",
+      prompt: "",
+      repoPath: wt,
+      baseBranch: "",
+      branch: null,
+      worktreePath: wt,
+      isolated: false,
+      herdrSession: "default",
+      herdrAgentId: "term_a",
+      claudeSessionId: "00000000-0000-0000-0000-000000000000",
+      model: null,
+      operatorAssistant,
+    });
+    const file = new File([new Uint8Array([9])], "x.png", { type: "image/png" });
+    const res = await handleUpload(uploadReq(file, `?session=${s.id}`), { store, repoRoot: root });
+    expect(res.status).toBe(200);
+    expect(existsSync((await res.json()).path)).toBe(true);
+    expect(existsSync(old)).toBe(!operatorAssistant);
+  });
+}
 
 test("handleUpload saves into the session worktree when ?session= is valid", async () => {
   const store = new SessionStore(":memory:");

@@ -74,6 +74,21 @@ describe("unsettled", () => {
     );
   });
 
+  it("settles a send with images on an echo containing the typed words", () => {
+    const withImage = { text: "look\n\n/a/x.png", at: 100_000, match: "look" };
+    expect(
+      unsettled([withImage], [{ kind: "user", text: "look\n\n[Image #1]", ts: 101_000 }]),
+    ).toEqual([]);
+    expect(unsettled([withImage], [{ kind: "user", text: "other", ts: 101_000 }])).toEqual([
+      withImage,
+    ]);
+    const imageOnly = { text: "/a/x.png", at: 100_000, match: "" };
+    expect(unsettled([imageOnly], [{ kind: "user", text: "[Image #1]", ts: 30_000 }])).toEqual([
+      imageOnly,
+    ]);
+    expect(unsettled([imageOnly], [{ kind: "user", text: "[Image #1]", ts: 101_000 }])).toEqual([]);
+  });
+
   it("settles each repeated send with its own echo", () => {
     const first = { text: "Yes", at: 100_000 };
     const second = { text: "Yes", at: 110_000 };

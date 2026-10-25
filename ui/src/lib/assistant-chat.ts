@@ -63,6 +63,9 @@ export interface PendingSend {
   text: string;
   /** ms epoch (browser clock) of the send. */
   at: number;
+  /** Set when images rode along: Claude may rewrite their pasted paths, so the echo only has to
+   *  contain these typed words (any user row when empty), not equal `text`. */
+  match?: string;
 }
 
 /** Browser and server clocks may disagree; a logged echo may carry a slightly earlier stamp. */
@@ -78,7 +81,9 @@ export function unsettled(pending: PendingSend[], entries: ChatEntry[]): Pending
       (e, j) =>
         !used.has(j) &&
         e.kind === "user" &&
-        e.text.trim() === p.text.trim() &&
+        (p.match === undefined
+          ? e.text.trim() === p.text.trim()
+          : e.text.includes(p.match.trim())) &&
         e.ts >= p.at - ECHO_SKEW_MS,
     );
     if (i < 0) return true;

@@ -243,7 +243,16 @@ export function sweepStaging(
   now: number,
   keep: ReadonlySet<string> = new Set(),
 ): void {
-  const dir = stagingDir(repoRoot);
+  sweepOldFiles(stagingDir(repoRoot), maxAgeMs, now, keep);
+}
+
+/** Delete the entries of `dir` older than `maxAgeMs`, except `keep`. Best-effort; absent dir → no-op. */
+function sweepOldFiles(
+  dir: string,
+  maxAgeMs: number,
+  now: number,
+  keep: ReadonlySet<string> = new Set(),
+): void {
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
     if (keep.has(name)) continue;
@@ -254,6 +263,21 @@ export function sweepStaging(
       /* best-effort */
     }
   }
+}
+
+/**
+ * The Operator Assistant's dir outlives every conversation, so its composer attachments would pile
+ * up: drop those past STAGING_TTL_MS. Its uploads dir is reachable by the assistant's shell, so a
+ * symlinked one is left alone (never sweep through it into a host dir).
+ */
+export function sweepAssistantUploads(assistantDir: string, now: number): void {
+  const dir = worktreeUploadsDir(assistantDir);
+  try {
+    if (!lstatSync(dir).isDirectory()) return;
+  } catch {
+    return;
+  }
+  sweepOldFiles(dir, STAGING_TTL_MS, now);
 }
 
 const j = (body: unknown, status = 200): Response =>
@@ -281,6 +305,20 @@ export async function parseUploadFile(req: Request): Promise<File | Response> {
   return file;
 }
 
+/** A session's uploads dir, or the error response when it has none to write into. */
+function sessionUploadsDir(store: UploadDeps["store"], sessionId: string): string | Response {
+  const s = store.get(sessionId);
+  if (!s) return j({ error: "unknown session" }, 404);
+  try {
+    assertUploadsDirSafe(s.worktreePath);
+  } catch (e) {
+    if (e instanceof UploadsDirInvalid) return j({ error: "uploads_dir_invalid" }, 409);
+    throw e;
+  }
+  if (s.operatorAssistant) sweepAssistantUploads(s.worktreePath, Date.now());
+  return worktreeUploadsDir(s.worktreePath);
+}
+
 /** POST /api/uploads — multipart `file`; optional `?session=<id>`. Returns { path }. */
 export async function handleUpload(req: Request, deps: UploadDeps): Promise<Response> {
   const file = await parseUploadFile(req);
@@ -295,20 +333,8 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   // upload. `uploadExtension` is the containment: the extension is SAFE_EXT_RE-sanitized (`bin`
   // otherwise) and the stored name is a fresh UUID, so the raw filename never reaches the FS.
   const ext = uploadExtension(file);
-  let destDir: string;
-  if (sessionId) {
-    const s = deps.store.get(sessionId);
-    if (!s) return j({ error: "unknown session" }, 404);
-    try {
-      assertUploadsDirSafe(s.worktreePath);
-    } catch (e) {
-      if (e instanceof UploadsDirInvalid) return j({ error: "uploads_dir_invalid" }, 409);
-      throw e;
-    }
-    destDir = worktreeUploadsDir(s.worktreePath);
-  } else {
-    destDir = stagingDir(deps.repoRoot);
-  }
+  const destDir = sessionId ? sessionUploadsDir(deps.store, sessionId) : stagingDir(deps.repoRoot);
+  if (destDir instanceof Response) return destDir;
 
   mkdirSync(destDir, { recursive: true });
   const prefix = !sessionId && deps.stagingTokenId ? `${deps.stagingTokenId}-` : "";

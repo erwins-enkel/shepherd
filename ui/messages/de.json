@@ -7165,5 +7165,12 @@
   "bootstrap_checklist_next_ci_waiting": "Gemergt — die nächste Phase beginnt, sobald die CI auf dem Default-Branch grün ist.",
   "bootstrap_checklist_next_ci_failed": "Gemergt, aber die CI auf dem Default-Branch ist fehlgeschlagen. Die nächste Phase wartet, bis sie repariert ist.",
   "bootstrap_checklist_start_fixci": "CI reparieren",
-  "bootstrap_checklist_fixci_seed": "Die CI auf dem Default-Branch schlägt seit dem letzten Bootstrap-Merge fehl. Finde den fehlgeschlagenen Workflow-Lauf (auch eine ungültige Workflow-Datei zählt), behebe den Fehler und bring die CI auf Grün — ein PR."
+  "bootstrap_checklist_fixci_seed": "Die CI auf dem Default-Branch schlägt seit dem letzten Bootstrap-Merge fehl. Finde den fehlgeschlagenen Workflow-Lauf (auch eine ungültige Workflow-Datei zählt), behebe den Fehler und bring die CI auf Grün — ein PR.",
+  "assistant_chat_composer": "Nachricht verfassen",
+  "assistant_chat_attach": "Bilder anhängen",
+  "assistant_chat_attachment_image": "Bild",
+  "assistant_chat_attachment_uploading": "wird hochgeladen…",
+  "assistant_chat_attachment_failed": "Ein Bild wurde nicht hochgeladen. Entferne es, um zu senden.",
+  "feat_assistant_image_attachments_title": "Zeig dem Assistenten einen Screenshot",
+  "feat_assistant_image_attachments_body": "Füge ein Bild in das Nachrichtenfeld des Operator-Assistenten ein, zieh es hinein oder wähle es über die Büroklammer. Es geht mit deiner nächsten Nachricht mit, damit der Assistent es sich ansehen kann."
 }

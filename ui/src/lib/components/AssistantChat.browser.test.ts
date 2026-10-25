@@ -15,6 +15,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getSessionMessages: vi.fn(),
     answerAsk: vi.fn(),
     resolveActionRequest: vi.fn(),
+    uploadFile: vi.fn(),
   };
 });
 
@@ -31,7 +32,9 @@ vi.mock("#lib/visibility.js", () => ({
 }));
 
 const { default: AssistantChat } = await import("./AssistantChat.svelte");
-const { getSessionMessages, answerAsk, resolveActionRequest } = await import("#lib/api.js");
+const { getSessionMessages, answerAsk, resolveActionRequest, uploadFile } =
+  await import("#lib/api.js");
+const mockUpload = vi.mocked(uploadFile);
 const mockResolveAction = vi.mocked(resolveActionRequest);
 const mockMessages = vi.mocked(getSessionMessages);
 const mockAnswer = vi.mocked(answerAsk);
@@ -690,5 +693,104 @@ describe("AssistantChat Action Request (audit F08)", () => {
     await userEvent.click(page.getByRole("button", { name: m.assistant_action_request_deny() }));
     expect(mockResolveAction).toHaveBeenCalledWith("a1", "q1", "denied");
     await expect.element(page.getByText(m.assistant_action_request_failed())).toBeVisible();
+  });
+});
+
+describe("AssistantChat attachments", () => {
+  const png = (name = "shot.png") => new File([new Uint8Array([1])], name, { type: "image/png" });
+  const transfer = (...files: File[]) => {
+    const dt = new DataTransfer();
+    for (const f of files) dt.items.add(f);
+    return dt;
+  };
+  const textarea = () => document.querySelector<HTMLTextAreaElement>(".ac-field textarea")!;
+  const paste = (dt: DataTransfer) => {
+    const e = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+    textarea().dispatchEvent(e);
+    return e;
+  };
+  const sendButton = () => page.getByRole("button", { name: m.assistant_chat_send(), exact: true });
+  const remove = () => page.getByRole("button", { name: m.newtask_remove_image_aria() });
+
+  beforeEach(() => {
+    mockUpload.mockReset();
+    mockUpload.mockResolvedValue("/a/.shepherd-uploads/u1.png");
+  });
+
+  it("a pasted image uploads into the assistant session and rides along with the message", async () => {
+    const p = props();
+    render(AssistantChat, p);
+    await expect.element(composer()).toBeVisible();
+    const file = png();
+    expect(paste(transfer(file)).defaultPrevented).toBe(true);
+    expect(mockUpload).toHaveBeenCalledExactlyOnceWith(file, "a1");
+    await expect.element(page.getByRole("button", { name: /shot\.png/ }).first()).toBeVisible();
+    await composer().fill("what is this?");
+    await sendButton().click();
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(
+      "what is this?\n\n/a/.shepherd-uploads/u1.png",
+    );
+    await expect.element(remove()).not.toBeInTheDocument();
+  });
+
+  it("sends an image alone, and a text paste stays a text paste", async () => {
+    const p = props();
+    render(AssistantChat, p);
+    await expect.element(composer()).toBeVisible();
+    const dt = new DataTransfer();
+    dt.setData("text/plain", "hello");
+    expect(paste(dt).defaultPrevented).toBe(false);
+    expect(mockUpload).not.toHaveBeenCalled();
+    await expect.element(sendButton()).toBeDisabled();
+    paste(transfer(png()));
+    await expect.element(sendButton()).toBeEnabled();
+    await sendButton().click();
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith("/a/.shepherd-uploads/u1.png");
+  });
+
+  it("holds Send while uploading and blocks it on a failed upload until removed", async () => {
+    let finish!: (path: string) => void;
+    mockUpload.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const p = props();
+    render(AssistantChat, p);
+    await composer().fill("look");
+    paste(transfer(png()));
+    await expect.element(page.getByText(m.assistant_chat_attachment_uploading())).toBeVisible();
+    await expect.element(sendButton()).toBeDisabled();
+    finish("/a/.shepherd-uploads/u1.png");
+    await expect.element(sendButton()).toBeEnabled();
+    await remove().click();
+
+    mockUpload.mockRejectedValueOnce(new Error("413"));
+    paste(transfer(png()));
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent(m.assistant_chat_attachment_failed());
+    await expect.element(sendButton()).toBeDisabled();
+    await remove().click();
+    await sendButton().click();
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith("look");
+  });
+
+  it("takes dropped and picked images, ignoring other files", async () => {
+    render(AssistantChat, props());
+    await expect.element(composer()).toBeVisible();
+    const form = document.querySelector<HTMLFormElement>(".ac-composer")!;
+    const drop = new DragEvent("drop", {
+      dataTransfer: transfer(png("drop.png"), new File(["x"], "notes.txt", { type: "text/plain" })),
+      bubbles: true,
+      cancelable: true,
+    });
+    form.dispatchEvent(drop);
+    expect(drop.defaultPrevented).toBe(true);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(mockUpload.mock.calls[0]![0].name).toBe("drop.png");
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.accept).toBe("image/*");
+    input.files = transfer(png("picked.png")).files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(mockUpload).toHaveBeenCalledTimes(2);
+    expect(mockUpload.mock.calls[1]![0].name).toBe("picked.png");
   });
 });

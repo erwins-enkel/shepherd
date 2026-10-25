@@ -11,13 +11,16 @@
     SessionStatus,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { answerAsk, getSessionMessages, resolveActionRequest } from "#lib/api.js";
+  import { answerAsk, getSessionMessages, resolveActionRequest, uploadFile } from "#lib/api.js";
+  import { handleImagePaste } from "#lib/clipboard.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { clock } from "#lib/activity.js";
   import { chatEntries, unsettled, yesNoQuestions, type PendingSend } from "#lib/assistant-chat.js";
   import { askToQuestionForm } from "#lib/askForm.js";
   import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
   import MarkdownBody from "./MarkdownBody.svelte";
+  import AttachmentChips, { type Attachment } from "./assistant-chat/AttachmentChips.svelte";
+  import AttachButton from "./assistant-chat/AttachButton.svelte";
 
   // The Operator Assistant's conversation view: the transcript's text messages as a chat, and a
   // composer. Prompt text uses the panel's terminal socket (onsend), including the view report.
@@ -72,6 +75,12 @@
   let thread: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
 
+  // Images for the next message: each uploads into the assistant's dir at once; Send appends the
+  // stored paths to the text so the assistant can Read them.
+  let attachments = $state<Attachment[]>([]);
+  let nextAttachmentId = 0;
+  let dragging = $state(false);
+
   const herdDesigs = $derived(desigIndex(herd));
   const working = $derived(status === "running");
   const blocked = $derived(status === "blocked");
@@ -91,6 +100,11 @@
     });
   });
   const composerLocked = $derived(!!ask || answer?.result === "sending");
+  const uploadingAny = $derived(attachments.some((a) => a.path === null && !a.failed));
+  const failedAny = $derived(attachments.some((a) => a.failed));
+  const canSend = $derived(
+    (!!draft.trim() || attachments.length > 0) && !uploadingAny && !failedAny && !composerLocked,
+  );
   const answerText = $derived(
     answer
       ? {
@@ -196,6 +210,7 @@
       stick = true;
       data = null;
       pending = [];
+      untrack(() => (attachments = []));
     }
     let alive = true;
     const load = () =>
@@ -251,22 +266,55 @@
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_PX)}px`;
   }
 
-  function send(text: string): boolean {
+  function send(text: string, match?: string): boolean {
     if (!onsend(text)) {
       sendFailed = true;
       return false;
     }
     sendFailed = false;
-    pending = [...pending, { text, at: Date.now() }];
+    pending = [...pending, { text, at: Date.now(), match }];
     stick = true;
     return true;
   }
 
   function submit() {
-    const text = draft.trim();
-    if (!text || composerLocked || !send(text)) return;
+    if (!canSend) return;
+    const typed = draft.trim();
+    const paths = attachments.map((a) => a.path!);
+    const text = [typed, paths.join("\n")].filter(Boolean).join("\n\n");
+    if (!send(text, paths.length > 0 ? typed : undefined)) return;
     draft = "";
+    attachments = [];
     queueMicrotask(autosize);
+  }
+
+  function attach(files: Iterable<File>) {
+    const id = sessionId;
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) continue;
+      const a: Attachment = { id: nextAttachmentId++, file, path: null, failed: false };
+      attachments = [...attachments, a];
+      uploadFile(file, id).then(
+        (path) => setAttachment(a.id, { path }),
+        () => setAttachment(a.id, { failed: true }),
+      );
+    }
+  }
+
+  // Matched by id: a chip removed (or a session switched) while uploading is not brought back.
+  function setAttachment(id: number, patch: Partial<Attachment>) {
+    attachments = attachments.map((a) => (a.id === id ? { ...a, ...patch } : a));
+  }
+
+  function removeAttachment(id: number) {
+    attachments = attachments.filter((a) => a.id !== id);
+  }
+
+  function ondrop(e: DragEvent) {
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    dragging = false;
+    if (!composerLocked) attach(e.dataTransfer.files);
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -450,11 +498,25 @@
 
   <form
     class="ac-composer"
+    class:ac-dragging={dragging}
+    aria-label={m.assistant_chat_composer()}
     onsubmit={(e) => {
       e.preventDefault();
       submit();
     }}
+    ondragover={(e) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      dragging = true;
+    }}
+    ondragleave={(e) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dragging = false;
+    }}
+    {ondrop}
   >
+    {#if attachments.length > 0}
+      <AttachmentChips {attachments} coarse={touch || mobile} onremove={removeAttachment} />
+    {/if}
     <div class="ac-field">
       <textarea
         bind:this={input}
@@ -466,16 +528,22 @@
           sendFailed = false;
           autosize();
         }}
+        onpaste={(e) => {
+          if (!composerLocked) handleImagePaste(e, attach);
+        }}
         {onkeydown}></textarea>
+      <AttachButton disabled={composerLocked} onfiles={attach} />
       {#if working}
         <button type="button" class="gbtn" onclick={oninterrupt}>{m.assistant_chat_stop()}</button>
       {/if}
-      <button type="submit" class="gbtn primary" disabled={!draft.trim() || composerLocked}
+      <button type="submit" class="gbtn primary" disabled={!canSend}
         >{m.assistant_chat_send()}</button
       >
     </div>
     {#if composerLocked}
       <p class="ac-hint">{m.assistant_chat_answer_question()}</p>
+    {:else if failedAny}
+      <p class="ac-error" role="alert">{m.assistant_chat_attachment_failed()}</p>
     {:else if sendFailed}
       <p class="ac-error" role="alert">{m.assistant_chat_send_failed()}</p>
     {:else if !mobile && !touch}
@@ -641,6 +709,10 @@
     gap: 6px;
     padding: 12px 14px;
     border-top: 1px solid var(--color-line);
+  }
+  .ac-dragging .ac-field {
+    border-color: var(--color-amber);
+    border-style: dashed;
   }
   .ac-field {
     display: flex;

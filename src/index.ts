@@ -94,7 +94,7 @@ import { UsageLimitsService } from "./usage-limits";
 import { CodexUsageProvider, latestCodexStateDb, readCodexModelUsage } from "./codex-usage";
 import { UsageCalibrationCoordinator } from "./usage-calibration";
 import { HerdrUsageProbe } from "./usage-probe";
-import { sweepStaging, STAGING_TTL_MS } from "./uploads";
+import { sweepStaging, sweepAssistantUploads, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
 import { bootstrapAuth } from "./operator-auth";
 import { backupConfiguredMarker, lastSuccessMarker } from "./backup-paths";
@@ -693,6 +693,7 @@ function startBackground(): void {
 // the attachments of a task still waiting for its machine (#2775), uploaded only once it is sent
 deferredStarts.push(() => {
   sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now(), waitingAttachments(store));
+  sweepAssistantUploads(config.operatorAssistantDir, Date.now());
 });
 const herdr: IHerdrDriver = await selectHerdrDriver();
 const herdrSocketActive = herdr instanceof SocketHerdrDriver;

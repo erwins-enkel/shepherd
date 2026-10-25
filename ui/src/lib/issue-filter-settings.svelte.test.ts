@@ -13,6 +13,26 @@ const FILTER: IssueFilterSettings = {
 };
 const settings = (issueFilter?: IssueFilterSettings) => ({ issueFilter }) as unknown as Settings;
 
+function memStorage(entries: Record<string, string> = {}): Storage {
+  const map = new Map(Object.entries(entries));
+  return {
+    get length() {
+      return map.size;
+    },
+    clear: () => map.clear(),
+    getItem: (k) => map.get(k) ?? null,
+    key: (i) => [...map.keys()][i] ?? null,
+    removeItem: (k) => void map.delete(k),
+    setItem: (k, v) => void map.set(k, v),
+  };
+}
+const LEGACY_OFF = {
+  "shepherd:issues-hide-others": "0",
+  "shepherd:issues-hide-active": "1",
+  "shepherd:issues-hide-subissues": "0",
+  "shepherd:issues-hide-blocked": "0",
+};
+
 describe("IssueFilterSettingsStore", () => {
   test("loads once from /api/settings; an old server leaves it null", async () => {
     const read = vi.fn().mockResolvedValue(settings(FILTER));
@@ -108,5 +128,71 @@ describe("IssueFilterSettingsStore", () => {
       hiddenLabels: [],
     });
     expect(store.value?.hideActive).toBe(true);
+  });
+
+  test("effective falls back to the defaults until loaded", () => {
+    const store = new IssueFilterSettingsStore(vi.fn(), vi.fn(), () => null);
+    expect(store.effective).toEqual(FILTER);
+    store.apply({ ...FILTER, scope: "mine" });
+    expect(store.effective.scope).toBe("mine");
+  });
+
+  describe("legacy localStorage migration", () => {
+    test("PATCHes the old choices once onto a default server value, then drops the keys", async () => {
+      const storage = memStorage(LEGACY_OFF);
+      const migrated = {
+        ...FILTER,
+        scope: "all" as const,
+        hideActive: true,
+        hideSubIssues: false,
+        hideBlocked: false,
+      };
+      const write = vi.fn().mockResolvedValue({ issueFilter: migrated });
+      const store = new IssueFilterSettingsStore(
+        vi.fn().mockResolvedValue(settings(FILTER)),
+        write,
+        () => storage,
+      );
+      await store.ensureLoaded();
+      await vi.waitFor(() => expect(storage.length).toBe(0));
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(write).toHaveBeenCalledWith({
+        scope: "all",
+        hideActive: true,
+        hideSubIssues: false,
+        hideBlocked: false,
+      });
+      expect(store.value).toEqual(migrated);
+      store.reconnected();
+      await vi.waitFor(() => expect(store.value).toEqual(migrated));
+      expect(write).toHaveBeenCalledTimes(1);
+    });
+
+    test("never overwrites a server value someone already changed", async () => {
+      const storage = memStorage(LEGACY_OFF);
+      const write = vi.fn();
+      const store = new IssueFilterSettingsStore(
+        vi.fn().mockResolvedValue(settings({ ...FILTER, forks: "hide" })),
+        write,
+        () => storage,
+      );
+      await store.ensureLoaded();
+      await vi.waitFor(() => expect(storage.length).toBe(0));
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    test("keeps the keys when the write fails, for the next load", async () => {
+      const storage = memStorage({ "shepherd:issues-hide-active": "1" });
+      const write = vi.fn().mockRejectedValue(new Error("x"));
+      const store = new IssueFilterSettingsStore(
+        vi.fn().mockResolvedValue(settings(FILTER)),
+        write,
+        () => storage,
+      );
+      await store.ensureLoaded();
+      await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      expect(storage.length).toBe(1);
+      expect(store.value).toEqual(FILTER);
+    });
   });
 });

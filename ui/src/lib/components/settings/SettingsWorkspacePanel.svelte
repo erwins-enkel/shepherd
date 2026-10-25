@@ -5,6 +5,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import HighlightText from "./HighlightText.svelte";
   import SettingsHouseStackBlock from "./SettingsHouseStackBlock.svelte";
+  import SettingsIssueFilterBlock from "./SettingsIssueFilterBlock.svelte";
 
   let {
     repoRoot,
@@ -82,6 +83,7 @@
 </button>
 
 <div class="stack"><SettingsHouseStackBlock {payload} {query} /></div>
+<div class="stack"><SettingsIssueFilterBlock {query} /></div>
 
 <style>
   .micro {

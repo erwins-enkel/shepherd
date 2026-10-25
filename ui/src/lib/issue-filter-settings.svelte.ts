@@ -2,18 +2,18 @@ import type { IssueFilterSettings } from "./types";
 import { getSettings, putIssueFilter } from "./api";
 import { toasts } from "./toasts.svelte";
 import { m } from "./paraglide/messages.js";
-
-/** The Up Next defaults (src/issue-filter.ts DEFAULT_ISSUE_FILTER) that "Reset" restores. The
- *  Backlog-only toggles (hideActive/hideSubIssues/hideBlocked) are not part of this reset. */
-const UP_NEXT_FILTER_DEFAULTS: Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels"> = {
-  scope: "mine_unassigned",
-  forks: "all",
-  hiddenLabels: [],
-};
+import {
+  DEFAULT_ISSUE_FILTER,
+  browserStorage,
+  clearLegacy,
+  isDefaultIssueFilter,
+  legacyPatch,
+} from "./issue-filter-migration";
 
 /** The operator's server-persisted default issue filter (#3017), shared by every surface that
  *  shows issues. Reads /api/settings, follows the `settings:issue-filter` push, and writes
- *  optimistically — a failed write reverts and toasts. */
+ *  optimistically — a failed write reverts and toasts. The first load also migrates the old
+ *  localStorage toggles (#3019, see issue-filter-migration.ts). */
 export class IssueFilterSettingsStore {
   /** null = not loaded yet, or a server without the setting (hosts hide their filter UI). */
   value = $state<IssueFilterSettings | null>(null);
@@ -23,11 +23,18 @@ export class IssueFilterSettingsStore {
   private loading: Promise<void> | null = null;
   private wanted = false;
   private seq = 0;
+  private migrated = false;
 
   constructor(
     private read = getSettings,
     private write = putIssueFilter,
+    private storage = browserStorage,
   ) {}
+
+  /** What the issue lists filter by: the server value, or the defaults until it loads. */
+  get effective(): IssueFilterSettings {
+    return this.value ?? DEFAULT_ISSUE_FILTER;
+  }
 
   /** Load once; a failed read stays null and retries on the next call. */
   ensureLoaded(): Promise<void> {
@@ -49,6 +56,7 @@ export class IssueFilterSettingsStore {
         if (seq !== this.seq) return;
         this.value = s.issueFilter ?? null;
         this.confirmed = this.value;
+        void this.migrateLegacy();
       })
       .catch(() => {
         /* stays as is; retried on the next ensureLoaded/reconnect */
@@ -57,6 +65,26 @@ export class IssueFilterSettingsStore {
         this.loading = null;
       });
     return this.loading;
+  }
+
+  /** PATCH the old localStorage choices once, only onto a still-default server value, then drop
+   *  the keys. A failed write keeps them for the next load; no toast — nothing the operator did. */
+  private async migrateLegacy() {
+    const storage = this.storage();
+    if (this.migrated || !this.value || !storage) return;
+    this.migrated = true;
+    try {
+      const patch = legacyPatch(storage);
+      if (Object.keys(patch).length > 0 && isDefaultIssueFilter(this.value)) {
+        const seq = ++this.seq;
+        const r = await this.write(patch);
+        this.confirmed = r.issueFilter;
+        if (seq === this.seq) this.value = r.issueFilter;
+      }
+      clearLegacy(storage);
+    } catch {
+      this.migrated = false;
+    }
   }
 
   apply(value: IssueFilterSettings) {
@@ -82,7 +110,9 @@ export class IssueFilterSettingsStore {
   }
 
   reset(): Promise<void> {
-    return this.update({ ...UP_NEXT_FILTER_DEFAULTS, hiddenLabels: [] });
+    // Up Next's rules only; the Backlog-only toggles (hideActive/…) are not part of this reset.
+    const { scope, forks } = DEFAULT_ISSUE_FILTER;
+    return this.update({ scope, forks, hiddenLabels: [] });
   }
 
   clear() {

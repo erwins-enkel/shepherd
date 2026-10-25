@@ -130,6 +130,9 @@ function buildProbeMembrane(probeDir: string, deps: EgressBackendProbeDeps): Mem
  *  not that it routes anywhere. The real spawn passes the live ingress port. */
 const PROBE_GATEWAY_PORT = 7330;
 
+/** Probe payload: succeeds only when the sandboxed agent is not uid 0. */
+const PROBE_UID_CHECK = 'test "$(id -u)" != 0';
+
 /** Write probe config files to tmpDir and return the inner bwrap argv. */
 function buildProbeInnerArgv(tmpDir: string, deps: EgressBackendProbeDeps): string[] {
   const writeFile = deps.writeFile ?? ((p: string, d: string) => writeFileSync(p, d, "utf8"));
@@ -147,9 +150,10 @@ function buildProbeInnerArgv(tmpDir: string, deps: EgressBackendProbeDeps): stri
   const probeMembrane = buildProbeMembrane(tmpDir, deps);
   const membraneFlags = buildMembraneFlags(probeMembrane, deps);
   const overrideFlags = egressMembraneOverrideFlags(tmpDir, deps);
-  // Inner argv: bwrap <membrane flags> <egress override flags> -- /bin/sh -c "exit 0"
-  // This exercises userns-in-userns + egress override binds; exit 0 proves the stack.
-  return ["bwrap", ...membraneFlags, ...overrideFlags, "--", "/bin/sh", "-c", "exit 0"];
+  // Inner argv: bwrap <membrane flags> <egress override flags> -- /bin/sh -c <uid check>
+  // This exercises userns-in-userns + egress override binds; exit 0 proves the stack AND that the
+  // agent would not run as root (claude refuses to launch as root).
+  return ["bwrap", ...membraneFlags, ...overrideFlags, "--", "/bin/sh", "-c", PROBE_UID_CHECK];
 }
 
 /**
@@ -606,14 +610,21 @@ export interface EgressOverrideDeps extends PathProbeDeps {
    * Injectable so tests can simulate symlinked vs plain /etc/resolv.conf.
    */
   isSymlink?: (p: string) => boolean;
+  /** Host uid/gid the agent is mapped back to (default process.getuid()/getgid()). */
+  uid?: number;
+  gid?: number;
 }
 
 const RESOLV_CONF = "/etc/resolv.conf";
 const NSSWITCH_CONF = "/etc/nsswitch.conf";
 
 /**
- * Returns ADDITIVE bwrap bind flags to append AFTER the membrane flags.
+ * Returns ADDITIVE bwrap flags to append AFTER the membrane flags.
  *
+ * - `--unshare-user --uid <host uid> --gid <host gid>` — egress-runner execs bwrap inside
+ *   `unshare --map-root-user`, i.e. as uid 0. A nested user namespace maps the agent back to the
+ *   operator's real ids; claude refuses `--dangerously-skip-permissions` as root and would exit
+ *   at launch.
  * - `--ro-bind <tmpDir>/nsswitch.conf /etc/nsswitch.conf`
  * - `--ro-bind <tmpDir>/resolv.conf <realpath-of-/etc/resolv.conf>`
  *   (binding onto the symlink target avoids bwrap's inability to bind onto a
@@ -643,6 +654,11 @@ export function egressMembraneOverrideFlags(
   const resolvTarget = isSymlink(RESOLV_CONF) ? realpath(RESOLV_CONF) : RESOLV_CONF;
 
   return [
+    "--unshare-user",
+    "--uid",
+    String(deps.uid ?? process.getuid?.() ?? 0),
+    "--gid",
+    String(deps.gid ?? process.getgid?.() ?? 0),
     "--ro-bind",
     `${tmpDir}/nsswitch.conf`,
     NSSWITCH_CONF,

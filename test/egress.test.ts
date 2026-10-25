@@ -617,11 +617,32 @@ describe("egressMembraneOverrideFlags", () => {
     expect(probed.filter((p) => p !== "/etc/resolv.conf")).toHaveLength(0);
   });
 
-  test("result has exactly 6 elements: two --ro-bind triples", () => {
+  test("result is the uid remap then two --ro-bind triples", () => {
     const flags = egressMembraneOverrideFlags(tmpDir, { isSymlink: () => false });
-    expect(flags).toHaveLength(6);
-    expect(flags[0]).toBe("--ro-bind");
-    expect(flags[3]).toBe("--ro-bind");
+    expect(flags).toHaveLength(11);
+    expect(flags[5]).toBe("--ro-bind");
+    expect(flags[8]).toBe("--ro-bind");
+  });
+
+  test("maps the agent back to the host uid/gid in a nested user namespace", () => {
+    // egress-runner execs bwrap as root of its userns; claude refuses to launch as uid 0.
+    const flags = egressMembraneOverrideFlags(tmpDir, {
+      isSymlink: () => false,
+      uid: 1234,
+      gid: 567,
+    });
+    expect(flags.slice(0, 5)).toEqual(["--unshare-user", "--uid", "1234", "--gid", "567"]);
+  });
+
+  test("uid/gid default to the server process ids", () => {
+    const flags = egressMembraneOverrideFlags(tmpDir, { isSymlink: () => false });
+    expect(flags.slice(0, 5)).toEqual([
+      "--unshare-user",
+      "--uid",
+      String(process.getuid?.()),
+      "--gid",
+      String(process.getgid?.()),
+    ]);
   });
 
   test("realpath dep only called when resolv.conf is a symlink", () => {
@@ -839,7 +860,7 @@ describe("detectEgressBackend", () => {
     expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
   });
 
-  test("runner invoked as: <runner> --tmp <dir> -- bwrap <flags> -- /bin/sh -c exit 0", () => {
+  test("runner invoked as: <runner> --tmp <dir> -- bwrap <flags> -- /bin/sh -c <uid check>", () => {
     const runnerArgvCapture: { cmd: string; args: string[] }[] = [];
     const deps: EgressBackendProbeDeps = {
       run: (cmd, args) => {
@@ -879,9 +900,9 @@ describe("detectEgressBackend", () => {
     expect(args).toContain(`${PROBE_TMP}/nsswitch.conf`);
     expect(args).toContain(`${PROBE_TMP}/resolv.conf`);
 
-    // Tail: -- /bin/sh -c exit 0
+    // Tail: -- /bin/sh -c <fails as root> (claude refuses to launch as uid 0)
     const lastFour = args.slice(-4);
-    expect(lastFour).toEqual(["--", "/bin/sh", "-c", "exit 0"]);
+    expect(lastFour).toEqual(["--", "/bin/sh", "-c", 'test "$(id -u)" != 0']);
   });
 
   test("runner is never called when missing tool causes early return", () => {

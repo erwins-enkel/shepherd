@@ -323,7 +323,12 @@ final class IOSReconnectTests: XCTestCase {
 
     private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
         let deadline = ContinuousClock.now + .seconds(10)
-        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        // A yield alone can resume this task straight away on a loaded main actor, starving the
+        // reconnect task under test; the real sleep lets it run (#3389, as ConnectionBannerTests).
+        while !condition(), ContinuousClock.now < deadline {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
+        }
         XCTAssertTrue(condition(), file: file, line: line)
     }
 }
@@ -344,25 +349,41 @@ private final class ReconnectFixture {
 @MainActor
 private final class ReconnectClock {
     var now = Date(timeIntervalSince1970: 1_790_000_000)
-    private var sleepers: [UUID: (Date, CheckedContinuation<Void, any Error>)] = [:]
-    var pending: Int { sleepers.count }
+    // Cancellation removes its sleeper synchronously: a cancelled sleeper still counted in
+    // `pending` let a test advance time before the replacement countdown had registered (#3389).
+    private nonisolated let sleepers = Mutex<[UUID: (Date, CheckedContinuation<Void, any Error>)]>([:])
+    var pending: Int { sleepers.withLock { $0.count } }
     func sleep(_ duration: Duration) async throws {
         let id = UUID()
         let seconds = Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+        let wake = now.addingTimeInterval(seconds)
         try await withTaskCancellationHandler {
-            try Task.checkCancellation()
-            try await withCheckedThrowingContinuation { sleepers[id] = (now.addingTimeInterval(seconds), $0) }
+            try await withCheckedThrowingContinuation { continuation in
+                self.sleepers.withLock { $0[id] = (wake, continuation) }
+                // Covers a cancel that landed before the sleeper was registered.
+                if Task.isCancelled { self.cancel(id) }
+            }
         } onCancel: {
-            Task { @MainActor [weak self] in self?.sleepers.removeValue(forKey: id)?.1.resume(throwing: CancellationError()) }
+            self.cancel(id)
         }
+    }
+    private nonisolated func cancel(_ id: UUID) {
+        sleepers.withLock { $0.removeValue(forKey: id) }?.1.resume(throwing: CancellationError())
     }
     func advance(_ seconds: TimeInterval) {
         now = now.addingTimeInterval(seconds)
-        for id in sleepers.keys.filter({ sleepers[$0]!.0 <= now }) { sleepers.removeValue(forKey: id)?.1.resume() }
+        let current = now
+        let due = sleepers.withLock { sleepers in
+            let ids = sleepers.filter { $0.value.0 <= current }.keys
+            return ids.compactMap { sleepers.removeValue(forKey: $0)?.1 }
+        }
+        for continuation in due { continuation.resume() }
     }
     func cancelAll() {
-        let pending = sleepers.values
-        sleepers.removeAll()
+        let pending = sleepers.withLock { sleepers in
+            defer { sleepers.removeAll() }
+            return Array(sleepers.values)
+        }
         for (_, continuation) in pending { continuation.resume(throwing: CancellationError()) }
     }
 }

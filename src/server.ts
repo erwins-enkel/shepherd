@@ -10605,6 +10605,17 @@ async function pluginActivate(req: Request, registry: PluginRegistry): Promise<R
   return result.ok ? json({ plugin: result.plugin }) : json({ error: result.error }, 400);
 }
 
+/** Changing which plugin code runs in-process — install, activate, uninstall, update check/apply
+ *  — is operator-only, like token management (#3338): a paired device's `full` bearer may read
+ *  the plugin lists but not change them. Registered ahead of both plugin handlers. */
+function requireOperatorForPluginChanges({ req, parts }: Ctx): Response | null {
+  if (req.method !== "POST" && req.method !== "DELETE") return null;
+  const managed =
+    parts[0] === "api" &&
+    ((parts[1] === "plugins" && parts[2] === "manage") || parts[1] === "plugin-update");
+  return managed ? requireOperatorSession(req) : null;
+}
+
 async function handlePluginManagement({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "plugins" || parts[2] !== "manage") return null;
   const pluginsDir = deps.pluginsDir;
@@ -12032,6 +12043,7 @@ const ROUTE_HANDLERS = [
   handlePing,
   handleHealth,
   handleTerminalTransport,
+  requireOperatorForPluginChanges,
   handlePluginManagement,
   handlePluginRoutes,
   handleGitSnapshot,

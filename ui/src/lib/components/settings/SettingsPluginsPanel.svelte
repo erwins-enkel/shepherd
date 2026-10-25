@@ -171,6 +171,8 @@
         return m.pluginupdate_apply_err_incompatible();
       case "no_source":
         return m.pluginupdate_apply_err_nosource();
+      case "operator_session_required":
+        return m.plugins_err_operator_session();
       default:
         return m.pluginupdate_apply_err_generic();
     }
@@ -299,6 +301,8 @@
         return m.plugins_err_manifest();
       case "disabled":
         return m.plugins_err_disabled();
+      case "operator_session_required":
+        return m.plugins_err_operator_session();
       case "api_version_mismatch":
         return m.plugins_err_api_version();
       case "id_collision":

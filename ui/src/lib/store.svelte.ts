@@ -47,6 +47,7 @@ import { reviews, planGates, spawnNotices } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { amendments } from "./amendments.svelte";
 import { upNext } from "./up-next.svelte";
+import { issueFilterSettings } from "./issue-filter-settings.svelte";
 import { toasts } from "./toasts.svelte";
 import { reviveStranded as apiReviveStranded } from "./api";
 import { m } from "#lib/paraglide/messages.js";
@@ -1058,24 +1059,35 @@ export class HerdStore {
     return false;
   }
 
+  /** Up Next invalidations and the default issue filter it applies (#3017). */
+  private applyUpNextEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "upnext:changed":
+        upNext.changed();
+        return true;
+      case "upnext:snapshot":
+        upNext.apply(ev.data);
+        return true;
+      case "settings:issue-filter":
+        issueFilterSettings.apply(ev.data.issueFilter);
+        return true;
+    }
+    return false;
+  }
+
   private applyGlobalEvent(ev: WsEvent) {
     if (this.applyHerdrUpdateEvent(ev)) return;
     if (this.applyCodexUpdateEvent(ev)) return;
     if (this.applyDocAgentEvent(ev)) return;
     if (this.applyEpicEvent(ev)) return;
     if (this.applyStatusEvent(ev)) return;
+    if (this.applyUpNextEvent(ev)) return;
     switch (ev.event) {
       case "project-icons:update":
         projectIcons.apply(ev.data);
         break;
       case "repo-bootstrap:update":
         repoBootstrap.refresh(ev.data.repoPath);
-        break;
-      case "upnext:changed":
-        upNext.changed();
-        break;
-      case "upnext:snapshot":
-        upNext.apply(ev.data);
         break;
       case "backlog:update":
         this.backlog = ev.data;
@@ -1213,6 +1225,7 @@ export class HerdStore {
         this.connected = true;
         this.connectionEpoch += 1;
         upNext.reconnected();
+        issueFilterSettings.reconnected();
         reportPresence();
       };
       ws.onmessage = (e) => {

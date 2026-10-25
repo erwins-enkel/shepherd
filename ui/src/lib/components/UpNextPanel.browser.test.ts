@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type {
   AgentProvider,
   DiagnosticsSnapshot,
+  IssueFilterSettings,
+  UpNextFilterStats,
   UpNextItem,
   UpNextSnapshot,
   UsageLimits,
@@ -13,7 +15,8 @@ import { m } from "#lib/paraglide/messages.js";
 import { upNext } from "#lib/up-next.svelte.js";
 import { upNextUi } from "#lib/up-next-ui.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
-import { getUpNext, startUpNext } from "#lib/api.js";
+import { getUpNext, putIssueFilter, startUpNext } from "#lib/api.js";
+import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
 
 // Mock the API so mounting the demand-driven lens makes no real network call.
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -27,6 +30,11 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     })),
     refreshUpNext: vi.fn(async () => {}),
     startUpNext: vi.fn(async () => ({ created: [], held: [], errors: [] })),
+    // No issueFilter: the filter UI stays hidden unless a test seeds the store.
+    getSettings: vi.fn(async () => ({})),
+    putIssueFilter: vi.fn(async (patch: Partial<IssueFilterSettings>) => ({
+      issueFilter: { ...issueFilterSettings.value!, ...patch },
+    })),
   };
 });
 
@@ -42,6 +50,8 @@ const item = (
     labels?: string[];
     labelColors?: Record<string, string>;
     kind?: UpNextItem["kind"];
+    fromFork?: boolean;
+    mine?: boolean;
   } = {},
 ): UpNextItem => ({
   repoPath,
@@ -55,6 +65,8 @@ const item = (
   createdAt: opts.createdAt ?? 0,
   labels: opts.labels ?? [],
   labelColors: opts.labelColors,
+  fromFork: opts.fromFork,
+  mine: opts.mine,
   issueRef: {
     number,
     url: `https://example.test/${number}`,
@@ -188,6 +200,7 @@ beforeEach(() => {
   localStorage.removeItem("shepherd.upnext.collapsed");
   upNextUi.reset();
   upNext.reset();
+  issueFilterSettings.clear();
   upNext.snapshot = SNAPSHOT;
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
@@ -859,4 +872,239 @@ it("unmount releases demand and remount revalidates changes missed while closed"
   const second = await render(UpNextPanel, {});
   await expect.poll(() => vi.mocked(getUpNext).mock.calls.length).toBe(2);
   await second.unmount();
+});
+
+describe("UpNextPanel default issue filter", () => {
+  const FILTER: IssueFilterSettings = {
+    scope: "mine_unassigned",
+    forks: "all",
+    hiddenLabels: [],
+    hideActive: false,
+    hideSubIssues: true,
+    hideBlocked: true,
+  };
+  const STATS: UpNextFilterStats = {
+    hiddenCount: 5,
+    hiddenBy: { scope: 3, forks: 0, labels: 2 },
+    hiddenByRepo: { "~/projects/homeassistant": 2, "~/projects/car-gas-tracker": 3 },
+    optionCounts: {
+      scope: { all: 9, mine_unassigned: 4, mine: 2 },
+      forks: { all: 4, own: 3, hide: 1 },
+    },
+  };
+  const filterBtn = () => document.querySelector<HTMLButtonElement>(".un-filterbtn")!;
+  const flyout = () => page.getByRole("dialog", { name: m.upnext_filter_title() });
+
+  beforeEach(() => {
+    issueFilterSettings.apply(FILTER);
+    upNext.snapshot = { ...SNAPSHOT, filter: STATS };
+  });
+
+  it("badges the active rule count and names it in the aria-label", async () => {
+    render(UpNextPanel, {});
+    await expect
+      .element(page.getByRole("button", { name: m.upnext_filter_button_aria({ count: 1 }) }))
+      .toBeInTheDocument();
+    expect(filterBtn().querySelector(".badge")?.textContent).toBe("1");
+    expect(filterBtn().getAttribute("aria-haspopup")).toBe("dialog");
+    expect(filterBtn().getAttribute("aria-expanded")).toBe("false");
+    issueFilterSettings.apply({ ...FILTER, scope: "mine", forks: "own", hiddenLabels: ["a", "b"] });
+    await expect.poll(() => filterBtn().querySelector(".badge")?.textContent).toBe("4");
+    issueFilterSettings.apply({ ...FILTER, scope: "all" });
+    await expect.poll(() => filterBtn().querySelector(".badge")).toBeNull();
+  });
+
+  it("hides the filter button on a server without the setting", async () => {
+    issueFilterSettings.clear();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    expect(filterBtn()).toBeNull();
+  });
+
+  it("lists active rules in the chips row with the hidden count, scoped to the repo chips", async () => {
+    issueFilterSettings.apply({
+      ...FILTER,
+      scope: "mine",
+      forks: "own",
+      hiddenLabels: ["documentation"],
+    });
+    render(UpNextPanel, {});
+    const row = () => document.querySelector<HTMLButtonElement>(".un-chips")!;
+    await expect.poll(() => row()?.textContent ?? "").toContain(m.upnext_filter_chip_scope_mine());
+    expect(row().textContent).toContain(m.upnext_filter_standard());
+    expect(row().textContent).toContain(m.upnext_filter_chip_forks_own());
+    expect(row().textContent).toContain(m.upnext_filter_chip_label({ label: "documentation" }));
+    expect(row().textContent).toContain(m.upnext_filter_hidden_count({ count: 5 }));
+    row().click();
+    await expect.element(flyout()).toBeVisible();
+  });
+
+  it("sums the hidden count over the active repo chips", async () => {
+    render(UpNextPanel, { repoFilter: new Set(["~/projects/homeassistant"]) });
+    await expect
+      .poll(() => document.querySelector(".un-chips")?.textContent ?? "")
+      .toContain(m.upnext_filter_hidden_count({ count: 2 }));
+  });
+
+  it("omits the chips row when no rule is active", async () => {
+    issueFilterSettings.apply({ ...FILTER, scope: "all" });
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    expect(document.querySelector(".un-chips")).toBeNull();
+  });
+
+  it("writes a picked option immediately and the list follows the pushed snapshot", async () => {
+    render(UpNextPanel, {});
+    filterBtn().click();
+    await expect.element(flyout()).toBeVisible();
+    expect(filterBtn().getAttribute("aria-expanded")).toBe("true");
+    // The option counts sit beside each choice.
+    await expect.element(flyout().getByText("9")).toBeInTheDocument();
+    await page.getByRole("radio", { name: m.upnext_filter_scope_mine() }).click();
+    expect(putIssueFilter).toHaveBeenCalledWith({ scope: "mine" });
+    await expect.poll(() => issueFilterSettings.value?.scope).toBe("mine");
+    // The server refilters and pushes: the row it now hides leaves the list.
+    upNext.apply({
+      snapshot: {
+        ...SNAPSHOT,
+        sections: SNAPSHOT.sections.filter((s) => s.kind === "priority"),
+        filter: STATS,
+      },
+    });
+    await expect.element(page.getByText("#2")).not.toBeInTheDocument();
+    // The flyout stays open for the next change.
+    await expect.element(flyout()).toBeVisible();
+  });
+
+  it("toggles a queue label into the hidden set", async () => {
+    upNext.snapshot = {
+      ...SNAPSHOT,
+      sections: [
+        {
+          ...SNAPSHOT.sections[1]!,
+          items: [item("~/projects/homeassistant", 2, false, { labels: ["docs"] })],
+        },
+      ],
+      filter: STATS,
+    };
+    render(UpNextPanel, {});
+    filterBtn().click();
+    await page
+      .getByRole("button", { name: m.upnext_filter_label_toggle_aria({ label: "docs" }) })
+      .click();
+    expect(putIssueFilter).toHaveBeenCalledWith({ hiddenLabels: ["docs"] });
+  });
+
+  it("resets to the defaults", async () => {
+    issueFilterSettings.apply({ ...FILTER, scope: "all", forks: "hide", hiddenLabels: ["docs"] });
+    render(UpNextPanel, {});
+    filterBtn().click();
+    await page.getByRole("button", { name: m.upnext_filter_reset() }).click();
+    expect(putIssueFilter).toHaveBeenCalledWith({
+      scope: "mine_unassigned",
+      forks: "all",
+      hiddenLabels: [],
+    });
+    await expect.poll(() => issueFilterSettings.value?.forks).toBe("all");
+  });
+
+  it("reverts a failed write", async () => {
+    vi.mocked(putIssueFilter).mockRejectedValueOnce(new Error("down"));
+    render(UpNextPanel, {});
+    filterBtn().click();
+    await page.getByRole("radio", { name: m.upnext_filter_scope_all(), exact: true }).click();
+    await expect.poll(() => issueFilterSettings.value?.scope).toBe("mine_unassigned");
+    await expect
+      .element(page.getByRole("radio", { name: m.upnext_filter_scope_mine_unassigned() }))
+      .toBeChecked();
+  });
+
+  it("explains a fully filtered queue instead of claiming all caught up", async () => {
+    const onbacklog = vi.fn();
+    upNext.snapshot = { ...SNAPSHOT, sections: [], filter: STATS };
+    render(UpNextPanel, { onbacklog });
+    await expect.element(page.getByText(m.upnext_filter_empty_title())).toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.upnext_filter_empty_body({ count: 5 })))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.upnext_filter_empty_by_scope({ count: 3 })))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.upnext_filter_empty_by_labels({ count: 2 })))
+      .toBeInTheDocument();
+    await expect.element(page.getByText(m.upnext_empty())).not.toBeInTheDocument();
+    await page.getByRole("button", { name: m.upnext_open_backlog() }).click();
+    expect(onbacklog).toHaveBeenCalled();
+    await page.getByRole("button", { name: m.upnext_filter_adjust(), exact: true }).click();
+    await expect.element(flyout()).toBeVisible();
+  });
+
+  it("keeps the all-caught-up state when the filter hides nothing", async () => {
+    upNext.snapshot = {
+      ...SNAPSHOT,
+      sections: [],
+      filter: { ...STATS, hiddenCount: 0, hiddenByRepo: {} },
+    };
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.upnext_empty())).toBeInTheDocument();
+    await expect.element(page.getByText(m.upnext_filter_empty_title())).not.toBeInTheDocument();
+  });
+
+  it("tags fork rows FORK when mine, UPSTREAM otherwise", async () => {
+    upNext.snapshot = {
+      ...SNAPSHOT,
+      sections: [
+        {
+          ...SNAPSHOT.sections[1]!,
+          items: [
+            item("~/projects/homeassistant", 2, false, { fromFork: true, mine: true }),
+            item("~/projects/homeassistant", 3, false, { fromFork: true, mine: false }),
+            item("~/projects/homeassistant", 4),
+          ],
+        },
+      ],
+      filter: STATS,
+    };
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#4")).toBeInTheDocument();
+    const tagOf = (n: number) =>
+      Array.from(document.querySelectorAll(".un-row"))
+        .find((r) => r.querySelector(".un-num")?.textContent === `#${n}`)
+        ?.querySelector(".un-fork")?.textContent ?? null;
+    expect(tagOf(2)).toBe(m.upnext_filter_tag_fork());
+    expect(tagOf(3)).toBe(m.upnext_filter_tag_upstream());
+    expect(tagOf(4)).toBeNull();
+  });
+
+  it("is keyboard operable: open, arrow between radios, Escape returns focus", async () => {
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    filterBtn().focus();
+    await userEvent.keyboard("{Enter}");
+    const checked = page.getByRole("radio", { name: m.upnext_filter_scope_mine_unassigned() });
+    await expect.element(checked).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect
+      .element(page.getByRole("radio", { name: m.upnext_filter_scope_mine() }))
+      .toHaveFocus();
+    expect(putIssueFilter).toHaveBeenCalledWith({ scope: "mine" });
+    await userEvent.keyboard("{Escape}");
+    await expect.element(flyout()).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(filterBtn());
+  });
+
+  it("closes on an outside click and from the close button", async () => {
+    render(UpNextPanel, {});
+    filterBtn().click();
+    await expect.element(flyout()).toBeVisible();
+    // Dismiss listeners attach a tick after opening, so the opening click can't close it.
+    await new Promise((r) => setTimeout(r, 10));
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await expect.element(flyout()).not.toBeInTheDocument();
+    filterBtn().click();
+    await page.getByRole("button", { name: m.upnext_filter_close() }).click();
+    await expect.element(flyout()).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(filterBtn());
+  });
 });

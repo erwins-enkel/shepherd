@@ -110,6 +110,7 @@
   import { recaps } from "#lib/recaps.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
   import { upNext } from "#lib/up-next.svelte.js";
+  import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
   import { claudeUsageHoldLikely } from "#lib/provider-capacity.js";
   import { doneSessions } from "#lib/done.svelte.js";
   import {
@@ -350,7 +351,10 @@
     showSettings = target.showSettings;
     history.replaceState(history.state, "", target.cleanUrl);
   });
-  onMount(() => () => upNext.reset());
+  onMount(() => () => {
+    upNext.reset();
+    issueFilterSettings.clear();
+  });
 
   // Overlays are code-split off the first-boot bundle (#3233); warm the most-opened ones once
   // the boot settles so their first open doesn't wait on the network.

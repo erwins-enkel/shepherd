@@ -247,8 +247,8 @@ The usual transitions:
   reviewer approves.
 - `plan_ready` → `working` on `shepherd go`, on auto-release, or when you answer the session with
   `shepherd steer`: a reply to a session whose plan is approved counts as the go-ahead and moves
-  its `planPhase` to `executing`. Task amendments don't. A pull request appearing while still
-  planning moves it to `executing` as well.
+  its `planPhase` to `executing`. Task amendments and the Operator Assistant's steer don't. A pull
+  request appearing while still planning moves it to `executing` as well.
 - Each turn ends in `needs_input`, `pr_open` or `idle`, and the next steer goes back to `working`.
 - Any phase → `halted` on a halt, and back on retry.
 - `pr_open` → `finished` when the PR merges. Archiving finishes any session.

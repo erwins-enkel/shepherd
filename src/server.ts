@@ -5095,7 +5095,12 @@ async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response 
 }
 
 // POST /api/sessions/:id/reply — steer a running session.
-async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleSessionReply({
+  req,
+  parts,
+  deps,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "reply")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
@@ -5110,8 +5115,10 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   // service.reply() directly, so they never trip that path.
   const ok = await deps.service.operatorReply(parts[2], (body as { text: string }).text);
   if (!ok) return json({ error: "not found" }, 404);
-  // A reply to an approved planning session is the go-ahead given in chat (#2586).
-  deps.service.releasePlanOnOperatorReply(parts[2]);
+  // A reply to an approved planning session is the go-ahead given in chat (#2586) — from the
+  // operator only. A skip-auth caller (the agent ingress, the Operator Assistant's in-process
+  // session_steer) may steer but never release: plan_release and queue_approve are gated apart.
+  if (!agentIngress) deps.service.releasePlanOnOperatorReply(parts[2]);
   return json({ ok: true });
 }
 

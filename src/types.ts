@@ -1473,6 +1473,9 @@ export interface EpicDraftChild {
   acceptanceCriteria: string[];
   /** keys of sibling children this child is blocked by (dependency edges). */
   blockedBy: string[];
+  /** #3423: stable anchors (modules, globs, shared catalogs) this child will likely edit — an
+   *  authoring-time overlap signal only, never rendered into the materialized issue. Absent = none. */
+  touches?: string[];
 }
 
 /** The parent (tracking) issue of an epic draft. `body` carries NO epic-dag fence — the

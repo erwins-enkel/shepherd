@@ -5,6 +5,8 @@
     Epic,
     EpicRunStatus,
     EpicSummary,
+    GitState,
+    Session,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import {
@@ -18,6 +20,9 @@
     ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { firstSafeHttpUrl } from "#lib/url.js";
+  import { awaitingMerge, incrementalStallRisk, repoMergeGate } from "#lib/epic-merge-gate.js";
   import { epicLandingExplanation, epicRunStateExplanation } from "#lib/tooltips/explanations.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import {
@@ -52,6 +57,7 @@
     onselectepic = undefined,
     onopensession = undefined,
     onopenautomation = undefined,
+    sessionInfo = undefined,
   }: {
     repoPath: string;
     parent: number;
@@ -67,6 +73,8 @@
     onselectepic?: (parent: number) => void;
     onopensession?: (sessionId: string) => void;
     onopenautomation?: () => void;
+    /** A child session and its PR state, by id — names the PR a merge wait is on (#3423). */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 
   const running = $derived(epic.run.status === "running");
@@ -244,6 +252,24 @@
   // late change with 409, which gets its own toast.
   const landing = $derived(epic.run.landing ?? "integration");
   const landingLocked = $derived(epic.landingLocked === true);
+  // #3423: an incremental chain that nobody merges stalls silently — warn, and name the PR it waits on.
+  $effect(() => {
+    void repoConfig.ensure(repoPath);
+  });
+  const gate = $derived(repoMergeGate(repoConfig, repoPath));
+  const stallRisk = $derived(
+    !!gate &&
+      incrementalStallRisk({
+        landing,
+        // Only edges still to advance: a landed dependent no longer waits on anyone.
+        hasEdges: epic.children.some((c) => c.state !== "merged" && c.blockedBy.length > 0),
+        mergeOff: gate.mergeOff,
+        stacks: gate.stacks,
+      }),
+  );
+  const mergeWaits = $derived(
+    gate ? awaitingMerge(epic, gate.mergeOff, (id) => sessionInfo?.(id)?.git) : [],
+  );
   const landingText = $derived(
     landing === "incremental" ? m.epic_landing_incremental() : m.epic_landing_integration(),
   );
@@ -417,6 +443,22 @@
     <p class="note" class:alert={runState.tone === "halt"}>{note}</p>
   {/if}
 
+  {#each mergeWaits as w (w.child)}
+    {@const href = firstSafeHttpUrl(w.url)}
+    {@const text = m.epic_merge_wait({
+      pr: w.pr,
+      issues: w.blocks.map((n) => `#${n}`).join(", "),
+    })}
+    <p class="note alert" data-epic-merge-wait>
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+      {#if href}<a {href} target="_blank" rel="noopener noreferrer">{text}</a>{:else}{text}{/if}
+    </p>
+  {/each}
+
+  {#if stallRisk}
+    <p class="note alert" data-epic-stall-warning>{m.epic_incremental_stall_warning()}</p>
+  {/if}
+
   {#if ceiling === "offer"}
     <div class="ceiling">
       <button class="gbtn" type="button" onclick={() => setIgnoreCeiling(true)}
@@ -502,6 +544,10 @@
   }
   .note.alert {
     color: var(--color-amber);
+  }
+  .note a {
+    color: inherit;
+    text-decoration: underline;
   }
   .ceiling {
     display: flex;

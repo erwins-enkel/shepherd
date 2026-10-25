@@ -4,7 +4,15 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import EpicRunControl from "./EpicRunControl.svelte";
-import type { DrainRunSummary, DrainStatus, Epic, EpicChild, EpicSummary } from "#lib/types.js";
+import type {
+  DrainRunSummary,
+  DrainStatus,
+  Epic,
+  EpicChild,
+  EpicSummary,
+  GitState,
+  Session,
+} from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { formatReset } from "#lib/format.js";
 import { toasts } from "#lib/toasts.svelte.js";
@@ -21,6 +29,9 @@ const api = vi.hoisted(() => ({
   getDrain: vi.fn(async (): Promise<DrainStatus[]> => []),
   reworkEpicBase: vi.fn(async (): Promise<void> => {}),
   overrideEpicBaseHold: vi.fn(async (): Promise<void> => {}),
+  getRepoConfig: vi.fn<(repo: string) => Promise<unknown>>(async () => {
+    throw new Error("offline");
+  }),
 }));
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -1023,5 +1034,82 @@ describe("EpicRunControl narrow layout", () => {
     const auto = page.getByRole("button", { name: m.epic_mode_auto_aria() }).element();
     expect(Math.abs(mid(pause.getBoundingClientRect()) - state)).toBeLessThanOrEqual(4);
     expect(Math.abs(mid(auto.getBoundingClientRect()) - state)).toBeLessThanOrEqual(4);
+  });
+});
+
+// #3423: an incremental chain nobody merges — warn, and name the PR it waits on.
+describe("EpicRunControl incremental merge gate", () => {
+  let n = 0;
+  const repo = () => `/repo/merge-gate-${++n}`;
+  const cfg = (over: Record<string, boolean> = {}) => ({
+    autoMergeEnabled: false,
+    autopilotEnabled: true,
+    draftMode: false,
+    epicStacksEnabled: false,
+    ...over,
+  });
+  const incremental = (children: EpicChild[]) => ({
+    ...epic(B, { landing: "incremental" }, children),
+  });
+  const reviewChild = { ...child(21, "in-review"), sessionId: "s21", prNumber: 14 };
+  const chain = [reviewChild, child(22, "blocked", [21]), child(23, "blocked", [21])];
+  const sessionInfo = (checks: GitState["checks"]) => (id: string) =>
+    id === "s21"
+      ? {
+          session: {} as Session,
+          git: { checks, url: "https://example.test/pull/14" } as GitState,
+        }
+      : null;
+  const warning = () => page.getByText(m.epic_incremental_stall_warning());
+  const wait = () =>
+    page.getByRole("link", { name: m.epic_merge_wait({ pr: 14, issues: "#22, #23" }) });
+
+  it("warns and names the green PR when nothing merges child PRs", async () => {
+    const repoPath = repo();
+    api.getRepoConfig.mockImplementation(async () => cfg());
+    render(EpicRunControl, {
+      repoPath,
+      parent: B,
+      epic: incremental(chain),
+      drain: drain({ reason: "empty" }),
+      titleFor,
+      sessionInfo: sessionInfo("success"),
+    });
+    await expect.element(warning()).toBeInTheDocument();
+    await expect.element(wait()).toHaveAttribute("href", "https://example.test/pull/14");
+  });
+
+  it("stays quiet when autopilot and auto-merge carry the PRs", async () => {
+    const repoPath = repo();
+    api.getRepoConfig.mockImplementation(async () => cfg({ autoMergeEnabled: true }));
+    render(EpicRunControl, {
+      repoPath,
+      parent: B,
+      epic: incremental(chain),
+      drain: drain({ reason: "empty" }),
+      titleFor,
+      sessionInfo: sessionInfo("success"),
+    });
+    await expect.poll(() => api.getRepoConfig.mock.calls.some(([r]) => r === repoPath)).toBe(true);
+    await tick();
+    expect(warning().query()).toBeNull();
+    expect(wait().query()).toBeNull();
+  });
+
+  it("warns without a wait line while the blocker's checks still run", async () => {
+    const repoPath = repo();
+    api.getRepoConfig.mockImplementation(async () =>
+      cfg({ autopilotEnabled: false, autoMergeEnabled: true }),
+    );
+    render(EpicRunControl, {
+      repoPath,
+      parent: B,
+      epic: incremental(chain),
+      drain: drain({ reason: "empty" }),
+      titleFor,
+      sessionInfo: sessionInfo("pending"),
+    });
+    await expect.element(warning()).toBeInTheDocument();
+    expect(wait().query()).toBeNull();
   });
 });

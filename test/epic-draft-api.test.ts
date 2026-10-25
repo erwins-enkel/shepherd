@@ -174,6 +174,34 @@ test("PUT stores a valid draft and emits session:epic-draft", async () => {
   expect(store.getEpicDraft(s.id)?.parent.title).toBe("Ship widget");
 });
 
+test("PUT keeps a child's touches and omits an empty list (#3423)", async () => {
+  const { app, store } = harness(fakeForge().forge);
+  const s = makeSession(store);
+  const res = await putDraft(app, s.id, {
+    parent: draftBody.parent,
+    children: [
+      { key: "c1", title: "A", touches: ["ui/messages/*.json"] },
+      { key: "c2", title: "B", touches: [] },
+    ],
+  });
+  expect(res.status).toBe(200);
+  const [first, second] = store.getEpicDraft(s.id)!.children;
+  expect(first?.touches).toEqual(["ui/messages/*.json"]);
+  expect(second && "touches" in second).toBe(false);
+});
+
+test("PUT rejects a non-string or oversized touches entry (#3423)", async () => {
+  const { app, store } = harness(fakeForge().forge);
+  const s = makeSession(store);
+  for (const touches of [[1], ["x".repeat(201)], "ui"]) {
+    const res = await putDraft(app, s.id, {
+      parent: draftBody.parent,
+      children: [{ key: "c1", title: "A", touches }],
+    });
+    expect(res.status).toBe(400);
+  }
+});
+
 test("approve materializes children+parent, wires links, registers the run, emits epic:update", async () => {
   const fk = fakeForge();
   const { app, store, emitted } = harness(fk.forge);

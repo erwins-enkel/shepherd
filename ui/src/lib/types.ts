@@ -67,6 +67,8 @@ export interface EpicDraftChild {
   body: string;
   acceptanceCriteria: string[];
   blockedBy: string[];
+  /** Stable anchors the child will likely edit (#3423) — authoring-time overlap signal. */
+  touches?: string[];
 }
 
 export interface EpicDraftParent {

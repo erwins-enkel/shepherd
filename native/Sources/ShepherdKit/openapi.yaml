@@ -2233,6 +2233,11 @@ components:
                 type: array
                 items:
                   type: string
+              touches:
+                type: array
+                items:
+                  type: string
+                description: Authoring-time overlap anchors (#3423); absent when none.
         materializedChildren:
           type: object
           description: Child key → the real issue number created for it.

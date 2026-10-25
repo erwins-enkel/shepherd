@@ -3658,6 +3658,7 @@
 {#if epicDraftOpen}
   <EpicDraftModal
     sessionId={session.id}
+    repoPath={session.repoPath}
     sessionLive={session.status !== "archived" && session.status !== "done"}
     onclose={() => (epicDraftOpen = false)}
   />

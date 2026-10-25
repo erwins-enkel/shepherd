@@ -12,6 +12,15 @@ import EpicDraftModal from "./EpicDraftModal.svelte";
 
 const approve = vi.hoisted(() => ({ approveEpic: vi.fn(async () => {}) }));
 vi.mock("#lib/epic-approve.js", () => approve);
+const api = vi.hoisted(() => ({
+  getRepoConfig: vi.fn<(repo: string) => Promise<unknown>>(async () => {
+    throw new Error("offline");
+  }),
+}));
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
+  return { ...actual, ...api };
+});
 
 function longDraft(sessionId: string): EpicDraft {
   return {
@@ -58,6 +67,7 @@ describe.each([
 
     const { container, unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -106,6 +116,7 @@ describe.each([
 
     const { container, unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -151,6 +162,7 @@ describe("EpicDraftModal — dialog behavior", () => {
 
     const { unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose,
     });
@@ -170,6 +182,7 @@ describe("EpicDraftModal — dialog behavior", () => {
 
     const { container, unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -239,6 +252,7 @@ describe("EpicDraftModal — document view", () => {
     epicDrafts.upsert(shapedDraft(sessionId));
     const { container, unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -277,6 +291,7 @@ describe("EpicDraftModal — document view", () => {
     epicDrafts.upsert(longDraft(sessionId));
     const { container, unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -331,6 +346,7 @@ describe("EpicDraftModal — resumed draft", () => {
     });
     const { container, unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -359,6 +375,7 @@ describe("EpicDraftModal — seen marks", () => {
     epicDrafts.upsert(longDraft(sessionId));
     const { container, unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -397,6 +414,7 @@ describe("EpicDraftModal landing choice (#3191)", () => {
     epicDrafts.upsert(longDraft(sessionId));
     const { unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -414,6 +432,7 @@ describe("EpicDraftModal landing choice (#3191)", () => {
     epicDrafts.upsert(longDraft(sessionId));
     const { unmount } = await render(EpicDraftModal, {
       sessionId,
+      repoPath: "/repo/draft",
       sessionLive: true,
       onclose: () => {},
     });
@@ -434,6 +453,7 @@ describe("EpicDraftModal approved contrast", () => {
       epicDrafts.upsert({ ...longDraft(sessionId), status: "approved" });
       const { unmount } = await render(EpicDraftModal, {
         sessionId,
+        repoPath: "/repo/draft",
         sessionLive: true,
         onclose: () => {},
       });
@@ -443,4 +463,57 @@ describe("EpicDraftModal approved contrast", () => {
       document.documentElement.removeAttribute("data-theme");
     });
   }
+});
+
+// #3423: incremental landing in a repo nobody merges in, and siblings that overlap.
+describe("EpicDraftModal — merge gate and overlap", () => {
+  it("warns once incremental is picked for a dependent draft nobody merges", async () => {
+    const sessionId = "epic-draft-modal-stall";
+    api.getRepoConfig.mockImplementation(async () => ({
+      autoMergeEnabled: false,
+      autopilotEnabled: false,
+      draftMode: false,
+      epicStacksEnabled: false,
+    }));
+    epicDrafts.upsert(longDraft(sessionId));
+    const { unmount } = await render(EpicDraftModal, {
+      sessionId,
+      repoPath: "/repo/draft-stall",
+      sessionLive: true,
+      onclose: () => {},
+    });
+    const warning = () => page.getByText(m.epic_incremental_stall_warning());
+    await expect.poll(() => api.getRepoConfig.mock.calls.length).toBeGreaterThan(0);
+    expect(warning().query()).toBeNull();
+    await page.getByRole("radio", { name: m.epic_landing_incremental() }).click();
+    await expect.element(warning()).toBeInTheDocument();
+    unmount();
+  });
+
+  it("flags unordered children that touch the same anchor", async () => {
+    const sessionId = "epic-draft-modal-overlap";
+    const base = longDraft(sessionId);
+    epicDrafts.upsert({
+      ...base,
+      children: [
+        { ...base.children[0], touches: ["ui/messages/*.json"] },
+        { ...base.children[1], blockedBy: [], touches: ["ui/messages/*.json"] },
+      ],
+    });
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      repoPath: "/repo/draft-overlap",
+      sessionLive: true,
+      onclose: () => {},
+    });
+    const hint = container.querySelector("[data-overlap-hint]");
+    expect(hint?.textContent).toBe(
+      m.epicdraft_overlap_hint({
+        a: "1 · Child issue 1",
+        b: "2 · Child issue 2",
+        anchors: "ui/messages/*.json",
+      }),
+    );
+    unmount();
+  });
 });

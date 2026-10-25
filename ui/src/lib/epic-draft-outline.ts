@@ -71,3 +71,49 @@ export function childWaves(children: EpicDraftChild[]): Map<string, number> {
   for (const c of children) visit(c.key);
   return waves;
 }
+
+/** Two draft children that name the same `touches` anchor with no edge ordering them (#3423). */
+export interface OverlapHint {
+  a: string;
+  b: string;
+  anchors: string[];
+}
+
+const normalizeAnchor = (t: string) => t.trim().replace(/^\.\//, "");
+
+/**
+ * Pairs of children (in draft order) that neither transitively block the other yet share a
+ * `touches` anchor — they would run in parallel and likely conflict on merge. Exact match after
+ * trimming and dropping a leading `./`; no glob matching.
+ */
+export function overlapHints(children: EpicDraftChild[]): OverlapHint[] {
+  const byKey = new Map(children.map((c) => [c.key, c]));
+  const ancestors = new Map<string, Set<string>>();
+  const ancestorsOf = (key: string, seen = new Set<string>()): Set<string> => {
+    const known = ancestors.get(key);
+    if (known) return known;
+    const out = new Set<string>();
+    if (seen.has(key)) return out;
+    seen.add(key);
+    for (const b of byKey.get(key)?.blockedBy ?? []) {
+      if (!byKey.has(b)) continue;
+      out.add(b);
+      for (const a of ancestorsOf(b, seen)) out.add(a);
+    }
+    ancestors.set(key, out);
+    return out;
+  };
+  const anchors = children.map(
+    (c) => new Set((c.touches ?? []).map(normalizeAnchor).filter(Boolean)),
+  );
+  const hints: OverlapHint[] = [];
+  children.forEach((a, i) => {
+    for (let j = i + 1; j < children.length; j++) {
+      const b = children[j];
+      if (ancestorsOf(a.key).has(b.key) || ancestorsOf(b.key).has(a.key)) continue;
+      const shared = [...anchors[i]].filter((t) => anchors[j].has(t));
+      if (shared.length) hints.push({ a: a.key, b: b.key, anchors: shared });
+    }
+  });
+  return hints;
+}

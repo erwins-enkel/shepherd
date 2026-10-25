@@ -221,6 +221,7 @@
           {onselectepic}
           {onopensession}
           {onopenautomation}
+          {sessionInfo}
         />
         <EpicTimingDetail {epic} {nowMs} slots={drain?.max ?? null} {onopenautomation} />
       </div>

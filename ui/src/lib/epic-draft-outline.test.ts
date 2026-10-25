@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { EpicDraftChild } from "#lib/types.js";
-import { childWaves, splitMarkdownSections } from "./epic-draft-outline";
+import { childWaves, overlapHints, splitMarkdownSections } from "./epic-draft-outline";
 
 function child(key: string, blockedBy: string[] = []): EpicDraftChild {
   return { key, title: key, body: "", acceptanceCriteria: [], blockedBy };
@@ -71,5 +71,36 @@ describe("childWaves", () => {
   it("terminates on a malformed cyclic draft", () => {
     const waves = childWaves([child("a", ["b"]), child("b", ["a"])]);
     expect(waves.size).toBe(2);
+  });
+});
+
+describe("overlapHints", () => {
+  const touching = (key: string, touches: string[], blockedBy: string[] = []): EpicDraftChild => ({
+    ...child(key, blockedBy),
+    touches,
+  });
+
+  it("flags unordered siblings sharing an anchor", () => {
+    expect(
+      overlapHints([
+        touching("c1", []),
+        touching("c2", ["ui/messages/*.json", "src/a.ts"], ["c1"]),
+        touching("c3", ["./ui/messages/*.json", "src/b.ts"], ["c1"]),
+      ]),
+    ).toEqual([{ a: "c2", b: "c3", anchors: ["ui/messages/*.json"] }]);
+  });
+
+  it("stays quiet when an edge orders the pair, even transitively", () => {
+    expect(
+      overlapHints([
+        touching("c1", ["registry.ts"]),
+        touching("c2", [], ["c1"]),
+        touching("c3", ["registry.ts"], ["c2"]),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("returns nothing without touches", () => {
+    expect(overlapHints([child("c1"), child("c2")])).toEqual([]);
   });
 });

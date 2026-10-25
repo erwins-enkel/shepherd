@@ -12,15 +12,20 @@
   import { epicLandingExplanation } from "#lib/tooltips/explanations.js";
   import InfoTip from "#lib/components/InfoTip.svelte";
   import { childWaves, splitMarkdownSections } from "#lib/epic-draft-outline.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { incrementalStallRisk, repoMergeGate } from "#lib/epic-merge-gate.js";
   import EpicDraftToc from "#lib/components/EpicDraftToc.svelte";
   import EpicDraftDocument from "#lib/components/EpicDraftDocument.svelte";
 
   let {
     sessionId,
+    repoPath,
     sessionLive,
     onclose,
   }: {
     sessionId: string;
+    /** The shaping session's repo — its merge settings decide the incremental-landing warning. */
+    repoPath: string;
     /** Whether the session process is still live (Amend steers it; disabled when it has ended). */
     sessionLive: boolean;
     onclose: () => void;
@@ -93,6 +98,23 @@
   let landing = $state<EpicLanding>("integration");
   let abortArmed = $state(false);
   let amendText = $state("");
+
+  // #3423: incremental + dependencies in a repo whose child PRs nobody merges stalls silently.
+  $effect(() => {
+    void repoConfig.ensure(repoPath);
+  });
+  const stallRisk = $derived.by(() => {
+    const gate = repoMergeGate(repoConfig, repoPath);
+    return (
+      !!gate &&
+      incrementalStallRisk({
+        landing,
+        hasEdges: children.some((c) => c.blockedBy.length > 0),
+        mergeOff: gate.mergeOff,
+        stacks: gate.stacks,
+      })
+    );
+  });
 
   async function approve() {
     if (approving || !draft) return;
@@ -285,6 +307,11 @@
                 : m.epicdraft_approve_count({ count: newIssues })}
             </button>
           </div>
+          {#if stallRisk}
+            <p class="note note-warn" data-epic-stall-warning>
+              {m.epic_incremental_stall_warning()}
+            </p>
+          {/if}
         {:else if status === "materializing"}
           <p class="note" aria-live="polite">{m.epicdraft_materializing_note()}</p>
         {:else if status === "approved"}
@@ -418,6 +445,9 @@
   }
   .note-done {
     color: var(--color-muted);
+  }
+  .note-warn {
+    color: var(--color-amber);
   }
   .link {
     color: var(--color-accent);

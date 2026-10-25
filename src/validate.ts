@@ -1422,6 +1422,7 @@ const EPIC_DRAFT_BODY_MAX = 16000; // matches the /api/issues create body cap
 const EPIC_DRAFT_CHILDREN_MAX = 50;
 const EPIC_DRAFT_LIST_MAX = 30; // acceptanceCriteria / nonGoals / blockedBy entries
 const EPIC_DRAFT_KEY_MAX = 64;
+const EPIC_DRAFT_TOUCH_MAX = 200;
 
 /** Coerce an optional string[] field: absent → []; reject a non-array or non-string/oversized item. */
 function stringArrayField(value: unknown, itemMax: number): string[] | null {
@@ -1447,7 +1448,11 @@ function validateEpicDraftChild(value: unknown): EpicDraftChild | null {
   if (acceptanceCriteria === null) return null;
   const blockedBy = stringArrayField(o.blockedBy, EPIC_DRAFT_KEY_MAX);
   if (blockedBy === null) return null;
-  return { key: o.key, title: o.title, body, acceptanceCriteria, blockedBy };
+  const touches = stringArrayField(o.touches, EPIC_DRAFT_TOUCH_MAX);
+  if (touches === null) return null;
+  const child: EpicDraftChild = { key: o.key, title: o.title, body, acceptanceCriteria, blockedBy };
+  if (touches.length) child.touches = touches;
+  return child;
 }
 
 /** Structurally validate the draft's parent object (types + size caps), or null on violation. */

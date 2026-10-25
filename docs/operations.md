@@ -107,12 +107,33 @@ only when that port is actually listening and answers HTTP — a stale or wrong 
 falling back to automatic detection. Useful for multi-listener apps or apps on uncommon ports. The
 file is optional; Shepherd is detect-and-proxy only regardless.
 
-**Routing: one port per agent, distinct origin.** Each preview is served on its own port
-(`SHEPHERD_PREVIEW_PORT_BASE`..+`COUNT`) via `tailscale serve`. Because each preview is a distinct
+**Routing: one port per active preview, distinct origin.** Each preview is served on its own port
+slot (`SHEPHERD_PREVIEW_PORT_BASE`..+`COUNT`) via `tailscale serve`. Because each slot is a distinct
 web origin (`https://host.ts.net:8001` ≠ `https://host.ts.net:8002` ≠ the HUD at `:443`), the
 agent's own app fetches (reads, writes, storage, HMR) are same-origin and work without any path
 rewriting. The HUD's origin check rejects preview-port origins for state-changing requests, so a
 previewed app cannot forge `/api` calls.
+
+The origin belongs to the **slot, not the session**: a freed slot goes to the next session that
+needs one, so the same origin is reused across sessions and repos. The proxy keeps per-origin
+browser state from carrying over:
+
+- **Service workers are refused.** Any request carrying `Service-Worker: script` gets `403`, so no
+  preview can register a worker that would outlive its session. Apps that rely on one run
+  without it in the preview.
+- **New owner, clean origin.** Every slot bind mints a random owner id, stored in the browser as
+  an `HttpOnly` per-slot cookie (`shepherd_preview_owner_<port>`). A page load whose browser
+  doesn't carry the current id gets `Clear-Site-Data: "cache", "storage"` (storage, caches and
+  any older worker for that origin) and the new cookie. Page loads are always `no-store`, so a
+  cached page can't skip the check. Cookies are not cleared: they are host-wide and include the
+  HUD session.
+- The marker cookie, like `shepherd_session`, never reaches the dev server, and an upstream
+  `Set-Cookie` for it is dropped.
+
+Residuals: a previous owner's tab still open on that port shares the origin with the new owner;
+the clearing needs a secure context (HTTPS via `tailscale serve`, or `localhost`); a worker
+registered before this protection shipped can answer page loads itself until the origin is
+cleared another way. A fresh origin per session is the long-term fix.
 
 **Tailscale exposure is automatic and dynamic** (default on — `SHEPHERD_PREVIEW_AUTO_SERVE`, set `0`
 to opt out). As each preview listener binds a slot, Shepherd registers a

@@ -557,6 +557,9 @@ interface Listener {
   /** Timestamp (ms) of the last proxied HTTP request or relayed WS frame. Set at
    *  first bind; updated on every HTTP request and relayed WS frame (both directions). */
   lastActivityAt: number;
+  /** Random per-bind owner id. The slot's origin outlives its owner, so a browser whose
+   *  owner-marker cookie doesn't carry this value gets its origin state cleared. */
+  ownerNonce: string;
 }
 
 export interface PreviewServiceOptions {
@@ -624,6 +627,7 @@ export class PreviewService {
         upstreamPort,
         server: null,
         lastActivityAt: this.now(),
+        ownerNonce: crypto.randomUUID(),
       };
       try {
         // bind reads listener.devPort live (re-ensure mutates it), so the record
@@ -735,7 +739,7 @@ export class PreviewService {
     listener: Listener,
   ): Response | Promise<Response> | undefined {
     listener.lastActivityAt = this.now(); // stamp on every HTTP request and WS upgrade
-    const { devPort, upstreamPort } = listener; // live read — re-ensure may have updated them
+    const { upstreamPort } = listener; // live read — re-ensure may have updated it
     if (isWebSocketUpgrade(req)) {
       const url = new URL(req.url);
       const protocols = parseSubprotocols(req.headers.get("sec-websocket-protocol"));
@@ -759,7 +763,10 @@ export class PreviewService {
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 426 });
     }
-    return proxyHttp(req, upstreamPort, devPort);
+    // A slot origin outlives its session: a registered worker would control the next owner's preview.
+    if (req.headers.get("service-worker") === "script")
+      return new Response("service workers are not allowed on preview origins", { status: 403 });
+    return proxyHttp(req, listener);
   }
 
   /**
@@ -812,16 +819,23 @@ function parseSubprotocols(header: string | null): string[] {
  * fetch decodes the body, so a forwarded content-encoding/length would break it).
  * The HUD session cookie never crosses the proxy: it is stripped from the request
  * (the browser attaches it, since cookies ignore ports) and any upstream Set-Cookie
- * naming it is dropped; other app cookies pass both ways.
+ * naming it is dropped; other app cookies pass both ways. Navigations get the slot-origin
+ * isolation treatment (see `markNavigation`).
  * Fails closed with a 502 if upstream throws.
  */
-async function proxyHttp(req: Request, upstreamPort: number, devPort: number): Promise<Response> {
+async function proxyHttp(req: Request, listener: Listener): Promise<Response> {
+  const { upstreamPort, devPort, previewPort, ownerNonce } = listener;
   const url = new URL(req.url);
   const target = `http://127.0.0.1:${upstreamPort}${url.pathname}${url.search}`;
+
+  const navigation = req.headers.get("sec-fetch-mode") === "navigate";
+  const newOwner = navigation && !hasOwnerMarker(req.headers, previewPort, ownerNonce);
 
   const headers = new Headers(req.headers);
   for (const h of STRIPPED_REQUEST_HEADERS) headers.delete(h);
   stripSessionCookie(headers);
+  // Never let a previous owner's cached copy be revalidated into this owner's page.
+  if (newOwner) for (const h of CONDITIONAL_REQUEST_HEADERS) headers.delete(h);
 
   const hasBody = req.body !== null && req.method !== "GET" && req.method !== "HEAD";
 
@@ -845,6 +859,7 @@ async function proxyHttp(req: Request, upstreamPort: number, devPort: number): P
   stripFramingHeaders(respHeaders);
   stripSessionSetCookie(respHeaders);
   rewriteLoopbackLocation(respHeaders, devPort, upstreamPort);
+  if (navigation) markNavigation(respHeaders, newOwner, previewPort, ownerNonce);
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
@@ -877,28 +892,72 @@ export function rewriteLoopbackLocation(headers: Headers, ...ports: number[]): v
   }
 }
 
+// ── Slot-origin isolation ─────────────────────────────────────────────────────
+//
+// A preview origin is `host:<slot>`, and slots are reused across sessions. Per-origin browser
+// state (storage, HTTP cache) left by a previous owner must not reach the next one. Each bind
+// mints an `ownerNonce`; a navigation whose browser doesn't carry it in the slot's HttpOnly
+// marker cookie gets `Clear-Site-Data: "cache", "storage"` (never "cookies": those are
+// host-wide and include the HUD session) plus the marker. Navigations are `no-store`, so a
+// cached document can never skip this check.
+
+/** Prefix of the per-slot owner-marker cookie; the slot port follows. */
+const OWNER_COOKIE_PREFIX = "shepherd_preview_owner_";
+
+/** Validators dropped on a new owner's navigation (no 304 against a prior owner's cache). */
+const CONDITIONAL_REQUEST_HEADERS = ["if-none-match", "if-modified-since"];
+
+/** True when any `Cookie` pair is this slot's marker carrying the current owner nonce. */
+function hasOwnerMarker(headers: Headers, previewPort: number, ownerNonce: string): boolean {
+  const want = `${OWNER_COOKIE_PREFIX}${previewPort}=${ownerNonce}`;
+  return (headers.get("cookie") ?? "").split(/[;,]/).some((pair) => pair.trim() === want);
+}
+
+/** Navigation response: never cached; on a new owner, wipe origin state and set the marker. */
+function markNavigation(
+  headers: Headers,
+  newOwner: boolean,
+  previewPort: number,
+  ownerNonce: string,
+): void {
+  headers.set("cache-control", "no-store");
+  headers.delete("expires");
+  if (!newOwner) return;
+  headers.set("clear-site-data", '"cache", "storage"');
+  headers.append(
+    "set-cookie",
+    `${OWNER_COOKIE_PREFIX}${previewPort}=${ownerNonce}; Path=/; HttpOnly; SameSite=Lax`,
+  );
+}
+
+/** Cookie names the proxy owns and never lets cross it: the HUD session + owner markers. */
+function isProxyCookie(name: string): boolean {
+  return name === SESSION_COOKIE || name.startsWith(OWNER_COOKIE_PREFIX);
+}
+
 /** Name of a `name=value` cookie pair (text before the first `=`, trimmed). */
 function cookieName(pair: string): string {
   const eq = pair.indexOf("=");
   return (eq < 0 ? pair : pair.slice(0, eq)).trim();
 }
 
-/** Remove the HUD session cookie from the request `Cookie` header, keeping every other
- *  pair. Fails closed on comma-joined duplicate headers: a pair is dropped when ANY of its
- *  `,`-separated segments names the session cookie. */
+/** Remove the HUD session cookie and owner markers from the request `Cookie` header, keeping
+ *  every other pair. Fails closed on comma-joined duplicate headers: a pair is dropped when ANY
+ *  of its `,`-separated segments names a proxy cookie. */
 function stripSessionCookie(headers: Headers): void {
   const cookie = headers.get("cookie");
   if (cookie === null) return;
   const kept = cookie
     .split(";")
     .filter((pair) => pair.trim().length > 0)
-    .filter((pair) => !pair.split(",").some((seg) => cookieName(seg) === SESSION_COOKIE))
+    .filter((pair) => !pair.split(",").some((seg) => isProxyCookie(cookieName(seg))))
     .map((pair) => pair.trim());
   if (kept.length === 0) headers.delete("cookie");
   else headers.set("cookie", kept.join("; "));
 }
 
-/** Drop any upstream `Set-Cookie` that would set, overwrite or clear the HUD session cookie.
+/** Drop any upstream `Set-Cookie` that would set, overwrite or clear the HUD session cookie
+ *  or an owner marker.
  *  Leading `=` are skipped before matching: browsers store `=shepherd_session=x` as an
  *  empty-name cookie and send it back as `shepherd_session=x`, shadowing the real one. */
 function stripSessionSetCookie(headers: Headers): void {
@@ -907,7 +966,7 @@ function stripSessionSetCookie(headers: Headers): void {
   headers.delete("set-cookie");
   for (const c of all) {
     const pair = c.split(";")[0]!.replace(/^[\s=]+/, "");
-    if (cookieName(pair) !== SESSION_COOKIE) headers.append("set-cookie", c);
+    if (!isProxyCookie(cookieName(pair))) headers.append("set-cookie", c);
   }
 }
 

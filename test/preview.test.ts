@@ -1031,6 +1031,117 @@ test("PreviewService: HTTP proxy drops empty-name Set-Cookie that would replay a
   expect(res.headers.getSetCookie()).toEqual(["=other=1; Path=/"]);
 });
 
+// ── Slot-origin isolation across owners (audit run-2 R2-F03) ─────────────────
+
+/** `name=value` of the proxy's owner-marker Set-Cookie, or null. */
+function ownerMarker(res: Response, port: number | null): string | null {
+  const c = res.headers.getSetCookie().find((s) => s.startsWith(`shepherd_preview_owner_${port}=`));
+  return c ? c.split(";")[0]! : null;
+}
+
+const NAV = { "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" };
+
+test("PreviewService: refuses service-worker script requests with 403, never dials upstream", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ seen, body: "self.onfetch=()=>{}" })));
+  const res = await fetch(`http://127.0.0.1:${port}/sw.js`, {
+    headers: { "service-worker": "script" },
+  });
+  expect(res.status).toBe(403);
+  expect(seen).toHaveLength(0);
+  // An ordinary request for the same path still proxies.
+  const ok = await fetch(`http://127.0.0.1:${port}/sw.js`);
+  expect(ok.status).toBe(200);
+  expect(seen).toHaveLength(1);
+});
+
+test("PreviewService: navigation without the owner marker clears site state and sets the marker", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure(
+    "s1",
+    portOf(httpUpstream({ seen, headers: { "cache-control": "max-age=31536000", expires: "x" } })),
+  );
+  const res = await fetch(`http://127.0.0.1:${port}/`, {
+    headers: {
+      ...NAV,
+      "if-none-match": '"abc"',
+      "if-modified-since": "Thu, 01 Jan 2026 00:00:00 GMT",
+    },
+  });
+  const csd = res.headers.get("clear-site-data") ?? "";
+  expect(csd).toContain('"cache"');
+  expect(csd).toContain('"storage"');
+  expect(csd).not.toContain("cookies");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  expect(res.headers.get("expires")).toBeNull();
+  const set = res.headers
+    .getSetCookie()
+    .find((s) => s.startsWith(`shepherd_preview_owner_${port}=`));
+  expect(set).toContain("HttpOnly");
+  expect(seen[0]!.get("if-none-match")).toBeNull();
+  expect(seen[0]!.get("if-modified-since")).toBeNull();
+});
+
+test("PreviewService: navigation with the current owner marker keeps site state, marker not forwarded", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ seen })));
+  const marker = ownerMarker(await fetch(`http://127.0.0.1:${port}/`, { headers: NAV }), port)!;
+  expect(marker).not.toBeNull();
+  const res = await fetch(`http://127.0.0.1:${port}/`, {
+    headers: { ...NAV, cookie: `app=1; ${marker}`, "if-none-match": '"abc"' },
+  });
+  expect(res.headers.get("clear-site-data")).toBeNull();
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  expect(ownerMarker(res, port)).toBeNull();
+  expect(seen[1]!.get("cookie")).toBe("app=1");
+  expect(seen[1]!.get("if-none-match")).toBe('"abc"');
+});
+
+test("PreviewService: a new owner of the same slot gets a fresh marker, so the old one triggers a wipe", async () => {
+  const up = portOf(httpUpstream({}));
+  const port = service!.ensure("A", up)!;
+  const markerA = ownerMarker(await fetch(`http://127.0.0.1:${port}/`, { headers: NAV }), port)!;
+  service!.release("A");
+  await Bun.sleep(20);
+  expect(service!.ensure("B", up)).toBe(port);
+  const res = await fetch(`http://127.0.0.1:${port}/`, { headers: { ...NAV, cookie: markerA } });
+  expect(res.headers.get("clear-site-data")).toContain('"storage"');
+  const markerB = ownerMarker(res, port)!;
+  expect(markerB).not.toBe(markerA);
+});
+
+test("PreviewService: non-navigation requests are not wiped and keep upstream caching", async () => {
+  const port = service!.ensure(
+    "s1",
+    portOf(httpUpstream({ headers: { "cache-control": "max-age=60" } })),
+  );
+  const res = await fetch(`http://127.0.0.1:${port}/app.js`, {
+    headers: { "sec-fetch-mode": "no-cors", "sec-fetch-dest": "script" },
+  });
+  expect(res.headers.get("clear-site-data")).toBeNull();
+  expect(res.headers.get("cache-control")).toBe("max-age=60");
+  expect(ownerMarker(res, port)).toBeNull();
+});
+
+test("PreviewService: drops upstream Set-Cookie naming an owner marker, keeps app cookies", async () => {
+  const headers = new Headers();
+  headers.append("set-cookie", "shepherd_preview_owner_8001=forged; Path=/");
+  headers.append("set-cookie", "=shepherd_preview_owner_8002=forged; Path=/");
+  headers.append("set-cookie", "app=1; Path=/");
+  const port = service!.ensure("s1", portOf(httpUpstream({ headers })));
+  const res = await fetch(`http://127.0.0.1:${port}/`);
+  expect(res.headers.getSetCookie()).toEqual(["app=1; Path=/"]);
+});
+
+test("PreviewService: strips any owner-marker cookie before forwarding upstream", async () => {
+  const seen: Headers[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ seen })));
+  await fetch(`http://127.0.0.1:${port}/`, {
+    headers: { cookie: "a=1; shepherd_preview_owner_8009=x; b=2" },
+  });
+  expect(seen[0]!.get("cookie")).toBe("a=1; b=2");
+});
+
 test("PreviewService: HTTP proxy keeps cookies whose names merely resemble shepherd_session", async () => {
   const seen: Headers[] = [];
   const headers = new Headers();

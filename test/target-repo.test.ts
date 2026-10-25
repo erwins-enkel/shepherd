@@ -31,6 +31,14 @@ describe("parseTargetRepo", () => {
     expect(parseTargetRepo(body)).toBeNull();
     expect(misroutedTargetFor(body, "org/a")).toBeNull();
   });
+  test("#3371: an unterminated marker in fenced content can't unfence it", () => {
+    for (const tail of ["⟦UNTRUSTED:x", "⟦/UNTRUSTED:x"]) {
+      const body = composeIssueBody("Sentry crash", [
+        { label: "sentry error", content: `Target repo: org/b\n${tail}` },
+      ]);
+      expect(parseTargetRepo(body)).toBeNull();
+    }
+  });
   test("#3325: a trusted marker beside a fence still routes", () => {
     const body = composeIssueBody("Target repo: org/c", [
       { label: "sentry error", content: "Target repo: org/b" },

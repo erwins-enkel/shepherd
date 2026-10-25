@@ -4,6 +4,7 @@ import {
   isTrustedAssociation,
   randomFenceToken,
   scanForInjection,
+  scrubFenceTokens,
   stripUntrustedFences,
   TRUSTED_ASSOCIATIONS,
   UNTRUSTED_CONTENT_DIRECTIVE,
@@ -160,6 +161,23 @@ describe("#2002 fence ⇒ directive invariant", () => {
   });
 });
 
+describe("scrubFenceTokens", () => {
+  it("scrubs complete and unterminated markers (#3371)", () => {
+    for (const mk of [
+      "⟦UNTRUSTED:a:b⟧",
+      "⟦/UNTRUSTED:a:b⟧",
+      "⟦UNTRUSTED:x",
+      "⟦/UNTRUSTED:x",
+      "⟦UNTRUSTED",
+    ]) {
+      expect(scrubFenceTokens(`a ${mk}\nb`)).not.toContain("⟦");
+    }
+  });
+  it("leaves other ⟦ text alone", () => {
+    expect(scrubFenceTokens("⟦x⟧ and ⟦")).toBe("⟦x⟧ and ⟦");
+  });
+});
+
 // #3325: structural parsers read only trusted text.
 describe("stripUntrustedFences", () => {
   it("removes a complete fence and keeps the surrounding text", () => {
@@ -188,6 +206,13 @@ describe("stripUntrustedFences", () => {
     const t0 = performance.now();
     expect(stripUntrustedFences(body)).toBe(body);
     expect(performance.now() - t0).toBeLessThan(500);
+  });
+  // #3371: a marker can't span lines or another marker, so a partial one can't eat the closer.
+  it("strips a real fence holding an unscrubbed unterminated marker", () => {
+    for (const tail of ["⟦UNTRUSTED:x", "⟦/UNTRUSTED:x"]) {
+      const body = `keep\n⟦UNTRUSTED:e:n1⟧\nTarget repo: org/b\n${tail}\n⟦/UNTRUSTED:e:n1⟧`;
+      expect(stripUntrustedFences(body)).toBe("keep\n");
+    }
   });
   it("leaves an unclosed open marker (strips nothing to the end)", () => {
     const body = "⟦UNTRUSTED:x:aaa⟧\nTarget repo: org/b";

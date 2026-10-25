@@ -84,6 +84,14 @@ describe("parseEpicBody ignores untrusted fences", () => {
     ]);
     expect(parseEpicBody(body).members).toEqual([]);
   });
+  test("#3371: an unterminated marker in fenced content can't unfence it", () => {
+    for (const tail of ["⟦UNTRUSTED:x", "⟦/UNTRUSTED:x"]) {
+      const body = composeIssueBody("Sentry crash", [
+        { label: "sentry error", content: `- [ ] #7\n${tail}` },
+      ]);
+      expect(parseEpicBody(body).members).toEqual([]);
+    }
+  });
   test("trusted checklist beside a fence still parses", () => {
     const body = composeIssueBody("- [ ] #5", [{ label: "x", content: "- [ ] #7" }]);
     expect(parseEpicBody(body).members).toEqual([5]);

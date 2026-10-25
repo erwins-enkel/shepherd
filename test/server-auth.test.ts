@@ -373,6 +373,43 @@ test("WS /events: a valid cookie but evil Origin is still 403 (CSWSH guard kept)
   });
 });
 
+// A cookie socket is not authorized forever (#3338): logout and the cookie's own expiry close it.
+function openCookieSocket(port: number, cookie: string): Promise<WebSocket> {
+  const ws = new WebSocket(`ws://localhost:${port}/events`, {
+    headers: { Origin: `http://localhost:${port}`, ...cookieHeader(cookie) },
+  } as never);
+  return new Promise((resolve, reject) => {
+    ws.onopen = () => resolve(ws);
+    ws.onerror = () => reject(new Error("socket failed"));
+  });
+}
+const closeCode = (ws: WebSocket) =>
+  new Promise<number>((resolve) => (ws.onclose = (e) => resolve(e.code)));
+
+test("WS /events: a cookie socket is closed (1008) when the operator logs out", async () => {
+  await withServer(async (port) => {
+    const ws = await openCookieSocket(port, signCookie(SECRET));
+    const closed = closeCode(ws);
+    const res = await fetch(`http://localhost:${port}/api/logout`, {
+      method: "POST",
+      headers: {
+        Origin: `http://localhost:${port}`,
+        "content-type": "application/json",
+        ...cookieHeader(signCookie(SECRET)),
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await closed).toBe(1008);
+  });
+});
+
+test("WS /events: a cookie socket is closed (1008) when its cookie expires", async () => {
+  await withServer(async (port) => {
+    const ws = await openCookieSocket(port, signCookie(SECRET, 400));
+    expect(await closeCode(ws)).toBe(1008);
+  });
+});
+
 // ── agent-transport regression: exempt ingress vs gated main port ────────────
 
 test("agent-transport: a hook POST with no operator credential is 2xx on the ingress but 401 on the main port", async () => {

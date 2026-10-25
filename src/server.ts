@@ -1518,8 +1518,13 @@ async function handleLogin({ req, parts, deps }: Ctx): Promise<Response | null> 
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
+/** Close hooks of every live `serve()` listener, run on logout (#3338). The cookie is stateless,
+ *  so logout closes every cookie-authed socket; other devices reconnect with their own cookie. */
+const logoutListeners = new Set<() => void>();
+
 function handleLogout({ req, parts }: Ctx): Response | null {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "logout" || parts[2]) return null;
+  for (const close of logoutListeners) close();
   const headers = new Headers({ "content-type": "application/json" });
   headers.append(
     "Set-Cookie",
@@ -12424,6 +12429,8 @@ type WsData = (
     }
 ) & {
   tokenId?: string;
+  /** Expiry of the operator cookie a cookie-authed socket opened with (#3338). */
+  cookieExp?: number;
   authUnsub?: () => void;
   expiryTimer?: ReturnType<typeof setTimeout>;
   authClosed?: boolean;
@@ -12645,6 +12652,10 @@ export function serve(deps: AppDeps, port: number) {
 
   function socketAuthorized(ws: ServerWebSocket<WsData>): boolean {
     if (ws.data.authClosed) return false;
+    if (ws.data.cookieExp !== undefined && ws.data.cookieExp <= Date.now()) {
+      closeTokenSocket(ws);
+      return false;
+    }
     if (!ws.data.tokenId) return true;
     const token = accessTokens(deps).current(ws.data.tokenId);
     const allowed =
@@ -12671,6 +12682,22 @@ export function serve(deps: AppDeps, port: number) {
     );
     ws.data.expiryTimer.unref();
   }
+
+  // A cookie socket closes when the cookie it opened with expires (#3338).
+  function armCookieExpiry(ws: ServerWebSocket<WsData>): void {
+    const exp = ws.data.cookieExp;
+    if (exp === undefined || !socketAuthorized(ws)) return;
+    ws.data.expiryTimer = setTimeout(
+      () => armCookieExpiry(ws),
+      Math.min(2_147_483_647, Math.max(1, exp - Date.now())),
+    );
+    ws.data.expiryTimer.unref();
+  }
+  const cookieSockets = new Set<ServerWebSocket<WsData>>();
+  const closeCookieSockets = () => {
+    for (const ws of cookieSockets) closeTokenSocket(ws);
+  };
+  logoutListeners.add(closeCookieSockets);
 
   function sendTokenEvent(ws: ServerWebSocket<WsData>, event: string, data: unknown): void {
     // Local or a machine's (#2764): each socket gets the merged map its token and kind may see.
@@ -12701,8 +12728,15 @@ export function serve(deps: AppDeps, port: number) {
     )
       ? null
       : new Response("forbidden: origin not allowed", { status: 403 });
-  const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined =>
-    server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 500 });
+  const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined => {
+    if (!data.tokenId && config.cookieSecret) {
+      const v = verifyCookie(config.cookieSecret, parseCookie(req.headers.get("cookie")));
+      if (v.ok) data.cookieExp = v.exp;
+    }
+    return server.upgrade(req, { data })
+      ? undefined
+      : new Response("upgrade failed", { status: 500 });
+  };
   function upgradePty(
     req: Request,
     url: URL,
@@ -12963,6 +12997,9 @@ export function serve(deps: AppDeps, port: number) {
         if (id === ws.data.tokenId) closeTokenSocket(ws);
       });
       armTokenExpiry(ws);
+    } else if (ws.data.cookieExp !== undefined) {
+      cookieSockets.add(ws);
+      armCookieExpiry(ws);
     }
     if (ws.data.kind === "events") {
       const unsub = deps.events.subscribe((event, data) => sendTokenEvent(ws, event, data));
@@ -13018,6 +13055,7 @@ export function serve(deps: AppDeps, port: number) {
     else ws.data.bridge?.write(frame);
   }
   function onSocketClose(ws: ServerWebSocket<WsData>): void {
+    cookieSockets.delete(ws);
     ws.data.authUnsub?.();
     if (ws.data.expiryTimer) clearTimeout(ws.data.expiryTimer);
     if (ws.data.kind === "events") {

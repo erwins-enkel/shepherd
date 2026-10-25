@@ -30,7 +30,7 @@ import {
   type RunSummary,
 } from "./drain-core";
 import { bootstrapMissing } from "./bootstrap";
-import { assembleEpic } from "./epic-model";
+import { assembleEpic, withRetiredPrs } from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
 import { forecastEpic } from "./epic-forecast";
 import { repoLeadTime } from "./delivery-metrics";
@@ -919,7 +919,15 @@ export class DrainService {
   ): Epic {
     const now = this.now();
     const clock = this.deps.store.getEpicClock(repoPath, epic.parentIssueNumber);
-    const timed = withEpicTiming(epic, {
+    const facts = this.deps.store.listDeliveryFactsForIssues(
+      repoPath,
+      epic.children.map((c) => c.number),
+    );
+    // #3423: a retired child's open PR, so the run area can name the merge the chain waits on.
+    const retired = new Set(
+      all.filter((s) => s.status === "archived" && s.archiveReason === "drain").map((s) => s.id),
+    );
+    const timed = withEpicTiming(withRetiredPrs(epic, retired, facts), {
       clock,
       sessions: all
         .filter((s) => s.repoPath === repoPath)
@@ -929,10 +937,7 @@ export class DrainService {
           createdAt: s.createdAt,
           endedAt: s.status === "archived" ? (s.archivedAt ?? s.updatedAt) : null,
         })),
-      facts: this.deps.store.listDeliveryFactsForIssues(
-        repoPath,
-        epic.children.map((c) => c.number),
-      ),
+      facts,
       integratedAt: new Map(integrated.map((d) => [d.childNumber, d.mergedAt])),
       now,
     });

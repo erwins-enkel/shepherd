@@ -94,6 +94,17 @@ describe("awaitingMerge", () => {
     expect(awaitingMerge({ run: run({ status: "paused" }), children }, true, green)).toEqual([]);
   });
 
+  it("names a drain-retired child's open PR without a live session", () => {
+    const retired = [
+      child(4, "merged"),
+      { ...child(5, "in-review", [4]), url: "https://example.test/issues/5", retiredPrNumber: 14 },
+      child(6, "blocked", [5]),
+    ];
+    expect(awaitingMerge({ run: run(), children: retired }, true, () => null)).toEqual([
+      { child: 5, pr: 14, url: "https://example.test/issues/14", blocks: [6] },
+    ]);
+  });
+
   it("ignores a dependent that already started (stacked)", () => {
     const stacked = [child(4, "in-review", [], 14), child(5, "running", [4])];
     expect(awaitingMerge({ run: run(), children: stacked }, true, green)).toEqual([]);

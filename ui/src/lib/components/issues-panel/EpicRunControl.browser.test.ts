@@ -1079,6 +1079,25 @@ describe("EpicRunControl incremental merge gate", () => {
     await expect.element(wait()).toHaveAttribute("href", "https://example.test/pull/14");
   });
 
+  it("names the PR of a child the drain retired (no live session)", async () => {
+    const repoPath = repo();
+    api.getRepoConfig.mockImplementation(async () => cfg());
+    const retired = {
+      ...child(21, "in-review"),
+      url: "https://example.test/issues/21",
+      claimed: true,
+      retiredPrNumber: 14,
+    };
+    render(EpicRunControl, {
+      repoPath,
+      parent: B,
+      epic: incremental([retired, child(22, "blocked", [21]), child(23, "blocked", [21])]),
+      drain: drain({ reason: "empty" }),
+      titleFor,
+    });
+    await expect.element(wait()).toHaveAttribute("href", "https://example.test/issues/14");
+  });
+
   it("stays quiet when autopilot and auto-merge carry the PRs", async () => {
     const repoPath = repo();
     api.getRepoConfig.mockImplementation(async () => cfg({ autoMergeEnabled: true }));

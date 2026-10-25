@@ -34,6 +34,11 @@ export interface EpicChild {
   /** When this child was done: its `epic_integrated` stamp, else the `mergedAt` of its delivery
    *  fact; null while it is not done, or when unknown. Set by `buildEpic` (see `startedAt`). */
   endedAt?: number | null;
+  /** #3423: the still-open PR of the session the drain retired for this child (archived with
+   *  reason "drain" — retire requires cleared checks and a mergeable PR, then leaves it for a human
+   *  merge). Set by `buildEpic` only while the child is session-less and `in-review`; absent
+   *  otherwise. */
+  retiredPrNumber?: number;
 }
 /** How an epic's children land (#3191): `integration` (default) bases them on and merges them into
  *  the epic's integration branch, which lands as one PR; `incremental` bases and merges each child

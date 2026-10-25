@@ -1,5 +1,12 @@
 import { test, expect, describe } from "bun:test";
-import { assembleEpic, NO_INTEGRATION_BRANCH_WARNING, type AssembleInput } from "../src/epic-model";
+import {
+  assembleEpic,
+  NO_INTEGRATION_BRANCH_WARNING,
+  withRetiredPrs,
+  type AssembleInput,
+} from "../src/epic-model";
+import type { Epic, EpicChild } from "../src/epic-core";
+import type { DeliveryFact } from "../src/types";
 
 const BASE: AssembleInput = {
   repoPath: "/repo",
@@ -380,4 +387,75 @@ test("#1757 an UNRESOLVABLE forge does not warn (that would assert something we 
     integrationBranchSupported: true,
   });
   expect(e.warnings.join("\n")).not.toContain(NO_INTEGRATION_BRANCH_WARNING);
+});
+
+describe("withRetiredPrs (#3423)", () => {
+  const kid = (number: number, over: Partial<EpicChild> = {}): EpicChild => ({
+    number,
+    title: `c${number}`,
+    url: "",
+    order: number,
+    body: "",
+    blockedBy: [],
+    state: "in-review",
+    sessionId: null,
+    prNumber: null,
+    issueClosed: false,
+    integrationMerged: false,
+    claimed: true,
+    ...over,
+  });
+  const epicOf = (children: EpicChild[]) => ({ children }) as unknown as Epic;
+  const fact = (
+    sessionId: string,
+    issueNumber: number,
+    prNumber: number | null,
+    over: Partial<DeliveryFact> = {},
+  ): DeliveryFact =>
+    ({
+      sessionId,
+      repoPath: "/r",
+      desig: "",
+      issueNumber,
+      prNumber,
+      createdAt: 1,
+      prOpenedAt: 1,
+      mergedAt: null,
+      firstCiHeadSha: null,
+      firstCiConclusion: null,
+      ...over,
+    }) as DeliveryFact;
+
+  test("attaches the newest retired session's open PR to a session-less in-review child", () => {
+    const out = withRetiredPrs(epicOf([kid(5)]), new Set(["old", "new"]), [
+      fact("old", 5, 13),
+      fact("new", 5, 14, { createdAt: 2 }),
+    ]);
+    expect(out.children[0]!.retiredPrNumber).toBe(14);
+  });
+
+  test("ignores merged PRs, non-retired sessions, live or non-review children", () => {
+    const retired = new Set(["s5", "s6", "s7"]);
+    const out = withRetiredPrs(
+      epicOf([
+        kid(5),
+        kid(6),
+        kid(7, { sessionId: "live", prNumber: 30 }),
+        kid(8, { state: "blocked" }),
+      ]),
+      retired,
+      [
+        fact("s5", 5, 14, { mergedAt: 9 }),
+        fact("operator", 6, 15),
+        fact("s7", 7, 16),
+        fact("s8", 8, 17),
+      ],
+    );
+    expect(out.children.map((c) => c.retiredPrNumber)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
 });

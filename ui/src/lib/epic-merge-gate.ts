@@ -1,4 +1,5 @@
 import type { Epic, EpicChild, EpicLanding, GitState } from "#lib/types.js";
+import { childPrUrl } from "#lib/components/epic-child.js";
 
 /** #3423: an incremental epic's children land through the merge train only when the repo is
  *  full-auto — autopilot AND auto-merge on, draftMode forcing the merge half off (mirrors the
@@ -59,18 +60,25 @@ const isGreen = (git: GitState) =>
 
 type GitFor = (sessionId: string) => GitState | null | undefined;
 
-/** The child as a merge wait when it is in review with a green PR, else null. */
+/** The child as a merge wait when it is in review with a green PR, else null. A child the drain
+ *  retired (`retiredPrNumber`, session archived) counts as green: retire requires cleared checks
+ *  and a mergeable PR, then leaves it open for a human merge — the usual waiting state here. */
 function greenReview(c: EpicChild, gitFor: GitFor): AwaitingMerge | null {
-  if (c.state !== "in-review" || c.prNumber == null || !c.sessionId) return null;
+  if (c.state !== "in-review") return null;
+  if (c.sessionId == null && c.retiredPrNumber != null) {
+    const pr = c.retiredPrNumber;
+    return { child: c.number, pr, url: childPrUrl({ url: c.url, prNumber: pr }), blocks: [] };
+  }
+  if (c.prNumber == null || !c.sessionId) return null;
   const git = gitFor(c.sessionId);
   if (!git || !isGreen(git)) return null;
   return { child: c.number, pr: c.prNumber, url: git.url ?? null, blocks: [] };
 }
 
 /** The green child PRs a running incremental epic waits on a human merge for: each is an in-review
- *  child whose PR is green (or the repo has no CI), and it is listed with the blocked children
- *  whose every open blocker is such a PR. `gitFor` resolves a child's session to its PR state;
- *  an unknown one is never listed. Empty unless `mergeOff`. */
+ *  child whose PR is green (or the repo has no CI) or that the drain retired, and it is listed
+ *  with the blocked children whose every open blocker is such a PR. `gitFor` resolves a live
+ *  child's session to its PR state; an unknown one is never listed. Empty unless `mergeOff`. */
 export function awaitingMerge(
   epic: Pick<Epic, "run" | "children">,
   mergeOff: boolean,

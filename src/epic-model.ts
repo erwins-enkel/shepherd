@@ -2,6 +2,7 @@ import { parseEpicBody } from "./epic-parse";
 import { deriveChildState, type Epic, type EpicChild, type EpicRun } from "./epic-core";
 import { epicIntegrationBranch } from "./epic-branch";
 import type { SubIssueRef } from "./forge/types";
+import type { DeliveryFact } from "./types";
 
 const ACTIVE_LABEL = "shepherd:active"; // mirror src/drain-core.ts
 
@@ -274,4 +275,29 @@ function baseMismatchWarning(
     mm.prNumber != null ? ` — re-target it (gh pr edit ${mm.prNumber} --base ${pinned})` : "";
   const target = mm.actualBase ? `targets \`${mm.actualBase}\`` : "targets an unknown base";
   return `child #${mm.childNumber} PR${pr} ${target}, not the epic branch \`${pinned}\`${edit} — epic blocked until fixed`;
+}
+
+/** #3423: attach {@link EpicChild.retiredPrNumber} — for a session-less `in-review` child, the PR of
+ *  its newest session the drain retired (`retiredSessions`: ids archived with reason "drain") whose
+ *  delivery fact records a PR and no merge. Pure; children it doesn't apply to are untouched. */
+export function withRetiredPrs(
+  epic: Epic,
+  retiredSessions: ReadonlySet<string>,
+  facts: DeliveryFact[],
+): Epic {
+  const newest = new Map<number, DeliveryFact>();
+  for (const f of facts) {
+    if (f.issueNumber == null || f.prNumber == null || f.mergedAt != null) continue;
+    if (!retiredSessions.has(f.sessionId)) continue;
+    const seen = newest.get(f.issueNumber);
+    if (!seen || f.createdAt > seen.createdAt) newest.set(f.issueNumber, f);
+  }
+  if (newest.size === 0) return epic;
+  const children = epic.children.map((c) => {
+    const pr = newest.get(c.number)?.prNumber;
+    return c.state === "in-review" && c.sessionId == null && pr != null
+      ? { ...c, retiredPrNumber: pr }
+      : c;
+  });
+  return { ...epic, children };
 }

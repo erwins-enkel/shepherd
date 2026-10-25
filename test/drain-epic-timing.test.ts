@@ -221,3 +221,49 @@ describe("buildEpic attaches the forecast", () => {
     expect(h.store.getEpicClock(REPO, PARENT)!.firstFinishAt).toBe(first.finishAt);
   });
 });
+
+// #3423: a drain-retired incremental child's still-open PR reaches the epic model, so the run area
+// can name the merge the chain waits on although the session is archived.
+test("buildEpic carries a drain-retired child's open PR as retiredPrNumber", async () => {
+  const h = harness([{ ...sub(320, false), labels: ["shepherd:active"] }, sub(321, false)]);
+  h.store.setEpicRun({
+    repoPath: REPO,
+    parentIssueNumber: PARENT,
+    mode: "auto",
+    status: "running",
+    landing: "incremental",
+  });
+  const s = h.store.create({
+    name: "t",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/t-320",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "h",
+    herdrAgentId: "term_1",
+    auto: true,
+    issueNumber: 320,
+    incrementalEpicParent: PARENT,
+  } as never);
+  h.store.upsertDeliveryFact({
+    sessionId: s.id,
+    repoPath: REPO,
+    desig: s.desig,
+    issueNumber: 320,
+    prNumber: 14,
+    createdAt: s.createdAt,
+    prOpenedAt: s.createdAt,
+    now: s.createdAt,
+  });
+  h.store.archive(s.id, "drain");
+
+  const epic = (await h.drain.buildEpic(REPO, h.store.getEpicRun(REPO)!))!;
+  expect(epic.children.find((c) => c.number === 320)).toMatchObject({
+    state: "in-review",
+    sessionId: null,
+    retiredPrNumber: 14,
+  });
+  expect(epic.children.find((c) => c.number === 321)?.retiredPrNumber).toBeUndefined();
+});

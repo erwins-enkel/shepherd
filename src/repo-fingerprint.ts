@@ -90,6 +90,9 @@ interface SlugState {
  * Blind spot, accepted: a change that bumps neither an issue's `updatedAt` nor a count (e.g. a
  * repo-wide label rename) stays invisible until the next real change, an operator view, or one
  * of Shepherd's own writes, which invalidate the forge cache directly.
+ * Likewise for open PRs (#2799): the default-branch head is in the PR key, but a move of any
+ * other base — an epic integration branch — doesn't recompute it, so a child PR going behind
+ * stays unseen the same way.
  */
 export class RepoFingerprintService {
   private readonly now: () => number;
@@ -213,9 +216,16 @@ export class RepoFingerprintService {
   }
 
   private backgroundPaused(): boolean {
+    return this.deps.rateLimit().blocked || this.belowReserve();
+  }
+
+  /** True while the last in-query `remaining` is below the (foreign-adjusted) reserve, until the
+   *  reset. Not during a backoff: that has its own fallbacks. Other background GitHub polling (the
+   *  PR poller, #2799) pauses on it too. */
+  belowReserve(): boolean {
     const rl = this.deps.rateLimit();
-    if (rl.blocked) return true;
     return (
+      !rl.blocked &&
       rl.remaining !== null &&
       rl.resetAt !== null &&
       this.now() < rl.resetAt &&

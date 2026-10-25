@@ -6,6 +6,7 @@
 import { test, expect } from "bun:test";
 import { OpenPrSnapshotService, SNAPSHOT_TTL_MS } from "../src/open-pr-snapshot";
 import { graphRateLimit } from "../src/forge/rate-limit";
+import { withGhCaller } from "../src/forge/gh-caller";
 import { GithubReadCache } from "../src/github-read-cache";
 import { SessionStore } from "../src/store";
 import type { GitForge, OpenPrSnapshot, PrStatus } from "../src/forge/types";
@@ -524,4 +525,103 @@ test("peekCurrent: null for incapable forges", () => {
   const svc = new OpenPrSnapshotService();
   expect(svc.peekCurrent(makeForge(null))).toBeNull();
   expect(svc.peekCurrent(makeForge("org/repo", { noSnapshot: true }))).toBeNull();
+});
+
+// ── hasTransient (#2799) ───────────────────────────────────────────────────
+
+function snapshotWith(status: Partial<PrStatus>): OpenPrSnapshot {
+  const snap = makeSnapshot(1);
+  const base: PrStatus = {
+    state: "open",
+    number: 1,
+    headSha: "h1",
+    checks: "success",
+    deployConfigured: false,
+    mergeable: true,
+    mergeStateStatus: "clean",
+  };
+  return { ...snap, statuses: new Map([["branch-a", { ...base, ...status }]]) };
+}
+
+test("hasTransient: pending, running, unknown and unstable PRs count; settled ones don't", async () => {
+  const cases: Array<[Partial<PrStatus>, boolean]> = [
+    [{}, false],
+    [{ checks: "pending" }, true],
+    [{ runningChecks: ["ci"] }, true],
+    [{ mergeable: null }, true],
+    [{ mergeStateStatus: "unknown" }, true],
+    [{ mergeStateStatus: "unstable" }, true],
+    [{ state: "merged", checks: "pending" }, false],
+  ];
+  for (const [status, expected] of cases) {
+    const svc = new OpenPrSnapshotService(() => 0);
+    const forge = makeForge();
+    (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () =>
+      snapshotWith(status);
+    await svc.get(forge);
+    expect(svc.hasTransient(forge, 1_000)).toBe(expected);
+  }
+});
+
+test("hasTransient: a PR stuck transient stops counting after the window; a new head restarts it", async () => {
+  let now = 0;
+  let head = "h1";
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () =>
+    snapshotWith({ checks: "pending", headSha: head });
+  await svc.refresh(forge);
+  expect(svc.hasTransient(forge, 1_000)).toBe(true);
+  now = 500;
+  await svc.refresh(forge); // same head, refetched: the window keeps its first sighting
+  expect(svc.hasTransient(forge, 1_000)).toBe(true);
+  now = 1_000;
+  expect(svc.hasTransient(forge, 1_000)).toBe(false);
+  head = "h2";
+  await svc.refresh(forge);
+  expect(svc.hasTransient(forge, 1_000)).toBe(true);
+});
+
+test("hasTransient: false without a cached snapshot or snapshot support", () => {
+  const svc = new OpenPrSnapshotService(() => 0);
+  expect(svc.hasTransient(makeForge(), 1_000)).toBe(false);
+  expect(svc.hasTransient(makeForge("org/repo", { noSnapshot: true }), 1_000)).toBe(false);
+});
+
+test("a real fetch logs the slug and the caller that paid for it", async () => {
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...a: unknown[]) => void lines.push(a.join(" "));
+  try {
+    const svc = new OpenPrSnapshotService(() => 0);
+    const forge = makeForge();
+    await withGhCaller("critic", () => svc.get(forge));
+    await withGhCaller("critic", () => svc.get(forge)); // cache hit: no line
+  } finally {
+    console.log = orig;
+  }
+  expect(lines.filter((l) => l.startsWith("[open-pr-snapshot]"))).toEqual([
+    "[open-pr-snapshot] org/repo: 1 open PRs (graphql) for critic",
+  ]);
+});
+
+test("noteHeadRead: a disagreeing head read marks the snapshot stale until a later fetch", async () => {
+  let now = 0;
+  let status: Partial<PrStatus> = { checks: "pending" };
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () =>
+    snapshotWith(status);
+  await svc.get(forge);
+  const read = snapshotWith({ checks: "pending" }).statuses.get("branch-a")!;
+  svc.noteHeadRead(forge, "branch-a", read); // agrees
+  svc.noteHeadRead(forge, "other", { ...read, checks: "success" }); // not in the snapshot
+  expect(svc.isStale(forge)).toBe(false);
+  now = 10;
+  svc.noteHeadRead(forge, "branch-a", { ...read, checks: "success" });
+  expect(svc.isStale(forge)).toBe(true);
+  status = { checks: "success" };
+  now = 20;
+  await svc.refresh(forge);
+  expect(svc.isStale(forge)).toBe(false);
 });

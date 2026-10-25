@@ -14,6 +14,7 @@ function repoNode(o: {
   openPrs?: number;
   prAt?: string | null;
   ci?: string | null;
+  oid?: string;
 }) {
   return {
     openIssues: { totalCount: o.openIssues ?? 3 },
@@ -23,7 +24,9 @@ function repoNode(o: {
     openPrs: { totalCount: o.openPrs ?? 2 },
     lastPr: { nodes: o.prAt === null ? [] : [{ updatedAt: o.prAt ?? "2026-10-02T00:00:00Z" }] },
     defaultBranchRef:
-      o.ci === null ? null : { target: { statusCheckRollup: { state: o.ci ?? "SUCCESS" } } },
+      o.ci === null
+        ? null
+        : { target: { oid: o.oid, statusCheckRollup: { state: o.ci ?? "SUCCESS" } } },
   };
 }
 
@@ -42,11 +45,16 @@ test("buildFingerprintArgs: one aliased query with string variables per repo plu
   expect(query).toContain("r1:repository(owner:$o1,name:$n1)");
   expect(query).toContain("orderBy:{field:UPDATED_AT,direction:DESC}");
   expect(query).toContain("rateLimit{cost used remaining resetAt}");
+  expect(query).toContain("defaultBranchRef{target{oid ");
 });
 
 test("parseFingerprintResponse: maps aliases back to slugs, null for an unreadable repo", () => {
   const out = JSON.stringify({
-    data: { r0: repoNode({ openIssues: 7, ci: "FAILURE" }), r1: null, rateLimit: RATE },
+    data: {
+      r0: repoNode({ openIssues: 7, ci: "FAILURE", oid: "abc123" }),
+      r1: null,
+      rateLimit: RATE,
+    },
   });
   const { fingerprints, rateLimit } = parseFingerprintResponse(out, ["acme/web", "acme/gone"]);
   expect(fingerprints.get("acme/web")).toEqual({
@@ -55,6 +63,7 @@ test("parseFingerprintResponse: maps aliases back to slugs, null for an unreadab
     openPrs: 2,
     prsUpdatedAt: "2026-10-02T00:00:00Z",
     ciState: "FAILURE",
+    defaultHeadOid: "abc123",
   });
   expect(fingerprints.get("acme/gone")).toBeNull();
   expect(rateLimit).toEqual({
@@ -76,6 +85,7 @@ test("parseFingerprintResponse: an empty repo (no issues, no PRs, no rollup) sti
     openPrs: 0,
     prsUpdatedAt: "",
     ciState: "",
+    defaultHeadOid: "",
   });
   expect(rateLimit).toBeNull();
 });

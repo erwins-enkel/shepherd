@@ -101,7 +101,7 @@ test("warm restart: stable sessions skip unchanged PR keys while transient sessi
     polls.push(branch);
     return branch === "stable" ? stableGit : openGit();
   };
-  let key = "1|unchanged";
+  let key = "1|unchanged|";
   const cache = new GithubReadCache(store);
   cache.put("fingerprint", "o/r", null, {
     openIssues: 0,
@@ -156,7 +156,7 @@ test("warm restart: cached none sessions do not trigger a boot confirmation wave
     prsUpdatedAt: "same",
     ciState: "",
   });
-  cache.put("session", "o/r", "0|same", session.branch!, session.id);
+  cache.put("session", "o/r", "0|same|", session.branch!, session.id);
   const poller = new PrPoller(
     store,
     () => forge,
@@ -173,7 +173,7 @@ test("warm restart: cached none sessions do not trigger a boot confirmation wave
     undefined,
     undefined,
     undefined,
-    () => "0|same",
+    () => "0|same|",
     cache,
   );
   for (let i = 0; i < 5; i++) await poller.tick();
@@ -1288,15 +1288,19 @@ test("fast tick re-polls only open PRs — accelerating in-flight CI", async () 
   expect(polled).toEqual(["shepherd/a"]);
 });
 
-test("fastTick batches a transient-dominant repo via one listOpenPrStatuses (a)", async () => {
+test("fastTick reads transient heads in one prStatusMany, never the open-PR batch (a, #2799)", async () => {
   const store = new SessionStore(":memory:");
   store.create({ ...baseSession, branch: "shepherd/a" });
   store.create({ ...baseSession, branch: "shepherd/b" });
-  // P == eligible: the open set is exactly the two transient PRs → P ≤ ratio×count → batch.
   const { forge, stats } = forgeWithBatch({
     "shepherd/a": OPEN_PENDING,
     "shepherd/b": OPEN_PENDING,
   });
+  const lookups: string[][] = [];
+  forge.prStatusMany = async (heads) => {
+    lookups.push(heads);
+    return new Map(heads.map((h) => [h, OPEN_PENDING]));
+  };
   const poller = new PrPoller(
     store,
     () => forge,
@@ -1307,10 +1311,13 @@ test("fastTick batches a transient-dominant repo via one listOpenPrStatuses (a)"
   stats.list = 0;
   stats.count = 0;
   stats.prStatus = 0;
+  lookups.length = 0;
+  await Bun.sleep(2); // a prefetch stamped in the same ms as the last poll is discarded
   await poller.fastTick();
-  expect(stats.count).toBe(1); // one count-gate probe for the repo
-  expect(stats.list).toBe(1); // one batch refresh covers both PRs
+  expect(stats.count).toBe(0); // no count-gate probe on the fast path
+  expect(stats.list).toBe(0); // no open-PR batch
   expect(stats.prStatus).toBe(0); // no per-PR fan-out
+  expect(lookups).toEqual([["shepherd/a", "shepherd/b"]]);
 });
 
 test("fastTick falls back to per-session for a single eligible PR — count<2 (b)", async () => {
@@ -1401,6 +1408,11 @@ test("fastTick covers all eligible PRs of one repo in a single tick — no rotat
   for (let i = 0; i < 10; i++) open[`shepherd/${i}`] = { ...OPEN_PENDING, number: i + 1 };
   for (let i = 0; i < 10; i++) store.create({ ...baseSession, branch: `shepherd/${i}` });
   const { forge, stats } = forgeWithBatch(open);
+  let lookups = 0;
+  forge.prStatusMany = async (heads) => {
+    lookups++;
+    return new Map(heads.map((h) => [h, open[h]!]));
+  };
   const poller = new PrPoller(
     store,
     () => forge,
@@ -1410,34 +1422,12 @@ test("fastTick covers all eligible PRs of one repo in a single tick — no rotat
   await poller.tick();
   stats.list = 0;
   stats.prStatus = 0;
+  lookups = 0;
+  await Bun.sleep(2); // a prefetch stamped in the same ms as the last poll is discarded
   await poller.fastTick();
-  expect(stats.list).toBe(1); // single batch covers all 10 (old code rotated 8/tick)
+  expect(lookups).toBe(1); // one head lookup covers all 10 (old code rotated 8/tick)
+  expect(stats.list).toBe(0);
   expect(stats.prStatus).toBe(0);
-});
-
-test("fastTick keeps a mixed repo (P ≫ eligible) per-session via the count-gate (e)", async () => {
-  const store = new SessionStore(":memory:");
-  store.create({ ...baseSession, branch: "shepherd/a" });
-  store.create({ ...baseSession, branch: "shepherd/b" });
-  // Only 2 transient PRs eligible, but the repo has 20 open PRs total → 20 > 2×2 → per-session.
-  const { forge, stats } = forgeWithBatch(
-    { "shepherd/a": OPEN_PENDING, "shepherd/b": OPEN_PENDING },
-    { count: 20, prStatusByBranch: { "shepherd/a": OPEN_PENDING, "shepherd/b": OPEN_PENDING } },
-  );
-  const poller = new PrPoller(
-    store,
-    () => forge,
-    () => {},
-  );
-
-  await poller.tick();
-  stats.list = 0;
-  stats.count = 0;
-  stats.prStatus = 0;
-  await poller.fastTick();
-  expect(stats.count).toBe(1); // probed countOpenPrs
-  expect(stats.list).toBe(0); // gate tripped → no full-rollup batch
-  expect(stats.prStatus).toBe(2); // refreshed the 2 eligible per-session
 });
 
 test("serializes a targeted poll behind a sweep — one gh at a time", async () => {
@@ -2970,6 +2960,9 @@ function fakeSnapshotSvc(
     get: (forge: GitForge) => Promise<any>;
     peek: (forge: GitForge) => any;
     peekCurrent: (forge: GitForge) => any;
+    hasTransient: () => boolean;
+    isStale: () => boolean;
+    noteHeadRead: () => void;
   };
   calls: { refresh: number; get: number };
 } {
@@ -2985,6 +2978,9 @@ function fakeSnapshotSvc(
     },
     peek: () => null,
     peekCurrent: () => (current ? { at: 0, value: { ...current, statuses } } : null),
+    hasTransient: () => false,
+    isStale: () => false,
+    noteHeadRead: () => {},
   };
   return { svc, calls };
 }
@@ -3570,4 +3566,232 @@ test("issue PR linking runs early for manual sessions, retries failures, and ski
     [7, 133],
     [7, 133],
   ]);
+});
+
+// ── #2799: open-PR snapshot on change, targeted transient poll, reserve gate ──
+
+/** A fingerprint-covered repo with two sessions, a counted snapshot and a head-batch lookup.
+ *  `github` holds GitHub's truth per branch; `fp` and the clock move only when a test says so. */
+function onChangeSetup(github: Record<string, PrStatus>) {
+  const store = new SessionStore(":memory:");
+  const a = store.create({ ...baseSession, branch: "a" });
+  const b = store.create({ ...baseSession, herdrAgentId: "term_b", branch: "b" });
+  let now = 1_800_000_000_000;
+  const cache = new GithubReadCache(store, { now: () => now });
+  const fp = { openIssues: 0, issuesUpdatedAt: "", openPrs: 2, prsUpdatedAt: "t0", ciState: "" };
+  const putFp = (o: Partial<typeof fp> & { defaultHeadOid?: string } = {}) =>
+    cache.put("fingerprint", "o/r", null, { ...fp, ...o });
+  putFp({ defaultHeadOid: "main-1" });
+  const snapshots = new OpenPrSnapshotService(() => now, undefined, cache);
+  const calls = { snapshot: 0, heads: [] as string[][], prStatus: 0 };
+  let snapshotDown = false;
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async (head) => {
+      calls.prStatus++;
+      return github[head] ?? NONE;
+    },
+    countOpenPrs: async () => 2,
+    listOpenPrSnapshot: async () => {
+      calls.snapshot++;
+      if (snapshotDown) throw new Error("snapshot unavailable");
+      return {
+        prs: [],
+        statuses: new Map(Object.entries(github).map(([h, st]) => [h, { ...st }])),
+        capped: false,
+        source: "graphql",
+      };
+    },
+    prStatusMany: async (heads) => {
+      calls.heads.push(heads);
+      return new Map(heads.map((h) => [h, github[h] ?? NONE]));
+    },
+  };
+  let budgetPaused = false;
+  const emitted: Array<{ id: string; git: GitState }> = [];
+  const freshness = { extra: "" };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (id, git) => emitted.push({ id, git }),
+    undefined,
+    0,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    snapshots,
+    () => `${cache.contentKey("prs", "o/r")}|${cache.revision("o/r")}${freshness.extra}`,
+    cache,
+    undefined,
+    () => budgetPaused,
+  );
+  return {
+    a,
+    b,
+    calls,
+    emitted,
+    poller,
+    putFp,
+    freshness,
+    advance: (ms: number) => (now += ms),
+    pause: (v: boolean) => (budgetPaused = v),
+    failSnapshot: () => (snapshotDown = true),
+  };
+}
+
+const SETTLED: PrStatus = { ...OPEN_STABLE, headSha: "h" };
+
+test("#2799: no change and no transient PR — 10 min of sweeps fetch no snapshot", async () => {
+  const t = onChangeSetup({ a: { ...SETTLED, number: 1 }, b: { ...SETTLED, number: 2 } });
+  await t.poller.tick(); // warm: the one snapshot fetch
+  expect(t.calls.snapshot).toBe(1);
+  for (let i = 0; i < 40; i++) {
+    t.advance(15_000);
+    await t.poller.fastTick();
+    if (i % 8 === 7) await t.poller.tick();
+  }
+  expect(t.calls.snapshot).toBe(1);
+});
+
+test("#2799: a default-branch push refetches the snapshot on the next full sweep", async () => {
+  const t = onChangeSetup({ a: { ...SETTLED, number: 1 }, b: { ...SETTLED, number: 2 } });
+  await t.poller.tick();
+  t.putFp({ defaultHeadOid: "main-2" });
+  t.advance(120_000);
+  await t.poller.tick();
+  expect(t.calls.snapshot).toBe(2);
+});
+
+test("#2799: finished CI reaches session:git in one fast tick, without a snapshot", async () => {
+  const github: Record<string, PrStatus> = {
+    a: { ...OPEN_PENDING, headSha: "h" },
+    b: { ...SETTLED, number: 2 },
+  };
+  const t = onChangeSetup(github);
+  await t.poller.tick();
+  const before = t.calls.snapshot;
+  github.a = { ...SETTLED, number: 1 };
+  t.advance(15_000);
+  t.emitted.length = 0;
+  await t.poller.fastTick();
+  expect(t.calls.snapshot).toBe(before);
+  expect(t.calls.heads.at(-1)).toEqual(["a"]);
+  expect(t.emitted.map((e) => [e.id, e.git.checks])).toEqual([[t.a.id, "success"]]);
+});
+
+test("#2799: a stale snapshot hit never rolls back a PR the fast tick already settled", async () => {
+  const github: Record<string, PrStatus> = {
+    a: { ...OPEN_PENDING, headSha: "h" },
+    b: { ...SETTLED, number: 2 },
+  };
+  const t = onChangeSetup(github);
+  await t.poller.tick(); // snapshot caches `a` pending
+  t.failSnapshot(); // refetches fail: the stale cached snapshot stays in use
+  github.a = { ...SETTLED, number: 1 };
+  t.advance(15_000);
+  await t.poller.fastTick(); // `a` settles via its head
+  t.advance(600_000); // past the snapshot's transient window
+  t.freshness.extra = "|moved"; // force both sessions to re-poll under the same snapshot
+  t.emitted.length = 0;
+  await t.poller.tick();
+  expect(t.poller.get(t.a.id)?.checks).toBe("success");
+  expect(t.emitted.filter((e) => e.id === t.a.id)).toEqual([]);
+});
+
+test("#2799: below the reserve, both sweeps leave GitHub sessions alone; pollNow still polls", async () => {
+  const github: Record<string, PrStatus> = {
+    a: { ...OPEN_PENDING, headSha: "h" },
+    b: { ...SETTLED, number: 2 },
+  };
+  const t = onChangeSetup(github);
+  await t.poller.tick();
+  t.pause(true);
+  const snapshot = t.calls.snapshot;
+  const heads = t.calls.heads.length;
+  const prStatus = t.calls.prStatus;
+  t.freshness.extra = "|moved";
+  t.advance(120_000);
+  await t.poller.tick();
+  await t.poller.fastTick();
+  expect([t.calls.snapshot, t.calls.heads.length, t.calls.prStatus]).toEqual([
+    snapshot,
+    heads,
+    prStatus,
+  ]);
+  expect(t.poller.get(t.a.id)).toBeDefined(); // paused, not pruned
+  await t.poller.pollNow(t.a.id);
+  expect(t.calls.prStatus).toBe(prStatus + 1);
+});
+
+test("#2799: a GraphQL backoff alone keeps the per-session REST full sweep running", async () => {
+  const store = new SessionStore(":memory:");
+  const open = store.create({ ...baseSession, branch: "open" });
+  store.create({ ...baseSession, herdrAgentId: "term_b", branch: "merged" });
+  store.putSessionGitCache(open.id, { kind: "github", ...OPEN_PENDING });
+  store.putSessionGitCache(store.list().find((s) => s.branch === "merged")!.id, {
+    kind: "github",
+    state: "merged",
+    number: 2,
+    checks: "success",
+    deployConfigured: false,
+  });
+  const polled: string[] = [];
+  const forge: GitForge = {
+    ...forgeByBranch({}),
+    prStatus: async (head) => {
+      polled.push(head);
+      return head === "open" ? OPEN_PENDING : NONE;
+    },
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    0,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => true, // GraphQL backoff
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => false, // above the reserve
+  );
+  await poller.tick();
+  expect(polled).toEqual(["open"]); // terminal session skipped under backoff, open one polled
+});
+
+test("#2799: CI settling past the transient window refetches the snapshot once, then rests", async () => {
+  const github: Record<string, PrStatus> = {
+    a: { ...OPEN_PENDING, headSha: "h" },
+    b: { ...SETTLED, number: 2 },
+  };
+  const t = onChangeSetup(github);
+  await t.poller.tick(); // snapshot caches `a` pending
+  t.advance(400_000); // CI runs past the 5-min window: still pending, no refetch
+  await t.poller.tick();
+  expect(t.calls.snapshot).toBe(1);
+  github.a = { ...SETTLED, number: 1 };
+  t.advance(120_000);
+  await t.poller.tick(); // `a` settles via its head read → the snapshot disagrees
+  expect(t.poller.get(t.a.id)?.checks).toBe("success");
+  t.advance(120_000);
+  await t.poller.tick();
+  expect(t.calls.snapshot).toBe(2); // refetched once to catch the PRs tab up
+  t.advance(120_000);
+  await t.poller.tick();
+  expect(t.calls.snapshot).toBe(2);
 });

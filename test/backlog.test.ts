@@ -757,6 +757,17 @@ test("CountsService: PR move takes prKinds from a matching open-PR snapshot", as
   expect(graphql()).toBe(0);
 });
 
+test("CountsService: a default-branch push moves the PR key, not the counts (#2799)", async () => {
+  const { dir, cache, svc, prKinds, graphql } = derivedSetup();
+  const before = cache.contentKey("prs", "o/derive");
+  const counts = cache.contentKey("counts", "o/derive");
+  cache.put("fingerprint", "o/derive", null, { ...fp({}), defaultHeadOid: "new-head" });
+  expect(cache.contentKey("prs", "o/derive")).not.toBe(before);
+  expect(cache.contentKey("counts", "o/derive")).toBe(counts);
+  expect((await svc.sync(dir, "test")).prKinds).toEqual(prKinds);
+  expect(graphql()).toBe(0);
+});
+
 test("CountsService: PR move without a matching snapshot fetches once", async () => {
   const { dir, cache, svc, graphql } = derivedSetup();
   cache.put("fingerprint", "o/derive", null, fp({ prsUpdatedAt: "2026-10-02T00:00:00Z" }));

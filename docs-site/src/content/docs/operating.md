@@ -584,6 +584,9 @@ far it goes, one row each:
 - **Ask first** shows Claude's confirmation in the panel's terminal before each call; **Allowed** runs
   it without asking; **Off** refuses it — Shepherd itself refuses a turned-off action, not
   only Claude.
+- **A merge you approve is the revision you saw.** The request names the PR, its head
+  commit and its base. If the agent pushes after that, the merge is refused and the
+  assistant has to ask again. A request you leave unanswered expires after 10 minutes.
 - **Changes apply at once**, also to a running conversation: Shepherd rewrites the
   assistant's `.claude/settings.local.json` and Claude re-reads it.
 - **Every action is your own button.** Each one runs the same route the UI does, with the

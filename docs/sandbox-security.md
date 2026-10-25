@@ -122,6 +122,22 @@ it has its own HMAC `?token=`.
   its curl directives, and the Assistant has its own relaunch. Both need a
   manual relaunch.
 
+## Operator Assistant approvals
+
+An assistant action in an **Ask first** group runs only after the operator
+approves that exact call (`src/action-request.ts`). The approval covers the tool,
+its arguments and any state the server captured when it built the call.
+
+- **Merges are bound to a revision.** `pr_merge` captures the PR's number, head
+  commit and base branch from the cached PR state. The approval card shows them,
+  and the merge sends them as its confirmation, like the HUD Merge button. If the
+  head or base moved, the route refuses with `merge_confirm_stale`, and the forge
+  also refuses a moved head. A new head needs a new approval. Without a cached
+  head, the merge is refused.
+- **Approvals expire.** An unanswered request expires after 10 minutes. An
+  approval that no waiting call received is replayed to the next identical call
+  only within 2 minutes.
+
 ## Shared Claude state and agent-written files
 
 The membrane never binds Claude state that **unconfined** sessions (trusted

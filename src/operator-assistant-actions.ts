@@ -27,6 +27,7 @@
 import { basename } from "node:path";
 import { parseIssueDrainOperation } from "./issue-drain";
 import type { AgentControlDeps, ApplyResult, McpTool } from "./agent-control";
+import type { GitState } from "./forge/types";
 import {
   actionGroupOf,
   type AssistantActionTool,
@@ -72,7 +73,7 @@ export interface OperatorActionDeps {
 
 type ActionDeps = Pick<
   AgentControlDeps,
-  "store" | "operatorActions" | "operatorDiag" | "actionRequests" | "actionWaitMs"
+  "store" | "operatorActions" | "operatorDiag" | "actionRequests" | "actionWaitMs" | "prCache"
 >;
 
 /** One `ask` call's wait window. Claude Code's HTTP MCP transport aborts a call at a hard 60s,
@@ -96,18 +97,22 @@ const fail = (status: number, error: string): Fail => ({ ok: false, status, erro
 
 /** A built action: the request(s) to run in order, the target named in answers and the log, any
  *  argument echo for the answer, and the fields its last route body may add (answerFields when
- *  absent). */
+ *  absent). `bind` is state the server captured for the call (a merge's PR revision): it joins the
+ *  arguments an `ask` approval is bound to and shows, so a call built on other state needs its own. */
 interface Built {
   requests: OperatorActionRequest[];
   target: string;
   echo?: Record<string, unknown>;
   answer?: (body: unknown) => Record<string, unknown>;
+  bind?: Record<string, unknown>;
 }
 
 interface Resolve {
   session(desig: unknown): { id: string; desig: string } | Fail;
   repo(repo: unknown): string | Fail;
   held(id: unknown): string | Fail;
+  /** The session's cached PR state, if any. */
+  pr(sessionId: string): GitState | undefined;
   taskDefaults(repoPath: string): TaskDefaults;
 }
 
@@ -216,9 +221,31 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
   plan_release: onSession("POST", "go"),
   queue_approve: onSession("POST", "queue/approve"),
   pr_ready: onSession("POST", "git/ready"),
-  // Never a `confirm`: taking over a merge someone else is responsible for stays the operator's
-  // decision, so the route answers merge_confirm_required and the agent hands it back.
-  pr_merge: onSession("POST", "git/merge", () => ({})),
+  // The confirm binds the merge to the PR revision captured here — and, under `ask`, approved —
+  // so a head or base that moved since is refused (merge_confirm_stale) and the forge enforces
+  // the head (audit run-2 R2-F05). Never a takeover: taking over a merge someone else is
+  // responsible for stays the operator's decision, so the route answers merge_confirm_required
+  // and the agent hands it back.
+  pr_merge: (args, resolve) => {
+    const s = resolve.session(args.desig);
+    if (isFail(s)) return s;
+    const pr = resolve.pr(s.id);
+    if (pr?.state !== "open" || !pr.number || !pr.headSha) {
+      return fail(409, `no open PR with a known head on ${s.desig} — refresh and retry`);
+    }
+    const base = pr.baseRefName ?? null;
+    return {
+      requests: [
+        {
+          method: "POST",
+          path: sessionPath(s.id, "git/merge"),
+          body: { confirm: { headSha: pr.headSha, baseRefName: base } },
+        },
+      ],
+      target: `${s.desig} PR #${pr.number} @ ${pr.headSha.slice(0, 12)}${base ? ` → ${base}` : ""}`,
+      bind: { pr: { number: pr.number, headSha: pr.headSha, baseRefName: base } },
+    };
+  },
 
   // ── automation ──
   repo_automation_set: (args, resolve) => {
@@ -380,6 +407,7 @@ function resolver(deps: ActionDeps, scope: AssistantScope): Resolve {
       return resolved[0]!;
     },
     taskDefaults: (repoPath) => deps.operatorActions!.taskDefaults(repoPath),
+    pr: (sessionId) => deps.prCache?.get(sessionId),
     held(id) {
       const task =
         typeof id === "string" ? deps.store.listHeldTasks().find((h) => h.id === id) : undefined;
@@ -473,7 +501,9 @@ export async function applyOperatorAction(
   const built = ACTIONS[tool](args, resolver(deps, scope));
   if (isFail(built)) return built;
   if (level === "ask") {
-    const answer = await awaitApproval(deps, tool, args, built.target, caller);
+    // `bind` last: the agent's own arguments never stand in for what the server captured.
+    const bound = { ...args, ...built.bind };
+    const answer = await awaitApproval(deps, tool, bound, built.target, caller);
     if (answer) return answer;
     // Turned off while it waited: the setting outranks a stale approval.
     if (actions.permissions()[group] === "off")
@@ -603,8 +633,9 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
   desigTool(
     "pr_merge",
     "approve",
-    "Merge a session's PR. Never takes over a merge someone else is responsible for: " +
-      "merge_confirm_required goes back to the operator.",
+    "Merge a session's PR at the head Shepherd last saw. Never takes over a merge someone else " +
+      "is responsible for: merge_confirm_required goes back to the operator. merge_confirm_stale " +
+      "means the PR changed since — tell the operator; a new head needs a new approval.",
   ),
   {
     name: "repo_automation_set",

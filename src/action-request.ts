@@ -3,9 +3,11 @@
  * (Settings → Assistant), parked until the operator approves or denies it in the HUD. The server —
  * not Claude's own permission prompt, which a direct caller never sees — decides whether it runs.
  *
- * Bound to the exact call: the tool plus its arguments (canonical JSON). An approval is single-use:
- * it releases the one call waiting on it, or — when the operator answered between two long-polls —
- * the next identical call, once. A different call cancels the open request.
+ * Bound to the exact call: the tool plus its arguments (canonical JSON) — including any state the
+ * action captured for it, such as a merge's PR revision. An approval is single-use: it releases the
+ * one call waiting on it, or — when the operator answered between two long-polls — the next
+ * identical call, once, within UNDELIVERED_TTL_MS. A different call cancels the open request, and
+ * one left unanswered for REQUEST_TTL_MS expires (audit run-2 R2-F05).
  *
  * In memory on purpose, like Login Requests (src/login-request.ts): one open request per assistant
  * session, gone on restart (which also fails the in-flight tool call, so the model re-calls and the
@@ -26,6 +28,11 @@ export interface ActionRequest {
 
 export type ActionOutcome = "approved" | "denied";
 export type ActionWaitResult = ActionOutcome | "pending";
+
+/** How long an unanswered request stays approvable; the next call after that opens a fresh one. */
+const REQUEST_TTL_MS = 10 * 60_000;
+/** How long an answer no call received is kept for the next identical call. */
+const UNDELIVERED_TTL_MS = 2 * 60_000;
 
 /** Event carrying a session's current request (`null` once resolved or dropped). */
 export const ACTION_REQUEST_EVENT = "session:action-request";
@@ -57,7 +64,7 @@ export type ActionRequestState =
 export class ActionRequestService {
   readonly #entries = new Map<string, Entry>();
   /** An outcome no waiting call received, held for the session's next identical call. */
-  readonly #undelivered = new Map<string, { key: string; outcome: ActionOutcome }>();
+  readonly #undelivered = new Map<string, { key: string; outcome: ActionOutcome; at: number }>();
   readonly #events: Pick<EventHub, "emit">;
   readonly #now: () => number;
 
@@ -75,7 +82,18 @@ export class ActionRequestService {
 
   /** Every open request, keyed by session id (bootstrap GET). */
   snapshot(): Record<string, ActionRequest> {
+    for (const id of [...this.#entries.keys()]) this.#live(id);
     return Object.fromEntries([...this.#entries].map(([id, e]) => [id, e.request]));
+  }
+
+  /** The session's open entry, or undefined — an expired one is closed (denied) first. */
+  #live(sessionId: string): Entry | undefined {
+    const entry = this.#entries.get(sessionId);
+    if (entry && this.#now() - entry.request.createdAt > REQUEST_TTL_MS) {
+      this.#settle(sessionId, entry, "denied", false);
+      return undefined;
+    }
+    return entry;
   }
 
   /** Open (or re-attach to) the session's request for this exact call. */
@@ -88,9 +106,10 @@ export class ActionRequestService {
     const key = callKey(tool, args);
     const undelivered = this.#undelivered.get(sessionId);
     this.#undelivered.delete(sessionId);
-    const existing = this.#entries.get(sessionId);
+    const existing = this.#live(sessionId);
     if (existing?.key === key) return { status: "open", request: existing.request };
-    if (!existing && undelivered?.key === key) return { status: undelivered.outcome };
+    const fresh = undelivered && this.#now() - undelivered.at <= UNDELIVERED_TTL_MS;
+    if (!existing && fresh && undelivered.key === key) return { status: undelivered.outcome };
     if (existing) this.#settle(sessionId, existing, "denied", false);
     const request: ActionRequest = { id: randomUUID(), tool, args, target, createdAt: this.#now() };
     this.#entries.set(sessionId, { request, key, waiters: new Set() });
@@ -107,7 +126,7 @@ export class ActionRequestService {
     ms: number,
     signal?: AbortSignal,
   ): Promise<ActionWaitResult> {
-    const entry = this.#entries.get(sessionId);
+    const entry = this.#live(sessionId);
     if (!entry || entry.request.id !== requestId) return Promise.resolve("denied");
     return new Promise((resolve) => {
       const finish = (result: ActionWaitResult) => {
@@ -127,7 +146,7 @@ export class ActionRequestService {
 
   /** The operator's answer. False when `requestId` is not the session's open request. */
   resolve(sessionId: string, requestId: string, outcome: ActionOutcome): boolean {
-    const entry = this.#entries.get(sessionId);
+    const entry = this.#live(sessionId);
     if (!entry || entry.request.id !== requestId) return false;
     this.#settle(sessionId, entry, outcome, true);
     return true;
@@ -138,7 +157,8 @@ export class ActionRequestService {
   #settle(sessionId: string, entry: Entry, outcome: ActionOutcome, byOperator: boolean): void {
     this.#entries.delete(sessionId);
     const [first, ...rest] = [...entry.waiters];
-    if (byOperator && !first) this.#undelivered.set(sessionId, { key: entry.key, outcome });
+    if (byOperator && !first)
+      this.#undelivered.set(sessionId, { key: entry.key, outcome, at: this.#now() });
     first?.(outcome);
     for (const w of rest) w(outcome === "approved" ? "denied" : outcome);
     this.#events.emit(ACTION_REQUEST_EVENT, { id: sessionId, request: null });

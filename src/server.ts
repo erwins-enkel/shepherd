@@ -1523,12 +1523,17 @@ function sandboxOverrideRefused(): Response {
 // an "unknown" bucket; a reverse proxy also shares its upstream bucket deliberately.
 // Used for the /api/pair + /api/login budgets and isSecureRequest's proxy trust.
 const requestPeers = new WeakMap<Request, string>();
-/** The connection's client port and our listener port, for the proxy-trust UID lookup (#3368). */
-type RequestSocket = { port: number; serverPort: number };
+/** The connection's client address+port and our listener port, for the proxy-trust UID lookup
+ *  (#3368). */
+type RequestSocket = { address: string; port: number; serverPort: number };
 const requestSockets = new WeakMap<Request, RequestSocket>();
 
-async function defaultProxyTrust({ port, serverPort }: RequestSocket): Promise<ProxyTrust> {
-  const uid = await loopbackPeerUid(port, serverPort);
+async function defaultProxyTrust({
+  address,
+  port,
+  serverPort,
+}: RequestSocket): Promise<ProxyTrust> {
+  const uid = await loopbackPeerUid(address, port, serverPort);
   if (uid === "unavailable") return "unavailable";
   return uid === config.trustedProxyUid ? "trusted" : "untrusted";
 }
@@ -13320,7 +13325,8 @@ export function serve(deps: AppDeps, port: number) {
     fetch(req, server) {
       const ip = server.requestIP(req);
       requestPeers.set(req, ip?.address ?? "unknown");
-      if (ip) requestSockets.set(req, { port: ip.port, serverPort: server.port! });
+      if (ip)
+        requestSockets.set(req, { address: ip.address, port: ip.port, serverPort: server.port! });
       const authErr = checkAuth(req, deps);
       if (authErr instanceof Response) return authErr;
       const tokenId = authErr?.id;

@@ -3,12 +3,12 @@
     <channel>
         <title>Shepherd</title>
         <item>
-            <title>2.4.0</title>
-            <pubDate>Sun, 25 Oct 2026 10:46:38 +0000</pubDate>
-            <sparkle:version>2383</sparkle:version>
-            <sparkle:shortVersionString>2.4.0</sparkle:shortVersionString>
+            <title>2.5.0</title>
+            <pubDate>Sun, 25 Oct 2026 15:01:27 +0000</pubDate>
+            <sparkle:version>2414</sparkle:version>
+            <sparkle:shortVersionString>2.5.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-v2.4.0/Shepherd-2383.zip" length="53397299" type="application/octet-stream" sparkle:edSignature="0CafmWbL0CY8JFSxXjgO8gmoDjXlQXOYzWFwQ0j6QYnJoeckaRSQXQysB43xj1cCbDIn1lzAwyBeb0CUbzBrAg=="/>
+            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-v2.5.0/Shepherd-2414.zip" length="53744994" type="application/octet-stream" sparkle:edSignature="VrVR55sJLEWnpD2pCpiQyuo3Go96lRnMYU2O6GhvjmZDVw56qBdbPVMwHl4+XUi0Or754r6TKK3BPLijNxG1Cw=="/>
         </item>
     </channel>
 </rss>

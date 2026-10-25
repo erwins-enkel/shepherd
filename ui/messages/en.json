@@ -1193,7 +1193,7 @@
   "sandbox_profile_trusted": "Trusted (no sandbox)",
   "sandbox_profile_standard": "Standard",
   "sandbox_profile_autonomous": "Autonomous",
-  "automation_sandbox_profile_hint": "Sandboxing is opt-in. Standard and Autonomous confine the agent to its worktree and block ~/.ssh, ~/.aws, sibling repos, and other $HOME dotfiles. Autonomous also restricts outbound traffic to an allowlist (Anthropic + the forge host); other egress is blocked. Standard confines the filesystem but leaves network open — suitable for interactive-only sessions. The gh/claude auth tokens stay readable but cannot be exfiltrated to arbitrary hosts under Autonomous.",
+  "automation_sandbox_profile_hint": "Default follows the global default: Standard where this host can sandbox (bubblewrap), otherwise Trusted; SHEPHERD_SANDBOX_DEFAULT_PROFILE overrides it. Standard and Autonomous confine the agent to its worktree and block ~/.ssh, ~/.aws, sibling repos, and other $HOME dotfiles. Autonomous also restricts outbound traffic to an allowlist (Anthropic + the forge host); other egress is blocked. Standard confines the filesystem but leaves network open — interactive sessions only, so auto-drain needs Autonomous or Trusted. Trusted runs the agent unconfined. The gh/claude auth tokens stay readable but cannot be exfiltrated to arbitrary hosts under Autonomous.",
   "automation_sandbox_profile_caveats": "Sandboxed repos must use an HTTPS git remote (SSH-remote repos can't push), and MCP servers whose dependencies live outside the bound paths may fail to load.",
   "session_sandbox_degraded_label": "Sandbox off",
   "session_sandbox_degraded_title": "Requested sandbox unavailable — this agent is running unconfined.",
@@ -1282,7 +1282,7 @@
   "feat_critic_smell_lens_body": "An experiment we're trialing: enable \"Code-smell lens\" in a repo's automation panel to hand the [[critic|Critic]] a named checklist of nine code smells (duplication, feature envy, primitive obsession, and more). Matches surface as non-blocking notes in the review body — never blocking findings. It's off by default and costs extra tokens per review round, so we're shipping it opt-in while we measure whether the added signal earns its keep.",
   "feat_host_capacity_title": "Diagnostics now checks host resource guardrails",
   "feat_host_capacity_body": "Settings → Diagnostics gained a Host capacity check. It warns when a systemd-managed host has no MemoryMax/CPUQuota limits, and errors when the host is under dangerous memory/IO pressure — so you can spot a risky deployment before it thrashes under many sessions. On non-systemd or local dev hosts it stays quiet.",
-  "automation_sandbox_profile_summary": "Opt-in confinement for agents.",
+  "automation_sandbox_profile_summary": "Confinement for agents. New repos follow the default.",
   "feat_steers_prompt_editor_title": "Roomier steer editor with slash commands",
   "feat_steers_prompt_editor_body": "In Saved Steers, clicking into a prompt field now expands it to show the whole text, and typing \"/\" offers the same slash-command picker as the New Task and compose fields — pick a command with the arrow keys or a tap.",
   "automation_default_model_label": "Default model",
@@ -7045,5 +7045,11 @@
   "native_mac_remote_stale": "Some data from {machine} could not be refreshed. The last known state is shown.",
   "recap_detail_load_failed": "Recap details could not be loaded.",
   "login_rate_limited": "Too many sign-in attempts. Wait a minute and try again.",
-  "native_login_rate_limited": "Too many sign-in attempts. Wait a minute and try again."
+  "native_login_rate_limited": "Too many sign-in attempts. Wait a minute and try again.",
+  "sandbox_profile_inherit": "Default ({profile})",
+  "sandbox_profile_inherit_unresolved": "Default",
+  "automation_autodrain_sandbox_held": "Held: this repo runs Standard, which is interactive-only. Unattended spawns need Autonomous (confined) or Trusted (unconfined) — change Sandbox below.",
+  "diagnostics_hint_sandbox_membrane_unavailable": "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing or blocked). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded.",
+  "feat_sandbox_default_standard_title": "New repos are sandboxed by default",
+  "feat_sandbox_default_standard_body": "New repos now follow the default sandbox profile: Standard (filesystem-confined) where this host can sandbox, Trusted otherwise. Existing repos keep their setting. Standard can't push over an SSH remote and holds auto-drain — pick Trusted or Autonomous in Sandbox if you need either."
 }

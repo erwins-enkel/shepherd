@@ -69,7 +69,12 @@ import type {
   WindowKey,
 } from "./usage-limits";
 import { dominantModel, type ResumeSignal, type SessionUsage } from "./usage";
-import { type SandboxProfile, isSandboxProfile } from "./sandbox";
+import {
+  type SandboxProfile,
+  type RepoSandboxSetting,
+  isRepoSandboxSetting,
+  isSandboxProfile,
+} from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
@@ -584,8 +589,9 @@ export interface RepoConfig {
   priorityLabels: string[];
   /** Pause auto-spawns when usage % is at or above this threshold (default 80). */
   usageCeilingPct: number;
-  /** OS-level sandbox membrane for spawned task agents (default "trusted" = unconfined). */
-  sandboxProfile: SandboxProfile;
+  /** OS-level sandbox membrane for spawned task agents. "inherit" (the default for a new repo,
+   *  #2100) defers to the global default — see defaultSandboxProfile(). */
+  sandboxProfile: RepoSandboxSetting;
   /** Per-repo default-model override; "inherit" (default) defers to the global default setting. */
   defaultModel: string;
   /** Per-repo default-effort override; "inherit" (default) defers to the global default setting. */
@@ -1190,7 +1196,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       autoLabel: "shepherd:auto",
       priorityLabels: [],
       usageCeilingPct: 80,
-      sandboxProfile: "trusted",
+      sandboxProfile: "inherit",
       defaultModel: "inherit",
       defaultEffort: "inherit",
       egressExtraHosts: [],
@@ -1225,7 +1231,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     autoLabel: r.autoLabel,
     priorityLabels: parseStringListJson(r.priorityLabels),
     usageCeilingPct: r.usageCeilingPct,
-    sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
+    sandboxProfile: isRepoSandboxSetting(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
     egressExtraHosts: parseStringListJson(r.egressExtraHosts),
@@ -1533,6 +1539,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       updatedAt INTEGER NOT NULL)`);
     this.migrateRepoConfigColumns();
     this.migrateFirstRunMarker();
+    this.migrateSandboxInherit();
     // Project-bootstrap state (#3105). Its own table, NOT repo_config columns: creating a
     // repo_config row for a new project would flip automationRowExists and skip the new-repo
     // default seeding. `off` = no row, so the table holds only bootstrapped repos (no prune).
@@ -6706,6 +6713,27 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       this.list().length > 0;
     if (preExisting) this.setSetting("firstRunResolved", "1");
     this.setSetting("firstRunMigrated", "1"); // unconditional → never runs again
+  }
+
+  /**
+   * #2100 one-shot: a repo with no repo_config row used to read sandboxProfile "trusted"; it now
+   * reads "inherit" (→ the new standard default). Pin every repo that already HAS sessions but no
+   * row to an explicit "trusted" row — the old absent-row defaults verbatim — so an upgrade never
+   * flips an existing repo. Run-once on its own marker; a fresh DB has no sessions → no-op.
+   */
+  private migrateSandboxInherit(): void {
+    if (this.getSetting("sandboxInheritMigrated")) return;
+    const rows = this.db
+      .query(
+        `SELECT DISTINCT repoPath FROM sessions
+         WHERE repoPath NOT IN (SELECT repoPath FROM repo_config)`,
+      )
+      .all() as { repoPath: string }[];
+    const pinned: RepoConfig = { ...repoConfigFromRow(null), sandboxProfile: "trusted" };
+    this.db.transaction(() => {
+      for (const { repoPath } of rows) this.setRepoConfig(repoPath, pinned);
+      this.setSetting("sandboxInheritMigrated", "1");
+    })();
   }
 
   private migrateEpicIntegratedColumns(): void {

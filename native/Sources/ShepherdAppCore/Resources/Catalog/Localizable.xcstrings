@@ -3684,6 +3684,23 @@
         }
       }
     },
+    "diagnostics_hint_sandbox_membrane_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt oder ist blockiert). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing or blocked). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded."
+          }
+        }
+      }
+    },
     "diagnostics_hint_sandbox_membrane_uninspectable": {
       "extractionState": "manual",
       "localizations": {

@@ -478,9 +478,10 @@ export function parseTrimAutoContext(raw: string | undefined): boolean {
   return !["false", "0", "off"].includes((raw ?? "").toLowerCase());
 }
 
-/** Parse SHEPHERD_SANDBOX_DEFAULT_PROFILE: a valid profile wins, else "trusted". Exported for tests. */
-export function parseSandboxProfile(v: string | undefined): SandboxProfile {
-  return isSandboxProfile(v) ? v : "trusted";
+/** Parse SHEPHERD_SANDBOX_DEFAULT_PROFILE: a valid profile wins, else null (= built-in default, see
+ *  effectiveDefaultProfile). Exported for tests. */
+export function parseSandboxProfile(v: string | undefined): SandboxProfile | null {
+  return isSandboxProfile(v) ? v : null;
 }
 
 /**
@@ -697,9 +698,10 @@ export const config = {
     `${process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`}/projects`,
   // base claude config dir (sandbox membrane binds resolve from it).
   claudeDir: process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`,
-  // Default sandbox profile for spawned task agents. "trusted" = unconfined (opt-in
-  // sandboxing); set SHEPHERD_SANDBOX_DEFAULT_PROFILE=standard|autonomous to sandbox by default.
-  sandboxDefaultProfile: parseSandboxProfile(process.env.SHEPHERD_SANDBOX_DEFAULT_PROFILE),
+  // Explicit default sandbox profile for spawned task agents (SHEPHERD_SANDBOX_DEFAULT_PROFILE);
+  // null = built-in default (standard where bwrap works, else trusted) — read it via
+  // defaultSandboxProfile() (src/sandbox-default.ts), never directly.
+  sandboxDefaultProfileOverride: parseSandboxProfile(process.env.SHEPHERD_SANDBOX_DEFAULT_PROFILE),
   // Operator escape-hatch: extra hosts always allowlisted in the autonomous egress firewall
   // (e.g. private package registries). Comma-separated; e.g. "registry.corp.com,pypi.corp.io".
   sandboxEgressExtraHosts: (process.env.SHEPHERD_SANDBOX_EXTRA_HOSTS ?? "")

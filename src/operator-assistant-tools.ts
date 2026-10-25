@@ -29,6 +29,8 @@ import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "./host-parse
 import { probeHerdrRuntime, type HerdrRuntimeStatus } from "./herdr-runtime";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { redactSecretText } from "./redact";
+import { resolveProfile } from "./sandbox";
+import { defaultSandboxProfile } from "./sandbox-default";
 import type { HeldTask, HoldReason, PlanGate, Session } from "./types";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { SHEPHERD_VERSION } from "./version";
@@ -408,6 +410,10 @@ function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefi
       usageCeilingPct: cfg.usageCeilingPct,
       repoMode: cfg.repoMode,
       sandboxProfile: cfg.sandboxProfile,
+      // What "inherit" actually runs under (#2100): the global default, else the stored profile.
+      sandboxProfileEffective: resolveProfile(undefined, cfg.sandboxProfile, () =>
+        defaultSandboxProfile(),
+      ),
     },
     drain: drainBlock(drain, fence),
     epicRun: run && {
@@ -769,7 +775,7 @@ const REPO_AUTOMATION: McpTool = {
   name: "repo_automation",
   description:
     "Drain and epic questions. Per repo: autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, " +
-    "criticEnabled, usageCeilingPct, repoMode, sandboxProfile, the drain status (null when the " +
+    "criticEnabled, usageCeilingPct, repoMode, sandboxProfile (+ sandboxProfileEffective), the drain status (null when the " +
     "drain reports nothing for the repo), the epic run, how it last ended, and the epic queue. " +
     "With epicParent (one repo): that epic's structural diagnosis — why its next child doesn't " +
     "start. With issueNumber and an explicit repo: fresh issue state, queue membership, priority and claim labels." +

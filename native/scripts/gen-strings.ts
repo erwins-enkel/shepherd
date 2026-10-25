@@ -2021,6 +2021,7 @@ export const KEYS_SETTINGS: readonly string[] = [
   "diagnostics_hint_sandbox_membrane_broken",
   "diagnostics_hint_sandbox_membrane_ok",
   "diagnostics_hint_sandbox_membrane_uninspectable",
+  "diagnostics_hint_sandbox_membrane_unavailable",
   "diagnostics_hint_tailscale_missing",
   "diagnostics_hint_tailscale_not_serving",
   "diagnostics_hint_tailscale_ok",

@@ -1,4 +1,6 @@
 import { test, expect, describe, beforeEach } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   probeMembraneLaunch,
   readMembraneLaunchFacts,
@@ -234,8 +236,12 @@ describe("readMembraneLaunchFacts", () => {
 });
 
 describe("classifyMembraneLaunch", () => {
-  test("no backend → no row (nothing is wrapped on this host)", () => {
-    expect(classifyMembraneLaunch({ backend: null, agents: [] })).toBeNull();
+  test("no backend → optional 'unavailable' row, once, instead of a per-session banner (#2100)", () => {
+    expect(classifyMembraneLaunch({ backend: null, agents: [] })).toEqual({
+      id: "sandbox_membrane",
+      state: "optional",
+      hintKey: "diagnostics_hint_sandbox_membrane_unavailable",
+    });
   });
 
   test("no agent CLI → no row (the claude/codex rows already say so)", () => {
@@ -296,4 +302,19 @@ describe("classifyMembraneLaunch", () => {
       hintKey: "diagnostics_hint_sandbox_membrane_uninspectable",
     });
   });
+});
+
+// #2100: a hint key the native Diagnose tab can't map renders as "This check needs attention".
+test("every sandbox_membrane hint key has native Settings copy", () => {
+  const src = readFileSync(join(import.meta.dir, "../src/diagnostics.ts"), "utf8");
+  const swift = readFileSync(
+    join(
+      import.meta.dir,
+      "../native/Sources/ShepherdAppCore/Settings/SettingsDiagnosticCopy.swift",
+    ),
+    "utf8",
+  );
+  const keys = [...new Set(src.match(/diagnostics_hint_sandbox_membrane_[a-z_]+/g))];
+  expect(keys).toContain("diagnostics_hint_sandbox_membrane_unavailable");
+  for (const k of keys) expect(swift).toContain(`case "${k}":`);
 });

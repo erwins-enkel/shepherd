@@ -1,5 +1,6 @@
 import type {
   EpicLanding,
+  SandboxProfile,
   AssistantPermissions,
   Session,
   ClearMergedPreview,
@@ -3008,6 +3009,8 @@ export async function adoptGitignore(repoPath: string): Promise<{
 export type RepoConfigResponse = RepoConfig & {
   automationConfirmed?: boolean;
   automationRowExists?: boolean;
+  /** The global default profile a `sandboxProfile: "inherit"` resolves to (#2100). */
+  sandboxDefaultProfile?: SandboxProfile;
   /** Derived, read-only (#3221): GitHub repo where no workflow runs on pull requests. */
   noPrCi?: boolean;
   /** Only on a PUT that flipped `claudeAiConnectorsEnabled`: live Claude sessions restarting with

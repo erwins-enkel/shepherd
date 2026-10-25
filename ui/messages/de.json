@@ -1193,7 +1193,7 @@
   "sandbox_profile_trusted": "Vertraut (keine Sandbox)",
   "sandbox_profile_standard": "Standard",
   "sandbox_profile_autonomous": "Autonom",
-  "automation_sandbox_profile_hint": "Sandboxing ist optional. Standard und Autonom sperren den Agenten in sein Worktree ein und blockieren ~/.ssh, ~/.aws, Nachbar-Repositories und andere $HOME-Dotfiles. Autonom schränkt zusätzlich den ausgehenden Datenverkehr auf eine Allowlist ein (Anthropic + den Forge-Host); anderer Egress wird blockiert. Standard schränkt nur das Dateisystem ein und lässt das Netzwerk offen — geeignet für rein interaktive Sitzungen. Die gh-/claude-Auth-Tokens bleiben lesbar, können aber unter Autonom nicht zu beliebigen Hosts exfiltriert werden.",
+  "automation_sandbox_profile_hint": "Der Standardwert folgt der globalen Vorgabe: Standard, wo dieser Host abschotten kann (bubblewrap), sonst Vertraut; SHEPHERD_SANDBOX_DEFAULT_PROFILE überschreibt sie. Standard und Autonom beschränken den Agenten auf seinen Worktree und sperren ~/.ssh, ~/.aws, Nachbar-Repos und andere $HOME-Dotfiles. Autonom beschränkt zusätzlich ausgehenden Verkehr auf eine Allowlist (Anthropic + Forge-Host); anderer Egress wird blockiert. Standard schottet das Dateisystem ab, lässt das Netz aber offen — nur für interaktive Sessions, Auto-Drain braucht daher Autonom oder Vertraut. Vertraut führt den Agenten ohne Abschottung aus. Die gh/claude-Auth-Tokens bleiben lesbar, können unter Autonom aber nicht an beliebige Hosts abfließen.",
   "automation_sandbox_profile_caveats": "Sandbox-Repositories müssen ein HTTPS-Git-Remote verwenden (Repositories mit SSH-Remote können nicht pushen), und MCP-Server, deren Abhängigkeiten außerhalb der eingebundenen Pfade liegen, lassen sich möglicherweise nicht laden.",
   "session_sandbox_degraded_label": "Sandbox aus",
   "session_sandbox_degraded_title": "Angeforderte Sandbox nicht verfügbar — dieser Agent läuft ohne Einschränkung.",
@@ -1282,7 +1282,7 @@
   "feat_critic_smell_lens_body": "Ein Experiment, das wir testen: Aktiviere „Code-Smell-Linse“ im Automatisierungs-Panel eines Repos, um dem [[critic|Critic]] eine benannte Checkliste von neun Code-Smells zu geben (Duplizierung, Feature Envy, Primitiv-Besessenheit und mehr). Treffer erscheinen als nicht-blockierende Hinweise im Review-Text – nie als blockierende Findings. Standardmäßig aus und kostet pro Review-Runde zusätzliche Tokens, daher liefern wir es optional aus, während wir messen, ob das zusätzliche Signal den Aufwand wert ist.",
   "feat_host_capacity_title": "Diagnostics prüft jetzt Host-Ressourcenlimits",
   "feat_host_capacity_body": "Einstellungen → Diagnostics hat eine Host-Kapazitätsprüfung erhalten. Sie warnt, wenn ein systemd-verwalteter Host kein MemoryMax/CPUQuota gesetzt hat, und meldet einen Fehler, wenn der Host unter gefährlicher Speicher-/IO-Last steht — so erkennst du ein riskantes Deployment, bevor es unter vielen Sessions einbricht. Auf Nicht-systemd- oder lokalen Dev-Hosts bleibt sie ruhig.",
-  "automation_sandbox_profile_summary": "Optionale Abschottung für Agenten.",
+  "automation_sandbox_profile_summary": "Abschottung für Agenten. Neue Repos folgen dem Standardwert.",
   "feat_steers_prompt_editor_title": "Größerer Steer-Editor mit Slash-Befehlen",
   "feat_steers_prompt_editor_body": "In den gespeicherten Steers vergrößert sich ein Prompt-Feld jetzt beim Reinklicken, sodass der ganze Text sichtbar ist, und mit „/“ erscheint dieselbe Slash-Befehl-Auswahl wie in den Feldern für Neue Aufgabe und Verfassen – Befehl per Pfeiltasten oder Tipp auswählen.",
   "automation_default_model_label": "Standardmodell",
@@ -7045,5 +7045,11 @@
   "native_mac_remote_stale": "Einige Daten von {machine} konnten nicht aktualisiert werden. Angezeigt wird der letzte bekannte Stand.",
   "recap_detail_load_failed": "Die Recap-Details konnten nicht geladen werden.",
   "login_rate_limited": "Zu viele Anmeldeversuche. Warte eine Minute und versuche es erneut.",
-  "native_login_rate_limited": "Zu viele Anmeldeversuche. Warte eine Minute und versuche es erneut."
+  "native_login_rate_limited": "Zu viele Anmeldeversuche. Warte eine Minute und versuche es erneut.",
+  "sandbox_profile_inherit": "Standardwert ({profile})",
+  "sandbox_profile_inherit_unresolved": "Standardwert",
+  "automation_autodrain_sandbox_held": "Angehalten: Dieses Repo läuft mit Standard, das nur interaktiv ist. Unbeaufsichtigte Starts brauchen Autonom (abgeschottet) oder Vertraut (ohne Sandbox) — Sandbox unten ändern.",
+  "diagnostics_hint_sandbox_membrane_unavailable": "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt oder ist blockiert). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert.",
+  "feat_sandbox_default_standard_title": "Neue Repos laufen standardmäßig in der Sandbox",
+  "feat_sandbox_default_standard_body": "Neue Repos folgen jetzt dem Standard-Sandbox-Profil: Standard (Dateisystem abgeschottet), wo dieser Host abschotten kann, sonst Vertraut. Bestehende Repos behalten ihre Einstellung. Standard kann nicht über ein SSH-Remote pushen und hält Auto-Drain an — wähle bei Bedarf Vertraut oder Autonom unter Sandbox."
 }

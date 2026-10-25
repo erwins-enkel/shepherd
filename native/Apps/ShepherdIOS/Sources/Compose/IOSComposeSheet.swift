@@ -172,7 +172,7 @@ struct IOSComposeContent: View {
         let path = model.repoPath
         guard !path.isEmpty, let config = try? await store.client.getRepoConfig(repo: path),
               !Task.isCancelled, model.repoPath == path else { return }
-        model.repoSandboxDefault = Components.Schemas.SandboxProfile(rawValue: config.sandboxProfile)
+        model.applyRepoSandboxDefault(stored: config.sandboxProfile, globalDefault: config.sandboxDefaultProfile)
     }
     private var formContent: some View {
                 VStack(alignment: .leading, spacing: 12) {

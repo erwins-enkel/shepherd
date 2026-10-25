@@ -213,6 +213,7 @@
 "diagnostics_hint_pwa_optional" = "Installing Shepherd is optional in this browser. Where it's supported, it adds an app icon, a full-screen view, and push notifications that survive the browser's storage cleanup.";
 "diagnostics_hint_sandbox_membrane_broken" = "%1$@ does not start inside the [[sandbox-membrane|sandbox membrane]] on this host, so every confined helper — plan reviewer, pull-request critic, doc agent — refuses to start rather than hanging until it times out. Usually a version manager trying to rewrite files the sandbox keeps read-only. The exact error is in Shepherd's log.";
 "diagnostics_hint_sandbox_membrane_ok" = "Agent programs start correctly inside the [[sandbox-membrane|sandbox membrane]], so reviewers and critics can run confined.";
+"diagnostics_hint_sandbox_membrane_unavailable" = "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing or blocked). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded.";
 "diagnostics_hint_sandbox_membrane_uninspectable" = "Shepherd could not check whether agent programs start inside the [[sandbox-membrane|sandbox membrane]] on this host. Confined helpers still run.";
 "diagnostics_hint_tailscale_missing" = "Tailscale not installed or not logged in — install it and run tailscale up.";
 "diagnostics_hint_tailscale_not_serving" = "Tailscale is running but isn't fronting Shepherd — set up tailscale serve or a Tailscale Service for remote access.";

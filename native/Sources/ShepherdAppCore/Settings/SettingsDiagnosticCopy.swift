@@ -137,6 +137,7 @@ public enum SettingsDiagnosticCopy {
         case "diagnostics_hint_sandbox_membrane_broken": return L.t("diagnostics_hint_sandbox_membrane_broken", params["agent"] ?? "—")
         case "diagnostics_hint_sandbox_membrane_ok": return L.t("diagnostics_hint_sandbox_membrane_ok")
         case "diagnostics_hint_sandbox_membrane_uninspectable": return L.t("diagnostics_hint_sandbox_membrane_uninspectable")
+        case "diagnostics_hint_sandbox_membrane_unavailable": return L.t("diagnostics_hint_sandbox_membrane_unavailable")
         case "diagnostics_hint_tailscale_missing": return L.t("diagnostics_hint_tailscale_missing")
         case "diagnostics_hint_tailscale_not_serving": return L.t("diagnostics_hint_tailscale_not_serving")
         case "diagnostics_hint_tailscale_ok": return L.t("diagnostics_hint_tailscale_ok")

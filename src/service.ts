@@ -151,9 +151,11 @@ import {
   SandboxAutoRefused,
   codexAutoHoldReason,
   type SandboxProfile,
+  type RepoSandboxSetting,
   type SandboxBackend,
   type MembraneInputs,
 } from "./sandbox";
+import { defaultSandboxProfile } from "./sandbox-default";
 import {
   previewLogFile,
   removeMembraneState,
@@ -2907,6 +2909,11 @@ export class SessionService {
   /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Checks
    *  for the dep's PRESENCE rather than `?? real()` — the seam legitimately returns null
    *  (no backend), which `??` would collapse into the real probe. */
+  /** The global default profile (#2100) through this service's backend seam, so a test's injected
+   *  backend decides the built-in standard-vs-trusted fallback too. */
+  private readonly defaultProfile = (): SandboxProfile =>
+    defaultSandboxProfile(() => this.detectBackend());
+
   private detectBackend(): SandboxBackend {
     if (this.deps.detectBackend) return this.deps.detectBackend();
     return detectSandboxBackend({
@@ -2975,7 +2982,7 @@ export class SessionService {
     const profile = resolveProfile(
       profileOverride,
       this.deps.store.getRepoConfig(repoPath).sandboxProfile,
-      config.sandboxDefaultProfile,
+      this.defaultProfile,
     );
     if (!egressApplies(profile)) {
       // trusted / standard: reach the exempt ingress over host loopback (no backend probe needed).
@@ -3000,7 +3007,7 @@ export class SessionService {
     const profile = resolveProfile(
       s.sandboxApplied ?? undefined,
       rc.sandboxProfile,
-      config.sandboxDefaultProfile,
+      this.defaultProfile,
     );
     const backend = profile === "trusted" ? null : this.detectBackend();
     // Re-check egress too: an autonomous auto session must refuse to resume if the egress
@@ -3024,7 +3031,7 @@ export class SessionService {
   ): string | null {
     return codexAutoHoldReason(
       provider,
-      resolveProfile(undefined, repoProfile, config.sandboxDefaultProfile),
+      resolveProfile(undefined, repoProfile, this.defaultProfile),
     );
   }
 
@@ -3434,7 +3441,7 @@ export class SessionService {
     const repoProfile = resolveProfile(
       null,
       this.deps.store.getRepoConfig(s.repoPath).sandboxProfile,
-      config.sandboxDefaultProfile,
+      this.defaultProfile,
     );
     if (repoProfile === "trusted" && (s.sandboxApplied ?? "trusted") === "trusted") return null;
     const home = homedir();
@@ -3492,18 +3499,14 @@ export class SessionService {
 
   private resolveSpawnPreflight(
     profileOverride: string | null | undefined,
-    repoSandboxProfile: SandboxProfile,
+    repoSandboxProfile: RepoSandboxSetting,
   ): {
     profile: SandboxProfile;
     backend: SandboxBackend;
     egressBackend: EgressBackend | undefined;
     hold: string | null;
   } {
-    const profile = resolveProfile(
-      profileOverride,
-      repoSandboxProfile,
-      config.sandboxDefaultProfile,
-    );
+    const profile = resolveProfile(profileOverride, repoSandboxProfile, this.defaultProfile);
     // Trusted is passthrough, so no backend probe can change the result. Egress is considered only
     // when autonomous already has a filesystem backend.
     const backend = profile === "trusted" ? null : this.detectBackend();
@@ -4211,7 +4214,7 @@ export class SessionService {
    * would otherwise resolve to the autonomous profile, downgrade it to standard for this
    * spawn (warning once). Otherwise the override is `input.sandboxProfile` unchanged.
    * Mirrors prepareSpawn's own resolveProfile(override, repoConfig.sandboxProfile,
-   * config.sandboxDefaultProfile), using input.sandboxProfile as the override.
+   * this.defaultProfile), using input.sandboxProfile as the override.
    */
   private researchSafeProfileOverride(
     input: StandardCreateInput,
@@ -4221,7 +4224,7 @@ export class SessionService {
     const effectiveProfile = resolveProfile(
       input.sandboxProfile,
       repoConfig.sandboxProfile,
-      config.sandboxDefaultProfile,
+      this.defaultProfile,
     );
     if (
       (input.research || input.epicAuthoring || input.bootstrap) &&
@@ -4421,11 +4424,7 @@ export class SessionService {
             wt.isolated,
             trim,
             baseUrl,
-            resolveProfile(
-              profileOverride,
-              repoConfig.sandboxProfile,
-              config.sandboxDefaultProfile,
-            ),
+            resolveProfile(profileOverride, repoConfig.sandboxProfile, this.defaultProfile),
           );
     return {
       launchIdentity:

@@ -465,9 +465,9 @@ import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
 import {
-  type SandboxProfile,
   SANDBOX_PROFILES,
-  isSandboxProfile,
+  isRepoSandboxSetting,
+  type RepoSandboxSetting,
   SandboxAutoRefused,
 } from "./sandbox";
 import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
@@ -2754,10 +2754,10 @@ function parseRepoMode(v: unknown): "forge" | "lightweight" | { error: string } 
   return v as "forge" | "lightweight";
 }
 
-// sandboxProfile: one of the three valid profile values
-function parseSandboxProfile(v: unknown): SandboxProfile | { error: string } {
-  if (!isSandboxProfile(v)) {
-    return { error: `sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}` };
+// sandboxProfile: one of the three valid profile values, or "inherit" (= the global default, #2100)
+function parseSandboxProfile(v: unknown): RepoSandboxSetting | { error: string } {
+  if (!isRepoSandboxSetting(v)) {
+    return { error: `sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}, inherit` };
   }
   return v;
 }
@@ -2857,7 +2857,7 @@ type RepoCfgScalars = {
   priorityLabels?: string[];
   usageCeilingPct?: number;
   signoffAuthority?: "human" | "critic" | "either";
-  sandboxProfile?: SandboxProfile;
+  sandboxProfile?: RepoSandboxSetting;
   defaultModel?: string;
   defaultEffort?: string;
   egressExtraHosts?: string[];
@@ -2941,7 +2941,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       hidden?: boolean;
       pinned?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
-      sandboxProfile?: SandboxProfile;
+      sandboxProfile?: RepoSandboxSetting;
       defaultModel?: string;
       defaultEffort?: string;
       egressExtraHosts?: string[];

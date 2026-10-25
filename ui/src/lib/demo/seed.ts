@@ -1796,6 +1796,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     previewOpenMode: "ask",
     automationConfirmed: true,
     automationRowExists: true,
+    sandboxDefaultProfile: "standard",
   };
   return {
     [STOREFRONT]: { ...base, autoMergeEnabled: true, maxAuto: 3 },

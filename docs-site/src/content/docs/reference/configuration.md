@@ -76,7 +76,7 @@ example `[{ "number": 181, "labels": ["ci-gate-rot"] }]`; it includes only prior
 | `SHEPHERD_CODEX_UPDATE_LOG` | `~/.shepherd/codex-update.log` (next to the DB) | The same, for `codex update` |
 | `SHEPHERD_LOG` | `~/.shepherd/shepherd.log` (next to the DB) | Shepherd's app log. The systemd unit appends to it, `shepherd-logrotate.timer` rotates it, and the Operator Assistant reads its tail. Set it only if your unit writes the log somewhere else |
 | `SHEPHERD_ASSISTANT_DIR` | `~/.shepherd/assistant` (next to the DB) | Working directory of the Operator Assistant's `claude` session, created with mode `0700` on first use. Shepherd owns its `.claude/settings.local.json`: the rules of Settings → Assistant, rewritten on every change (no env var — set it in the UI) |
-| `SHEPHERD_SANDBOX_DEFAULT_PROFILE` | `trusted` | Default sandbox profile for every spawned agent (`trusted` / `standard` / `autonomous`) — see below |
+| `SHEPHERD_SANDBOX_DEFAULT_PROFILE` | `standard` (`trusted` without a working bwrap backend) | Global default sandbox profile (`trusted` / `standard` / `autonomous`) for every repo whose Sandbox setting is **Default** — new repos included. Set `trusted` to restore the old unconfined default — see below |
 | `SHEPHERD_SANDBOX_EXTRA_HOSTS` | _(none)_ | Comma-separated extra hostnames always allowlisted by the **autonomous** profile's egress firewall, on top of the built-in Anthropic + forge hosts (e.g. `registry.corp.com,pypi.corp.io` for a private package registry). Operator escape hatch; no effect on `trusted`/`standard`, which are not network-confined |
 | `SHEPHERD_TRUST_ISSUE_AUTHORS` | `0` (off) | Opt-in escape hatch for the fail-closed author-trust gate on autonomous (`auto=true`) drain. Set `1` to treat issue authors as trusted on forges that can't supply a GitHub-style `authorAssociation` (non-GitHub — Gitea/local), where autonomous drain would otherwise be silently disabled. Does **not** relax the gate on GitHub, where author trust is verifiable — a GitHub miss or untrusted author still refuses. See the [Security](/reference/security/) page |
 | `SHEPHERD_TRIM_AUTO_CONTEXT` | `true` | Trim the per-turn context of auto-spawned (drain) agents (optional plugins, bundled skills and your personal `~/.claude/skills` disabled per-spawn; the repo's own skills stay available). Interactive sessions untouched. Set `false`/`0`/`off` if drain quality regresses |
@@ -691,17 +691,24 @@ toggleable any time from the Settings panel. The env vars below seed a fresh DB
 
 Shepherd can wrap each spawned `claude` process in an OS-level filesystem/process
 sandbox via **bubblewrap (`bwrap`)**. Three profiles are selectable per-repo in the
-repo's Settings panel or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`:
+repo's Settings panel or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`. A repo's
+Sandbox setting starts at **Default**, which follows that global default: `standard`
+where the bwrap self-test passes, otherwise `trusted`. Repos that already had sessions
+before this default changed keep `trusted`:
 
 | Profile | Sandbox | Notes |
 | --- | --- | --- |
-| `trusted` | None | Default; today's behavior. Escape hatch when the membrane causes problems. |
-| `standard` | bwrap membrane | Agent confined to its worktree + git object store + read-only `~/.claude`; blocks `~/.ssh`, `~/.aws`, sibling repos, other `$HOME` dotfiles; clears inherited env secrets. Does **not** restrict network egress. Opt-in for interactive sessions. |
-| `autonomous` | bwrap membrane **+ egress allowlist** | Same membrane as `standard`, **plus** network-egress confinement (outbound restricted to an allowlist: Anthropic + the forge host + operator extras). **Required for `auto=true`** drain/autopilot sessions. |
+| `trusted` | None | Unconfined. Fallback default on hosts without a working bwrap backend; escape hatch when the membrane causes problems (e.g. an SSH remote that must push). |
+| `standard` | bwrap membrane | Default where bwrap works. Agent confined to its worktree + git object store + read-only `~/.claude`; blocks `~/.ssh`, `~/.aws`, sibling repos, other `$HOME` dotfiles; clears inherited env secrets. Does **not** restrict network egress. Interactive sessions only — auto-drain holds. |
+| `autonomous` | bwrap membrane **+ egress allowlist** | Same membrane as `standard`, **plus** network-egress confinement (outbound restricted to an allowlist: Anthropic + the forge host + operator extras). The confined choice for `auto=true` drain/autopilot sessions. |
 
-Egress confinement is tied to the **profile**, not to `auto=true`. When no sandbox
-backend is available, manually spawned sessions degrade to unconfined **with an
-operator-visible banner**, and `auto=true` spawns are refused. Codex task sessions always
+Egress confinement is tied to the **profile**, not to `auto=true`. `auto=true` spawns
+need `autonomous` or `trusted`: in a repo resolving to `standard` the drain holds and the
+Automation panel says why under Auto-drain. SSH-remote repos can't `git push` from inside
+the membrane — use an HTTPS remote or set the repo to `trusted`. When no sandbox backend is
+available, repos on **Default** run `trusted` (Settings → Diagnose notes it once); a repo
+explicitly set to `standard`/`autonomous` degrades to unconfined **with an operator-visible
+banner**, and its `auto=true` spawns are refused. Codex task sessions always
 run unconfined, so an `auto=true` Codex spawn is refused unless the repo's profile is
 `trusted`; the drain holds those issues instead of claiming them. The full residual
 posture — the accepted in-membrane token-readability gap and the prompt-injection

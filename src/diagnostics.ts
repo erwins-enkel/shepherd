@@ -907,8 +907,10 @@ export function classifyHerdrFleet(f: HerdrFleetFacts): DiagnosticCheck {
  * start inside the membrane, and until now nothing observed that — the backend self-test proves
  * node+git, not the agent.
  *
- * `null` ⇒ push nothing, so a host with no bwrap backend (nothing is wrapped) and a host with no
- * agent CLI at all (the `claude` / `codex` rows already say so) keep a byte-identical snapshot.
+ * A host with no bwrap backend gets an `optional` row (#2100): the built-in default sandbox profile
+ * falls back to trusted there, so new repos run unconfined and an explicit standard/autonomous repo
+ * runs degraded — said once here rather than as a banner on every session. `null` ⇒ push nothing
+ * for a host with no agent CLI at all (the `claude` / `codex` rows already say so).
  *
  * GUIDANCE-ONLY, like `claude_install`: no `remediation`, no `fixActionKey`. The fix is host-side
  * toolchain surgery — which manager owns the binary, which path it rebuilds — not something
@@ -919,7 +921,14 @@ export function classifyHerdrFleet(f: HerdrFleetFacts): DiagnosticCheck {
  * `runProbe`).
  */
 export function classifyMembraneLaunch(f: MembraneLaunchFacts): DiagnosticCheck | null {
-  if (f.backend === null || f.agents.length === 0) return null;
+  if (f.backend === null) {
+    return {
+      id: "sandbox_membrane",
+      state: "optional",
+      hintKey: "diagnostics_hint_sandbox_membrane_unavailable",
+    };
+  }
+  if (f.agents.length === 0) return null;
   const broken = f.agents.find((a) => a.state === "broken");
   if (broken) {
     return {
@@ -1629,8 +1638,8 @@ export class DiagnosticsService {
     classifyTmpInodes(await this.readTmpInodes());
 
   /** sandbox_membrane (#2111): does each agent binary on PATH actually start inside the membrane?
-   *  Returns null when there is nothing to say (no backend / no agent CLI), so the row is pushed
-   *  conditionally. Any read failure resolves to the probe's `onTimeout` via the `check()` wrapper. */
+   *  No backend yields an `optional` "unavailable" row (#2100); null only when there is no agent
+   *  CLI, so the row is pushed conditionally. Any read failure resolves to the probe's `onTimeout` via the `check()` wrapper. */
   private membraneLaunchProbe = async (): Promise<DiagnosticCheck[]> => {
     const check = await this.readMembraneLaunch().then(classifyMembraneLaunch);
     return check ? [check] : [];
@@ -1790,7 +1799,7 @@ export class DiagnosticsService {
       ]),
       // Conditional row (#2111), which is why it is not in `probes()` — that shape demands exactly
       // one check per probe. Two distinct absences: the classifier returns null for NOT APPLICABLE
-      // (no bwrap backend / no agent CLI) and the row is omitted, while a REJECTED read — the
+      // (no agent CLI) and the row is omitted, while a REJECTED read — the
       // unwired fail-safe, or a read that genuinely failed — is "tried and couldn't" and surfaces
       // as `optional`. Never a false ok either way.
       this.membraneLaunchProbe().catch((): DiagnosticCheck[] => [

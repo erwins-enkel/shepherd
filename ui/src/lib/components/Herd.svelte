@@ -194,7 +194,8 @@
     // first-run empty state: quick-launch is invisible until the standard command
     // is set → surface a quiet nudge pointing at Settings.
     issueActionsUnset?: boolean;
-    onsettings?: () => void;
+    /** "repo-overrides": the Up Next flyout's per-repo exceptions link (#3020). */
+    onsettings?: (focus?: "repo-overrides") => void;
     // when true, the session list renders at natural height (no internal scroll)
     // so the parent page can drive scrolling; default false preserves existing behavior
     flow?: boolean;
@@ -828,7 +829,14 @@
     {#if epicNeedsOperator}{@render integratedEpics()}{/if}
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
-      <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} launchContext={upNextLaunch} {flow} />
+      <UpNextPanel
+        {onbacklog}
+        {onsettings}
+        {repoFilter}
+        {filteredRepo}
+        launchContext={upNextLaunch}
+        {flow}
+      />
     {:else if filter === "owed"}
       <!-- Owed lens: durable post-merge manual steps still owed, across merged sessions (#1061).
          Panel-only (no session list), persists beyond the Done lens's 48h window. -->

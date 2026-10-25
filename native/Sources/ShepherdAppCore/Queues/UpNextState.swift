@@ -109,6 +109,100 @@ public enum UpNextPresentation {
     }
 }
 
+/// What the server's default issue filter hid from Up Next (`UpNextSnapshot.filter`, #3017),
+/// bridged through JSON like `IssueFilterSettings`. The rules run server-side; this only describes
+/// the result. Mirrors ui/src/lib/components/up-next-filter.ts.
+public struct UpNextFilterSummary: Decodable, Equatable, Sendable {
+    public struct HiddenBy: Decodable, Equatable, Sendable {
+        public let scope: Int
+        public let forks: Int
+        public let labels: Int
+        public let repo: Int?
+    }
+    struct OptionCounts: Decodable, Equatable, Sendable {
+        let scope: [String: Int]
+        let forks: [String: Int]
+    }
+    public let hiddenCount: Int
+    public let hiddenBy: HiddenBy
+    let hiddenByRepo: [String: Int]
+    let optionCounts: OptionCounts
+
+    /// nil for a server before the filter (or an unreadable payload).
+    public init?(_ snapshot: UpNextSnapshot?) {
+        guard let stats = snapshot?.filter,
+              let data = try? JSONEncoder().encode(stats),
+              let value = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
+        self = value
+    }
+
+    /// The visible count were that option picked, the other settings unchanged.
+    public func count(_ scope: IssueFilterSettings.Scope) -> Int? { optionCounts.scope[scope.rawValue] }
+    public func count(_ forks: IssueFilterSettings.Forks) -> Int? { optionCounts.forks[forks.rawValue] }
+
+    /// Hidden items in view: summed over the sidebar's repo filter, else the whole queue.
+    public func hidden(repos: Set<String>) -> Int {
+        repos.isEmpty ? hiddenCount : repos.reduce(0) { $0 + (hiddenByRepo[$1] ?? 0) }
+    }
+
+    /// The per-rule breakdown, only when it applies to what is in view (no repo filter).
+    public func reasons(repos: Set<String>) -> [String] {
+        guard repos.isEmpty else { return [] }
+        return [
+            hiddenBy.scope > 0 ? L.t("upnext_filter_empty_by_scope", String(hiddenBy.scope)) : nil,
+            hiddenBy.forks > 0 ? L.t("upnext_filter_empty_by_forks", String(hiddenBy.forks)) : nil,
+            hiddenBy.labels > 0 ? L.t("upnext_filter_empty_by_labels", String(hiddenBy.labels)) : nil,
+            (hiddenBy.repo ?? 0) > 0 ? L.t("upnext_filter_empty_by_repo", String(hiddenBy.repo ?? 0)) : nil,
+        ].compactMap { $0 }
+    }
+}
+
+public enum UpNextFilterPresentation {
+    /// One token per active rule, in rule order.
+    public static func chips(_ f: IssueFilterSettings) -> [String] {
+        var chips: [String] = []
+        if f.scope == .mine { chips.append(L.t("upnext_filter_chip_scope_mine")) }
+        if f.scope == .mineUnassigned { chips.append(L.t("upnext_filter_chip_scope_mine_unassigned")) }
+        if f.forks == .own { chips.append(L.t("upnext_filter_chip_forks_own")) }
+        if f.forks == .hide { chips.append(L.t("upnext_filter_chip_forks_hide")) }
+        chips += f.hiddenLabels.map { L.t("upnext_filter_chip_label", $0) }
+        return chips
+    }
+
+    /// The one-line summary under the popover title.
+    public static func summary(_ f: IssueFilterSettings) -> String {
+        let tokens = chips(f)
+        return tokens.isEmpty ? L.t("upnext_filter_standard") : tokens.joined(separator: " · ")
+    }
+
+    /// The labels on the queue plus any already hidden (their items are gone from it), deduped
+    /// case-insensitively and sorted.
+    public static func labelOptions(_ snapshot: UpNextSnapshot?, hidden: [String]) -> [String] {
+        var byKey: [String: String] = [:]
+        for label in hidden { byKey[label.lowercased()] = label }
+        for section in snapshot?.sections ?? [] {
+            for item in section.items {
+                for label in item.labels where label.lowercased() != "shepherd:priority" && byKey[label.lowercased()] == nil {
+                    byKey[label.lowercased()] = label
+                }
+            }
+        }
+        return byKey.values.sorted { $0.localizedCompare($1) == .orderedAscending }
+    }
+
+    /// The fork repos with items in the queue.
+    public static func forkRepos(_ snapshot: UpNextSnapshot?) -> [String] {
+        let names = (snapshot?.sections ?? []).flatMap(\.items).filter { $0.fromFork == true }.map(\.repoLabel)
+        return Set(names).sorted { $0.localizedCompare($1) == .orderedAscending }
+    }
+
+    /// "Fork" (the operator's own) or "Upstream" for a fork repo's item; nil elsewhere.
+    public static func forkTag(_ item: UpNextItem) -> String? {
+        guard item.fromFork == true else { return nil }
+        return item.mine == true ? L.t("upnext_filter_tag_fork") : L.t("upnext_filter_tag_upstream")
+    }
+}
+
 public struct UpNextNotice: Identifiable {
     public enum Kind { case created, held, errors }
     public let kind: Kind

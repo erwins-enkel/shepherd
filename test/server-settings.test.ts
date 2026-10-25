@@ -1,5 +1,13 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, realpathSync, existsSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  realpathSync,
+  existsSync,
+  readFileSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -20,6 +28,7 @@ import {
   type AssistantPermissions,
 } from "../src/operator-assistant-permissions";
 import { DEFAULT_HOUSE_STACK, type HouseStack, type HouseStackResolver } from "../src/house-stack";
+import { DEFAULT_ISSUE_FILTER } from "../src/issue-filter";
 import { JudgeSettings } from "../src/judge-settings";
 import type { Judge } from "../src/judge";
 
@@ -1509,6 +1518,7 @@ test("PUT upNextReadiness accepts a boolean, persists, kicks an Up Next refresh;
       refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
+      refilter: () => {},
     },
   });
   const prev = config.upNextReadiness;
@@ -1647,4 +1657,101 @@ test("houseStack: default on GET, PATCH validates + persists, resolve route repo
   const failRes = await app.fetch(new Request("http://x/api/house-stack/resolve"));
   expect(failRes.status).toBe(502);
   expect(await failRes.json()).toEqual(result);
+});
+
+test("issueFilter: default on GET, partial PATCH merges + persists, emits, refilters Up Next", async () => {
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const frames: unknown[] = [];
+  events.subscribe((event, data) => {
+    if (event === "settings:issue-filter") frames.push(data);
+  });
+  let refilters = 0;
+  let refreshes = 0;
+  const app = makeApp({
+    store,
+    events,
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+    readCodexAuthMode: () => "unknown",
+    upNext: {
+      snapshot: () => null,
+      refresh: async () => {
+        refreshes++;
+        return {} as any;
+      },
+      refreshIfStale: () => {},
+      recomputeUntilCleared: async () => {},
+      hiddenRepoPathsRaw: () => new Set(),
+      refilter: () => {
+        refilters++;
+      },
+    },
+  });
+  const get = async () => await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect((await get()).issueFilter).toEqual(DEFAULT_ISSUE_FILTER);
+
+  const first = await patch(app, {
+    issueFilter: { forks: "hide", hiddenLabels: [" wip ", "WIP"] },
+  });
+  expect(first.status).toBe(200);
+  const merged = { ...DEFAULT_ISSUE_FILTER, forks: "hide", hiddenLabels: ["wip"] };
+  expect(await first.json()).toEqual({ issueFilter: merged });
+
+  const second = await patch(app, { issueFilter: { scope: "all" } });
+  const both = { ...merged, scope: "all" };
+  expect(await second.json()).toEqual({ issueFilter: both });
+  expect(JSON.parse(store.getSetting("issueFilter")!)).toEqual(both);
+  expect((await get()).issueFilter).toEqual(both);
+  expect(frames).toEqual([{ issueFilter: merged }, { issueFilter: both }]);
+  expect(refilters).toBe(2);
+  expect(refreshes).toBe(0); // no forge refetch
+
+  for (const bad of [
+    { scope: "everyone" },
+    { forks: true },
+    { hideActive: "no" },
+    { hiddenLabels: [1] },
+    { unknown: 1 },
+    "all",
+    null,
+  ]) {
+    expect((await patch(app, { issueFilter: bad })).status, JSON.stringify(bad)).toBe(400);
+  }
+  expect((await get()).issueFilter).toEqual(both);
+  expect(frames).toHaveLength(2);
+  expect(refilters).toBe(2);
+});
+
+test("issueFilter.repoOverrides: raw keys stored as realpath, unknown keys kept, bad values refused", async () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "issue-filter-overrides-")));
+  try {
+    const realRoot = join(base, "real");
+    mkdirSync(join(realRoot, "app"), { recursive: true });
+    const linkRoot = join(base, "link");
+    symlinkSync(realRoot, linkRoot);
+    config.repoRoot = linkRoot;
+    const store = new SessionStore(":memory:");
+    const app = makeApp({
+      store,
+      events: new EventHub(),
+      service: {} as any,
+      usageLimits: { limits: () => ({}) } as any,
+      readCodexAuthMode: () => "unknown",
+    });
+    const res = await patch(app, {
+      issueFilter: { repoOverrides: { [join(linkRoot, "app")]: "hide", "/gone/repo": "all" } },
+    });
+    expect(res.status).toBe(200);
+    const want = { [join(realRoot, "app")]: "hide", "/gone/repo": "all" };
+    expect((await res.json()).issueFilter.repoOverrides).toEqual(want);
+    expect(JSON.parse(store.getSetting("issueFilter")!).repoOverrides).toEqual(want);
+    // Another field's patch leaves the overrides as they are.
+    const other = await patch(app, { issueFilter: { scope: "all" } });
+    expect((await other.json()).issueFilter.repoOverrides).toEqual(want);
+    const bad = await patch(app, { issueFilter: { repoOverrides: { "/r": "standard" } } });
+    expect(bad.status).toBe(400);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });

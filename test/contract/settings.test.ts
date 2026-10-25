@@ -404,6 +404,33 @@ test("PATCH assistantPermissions merges a partial set, GET and the assistant sta
     config.assistantPermissions = saved;
   }
 });
+test("PATCH issueFilter merges a partial filter, GET reports it and settings:issue-filter fires", async () => {
+  try {
+    const frames = await collectEvents(s, token, async () => {
+      const result = (await request("PATCH", "/api/settings", 200, {
+        issueFilter: { forks: "own", hiddenLabels: [" wip ", "WIP"] },
+      })) as { issueFilter: { forks: string; hiddenLabels: string[]; scope: string } };
+      expect(result.issueFilter).toMatchObject({
+        scope: "mine_unassigned",
+        forks: "own",
+        hiddenLabels: ["wip"],
+      });
+    });
+    const frame = frames.find((f) => f.event === "settings:issue-filter");
+    expect(frame).toBeDefined();
+    validateEvent("settings:issue-filter", frame!.data);
+    const settings = (await request("GET", "/api/settings", 200)) as {
+      issueFilter: { forks: string };
+    };
+    expect(settings.issueFilter.forks).toBe("own");
+    await request("PATCH", "/api/settings", 400, { issueFilter: { scope: "everyone" } });
+    await request("PATCH", "/api/settings", 400, { issueFilter: { colour: "red" } });
+  } finally {
+    await request("PATCH", "/api/settings", 200, {
+      issueFilter: { scope: "mine_unassigned", forks: "all", hiddenLabels: [] },
+    });
+  }
+});
 test("native iOS registration: 503 without an APNs key, 400 on a bad token, 200 once configured", async () => {
   const device = { token: "ab".repeat(32), environment: "production", locale: "de" };
   const saved = s.deps.push;

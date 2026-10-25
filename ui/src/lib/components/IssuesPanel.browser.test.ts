@@ -4,9 +4,11 @@ import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { Issue, EpicSummary, Epic, Session, Steer } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
-import { listIssues, getEpics, getEpic, getGithubRateLimit } from "#lib/api.js";
+import { listIssues, getEpics, getEpic, getGithubRateLimit, putIssueFilter } from "#lib/api.js";
 import { steers } from "#lib/steers.svelte.js";
-import { issuesFilter } from "#lib/issues-filter.svelte.js";
+import { issuesFilter, pushIssueFilter, resetIssueFilter } from "#lib/test-support/issue-filter.js";
+import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
+import { repos } from "#lib/repos.svelte.js";
 import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
 import { issuesOverview } from "#lib/issues-overview.svelte.js";
 import { ACTIVE_LABEL } from "./issues-panel";
@@ -23,6 +25,10 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getEpics: vi.fn(),
     getEpic: vi.fn(),
     getGithubRateLimit: vi.fn(),
+    // The default issue filter (#3019): seeded per test via pushIssueFilter; a write echoes
+    // its patch, which the store merges onto the confirmed value.
+    getSettings: vi.fn(async () => ({})),
+    putIssueFilter: vi.fn(async (patch: object) => ({ issueFilter: patch })),
   };
 });
 
@@ -38,6 +44,8 @@ const mockIssues = mockListIssues;
 const mockEpics = mockGetEpics;
 
 beforeEach(() => {
+  resetIssueFilter();
+  repos.entries = [];
   mockListIssues.mockReset();
   mockGetEpics.mockReset();
   mockEpic.mockReset();
@@ -2034,6 +2042,13 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
       return row?.textContent?.includes(label);
     });
   };
+  // The default filter's scope choice (#3019) — the radio whose row label is exactly `label`.
+  const scopeRadio = (label: string): HTMLInputElement | undefined =>
+    [
+      ...document.querySelectorAll<HTMLInputElement>(
+        `[popover] [role=radiogroup][aria-label="${m.upnext_filter_scope_heading()}"] input`,
+      ),
+    ].find((r) => r.closest("label")?.querySelector(".row-label")?.textContent?.trim() === label);
 
   function withAssignees(number: number, title: string, assignees: string[]): Issue {
     return {
@@ -2083,10 +2098,10 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
 
-    // Open popover then click the mine & unassigned checkbox.
+    // Open popover then widen the scope to all issues.
     openPopover();
-    await expect.poll(() => checkboxByLabel(m.issues_filter_mine_label())).toBeTruthy();
-    checkboxByLabel(m.issues_filter_mine_label())!.click();
+    await expect.poll(() => scopeRadio(m.upnext_filter_scope_all())).toBeTruthy();
+    scopeRadio(m.upnext_filter_scope_all())!.click();
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
     expect(titles()).toContain("Theirs issue");
@@ -2106,26 +2121,42 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     await expect
       .poll(() => document.querySelector("[popover] input[type=checkbox]"))
       .not.toBeNull();
-    expect(checkboxByLabel(m.issues_filter_mine_label())).toBeUndefined();
+    expect(scopeRadio(m.upnext_filter_scope_all())).toBeUndefined();
     expect(checkboxByLabel(m.issues_filter_active_label())).toBeTruthy();
   });
 
-  // Assignee pill (#1694): shown per row only when the mine & unassigned filter isn't
-  // hiding others' issues. `.assigned-pill` is distinct from EpicOthersPill's `.others-pill`;
+  // Assignee pill (#1694): names whoever else is assigned, under every scope. `.assigned-pill` is distinct from EpicOthersPill's `.others-pill`;
   // `.framed` = "assigned to X" (viewer known), `.neutral` = plain listing (viewer unknown).
   const assignedPills = () => document.querySelectorAll(".assigned-pill");
   const framedPills = () => document.querySelectorAll(".assigned-pill.framed");
   const neutralPills = () => document.querySelectorAll(".assigned-pill.neutral");
   const pillText = (els: NodeListOf<Element>) => [...els].map((el) => el.textContent ?? "");
 
-  it("shows no assignee pill while the mine & unassigned filter is active", async () => {
+  it("shows no assignee pill on my own or unassigned issues", async () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
-    // Filter on + viewer known → every visible issue is mine-or-unassigned, so the pill
-    // would be redundant and is suppressed.
-    expect(assignedPills().length).toBe(0);
+    for (const key of ["s:1", "s:2"]) {
+      await selectRow(key);
+      expect(assignedPills().length).toBe(0);
+    }
+  });
+
+  it("pills an issue I authored but someone else is assigned to, under the default scope", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer: "octocat",
+      issues: [{ ...withAssignees(4, "Authored issue", ["someone-else"]), author: "octocat" }],
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // isMine counts the author, so mine & unassigned keeps it — the pill names the assignee.
+    await selectRow("s:4");
+    await expect.poll(() => framedPills().length).toBe(1);
+    expect(pillText(framedPills())[0]).toContain("someone-else");
   });
 
   it("reveals a framed 'assigned to X' pill for others' issues when the filter is toggled off", async () => {
@@ -2135,8 +2166,8 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
 
     openPopover();
-    await expect.poll(() => checkboxByLabel(m.issues_filter_mine_label())).toBeTruthy();
-    checkboxByLabel(m.issues_filter_mine_label())!.click();
+    await expect.poll(() => scopeRadio(m.upnext_filter_scope_all())).toBeTruthy();
+    scopeRadio(m.upnext_filter_scope_all())!.click();
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
     // The someone-else issue's detail is pilled; the viewer's own (octocat) shows none.
@@ -2238,6 +2269,99 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     checkboxByLabel(m.issues_filter_active_label())!.click();
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
     expect(titles()).toContain("Claimed issue");
+  });
+
+  describe("server-side default filter (#3019)", () => {
+    const docs = (n: number, title: string): Issue => ({
+      ...withAssignees(n, title, []),
+      labels: ["docs"],
+    });
+
+    it("honors the server setting: scope mine keeps only my issues, with its own empty copy", async () => {
+      pushIssueFilter({ scope: "mine" });
+      seedMixed("octocat");
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => titles()).toEqual(["Mine issue"]);
+
+      pushIssueFilter({ scope: "mine" });
+      document.body.innerHTML = "";
+      mockListIssues.mockResolvedValue({
+        slug: "owner/repo",
+        webUrl: null,
+        viewer: "octocat",
+        issues: [withAssignees(3, "Theirs issue", ["someone-else"])],
+      });
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => document.body.textContent).toContain(m.issues_filter_all_not_mine());
+    });
+
+    it("hides a fork's issues with forks: hide, keeps only mine with forks: own", async () => {
+      repos.entries = [
+        { name: "repo", path: "/repo", realPath: "/repo", display: "repo", isFork: true },
+      ] as typeof repos.entries;
+      pushIssueFilter({ scope: "all", forks: "hide" });
+      seedMixed("octocat");
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => document.body.textContent).toContain(m.issues_filter_all_forks());
+      expect(document.querySelector('.fchip[data-chip="forks"]')).not.toBeNull();
+
+      pushIssueFilter({ forks: "own" });
+      await expect.poll(() => titles()).toEqual(["Mine issue"]);
+    });
+
+    it("honors a per-repo override keyed by the repo's realpath (#3020)", async () => {
+      repos.entries = [
+        { name: "repo", path: "/repo", realPath: "/real/repo", display: "repo", isFork: true },
+      ] as typeof repos.entries;
+      // The global rules would show only mine; the repo's `all` override shows everything.
+      pushIssueFilter({ scope: "mine", forks: "own", repoOverrides: { "/real/repo": "all" } });
+      seedMixed("octocat");
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => titles().length).toBeGreaterThan(1);
+
+      pushIssueFilter({ repoOverrides: { "/real/repo": "hide" } });
+      await expect
+        .poll(() => document.body.textContent)
+        .toContain(m.issues_filter_all_repo_override());
+    });
+
+    it("hides issues carrying a hidden label (case-insensitive)", async () => {
+      pushIssueFilter({ scope: "all", hiddenLabels: ["DOCS"] });
+      mockListIssues.mockResolvedValue({
+        slug: "owner/repo",
+        webUrl: null,
+        viewer: "octocat",
+        issues: [docs(1, "Docs issue"), withAssignees(2, "Code issue", [])],
+      });
+      mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => titles()).toEqual(["Code issue"]);
+    });
+
+    it("a change pushed from another surface re-filters the mounted list without a reload", async () => {
+      seedMixed("octocat");
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => titles()).toEqual(["Unassigned issue", "Mine issue"]);
+      // What store.svelte.ts does on a settings:issue-filter event (Up Next / Settings wrote it).
+      issueFilterSettings.apply({ ...issueFilterSettings.effective, scope: "all" });
+      await expect.poll(() => titles()).toHaveLength(3);
+      expect(mockListIssues).toHaveBeenCalledTimes(1);
+    });
+
+    it("a write from the popover goes to the server, not localStorage", async () => {
+      seedMixed("octocat");
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => titles()).toHaveLength(2);
+      openPopover();
+      await expect.poll(() => scopeRadio(m.upnext_filter_scope_all())).toBeTruthy();
+      scopeRadio(m.upnext_filter_scope_all())!.click();
+      await expect
+        .poll(() => vi.mocked(putIssueFilter).mock.calls.at(-1)?.[0])
+        .toEqual({
+          scope: "all",
+        });
+      expect(Object.keys(localStorage).filter((k) => k.startsWith("shepherd:issues-"))).toEqual([]);
+    });
   });
 });
 

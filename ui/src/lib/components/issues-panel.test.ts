@@ -12,7 +12,10 @@ import {
   shownOfTotal,
   shortcutHints,
   filterIssues,
-  hideOthers,
+  applyDefaultFilter,
+  defaultFilterEmptiedBy,
+  defaultFilterEmptyMessage,
+  isMine,
   hideActive,
   hideSubIssues,
   sortEpicsFirst,
@@ -25,7 +28,6 @@ import {
   hideBlockedIssues,
   ACTIVE_LABEL,
   epicFlagForOthers,
-  hideOthersExceptFlaggedEpics,
   assignedOthers,
   buildIssueRows,
   stepSelection,
@@ -37,7 +39,7 @@ import {
   labelCounts,
   runningIssues,
 } from "./issues-panel";
-import type { Issue, EpicSummary, EpicChild } from "#lib/types.js";
+import type { Issue, EpicSummary, EpicChild, IssueFilterSettings } from "#lib/types.js";
 
 function issue(
   number: number,
@@ -99,45 +101,69 @@ describe("filterIssues", () => {
   });
 });
 
-describe("hideOthers", () => {
+const RULES: Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels"> = {
+  scope: "mine_unassigned",
+  forks: "all",
+  hiddenLabels: [],
+};
+const kept = (
+  list: Issue[],
+  over: Partial<typeof RULES> = {},
+  ctx = { viewer: "octocat" as string | null, isFork: false },
+) => applyDefaultFilter(list, ctx, { ...RULES, ...over }).afterLabels;
+
+describe("applyDefaultFilter (mirrors src/issue-filter.ts)", () => {
   const me = "octocat";
   const unassigned = issue(1, "Unassigned", "", [], []);
   const mine = issue(2, "Mine", "", [], [me]);
   const theirs = issue(3, "Theirs", "", [], ["someone-else"]);
   const mineAndTheirs = issue(4, "Shared", "", [], ["someone-else", me]);
-  const all = [unassigned, mine, theirs, mineAndTheirs];
+  const authored = issue(5, "Authored", "", [], ["someone-else"], me);
+  const all = [unassigned, mine, theirs, mineAndTheirs, authored];
 
-  it("when enabled, shows unassigned + mine + shared, hides others' issues", () => {
-    expect(hideOthers(all, me, true)).toEqual([unassigned, mine, mineAndTheirs]);
+  it("mine_unassigned keeps unassigned + mine (assignee or author), hides others'", () => {
+    expect(kept(all)).toEqual([unassigned, mine, mineAndTheirs, authored]);
   });
 
-  it("keeps an issue assigned to me alone", () => {
-    expect(hideOthers([mine], me, true)).toEqual([mine]);
+  it("mine keeps only mine; all keeps everything", () => {
+    expect(kept(all, { scope: "mine" })).toEqual([mine, mineAndTheirs, authored]);
+    expect(kept(all, { scope: "all" })).toEqual(all);
   });
 
-  it("keeps an unassigned issue", () => {
-    expect(hideOthers([unassigned], me, true)).toEqual([unassigned]);
+  it("a null viewer fails open for scope and forks: own", () => {
+    const ctx = { viewer: null, isFork: true };
+    expect(kept(all, { scope: "mine", forks: "own" }, ctx)).toEqual(all);
+    expect(isMine(mine, null)).toBe(false);
   });
 
-  it("hides an issue assigned only to others", () => {
-    expect(hideOthers([theirs], me, true)).toEqual([]);
+  it("forks: own keeps only mine in a fork, hide drops the fork; no-op outside forks", () => {
+    const fork = { viewer: me, isFork: true };
+    expect(kept(all, { scope: "all", forks: "own" }, fork)).toEqual([
+      mine,
+      mineAndTheirs,
+      authored,
+    ]);
+    expect(kept(all, { scope: "all", forks: "hide" }, fork)).toEqual([]);
+    expect(kept(all, { scope: "all", forks: "hide" })).toEqual(all);
   });
 
-  it("keeps an issue assigned to me and others", () => {
-    expect(hideOthers([mineAndTheirs], me, true)).toEqual([mineAndTheirs]);
+  it("hidden labels match case-insensitively", () => {
+    const docs = issue(6, "Docs", "", ["Docs"], []);
+    expect(kept([docs, unassigned], { hiddenLabels: ["docs"] })).toEqual([unassigned]);
   });
 
-  it("fails open when disabled — returns all issues", () => {
-    expect(hideOthers(all, me, false)).toEqual(all);
-  });
-
-  it("fails open when the viewer is null — returns all issues", () => {
-    expect(hideOthers(all, null, true)).toEqual(all);
+  it("exempts rows from the scope rule only", () => {
+    const stages = applyDefaultFilter(
+      [theirs],
+      { viewer: me, isFork: true },
+      { ...RULES, forks: "hide" },
+      (i) => i.number === 3,
+    );
+    expect(stages.afterScope).toEqual([theirs]);
+    expect(stages.afterForks).toEqual([]);
   });
 
   it("does not throw on a stale payload missing assignees", () => {
-    // Simulate an old-shape issue (e.g. mid rolling-deploy) whose payload predates
-    // the `assignees` field — the `?? []` guard must keep it from throwing.
     const stale = {
       number: 1,
       title: "Unassigned",
@@ -146,8 +172,54 @@ describe("hideOthers", () => {
       labels: [],
       createdAt: 0,
     } as unknown as Issue;
-    expect(() => hideOthers([stale], me, true)).not.toThrow();
-    expect(hideOthers([stale], me, true)).toEqual([stale]);
+    expect(kept([stale])).toEqual([stale]);
+  });
+
+  it("attributes an emptied list to the first rule that emptied it", () => {
+    const ctx = { viewer: me, isFork: true };
+    const by = (over: Partial<typeof RULES>, list = [theirs]) => {
+      const f = { ...RULES, ...over };
+      return defaultFilterEmptiedBy(list.length, applyDefaultFilter(list, ctx, f), ctx, f);
+    };
+    expect(by({})).toBe("scope");
+    expect(by({ scope: "all", forks: "hide" })).toBe("forks");
+    expect(by({ scope: "all", hiddenLabels: ["x"] }, [issue(7, "X", "", ["x"])])).toBe("labels");
+    expect(by({ scope: "all" })).toBeNull();
+    expect(defaultFilterEmptyMessage("scope", "mine")).toBe(m.issues_filter_all_not_mine());
+    expect(defaultFilterEmptyMessage("scope", "mine_unassigned")).toBe(
+      m.issues_filter_all_assigned_to_others(),
+    );
+  });
+  describe("repo override (#3020)", () => {
+    const fork = (override: "all" | "mine_unassigned" | "mine" | "hide") => ({
+      viewer: me as string | null,
+      isFork: true,
+      override,
+    });
+
+    it("all beats the global scope/forks in a fork; hidden labels still apply", () => {
+      expect(kept(all, { scope: "mine", forks: "own" }, fork("all"))).toEqual(all);
+      const wip = issue(8, "Wip", "", ["WIP"], []);
+      expect(kept([wip, theirs], { hiddenLabels: ["wip"] }, fork("all"))).toEqual([theirs]);
+    });
+
+    it("hide drops everything, exempt rows included; mine acts as the scope, forks ignored", () => {
+      expect(
+        applyDefaultFilter(all, fork("hide"), { ...RULES, scope: "all" }, () => true).afterLabels,
+      ).toEqual([]);
+      expect(kept(all, { scope: "all", forks: "hide" }, fork("mine"))).toEqual([
+        mine,
+        mineAndTheirs,
+        authored,
+      ]);
+    });
+
+    it("attributes an emptied list to the override", () => {
+      const ctx = fork("hide");
+      const f = { ...RULES, scope: "all" as const };
+      expect(defaultFilterEmptiedBy(1, applyDefaultFilter([mine], ctx, f), ctx, f)).toBe("repo");
+      expect(defaultFilterEmptyMessage("repo", "all")).toBe(m.issues_filter_all_repo_override());
+    });
   });
 });
 
@@ -524,38 +596,6 @@ describe("epicFlagForOthers", () => {
   });
 });
 
-describe("hideOthersExceptFlaggedEpics", () => {
-  const epicByNumber = new Map<number, EpicSummary>([
-    [16, summary({ parentIssueNumber: 16, inFlight: 3, inFlightBy: ["scoop"] })],
-  ]);
-
-  it("keeps a flagged epic assigned to others (would be hidden by plain hideOthers)", () => {
-    const rows = [issue(16, "Epic", "", [], ["scoop"])]; // assigned to scoop, viewer is kai
-    const kept = hideOthersExceptFlaggedEpics(rows, "kai", true, epicByNumber);
-    expect(kept.map((i) => i.number)).toEqual([16]);
-    // plain hideOthers would drop it
-    expect(hideOthers(rows, "kai", true).map((i) => i.number)).toEqual([]);
-  });
-
-  it("still hides a non-epic issue assigned only to others", () => {
-    const rows = [issue(99, "Plain", "", [], ["scoop"])];
-    expect(hideOthersExceptFlaggedEpics(rows, "kai", true, epicByNumber)).toEqual([]);
-  });
-
-  it("keeps mine + unassigned rows unchanged", () => {
-    const rows = [issue(1, "Mine", "", [], ["kai"]), issue(2, "Unassigned", "", [], [])];
-    expect(
-      hideOthersExceptFlaggedEpics(rows, "kai", true, epicByNumber).map((i) => i.number),
-    ).toEqual([1, 2]);
-  });
-
-  it("is an identity filter when disabled or viewer unknown", () => {
-    const rows = [issue(99, "Plain", "", [], ["scoop"])];
-    expect(hideOthersExceptFlaggedEpics(rows, "kai", false, epicByNumber)).toHaveLength(1);
-    expect(hideOthersExceptFlaggedEpics(rows, null, true, epicByNumber)).toHaveLength(1);
-  });
-});
-
 function child(number: number, order: number, state: EpicChild["state"] = "ready"): EpicChild {
   return {
     number,
@@ -758,21 +798,21 @@ describe("stripEpicPrefix", () => {
 });
 
 describe("activeFilterChips (#2639)", () => {
-  function toggles(
-    over: Partial<{ hideOthers: boolean; hideActive: boolean; hideBlocked: boolean }>,
-  ) {
-    return {
-      hideOthers: false,
-      hideActive: false,
-      hideBlocked: false,
-      set: vi.fn(),
-      setActive: vi.fn(),
-      setBlocked: vi.fn(),
-      ...over,
-    };
-  }
+  const OFF: IssueFilterSettings = {
+    scope: "all",
+    forks: "all",
+    hiddenLabels: [],
+    hideActive: false,
+    hideSubIssues: true,
+    hideBlocked: false,
+  };
+  const toggles = (over: Partial<IssueFilterSettings>) => ({
+    filter: { ...OFF, ...over },
+    update: vi.fn(),
+  });
   const base = {
     mineOffered: true,
+    isFork: true,
     author: null,
     labels: [],
     clearAuthor: vi.fn(),
@@ -783,10 +823,16 @@ describe("activeFilterChips (#2639)", () => {
     expect(activeFilterChips({ ...base, toggles: toggles({}) })).toEqual([]);
   });
 
-  it("lists every on toggle, the author and each label, in that order", () => {
+  it("lists every rule, the author and each label, in that order", () => {
     const chips = activeFilterChips({
       ...base,
-      toggles: toggles({ hideOthers: true, hideActive: true, hideBlocked: true }),
+      toggles: toggles({
+        scope: "mine_unassigned",
+        forks: "hide",
+        hiddenLabels: ["wontfix"],
+        hideActive: true,
+        hideBlocked: true,
+      }),
       author: "octocat",
       labels: ["bug", "docs"],
     });
@@ -794,6 +840,8 @@ describe("activeFilterChips (#2639)", () => {
       "active",
       "blocked",
       "others",
+      "forks",
+      "hidden:wontfix",
       "author",
       "label:bug",
       "label:docs",
@@ -802,6 +850,8 @@ describe("activeFilterChips (#2639)", () => {
       m.issues_filter_chip_active(),
       m.issues_filter_chip_blocked(),
       m.issues_filter_chip_others(),
+      m.upnext_filter_chip_forks_hide(),
+      m.upnext_filter_chip_label({ label: "wontfix" }),
       m.issues_filter_chip_author({ name: "octocat" }),
       "bug",
       "docs",
@@ -809,7 +859,13 @@ describe("activeFilterChips (#2639)", () => {
   });
 
   it("each chip's clear turns off exactly its filter", () => {
-    const t = toggles({ hideOthers: true, hideActive: true, hideBlocked: true });
+    const t = toggles({
+      scope: "mine",
+      forks: "own",
+      hiddenLabels: ["a", "B"],
+      hideActive: true,
+      hideBlocked: true,
+    });
     const clearAuthor = vi.fn();
     const clearLabel = vi.fn();
     const chips = activeFilterChips({
@@ -822,22 +878,27 @@ describe("activeFilterChips (#2639)", () => {
     });
     const byId = (id: string) => chips.find((c) => c.id === id)!.clear();
     byId("active");
-    expect(t.setActive).toHaveBeenCalledWith(false);
+    expect(t.update).toHaveBeenLastCalledWith({ hideActive: false });
     byId("blocked");
-    expect(t.setBlocked).toHaveBeenCalledWith(false);
+    expect(t.update).toHaveBeenLastCalledWith({ hideBlocked: false });
     byId("others");
-    expect(t.set).toHaveBeenCalledWith(false);
+    expect(t.update).toHaveBeenLastCalledWith({ scope: "all" });
+    byId("forks");
+    expect(t.update).toHaveBeenLastCalledWith({ forks: "all" });
+    byId("hidden:B");
+    expect(t.update).toHaveBeenLastCalledWith({ hiddenLabels: ["a"] });
     byId("author");
     expect(clearAuthor).toHaveBeenCalled();
     byId("label:bug");
     expect(clearLabel).toHaveBeenCalledWith("bug");
   });
 
-  it("skips mine & unassigned when the viewer is unknown (the filter fails open)", () => {
+  it("skips the scope rule without a viewer and the fork rule outside a fork", () => {
     const chips = activeFilterChips({
       ...base,
       mineOffered: false,
-      toggles: toggles({ hideOthers: true }),
+      isFork: false,
+      toggles: toggles({ scope: "mine", forks: "hide" }),
     });
     expect(chips).toEqual([]);
   });

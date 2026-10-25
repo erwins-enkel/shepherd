@@ -6,6 +6,7 @@ import { UpNextService, startSerially, buildUpNextRepos, type UpNextDeps } from 
 import { listRepos } from "../src/repos";
 import type { Epic, EpicRun } from "../src/epic-core";
 import type { GitForge, Issue } from "../src/forge/types";
+import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "../src/issue-filter";
 
 function issue(number: number, over: Partial<Issue> = {}): Issue {
   return {
@@ -476,6 +477,116 @@ describe("UpNextService.refresh", () => {
     // Parent #100 assigned solely to "other" → epic unit suppressed; only standalone #1 remains.
     expect(items.filter((i) => i.kind === "epic")).toHaveLength(0);
     expect(items.map((i) => i.number)).toEqual([1]);
+  });
+});
+
+describe("UpNextService issue filter (#3017)", () => {
+  const numbers = (s: { sections: { items: { number: number }[] }[] }) =>
+    s.sections.flatMap((sec) => sec.items.map((i) => i.number)).sort((a, b) => a - b);
+
+  test("refilter rebuilds from the cached input with no forge call and publishes", async () => {
+    let filter: IssueFilterSettings = { ...DEFAULT_ISSUE_FILTER };
+    let reads = 0;
+    const published: number[][] = [];
+    const s = svc({
+      now: () => 5_000,
+      issueFilter: () => filter,
+      onChange: (snap) => published.push(numbers(snap)),
+      resolveForge: () => {
+        reads++;
+        return fakeForge({
+          isFork: true,
+          currentUser: async () => "me",
+          issues: [issue(1, { labels: ["wip"] }), issue(2, { assignees: ["me"] })],
+        } as Partial<GitForge>);
+      },
+    });
+    const first = await s.refresh();
+    expect(numbers(first)).toEqual([1, 2]);
+    expect(first.sections[0]!.items.every((i) => i.fromFork)).toBe(true);
+    filter = { ...filter, hiddenLabels: ["WIP"] };
+    s.refilter();
+    expect(reads).toBe(1);
+    expect(published).toEqual([[1, 2], [2]]);
+    const snap = s.snapshot()!;
+    expect(snap.generatedAt).toBe(first.generatedAt);
+    expect(snap.filter.hiddenBy).toEqual({ scope: 0, forks: 0, labels: 1, repo: 0 });
+    expect(snap.sections[0]!.items[0]!.mine).toBe(true);
+  });
+
+  test("a realpath-keyed override matches a repo listed under a symlinked root", async () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "up-next-override-")));
+    try {
+      const realRoot = join(base, "real");
+      mkdirSync(join(realRoot, "a"), { recursive: true });
+      const linkRoot = join(base, "link");
+      symlinkSync(realRoot, linkRoot, "dir");
+      const raw = join(linkRoot, "a");
+      const s = svc({
+        listForgeRepos: () => [{ repoPath: raw, repoSlug: "o/a", repoLabel: "a" }],
+        issueFilter: () => ({
+          ...DEFAULT_ISSUE_FILTER,
+          repoOverrides: { [join(realRoot, "a")]: "hide" },
+        }),
+      });
+      const snap = await s.refresh();
+      expect(numbers(snap)).toEqual([]);
+      expect(snap.filter.hiddenBy.repo).toBe(2);
+      expect(snap.filter.hiddenByRepo).toEqual({ [raw]: 2 });
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("refilter before any compute falls back to a full refresh", async () => {
+    let reads = 0;
+    const s = svc({
+      resolveForge: () => {
+        reads++;
+        return fakeForge({ issues: [issue(1)] });
+      },
+    });
+    s.refilter();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reads).toBe(1);
+    expect(s.snapshot()).not.toBeNull();
+  });
+
+  test("threads the epic parent author → an epic I authored counts as mine", async () => {
+    const parent = issue(10, { body: "```epic-dag\n#11\n```", author: "me", assignees: ["x"] });
+    const epic = {
+      repoPath: "/r/a",
+      parentIssueNumber: 10,
+      parentTitle: "epic",
+      source: "native",
+      run: { repoPath: "/r/a", parentIssueNumber: 10, mode: "auto", status: "idle" },
+      warnings: [],
+      children: [
+        {
+          number: 11,
+          title: "c",
+          url: "https://x/11",
+          order: 0,
+          body: "",
+          blockedBy: [],
+          state: "ready",
+          sessionId: null,
+          prNumber: null,
+          issueClosed: false,
+          integrationMerged: false,
+          claimed: false,
+        },
+      ],
+    } as Epic;
+    const s = svc({
+      issueFilter: () => ({ ...DEFAULT_ISSUE_FILTER, scope: "mine" }),
+      resolveForge: () =>
+        fakeForge({ currentUser: async () => "me", issues: [parent] } as Partial<GitForge>),
+      buildEpic: async () => epic,
+    });
+    const snap = await s.refresh();
+    const items = snap.sections.flatMap((sec) => sec.items);
+    expect(items.map((i) => [i.kind, i.mine])).toEqual([["epic", true]]);
   });
 });
 

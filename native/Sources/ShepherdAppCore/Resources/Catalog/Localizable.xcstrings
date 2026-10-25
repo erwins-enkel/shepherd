@@ -10539,6 +10539,74 @@
         }
       }
     },
+    "issue_filter_hidden_labels_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier gibt es keine Labels zum Ausblenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No labels to hide here."
+          }
+        }
+      }
+    },
+    "issue_filter_section_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard · überall"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default · everywhere"
+          }
+        }
+      }
+    },
+    "issue_filter_section_default_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Server gespeichert — ändert auch Als Nächstes, Backlog und Neue Aufgabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved on the server — also changes Up Next, Backlog and New Task."
+          }
+        }
+      }
+    },
+    "issue_filter_section_view": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur diese Ansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This view only"
+          }
+        }
+      }
+    },
     "issuebadge_label": {
       "comment": "%1$@ = number",
       "extractionState": "manual",
@@ -10715,6 +10783,40 @@
         }
       }
     },
+    "issues_filter_all_forks": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Repo ist ein Fork und dein Standardfilter blendet seine Issues aus — Forks ändern, um sie zu sehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This repo is a fork and your default filter hides its issues — change Forks to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_hidden_labels": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle passenden Issues tragen ein ausgeblendetes Label — Label wieder einblenden, um sie zu sehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All matching issues carry a hidden label — unhide it to see them"
+          }
+        }
+      }
+    },
     "issues_filter_all_in_progress": {
       "extractionState": "manual",
       "localizations": {
@@ -10728,6 +10830,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "All matching issues are in progress — toggle off to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_not_mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keines der offenen Issues gehört dir — Zuständig auf „Alle Issues“ stellen, um sie zu sehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None of the open issues are yours — set Assigned to “All issues” to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_repo_override": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ausnahme für dieses Repo in deinem Standardfilter blendet seine Issues aus — ändern unter Einstellungen › Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This repo's exception in your default issue filter hides its issues — change it under Settings › Workspace"
           }
         }
       }
@@ -19044,6 +19180,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_filter_button": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_filter_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_filter_footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gilt auch für Backlog und Neue Aufgabe. Auf dem Server gespeichert, auf jedem Gerät gleich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also applies to Backlog and New Task. Saved on the server, the same on every device."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_filter_mixed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemischt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixed"
           }
         }
       }
@@ -33966,6 +34171,194 @@
         }
       }
     },
+    "settings_issue_filter_add_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Label"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Label"
+          }
+        }
+      }
+    },
+    "settings_issue_filter_forks_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Issues in Fork-Repos (die des Upstreams) angezeigt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How issues in fork repos (the upstream's issues) are shown."
+          }
+        }
+      }
+    },
+    "settings_issue_filter_label_input_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auszublendendes Label"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label to hide"
+          }
+        }
+      }
+    },
+    "settings_issue_filter_label_placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "label name"
+          }
+        }
+      }
+    },
+    "settings_issue_filter_labels_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues mit einem dieser Labels werden überall ausgeblendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues with any of these labels are hidden everywhere."
+          }
+        }
+      }
+    },
+    "settings_issue_filter_labels_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Labels ausgeblendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No labels hidden."
+          }
+        }
+      }
+    },
+    "settings_issue_filter_remove_label": {
+      "comment": "%1$@ = label",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label %1$@ nicht mehr ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop hiding label %1$@"
+          }
+        }
+      }
+    },
+    "settings_issue_filter_scope_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welche Issues als deine zum Aufgreifen gelten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which issues count as yours to pick up."
+          }
+        }
+      }
+    },
+    "settings_issue_filter_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gilt für Als Nächstes, Backlog und Neue Aufgabe. Auf dem Server gespeichert, also auf jedem Gerät gleich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to Up Next, Backlog and New Task. Saved on the server, so it's the same on every device."
+          }
+        }
+      }
+    },
+    "settings_issue_filter_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardfilter für Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default issue filter"
+          }
+        }
+      }
+    },
+    "settings_issue_filter_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Server unterstützt noch keinen Standardfilter für Issues."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This server doesn't support a default issue filter yet."
+          }
+        }
+      }
+    },
     "settings_machines_cap_agent_claude": {
       "extractionState": "manual",
       "localizations": {
@@ -34523,6 +34916,211 @@
           "stringUnit": {
             "state": "translated",
             "value": "CI status"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_col_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_col_rule": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angezeigte Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues shown"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_differs": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weicht vom Standard ab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Differs from the default"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unter dem Repo-Stammverzeichnis gibt es noch keine Repos."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No repos found under the repo root yet."
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_opt_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All issues"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_opt_hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_opt_mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur meine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only mine"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_opt_mine_unassigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine & nicht zugewiesene"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mine & unassigned"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_opt_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_select_aria": {
+      "comment": "%1$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausnahme für %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exception for %1$@"
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einem Repo eine eigene Regel statt Zuständigkeit und Fork-Einstellung des Standardfilters. Ausgeblendete Labels gelten weiterhin überall."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Give a repo its own rule instead of the default scope and fork setting. Hidden labels still apply everywhere."
+          }
+        }
+      }
+    },
+    "settings_repo_overrides_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausnahmen pro Repo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per-repo exceptions"
           }
         }
       }
@@ -37857,6 +38455,697 @@
           "stringUnit": {
             "state": "translated",
             "value": "You're all caught up — nothing queued to start."
+          }
+        }
+      }
+    },
+    "upnext_filter_adjust": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter anpassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust the filter"
+          }
+        }
+      }
+    },
+    "upnext_filter_button_aria": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Issue-Filter (%1$@ aktiv)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default issue filter (%1$@ active)"
+          }
+        }
+      }
+    },
+    "upnext_filter_chip_forks_hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks ausgeblendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks hidden"
+          }
+        }
+      }
+    },
+    "upnext_filter_chip_forks_own": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks: ohne Upstream"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks: no upstream"
+          }
+        }
+      }
+    },
+    "upnext_filter_chip_label": {
+      "comment": "%1$@ = label",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ohne %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "without %1$@"
+          }
+        }
+      }
+    },
+    "upnext_filter_chip_scope_mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nur meine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only mine"
+          }
+        }
+      }
+    },
+    "upnext_filter_chip_scope_mine_unassigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "meine & nicht zugewiesene"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mine & unassigned"
+          }
+        }
+      }
+    },
+    "upnext_filter_chips_aria": {
+      "comment": "%1$@ = rules, %2$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardfilter: %1$@, %2$@ ausgeblendet. Filter anpassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default filter: %1$@, %2$@ hidden. Adjust the filter"
+          }
+        }
+      }
+    },
+    "upnext_filter_empty_body": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ offene Issues sind ausgeblendet, nicht erledigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ open issues are hidden, not done."
+          }
+        }
+      }
+    },
+    "upnext_filter_empty_by_forks": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ durch den Fork-Filter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ by the fork filter"
+          }
+        }
+      }
+    },
+    "upnext_filter_empty_by_labels": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ durch ausgeblendete Labels"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ by hidden labels"
+          }
+        }
+      }
+    },
+    "upnext_filter_empty_by_repo": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ durch Ausnahmen pro Repo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ by per-repo exceptions"
+          }
+        }
+      }
+    },
+    "upnext_filter_empty_by_scope": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ durch den Zuständigkeitsfilter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ by the assignment filter"
+          }
+        }
+      }
+    },
+    "upnext_filter_empty_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts zu starten mit deinen Standardfiltern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to start with your default filters"
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Issues zeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show all issues"
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_all_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream-Issues in Fork-Repos bleiben sichtbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream issues in fork repos stay visible."
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks"
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide forks"
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_hide_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork-Repos fallen ganz aus „Als Nächstes“ heraus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork repos drop out of Up Next entirely."
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_own": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur eigene"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only my own"
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_own_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einem Fork nur Issues, die dir zugewiesen oder von dir eröffnet sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a fork, only issues assigned to or opened by you."
+          }
+        }
+      }
+    },
+    "upnext_filter_forks_repos": {
+      "comment": "%1$@ = repos",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks in der Warteschlange: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forks in the queue: %1$@"
+          }
+        }
+      }
+    },
+    "upnext_filter_hidden_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ausgeblendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hidden"
+          }
+        }
+      }
+    },
+    "upnext_filter_label_toggle_aria": {
+      "comment": "%1$@ = label",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label %1$@ ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide label %1$@"
+          }
+        }
+      }
+    },
+    "upnext_filter_labels_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Labels ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide labels"
+          }
+        }
+      }
+    },
+    "upnext_filter_labels_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Labels in der Warteschlange."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No labels in the queue."
+          }
+        }
+      }
+    },
+    "upnext_filter_repo_overrides": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausnahmen pro Repo →"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per-repo exceptions →"
+          }
+        }
+      }
+    },
+    "upnext_filter_reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        }
+      }
+    },
+    "upnext_filter_save_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardfilter konnte nicht gespeichert werden — er wurde auf den vorherigen Wert zurückgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the default filter — it was reset to the previous value."
+          }
+        }
+      }
+    },
+    "upnext_filter_scope_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All issues"
+          }
+        }
+      }
+    },
+    "upnext_filter_scope_all_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egal, wem ein Issue zugewiesen ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whoever an issue is assigned to."
+          }
+        }
+      }
+    },
+    "upnext_filter_scope_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuständig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assigned"
+          }
+        }
+      }
+    },
+    "upnext_filter_scope_mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur meine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only mine"
+          }
+        }
+      }
+    },
+    "upnext_filter_scope_mine_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dir zugewiesen oder von dir eröffnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assigned to or opened by you."
+          }
+        }
+      }
+    },
+    "upnext_filter_scope_mine_unassigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine & nicht zugewiesene"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mine & unassigned"
+          }
+        }
+      }
+    },
+    "upnext_filter_scope_mine_unassigned_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet Issues aus, die nur anderen zugewiesen sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides issues assigned only to others."
+          }
+        }
+      }
+    },
+    "upnext_filter_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        }
+      }
+    },
+    "upnext_filter_tag_fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork"
+          }
+        }
+      }
+    },
+    "upnext_filter_tag_upstream": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream"
+          }
+        }
+      }
+    },
+    "upnext_filter_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardfilter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default filter"
           }
         }
       }

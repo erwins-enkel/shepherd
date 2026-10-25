@@ -12,6 +12,19 @@ import type { Issue } from "./forge/types";
 import { PRIORITY_LABEL, ACTIVE_LABEL } from "./drain-core";
 import { isDependabotAuthor } from "./forge/pr-kind";
 import { BAND_RANK, band } from "./up-next-readiness-core";
+import {
+  DEFAULT_ISSUE_FILTER,
+  ISSUE_FILTER_FORKS,
+  ISSUE_FILTER_SCOPES,
+  hiddenByRule,
+  isMine,
+  type IssueFilterContext,
+  type IssueFilterForks,
+  type IssueFilterRule,
+  type IssueFilterScope,
+  type IssueFilterSettings,
+  type IssueFilterSubject,
+} from "./issue-filter";
 
 export type UpNextKind = "epic" | "bug" | "feature";
 
@@ -37,6 +50,28 @@ export interface UpNextItem {
   epicParent?: { number: number; title: string };
   /** Issue identity; Start loads the full body server-side. */
   issueRef: { number: number; url: string; title: string };
+  /** The repo is a fork (`forge.isFork`); its issues are the upstream's. */
+  fromFork: boolean;
+  /** Assigned to or authored by the viewer (the parent's, for an epic unit) — see issue-filter.ts.
+   *  With `fromFork` it drives the row tag: FORK (mine) or UPSTREAM (not mine). */
+  mine: boolean;
+}
+
+/** What the operator's issue filter (src/issue-filter.ts) hides from the startable items. */
+export interface UpNextFilterStats {
+  /** Startable items the filter hides. */
+  hiddenCount: number;
+  /** Each hidden item counted once, under the first rule that drops it: the repo's override (else
+   *  scope → forks), then labels. */
+  hiddenBy: Record<IssueFilterRule, number>;
+  /** repoPath → hidden items in that repo; repos with none are omitted. */
+  hiddenByRepo: Record<string, number>;
+  /** The visible count were that option picked, the other settings unchanged. Repos with an
+   *  override don't follow the global options, so their items count the same in every option. */
+  optionCounts: {
+    scope: Record<IssueFilterScope, number>;
+    forks: Record<IssueFilterForks, number>;
+  };
 }
 
 export interface UpNextSection {
@@ -61,6 +96,7 @@ export interface UpNextSnapshot {
   /** Repos whose issue fetch threw this refresh and were dropped. >0 means a fetch failure may
    *  be hiding work, so the UI surfaces a load error instead of an "all caught up" empty state. */
   failedRepoCount: number;
+  filter: UpNextFilterStats;
 }
 
 /** A resolved epic, as fed in by the service (after buildEpic + selectEpicCandidates). */
@@ -76,6 +112,8 @@ export interface EpicUnitInput {
    *  is synthesized with `assignees: []`, so the parent is the assignee-bearing issue (matching
    *  what the Backlog hides). */
   parentAssignees: string[];
+  /** The epic parent's author; with parentAssignees it decides whether the unit is "mine". */
+  parentAuthor?: string;
   /** All epic member issue numbers — removed from the flat per-repo list (dedup). */
   memberNumbers: number[];
   /** selectEpicCandidates()[0], or null when no child is actionable (suppress the unit). */
@@ -91,9 +129,11 @@ export interface RepoInput {
   repoLabel: string;
   lastUsedAt: number | null;
   /** The operator's own login on this repo's forge (`forge.currentUser()`), or null when it
-   *  can't be resolved (local forge / un-authed / no identity API). Drives the "mine &
-   *  unassigned" filter (#824); null fails open (no assignee filtering — show everything). */
+   *  can't be resolved (local forge / un-authed / no identity API). Drives the issue filter's
+   *  "mine" (src/issue-filter.ts); null fails open (scope / forks:own hide nothing here). */
   viewer: string | null;
+  /** `forge.isFork`: the repo is a fork and lists its upstream's issues. */
+  isFork: boolean;
   openIssues: Issue[];
   epics: EpicUnitInput[];
   /** All native sub-issue numbers in the repo (from listSubIssueSummaries). Removed from the
@@ -159,15 +199,6 @@ export function compareInRepo(
   return KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.createdAt - b.createdAt || a.number - b.number;
 }
 
-/** The "mine & unassigned" predicate (#824): true when the issue is assigned to at least one
- *  person and the viewer is NOT among them (i.e. assigned solely to others → hide). Fails open
- *  when `viewer` is null (unknown "me"): unassigned and mine-assigned always pass. Mirrors the
- *  Backlog's `hideOthers` (ui/src/lib/components/issues-panel.ts). */
-function isAssignedToOthers(assignees: string[], viewer: string | null): boolean {
-  if (viewer == null) return false;
-  return assignees.length > 0 && !assignees.includes(viewer);
-}
-
 /** Standalone-issue exclusions applied before ranking. Epic membership + PR-linkage are
  *  handled by the caller (they need cross-issue context). */
 function isExcludedIssue(issue: Issue, labelSet: Set<string>): boolean {
@@ -179,13 +210,31 @@ function isExcludedIssue(issue: Issue, labelSet: Set<string>): boolean {
   return false;
 }
 
-/** Map one standalone (non-epic) open issue to a row, or null when excluded. */
-function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): UpNextItem | null {
+/** A startable row (every non-filter exclusion passed) plus what the issue filter reads. */
+interface Candidate {
+  item: UpNextItem;
+  subject: IssueFilterSubject;
+  ctx: IssueFilterContext;
+}
+
+function candidate(
+  repo: RepoInput,
+  item: Omit<UpNextItem, "fromFork" | "mine">,
+  subject: IssueFilterSubject,
+): Candidate {
+  return {
+    item: { ...item, fromFork: repo.isFork, mine: isMine(subject, repo.viewer) },
+    subject,
+    ctx: { viewer: repo.viewer, isFork: repo.isFork },
+  };
+}
+
+/** Map one standalone (non-epic) open issue to a candidate row, or null when excluded. */
+function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): Candidate | null {
   const labelSet = lc(issue.labels);
   if (isExcludedIssue(issue, labelSet)) return null;
-  if (isAssignedToOthers(issue.assignees, repo.viewer)) return null; // #824 mine & unassigned
   if (linkedSet.has(issue.number)) return null; // best-effort secondary
-  return {
+  const item = {
     repoPath: repo.repoPath,
     repoSlug: repo.repoSlug,
     repoLabel: repo.repoLabel,
@@ -199,28 +248,29 @@ function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): 
     labelColors: issue.labelColors,
     issueRef: { number: issue.number, url: issue.url, title: issue.title },
   };
+  return candidate(repo, item, issue);
 }
 
-/** Map one epic to a single unit row (keyed by its next-actionable child, aged by the parent),
- *  or null when it has no actionable child / is excluded / its child already has a PR in flight. */
-function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): UpNextItem | null {
+/** Map one epic to a single unit candidate (keyed by its next-actionable child, aged by the
+ *  parent), or null when it has no actionable child / is excluded / its child already has a PR in
+ *  flight. The issue filter reads the PARENT (assignees, author, labels). */
+function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Candidate | null {
   const c = e.candidate;
   if (!c) return null; // no actionable child → suppress (DAG-blocked / in-flight)
   const parentLabelSet = lc(e.parentLabels);
   if (hasLabel(parentLabelSet, ACTIVE_LABEL)) return null;
   if (intersects(parentLabelSet, EXCLUDE_LABELS)) return null;
   if (hasBlockedLabel(e.parentLabels)) return null; // blocked-word label (any boundary variant)
-  if (isAssignedToOthers(e.parentAssignees, repo.viewer)) return null; // #824 (keyed on parent)
   if (e.parentBlockedBy && e.parentBlockedBy.length > 0) return null; // epic parent dependency-blocked
   if (linkedSet.has(c.number)) return null; // the child already has a PR in flight
-  return {
+  const item = {
     repoPath: repo.repoPath,
     repoSlug: repo.repoSlug,
     repoLabel: repo.repoLabel,
     number: c.number,
     title: c.title,
     url: c.url,
-    kind: "epic",
+    kind: "epic" as const,
     priority: hasLabel(parentLabelSet, PRIORITY_LABEL),
     createdAt: e.parentCreatedAt,
     labels: e.parentLabels,
@@ -228,9 +278,14 @@ function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Up
     epicParent: { number: e.parentNumber, title: e.parentTitle },
     issueRef: { number: c.number, url: c.url, title: c.title },
   };
+  return candidate(repo, item, {
+    assignees: e.parentAssignees,
+    author: e.parentAuthor,
+    labels: e.parentLabels,
+  });
 }
 
-function repoItems(repo: RepoInput): UpNextItem[] {
+function repoCandidates(repo: RepoInput): Candidate[] {
   // Remove epic parents AND members from the flat list: the parent rolls up to its unit
   // (or is suppressed when no child is actionable) and never lists as a standalone issue.
   const memberSet = new Set<number>(repo.subIssueNumbers);
@@ -239,18 +294,71 @@ function repoItems(repo: RepoInput): UpNextItem[] {
     for (const m of e.memberNumbers) memberSet.add(m);
   }
   const linkedSet = new Set(repo.linkedIssueNumbers);
-  const items: UpNextItem[] = [];
+  const out: Candidate[] = [];
   // Standalone issues (epic members removed → no double-listing), then one row per epic unit.
   for (const issue of repo.openIssues) {
     if (memberSet.has(issue.number)) continue;
     const it = standaloneItem(repo, issue, linkedSet);
-    if (it) items.push(it);
+    if (it) out.push(it);
   }
   for (const e of repo.epics) {
     const it = epicItem(repo, e, linkedSet);
-    if (it) items.push(it);
+    if (it) out.push(it);
   }
-  return items;
+  return out;
+}
+
+/** The rules buildSnapshot applies. `repoOverrides` is keyed by RAW `repoPath` (the service
+ *  reconciles the stored realpath keys first). */
+type RuleFilter = Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels"> &
+  Partial<Pick<IssueFilterSettings, "repoOverrides">>;
+
+/** A repo's candidates, carrying its override (if any) in the filter context. */
+function overriddenCandidates(repo: RepoInput, filter: RuleFilter): Candidate[] {
+  const override = filter.repoOverrides?.[repo.repoPath];
+  const out = repoCandidates(repo);
+  return override ? out.map((c) => ({ ...c, ctx: { ...c.ctx, override } })) : out;
+}
+
+function visibleCount(candidates: Candidate[], filter: RuleFilter): number {
+  return candidates.filter((c) => hiddenByRule(c.subject, c.ctx, filter) === null).length;
+}
+
+function optionCounts(
+  candidates: Candidate[],
+  filter: RuleFilter,
+): UpNextFilterStats["optionCounts"] {
+  const count = <K extends string>(options: readonly K[], field: "scope" | "forks") =>
+    Object.fromEntries(
+      options.map((o) => [o, visibleCount(candidates, { ...filter, [field]: o })]),
+    ) as Record<K, number>;
+  return { scope: count(ISSUE_FILTER_SCOPES, "scope"), forks: count(ISSUE_FILTER_FORKS, "forks") };
+}
+
+/** Split the startable candidates into the visible items and the stats of what the filter hides. */
+function applyFilter(
+  candidates: Candidate[],
+  filter: RuleFilter,
+): { visible: UpNextItem[]; stats: UpNextFilterStats } {
+  const visible: UpNextItem[] = [];
+  const hiddenBy: Record<IssueFilterRule, number> = { scope: 0, forks: 0, labels: 0, repo: 0 };
+  const hiddenByRepo: Record<string, number> = {};
+  for (const c of candidates) {
+    const rule = hiddenByRule(c.subject, c.ctx, filter);
+    if (rule === null) {
+      visible.push(c.item);
+      continue;
+    }
+    hiddenBy[rule]++;
+    hiddenByRepo[c.item.repoPath] = (hiddenByRepo[c.item.repoPath] ?? 0) + 1;
+  }
+  const stats: UpNextFilterStats = {
+    hiddenCount: candidates.length - visible.length,
+    hiddenBy,
+    hiddenByRepo,
+    optionCounts: optionCounts(candidates, filter),
+  };
+  return { visible, stats };
 }
 
 /** repoPath -> warm rank (0 = warmest). lastUsedAt desc; nulls last; ties by label then path. */
@@ -271,9 +379,13 @@ export function buildSnapshot(
   now: number,
   fallback: string | null = null,
   failedRepoCount = 0,
+  filter: RuleFilter = DEFAULT_ISSUE_FILTER,
 ): UpNextSnapshot {
   const rank = warmRanks(repos);
-  const all = repos.flatMap((r) => repoItems(r));
+  const { visible: all, stats } = applyFilter(
+    repos.flatMap((r) => overriddenCandidates(r, filter)),
+    filter,
+  );
 
   // Tier 1 — priority across all repos: warm-first, then oldest age, then issue number.
   const priority = all
@@ -320,7 +432,14 @@ export function buildSnapshot(
     });
   }
 
-  return { generatedAt: now, sections, repoCount: repos.length, fallback, failedRepoCount };
+  return {
+    generatedAt: now,
+    sections,
+    repoCount: repos.length,
+    fallback,
+    failedRepoCount,
+    filter: stats,
+  };
 }
 
 /** One section's items stable-sorted by readiness band, the ORIGINAL index breaking ties — so each
@@ -394,5 +513,20 @@ export function excludeHiddenSections(
     ...snap,
     sections,
     repoCount: Math.max(0, snap.repoCount - removedRepoSections),
+    filter: withoutHiddenRepos(snap.filter, hiddenRaw),
   };
+}
+
+/** Drop hidden repos from the per-repo hidden counts and the total. `hiddenBy` / `optionCounts`
+ *  carry no per-repo split, so they stay as computed until the next compute (whose source filter
+ *  already excludes the repo). */
+function withoutHiddenRepos(stats: UpNextFilterStats, hiddenRaw: Set<string>): UpNextFilterStats {
+  const hiddenByRepo: Record<string, number> = {};
+  let dropped = 0;
+  for (const [path, n] of Object.entries(stats.hiddenByRepo)) {
+    if (hiddenRaw.has(path)) dropped += n;
+    else hiddenByRepo[path] = n;
+  }
+  if (dropped === 0) return stats;
+  return { ...stats, hiddenCount: Math.max(0, stats.hiddenCount - dropped), hiddenByRepo };
 }

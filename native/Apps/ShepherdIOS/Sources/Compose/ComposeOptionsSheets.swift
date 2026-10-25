@@ -104,7 +104,12 @@ struct ComposeSourceSheet: View {
         List {
             if !commands {
                 DisclosureGroup(L.t("issue_filter_heading")) {
-                    Toggle(L.t("issues_filter_mine_label"), isOn: $model.filter.hideOthers)
+                    Picker(L.t("upnext_filter_scope_heading"), selection: $model.filter.scope) {
+                        ForEach(IssueFilterSettings.Scope.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
+                    }
+                    Picker(L.t("upnext_filter_forks_heading"), selection: $model.filter.forks) {
+                        ForEach(IssueFilterSettings.Forks.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
+                    }
                     Toggle(L.t("issues_filter_active_label"), isOn: $model.filter.hideActive)
                     Toggle(L.t("issues_filter_subissues_label"), isOn: $model.filter.hideSubIssues)
                     Toggle(L.t("issues_filter_blocked_label"), isOn: $model.filter.hideBlocked)
@@ -137,7 +142,7 @@ struct ComposeSourceSheet: View {
             else if model.listing?.slug == nil { Text(verbatim: L.t("promptsources_no_github")) }
             else {
                 let visible = model.filteredIssues.visible.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || String($0.number).contains(query.replacingOccurrences(of: "#", with: "")) }
-                if visible.isEmpty { Text(verbatim: model.filteredIssues.emptiedBy?.message ?? L.t("issuespanel_no_match")) }
+                if visible.isEmpty { Text(verbatim: model.filteredEmptyMessage ?? L.t("issuespanel_no_match")) }
                 ForEach(visible, id: \.number) { issue in
                     Button {
                         if ComposeModel.trigger(in: model.prompt, caret: model.prompt.endIndex)?.symbol == "#" { model.pickIssueFromSearch(issue, caret: model.prompt.endIndex) }

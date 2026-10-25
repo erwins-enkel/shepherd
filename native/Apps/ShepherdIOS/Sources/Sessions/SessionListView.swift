@@ -295,7 +295,7 @@ struct SessionListView: View {
                     ForEach(sessions) { row in card(row, showCli: SessionBadges.showsCli(for: sessions.map(\.session)), now: now) }
                 case .next:
                     if let hub, hub.connected.count > 1 { IOSMergedNextRows(hub: hub, repos: activeRepos) }
-                    else { IOSUpNextRows(model: queues, repos: activeRepos) }
+                    else { IOSUpNextRows(model: queues, repos: activeRepos, filter: .of([app])) }
                 case .owed: IOSMergedOwedRows(rows: presentation.owed, owners: hub?.models ?? [:], fallback: app, showServers: (hub?.connected.count ?? 1) > 1, select: selectRow)
                 }
                 if !band.onTop, lens != .done, lens != .owed { completedEpicsSection(band, now: now) }

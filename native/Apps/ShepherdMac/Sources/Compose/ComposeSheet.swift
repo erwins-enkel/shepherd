@@ -49,6 +49,7 @@ struct ComposeSheetContent: View {
         let defaults = ComposeRunConfig.defaults(from: store.settings)
         let composer = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults, runDefaults: defaults)
         composer.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil
+        if composer.issueFilterSettings == nil { composer.issueFilterSettings = app.extension(IssueFilterSettingsModel.self) }
         _model = State(initialValue: composer)
     }
     private var current: Bool { app.store === store && app.activationGeneration == activation && app.sheet == .newSession }

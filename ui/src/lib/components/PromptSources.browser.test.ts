@@ -6,7 +6,9 @@ import type { Issue, SlashCommand } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { listIssues, getCommands } from "#lib/api.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
-import { issuesFilter } from "#lib/issues-filter.svelte.js";
+import { issuesFilter, pushIssueFilter, resetIssueFilter } from "#lib/test-support/issue-filter.js";
+import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
+import { repos } from "#lib/repos.svelte.js";
 
 // Mock the API so no network fires; each test seeds the data it needs.
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -15,6 +17,10 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     ...actual,
     listIssues: vi.fn(),
     getCommands: vi.fn(),
+    // The default issue filter (#3019): seeded per test via pushIssueFilter; a write echoes
+    // its patch, which the store merges onto the confirmed value.
+    getSettings: vi.fn(async () => ({})),
+    putIssueFilter: vi.fn(async (patch: object) => ({ issueFilter: patch })),
   };
 });
 
@@ -35,6 +41,8 @@ function makeIssueData(repoPath: string) {
 }
 
 beforeEach(() => {
+  resetIssueFilter();
+  repos.entries = [];
   mockListIssues.mockReset();
   mockGetCommands.mockReset();
 });
@@ -653,5 +661,55 @@ describe("PromptSources collapsed rows + show-all expansion", () => {
     await expect
       .poll(() => document.querySelector(".ps-head .open-count")?.textContent)
       .toContain(m.promptsources_open_count({ count: 5 }));
+  });
+});
+
+describe("PromptSources default issue filter (#3019)", () => {
+  const titles = () =>
+    [...document.querySelectorAll(".ps-body .issue-source-row .issue-list-title")].map((el) =>
+      el.textContent?.trim(),
+    );
+  function seed() {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer: "me",
+      issues: [
+        { ...issue(1), title: "Mine", assignees: ["me"] },
+        { ...issue(2), title: "Unassigned" },
+        { ...issue(3), title: "Theirs", assignees: ["other"] },
+        { ...issue(4), title: "Docs", labels: ["docs"] },
+      ],
+    });
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+  }
+
+  it("honors the server setting and follows a pushed change without a reload", async () => {
+    pushIssueFilter({ scope: "mine_unassigned", hiddenLabels: ["docs"] });
+    seed();
+    await expect.poll(() => titles()).toEqual(["Mine", "Unassigned"]);
+    // A settings:issue-filter push (written in the Backlog, Up Next or Settings).
+    issueFilterSettings.apply({ ...issueFilterSettings.effective, scope: "mine" });
+    await expect.poll(() => titles()).toEqual(["Mine"]);
+    issueFilterSettings.apply({
+      ...issueFilterSettings.effective,
+      scope: "mine_unassigned",
+      hiddenLabels: [],
+    });
+    await expect.poll(() => titles()).toEqual(["Mine", "Unassigned", "Docs"]);
+  });
+
+  it("names the fork rule when it hides a fork repo's issues", async () => {
+    repos.entries = [
+      { name: "repo", path: "/repo", realPath: "/repo", display: "repo", isFork: true },
+    ] as typeof repos.entries;
+    pushIssueFilter({ forks: "hide" });
+    seed();
+    await expect.poll(() => document.body.textContent).toContain(m.issues_filter_all_forks());
   });
 });

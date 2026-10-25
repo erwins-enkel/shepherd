@@ -80,6 +80,7 @@ final class IOSLaunchEnvironment {
         app.register(DetailModel.self)
         app.register(IOSTerminalController.self)
         app.register(IOSInstanceIdentity.self)
+        app.register(IssueFilterSettingsModel.self)
         CoreStreamInstallers.installIOSSessionActions(into: app)
         app.register(IOSSessionActions.self)
         app.allowsQueueRecomputation = false

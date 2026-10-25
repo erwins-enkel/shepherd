@@ -75,6 +75,7 @@
     onpluginschanged,
     focusPluginId = null,
     focusSteerId = null,
+    focusWorkspace = null,
     connected = false,
     showPairing = false,
     remoteSessions = [],
@@ -112,6 +113,8 @@
     focusPluginId?: string | null;
     /** Steer id to expand + focus in the steers editor on open. */
     focusSteerId?: string | null;
+    /** Workspace group to expand + scroll into view on open (#3020). */
+    focusWorkspace?: "repo-overrides" | null;
     /** WS liveness for the rail footer's ● live/offline dot. */
     connected?: boolean;
     showPairing?: boolean;
@@ -493,6 +496,7 @@
           {onclose}
           {query}
           {payload}
+          {focusWorkspace}
         />
       </div>
 

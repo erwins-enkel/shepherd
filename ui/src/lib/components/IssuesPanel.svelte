@@ -19,7 +19,10 @@
   import { m } from "#lib/paraglide/messages.js";
   import {
     filterIssues,
-    hideOthersExceptFlaggedEpics,
+    applyDefaultFilter,
+    epicFlagForOthers,
+    defaultFilterEmptiedBy,
+    defaultFilterEmptyMessage,
     hideActive,
     hideBlockedIssues,
     sortEpicsFirst,
@@ -44,7 +47,7 @@
   } from "./issues-panel";
   import { childAsIssue, openBlockers } from "./epic-child";
   import { progress } from "./epic-panel";
-  import { issuesFilter } from "#lib/issues-filter.svelte.js";
+  import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
   import { viewerCache } from "#lib/viewer-cache.svelte.js";
   import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
   import { issuesOverview } from "#lib/issues-overview.svelte.js";
@@ -60,7 +63,7 @@
   import { isRateLimited } from "./issues-panel/rate-limit-wait";
   import { swipeBack } from "./swipe-back";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
-  import { tick, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
 
   // Backlog Issues tab (#2617): an epic-grouped list (left) and a reading detail of the
   // selected entry (right; on mobile a second level with a back button). This component owns
@@ -139,17 +142,26 @@
   // missing git host for a mode the operator switched on in Shepherd.
   let lightweight = $state(false);
   let filter = $state("");
-  // Repo-scoped author + label filters. Selection is local (not the global issuesFilter
-  // store) because the option sets are repo-specific; reset on repo change and pruned on
+  // Repo-scoped author + label filters. Selection is local (not the server-side default
+  // filter) because the option sets are repo-specific; reset on repo change and pruned on
   // refresh (see the reconcile effect below). Options are derived from the RAW `issues`
   // list so picking one value doesn't drop the others from the picker.
   let selectedAuthor = $state<string | null>(null);
   const selectedLabels = new SvelteSet<string>();
+  // The operator's server-side default issue filter (#3019), shared with Up Next + New Task;
+  // the defaults until it loads. A change anywhere arrives over the settings:issue-filter push.
+  const issueFilter = $derived(issueFilterSettings.effective);
+  const filterCtx = $derived({
+    viewer,
+    isFork: repos.isFork(repoPath),
+    override: repos.repoOverride(issueFilter.repoOverrides, repoPath),
+  });
+  onMount(() => void issueFilterSettings.ensureLoaded());
   // "Oldest first" from the repo overview (#2638): least recently changed first.
   let oldestFirst = $state(false);
   let availableAuthors = $derived(distinctAuthors(issues));
   let availableLabels = $derived(
-    distinctLabels(issues, { excludeBlocked: issuesFilter.hideBlocked }),
+    distinctLabels(issues, { excludeBlocked: issueFilter.hideBlocked }),
   );
   let labelColorsMap = $derived(labelColorMap(issues));
   // Epic summaries for this repo: number → EpicSummary.
@@ -163,25 +175,24 @@
   // catch, inside the rp/ticket guard) so a backlogRefresh bump that supersedes the mount
   // fetch mid-navigation still flips it via the winning fetch — never latched false.
   let epicsSettled = $state(false);
-  // Compose the assignee filter (#824) → "hide in progress" filter → blocked → author/label →
-  // text filter. Sub-issues aren't filtered here: the row model lists them only inside their
-  // epic (buildIssueRows), so they never appear as singles.
-  // The mine chip only shows when `viewer` is known, so hideOthers is a no-op
-  // identity otherwise (fail open); hideActive is viewer-agnostic. Flagged epics (someone
-  // else is working them, #1616) are exempt so their pill stays visible under the filter.
-  let assigneeFiltered = $derived(
-    hideOthersExceptFlaggedEpics(issues, viewer, issuesFilter.hideOthers, epicByNumber),
+  // Compose the default filter's scope → forks → hidden labels (#3019) → "hide in progress" →
+  // blocked → author/label → text filter. Sub-issues aren't filtered here: the row model lists
+  // them only inside their epic (buildIssueRows), so they never appear as singles.
+  // Scope fails open without a viewer; flagged epics (someone else is working them, #1616) are
+  // exempt from the scope rule so their pill stays visible under it.
+  let defaultStages = $derived(
+    applyDefaultFilter(
+      issues,
+      filterCtx,
+      issueFilter,
+      (i) => epicFlagForOthers(epicByNumber.get(i.number)) != null,
+    ),
   );
-  // Expose per-issue assignees on the rows whenever the mine & unassigned filter (#824)
-  // isn't hiding others' issues — i.e. when it's toggled off, or fails open because the
-  // viewer is unknown. With the filter active, the only assigned-to-others rows still visible
-  // are flagged epics kept by the exemption (#1616) — and those surface their owner via the
-  // epic pill ("assigned to X"), not a chip — so keeping the chip hidden stays correct.
-  let showAssignees = $derived(!issuesFilter.hideOthers || viewer == null);
-  let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
+  let assigneeFiltered = $derived(defaultStages.afterLabels);
+  let activeFiltered = $derived(hideActive(assigneeFiltered, issueFilter.hideActive));
   let epicParentNums = $derived(new Set(epicByNumber.keys()));
   // "Hide blocked" filter, applied BEFORE the author/label filters (see hideBlockedIssues).
-  let blockedFiltered = $derived(hideBlockedIssues(activeFiltered, issuesFilter.hideBlocked));
+  let blockedFiltered = $derived(hideBlockedIssues(activeFiltered, issueFilter.hideBlocked));
   // Author + label filters (repo-scoped), applied AFTER the toggle filters and BEFORE the
   // text search. Kept as a named intermediate so the empty-state block can attribute a miss
   // to the structured filters (this being empty) vs. the text search (this non-empty but
@@ -210,7 +221,7 @@
   // epics are the first thing the operator sees. Applied after text filtering.
   //
   // Force-include the navigated-to epic (expandEpic): an explicit "go to this epic" must
-  // always land on it, even when a toggle filter (hideOthers / hideActive / hideBlocked)
+  // always land on it, even when a filter (default filter / hideActive / hideBlocked)
   // would drop its parent row. Deduped — only re-added when it actually fell out of
   // subFiltered — so the {#each} key and the epic-issue-row-<n> DOM id stay unique. Added
   // BEFORE filterIssues so the TEXT search still applies (at navigation time `filter` is
@@ -223,25 +234,25 @@
     const matched = filterIssues(base, filter);
     return sortEpicsFirst(oldestFirst ? sortOldestFirst(matched) : matched, epicParentNums);
   });
-  // True when there ARE open issues but the assignee filter hid them all — drives
-  // the distinct "all assigned to others" empty state (vs the text no-match state).
-  let allHiddenByAssignee = $derived(
-    issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
+  // Which default-filter rule hid every open issue — drives a distinct empty state per rule
+  // (vs the text no-match state); its copy names the rule to loosen.
+  let defaultEmptiedBy = $derived(
+    defaultFilterEmptiedBy(issues.length, defaultStages, filterCtx, issueFilter),
   );
   // The active filter emptied the remainder the assignee filter left behind.
   let allHiddenByActive = $derived(
-    !allHiddenByAssignee &&
+    defaultEmptiedBy == null &&
       assigneeFiltered.length > 0 &&
       activeFiltered.length === 0 &&
-      issuesFilter.hideActive,
+      issueFilter.hideActive,
   );
   // The blocked filter emptied the remainder the active filter left behind.
   let allHiddenByBlocked = $derived(
-    !allHiddenByAssignee &&
+    defaultEmptiedBy == null &&
       !allHiddenByActive &&
       activeFiltered.length > 0 &&
       blockedFiltered.length === 0 &&
-      issuesFilter.hideBlocked,
+      issueFilter.hideBlocked,
   );
   // Set of expanded epic issue numbers (SvelteSet for fine-grained reactivity).
   const expanded = new SvelteSet<number>();
@@ -540,8 +551,12 @@
   // default-on toggles too, so nothing is hidden invisibly — and how many top-level issues show.
   const filterChips = $derived(
     activeFilterChips({
-      toggles: issuesFilter,
+      toggles: {
+        filter: issueFilter,
+        update: (patch) => void issueFilterSettings.update(patch),
+      },
       mineOffered: viewer != null,
+      isFork: filterCtx.isFork,
       author: selectedAuthor,
       labels: selectedLabels,
       clearAuthor: () => (selectedAuthor = null),
@@ -844,6 +859,7 @@
           />
           <IssueFilterPopover
             showMine={viewer != null}
+            isFork={filterCtx.isFork}
             coachTargets
             iconOnly
             showSubIssuesToggle={false}
@@ -869,8 +885,10 @@
              force-included navigated-to epic keeps it non-empty, so a "hidden by filter"
              message must not sit above the one epic row we deliberately show. -->
         {#if rows.length === 0}
-          {#if allHiddenByAssignee}
-            <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
+          {#if defaultEmptiedBy}
+            <div class="muted">
+              {defaultFilterEmptyMessage(defaultEmptiedBy, issueFilter.scope)}
+            </div>
           {:else if allHiddenByActive}
             <div class="muted">{m.issues_filter_all_in_progress()}</div>
           {:else if allHiddenByBlocked}
@@ -946,7 +964,6 @@
                 ? epicFor(selection.parent)
                 : undefined}
             {drain}
-            {showAssignees}
             {viewer}
             {issueActions}
             {taskDefaults}

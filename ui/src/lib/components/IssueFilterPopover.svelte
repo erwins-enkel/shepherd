@@ -1,12 +1,18 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { anchorPopover } from "#lib/floating-anchor.js";
-  import { issuesFilter } from "#lib/issues-filter.svelte.js";
+  import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
+  import type { IssueFilterForks, IssueFilterScope, IssueFilterSettings } from "#lib/types.js";
+  import { isHiddenLabel, toggledLabels } from "./up-next-filter";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { labelChipStyle } from "#lib/label-color.js";
 
-  // showMine: when false the "mine & unassigned" row is NOT rendered (viewer unknown).
+  // Two blocks: the DEFAULT filter on top (scope, forks, hide toggles, hidden labels) persists on
+  // the server and is shared with Up Next and every other issue surface (#3019); below a divider,
+  // the per-view author + label picks stay transient and belong to the host.
+  // showMine: when false the scope ("Zuständig") choice is NOT rendered (viewer unknown).
+  // isFork: the host repo is a fork, so the forks rule applies to this list (badge count).
   // coachTargets: when true, the trigger carries use:coachTarget={"issue-filters"}.
   // authors/labels: distinct option sets for the repo-scoped author + label filters
   //   (computed by the parent from the raw issue list). selectedAuthor/selectedLabels are
@@ -28,8 +34,10 @@
     shortcut = undefined,
     showSubIssuesToggle = true,
     iconOnly = false,
+    isFork = false,
   }: {
     showMine: boolean;
+    isFork?: boolean;
     coachTargets?: boolean;
     authors?: string[];
     labels?: string[];
@@ -56,7 +64,34 @@
   // `authors`). The Labels section needs no such guard: its >=1 threshold can't hide a
   // still-present selected label (an absent one is pruned upstream).
   const showAuthorSection = $derived(authors.length >= 2 || selectedAuthor != null);
-  const showLabelSection = $derived(labels.length >= 1);
+  const filter = $derived(issueFilterSettings.effective);
+  // Until the server value loads (or on a server without it), the defaults filter the list and
+  // the persistent controls stay read-only.
+  const loaded = $derived(issueFilterSettings.value != null);
+  // A hidden label's issues are gone, so including it would only empty the list.
+  const includeLabels = $derived(labels.filter((l) => !isHiddenLabel(filter, l)));
+  const showLabelSection = $derived(includeLabels.length >= 1);
+  // Hideable: the repo's labels plus any already hidden (their issues no longer show them).
+  const hideableLabels = $derived(
+    [...filter.hiddenLabels, ...labels.filter((l) => !isHiddenLabel(filter, l))].sort((a, b) =>
+      a.localeCompare(b),
+    ),
+  );
+
+  const SCOPES: { value: IssueFilterScope; label: () => string }[] = [
+    { value: "all", label: m.upnext_filter_scope_all },
+    { value: "mine_unassigned", label: m.upnext_filter_scope_mine_unassigned },
+    { value: "mine", label: m.upnext_filter_scope_mine },
+  ];
+  const FORKS: { value: IssueFilterForks; label: () => string }[] = [
+    { value: "all", label: m.upnext_filter_forks_all },
+    { value: "own", label: m.upnext_filter_forks_own },
+    { value: "hide", label: m.upnext_filter_forks_hide },
+  ];
+
+  function set(patch: Partial<IssueFilterSettings>) {
+    void issueFilterSettings.update(patch);
+  }
 
   // SSR-stable per-instance id for aria-controls wiring.
   const popoverId = $props.id();
@@ -69,14 +104,16 @@
   let btnEl = $state<HTMLButtonElement | null>(null);
   let popEl = $state<HTMLDivElement | null>(null);
 
-  // Active count — gates mine toggle on showMine so a persisted hideOthers=true
-  // doesn't inflate the badge when the mine row isn't shown. The author + label filters
-  // add one each per active selection (author = 0/1, labels = count).
+  // Active count — only rules that can hide something HERE: scope needs a known viewer
+  // (showMine), forks a fork repo, sub-issues a host that offers the toggle. Each hidden label,
+  // the author pick and each included label add one.
   const activeCount = $derived(
-    (showMine && issuesFilter.hideOthers ? 1 : 0) +
-      (issuesFilter.hideActive ? 1 : 0) +
-      (showSubIssuesToggle && issuesFilter.hideSubIssues ? 1 : 0) +
-      (issuesFilter.hideBlocked ? 1 : 0) +
+    (showMine && filter.scope !== "all" ? 1 : 0) +
+      (isFork && filter.forks !== "all" ? 1 : 0) +
+      filter.hiddenLabels.length +
+      (filter.hideActive ? 1 : 0) +
+      (showSubIssuesToggle && filter.hideSubIssues ? 1 : 0) +
+      (filter.hideBlocked ? 1 : 0) +
       (selectedAuthor != null ? 1 : 0) +
       selectedLabels.length,
   );
@@ -128,13 +165,13 @@
     };
   });
 
-  // Focus management: focus first checkbox on open→true; restore trigger on true→false.
+  // Focus management: focus the first control on open→true; restore trigger on true→false.
   // Do NOT move focus on initial mount (wasOpen starts false, open starts false).
   $effect(() => {
     if (typeof window === "undefined") return;
     if (open) {
       wasOpen = true;
-      const first = popEl?.querySelector<HTMLInputElement>("input[type=checkbox]");
+      const first = popEl?.querySelector<HTMLInputElement>("input:not(:disabled), button");
       if (first) {
         // defer so popover is visible before we focus
         setTimeout(() => first.focus(), 0);
@@ -188,24 +225,46 @@
   aria-label={m.issue_filter_heading()}
   popover="manual"
 >
+  <div class="block-heading">{m.issue_filter_section_default()}</div>
+  <p class="block-hint">{m.issue_filter_section_default_hint()}</p>
   {#if showMine}
-    <label class="filter-row">
-      <input
-        type="checkbox"
-        checked={issuesFilter.hideOthers}
-        onchange={() => issuesFilter.toggle()}
-      />
-      <span class="row-text">
-        <span class="row-label">{m.issues_filter_mine_label()}</span>
-        <span class="row-desc">{m.issues_filter_mine_title()}</span>
-      </span>
-    </label>
+    <div class="section" role="radiogroup" aria-label={m.upnext_filter_scope_heading()}>
+      <div class="pop-heading">{m.upnext_filter_scope_heading()}</div>
+      {#each SCOPES as opt (opt.value)}
+        <label class="filter-row author-row">
+          <input
+            type="radio"
+            name="issue-scope-{popoverId}"
+            checked={filter.scope === opt.value}
+            disabled={!loaded}
+            onchange={() => set({ scope: opt.value })}
+          />
+          <span class="row-label">{opt.label()}</span>
+        </label>
+      {/each}
+    </div>
   {/if}
+  <div class="section" role="radiogroup" aria-label={m.upnext_filter_forks_heading()}>
+    <div class="pop-heading">{m.upnext_filter_forks_heading()}</div>
+    {#each FORKS as opt (opt.value)}
+      <label class="filter-row author-row">
+        <input
+          type="radio"
+          name="issue-forks-{popoverId}"
+          checked={filter.forks === opt.value}
+          disabled={!loaded}
+          onchange={() => set({ forks: opt.value })}
+        />
+        <span class="row-label">{opt.label()}</span>
+      </label>
+    {/each}
+  </div>
   <label class="filter-row">
     <input
       type="checkbox"
-      checked={issuesFilter.hideActive}
-      onchange={() => issuesFilter.toggleActive()}
+      checked={filter.hideActive}
+      disabled={!loaded}
+      onchange={() => set({ hideActive: !filter.hideActive })}
     />
     <span class="row-text">
       <span class="row-label">{m.issues_filter_active_label()}</span>
@@ -216,8 +275,9 @@
     <label class="filter-row">
       <input
         type="checkbox"
-        checked={issuesFilter.hideSubIssues}
-        onchange={() => issuesFilter.toggleSubIssues()}
+        checked={filter.hideSubIssues}
+        disabled={!loaded}
+        onchange={() => set({ hideSubIssues: !filter.hideSubIssues })}
       />
       <span class="row-text">
         <span class="row-label">{m.issues_filter_subissues_label()}</span>
@@ -228,19 +288,45 @@
   <label class="filter-row">
     <input
       type="checkbox"
-      checked={issuesFilter.hideBlocked}
-      onchange={() => issuesFilter.toggleBlocked()}
+      checked={filter.hideBlocked}
+      disabled={!loaded}
+      onchange={() => set({ hideBlocked: !filter.hideBlocked })}
     />
     <span class="row-text">
       <span class="row-label">{m.issues_filter_blocked_label()}</span>
       <span class="row-desc">{m.issues_filter_blocked_title()}</span>
     </span>
   </label>
+  <div class="section">
+    <div class="pop-heading" id="issue-hide-heading-{popoverId}">
+      {m.upnext_filter_labels_heading()}
+    </div>
+    {#if hideableLabels.length > 0}
+      <div class="label-chips" role="group" aria-labelledby="issue-hide-heading-{popoverId}">
+        {#each hideableLabels as label (label)}
+          {@const on = isHiddenLabel(filter, label)}
+          <button
+            type="button"
+            class={["label-toggle", "hide-toggle", { on }]}
+            aria-pressed={on}
+            aria-label={m.upnext_filter_label_toggle_aria({ label })}
+            disabled={!loaded}
+            onclick={() => set({ hiddenLabels: toggledLabels(filter, label) })}>{label}</button
+          >
+        {/each}
+      </div>
+    {:else}
+      <p class="block-hint">{m.issue_filter_hidden_labels_none()}</p>
+    {/if}
+  </div>
 
-  {#if showAuthorSection}
+  {#if showAuthorSection || showLabelSection}
     <div class="section-divider" role="separator"></div>
+    <div class="block-heading">{m.issue_filter_section_view()}</div>
+  {/if}
+  {#if showAuthorSection}
     <div class="section" role="radiogroup" aria-label={m.issues_filter_author_heading()}>
-      <div class="section-heading">{m.issues_filter_author_heading()}</div>
+      <div class="pop-heading">{m.issues_filter_author_heading()}</div>
       <label class="filter-row author-row">
         <input
           type="radio"
@@ -265,13 +351,13 @@
   {/if}
 
   {#if showLabelSection}
-    <div class="section-divider" role="separator"></div>
+    {#if showAuthorSection}<div class="section-divider" role="separator"></div>{/if}
     <div class="section">
-      <div class="section-heading" id="issue-label-heading-{popoverId}">
+      <div class="pop-heading" id="issue-label-heading-{popoverId}">
         {m.issues_filter_labels_heading()}
       </div>
       <div class="label-chips" role="group" aria-labelledby="issue-label-heading-{popoverId}">
-        {#each labels as label (label)}
+        {#each includeLabels as label (label)}
           {@const on = selectedLabels.includes(label)}
           {@const style = !on ? labelChipStyle(labelColors[label] ?? "") : null}
           <button
@@ -440,7 +526,35 @@
     padding: 0 12px;
   }
 
-  .section-heading {
+  /* Persistent vs. per-view block titles: what a choice here changes. */
+  .block-heading {
+    padding: 2px 12px 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+  }
+
+  .block-hint {
+    margin: 0;
+    padding: 0 12px 4px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    line-height: 1.4;
+  }
+
+  .filter-row:has(input:disabled),
+  .filter-row input:disabled,
+  .label-toggle:disabled {
+    cursor: default;
+  }
+  .filter-row:has(input:disabled),
+  .label-toggle:disabled {
+    opacity: 0.6;
+  }
+
+  .pop-heading {
     font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.14em;

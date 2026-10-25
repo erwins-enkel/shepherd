@@ -401,6 +401,8 @@ export interface Settings {
   /** The operator's House Stack (#3108): packages a project bootstrap pins to current stable.
    *  Absent from older servers. */
   houseStack?: HouseStack;
+  /** The operator's default issue filter (#3017). Absent from older servers. */
+  issueFilter?: IssueFilterSettings;
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
@@ -3111,6 +3113,39 @@ export interface UpNextItem {
   labelColors?: Record<string, string>;
   epicParent?: { number: number; title: string };
   issueRef: { number: number; url: string; title: string };
+  /** The repo is a fork; its issues are the upstream's (#3017). */
+  fromFork?: boolean;
+  /** Assigned to or authored by the viewer. With fromFork: FORK (mine) or UPSTREAM (not mine). */
+  mine?: boolean;
+}
+// Default issue filter (#3007/#3017). Mirrors src/issue-filter.ts.
+export type IssueFilterScope = "all" | "mine_unassigned" | "mine";
+export type IssueFilterForks = "all" | "own" | "hide";
+/** Per-repo exception (#3020): replaces scope + forks for that repo. */
+export type IssueFilterRepoOverride = "all" | "mine_unassigned" | "mine" | "hide";
+export interface IssueFilterSettings {
+  scope: IssueFilterScope;
+  forks: IssueFilterForks;
+  hiddenLabels: string[];
+  hideActive: boolean;
+  hideSubIssues: boolean;
+  hideBlocked: boolean;
+  /** realpath repo key → override; an absent repo follows scope/forks. Optional: an older
+   *  server doesn't send it. */
+  repoOverrides?: Record<string, IssueFilterRepoOverride>;
+}
+/** What the issue filter hides from Up Next (server: UpNextFilterStats). */
+export interface UpNextFilterStats {
+  hiddenCount: number;
+  /** Each hidden item counted once, under the first rule that drops it. */
+  hiddenBy: { scope: number; forks: number; labels: number; repo?: number };
+  /** repoPath → hidden items in that repo; repos with none are omitted. */
+  hiddenByRepo: Record<string, number>;
+  /** The visible count were that option picked, the other settings unchanged. */
+  optionCounts: {
+    scope: Record<IssueFilterScope, number>;
+    forks: Record<IssueFilterForks, number>;
+  };
 }
 export interface UpNextSection {
   kind: "priority" | "repo";
@@ -3128,6 +3163,8 @@ export interface UpNextSnapshot {
   /** Repos whose issue fetch failed this refresh; >0 + empty queue = surface a load error,
    *  not "all caught up". */
   failedRepoCount: number;
+  /** What the operator's issue filter hides (#3017). Absent from servers before it. */
+  filter?: UpNextFilterStats;
 }
 
 /** One measured section of an in-flight spawn (server: src/spawn-progress.ts). */
@@ -3233,6 +3270,7 @@ export type WsEvent =
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
   | { event: "upnext:changed"; data: { version: string; computedAt: number } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
+  | { event: "settings:issue-filter"; data: { issueFilter: IssueFilterSettings } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | {
       event: "session:reviewing";

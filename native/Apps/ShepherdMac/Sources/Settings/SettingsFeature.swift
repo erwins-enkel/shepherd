@@ -40,7 +40,12 @@ struct SettingsPaneEntry: SettingsPane {
                 }.padding()
             } else if availability != .localOffline, id != "notifications", let model = app.extension(SettingsModel.self), let store = app.store {
                 switch id {
-                case "workspace": SettingsWorkspaceView(model:model,client:store.client)
+                case "workspace":
+                    // The per-repo exceptions grow with the repo root; keep them reachable.
+                    ScrollView {
+                        SettingsWorkspaceView(model:model,client:store.client,
+                            issueFilter:app.extension(IssueFilterSettingsModel.self))
+                    }
                 case "clis":
                     ScrollView {
                         if let updates = model.runnerUpdates {

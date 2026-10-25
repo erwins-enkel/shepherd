@@ -111,6 +111,7 @@
   import { recaps } from "#lib/recaps.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
   import { upNext } from "#lib/up-next.svelte.js";
+  import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
   import { claudeUsageHoldLikely } from "#lib/provider-capacity.js";
   import { doneSessions } from "#lib/done.svelte.js";
   import {
@@ -351,7 +352,10 @@
     showSettings = target.showSettings;
     history.replaceState(history.state, "", target.cleanUrl);
   });
-  onMount(() => () => upNext.reset());
+  onMount(() => () => {
+    upNext.reset();
+    issueFilterSettings.clear();
+  });
 
   // Overlays are code-split off the first-boot bundle (#3233); warm the most-opened ones once
   // the boot settles so their first open doesn't wait on the network.
@@ -369,6 +373,7 @@
   // Steer id to expand + focus in the steers editor when Settings opens (set from the
   // steer chip's right-click → "Edit" action; null when the editor is opened plainly).
   let focusSteerId = $state<string | null>(null);
+  let focusWorkspace = $state<"repo-overrides" | null>(null);
   let showClone = $state(false);
   let showFork = $state(false);
   let showNewProject = $state(false);
@@ -920,6 +925,14 @@
   // Open Settings on the steers editor. An optional steer id (from a steer chip's
   // right-click → "Edit") expands + focuses that row; omitted for the plain pencil.
   // Defined here, not inline, so the nullish branch stays out of the route template.
+  /** Settings › Workspace from the Herd (#3019); "repo-overrides" lands on the per-repo
+   *  exceptions (#3020). */
+  function openWorkspaceSettings(focus?: "repo-overrides") {
+    settingsTab = "workspace";
+    focusWorkspace = focus ?? null;
+    settingsDeepLink = true;
+    showSettings = true;
+  }
   function openSteersEditor(id?: string) {
     const target = steersSettingsOpen(id);
     settingsTab = target.settingsTab;
@@ -3626,11 +3639,7 @@
             {onclearmerged}
             {onmergetrain}
             {issueActionsUnset}
-            onsettings={() => {
-              settingsTab = "workspace";
-              settingsDeepLink = true;
-              showSettings = true;
-            }}
+            onsettings={openWorkspaceSettings}
             flow={true}
             remoteDispatches={herdRemoteDispatches}
             bind:filter={herdFilter}
@@ -3841,11 +3850,7 @@
               {onclearmerged}
               {onmergetrain}
               {issueActionsUnset}
-              onsettings={() => {
-                settingsTab = "workspace";
-                settingsDeepLink = true;
-                showSettings = true;
-              }}
+              onsettings={openWorkspaceSettings}
               bind:filter={herdFilter}
               bind:machineFilter
               workingBlocked={store.workingBlocked}
@@ -4133,11 +4138,13 @@
   {settingsMobileView}
   {focusPluginId}
   {focusSteerId}
+  {focusWorkspace}
   onsettingsclose={() => {
     showSettings = false;
     showPairing = false;
     focusPluginId = null;
     focusSteerId = null;
+    focusWorkspace = null;
     loadSettings();
   }}
   onsettingsherdrupdate={() => {
@@ -4162,6 +4169,7 @@
     showPairing = false;
     focusPluginId = null;
     focusSteerId = null;
+    focusWorkspace = null;
     loadSettings();
     showUsage = true;
   }}

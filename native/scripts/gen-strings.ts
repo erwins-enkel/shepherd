@@ -2437,6 +2437,89 @@ export const KEYS_MACHINES: readonly string[] = [
 ];
 
 /**
+ * Default issue filter (#3021): the Up Next filter popover, chips and filtered-empty state, the
+ * New Task picker sections and Settings › Workspace (default filter + per-repo exceptions). All
+ * web copy from #3018–#3020. Keep alphabetical.
+ */
+export const KEYS_ISSUE_FILTER: readonly string[] = [
+  "issue_filter_hidden_labels_none",
+  "issue_filter_section_default",
+  "issue_filter_section_default_hint",
+  "issue_filter_section_view",
+  "issues_filter_all_forks",
+  "issues_filter_all_hidden_labels",
+  "issues_filter_all_not_mine",
+  "issues_filter_all_repo_override",
+  "native_ios_upnext_filter_button",
+  "native_ios_upnext_filter_done",
+  "native_ios_upnext_filter_footer",
+  "native_ios_upnext_filter_mixed",
+  "settings_issue_filter_add_label",
+  "settings_issue_filter_forks_desc",
+  "settings_issue_filter_label_input_aria",
+  "settings_issue_filter_label_placeholder",
+  "settings_issue_filter_labels_desc",
+  "settings_issue_filter_labels_none",
+  "settings_issue_filter_remove_label",
+  "settings_issue_filter_scope_desc",
+  "settings_issue_filter_summary",
+  "settings_issue_filter_title",
+  "settings_issue_filter_unavailable",
+  "settings_repo_overrides_col_repo",
+  "settings_repo_overrides_col_rule",
+  "settings_repo_overrides_differs",
+  "settings_repo_overrides_none",
+  "settings_repo_overrides_opt_all",
+  "settings_repo_overrides_opt_hide",
+  "settings_repo_overrides_opt_mine",
+  "settings_repo_overrides_opt_mine_unassigned",
+  "settings_repo_overrides_opt_standard",
+  "settings_repo_overrides_select_aria",
+  "settings_repo_overrides_summary",
+  "settings_repo_overrides_title",
+  "upnext_filter_adjust",
+  "upnext_filter_button_aria",
+  "upnext_filter_chip_forks_hide",
+  "upnext_filter_chip_forks_own",
+  "upnext_filter_chip_label",
+  "upnext_filter_chip_scope_mine",
+  "upnext_filter_chip_scope_mine_unassigned",
+  "upnext_filter_chips_aria",
+  "upnext_filter_empty_body",
+  "upnext_filter_empty_by_forks",
+  "upnext_filter_empty_by_labels",
+  "upnext_filter_empty_by_repo",
+  "upnext_filter_empty_by_scope",
+  "upnext_filter_empty_title",
+  "upnext_filter_forks_all",
+  "upnext_filter_forks_all_desc",
+  "upnext_filter_forks_heading",
+  "upnext_filter_forks_hide",
+  "upnext_filter_forks_hide_desc",
+  "upnext_filter_forks_own",
+  "upnext_filter_forks_own_desc",
+  "upnext_filter_forks_repos",
+  "upnext_filter_hidden_count",
+  "upnext_filter_label_toggle_aria",
+  "upnext_filter_labels_heading",
+  "upnext_filter_labels_none",
+  "upnext_filter_repo_overrides",
+  "upnext_filter_reset",
+  "upnext_filter_save_failed",
+  "upnext_filter_scope_all",
+  "upnext_filter_scope_all_desc",
+  "upnext_filter_scope_heading",
+  "upnext_filter_scope_mine",
+  "upnext_filter_scope_mine_desc",
+  "upnext_filter_scope_mine_unassigned",
+  "upnext_filter_scope_mine_unassigned_desc",
+  "upnext_filter_standard",
+  "upnext_filter_tag_fork",
+  "upnext_filter_tag_upstream",
+  "upnext_filter_title",
+];
+
+/**
  * The manifest the catalog is generated from. Order here does not reach the
  * output — `build()` sorts before emitting — but is fixed so the concatenation
  * is easy to assert.
@@ -2470,6 +2553,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_COMPOSE,
   ...KEYS_SETTINGS,
   ...KEYS_MACHINES,
+  ...KEYS_ISSUE_FILTER,
 ];
 
 /**

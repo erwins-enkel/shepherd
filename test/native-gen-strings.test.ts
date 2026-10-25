@@ -40,6 +40,7 @@ import {
   KEYS_IOS_LATENCY,
   KEYS_IOS_RECONNECT,
   KEYS_MACHINES,
+  KEYS_ISSUE_FILTER,
   placeholderOrder,
 } from "../native/scripts/gen-strings";
 
@@ -273,6 +274,7 @@ describe("gen-strings manifest", () => {
     KEYS_COMPOSE,
     KEYS_SETTINGS,
     KEYS_MACHINES,
+    KEYS_ISSUE_FILTER,
   ];
 
   test("iOS ended-session overlay reuses the web resume and reconnect copy", () => {

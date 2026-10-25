@@ -7165,5 +7165,12 @@
   "bootstrap_checklist_next_ci_waiting": "Merged — the next phase starts once CI on the default branch is green.",
   "bootstrap_checklist_next_ci_failed": "Merged, but CI on the default branch failed. The next phase waits until it is fixed.",
   "bootstrap_checklist_start_fixci": "Fix CI",
-  "bootstrap_checklist_fixci_seed": "CI on the default branch fails since the last bootstrap merge. Find the failing workflow run (an invalid workflow file counts), fix it and get CI green — one PR."
+  "bootstrap_checklist_fixci_seed": "CI on the default branch fails since the last bootstrap merge. Find the failing workflow run (an invalid workflow file counts), fix it and get CI green — one PR.",
+  "assistant_chat_composer": "Message composer",
+  "assistant_chat_attach": "Attach images",
+  "assistant_chat_attachment_image": "image",
+  "assistant_chat_attachment_uploading": "uploading…",
+  "assistant_chat_attachment_failed": "An image didn't upload. Remove it to send.",
+  "feat_assistant_image_attachments_title": "Show the assistant a screenshot",
+  "feat_assistant_image_attachments_body": "Paste an image into the Operator Assistant's message field, drop it there, or pick it with the paperclip. It goes along with your next message, so the assistant can look at it."
 }

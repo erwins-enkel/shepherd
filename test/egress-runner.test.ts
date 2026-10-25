@@ -245,6 +245,23 @@ test.skipIf(SKIP_LIVE_GW)(
   },
 );
 
+// Audit N06: a query sent straight to the slirp resolver (from any port but dnsmasq's fixed
+// query port) must be dropped, or it bypasses the dnsmasq allowlist.
+test.skipIf(SKIP)("netns cannot query the slirp resolver 10.0.2.3 directly (N06)", async () => {
+  const probe = `
+    const { Resolver } = require("node:dns/promises");
+    const r = new Resolver({ timeout: 3000, tries: 1 });
+    r.setServers(["10.0.2.3"]);
+    r.resolve4("example.org").then(() => process.exit(0), () => process.exit(7));
+  `;
+  const proc = spawnRunner([process.execPath, "-e", probe]);
+  recorded.push(proc.pid);
+  const { owner, slirp } = await captureChildren(proc.pid);
+  if (owner) recorded.push(owner);
+  if (slirp) recorded.push(slirp);
+  expect(await proc.exited).toBe(7);
+});
+
 test.skipIf(SKIP)(
   "in-netns dev server bound to 127.0.0.1 is reachable from the host via add_hostfwd (#2889)",
   async () => {

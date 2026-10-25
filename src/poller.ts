@@ -36,7 +36,7 @@ import { readTranscriptTail } from "./activity";
 import type { PendingAsk } from "./ask-user-question";
 import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { MAIN_SESSION_CACHE_TTL } from "./pricing";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
 import { maintenance } from "./maintenance";
@@ -77,6 +77,8 @@ const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);
 /** Pairing horizon for the observe-only Stop↔herdr-done window (issue #713): a Stop and a
  *  done-flip more than this apart are treated as unrelated turns and never paired. */
 const STOP_WINDOW_MAX_MS = 30_000;
+/** A Claude agent reaped within this long of its spawn with no transcript died at launch. */
+const LAUNCH_FAIL_WINDOW_MS = 120_000;
 
 /** Clean-terminal pane sweep cadence: `pane list` costs a herdr round-trip, and shell-exit
  *  detection tolerates seconds of latency (archive needs 2 confirmed-gone sweeps anyway). */
@@ -1183,6 +1185,7 @@ export class StatusPoller {
     this.pendingDoneAt.delete(s.id);
     if (s.status !== "done") {
       this.detectUsageHalt(s);
+      this.detectLaunchFailure(s);
       this.store.update(s.id, { status: "done", lastState: "done" });
       this.onChange(s.id, "done");
     }
@@ -1411,6 +1414,25 @@ export class StatusPoller {
     } catch {
       // file may not exist for a never-run session; degrade silently
     }
+  }
+
+  /**
+   * A Claude agent that vanished shortly after its spawn without ever writing a transcript died at
+   * launch (e.g. the egress runner handing claude a /dev/null stdin) — flag it `error` so the
+   * session reads "halted on an error", not a healthy done. Called from reapGone only: the
+   * done-edge of a still-alive idle pane is no launch failure. Cleared on resume as usual.
+   */
+  private detectLaunchFailure(s: Session): void {
+    if (s.haltReason || s.terminal || isOperatorAssistant(s)) return;
+    if ((s.agentProvider ?? "claude") !== "claude" || !s.claudeSessionId) return;
+    if (this.now() - s.createdAt >= LAUNCH_FAIL_WINDOW_MS) return;
+    if (existsSync(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir))) return;
+    console.warn(
+      `[poller] ${s.id}: agent exited at launch (no transcript, sandbox=${s.sandboxApplied ?? "trusted"}) — halting as error`,
+    );
+    const haltedAt = this.now();
+    this.store.setHaltReason(s.id, "error", haltedAt);
+    this.onHaltCb(s.id, "error", haltedAt);
   }
 
   /**

@@ -101,7 +101,9 @@ setpriv --pdeathsig SIGKILL \
     }
     shift 2
     exec "$@"
-  ' bash "$TMP/egress.nft" "$TMP/dnsmasq.argv" "${INNER[@]}" &
+  ' bash "$TMP/egress.nft" "$TMP/dnsmasq.argv" "${INNER[@]}" <&0 &
+# `<&0` is load-bearing: a non-interactive bash points a background job's stdin at /dev/null,
+# and bwrap --new-session denies the /dev/tty fallback — claude would exit at launch.
 CHILD=$!
 # Shepherd reads the netns listeners via /proc/<pid>/net/tcp (in-netns dev server, #2889).
 echo "$CHILD" > "$TMP/netns.pid"

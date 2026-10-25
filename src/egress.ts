@@ -338,6 +338,12 @@ export const SLIRP_GUEST_ADDR = "10.0.2.100";
  *  to polling (see detectEgressHostLoopback). Module-private (only detectEgressHostLoopback uses it). */
 const SLIRP4NETNS_HOSTLOOPBACK_MIN: [number, number, number] = [1, 0, 0];
 
+/** The UDP source port dnsmasq sends its upstream queries from (`--query-port`). The nft rule
+ *  that lets DNS reach {@link SLIRP_RESOLVER} matches it, so only dnsmasq — not the agent — can
+ *  talk to the unfiltered upstream resolver (audit N06). MUST stay below 1024: the bwrap membrane
+ *  drops CAP_NET_BIND_SERVICE, so the agent can't bind it to spoof the source port. */
+export const DNSMASQ_QUERY_PORT = 1023;
+
 /** dnsmasq min-cache-ttl in seconds: keeps resolved IPs pinned in the nft set longer. */
 const DEFAULT_MIN_CACHE_TTL = 600;
 
@@ -528,6 +534,7 @@ export function buildEgressConfig(
     "-i",
     "lo",
     "--bind-interfaces",
+    `--query-port=${DNSMASQ_QUERY_PORT}`,
   ];
 
   // One --server and one --nftset per domain.
@@ -544,6 +551,9 @@ export function buildEgressConfig(
   // family inet, table egress, default-drop with explicit REJECT for fast-fail.
   // When hostGateway is set, ONE least-privilege allow for the host IP+port goes
   // right after the @allowed accept (return traffic is covered by ct established).
+  // The resolver accept is bound to dnsmasq's fixed query port (see DNSMASQ_QUERY_PORT), and TCP 53
+  // is not opened at all: either would let the agent query the upstream resolver directly and
+  // bypass the allowlist (audit N06). Cost: no TCP fallback for a truncated upstream answer.
   // Table `devfwd`: the only new inbound connections on tap0 are slirp hostfwds Shepherd adds
   // for the session's dev port (#2889); DNAT them to the netns loopback so a dev server bound
   // to 127.0.0.1 is reachable too (needs tap0 route_localnet, set by the runner).
@@ -559,8 +569,7 @@ export function buildEgressConfig(
     type filter hook output priority 0; policy drop;
     oifname "lo" accept
     ct state established,related accept
-    ip daddr ${resolver} udp dport 53 accept
-    ip daddr ${resolver} tcp dport 53 accept
+    ip daddr ${resolver} udp sport ${DNSMASQ_QUERY_PORT} udp dport 53 accept
     ip daddr @allowed accept${hostGatewayRule}
     meta nfproto ipv6 reject
     meta l4proto tcp reject with tcp reset

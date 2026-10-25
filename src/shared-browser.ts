@@ -139,6 +139,9 @@ function chromiumArgs(profileDir: string, env: NodeJS.ProcessEnv): string[] {
     "--remote-debugging-pipe",
     "--no-first-run",
     "--no-default-browser-check",
+    // WebRTC must not open UDP outside the SOCKS proxy, or a page learns local/public IPs and
+    // reaches hosts the egress policy never vetted (#3338).
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
     headful ? "--ozone-platform-hint=auto" : "--headless=new",
     "about:blank",
   ];

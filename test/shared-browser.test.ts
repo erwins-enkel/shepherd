@@ -180,6 +180,7 @@ test("profile dir is stable per repo and distinct across repos", async () => {
   ).ready;
   const dir = browserProfileDir(p, "/repos/My App");
   expect(spawned[0]!.args).toContain(`--user-data-dir=${dir}`);
+  expect(spawned[0]!.args).toContain("--force-webrtc-ip-handling-policy=disable_non_proxied_udp");
   expect((await stat(dir)).mode & 0o777).toBe(0o700);
 });
 

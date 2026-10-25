@@ -42,8 +42,11 @@
     filteredRepo = null,
     launchContext = null,
     flow = false,
+    onsettings = undefined,
   }: {
     onbacklog?: () => void;
+    /** Open Settings › Workspace (the default issue filter's full editor, #3019). */
+    onsettings?: () => void;
     repoFilter?: ReadonlySet<string>;
     filteredRepo?: string | null;
     launchContext?: UpNextLaunchContext | null;
@@ -508,6 +511,7 @@
     onchange={(patch) => void issueFilterSettings.update(patch)}
     onreset={() => void issueFilterSettings.reset()}
     onclose={closeFilter}
+    {onsettings}
   />
 {/if}
 

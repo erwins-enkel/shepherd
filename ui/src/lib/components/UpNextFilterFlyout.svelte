@@ -28,6 +28,7 @@
     onchange,
     onreset,
     onclose,
+    onsettings,
   }: {
     reference: HTMLElement;
     trigger: HTMLElement | undefined;
@@ -40,6 +41,8 @@
     onchange: (patch: Partial<IssueFilterSettings>) => void;
     onreset: () => void;
     onclose: () => void;
+    /** Open Settings › Workspace, where the whole default filter lives (#3019). */
+    onsettings?: () => void;
   } = $props();
 
   const id = $props.id();
@@ -204,6 +207,16 @@
   </div>
 
   <div class="unf-foot">
+    {#if onsettings}
+      <button
+        type="button"
+        class="unf-settings"
+        onclick={() => {
+          onclose();
+          onsettings();
+        }}>{m.upnext_filter_all_settings()}</button
+      >
+    {/if}
     <button type="button" class="unf-reset" onclick={onreset}>{m.upnext_filter_reset()}</button>
   </div>
 </div>
@@ -349,14 +362,33 @@
   }
   .label-toggle:focus-visible,
   .unf-close:focus-visible,
+  .unf-settings:focus-visible,
   .unf-reset:focus-visible {
     outline: 2px solid var(--color-line-bright);
     outline-offset: 1px;
   }
   .unf-foot {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding: 8px 12px 0;
+  }
+  .unf-reset {
+    margin-left: auto;
+  }
+  .unf-settings {
+    background: transparent;
+    border: 0;
+    padding: 2px 0;
+    color: var(--color-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .unf-settings:hover {
+    color: var(--color-ink);
+    text-decoration: underline;
   }
   .unf-reset {
     background: transparent;

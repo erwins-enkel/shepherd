@@ -1008,6 +1008,15 @@ describe("UpNextPanel default issue filter", () => {
     await expect.poll(() => issueFilterSettings.value?.forks).toBe("all");
   });
 
+  it("links to the full filter in Settings and closes the flyout", async () => {
+    const onsettings = vi.fn();
+    render(UpNextPanel, { onsettings });
+    filterBtn().click();
+    await page.getByRole("button", { name: m.upnext_filter_all_settings() }).click();
+    expect(onsettings).toHaveBeenCalledTimes(1);
+    await expect.poll(() => filterBtn().getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("reverts a failed write", async () => {
     vi.mocked(putIssueFilter).mockRejectedValueOnce(new Error("down"));
     render(UpNextPanel, {});

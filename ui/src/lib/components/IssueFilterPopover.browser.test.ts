@@ -2,23 +2,32 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import { m } from "#lib/paraglide/messages.js";
-import { issuesFilter } from "#lib/issues-filter.svelte.js";
+import { putIssueFilter } from "#lib/api.js";
+import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
+import { DEFAULT_ISSUE_FILTER } from "#lib/issue-filter-migration.js";
+import type { IssueFilterSettings } from "#lib/types.js";
+
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
+  return {
+    ...actual,
+    putIssueFilter: vi.fn(async (patch: Partial<IssueFilterSettings>) => ({
+      issueFilter: { ...issueFilterSettings.effective, ...patch },
+    })),
+  };
+});
 
 const { default: IssueFilterPopover } = await import("./IssueFilterPopover.svelte");
 
-// Reset the localStorage-backed singleton between tests so order can't leak state.
-// Default state: hideOthers=true, hideActive=false, hideSubIssues=true.
+// The server-backed singleton starts each test at the loaded defaults:
+// scope=mine_unassigned, hideActive=false, hideSubIssues=true, hideBlocked=true.
 beforeEach(() => {
-  issuesFilter.set(true);
-  issuesFilter.setActive(false);
-  issuesFilter.setSubIssues(true);
+  issueFilterSettings.apply(structuredClone(DEFAULT_ISSUE_FILTER));
+  vi.mocked(putIssueFilter).mockClear();
 });
 
 afterEach(() => {
-  issuesFilter.set(true);
-  issuesFilter.setActive(false);
-  issuesFilter.setSubIssues(true);
-  localStorage.clear();
+  issueFilterSettings.clear();
   document.body.innerHTML = "";
 });
 
@@ -41,6 +50,21 @@ const badgeText = () => {
   const badge = triggerBtn()?.querySelector(".badge");
   return badge ? badge.textContent?.trim() : null;
 };
+
+const radiogroup = (name: string) =>
+  popoverPanel()?.querySelector<HTMLElement>(`[role='radiogroup'][aria-label='${name}']`) ?? null;
+const radioFor = (group: string, label: string) =>
+  [...(radiogroup(group)?.querySelectorAll(".filter-row") ?? [])]
+    .find((row) => row.querySelector(".row-label")?.textContent?.trim() === label)
+    ?.querySelector<HTMLInputElement>("input[type=radio]") ?? null;
+const checkboxFor = (label: string) =>
+  [...(popoverPanel()?.querySelectorAll(".filter-row") ?? [])]
+    .find((row) => row.querySelector(".row-label")?.textContent?.trim() === label)
+    ?.querySelector<HTMLInputElement>("input[type=checkbox]") ?? null;
+const hideToggleFor = (label: string) =>
+  [...(popoverPanel()?.querySelectorAll<HTMLButtonElement>(".hide-toggle") ?? [])].find(
+    (b) => b.textContent?.trim() === label,
+  ) ?? null;
 
 // Helper: get row labels from inside the popover panel.
 const rowLabels = () =>
@@ -82,116 +106,106 @@ describe("IssueFilterPopover", () => {
     await expect.poll(isOpen).toBe(true);
   });
 
-  it("click trigger opens popover; four rows render when showMine=true", async () => {
+  it("click trigger opens popover; scope, forks and three toggles render when showMine=true", async () => {
     render(IssueFilterPopover, { showMine: true });
-
     await expect.poll(() => triggerBtn()).toBeTruthy();
-
-    // Initially closed.
     expect(isOpen()).toBe(false);
-
     triggerBtn()!.click();
-
-    // After click, aria-expanded should be true and four checkbox rows present
-    // (mine + active + subs + blocked).
     await expect.poll(() => isOpen()).toBe(true);
-    expect(checkboxes().length).toBe(4);
-
-    expect(rowLabels()).toContain(m.issues_filter_mine_label());
+    expect(checkboxes().length).toBe(3);
+    expect(
+      radioFor(m.upnext_filter_scope_heading(), m.upnext_filter_scope_mine_unassigned())!.checked,
+    ).toBe(true);
+    expect(radioFor(m.upnext_filter_forks_heading(), m.upnext_filter_forks_all())!.checked).toBe(
+      true,
+    );
     expect(rowLabels()).toContain(m.issues_filter_active_label());
     expect(rowLabels()).toContain(m.issues_filter_subissues_label());
+    expect(rowLabels()).toContain(m.issues_filter_blocked_label());
   });
 
-  it("badge reads 3 with showMine=true, hideOthers=true, hideActive=false, hideSubIssues=true", async () => {
-    // Default store: hideOthers=true, hideActive=false, hideSubIssues=true, hideBlocked=true
-    // activeCount = 1 (mine) + 0 (active) + 1 (subs) + 1 (blocked) = 3
+  it("badge reads 3 with the defaults (scope + sub-issues + blocked)", async () => {
     render(IssueFilterPopover, { showMine: true });
-
     await expect.poll(() => triggerBtn()).toBeTruthy();
     expect(badgeText()).toBe("3");
   });
 
   it("omits the sub-issue toggle (and its badge count) when showSubIssuesToggle=false", async () => {
-    // hideSubIssues=true is persisted, but a host that lists sub-issues only inside their
-    // epic hides the toggle — so it must not inflate the badge either: 1 (mine) + 1 (blocked).
     render(IssueFilterPopover, { showMine: true, showSubIssuesToggle: false });
-
     await expect.poll(() => triggerBtn()).toBeTruthy();
     expect(badgeText()).toBe("2");
     triggerBtn()!.click();
     await expect.poll(() => isOpen()).toBe(true);
-    expect(checkboxes().length).toBe(3);
+    expect(checkboxes().length).toBe(2);
     expect(rowLabels()).not.toContain(m.issues_filter_subissues_label());
   });
 
-  it("badge reads 2 (not 3) when showMine=false even with hideOthers=true persisted; mine row absent", async () => {
-    // hideOthers is true (default) but showMine=false → mine doesn't count.
-    // activeCount = 0 (mine excluded) + 0 (active) + 1 (subs) + 1 (blocked) = 2
+  it("showMine=false drops the scope choice and its badge count", async () => {
     render(IssueFilterPopover, { showMine: false });
-
     await expect.poll(() => triggerBtn()).toBeTruthy();
     expect(badgeText()).toBe("2");
-
-    // Open the popover to verify mine row is absent.
     triggerBtn()!.click();
     await expect.poll(() => isOpen()).toBe(true);
-
-    // Only 3 checkboxes: active + subs + blocked (no mine).
-    expect(checkboxes().length).toBe(3);
-
-    expect(rowLabels()).not.toContain(m.issues_filter_mine_label());
-    expect(rowLabels()).toContain(m.issues_filter_active_label());
-    expect(rowLabels()).toContain(m.issues_filter_subissues_label());
+    expect(radiogroup(m.upnext_filter_scope_heading())).toBeNull();
+    expect(radiogroup(m.upnext_filter_forks_heading())).toBeTruthy();
   });
 
-  it("toggling the active checkbox flips issuesFilter.hideActive and persists to localStorage", async () => {
-    // Start with hideActive=false.
-    expect(issuesFilter.hideActive).toBe(false);
-
-    render(IssueFilterPopover, { showMine: true });
-    await expect.poll(() => triggerBtn()).toBeTruthy();
-
-    triggerBtn()!.click();
-    await expect.poll(() => isOpen()).toBe(true);
-
-    expect(checkboxes().length).toBe(4);
-
-    // Find the active checkbox by its row label text, not by checked state.
-    const activeLabel = [...(popoverPanel()?.querySelectorAll(".filter-row") ?? [])].find(
-      (row) =>
-        row.querySelector(".row-label")?.textContent?.trim() === m.issues_filter_active_label(),
-    );
-    const activeCheckbox = activeLabel?.querySelector<HTMLInputElement>("input[type=checkbox]");
-    expect(activeCheckbox).toBeTruthy();
-    activeCheckbox!.click();
-
-    // Store should flip to true.
-    await expect.poll(() => issuesFilter.hideActive).toBe(true);
-    // localStorage should persist "1".
-    expect(localStorage.getItem("shepherd:issues-hide-active")).toBe("1");
+  it("the forks rule counts only in a fork repo", async () => {
+    issueFilterSettings.apply({ ...DEFAULT_ISSUE_FILTER, forks: "hide" });
+    render(IssueFilterPopover, { showMine: true, isFork: true });
+    await expect.poll(() => badgeText()).toBe("4");
+    document.body.innerHTML = "";
+    render(IssueFilterPopover, { showMine: true, isFork: false });
+    await expect.poll(() => badgeText()).toBe("3");
   });
 
-  it("toggling the mine checkbox flips issuesFilter.hideOthers and persists to localStorage", async () => {
-    // Start with hideOthers=true.
-    expect(issuesFilter.hideOthers).toBe(true);
-
+  it("toggling a hide checkbox writes the server setting", async () => {
     render(IssueFilterPopover, { showMine: true });
     await expect.poll(() => triggerBtn()).toBeTruthy();
-
     triggerBtn()!.click();
     await expect.poll(() => isOpen()).toBe(true);
+    checkboxFor(m.issues_filter_active_label())!.click();
+    await expect
+      .poll(() => vi.mocked(putIssueFilter).mock.calls[0]?.[0])
+      .toEqual({ hideActive: true });
+    await expect.poll(() => issueFilterSettings.value?.hideActive).toBe(true);
+  });
 
-    expect(checkboxes().length).toBe(4);
+  it("picking a scope or forks option writes the server setting", async () => {
+    render(IssueFilterPopover, { showMine: true });
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+    triggerBtn()!.click();
+    await expect.poll(() => isOpen()).toBe(true);
+    radioFor(m.upnext_filter_scope_heading(), m.upnext_filter_scope_mine())!.click();
+    await expect.poll(() => issueFilterSettings.value?.scope).toBe("mine");
+    radioFor(m.upnext_filter_forks_heading(), m.upnext_filter_forks_own())!.click();
+    await expect.poll(() => issueFilterSettings.value?.forks).toBe("own");
+    expect(vi.mocked(putIssueFilter).mock.calls.map((c) => c[0])).toEqual([
+      { scope: "mine" },
+      { forks: "own" },
+    ]);
+  });
 
-    // Mine checkbox is first and checked by default (hideOthers=true).
-    const mineCheckbox = checkboxes()[0];
-    expect(mineCheckbox.checked).toBe(true);
-    mineCheckbox.click();
+  it("hiding a label writes hiddenLabels and drops it from the include picker", async () => {
+    render(IssueFilterPopover, { showMine: true, labels: ["bug", "docs"] });
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+    triggerBtn()!.click();
+    await expect.poll(() => isOpen()).toBe(true);
+    hideToggleFor("docs")!.click();
+    await expect.poll(() => issueFilterSettings.value?.hiddenLabels).toEqual(["docs"]);
+    await expect.poll(() => labelToggles().map((b) => b.textContent?.trim())).toEqual(["bug"]);
+    expect(hideToggleFor("docs")!.getAttribute("aria-pressed")).toBe("true");
+    expect(badgeText()).toBe("4");
+  });
 
-    // Store should flip to false.
-    await expect.poll(() => issuesFilter.hideOthers).toBe(false);
-    // localStorage should persist "0".
-    expect(localStorage.getItem("shepherd:issues-hide-others")).toBe("0");
+  it("persistent controls are read-only until the server value loads", async () => {
+    issueFilterSettings.clear();
+    render(IssueFilterPopover, { showMine: true });
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+    triggerBtn()!.click();
+    await expect.poll(() => isOpen()).toBe(true);
+    expect(checkboxes().every((c) => c.disabled)).toBe(true);
+    expect(badgeText()).toBe("3");
   });
 
   it("Esc closes the popover", async () => {
@@ -265,14 +279,15 @@ describe("IssueFilterPopover", () => {
 
 // ── Author + label filter sections ─────────────────────────────────────────────
 // Helpers scoped to the picker sections.
-const authorSection = () =>
-  popoverPanel()?.querySelector("[role='radiogroup']") as HTMLElement | null;
+const authorSection = () => radiogroup(m.issues_filter_author_heading());
 const authorRadioFor = (login: string) =>
   [...(authorSection()?.querySelectorAll(".author-row") ?? [])]
     .find((row) => row.querySelector(".row-label")?.textContent?.trim() === login)
     ?.querySelector<HTMLInputElement>("input[type=radio]") ?? null;
 const labelToggles = () =>
-  [...(popoverPanel()?.querySelectorAll(".label-toggle") ?? [])] as HTMLButtonElement[];
+  [
+    ...(popoverPanel()?.querySelectorAll(".label-toggle:not(.hide-toggle)") ?? []),
+  ] as HTMLButtonElement[];
 const labelToggleFor = (label: string) =>
   labelToggles().find((b) => b.textContent?.trim() === label) ?? null;
 
@@ -364,7 +379,7 @@ describe("IssueFilterPopover — author + label pickers", () => {
     expect(badgeText()).toBe("6");
   });
 
-  it("focus on open still lands on the first boolean checkbox, not a radio, with sections present", async () => {
+  it("focus on open lands on the first default-filter control, not a per-view one", async () => {
     await open({
       showMine: true,
       authors: ["kai", "scoop"],
@@ -374,6 +389,8 @@ describe("IssueFilterPopover — author + label pickers", () => {
     });
     // Let the focus-on-open setTimeout(0) settle.
     await new Promise((r) => setTimeout(r, 50));
-    expect(document.activeElement).toBe(checkboxes()[0]);
+    expect(document.activeElement).toBe(
+      radioFor(m.upnext_filter_scope_heading(), m.upnext_filter_scope_all()),
+    );
   });
 });

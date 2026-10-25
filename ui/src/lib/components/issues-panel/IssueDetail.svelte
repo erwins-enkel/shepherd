@@ -43,7 +43,6 @@
     epicSummary = undefined,
     epic = undefined,
     drain = null,
-    showAssignees = false,
     viewer = null,
     issueActions,
     taskDefaults = undefined,
@@ -71,7 +70,6 @@
      *  while it loads. */
     epic?: Epic;
     drain?: DrainStatus | null;
-    showAssignees?: boolean;
     viewer?: string | null;
     issueActions: Steer[];
     taskDefaults?: TaskRunDefaults;
@@ -135,10 +133,11 @@
   const position = $derived(
     selection.kind === "epic" ? queuePosition(drain?.runSummary, selection.issue.number) : null,
   );
-  // Plain-issue assignee pill (#1694) — same rule as the former list row: only while the
-  // "mine & unassigned" filter isn't hiding others' issues, and never on an epic.
+  // Plain-issue assignee pill (#1694), never on an epic (its owner shows on the epic pill).
+  // Shown under every scope: "mine" includes issues the viewer authored but someone else is
+  // assigned to (#3019), and assignedOthers already leaves the viewer out.
   const assign = $derived.by(() => {
-    if (selection.kind !== "single" || !showAssignees) return null;
+    if (selection.kind !== "single") return null;
     const issue = selection.issue;
     const who = viewer == null ? (issue.assignees ?? []) : assignedOthers(issue, viewer);
     return who.length ? { who, framed: viewer != null } : null;

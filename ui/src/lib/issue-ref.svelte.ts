@@ -2,7 +2,7 @@
 // operator can tell at a glance which backlog issue a session is working (#2244).
 // Default ON — a session spawned from an issue names it out of the box; whoever finds
 // the extra chip noisy turns it off in Settings → Device. Persisted in localStorage;
-// mirrors issues-filter.svelte.ts's inverted-default convention: absence of the key
+// inverted-default convention: absence of the key
 // means "on", so "0" is the value we persist.
 const KEY = "shepherd:hide-card-issue-ref";
 

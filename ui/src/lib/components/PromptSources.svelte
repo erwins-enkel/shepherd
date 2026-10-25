@@ -1,7 +1,7 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
   import type { Snippet } from "svelte";
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { getCommands } from "#lib/api.js";
   import type { Issue, SlashCommand, Steer } from "#lib/types.js";
@@ -14,7 +14,9 @@
     commandProviders,
   } from "#lib/slash.js";
   import {
-    hideOthers,
+    applyDefaultFilter,
+    defaultFilterEmptiedBy,
+    defaultFilterEmptyMessage,
     hideActive,
     hideSubIssues,
     hideBlockedIssues,
@@ -24,7 +26,7 @@
     distinctLabels,
     labelColorMap,
   } from "./issues-panel";
-  import { issuesFilter } from "#lib/issues-filter.svelte.js";
+  import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
   import type { IssueData } from "./new-task/issue-data.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import IssueMenuLayer from "./IssueMenuLayer.svelte";
@@ -217,11 +219,13 @@
   let commandsLoading = $state(false);
   // Collapsed by default: the first 3 rows + a "N more" expander (mock's bounded panel).
   let expanded = $state(false);
-  // "Mine & unassigned" filter (#824), shared with IssuesPanel via issuesFilter.
-  // No-op identity when the chip is hidden (viewer unknown) → fail open. Composed
-  // with the viewer-agnostic "hide in progress" filter; the explicit
-  // assigneeFiltered intermediate lets each empty state be attributed to the
-  // filter that caused it.
+  // The server-side default issue filter (#3019), shared with Up Next + the Backlog; the
+  // defaults until it loads. Scope → forks → hidden labels, then the hide toggles; each stage
+  // is kept so an empty list can be attributed to the filter that caused it. Scope fails open
+  // when the viewer is unknown.
+  const issueFilter = $derived(issueFilterSettings.effective);
+  const filterCtx = $derived({ viewer, isFork: repos.isFork(repoPath) });
+  onMount(() => void issueFilterSettings.ensureLoaded());
   // Repo-scoped author + label filters (shared UI recipe with IssuesPanel). Selection is
   // local, reset on repo change and pruned on refresh (see the effects below); options are
   // derived from the RAW `issues` list so picking one value doesn't drop the others.
@@ -229,54 +233,55 @@
   const selectedLabels = new SvelteSet<string>();
   let availableAuthors = $derived(distinctAuthors(issues));
   let availableLabels = $derived(
-    distinctLabels(issues, { excludeBlocked: issuesFilter.hideBlocked }),
+    distinctLabels(issues, { excludeBlocked: issueFilter.hideBlocked }),
   );
   let labelColorsMap = $derived(labelColorMap(issues));
-  let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
-  let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
-  // Toggle-filtered set (mine → active → sub-issue), BEFORE the author/label filters.
+  let defaultStages = $derived(applyDefaultFilter(issues, filterCtx, issueFilter));
+  let assigneeFiltered = $derived(defaultStages.afterLabels);
+  let activeFiltered = $derived(hideActive(assigneeFiltered, issueFilter.hideActive));
+  // Toggle-filtered set (default filter → active → sub-issue), BEFORE the author/label filters.
   // allHiddenBySubIssues keys off this intermediate so its attribution isn't stolen by an
   // author/label miss downstream.
   let subFiltered = $derived(
     hideSubIssues(
       activeFiltered,
-      issuesFilter.hideSubIssues && epicsLoaded,
+      issueFilter.hideSubIssues && epicsLoaded,
       nativeSubIssues,
       epicParents,
     ),
   );
   // "Hide blocked" filter, applied AFTER the sub-issue filter and BEFORE the author/label
   // filters (mirrors IssuesPanel; see hideBlockedIssues in issues-panel.ts).
-  let blockedFiltered = $derived(hideBlockedIssues(subFiltered, issuesFilter.hideBlocked));
+  let blockedFiltered = $derived(hideBlockedIssues(subFiltered, issueFilter.hideBlocked));
   let visibleIssues = $derived(
     filterByLabels(filterByAuthor(blockedFiltered, selectedAuthor), selectedLabels),
   );
-  let allHiddenByAssignee = $derived(
-    issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
+  let defaultEmptiedBy = $derived(
+    defaultFilterEmptiedBy(issues.length, defaultStages, filterCtx, issueFilter),
   );
   // The active filter emptied the remainder the assignee filter left behind.
   let allHiddenByActive = $derived(
-    !allHiddenByAssignee &&
+    defaultEmptiedBy == null &&
       assigneeFiltered.length > 0 &&
       activeFiltered.length === 0 &&
-      issuesFilter.hideActive,
+      issueFilter.hideActive,
   );
   let allHiddenBySubIssues = $derived(
-    !allHiddenByAssignee &&
+    defaultEmptiedBy == null &&
       !allHiddenByActive &&
       activeFiltered.length > 0 &&
       subFiltered.length === 0 &&
-      issuesFilter.hideSubIssues &&
+      issueFilter.hideSubIssues &&
       epicsLoaded,
   );
   // The blocked filter emptied the remainder the sub-issue filter left behind.
   let allHiddenByBlocked = $derived(
-    !allHiddenByAssignee &&
+    defaultEmptiedBy == null &&
       !allHiddenByActive &&
       !allHiddenBySubIssues &&
       subFiltered.length > 0 &&
       blockedFiltered.length === 0 &&
-      issuesFilter.hideBlocked,
+      issueFilter.hideBlocked,
   );
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
@@ -403,6 +408,7 @@
         keycap={filterKeycap}
         shortcut={filterShortcut}
         showMine={viewer != null}
+        isFork={filterCtx.isFork}
         authors={availableAuthors}
         labels={availableLabels}
         labelColors={labelColorsMap}
@@ -506,8 +512,8 @@
       {:else if issues.length === 0}
         <div class="muted">{m.common_no_open_issues()}</div>
       {:else}
-        {#if allHiddenByAssignee}
-          <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
+        {#if defaultEmptiedBy}
+          <div class="muted">{defaultFilterEmptyMessage(defaultEmptiedBy, issueFilter.scope)}</div>
         {:else if allHiddenByActive}
           <div class="muted">{m.issues_filter_all_in_progress()}</div>
         {:else if allHiddenBySubIssues}

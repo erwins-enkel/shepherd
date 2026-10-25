@@ -56,14 +56,22 @@ for (const [net, prefix] of [
   ["::", 128],
   ["::1", 128],
   ["64:ff9b::", 96],
+  ["64:ff9b:1::", 48], // local-use NAT64
   ["100::", 64],
+  ["2001::", 32], // Teredo
   ["2001:db8::", 32],
   ["2002::", 16],
   ["fc00::", 7],
   ["fe80::", 10],
+  ["fec0::", 10], // site-local (deprecated)
   ["ff00::", 8],
 ] as const)
   DENIED.addSubnet(net, prefix, "ipv6");
+// IPv4-compatible (`::/96`) and IPv4-mapped (`::ffff:0:0/96`) in a form `unmapV4` leaves alone
+// (hex). Kept apart: BlockList matches IPv4 lookups against these, which would deny every IPv4.
+const DENIED_V6_ONLY = new BlockList();
+DENIED_V6_ONLY.addSubnet("::", 96, "ipv6");
+DENIED_V6_ONLY.addSubnet("::ffff:0:0", 96, "ipv6");
 
 /** `::ffff:a.b.c.d` → `a.b.c.d`; other addresses unchanged. */
 function unmapV4(address: string): string {
@@ -76,7 +84,8 @@ export function isDeniedAddress(address: string): boolean {
   const a = unmapV4(address);
   const family = isIP(a);
   if (family === 0) return true;
-  return DENIED.check(a, family === 4 ? "ipv4" : "ipv6");
+  if (family === 4) return DENIED.check(a, "ipv4");
+  return DENIED.check(a, "ipv6") || DENIED_V6_ONLY.check(a, "ipv6");
 }
 
 /** Lowercase, strip `[]` and a trailing dot — the SOCKS host as Chromium sent it. */

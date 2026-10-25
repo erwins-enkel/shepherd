@@ -225,3 +225,42 @@ async fn upgrade_rejections_map_to_exit_codes() {
         assert_eq!(got, code, "{status}: {}", h.err.text());
     }
 }
+
+#[tokio::test]
+async fn reconnect_rechecks_the_listener_before_sending_a_profile_token() {
+    let (url, seen) = serve(None).await;
+    let mut h = Harness::new();
+    h.profile(&url, "shp_profile");
+    let foreign = h.foreign_when();
+    let mut io = h.io();
+    let task =
+        tokio::spawn(
+            async move { shepherd_cli::run(["shepherd", "events", "tail"], &mut io).await },
+        );
+    // The first connection's snapshot + frames; the server then closes it.
+    wait_for(&h, 4).await;
+    foreign.store(true, Ordering::SeqCst);
+    let code = tokio::time::timeout(Duration::from_secs(10), task)
+        .await
+        .expect("tail kept running")
+        .unwrap();
+    assert_eq!(code, 1, "{}", h.err.text());
+    assert!(h.err.text().contains("another user"), "{}", h.err.text());
+    assert_eq!(*seen.auth.lock().unwrap(), ["Bearer shp_profile"]);
+}
+
+#[tokio::test]
+async fn shepherd_token_is_exempt_from_the_listener_recheck() {
+    let (url, seen) = serve(None).await;
+    let mut h = Harness::new();
+    let foreign = h.foreign_when();
+    let mut io = h.io();
+    let task = tokio::spawn(async move {
+        shepherd_cli::run(["shepherd", "--url", &url, "events", "tail"], &mut io).await
+    });
+    wait_for(&h, 4).await;
+    foreign.store(true, Ordering::SeqCst);
+    wait_for(&h, 6).await;
+    task.abort();
+    assert_eq!(seen.connections.load(Ordering::SeqCst), 2);
+}

@@ -39,10 +39,14 @@ pub async fn run(ctx: &mut Ctx<'_>, cmd: UpNextCmd) -> Result<()> {
 /// Owns everything it needs, so the returned future does not borrow `ctx` (whose `Io` is not
 /// `Sync`) across an await.
 fn fetch_snapshot(ctx: &Ctx<'_>, op: Op) -> impl Future<Output = Result<UpNextSnapshot>> + use<> {
+    let guard = ctx.guard();
     let url = events_url(&ctx.target.url);
     let token = ctx.target.token.clone();
     let client = ctx.client.clone();
-    async move { snapshot_from(&client, &url?, token.as_deref(), op).await }
+    async move {
+        guard?;
+        snapshot_from(&client, &url?, token.as_deref(), op).await
+    }
 }
 
 async fn snapshot_from(

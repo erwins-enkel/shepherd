@@ -89,6 +89,10 @@ sent only to that profile's own URL. If `--url` or `SHEPHERD_URL` points somewhe
 withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authenticate there.
 On Linux, the CLI also withholds a stored token from a loopback URL when the process listening on
 that port belongs to another user, because any local account can bind a free loopback port.
+The check runs again before every new connection that would carry the stored token, so a server
+restart can't hand the port to someone else: `events tail` and `wait` stop with an error instead of
+reconnecting, and `login --token` refuses to send the token it is validating. A `SHEPHERD_TOKEN`
+token is exempt.
 
 `--profile <name>` picks a profile. Without it the CLI uses `default_profile`, and falls back to
 `default` when that isn't set.

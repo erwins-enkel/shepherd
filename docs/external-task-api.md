@@ -178,6 +178,17 @@ must reconnect with current rights. Idle sockets close at expiry, too. New HTTP
 requests use current grants; already authorized in-flight HTTP operations are not
 retroactively canceled. Invalid, expired or revoked tokens return `401`.
 
+Below **Full** scope, a token can only tighten the sandbox profile a task runs under,
+never loosen the repository's own (`trusted` < `standard` < `autonomous`). A create,
+held-task edit or held-task spawn is refused with `403`
+`{ "error": "sandbox_override_not_allowed" }` when its `sandboxProfile`, an explicit
+`agentProvider: "codex"` (which always runs `trusted`), or a `research`,
+`epicAuthoring` or `bootstrap` task on an `autonomous` repository (those run
+`standard`) would leave it weaker. A task sent to another machine cannot be compared
+with that machine's setting, so there it may only omit `sandboxProfile` or ask for
+`autonomous`, and may not use Codex or those task kinds. Full tokens and the operator
+may still loosen a single task.
+
 Repository grants limit the Shepherd API. They do not sandbox a running agent's OS
 permissions or remove host/Git credentials it already possesses. Keep
 `SHEPHERD_REPO_ROOT` and the agent environment appropriate for the work.

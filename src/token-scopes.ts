@@ -80,6 +80,9 @@ const READ_ROUTES: ReadonlySet<string> = new Set([
  * `/api/uploads` and `/api/issues` are here because Shepherd's own Capture extension needs them
  * alongside `POST /api/sessions` (see extension/src/lib/transport.ts). Without them the shipped
  * client would be forced to `full`, which is the over-privilege this issue exists to remove.
+ *
+ * Route-level only: what a create BODY may ask for is policed in server.ts. Below `full`, a
+ * spawn's sandbox profile may only be tightened, never loosened (`tokenProfileError`).
  */
 const SUBMIT_ROUTES: ReadonlySet<string> = new Set([
   "POST /api/sessions",

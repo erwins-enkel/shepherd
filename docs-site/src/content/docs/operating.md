@@ -88,7 +88,9 @@ covers every HTTP route plus the live `/events` and `/pty` WebSocket channels.
 Set it with `SHEPHERD_PASSWORD`; if you leave it unset, Shepherd generates a
 strong one on first boot and prints it to the log **once** (`systemctl --user
 status shepherd` / `journalctl --user -u shepherd`) — change it by setting
-`SHEPHERD_PASSWORD` in `~/.shepherd/env` and restarting.
+`SHEPHERD_PASSWORD` in `~/.shepherd/env` and restarting. A changed password
+rotates the cookie secret, so existing sessions are signed out (unless
+`SHEPHERD_COOKIE_SECRET` pins the secret).
 
 Per-deployment overrides (password, token, repo root, alternate hosts) go in
 `~/.shepherd/env` (`KEY=value` lines), read by the unit if present. See

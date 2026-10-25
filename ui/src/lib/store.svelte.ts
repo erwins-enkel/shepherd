@@ -60,6 +60,7 @@ import { machines } from "./machines.svelte";
 import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
 import { wakeMotionOn } from "./motion-settle";
 import { firstSafeHttpUrl } from "./url";
+import { basename } from "./basename";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -741,14 +742,21 @@ export class HerdStore {
         });
         return true;
       case "repo:untrusted-author":
-        toasts.info(m.toast_untrusted_author({ issue: ev.data.issue }), {
-          key: "untrusted-author-" + ev.data.repoPath + "-" + ev.data.issue,
-          alert: true,
-        });
+        toasts.info(
+          m.toast_untrusted_author({ repo: basename(ev.data.repoPath), issue: ev.data.issue }),
+          {
+            key: "untrusted-author-" + ev.data.repoPath + "-" + ev.data.issue,
+            alert: true,
+          },
+        );
         return true;
       case "repo:target-repo-unregistered":
         toasts.info(
-          m.toast_target_repo_unregistered({ issue: ev.data.issue, slug: ev.data.slug }),
+          m.toast_target_repo_unregistered({
+            repo: basename(ev.data.repoPath),
+            issue: ev.data.issue,
+            slug: ev.data.slug,
+          }),
           {
             key: "target-repo-unregistered-" + ev.data.repoPath + "-" + ev.data.issue,
             alert: true,

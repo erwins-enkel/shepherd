@@ -8,6 +8,7 @@ import type { GitState, HoldReason, PlanGate, Session } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { ReviewVerdict } from "#lib/types.js";
 import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
+import { clearDecommissioning, markDecommissioning } from "#lib/decommissioning.svelte.js";
 
 // Mock api so the reviews store's load() never fires real network calls, and so the
 // hold-row CTA's three fail-closed calls (releasePlanGate/reviewPlan/resumeQuota) are
@@ -972,6 +973,23 @@ describe("UnitRow fine-pointer decommission ✕", () => {
     expect(decommissioned).toBe("d1");
     // the ✕ sits above the row overlay as a sibling — the row select never fires
     expect(selects).toBe(0);
+  });
+});
+
+describe("UnitRow committing decommission", () => {
+  it("stays dimmed after the undo window while the commit runs, and un-dims when cleared", async () => {
+    const { container } = await render(UnitRow, {
+      session: session({ id: "dc1" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    const row = () => container.querySelector('[data-unit-id="dc1"]');
+    expect(row()?.classList.contains("decommissioning")).toBe(false);
+    markDecommissioning("dc1");
+    await expect.poll(() => row()?.classList.contains("decommissioning")).toBe(true);
+    clearDecommissioning("dc1");
+    await expect.poll(() => row()?.classList.contains("decommissioning")).toBe(false);
   });
 });
 

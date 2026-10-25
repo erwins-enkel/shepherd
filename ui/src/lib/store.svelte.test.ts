@@ -5,6 +5,7 @@ import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
 import { motionSettle } from "./motion-settle";
+import { isDecommissioning, markDecommissioning } from "./decommissioning.svelte";
 
 test("an older herdr snapshot cannot erase a repair in progress", () => {
   const store = new HerdStore();
@@ -1910,4 +1911,25 @@ test("upnext:changed dispatches an invalidation without changing other queues", 
   } finally {
     changed.mockRestore();
   }
+});
+
+test("archive and restore clear a committing decommission's dim (local + mirrored)", () => {
+  const s = new HerdStore();
+  s.setAll([session("dc1")]);
+  markDecommissioning("dc1");
+  s.apply({ event: "session:archived", data: { id: "dc1" } });
+  expect(isDecommissioning("dc1")).toBe(false);
+  // restore brings the SAME id back
+  markDecommissioning("dc1");
+  s.apply({ event: "session:new", data: session("dc1") });
+  expect(isDecommissioning("dc1")).toBe(false);
+  expect(s.byId("dc1")).toBeDefined();
+
+  s.apply({ event: "session:new", data: mirrored("dc2") });
+  markDecommissioning("dc2");
+  s.apply({
+    event: "session:archived",
+    data: { id: "dc2", host: HOST, connection: LIVE } as never,
+  });
+  expect(isDecommissioning("dc2")).toBe(false);
 });

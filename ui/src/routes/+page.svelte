@@ -187,6 +187,7 @@
   import { registerSW, onSelectSession } from "#lib/push.js";
   import { onLaunchLink, sessionIdFromLink } from "#lib/launch-link.js";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { clearDecommissioning, markDecommissioning } from "#lib/decommissioning.svelte.js";
   import { confirmBacklogQuickStart } from "#lib/backlog-quick-start.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
@@ -2848,10 +2849,13 @@
       onCommit: async () => {
         // server stops the agent, removes the worktree, emits session:archived
         // (store drops the row); a failure surfaces with a Retry that re-defers
-        // the same decommission, so the row never dead-ends.
+        // the same decommission, so the row never dead-ends. The row stays dimmed while the
+        // commit runs; the store clears the mark when session:archived drops it.
+        markDecommissioning(id);
         try {
           await commit.run();
         } catch (err) {
+          clearDecommissioning(id);
           // A refused merge confirmation (#2299) must NOT be retried as-is: the payload is bound
           // to a responsibility or revision the server has already rejected, so replaying it
           // 409s forever and the session could never be decommissioned at all. Re-open the PR

@@ -53,6 +53,7 @@
   import Stepper from "./Stepper.svelte";
   import { reviews, planGates } from "#lib/reviews.svelte.js";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { isDecommissioning } from "#lib/decommissioning.svelte.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { openBrowserPopout } from "#lib/browserView.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -721,8 +722,9 @@
   );
 
   // Decommission is deferred behind an undo window: while it's open, the row is
-  // doomed-but-still-present. Dim it so the operator sees it's on its way out.
-  const decommissioning = $derived(toasts.pendingUndo(session.id));
+  // doomed-but-still-present. Dim it so the operator sees it's on its way out — and keep it
+  // dimmed while the commit runs, until session:archived drops the row.
+  const decommissioning = $derived(toasts.pendingUndo(session.id) || isDecommissioning(session.id));
 
   // Right-click (desktop) / long-press (touch) opens a small action menu on the
   // card. Resume is the headline action for a session parked at a shell;

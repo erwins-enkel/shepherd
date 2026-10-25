@@ -1,4 +1,5 @@
 import { SvelteMap } from "svelte/reactivity";
+import { clearDecommissioning } from "./decommissioning.svelte";
 import type {
   TerminalClientInfo,
   Session,
@@ -564,6 +565,10 @@ export class HerdStore {
     if (ev.event === "remote:dispatch") return this.applyRemoteDispatch(ev.data);
     // A machine connected, dropped, was removed or re-synced: its chip in the herd follows (#3055).
     if (ev.event === "remote:sessions") void machines.refresh();
+    // A decommissioned row leaves in this same update, so it never shows un-dimmed; a restore
+    // brings the same id back via session:new, which must not inherit the dim (local + mirrored).
+    if (ev.event === "session:archived" || ev.event === "session:new")
+      clearDecommissioning(ev.data.id);
     const remote = reduceRemoteSessions(this.remoteSessions, ev);
     if (!remote) return this.applyLocal(ev);
     this.remoteSessions = remote;

@@ -28,6 +28,8 @@ import {
   type CodexRolloutResolver,
 } from "./codex-activity";
 import { checksCleared } from "./checks-gate";
+import { failingChecks } from "./ci-steer";
+import { isDefiniteConflict } from "./pr-conflict";
 import { stuckOnPrompt } from "./critic-stuck";
 import type { BlockShape } from "./blocked";
 import { isSpawnAlive, decideVerdictAction, STARTUP_GRACE_MS } from "./json-tolerant";
@@ -112,7 +114,12 @@ function reviewBases(
  *  the base — exactly like the critic's was. The critic can now ground a finding in that base code;
  *  without this note the agent receiving the finding would be unable to SEE the code it names (and
  *  would "fix" it against a tree that lacks it). So tell it where the base is. */
-function steerText(findings: string[], prNumber: number, epicBase: string | null): string {
+function steerText(
+  findings: string[],
+  prNumber: number,
+  epicBase: string | null,
+  ciFailure: string | null = null,
+): string {
   const lines = [
     "The PR critic reviewed your latest push. These are the BLOCKING points — address each in this PR:",
     "",
@@ -125,6 +132,15 @@ function steerText(findings: string[], prNumber: number, epicBase: string | null
     "The `Nits (non-blocking):` section of the posted review is OPTIONAL — it is not part of this list and does not need a fix or a reply.",
     "",
   ];
+  // #3426: CI failed on the same head the critic reviewed — one steer carries both, so the agent
+  // fixes them in a single push instead of a CI round and a review round.
+  if (ciFailure) {
+    lines.push(
+      `CI is ALSO failing on this head: ${ciFailure}. Read the logs with \`gh run view <run-id> --log-failed\` and fix that root cause in the same push.`,
+      "Don't watch the new run — Shepherd steers you when it finishes.",
+      "",
+    );
+  }
   if (epicBase) {
     lines.push(
       `NOTE: this PR is an epic child based on \`${epicBase}\`, and your branch has NOT been rebased onto it.`,
@@ -252,6 +268,9 @@ interface InFlight {
    *  single-line `readPaneTail()` shape. Backs the unchanged-buffer half of the stuck-pane test,
    *  so it must be the same shape the detector classifies. */
   lastVisible?: string | null;
+  /** #3426: set once finalize() has settled this run, BEFORE `onReviewing(false)` (which precedes
+   *  the entry's drop) — from then on the run no longer holds the head's CI-fix steer. */
+  ciReleased?: boolean;
   /** Set once the pane is confirmed wedged on an interactive prompt; drives the `blocked` cause. */
   stuckShape?: BlockShape | null;
   /** Raw bytes of the verdict file from the previous tick, recorded ONLY while it is unparseable.
@@ -357,6 +376,13 @@ export interface ReviewServiceDeps extends MembraneSeams {
   onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
   /** Fired when the operator holds (true) or releases (false) an in-flight critic run. */
   onHeld?: (id: string, held: boolean) => void;
+  /** True while the session's agent still runs a background shell (e.g. `git push` running
+   *  pre-push gates) although it reads idle — its turn isn't really over, so a pending-CI head
+   *  isn't reviewed yet. Omitted → never busy. */
+  isBackgroundBusy?: (id: string) => boolean;
+  /** #3426: a findings steer just carried this head's CI failure too (one combined steer), so
+   *  the CI-fix steerers must treat that head's red CI as delivered. */
+  onCiSteered?: (sessionId: string, headSha: string) => void;
   /**
    * Fired each tick a critic is still running, with its latest *meaningful* tool-use
    * summary (e.g. "$ git diff", "read review.ts") — surfaced live in the UI badge
@@ -455,20 +481,22 @@ export function isTerminalPr(git: GitState): boolean {
 
 /** Why consider() must not run a critic on this PR — and stop one already running.
  *  - "terminal" (#1790): the PR merged/closed → retire the critic. Checked BEFORE consider()'s
- *    open/green gate so every caller — the `session:git` subscription, the boot reconcile,
+ *    open gate so every caller — the `session:git` subscription, the boot reconcile,
  *    forceReview — reaches the cleanup by this one path.
  *  - "behind": the PR is about to be rebased (autopilot / the merge train steer it as soon as it
- *    shows behind), so reviewing this head is wasted spend. The head is never marked reviewed, so
- *    the rebased head is considered normally. Only when a rebase actor exists (rebaseActor) —
- *    otherwise nothing would rebase it and the critic keeps reviewing. `force` (the operator's
- *    re-review) bypasses it. */
+ *    shows behind, or as soon as it has a definite conflict), so reviewing this head is wasted
+ *    spend. The head is never marked reviewed, so the rebased head is considered normally. Only
+ *    when a rebase actor exists (rebaseActor) — otherwise nothing would rebase it and the critic
+ *    keeps reviewing. `force` (the operator's re-review) bypasses it. The conflict arm (#3426) used
+ *    to come free with the CI-green gate: no CI runs on a conflicting PR. */
 function holdReason(
   git: GitState,
   force: boolean,
   rebaseActor: () => boolean,
 ): "terminal" | "behind" | null {
   if (isTerminalPr(git)) return "terminal";
-  return !force && git.mergeStateStatus === "behind" && rebaseActor() ? "behind" : null;
+  const stale = git.mergeStateStatus === "behind" || isDefiniteConflict(git);
+  return !force && stale && rebaseActor() ? "behind" : null;
 }
 
 export class ReviewService extends ReviewerRuns<InFlight> {
@@ -549,8 +577,13 @@ export class ReviewService extends ReviewerRuns<InFlight> {
 
   /** Decide whether `git` warrants a fresh critic run for `session`, and start one. With
    *  `opts.force` (the operator's manual re-review via forceReview) the same-head dedup,
-   *  the spawn ceiling, and the patch-id churn-skip are bypassed — but the hard preconditions
-   *  (PR open + CI green + critic enabled + not already running) still gate. */
+   *  the spawn ceiling, the patch-id churn-skip and the push debounce are bypassed — but the hard
+   *  preconditions (PR open + critic enabled + not already running) still gate.
+   *
+   *  #3426: the critic reviews a new head in parallel with CI rather than after it goes green.
+   *  The debounce CI-green used to give for free (a second push mid-review discards the verdict
+   *  as superseded) is now the agent coming to rest: a head is reviewed once the task agent has
+   *  finished its turn — or, as the backstop for an agent that never rests, once CI clears. */
   async consider(
     session: Session,
     git: GitState,
@@ -561,15 +594,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // without yielding, or a concurrent forget() would land before it.
     const hold = holdReason(git, force, () => this.deps.rebasesWhenBehind?.(session) ?? false);
     if (hold) return this.applyHold(session, hold);
-    if (
-      git.state !== "open" ||
-      !checksCleared(git.checks, git.noCi ?? false) ||
-      !git.headSha ||
-      !git.number
-    )
-      return "skipped";
-    if (!session.branch) return "skipped";
-    if (!this.deps.store.getRepoConfig(session.repoPath).criticEnabled) return "skipped";
+    if (!this.reviewable(session, git, force)) return "skipped";
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const prior = this.deps.store.getReview(session.id);
     // Head already reviewed → skip. EXCEPT a spawn-abort row: the critic never ran (e.g. the pool
@@ -577,7 +602,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // still-cold pool aborts again pre-spawn) so the review self-heals once the pool warms.
     if (!force && this.headAlreadySettled(session.id, prior, git.headSha)) return "skipped";
     // Per-streak spawn ceiling: review token spend is unbounded otherwise (consider() would
-    // spawn a critic on every new CI-green head forever). Cap *findings-bearing* reviews per
+    // spawn a critic on every new head forever). Cap *findings-bearing* reviews per
     // outstanding-findings streak at 2*cap (the live cap, derived inline — a persisted
     // spawnCap field would be dead weight nothing reads). Bail BEFORE allocating the probe
     // worktree so even that is saved.
@@ -609,8 +634,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       // #2175: `git` is the poller's CACHED snapshot (up to a full idle sweep old), so a push can
       // have landed since it was taken — the critic would then review superseded code and steer a
       // findings round the author has already fixed. Re-read the live head and decline; the next
-      // poll picks the new head up normally (and that push reset CI to pending anyway, so the
-      // green-checks precondition has genuinely lapsed too). Deliberately INSIDE the claim: this
+      // poll picks the new head up normally. Deliberately INSIDE the claim: this
       // await must not open a window for a second consider()/forceReview() to reach begin().
       if (!(await this.beginCurrentReview(session, git, force))) return "skipped";
     } finally {
@@ -622,6 +646,27 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // this return, so the non-force churn-skip "error" is irrelevant there; it's authoritative
     // only for the manual/force path.
     return this.inflight.has(session.id) ? "started" : "error";
+  }
+
+  /** Hard preconditions + the push debounce: an open PR with a head and number, a branch, the
+   *  critic on, and — unless forced — CI cleared or the agent at rest. */
+  private reviewable(
+    session: Session,
+    git: GitState,
+    force: boolean,
+  ): git is GitState & { headSha: string; number: number } {
+    if (git.state !== "open" || !git.headSha || !git.number || !session.branch) return false;
+    if (!force && !checksCleared(git.checks, git.noCi ?? false) && !this.resting(session))
+      return false;
+    return this.deps.store.getRepoConfig(session.repoPath).criticEnabled;
+  }
+
+  /** The task agent has finished its turn: idle/done, with no background shell still running.
+   *  `blocked` is not rest — an answer can resume it into another push. */
+  private resting(s: Session): boolean {
+    return (
+      (s.status === "idle" || s.status === "done") && !(this.deps.isBackgroundBusy?.(s.id) ?? false)
+    );
   }
 
   private async applyHold(session: Session, hold: "terminal" | "behind"): Promise<ReviewOutcome> {
@@ -1006,7 +1051,8 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   }
 
   /** Operator-initiated (re)start of a critic review for `session`, bypassing the auto path's
-   *  same-head dedup, spawn ceiling, and patch-id churn-skip. Aborts a hung in-flight run first. */
+   *  same-head dedup, spawn ceiling, patch-id churn-skip and push debounce (CI state / agent at
+   *  rest, #3426). Aborts a hung in-flight run first. */
   async forceReview(session: Session, git: GitState): Promise<ReviewOutcome> {
     // 1. mid-spawn window: can't safely abort begin()'s async fetch; operator retries.
     if (this.starting.has(session.id)) return "skipped";
@@ -1015,8 +1061,10 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     if (f) {
       if (f.finalizing) return "skipped";
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
-      this.deps.onReviewing?.(session.id, false);
+      // Drop BEFORE signalling the end, like every other teardown: a CI steer held for this run
+      // re-evaluates on onReviewing(false) and must see the hold gone (#3426).
       this.dropInflight(session.id, f);
+      this.deps.onReviewing?.(session.id, false);
     }
     // 3. escalation/streak HYGIENE on the prior verdict (NOT the re-trigger lever — rebaseSkip's
     //    force bypass is): reset errorRound so finalize() doesn't immediately re-fire the
@@ -1124,7 +1172,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    *  the raw `+1` would overshoot into "round 4 of at most 3" on a stalled PR.
    *
    *  The floor is `streakReviews` — findings-bearing reviews on the CURRENT outstanding-findings
-   *  streak. It must NOT be a lifetime spawn count: a critic spawn fires per CI-green head, not per
+   *  streak. It must NOT be a lifetime spawn count: a critic spawn fires per pushed head, not per
    *  rework round, so on a healthy session that never entered a rework loop a lifetime count would
    *  climb with ordinary pushes and (at the default cap of 3) brief the 2nd review as "past the
    *  halfway point" and the 3rd as "budget spent" — muzzling contract, locale-parity and
@@ -1592,6 +1640,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
       // place every in-flight drop goes through, so no completion path can leak it.
     } finally {
+      // Before onReviewing(false): that event lands while the entry is still in `inflight` (tick()
+      // drops it after this returns), and the CI steer re-evaluates its held head on it.
+      f.ciReleased = true;
       this.deps.onReviewing?.(f.sessionId, false);
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
@@ -1677,14 +1728,14 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    * Bookkeeping for a transient critic *error* verdict (timeout / unparseable). Returns whether
    * the verdict should be persisted as session review state.
    *
-   * Critic spawn and PR merge both fire on CI-green, so they race: the critic can finish AFTER
-   * the merge is observable. An error on a PR that already merged/closed is moot — persisting it
-   * would flip a not-yet-decommissioned session to a stale REVIEW ERR badge until archive, and
-   * escalating it is noise (no merge left to gate). So suppress (return false) on a CONFIRMED
-   * terminal state only; fail OPEN on an unconfirmable state (no forge / fetch threw) so a genuine
-   * error on a still-open PR is never hidden by a failed recheck — at the cost of a residual
-   * transient REVIEW ERR if the PR did merge but the recheck couldn't see it (logged so the field
-   * cause is distinguishable; self-clears at archive).
+   * A critic run (started on push, #3426) can still be in flight when the PR merges, so the
+   * critic can finish AFTER the merge is observable. An error on a PR that already merged/closed
+   * is moot — persisting it would flip a not-yet-decommissioned session to a stale REVIEW ERR
+   * badge until archive, and escalating it is noise (no merge left to gate). So suppress (return
+   * false) on a CONFIRMED terminal state only; fail OPEN on an unconfirmable state (no forge /
+   * fetch threw) so a genuine error on a still-open PR is never hidden by a failed recheck — at
+   * the cost of a residual transient REVIEW ERR if the PR did merge but the recheck couldn't see
+   * it (logged so the field cause is distinguishable; self-clears at archive).
    */
   private async finalizeErrorVerdict(
     f: InFlight,
@@ -1752,10 +1803,10 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   }
 
   /**
-   * Emit a real verdict's outward effects, branching on the PR's LIVE state. Critic spawn and
-   * PR merge both fire on CI-green, so they race by construction: the critic can finish AFTER
-   * the PR merged/closed. `live` is finalize()'s live read (not the poller's cached snapshot, which
-   * can lag the merge by a full sweep).
+   * Emit a real verdict's outward effects, branching on the PR's LIVE state. A critic run can
+   * still be in flight when the PR merges (the CI-green backstop trigger even coincides with the
+   * merge gate), so the critic can finish AFTER the PR merged/closed. `live` is finalize()'s live
+   * read (not the poller's cached snapshot, which can lag the merge by a full sweep).
    *  - open   → full effects: post the review, steer findings to the agent, record the critic
    *             signal, set finalRoundPending. (Unchanged.)
    *  - merged → the critic lost the race. We can't request-changes on a merged PR, so when there
@@ -1800,7 +1851,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     } catch (err) {
       console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
     }
-    verdict.addressRound = await this.runAutoAddress(f, verdict); // reached only when the PR is open
+    verdict.addressRound = await this.runAutoAddress(f, verdict, live); // reached only when the PR is open
     // The cap-th steer was just delivered when the round ADVANCES into the cap
     // (priorRound < cap → addressRound === cap). The agent is now addressing that
     // final round → dimmed FINAL badge, not orange. A round HELD at the cap
@@ -1876,7 +1927,11 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     );
   }
 
-  private async runAutoAddress(f: InFlight, verdict: ReviewVerdict): Promise<number> {
+  private async runAutoAddress(
+    f: InFlight,
+    verdict: ReviewVerdict,
+    live: PrStatus | undefined,
+  ): Promise<number> {
     if (verdict.findings.length === 0) return 0; // clean → streak resets
     const enabled =
       !!this.deps.autoAddress && this.deps.store.getRepoConfig(f.repoPath).autoAddressEnabled;
@@ -1899,14 +1954,23 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       if (!task || !(await this.findingsCapacity(task, verdict.headSha, f.priorRound)))
         return f.priorRound;
     }
+    // #3426: CI red on the head this critic reviewed (finalize's live read) → the CI steerers held
+    // it for us; carry it in this one steer.
+    const ciRed = live?.headSha === f.headSha && live.checks === "failure";
     let delivered = false;
     try {
       delivered = await this.deps.autoAddress!(
         f.sessionId,
-        steerText(verdict.findings, f.prNumber, f.epicBase),
+        steerText(verdict.findings, f.prNumber, f.epicBase, ciRed ? failingChecks(live!) : null),
       );
     } catch (err) {
       console.warn(`[review] auto-address steer failed for ${f.sessionId}:`, err);
+    }
+    if (delivered && ciRed) {
+      console.log(
+        `[review] combined CI+findings steer ${f.sessionId} head=${f.headSha.slice(0, 7)}`,
+      );
+      this.deps.onCiSteered?.(f.sessionId, f.headSha);
     }
     return delivered ? f.priorRound + 1 : f.priorRound; // no progress if it didn't land
   }
@@ -2324,6 +2388,14 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   /** Session ids with a critic run currently in flight (for client bootstrap). */
   reviewingIds(): string[] {
     return [...this.inflight.keys()];
+  }
+
+  /** #3426: a critic run on exactly this head is in flight and not yet settled, so the CI-fix
+   *  steerers hold that head's red CI — finalize() folds it into the findings steer, or releases
+   *  it (clean / error) for the normal CI steer. The pre-spawn `starting` window is not held. */
+  ciSteerHeld(sessionId: string, headSha: string): boolean {
+    const f = this.inflight.get(sessionId);
+    return !!f && !f.ciReleased && f.headSha === headSha;
   }
 
   protected runDeps() {

@@ -26,7 +26,7 @@ Open the automation pane (the **⚙ automation** pill) and set:
 | ------------------- | ----------- | --- |
 | **Autopilot**       | **On**      | Drives each session through routine stops toward a PR instead of handing back to you. |
 | **Full-auto merge** | **On**      | The merge train lands each ready PR automatically. Turning it on forces **Draft mode off** (they are mutually exclusive). |
-| **Critic**          | **On**      | Auto code-review when CI goes green (on by default). Required for Auto-Address. |
+| **Critic**          | **On**      | Auto code-review of every push, in parallel with CI (on by default). Required for Auto-Address. |
 | **Auto-Address**    | **On**      | Feeds critic findings back to the agent automatically, so routine review comments don't need you. |
 | **Plan gate**       | **On** (keep) | Adversarial plan review before each session executes — see below. This is the seeded default; keep it. |
 | **Epic mode**       | **Auto**    | On the Epic panel, "auto" drains without asking. "Attended" waits for **Approve next** on every spawn. |
@@ -60,7 +60,7 @@ requires an isolated worktree, so that session waits for your Go regardless. For
 
 So Plan gate gives you an adversarial plan review on every session **for free**, without blocking a
 hands-off drain. Keep it on. If you want to skip plan review entirely, you *can* turn it off in the
-automation pane — you'll trade away that pre-execution check; Critic (post-CI code review) still
+automation pane — you'll trade away that pre-execution check; Critic (code review of every push) still
 runs regardless.
 
 ### Sign-off authority — leave it on "human"

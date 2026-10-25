@@ -1,5 +1,5 @@
 import type { EventHub } from "./events";
-import type { ChecksState, GitState } from "./forge/types";
+import type { ChecksState, GitState, PrStatus } from "./forge/types";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
@@ -16,6 +16,16 @@ export interface CiSteerDeps {
   /** The persisted PR cache at attach time (PrPoller.snapshot()). Without it the first post-restart
    *  transition of every session only primes and is never announced. */
   seed?: Record<string, GitState>;
+  /** #3426: a critic run on this head is in flight (ReviewService.ciSteerHeld). A red result is
+   *  held until it settles — its findings steer may carry the failure — and re-evaluated on the
+   *  `session:reviewing` false edge. Omitted → never held. */
+  criticReviewing?: (id: string, headSha: string) => boolean;
+}
+
+/** The handle attachCiSteer returns. */
+export interface CiSteerHandle {
+  /** #3426: the critic's findings steer carried this head's CI failure — treat it as announced. */
+  noteCriticSteered: (id: string, headSha: string) => void;
 }
 
 /** One check name as a short single line (names come from the repo's CI config). */
@@ -24,7 +34,9 @@ function cleanName(name: string): string {
   return flat.length > MAX_NAME_CHARS ? `${flat.slice(0, MAX_NAME_CHARS - 1)}…` : flat;
 }
 
-function failingChecks(git: GitState): string {
+/** The failing check names for a steer, or a pointer to `gh pr checks` without per-job data.
+ *  Also used by the critic's combined CI+findings steer (#3426), off its live PR read. */
+export function failingChecks(git: Pick<PrStatus, "jobs" | "number">): string {
   const names = (git.jobs ?? []).filter((j) => j.state === "failure").map((j) => cleanName(j.name));
   if (names.length === 0) {
     const pr = git.number === undefined ? "" : ` ${git.number}`;
@@ -86,43 +98,96 @@ function steerable(s: Session | null | undefined, git: GitState): s is Session {
  * announced `(headSha, checks)` pair — a rerun that flips red→green on the same head steers again. The
  * first sighting of a session only primes (a restart must not re-announce settled CI); `deps.seed`
  * pre-primes from the persisted cache so a transition right after a restart still fires. A red PR
- * under autopilot is skipped: autopilot's CI_FIX_STEER already acts on it.
+ * under autopilot is skipped: autopilot's CI_FIX_STEER already acts on it. A red PR whose head the
+ * critic is reviewing is held until that run settles (#3426): announced then, unless the critic's
+ * findings steer already carried it (noteCriticSteered).
  */
 export function attachCiSteer(
   events: EventHub,
   store: Pick<SessionStore, "get">,
   deps: CiSteerDeps,
-): void {
+): CiSteerHandle {
   const last = new Map<string, string>(
     Object.entries(deps.seed ?? {}).map(([id, git]) => [id, pairKey(git)]),
   );
   // Last pair actually announced: a rollup that flaps (pending again, a REST-fallback sample
   // without a head) and settles back on the same result must not announce it twice.
   const steered = new Map<string, string>();
-  events.subscribe((event, data) => {
-    if (event === "session:archived") {
-      const { id } = data as { id: string };
-      last.delete(id);
-      steered.delete(id);
-      return;
+  // Red sample held back while the critic reviews its head, re-evaluated when the run settles.
+  const deferred = new Map<string, GitState>();
+  // Head whose CI failure the critic's combined steer already delivered.
+  const criticSteered = new Map<string, string>();
+
+  const announce = (id: string, git: GitState, key: string) => {
+    const s = store.get(id);
+    if (!steerable(s, git)) return;
+    if (git.checks === "failure") {
+      if (deps.autopilotOn(s)) return;
+      if (criticSteered.get(id) === git.headSha) {
+        steered.set(id, key);
+        return;
+      }
+      if (deps.criticReviewing?.(id, git.headSha!)) {
+        deferred.set(id, git);
+        return;
+      }
     }
-    if (event !== "session:git") return;
-    const { id, git } = data as { id: string; git: GitState };
+    steered.set(id, key);
+    void deps
+      .reply(id, ciFinishedSteer(git))
+      .catch((err) => console.warn("[ci-steer] steer:", err));
+  };
+
+  const onArchived = (id: string) => {
+    last.delete(id);
+    steered.delete(id);
+    deferred.delete(id);
+    criticSteered.delete(id);
+  };
+
+  // The critic run settled: re-evaluate the red sample it held.
+  const onReviewing = (id: string, reviewing: boolean) => {
+    const held = deferred.get(id);
+    if (reviewing || !held) return;
+    deferred.delete(id);
+    const key = pairKey(held);
+    if (steered.get(id) !== key) announce(id, held, key);
+  };
+
+  const onGit = (id: string, git: GitState) => {
     const running = inFlight(git);
     const key = pairKey(git);
     const prev = last.get(id);
     last.set(id, key);
+    // A held red sample survives a resample of the same pair (e.g. a mergeability flip) — refreshed
+    // so the release names the latest jobs — and is dropped once the pair moves on.
+    const held = deferred.get(id);
+    if (held) {
+      if (pairKey(held) === key) deferred.set(id, git);
+      else deferred.delete(id);
+    }
     // Jobs seen running again are a real new attempt (a rerun on the same head): forget the last
     // announcement so a repeat red is announced. Samples without job data keep the suppression.
     if (running) steered.delete(id);
     if (prev === undefined || prev === key || steered.get(id) === key) return;
     if (!finished(git.checks) || running || !git.headSha) return;
-    const s = store.get(id);
-    if (!steerable(s, git)) return;
-    if (git.checks === "failure" && deps.autopilotOn(s)) return;
-    steered.set(id, key);
-    void deps
-      .reply(id, ciFinishedSteer(git))
-      .catch((err) => console.warn("[ci-steer] steer:", err));
+    announce(id, git, key);
+  };
+
+  events.subscribe((event, data) => {
+    if (event === "session:archived") onArchived((data as { id: string }).id);
+    else if (event === "session:reviewing") {
+      const { id, reviewing } = data as { id: string; reviewing: boolean };
+      onReviewing(id, reviewing);
+    } else if (event === "session:git") {
+      const { id, git } = data as { id: string; git: GitState };
+      onGit(id, git);
+    }
   });
+
+  return {
+    noteCriticSteered: (id, headSha) => {
+      criticSteered.set(id, headSha);
+    },
+  };
 }

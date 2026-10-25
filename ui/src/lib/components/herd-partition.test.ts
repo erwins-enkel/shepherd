@@ -373,6 +373,18 @@ test("reviewing wins over pending CI when both apply", () => {
   expect(reviewerRunning.map((s) => s.id)).toEqual(["x"]);
 });
 
+// #3426: the critic now runs in parallel with CI, so it also lands on a red PR.
+test("reviewing wins over failing CI when both apply", () => {
+  const list = [session("x")];
+  const { ciFailed, reviewerRunning } = partitionSessions(
+    list,
+    { x: git("open", "failure") },
+    () => true,
+  );
+  expect(ciFailed).toHaveLength(0);
+  expect(reviewerRunning.map((s) => s.id)).toEqual(["x"]);
+});
+
 test("merged and ready win over reviewing and pending CI", () => {
   const list = [session("m"), session("r", true)];
   const { ready, merged, ciRunning, reviewerRunning } = partitionSessions(

@@ -107,12 +107,13 @@ type CiSkipReason =
   | "not-delivered"
   | "no-capacity"
   | "working"
-  | "background-busy";
+  | "background-busy"
+  | "critic-reviewing";
 
 export const CI_FIX_STEER = [
-  "You're in autopilot and CI is failing on your open pull request. The critic won't review a",
-  "red PR, so this is on you: find the failing checks (`gh pr checks <n>` once, never `--watch`),",
-  "read their logs (`gh run view <run-id> --log-failed`), fix the root cause, then fetch origin,",
+  "You're in autopilot and CI is failing on your open pull request. Fix it: find the failing",
+  "checks (`gh pr checks <n>` once, never `--watch`), read their logs",
+  "(`gh run view <run-id> --log-failed`), fix the root cause, then fetch origin,",
   "rebase onto your PR's base branch (never merge it in) and push with --force-with-lease. Don't",
   "watch the new run — Shepherd tells you when CI finishes. Don't stop to ask — only surface if",
   "it's a genuine blocker you can't resolve, and then say exactly what you need.",
@@ -248,6 +249,10 @@ export interface AutopilotDeps {
    *  path treats it like running: the agent will resume on its own when the shell exits.
    *  Omitted → never busy. */
   isBackgroundBusy?: (id: string) => boolean;
+  /** #3426: a critic run on this head is in flight (ReviewService.ciSteerHeld). Its red CI is
+   *  held — the critic's findings steer carries it, or its settle releases it to the tick. Omitted
+   *  → never held. */
+  criticReviewing?: (id: string, headSha: string) => boolean;
   /** Kick a fresh PR-status poll (best-effort, fire-and-forget). Called when a session settles
    *  so the `hasPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
    *  agent just opened before autopilot redundantly steers it to open one. */
@@ -743,9 +748,10 @@ export class AutopilotService {
    *  1. PR-open transition (none/closed → open): hand off to the critic loop once (onPrOpen).
    *  2. Open PR with a DEFINITE CONFLICT on a resting non-full-auto session: steer the rebase now
    *     (nudgeConflict) instead of waiting for the next tick().
-   *  3. Open PR with FAILING CI: the dead zone — the critic only reviews a green PR and pre-PR
-   *     autopilot has stood down (a PR exists), so nobody steers a red PR. Drive the task agent
-   *     to fix its own CI. Replaces the old `if (open) onPrOpen` wiring in index.ts. */
+   *  3. Open PR with FAILING CI: pre-PR autopilot has stood down (a PR exists), so drive the task
+   *     agent to fix its own CI — unless the critic is reviewing that head (#3426): its findings
+   *     steer carries the failure, or its settle hands it back to tick(). Replaces the old
+   *     `if (open) onPrOpen` wiring in index.ts. */
   onGit(id: string, git: GitState): void {
     if (git.state !== "open") {
       // PR gone (none/merged/closed): drop the per-PR dedup so a future PR-open re-arms both
@@ -770,26 +776,31 @@ export class AutopilotService {
       if (git.checks !== "failure" && !s.autopilotPaused) this.onPrOpen(id);
     }
     this.nudgeConflict(s, git);
-    if (git.checks === "failure") {
-      if (
-        s.mergingSince !== null ||
-        s.autopilotPaused ||
-        this.pending.has(s.id) ||
-        !git.headSha ||
-        this.ciNudged.get(s.id) === git.headSha ||
-        this.ownedByRebaser(s, git)
-      )
-        return;
-      if (!this.deps.capacity) this.considerCi(s, git);
-      else
-        void this.deps
-          .capacity(s)
-          .then((ready) => {
-            if (ready) this.considerCi(this.deps.store.get(id) ?? s, git);
-            else this.skipCi(s, git, "no-capacity", false);
-          })
-          .catch((err) => console.warn("[autopilot] capacity:", err));
-    }
+    if (git.checks === "failure") this.edgeCiFix(s, git);
+  }
+
+  /** onGit's red-CI edge: the cheap stand-downs, then (capacity permitting) considerCi. */
+  private edgeCiFix(s: Session, git: GitState): void {
+    if (
+      s.mergingSince !== null ||
+      s.autopilotPaused ||
+      this.pending.has(s.id) ||
+      !git.headSha ||
+      this.ciNudged.get(s.id) === git.headSha ||
+      this.ownedByRebaser(s, git)
+    )
+      return;
+    // Before the capacity call: a held head must not record codex capacity demand.
+    if (this.criticHolds(s, git)) return void this.skipCi(s, git, "critic-reviewing", false);
+    if (!this.deps.capacity) this.considerCi(s, git);
+    else
+      void this.deps
+        .capacity(s)
+        .then((ready) => {
+          if (ready) this.considerCi(this.deps.store.get(s.id) ?? s, git);
+          else this.skipCi(s, git, "no-capacity", false);
+        })
+        .catch((err) => console.warn("[autopilot] capacity:", err));
   }
 
   /** A non-red sample on the head we last steered (a rerun of the failed jobs) re-arms the edge,
@@ -894,6 +905,9 @@ export class AutopilotService {
     if (this.deps.fullAuto(s.id) && git.mergeStateStatus === "behind") return skip("behind-defer");
     if (!git.headSha) return skip("no-head"); // can't dedup a headless rollup → skip rather than spam
     if (this.ciNudged.get(s.id) === git.headSha) return; // already nudged this exact red head
+    // Re-checked here: a critic may have started on this head during onGit's capacity wait.
+    // ciNudged stays unset so the head is still steerable once the hold lifts.
+    if (this.criticHolds(s, git)) return skip("critic-reviewing");
     if (s.autopilotStepCount >= this.stepCap) {
       skip("step-cap");
       this.pause(s, CI_CAP_MESSAGE); // runaway guard — stop thrashing CI, surface to operator
@@ -974,8 +988,11 @@ export class AutopilotService {
   }
 
   /** The shared tail of reEngageCi: hand back at the step cap, else count the attempt and steer
-   *  CI_FIX_STEER. Always owns the session (returns true). */
+   *  CI_FIX_STEER. Always owns the session (returns true). While the critic reviews this head
+   *  (#3426) it claims without acting — no steer, bump or pause — so onDone still skips classify;
+   *  the first tick after the critic settles steers normally. */
   private steerCiFix(s: Session, git: GitState): boolean {
+    if (this.criticHolds(s, git)) return this.skipCi(s, git, "critic-reviewing", true);
     // Cap check BEFORE any bump/steer: at the budget, hand back instead of thrashing CI.
     if (s.autopilotStepCount >= this.stepCap) {
       this.skipCi(s, git, "step-cap", true);
@@ -1011,6 +1028,20 @@ export class AutopilotService {
   private redPr(id: string): GitState | null {
     const git = this.deps.prGit(id);
     return git?.state === "open" && git.checks === "failure" ? git : null;
+  }
+
+  /** #3426: a critic run on this exact head is in flight, so its red CI is the critic's to carry. */
+  private criticHolds(s: Session, git: GitState): boolean {
+    return !!git.headSha && (this.deps.criticReviewing?.(s.id, git.headSha) ?? false);
+  }
+
+  /** #3426: the critic's findings steer carried this head's CI failure. Count it as this head's
+   *  CI-fix steer: the onGit edge won't repeat it, and it spends one attempt of the step budget. */
+  noteCiSteered(id: string, headSha: string): void {
+    const s = this.deps.store.get(id);
+    if (!s || !this.enabled(s) || s.autopilotPaused || s.autopilotComplete) return;
+    this.ciNudged.set(id, headSha);
+    this.bump(s);
   }
 
   /** Log why an open+red PR was NOT steered — once per (session, head, reason), so a session left
@@ -1133,9 +1164,9 @@ export class AutopilotService {
    *  train once rebased; it is not evidence the train is STILL willing — rebaseEligible can go
    *  false after a counted rebase (changes_requested / error / a verdict on a newer head), and a
    *  count-based stand-down would then claim the session while nothing acted on it: no train
-   *  rebase, no CI-fix steer, no critic run (consider() needs green CI) and no cap march. The
-   *  timestamp self-releases instead — the train refreshes it on every re-steer while it stays
-   *  eligible, and it goes stale the moment the train stops.
+   *  rebase, no CI-fix steer, no critic run (held while a rebase actor owns the PR) and no cap
+   *  march. The timestamp self-releases instead — the train refreshes it on every re-steer while
+   *  it stays eligible, and it goes stale the moment the train stops.
    *
    *  The working arm (running/blocked/background-busy) covers the gap in between: the train's own
    *  busy gate silences it for the whole resolution, which can outlast OWNERSHIP_TTL_MS, and considerCi (event-driven) has no busy
@@ -1179,8 +1210,8 @@ export class AutopilotService {
   /** Review gate for a rebase steer. Critic off → nothing to wait for.
    *
    *  BEHIND or a DEFINITE CONFLICT (rebaseUrgent): "a verdict must exist" is waived, and a verdict
-   *  on an OLDER head counts as no verdict — the critic is held while the PR is behind (review.ts)
-   *  and can't run on a conflict (no CI), so waiting for one only delays the rebase or wedges it.
+   *  on an OLDER head counts as no verdict — the critic is held while the PR is behind or
+   *  conflicting (review.ts), so waiting for one only delays the rebase or wedges it.
    *  For a CURRENT-head verdict changes_requested / error / zero-findings all still apply: fix
    *  first, then rebase. Zero-findings in particular keeps runAutoAddress off the same idle pane.
    *
@@ -1190,9 +1221,9 @@ export class AutopilotService {
     if (!this.deps.store.getRepoConfig(s.repoPath).criticEnabled) return true;
     const review = this.deps.getReview(s.id);
     if (rebaseUrgent(git)) {
-      // Waive "a verdict must exist" — on a conflict one can never arrive (no CI → review.ts's
-      // consider() skips), and on a behind PR review.ts holds the critic. For the same reason a
-      // verdict on an OLDER head counts as none: it can never be refreshed, and its findings were already steered once at publish (runAutoAddress
+      // Waive "a verdict must exist" — on a behind or conflicting PR review.ts holds the critic,
+      // so one can never arrive. For the same reason a verdict on an OLDER head counts as none:
+      // it can never be refreshed, and its findings were already steered once at publish (runAutoAddress
       // fires per verdict), which is why the head moved. Without this, changes_requested → fix
       // push → base moves wedged the session forever (TASK-2435).
       // A spawn-aborted error is no verdict either: the critic never ran, and while the PR is
@@ -1237,11 +1268,15 @@ export class AutopilotService {
     if (this.deps.fullAuto(s.id)) {
       const git = this.deps.prGit(s.id);
       return (
-        !!git && git.state === "open" && git.checks === "failure" && !this.ownedByRebaser(s, git)
+        !!git &&
+        git.state === "open" &&
+        git.checks === "failure" &&
+        !this.ownedByRebaser(s, git) &&
+        !this.criticHolds(s, git)
       );
     }
     const red = this.redPr(s.id);
-    if (red && !this.ownedByRebaser(s, red)) return true;
+    if (red && !this.ownedByRebaser(s, red) && !this.criticHolds(s, red)) return true;
     const git = this.rebaseCandidate(s);
     return !!git && (git.mergeStateStatus === "behind" || isDefiniteConflict(git));
   }

@@ -128,6 +128,8 @@ function harness(opts: {
   toolUseSince?: () => boolean | null;
   /** The isBackgroundBusy dep (resting with a background shell still running); omit = unset. */
   backgroundBusy?: () => boolean;
+  /** The criticReviewing dep (#3426: a critic run holds this head's CI steer); omit = unset. */
+  criticReviewing?: (id: string, headSha: string) => boolean;
 }) {
   let cur = opts.session;
   let prOpen = opts.openPr ?? false;
@@ -236,6 +238,7 @@ function harness(opts: {
     stepCap: 10,
     toolUseSince: opts.toolUseSince,
     isBackgroundBusy: opts.backgroundBusy,
+    criticReviewing: opts.criticReviewing,
     rebaseCap: opts.rebaseCap ?? 5,
     now: () => opts.now ?? 0,
   });
@@ -1087,6 +1090,132 @@ test("eligible() drives an ISOLATED codex session normally (positive control)", 
 // for an UNCHANGED red head, so an idle full-auto agent sitting on the same red PR is reached
 // by NOBODY there. The recurring tick() owns that case — it reads the cached PR (prGit) directly,
 // re-engages each idle poll, and ultimately caps + hands back.
+
+// ── #3426: the critic reviewing a red head holds its CI-fix steer ─────────────────────────────
+
+test("onGit: red CI on the head the critic reviews → no CI-fix steer; steers once the hold lifts", async () => {
+  const critic = { head: "sha1" as string | null };
+  const h = harness({
+    session: sess({ status: "running" }),
+    repoEnabled: true,
+    criticReviewing: (_id, sha) => critic.head === sha,
+  });
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+  // ciNudged stayed unset: a later edge on the same head steers once nothing holds it.
+  critic.head = null;
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(1);
+});
+
+test("onGit: a critic on ANOTHER head does not hold this head's CI-fix steer", async () => {
+  const h = harness({
+    session: sess({ status: "running" }),
+    repoEnabled: true,
+    criticReviewing: (_id, sha) => sha === "older",
+  });
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("tick: held red head → claims without steer, bump or pause; steers after the hold lifts", async () => {
+  const critic = { head: "sha1" as string | null };
+  const h = harness({
+    session: sess({ status: "done", autopilotStepCount: 10 }), // at the cap: still no pause while held
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    criticReviewing: (_id, sha) => critic.head === sha,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => "steer" in e || "pause" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(10);
+  expect(h.state().autopilotPaused).toBe(false);
+  critic.head = null;
+  await h.svc.tick();
+  await flush();
+  expect(h.state().autopilotPaused).toBe(true); // cap reached → normal hand-back once released
+});
+
+test("tick: held red head on a non-full-auto session → no steer; steers after the hold lifts", async () => {
+  const critic = { head: "sha1" as string | null };
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    prGit: git(),
+    criticReviewing: (_id, sha) => critic.head === sha,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  critic.head = null;
+  await h.svc.tick();
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(1);
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("onDone: held red head is claimed (no classify, no steer)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    openPr: true,
+    prGit: git(),
+    criticReviewing: () => true,
+  });
+  await h.svc.onDone("s1");
+  await flush();
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("held red head records no capacity demand", async () => {
+  let asked = 0;
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    criticReviewing: () => true,
+    capacity: async () => {
+      asked++;
+      return true;
+    },
+  });
+  await h.svc.tick();
+  h.svc.onGit("s1", git());
+  await flush();
+  expect(asked).toBe(0);
+});
+
+test("noteCiSteered: counts one CI-fix attempt and the onGit edge doesn't repeat it", async () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.noteCiSteered("s1", "sha1");
+  expect(h.state().autopilotStepCount).toBe(1);
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("noteCiSteered: no-op when autopilot is off or the session is handed back", () => {
+  const off = harness({ session: sess({ autopilotEnabled: null }), repoEnabled: false });
+  off.svc.noteCiSteered("s1", "sha1");
+  expect(off.state().autopilotStepCount).toBe(0);
+  const paused = harness({ session: sess({ autopilotPaused: true }), repoEnabled: true });
+  paused.svc.noteCiSteered("s1", "sha1");
+  expect(paused.state().autopilotStepCount).toBe(0);
+});
+
+test("CI_FIX_STEER no longer claims the critic skips a red PR", () => {
+  expect(CI_FIX_STEER).not.toContain("won't review");
+});
 
 /** A stuck-red full-auto idle session: autopilot on, full-auto, cached open+red PR. */
 function stuckRed(over: Partial<Session> = {}) {

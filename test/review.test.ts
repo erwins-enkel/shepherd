@@ -1070,12 +1070,100 @@ test("skips when repo critic disabled", () => {
   expect(started).toHaveLength(0);
 });
 
-test("skips when CI not green / PR not open", () => {
+test("skips when CI not green while the agent is still working / PR not open", () => {
   const { deps: d, started } = makeDeps({});
   const svc = new ReviewService(d as any);
   svc.consider(session(), { ...OPEN_GREEN, checks: "pending" });
-  svc.consider(session(), { ...OPEN_GREEN, state: "merged" });
+  svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, state: "merged" });
   expect(started).toHaveLength(0);
+});
+
+// ── #3426: the critic starts on push, in parallel with CI ────────────────────────────────────
+describe("push trigger (#3426)", () => {
+  const PENDING: GitState = { ...OPEN_GREEN, checks: "pending" };
+
+  test("pending CI + agent idle → reviews", async () => {
+    const { deps: d, started } = makeDeps({});
+    expect(await new ReviewService(d as any).consider(session({ status: "idle" }), PENDING)).toBe(
+      "started",
+    );
+    expect(started).toHaveLength(1);
+  });
+
+  test("pending CI + agent done → reviews", async () => {
+    const { deps: d, started } = makeDeps({});
+    await new ReviewService(d as any).consider(session({ status: "done" }), PENDING);
+    expect(started).toHaveLength(1);
+  });
+
+  test("red CI + agent idle → reviews (findings ride the combined steer)", async () => {
+    const { deps: d, started } = makeDeps({});
+    await new ReviewService(d as any).consider(session({ status: "idle" }), {
+      ...OPEN_GREEN,
+      checks: "failure",
+    });
+    expect(started).toHaveLength(1);
+  });
+
+  test("pending CI + agent running → skipped (a second push may follow)", async () => {
+    const { deps: d, started } = makeDeps({});
+    expect(await new ReviewService(d as any).consider(session(), PENDING)).toBe("skipped");
+    expect(started).toHaveLength(0);
+  });
+
+  test("pending CI + agent blocked → skipped (an answer can resume it into another push)", async () => {
+    const { deps: d, started } = makeDeps({});
+    await new ReviewService(d as any).consider(session({ status: "blocked" }), PENDING);
+    expect(started).toHaveLength(0);
+  });
+
+  test("pending CI + idle but a background shell still runs → skipped", async () => {
+    const { deps: d, started } = makeDeps({ isBackgroundBusy: () => true });
+    await new ReviewService(d as any).consider(session({ status: "idle" }), PENDING);
+    expect(started).toHaveLength(0);
+  });
+
+  test("green CI + agent running → reviews (the CI-cleared backstop)", async () => {
+    const { deps: d, started } = makeDeps({});
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    expect(started).toHaveLength(1);
+  });
+
+  test("a second push before the agent rests starts no critic for the first head", async () => {
+    const { deps: d, started, atHead } = makeDeps({});
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), { ...atHead("h1"), checks: "pending" });
+    await svc.consider(session(), { ...atHead("h2"), checks: "pending" });
+    expect(started).toHaveLength(0);
+    // The agent comes to rest on h2 — only h2 is reviewed.
+    await svc.consider(session({ status: "idle" }), { ...atHead("h2"), checks: "pending" });
+    expect(started).toHaveLength(1);
+    expect(svc.ciSteerHeld("s1", "h2")).toBe(true);
+    expect(svc.ciSteerHeld("s1", "h1")).toBe(false);
+  });
+
+  test("definite conflict + rebase actor → held like behind", async () => {
+    const { deps: d, started } = makeDeps({ rebasesWhenBehind: () => true });
+    const outcome = await new ReviewService(d as any).consider(session({ status: "idle" }), {
+      ...OPEN_GREEN,
+      checks: "none",
+      mergeStateStatus: "dirty",
+      mergeable: false,
+    });
+    expect(outcome).toBe("skipped");
+    expect(started).toHaveLength(0);
+  });
+
+  test("definite conflict without a rebase actor → reviews once the agent rests", async () => {
+    const { deps: d, started } = makeDeps({ rebasesWhenBehind: () => false });
+    await new ReviewService(d as any).consider(session({ status: "idle" }), {
+      ...OPEN_GREEN,
+      checks: "none",
+      mergeStateStatus: "dirty",
+      mergeable: false,
+    });
+    expect(started).toHaveLength(1);
+  });
 });
 
 test("no-CI repo (noCi + checks:none) → reviews", async () => {
@@ -1227,6 +1315,127 @@ test("critic exits before the deadline → diagnostic says exited, not timed out
 // One pure function feeds BOTH the server log (`detail`) and the operator-facing badge (`code`),
 // so the two can never disagree about why a review failed. The three pre-existing detail strings
 // are asserted verbatim: they are what an operator greps for in shepherd.log.
+describe("combined CI + findings steer (#3426)", () => {
+  const FINDINGS = () => ({
+    decision: "request-changes",
+    summary: "x",
+    body: "b",
+    findings: ["src/a.ts: fix the bug"],
+  });
+  const RED_LIVE = {
+    ...OPEN_GREEN,
+    checks: "failure",
+    jobs: [
+      { name: "verify / test", state: "failure" },
+      { name: "lint", state: "success" },
+    ],
+  } as PrStatus;
+
+  function run(
+    live: PrStatus,
+    opts: {
+      readVerdict?: () => any;
+      autoAddressReturns?: boolean;
+      autoAddressEnabled?: boolean;
+    } = {},
+  ) {
+    const ciSteered: { id: string; sha: string }[] = [];
+    const h = makeDeps(
+      {
+        readVerdict: opts.readVerdict ?? FINDINGS,
+        onCiSteered: (id: string, sha: string) => ciSteered.push({ id, sha }),
+      },
+      {
+        autoAddressEnabled: opts.autoAddressEnabled ?? true,
+        autoAddressReturns: opts.autoAddressReturns,
+        prStatus: async () => live,
+      },
+    );
+    return { ...h, ciSteered, svc: new ReviewService(h.deps as any) };
+  }
+
+  test("findings + live CI red on the same head → ONE steer with both; onCiSteered once", async () => {
+    const { svc, steers, ciSteered, reviews } = run(RED_LIVE);
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "pending" });
+    expect(svc.ciSteerHeld("s1", "abc")).toBe(true);
+    await svc.tick();
+    expect(steers).toHaveLength(1);
+    expect(steers[0]!.text).toContain("src/a.ts: fix the bug");
+    expect(steers[0]!.text).toContain("CI is ALSO failing on this head: verify / test.");
+    expect(steers[0]!.text).not.toContain("lint");
+    expect(ciSteered).toEqual([{ id: "s1", sha: "abc" }]);
+    expect(reviews["s1"]?.addressRound).toBe(1);
+    expect(svc.ciSteerHeld("s1", "abc")).toBe(false);
+  });
+
+  test("findings + live CI pending → plain findings steer, no onCiSteered", async () => {
+    const { svc, steers, ciSteered } = run({ ...OPEN_GREEN, checks: "pending" } as PrStatus);
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "pending" });
+    await svc.tick();
+    expect(steers).toHaveLength(1);
+    expect(steers[0]!.text).not.toContain("CI is ALSO failing");
+    expect(ciSteered).toEqual([]);
+  });
+
+  test("clean verdict on a red head → no steer, no onCiSteered (the CI steer is released)", async () => {
+    const { svc, steers, ciSteered } = run(RED_LIVE, {
+      readVerdict: () => ({ decision: "approve", summary: "ok", body: "b", findings: [] }),
+    });
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "failure" });
+    await svc.tick();
+    expect(steers).toHaveLength(0);
+    expect(ciSteered).toEqual([]);
+    expect(svc.ciSteerHeld("s1", "abc")).toBe(false);
+  });
+
+  test("findings steer not delivered → no onCiSteered", async () => {
+    const { svc, ciSteered } = run(RED_LIVE, { autoAddressReturns: false });
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "failure" });
+    await svc.tick();
+    expect(ciSteered).toEqual([]);
+  });
+
+  test("auto-address off → no steer, no onCiSteered", async () => {
+    const { svc, steers, ciSteered } = run(RED_LIVE, { autoAddressEnabled: false });
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "failure" });
+    await svc.tick();
+    expect(steers).toHaveLength(0);
+    expect(ciSteered).toEqual([]);
+  });
+
+  test("ciSteerHeld is released before onReviewing(false) fires", async () => {
+    const seen: boolean[] = [];
+    const ref: { svc?: ReviewService } = {};
+    const h = makeDeps(
+      {
+        readVerdict: FINDINGS,
+        onReviewing: (id: string, reviewing: boolean) => {
+          if (!reviewing) seen.push(ref.svc!.ciSteerHeld(id, "abc"));
+        },
+      },
+      { autoAddressEnabled: true },
+    );
+    const svc = (ref.svc = new ReviewService(h.deps as any));
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "pending" });
+    await svc.tick();
+    expect(seen).toEqual([false]);
+  });
+
+  test("forceReview over an in-flight run drops it before signalling its end", async () => {
+    const seen: boolean[] = [];
+    const ref: { svc?: ReviewService } = {};
+    const h = makeDeps({
+      onReviewing: (id: string, reviewing: boolean) => {
+        if (!reviewing) seen.push(ref.svc!.ciSteerHeld(id, "abc"));
+      },
+    });
+    const svc = (ref.svc = new ReviewService(h.deps as any));
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "pending" });
+    await svc.forceReview(session(), OPEN_GREEN);
+    expect(seen).toEqual([false]);
+  });
+});
+
 describe("noVerdictCause", () => {
   const absent = { status: "absent" } as const;
   const unparseable = { status: "unparseable", raw: "{oops" } as const;
@@ -3557,11 +3766,11 @@ test("forceReview: mid-spawn (starting) → skipped", async () => {
   expect(started).toHaveLength(0);
 });
 
-test("forceReview: preconditions still gate → skipped (CI not green)", async () => {
+test("forceReview: bypasses the CI + resting gates (#3426) → started on pending CI, agent running", async () => {
   const { deps: d, started } = makeDeps({});
   const svc = new ReviewService(d as any);
-  expect(await svc.forceReview(session(), { ...OPEN_GREEN, checks: "pending" })).toBe("skipped");
-  expect(started).toHaveLength(0);
+  expect(await svc.forceReview(session(), { ...OPEN_GREEN, checks: "pending" })).toBe("started");
+  expect(started).toHaveLength(1);
 });
 
 test("forceReview: preconditions still gate → skipped (PR not open)", async () => {

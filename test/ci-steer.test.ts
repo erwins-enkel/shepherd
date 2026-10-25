@@ -21,19 +21,26 @@ function harness(
   s: Session | null = session(),
   autopilot = false,
   seed?: Record<string, GitState>,
+  critic: { head: string | null } = { head: null },
 ) {
   const events = new EventHub();
   const sent: string[] = [];
-  attachCiSteer(events, { get: () => s ?? undefined } as never, {
+  const handle = attachCiSteer(events, { get: () => s ?? undefined } as never, {
     reply: async (_id, text) => {
       sent.push(text);
       return true;
     },
     autopilotOn: () => autopilot,
     seed,
+    criticReviewing: (_id, headSha) => critic.head === headSha,
   });
   const emit = (g: GitState) => events.emit("session:git", { id: "s1", git: g });
-  return { events, sent, emit };
+  /** The critic run settles: the hold lifts, then `session:reviewing` false fires. */
+  const settle = () => {
+    critic.head = null;
+    events.emit("session:reviewing", { id: "s1", reviewing: false });
+  };
+  return { events, sent, emit, handle, settle };
 }
 
 describe("ciFinishedSteer", () => {
@@ -186,6 +193,79 @@ describe("attachCiSteer", () => {
     h.emit(git("pending"));
     h.events.emit("session:archived", { id: "s1" });
     h.emit(git("success")); // first sighting again → primes only
+    await Promise.resolve();
+    expect(h.sent).toEqual([]);
+  });
+});
+
+describe("attachCiSteer critic hold (#3426)", () => {
+  it("holds a red result while the critic reviews its head, announces it once the run settles", async () => {
+    const h = harness(session(), false, undefined, { head: "abcdef1234" });
+    h.emit(git("pending"));
+    h.emit(git("failure"));
+    await Promise.resolve();
+    expect(h.sent).toEqual([]);
+    h.settle();
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("failed");
+  });
+
+  it("skips the red result the critic's combined steer already carried", async () => {
+    const h = harness(session(), false, undefined, { head: "abcdef1234" });
+    h.emit(git("pending"));
+    h.emit(git("failure"));
+    h.handle.noteCriticSteered("s1", "abcdef1234");
+    h.settle();
+    h.emit(git("failure", "abcdef1234", { mergeable: true })); // same pair resampled
+    await Promise.resolve();
+    expect(h.sent).toEqual([]);
+  });
+
+  it("a same-pair resample during the run keeps the held result", async () => {
+    const h = harness(session(), false, undefined, { head: "abcdef1234" });
+    h.emit(git("pending"));
+    h.emit(git("failure"));
+    h.emit(git("failure", "abcdef1234", { mergeable: false })); // e.g. a mergeability flip
+    h.settle();
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("failed");
+  });
+
+  it("a different pair (new head) drops the held result — release announces nothing for the old head", async () => {
+    const critic = { head: "abcdef1234" as string | null };
+    const h = harness(session(), false, undefined, critic);
+    h.emit(git("pending"));
+    h.emit(git("failure"));
+    h.emit(git("pending", "newhead"));
+    h.settle();
+    await Promise.resolve();
+    expect(h.sent).toEqual([]);
+  });
+
+  it("a red result on another head than the critic's is announced normally", async () => {
+    const h = harness(session(), false, undefined, { head: "other" });
+    h.emit(git("pending"));
+    h.emit(git("failure"));
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("never holds a green result", async () => {
+    const h = harness(session(), false, undefined, { head: "abcdef1234" });
+    h.emit(git("pending"));
+    h.emit(git("success"));
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("all checks passed");
+  });
+
+  it("a reviewing:true edge does not release the held result", async () => {
+    const h = harness(session(), false, undefined, { head: "abcdef1234" });
+    h.emit(git("pending"));
+    h.emit(git("failure"));
+    h.events.emit("session:reviewing", { id: "s1", reviewing: true });
     await Promise.resolve();
     expect(h.sent).toEqual([]);
   });

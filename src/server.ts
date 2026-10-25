@@ -5789,8 +5789,8 @@ async function handleSessionReviewCancel({ req, parts, deps }: Ctx): Promise<Res
 // POST /api/sessions/:id/review-pr — operator-initiated (re)start of the critic review.
 // 404 unknown id; 404 when the repo has no forge; 502 on a forge error; 202 with
 // {status} = "started" | "skipped" | "error" so the UI can explain the outcome (fail-closed:
-// "skipped"/"error" must never read as success). forceReview itself enforces the CI-green /
-// open / critic-enabled / not-already-running preconditions and returns "skipped" when unmet.
+// "skipped"/"error" must never read as success). forceReview itself enforces the open /
+// critic-enabled / not-already-running preconditions and returns "skipped" when unmet.
 async function handleSessionReviewPr({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "review-pr")) return null;
   const s = deps.store.get(parts[2]);

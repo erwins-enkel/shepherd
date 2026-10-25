@@ -1115,6 +1115,10 @@
 "native_ios_terminal_reply" = "Antworten";
 "native_ios_terminal_submit_draft" = "Terminal-Eingabe absenden (Enter)";
 "native_ios_terminal_superseded_body" = "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät.";
+"native_ios_upnext_filter_button" = "Filter · %1$@";
+"native_ios_upnext_filter_done" = "Fertig";
+"native_ios_upnext_filter_footer" = "Gilt auch für Backlog und Neue Aufgabe. Auf dem Server gespeichert, auf jedem Gerät gleich.";
+"native_ios_upnext_filter_mixed" = "Gemischt";
 "native_ios_usage_warning" = "%1$@ · %2$@: %3$@%% verbraucht";
 "native_ios_usage_warning_reset" = "%1$@ · %2$@: %3$@%% verbraucht · Reset %4$@";
 "native_ios_welcome_subtitle" = "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen.";

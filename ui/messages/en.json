@@ -7157,5 +7157,9 @@
   "upnext_filter_repo_overrides": "Per-repo exceptions →",
   "upnext_filter_empty_by_repo": "{count} by per-repo exceptions",
   "feat_repo_issue_filter_overrides_title": "Per-repo exceptions to the issue filter",
-  "feat_repo_issue_filter_overrides_body": "Give a single repo its own rule — all issues, mine & unassigned, only mine, or hidden — instead of the default issue filter. Set it under Settings › Workspace › Per-repo exceptions; Up Next, Backlog and New Task follow."
+  "feat_repo_issue_filter_overrides_body": "Give a single repo its own rule — all issues, mine & unassigned, only mine, or hidden — instead of the default issue filter. Set it under Settings › Workspace › Per-repo exceptions; Up Next, Backlog and New Task follow.",
+  "native_ios_upnext_filter_button": "Filter · {count}",
+  "native_ios_upnext_filter_done": "Done",
+  "native_ios_upnext_filter_footer": "Also applies to Backlog and New Task. Saved on the server, the same on every device.",
+  "native_ios_upnext_filter_mixed": "Mixed"
 }

@@ -81,11 +81,15 @@ struct IOSMergedNextRows: View {
     let repos: Set<String>
     @State private var sort: UpNextSort = .newest
     @State private var expanded: Set<String> = []
+    @State private var filterOpen = false
     var body: some View {
+        // Every connected server's own setting; the sheet writes to all of them.
+        let filter = IOSUpNextFilter.of(hub.connected)
         let sources = hub.connected.compactMap { app -> IOSMergedQueuePresentation.Source? in
             app.activeProfile.map { .init(profile: $0, snapshot: app.extension(QueuesModel.self)?.upNext) }
         }
         let groups = IOSMergedQueuePresentation.groups(sources, sort: sort, repos: repos)
+        IOSUpNextFilterHeader(filter: filter, repos: repos, open: $filterOpen)
         Picker(L.t("upnext_sort_aria"), selection: $sort) {
             ForEach(UpNextSort.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
         }.sessionFont().listRowBackground(SessionListStyle.panel)
@@ -94,6 +98,8 @@ struct IOSMergedNextRows: View {
                 Text(L.t("common_issues_load_failed"))
             } else if sources.contains(where: { $0.snapshot == nil }) {
                 Text(L.t("native_ios_next_waiting"))
+            } else if case let .filtered(hidden, reasons) = IOSUpNextEmpty.choose(filter, repos: repos) {
+                IOSUpNextFilteredEmpty(hidden: hidden, reasons: reasons) { filterOpen = true }
             } else { Text(L.t("upnext_empty")) }
         }
         ForEach(groups) { group in
@@ -102,7 +108,7 @@ struct IOSMergedNextRows: View {
             ForEach(expanded.contains(group.id) ? group.rows : Array(group.rows.prefix(group.cap))) { row in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(verbatim: "#\(row.item.number) \(row.item.title)").sessionFont(weight: .semibold)
-                    Text(verbatim: row.item.repoLabel).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
+                    IOSUpNextRepoLine(item: row.item)
                     if row.item.priority { Text(L.t("upnext_pill_priority")).sessionFont(label: true).foregroundStyle(SessionListStyle.amber) }
                     if hub.connected.count > 1 { IOSServerHint(name: row.profile.name) }
                 }.padding(.vertical, 6).listRowBackground(SessionListStyle.panel)

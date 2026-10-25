@@ -631,6 +631,12 @@ describe("manual assignment across two Shepherd processes", () => {
       const port = c.port;
       c = await spawnNode(c, port);
       expect(c.port).toBe(port);
+      // M's own link to C dropped with the crash, and its re-probe may have hit C still booting:
+      // Check now on M, so a task M places later does not wait for a C that is already back.
+      await until(
+        () => api(m, "POST", `/api/remote-instances/${c.instanceId}/check`, { operator: true }),
+        (res) => res.body.instance?.status === "connected",
+      );
 
       await until(
         () => machine(c, m),

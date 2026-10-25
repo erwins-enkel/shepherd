@@ -27,6 +27,8 @@ export interface MembraneEnv {
   claudeDir: string;
   home: string;
   nodeBinReal: string;
+  /** Real bun binary (config.bunBin, #3351); null/absent = none on the host. */
+  bunBinReal?: string | null;
   extraEnv?: Record<string, string>;
   /** The ACTIVE projects dir (config.claudeProjectsDir) — where Shepherd's usage/activity
    *  readback looks. A plugin-redirected aux spawn (#1213) binds THIS as the (pool)
@@ -104,6 +106,7 @@ export function resolveMembraneEnv(seams: MembraneSeams): MembraneEnv {
     claudeDir: config.claudeDir,
     home: homedir(),
     nodeBinReal: safeRealpath(config.nodeBin),
+    bunBinReal: config.bunBin,
     extraEnv: collectPassthroughEnv(),
     projectsDir: config.claudeProjectsDir,
   };
@@ -156,6 +159,7 @@ export function resolveSpawnMembrane(args: {
     claudeDir: redirecting ? (patchedDir as string) : env.claudeDir,
     home: env.home,
     nodeBinReal: env.nodeBinReal,
+    bunBinReal: env.bunBinReal ?? null,
     extraEnv,
     ...(redirecting ? { projectsBindSource: env.projectsDir ?? `${env.claudeDir}/projects` } : {}),
     // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.

@@ -113,6 +113,22 @@ describe("resolveSpawnMembrane", () => {
     expect(calls).toContain("/wt/task");
   });
 
+  test("#3351: the env's bun dir rides onto the membrane PATH", () => {
+    const { wrapped } = resolveSpawnMembrane({
+      argv,
+      worktreePath: "/wt/task",
+      repoPath: "/repo",
+      worktree: worktreeStub(),
+      seams: {
+        detectBackend: () => "bwrap",
+        membraneLaunch: okLaunch,
+        membraneEnv: () => ({ ...stubEnv, bunBinReal: "/stub/bun/bin/bun" }),
+      },
+    });
+    const path = wrapped[wrapped.indexOf("PATH") + 1] ?? "";
+    expect(path.split(":")).toContain("/stub/bun/bin");
+  });
+
   test("backend 'bwrap' → wrapped[0] === 'bwrap', original argv tokens preserved after '--'", () => {
     const { wrapped, backend } = resolveSpawnMembrane({
       argv,

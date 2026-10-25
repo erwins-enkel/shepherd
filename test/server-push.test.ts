@@ -20,6 +20,7 @@ function harness() {
     service: {} as any,
     usageLimits: { limits: () => ({}) } as any,
     push,
+    pushLookup: async () => [{ address: "93.184.216.34", family: 4 }],
   };
   return { app: makeApp(deps), store };
 }
@@ -134,4 +135,40 @@ test("POST /api/push/prefs 404s for an endpoint with no subscription", async () 
     categories: { agent: true, reviews: true, ci: true },
   });
   expect(res.status).toBe(404);
+});
+
+test("POST /api/push/subscribe rejects a non-https or non-public endpoint (#3338)", async () => {
+  const store = new SessionStore(":memory:");
+  const push = new PushService(
+    store,
+    async () => ({}),
+    () => ({ publicKey: "P", privateKey: "K" }),
+  );
+  const app = makeApp({
+    store,
+    events: new EventHub(),
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+    push,
+    pushLookup: async (host) =>
+      host === "internal.example"
+        ? [{ address: "10.0.0.5", family: 4 }]
+        : [{ address: "93.184.216.34", family: 4 }],
+  });
+  const keys = { p256dh: "p", auth: "a" };
+  for (const endpoint of [
+    "http://push.example/e",
+    "https://127.0.0.1/e",
+    "https://[::1]/e",
+    "https://localhost/e",
+    "https://192.168.1.2/e",
+    "https://internal.example/e",
+    "not a url",
+  ]) {
+    const res = await post(app, "/api/push/subscribe", { endpoint, keys });
+    expect(res.status).toBe(400);
+  }
+  expect(store.listPushSubs()).toEqual([]);
+  const ok = await post(app, "/api/push/subscribe", { endpoint: "https://push.example/e", keys });
+  expect(ok.status).toBe(200);
 });

@@ -484,6 +484,7 @@ import {
 import { PluginSpawnAborted } from "./plugins/types";
 import { signedOff, type SignoffView } from "./signoff";
 import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage";
+import { isPublicHttpsUrl, type LookupFn } from "./browser-origin-policy";
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
@@ -654,6 +655,8 @@ export interface AppDeps {
    *  an on-demand re-scan, `apply()` to fetch-and-swap a plugin's new version on disk
    *  (issue #1124); absent when unwired. */
   pluginUpdates?: Pick<PluginUpdateService, "current" | "apply" | "check">;
+  /** DNS seam for the Web Push endpoint check (#3338); defaults to the system resolver. */
+  pushLookup?: LookupFn;
   /** one-click shepherd restart (optionally with a herdr live-handoff first);
    *  absent in environments where it isn't wired (tests). */
   restart?: Pick<RestartService, "apply">;
@@ -3486,6 +3489,10 @@ async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
     relay === "invalid"
   ) {
     return json({ error: "body must be a PushSubscription" }, 400);
+  }
+  // The server POSTs to this URL on every notification: never to plain http or a non-public host.
+  if (!(await isPublicHttpsUrl(body.endpoint, deps.pushLookup))) {
+    return json({ error: "endpoint must be a public https URL" }, 400);
   }
   deps.push?.subscribe(
     {

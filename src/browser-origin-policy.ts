@@ -121,6 +121,30 @@ export async function checkDestination(
   return { allow: true, address: unmapV4(addresses[0]!.address), port };
 }
 
+/** True for an `https:` URL whose host is a name (or IP literal) where EVERY resolved address is
+ *  public — a server-side fetch target such as a Web Push endpoint (#3338). Never throws. */
+export async function isPublicHttpsUrl(
+  raw: string,
+  lookup: LookupFn = defaultLookup,
+): Promise<boolean> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" || url.username || url.password) return false;
+  const host = normalizeDestHost(url.hostname);
+  if (LOOPBACK_NAMES.has(host)) return false;
+  if (isIP(host) !== 0) return !isDeniedAddress(host);
+  try {
+    const addresses = await lookup(host);
+    return addresses.length > 0 && !addresses.some((a) => isDeniedAddress(a.address));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The session's Preview port as a loopback exception, or null. The Preview listener is
  * Shepherd's own `127.0.0.1` proxy to the session's host dev server; it is accepted only inside

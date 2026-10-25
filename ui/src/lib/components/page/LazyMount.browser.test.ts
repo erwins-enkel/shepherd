@@ -6,8 +6,12 @@ import { m } from "#lib/paraglide/messages.js";
 import LazyMountHarness from "./LazyMountHarness.svelte";
 import LazyMountProbe from "./LazyMountProbe.svelte";
 
+const updated = vi.hoisted(() => ({ current: false, check: async () => false }));
+vi.mock("$app/state", () => ({ updated }));
+
 afterEach(() => {
   toasts.items = [];
+  updated.current = false;
 });
 
 describe("LazyMount", () => {
@@ -29,5 +33,16 @@ describe("LazyMount", () => {
     expect(toasts.items[0]?.text).toBe(m.lazy_load_failed());
     expect(toasts.items[0]?.actionLabel).toBe(m.viewport_browser_reload());
     expect(document.querySelector("[data-testid=lazy-probe]")).toBeNull();
+  });
+
+  it("offers the update reload instead when a newer build is live", async () => {
+    updated.current = true;
+    const failed = Promise.reject(new Error("Failed to fetch dynamically imported module"));
+    const onerror = vi.fn();
+    render(LazyMountHarness, { load: () => failed, onerror });
+    await expect.poll(() => toasts.items.length).toBe(1);
+    expect(onerror).toHaveBeenCalledOnce();
+    expect(toasts.items[0]?.text).toBe(m.app_updated());
+    expect(toasts.items[0]?.actionLabel).toBe(m.viewport_browser_reload());
   });
 });

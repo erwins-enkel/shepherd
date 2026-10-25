@@ -6891,6 +6891,7 @@
   "feat_assistant_chat_questions_body": "Wähle Antworten, mehrere Optionen oder eine eigene Antwort direkt im Gespräch mit dem Assistenten. Kein Wechsel ins Terminal nötig.",
   "automergebanner_queued": "in der Merge-Queue — GitHub merged ihn, sobald die CI der Queue grün ist",
   "lazy_load_failed": "Dieses Panel konnte nicht geladen werden. Die Verbindung ist abgebrochen oder Shepherd wurde aktualisiert.",
+  "app_updated": "Shepherd wurde aktualisiert. Neu laden, um die neue Version zu nutzen.",
   "ask_center_hint": "Deine Antwort wird ins Terminal von {task} getippt. Die Frage bleibt dort ebenfalls offen — wer zuerst antwortet, gewinnt.",
   "ask_center_title": "Offene Fragen",
   "ask_center_submit": "Antworten",

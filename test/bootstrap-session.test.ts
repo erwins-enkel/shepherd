@@ -256,6 +256,21 @@ test("bootstrapDirective: every version comes from the resolution", () => {
   expect(text).toContain("docs/decisions/0001-foundation.md");
 });
 
+test("bootstrapDirective: workflows are actionlinted and CI must really run (#3410)", () => {
+  const text = bootstrapDirective({
+    stack: RESOLVED as Extract<HouseStackResolution, { ok: true }>,
+    agentProvider: "claude",
+  });
+  expect(text).toContain(
+    "actionlint on `.github/workflows/` in the `quality` job AND the pre-push",
+  );
+  expect(text).toContain("fix every finding before you push");
+  expect(text).toContain("A run with 0 jobs");
+  expect(text).toContain('"workflow file issue"');
+  expect(text).toContain("is NOT green");
+  expect(text).toContain("`self_status` shows no checks for your pushed head");
+});
+
 test("bootstrapDirective: codex asks in chat; a missing stack fails closed", () => {
   const codex = bootstrapDirective({
     stack: RESOLVED as Extract<HouseStackResolution, { ok: true }>,

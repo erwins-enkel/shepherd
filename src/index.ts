@@ -42,6 +42,7 @@ import {
 } from "./config";
 import { defaultSandboxProfile } from "./sandbox-default";
 import { SessionStore } from "./store";
+import { openPrivateStore } from "./state-perms";
 import {
   isBlockJudgeMode,
   type Session,
@@ -340,9 +341,7 @@ if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
   );
 }
 
-mkdirSync(dirname(config.dbPath), { recursive: true });
-
-const store = new SessionStore(config.dbPath);
+const store = openPrivateStore(config.dbPath, config.shepherdLogPath, (p) => new SessionStore(p));
 if (process.platform === "darwin") enablePowerPaneJournal(config.dbPath);
 const githubReadCache: GithubReadCache = new GithubReadCache(store, {
   canRefresh: () => fingerprint.backgroundReady(),

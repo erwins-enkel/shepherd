@@ -19,17 +19,10 @@
  */
 import { Database } from "bun:sqlite";
 import { gzipSync } from "bun";
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveBackupDir, resolveDbPath, lastSuccessMarker } from "../src/backup-paths";
+import { ensurePrivateDir, tightenPath } from "../src/state-perms";
 
 /** Busy-timeout (ms) for both backup + server connections (kept equal to src/store.ts). */
 export const BUSY_TIMEOUT_MS = 5000;
@@ -153,7 +146,7 @@ export function verifyIntegrity(snapPath: string): void {
 /** gzip the snapshot and atomically rename into place. */
 function compress(snapPath: string, outGz: string): void {
   const tmpGz = `${outGz}.tmp`;
-  writeFileSync(tmpGz, gzipSync(readFileSync(snapPath)));
+  writeFileSync(tmpGz, gzipSync(readFileSync(snapPath)), { mode: 0o600 });
   renameSync(tmpGz, outGz);
 }
 
@@ -166,10 +159,13 @@ export function rotate(dir: string): void {
   for (const f of entries.filter((f) => TMP_RE.test(f))) unlinkSync(join(dir, f));
 }
 
-async function main(): Promise<void> {
-  const dbPath = resolveDbPath();
-  const dir = resolveBackupDir();
-  mkdirSync(dir, { recursive: true });
+/** One backup run. Owner-only throughout (#3404): umask 077 covers the `VACUUM INTO` snapshot,
+ *  the dir is 0700 and every file 0600 — existing ones tightened, since `mode` only applies on create. */
+export async function runBackup(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  process.umask(0o077);
+  const dbPath = resolveDbPath(env);
+  const dir = resolveBackupDir(env);
+  ensurePrivateDir(dir);
 
   const ts = formatTs(new Date());
   const snapTmp = join(dir, `.shepherd-${ts}.db.tmp`);
@@ -184,15 +180,20 @@ async function main(): Promise<void> {
   }
 
   rotate(dir);
+  // Snapshots written before #3404 kept their umask-derived 0644; tighten whatever rotation kept.
+  for (const f of readdirSync(dir).filter((f) => FILE_RE.test(f))) tightenPath(join(dir, f), 0o600);
 
   const nowIso = new Date().toISOString();
-  writeFileSync(lastSuccessMarker(), `${nowIso}\n`);
-  writeFileSync(join(dir, "backup.log"), `${nowIso} ok ${outGz}\n`, { flag: "a" });
+  const marker = lastSuccessMarker(env);
+  const log = join(dir, "backup.log");
+  writeFileSync(marker, `${nowIso}\n`, { mode: 0o600 });
+  writeFileSync(log, `${nowIso} ok ${outGz}\n`, { flag: "a", mode: 0o600 });
+  for (const f of [marker, log]) tightenPath(f, 0o600);
 }
 
 // Only run when invoked directly (not when imported by tests).
 if (import.meta.main) {
-  main().catch((err) => {
+  runBackup().catch((err) => {
     console.error(`[backup] FAILED: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   });

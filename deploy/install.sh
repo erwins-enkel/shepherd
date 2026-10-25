@@ -49,6 +49,14 @@ die() {
   exit 1
 }
 
+# Owner-only state dir (#3404): create it 0700 and tighten an existing one — never chmod through a
+# symlink, and only warn (not abort) when it can't be tightened (e.g. owned by another user).
+private_dir() {
+  [ -L "$1" ] && return 0
+  mkdir -p "$1"
+  chmod 700 "$1" 2>/dev/null || warn "could not make $1 owner-only (chmod 700)"
+}
+
 # ── OS detection ──────────────────────────────────────────────────────────────
 # Sets OS_KIND (from uname -s) and ARCH (from uname -m). Honors the
 # SHEPHERD_UNAME_S / SHEPHERD_UNAME_M test seams.
@@ -308,6 +316,7 @@ main() {
   # (handled downstream by SHEPHERD_NO_SERVICE in provision.ts).
   install_os_prereqs
   install_bun
+  private_dir "$HOME/.shepherd"
   resolve_source
 
   install_deps

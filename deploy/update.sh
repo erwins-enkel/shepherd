@@ -24,6 +24,13 @@ done
 
 note() { printf '\033[36m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m! %s\033[0m\n' "$*"; }
+# Owner-only state dir (#3404): create it 0700 and tighten an existing one — never chmod through a
+# symlink, and only warn (not abort) when it can't be tightened (e.g. owned by another user).
+private_dir() {
+  [ -L "$1" ] && return 0
+  mkdir -p "$1"
+  chmod 700 "$1" 2>/dev/null || warn "could not make $1 owner-only (chmod 700)"
+}
 die() {
   printf '\033[31m✗ %s\033[0m\n' "$*" >&2
   exit 1
@@ -132,6 +139,15 @@ bash "$REPO/deploy/install-cli.sh" || warn "shepherd CLI not refreshed (see abov
 # App-supervised deployments set SHEPHERD_NO_SERVICE=1: the app owns restart
 # and post-restart health verification, even if systemctl happens to be installed.
 
+# ── owner-only state dir (#3404) ──────────────────────────────────────────────
+# Unconditional (macOS / core-only too). Tightens an install created under umask 022: the dir and
+# the app log, which can carry the first-boot generated password. The server tightens the db itself
+# at boot; the backup run below tightens backups/.
+private_dir "$HOME/.shepherd"
+for f in "$HOME/.shepherd"/shepherd.log "$HOME/.shepherd"/shepherd.log.*; do
+  if [ -f "$f" ] && [ ! -L "$f" ]; then chmod 600 "$f" 2>/dev/null || warn "could not chmod 600 $f"; fi
+done
+
 # ── sync backup units (#1080) ─────────────────────────────────────────────────
 # update.sh historically only restarts; provision.ts installs units only on a fresh box. So an
 # existing live host would never pick up the hourly-backup timer. Re-sync it here, idempotently, so
@@ -151,7 +167,7 @@ if [[ "${SHEPHERD_NO_SERVICE:-0}" != "1" ]] && command -v systemctl >/dev/null 2
   # where the server never looks and staleness alerting is silently off (#1080). Subshell-scoped so
   # the override can't leak into the rest of this deploy script.
   BACKUP_DIR="$(set -a; [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"; set +a; bun -e 'import {resolveBackupDir} from "./src/backup-paths"; process.stdout.write(resolveBackupDir())')"
-  mkdir -p "$BACKUP_DIR"
+  private_dir "$BACKUP_DIR"
   [[ -f "$BACKUP_DIR/.backup-configured" ]] || printf 'shepherd-backup.timer enabled\n' >"$BACKUP_DIR/.backup-configured"
   systemctl --user daemon-reload
   systemctl --user enable --now shepherd-backup.timer

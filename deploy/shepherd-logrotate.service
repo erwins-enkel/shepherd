@@ -8,6 +8,8 @@ Type=oneshot
 # grew unbounded). provision.ts/update.sh copy deploy/rotate-shepherd-log.sh to ~/.shepherd; systemd
 # expands %h here. Run via /bin/sh so the copied script needs no exec bit.
 ExecStart=/bin/sh %h/.shepherd/rotate-shepherd-log.sh
+# Rotated copies of shepherd.log stay owner-only (#3404).
+UMask=0077
 
 # The script uses baseline tools (coreutils cp/wc/mv/rm + gzip) — give the oneshot a normal PATH so
 # it resolves them under the minimal PATH a user timer can inherit.

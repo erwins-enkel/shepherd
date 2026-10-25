@@ -388,6 +388,18 @@ public actor LocalServerSupervisor {
     return record
   }
 
+  /// Owner-only state dir (#3404): create `dir` 0700 and tighten an existing one, never through a
+  /// symlink and never one owned by another user. Best-effort — the server tightens it at boot too.
+  static func ensurePrivateStateDirectory(_ dir: URL) {
+    let fm = FileManager.default
+    try? fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    guard let attrs = try? fm.attributesOfItem(atPath: dir.path),
+      attrs[.type] as? FileAttributeType == .typeDirectory,
+      (attrs[.ownerAccountID] as? NSNumber)?.uint32Value == getuid()
+    else { return }
+    try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+  }
+
   /// The production launch spec: `bun run src/index.ts` in the resolved install directory.
   public static func defaultLaunch(
     _ environment: LocalServerEnvironment
@@ -696,6 +708,7 @@ public actor LocalServerSupervisor {
     guard FileManager.default.isExecutableFile(atPath: launch.executable.path) else {
       throw CocoaError(.executableNotLoadable)
     }
+    Self.ensurePrivateStateDirectory(environment.homeDirectory.appendingPathComponent(".shepherd"))
     try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
     // Rotate and open with private permissions before launching. The child

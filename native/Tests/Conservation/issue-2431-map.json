@@ -12966,7 +12966,8 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"supersededWriteLeavesTheOutcomeToTheLatest() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssueFilterSettingsModelTests.swift\",\"CoreSeamTests.IssueFilterSettingsModelTests\",\"unknownWireValuesFailOpen() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextTests.swift\",\"CoreSeamTests.UpNextTests\",\"defaultFilterSummaryDescribesWhatTheServerHid() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssuePickerTests.swift\",\"CoreSeamTests.IssuePickerTests\",\"serverSideHideBlockedPrunesAnUnavailableSelectedLabel() async\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssuePickerTests.swift\",\"CoreSeamTests.IssuePickerTests\",\"serverSideHideBlockedPrunesAnUnavailableSelectedLabel() async\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerStateDirectoryTests\",\"stateDirectoryIsTightenedToOwnerOnly() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

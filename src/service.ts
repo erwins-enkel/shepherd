@@ -4453,7 +4453,7 @@ export class SessionService {
         }
       : null;
     return {
-      sourceKind: args.input.launchUiState ? "user" : "generated",
+      sourceKind: launchSourceKind(args.input),
       prompt: args.input.prompt,
       issue,
       attachments: args.attachments,
@@ -4861,6 +4861,7 @@ export class SessionService {
         // as-is (no `??`): the store's row builder normalizes absent to null.
         epicParent: spawnInput.epicParent,
         incrementalEpicParent: spawnInput.incrementalEpicParent,
+        scheduleId: spawnInput.scheduleId, // store normalizes absent → null
         // Provider-agnostic (TASK-413): Codex persists the flag too, no longer forced off.
         planGateEnabled: spawnInput.planGateEnabled ?? null,
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,
@@ -5429,6 +5430,8 @@ export class SessionService {
       epicParent: carriedEpicParent(original, overrides),
       // #3191: an incremental epic child stays one across a relaunch (same repoint rule).
       incrementalEpicParent: carriedEpicParent(original, overrides, "incrementalEpicParent"),
+      // #3469: the replacement is still that schedule's run — the overlap skip and badge follow it.
+      scheduleId: original.scheduleId,
       // #3245: a routed session's replacement stays routed (the issue is dropped when repointed).
       ...carriedRouting(original, overrides),
       // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.
@@ -7822,4 +7825,10 @@ export class SessionService {
     }
     return { cleared, leftovers };
   }
+}
+
+/** Where a launch came from: a schedule firing (#3469), the New Task form, or generated. */
+function launchSourceKind(input: StandardCreateInput): SessionLaunchMetadata["sourceKind"] {
+  if (input.scheduleId) return "scheduled";
+  return input.launchUiState ? "user" : "generated";
 }

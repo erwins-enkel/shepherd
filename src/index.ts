@@ -83,7 +83,9 @@ import {
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { ensureHelperTmpRootTrusted } from "./transient-helper-lifecycle";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
-import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
+import { serve, serveAgentIngress, buildBacklogPayload, launchTask, type AppDeps } from "./server";
+import { ScheduleService, SCHEDULE_TICK_MS } from "./schedules";
+import { resolveDefaultBranch } from "./pull";
 import { PluginRegistry } from "./plugins/loader";
 import { makeProductionForgeResolver } from "./forge/resolve";
 import { EmptyDiffError, type GitState } from "./forge/types";
@@ -4161,8 +4163,30 @@ deferredStarts.push(() => {
   upNext.start();
 });
 
+// Operator schedules (#3469): fire due slots through the shared New Task launch path. `appDeps`
+// is read lazily — the launch closure only runs from the tick, after it is defined.
+const scheduleService = new ScheduleService({
+  store,
+  launch: (input) => launchTask(input, appDeps),
+  defaultBranch: (repoPath) => resolveDefaultBranch(repoPath, {}),
+  repoRoot: () => config.repoRoot,
+  maintenanceActive: () => maintenance.active,
+  events,
+});
+deferredStarts.push(() => {
+  setTimeout(
+    timerTask("schedules", () => scheduleService.tick()),
+    15_000,
+  );
+  setInterval(
+    timerTask("schedules", () => scheduleService.tick()),
+    SCHEDULE_TICK_MS,
+  );
+});
+
 const appDeps: AppDeps = {
   store,
+  schedules: scheduleService,
   connectorRestart,
   sharedBrowser,
   netnsDevForward,

@@ -592,6 +592,56 @@ test("repo bootstrap state, phase and logged override (#3105)", async () => {
   await request("POST", ovr, 200, { on: false }, ovr + q);
   await request("PUT", base, 200, { state: "off" }, base + q);
 });
+test("schedules CRUD, run now and runs (#3469)", async () => {
+  const base = "/api/schedules";
+  const one = "/api/schedules/{id}";
+  const input = {
+    repoPath: s.validRepo,
+    name: "Triage",
+    prompt: "/triage-feedback",
+    days: 0b0011111,
+    times: ["09:00", "18:00"],
+  };
+  await request("POST", base, 400, { ...input, days: 0 });
+  let created: { id: string } | undefined;
+  const frames = await collectEvents(s, token, async () => {
+    created = (await request("POST", base, 201, input)) as { id: string };
+  });
+  const frame = frames.find((f) => f.event === "schedules:changed");
+  expect(frame).toBeDefined();
+  validateEvent("schedules:changed", frame!.data);
+  const id = created!.id;
+  const at = (suffix = "") => `/api/schedules/${id}${suffix}`;
+  await request("GET", base, 200, undefined, `${base}?repo=${encodeURIComponent(s.validRepo)}`);
+  await request("PATCH", one, 200, { enabled: false }, at());
+  await request("PATCH", one, 400, { times: [] }, at());
+  await request("PATCH", one, 404, { name: "x" }, "/api/schedules/nope");
+  const saved = s.deps.schedules;
+  s.deps.schedules = {
+    runNow: async (rid) =>
+      s.deps.store.getSchedule(rid)
+        ? {
+            id: 1,
+            scheduleId: rid,
+            slotKey: "manual:x",
+            outcome: "skipped:overlap",
+            sessionId: null,
+            reason: "previous run still open",
+            at: 1,
+          }
+        : null,
+  };
+  try {
+    await request("POST", "/api/schedules/{id}/run", 200, undefined, at("/run"));
+    await request("POST", "/api/schedules/{id}/run", 404, undefined, "/api/schedules/nope/run");
+  } finally {
+    s.deps.schedules = saved;
+  }
+  await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
+  await request("GET", "/api/schedules/{id}/runs", 404, undefined, "/api/schedules/nope/runs");
+  await request("DELETE", one, 200, undefined, at());
+  await request("DELETE", one, 404, undefined, at());
+});
 test("existing token contract is cookie-admin only", async () => {
   const admin = { cookie };
   await request("GET", "/api/access-tokens", 200, undefined, undefined, admin);

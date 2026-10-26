@@ -120,6 +120,9 @@ import type {
   PushTestResult,
   TokenScope,
   PreviewReach,
+  Schedule,
+  ScheduleInput,
+  ScheduleRun,
 } from "./types";
 import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -3780,4 +3783,50 @@ export function operatorAssistantUnavailableReason(
 ): OperatorAssistantUnavailableReason | null {
   if (!(e instanceof ApiError) || e.status !== 503) return null;
   return e.code === "claude_missing" || e.code === "herdr_unreachable" ? e.code : null;
+}
+
+// ── Operator schedules (#3469) ──
+
+export async function listSchedules(repoPath: string): Promise<Schedule[]> {
+  const body = await getJson<{ schedules: Schedule[] }>(
+    `/api/schedules?repo=${encodeURIComponent(repoPath)}`,
+    "schedules",
+  );
+  return body.schedules;
+}
+
+async function scheduleWrite(
+  method: string,
+  path: string,
+  label: string,
+  body?: unknown,
+): Promise<Response> {
+  const r = await fetch(path, {
+    method,
+    ...(body !== undefined && { headers: JSON_HEADERS, body: JSON.stringify(body) }),
+  });
+  if (!r.ok) throw await failed(r, label);
+  return r;
+}
+
+export async function createSchedule(input: ScheduleInput): Promise<Schedule> {
+  return (await scheduleWrite("POST", "/api/schedules", "schedule create", input)).json();
+}
+
+export async function patchSchedule(
+  id: string,
+  patch: Partial<Omit<ScheduleInput, "repoPath">>,
+): Promise<Schedule> {
+  const path = `/api/schedules/${encodeURIComponent(id)}`;
+  return (await scheduleWrite("PATCH", path, "schedule update", patch)).json();
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  await scheduleWrite("DELETE", `/api/schedules/${encodeURIComponent(id)}`, "schedule delete");
+}
+
+/** Fire a schedule now; the run can still come back `skipped:overlap`. */
+export async function runScheduleNow(id: string): Promise<ScheduleRun> {
+  const path = `/api/schedules/${encodeURIComponent(id)}/run`;
+  return (await scheduleWrite("POST", path, "schedule run")).json();
 }

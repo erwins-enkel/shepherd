@@ -971,3 +971,16 @@ export function mergeIntoEpicExplanation(p: {
     ],
   };
 }
+
+/** Operator schedules (#3469): what fires, catch-up, overlap. */
+export function schedulesExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_schedules_title(),
+    summary: m.tooltip_schedules_summary(),
+    sections: [
+      { label: m.tooltip_schedules_catchup(), text: m.tooltip_schedules_catchup_body() },
+      { label: m.tooltip_schedules_overlap(), text: m.tooltip_schedules_overlap_body() },
+      { label: m.tooltip_schedules_attended(), text: m.tooltip_schedules_attended_body() },
+    ],
+  };
+}

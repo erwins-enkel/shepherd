@@ -787,6 +787,14 @@ components:
         epicParent:
           type: integer
           nullable: true
+        scheduleId:
+          type: string
+          nullable: true
+          description: The operator schedule (#3469) whose firing spawned this session; null otherwise. Absent from servers before schedules.
+        scheduleName:
+          type: string
+          nullable: true
+          description: That schedule's current name; null when the schedule was deleted or the session was not scheduled.
         sandboxApplied:
           allOf:
             - $ref: "#/components/schemas/SandboxProfile"
@@ -7315,6 +7323,177 @@ components:
               - mine_unassigned
               - mine
               - hide
+    ScheduleLaunch:
+      type: object
+      additionalProperties: true
+      description: New Task launch options a schedule carries (#3469). null = the default (model/effort/provider), the repo default (autopilot/plan gate/sandbox) or the repo's default branch (baseBranch), resolved when it fires.
+      required:
+        - agentProvider
+        - model
+        - effort
+        - autopilotEnabled
+        - planGateEnabled
+        - research
+        - sandboxProfile
+        - baseBranch
+      properties:
+        agentProvider:
+          allOf:
+            - $ref: "#/components/schemas/AgentProvider"
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        effort:
+          type: string
+          nullable: true
+        autopilotEnabled:
+          type: boolean
+          nullable: true
+        planGateEnabled:
+          type: boolean
+          nullable: true
+        research:
+          type: boolean
+        sandboxProfile:
+          allOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+          nullable: true
+        baseBranch:
+          type: string
+          nullable: true
+    ScheduleRun:
+      type: object
+      additionalProperties: true
+      description: One firing of a schedule. The row is written (outcome `claimed`) before the launch, so a crash never fires a slot twice; a row left `claimed` was interrupted.
+      required:
+        - id
+        - scheduleId
+        - slotKey
+        - outcome
+        - sessionId
+        - reason
+        - at
+      properties:
+        id:
+          type: integer
+        scheduleId:
+          type: string
+        slotKey:
+          type: string
+          description: Nominal local slot (`2026-10-27T09:00`), or `manual:<ISO time>` for Run now.
+        outcome:
+          type: string
+        sessionId:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        at:
+          type: integer
+    Schedule:
+      type: object
+      additionalProperties: true
+      description: An operator schedule (#3469) — a prompt or /skill run in one repo on weekdays × server-local times.
+      required:
+        - id
+        - repoPath
+        - name
+        - prompt
+        - days
+        - times
+        - enabled
+        - launch
+        - baselineAt
+        - createdAt
+        - updatedAt
+        - lastRun
+        - nextAt
+      properties:
+        id:
+          type: string
+        repoPath:
+          type: string
+        name:
+          type: string
+        prompt:
+          type: string
+        days:
+          type: integer
+          description: Weekday bitmask, bit 0 = Monday … bit 6 = Sunday.
+        times:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        launch:
+          $ref: "#/components/schemas/ScheduleLaunch"
+        baselineAt:
+          type: integer
+          description: Slots before this instant never fire (stamped on create, enable and cadence edits).
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+        lastRun:
+          allOf:
+            - $ref: "#/components/schemas/ScheduleRun"
+          nullable: true
+        nextAt:
+          type: integer
+          nullable: true
+    ScheduleList:
+      type: object
+      additionalProperties: true
+      required:
+        - schedules
+      properties:
+        schedules:
+          type: array
+          items:
+            $ref: "#/components/schemas/Schedule"
+    ScheduleRunList:
+      type: object
+      additionalProperties: true
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleRun"
+    ScheduleInput:
+      type: object
+      additionalProperties: false
+      description: Create body (repoPath, name, prompt, days, times required) or PATCH body (any subset except repoPath; launch merges over the stored options).
+      properties:
+        repoPath:
+          type: string
+        name:
+          type: string
+        prompt:
+          type: string
+        days:
+          type: integer
+        times:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        launch:
+          type: object
+          additionalProperties: true
+    SchedulesChangedEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - repoPath
+      properties:
+        repoPath:
+          type: string
     RepoBootstrapUpdateEvent:
       type: object
       additionalProperties: true
@@ -13213,6 +13392,160 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/schedules:
+    get:
+      operationId: listSchedules
+      description: Operator schedules (#3469), optionally one repo's. Full-scope access only.
+      parameters:
+        - name: repo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createSchedule
+      description: Create a schedule. Slots already past at creation never fire.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleInput"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "400":
+          description: Invalid body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/schedules/{id}:
+    patch:
+      operationId: updateSchedule
+      description: Edit a schedule; repoPath cannot change. Enabling or changing days/times re-baselines.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleInput"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "400":
+          description: Invalid body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteSchedule
+      description: Delete a schedule and its run log. Sessions it spawned keep their scheduleId.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/schedules/{id}/run:
+    post:
+      operationId: runScheduleNow
+      description: Fire a schedule now (even when disabled). Still skipped (`skipped:overlap`) while its previous run is open.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/schedules/{id}/runs:
+    get:
+      operationId: listScheduleRuns
+      description: A schedule's runs, newest first (at most 50).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleRunList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/repo-browser/open:
     post:
       operationId: openRepoBrowser
@@ -14481,6 +14814,10 @@ x-shepherd-events:
     description: A repo's project-bootstrap state or phase changed (#3112); re-read GET /api/repo-bootstrap for it.
     schema:
       $ref: "#/components/schemas/RepoBootstrapUpdateEvent"
+  schedules:changed:
+    description: A repo's schedules or their runs changed (#3469); re-read GET /api/schedules for that repo.
+    schema:
+      $ref: "#/components/schemas/SchedulesChangedEvent"
   settings:issue-filter:
     description: The operator's default issue filter changed (#3017). Carries the full new value; Up Next re-announces itself via upnext:changed.
     schema:

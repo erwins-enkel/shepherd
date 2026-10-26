@@ -2,6 +2,7 @@ import { describe, test, expect, vi, afterEach } from "vitest";
 import { amendments } from "./amendments.svelte";
 import { HerdStore, reconnectDelay } from "./store.svelte";
 import { repoBootstrap } from "./repo-bootstrap.svelte";
+import { schedules } from "./schedules.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
 import { motionSettle } from "./motion-settle";
@@ -788,6 +789,13 @@ test("setDrain hydrates the drain map from a list", () => {
 test("repo-bootstrap:update re-reads that repo's bootstrap view (#3112)", () => {
   const refresh = vi.spyOn(repoBootstrap, "refresh").mockImplementation(() => {});
   new HerdStore().apply({ event: "repo-bootstrap:update", data: { repoPath: "/r" } });
+  expect(refresh).toHaveBeenCalledWith("/r");
+  refresh.mockRestore();
+});
+
+test("schedules:changed re-reads that repo's schedules (#3469)", () => {
+  const refresh = vi.spyOn(schedules, "refresh").mockImplementation(() => {});
+  new HerdStore().apply({ event: "schedules:changed", data: { repoPath: "/r" } });
   expect(refresh).toHaveBeenCalledWith("/r");
   refresh.mockRestore();
 });

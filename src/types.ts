@@ -195,6 +195,13 @@ export interface Session {
    *  default branch like an ordinary session, and {@link isEpicChild} ignores this field. OPTIONAL
    *  like {@link Session.epicParent}; the store always hydrates a real number|null. */
   incrementalEpicParent?: number | null;
+  /** The operator schedule (#3469) whose firing spawned this session; null/absent otherwise. Drives
+   *  the schedule's overlap skip and the Herd card's "scheduled" badge. OPTIONAL; the store
+   *  hydrates a real string|null. */
+  scheduleId?: string | null;
+  /** That schedule's CURRENT name (read live, so a rename shows); null when the schedule was
+   *  deleted or the session was not scheduled. Read-only — never written. */
+  scheduleName?: string | null;
   /** #3245: a session ROUTED to the repo its ticket targets (`Target repo:` marker) keeps
    *  `issueNumber` null and links its issue here — the tracker repo and the issue number in it.
    *  Read through `sessionIssue` (src/target-repo.ts). OPTIONAL; the store hydrates null. */
@@ -334,7 +341,8 @@ export interface LaunchAttachmentMetadata {
 }
 
 export interface SessionLaunchMetadata {
-  sourceKind: "user" | "generated";
+  /** `scheduled` = spawned by an operator schedule firing (#3469). */
+  sourceKind: "user" | "generated" | "scheduled";
   prompt: string;
   issue: { number: number; title: string; url: string } | null;
   attachments: LaunchAttachmentMetadata[];
@@ -456,6 +464,11 @@ export interface StandardCreateInput {
    *  authorization the agent that wrote it never saw — the exact failure #2225 exists to remove.
    *  Empty/absent ⇒ the prompt is byte-identical to before. */
   carriedAmendments?: readonly TaskAmendment[];
+  /** #3469: the operator schedule this firing belongs to. Server-set ONLY (the scheduler) — not a
+   *  create-body key — and carried through a held task's stored input, so a released hold still
+   *  links its session to the schedule. Persisted as `Session.scheduleId`. Carried by a relaunch
+   *  and by a held-task edit, so the run stays linked (overlap skip, badge). */
+  scheduleId?: string | null;
 }
 
 /**

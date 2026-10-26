@@ -5,6 +5,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import CliBadge from "../CliBadge.svelte";
   import ResearchBadge from "../ResearchBadge.svelte";
+  import ScheduleBadge from "../ScheduleBadge.svelte";
   import TerminalBadge from "../TerminalBadge.svelte";
   import IssueBadge from "../IssueBadge.svelte";
   import PrBadge from "../PrBadge.svelte";
@@ -224,6 +225,7 @@
     {/if}
     {#if showCli}<CliBadge {session} />{/if}
     <ResearchBadge {session} tip />
+    <ScheduleBadge {session} tip />
     <TerminalBadge {session} tip />
     <!-- Issue before PR: the backlog issue is what the session was spawned for, the PR is
          what came out of it — reading them left-to-right follows that order. `git` carries

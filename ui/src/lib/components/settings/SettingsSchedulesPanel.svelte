@@ -21,10 +21,14 @@
 
   const all = $derived(schedules.all());
   const repos = $derived([...new Set((all ?? []).map((s) => s.repoPath))].sort());
-  /** "" = all repos. Falls back to all once the chosen repo has no schedules left. */
+  /** "" = all repos. */
   let filter = $state("");
-  const repo = $derived(repos.includes(filter) ? filter : "");
-  const list = $derived(upcomingOrder((all ?? []).filter((s) => !repo || s.repoPath === repo)));
+  // Back to all once the chosen repo has no schedules left, so the select never shows a blank and
+  // the list doesn't silently narrow again when that repo gets a schedule back.
+  $effect(() => {
+    if (filter && !repos.includes(filter)) filter = "";
+  });
+  const list = $derived(upcomingOrder((all ?? []).filter((s) => !filter || s.repoPath === filter)));
   let editing = $state<Schedule | null>(null);
 </script>
 

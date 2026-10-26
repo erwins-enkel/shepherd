@@ -4,6 +4,7 @@ import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import SettingsSchedulesPanel from "./SettingsSchedulesPanel.svelte";
 import { m } from "#lib/paraglide/messages.js";
+import { schedules } from "#lib/schedules.svelte.js";
 import type { Schedule } from "#lib/types.js";
 
 function sched(id: string, repoPath: string, name: string, nextAt: number | null): Schedule {
@@ -74,6 +75,27 @@ describe("SettingsSchedulesPanel (#3475)", () => {
     render(SettingsSchedulesPanel, {});
     await page.getByRole("combobox").selectOptions("/w/beta");
     await vi.waitFor(() => expect(titles()).toEqual(["beta Triage"]));
+  });
+
+  it("falls back to all repos once the filtered repo has no schedules left", async () => {
+    const list = [...LIST, sched("g", "/w/gamma", "Nightly", NOW + 9_000_000)];
+    mockApi(list);
+    render(SettingsSchedulesPanel, {});
+    const select = page.getByRole("combobox");
+    await select.selectOptions("/w/beta");
+    await vi.waitFor(() => expect(titles()).toEqual(["beta Triage"]));
+    list.splice(
+      list.findIndex((s) => s.id === "soon"),
+      1,
+    );
+    schedules.refresh("/w/beta");
+    await expect.element(select).toHaveValue("");
+    expect(titles()).toEqual(["alpha Weekly digest", "gamma Nightly", "alpha Paused audit"]);
+    // beta's schedule coming back must not silently narrow the list again.
+    list.push(sched("soon", "/w/beta", "Triage", NOW + 3_600_000));
+    schedules.refresh("/w/beta");
+    await vi.waitFor(() => expect(titles()).toHaveLength(4));
+    await expect.element(select).toHaveValue("");
   });
 
   it("toggles a schedule and re-reads the global list", async () => {

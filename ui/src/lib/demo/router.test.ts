@@ -243,15 +243,6 @@ describe("GET /api/sessions/done (Done lens) is populated, never the {} fallback
 // throws downstream (`.find`/`.map`/`.length` on a non-array, or `.files.length` /
 // `.entries.length` on a property `{}` doesn't have).
 describe("session-detail tab GETs never fall back to {}", () => {
-  it("GET /api/sessions/:id/activity returns ActivityEntry[] (rich for the hero)", async () => {
-    const { status, body } = await get("/api/sessions/coupon/activity");
-    expect(status).toBe(200);
-    expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBeGreaterThan(0);
-    // an unseeded session still gets a valid array, not {}
-    expect((await get("/api/sessions/rounding/activity")).body).toEqual([]);
-  });
-
   it("GET /api/sessions/:id/diff returns a DiffResult with a `files` array (rich for the hero)", async () => {
     const { status, body } = await get("/api/sessions/coupon/diff");
     expect(status).toBe(200);
@@ -669,7 +660,6 @@ describe("POST /api/sessions (#1800) creates a real session instead of {ok:true}
         })
       ).json()
     ).id;
-    expect((await get(`/api/sessions/${id}/activity`)).body).toEqual([]);
     expect(Array.isArray((await get(`/api/sessions/${id}/diff`)).body.files)).toBe(true);
     expect((await get(`/api/sessions/${id}/usage`)).body.total).toBe(0);
     expect((await get(`/api/sessions/${id}/queue`)).body.steps).toEqual([]);

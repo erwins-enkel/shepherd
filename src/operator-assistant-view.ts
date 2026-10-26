@@ -23,16 +23,7 @@ import type { Session } from "./types";
  *  the terminal, whichever session it arrives on. */
 export const VIEW_PREFIX = "\x00view:";
 
-const VIEW_TABS = [
-  "chat",
-  "term",
-  "todo",
-  "activity",
-  "diff",
-  "files",
-  "preview",
-  "browser",
-] as const;
+const VIEW_TABS = ["chat", "term", "todo", "diff", "files", "preview", "browser"] as const;
 export type ViewTab = (typeof VIEW_TABS)[number];
 
 export type AssistantViewFocus =
@@ -162,7 +153,6 @@ const TAB_LABEL: Record<ViewTab, string> = {
   chat: "Chat",
   term: "Terminal",
   todo: "Todo",
-  activity: "Activity",
   diff: "Diff",
   files: "Files",
   preview: "Preview",

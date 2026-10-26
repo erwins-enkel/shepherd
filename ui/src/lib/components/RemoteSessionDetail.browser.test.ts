@@ -61,7 +61,6 @@ vi.mock("#lib/api.js", async (importOriginal) => {
       byModel: null,
     })),
     getLeftovers: vi.fn(async () => ({ leftovers: [], probesUnavailable: false })),
-    getActivity: vi.fn(async () => []),
     getDiff: vi.fn(async () => ({
       base: "main",
       baseRef: "main",
@@ -87,7 +86,6 @@ afterEach(() => {
     api.interruptSession,
     api.getSessionUsage,
     api.getLeftovers,
-    api.getActivity,
     api.getDiff,
     api.getScratchpadListing,
     api.getPreviewReach,
@@ -289,12 +287,10 @@ describe("RemoteSessionDetail (#2762)", () => {
     expect(api.getLeftovers).not.toHaveBeenCalled();
   });
 
-  it("reads activity, diff and files from the machine; the terminal stays attached", async () => {
+  it("reads diff and files from the machine; the terminal stays attached", async () => {
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), terminalOwners: {} });
     await vi.waitFor(() => expect(connectPty).toHaveBeenCalledTimes(1));
 
-    await page.getByRole("tab", { name: m.viewport_activity_tab() }).click();
-    await vi.waitFor(() => expect(api.getActivity).toHaveBeenCalledWith("r1"));
     await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
     await vi.waitFor(() => expect(api.getDiff).toHaveBeenCalledWith("r1"));
     await expect
@@ -327,12 +323,7 @@ describe("RemoteSessionDetail (#2762)", () => {
         m.tooltip_remote_forwarded_body({ machine: "MacBook" }),
       );
     }
-    for (const tab of [
-      m.viewport_activity_tab(),
-      m.viewport_diff_tab(),
-      m.viewport_files_tab(),
-      m.viewport_preview_tab(),
-    ])
+    for (const tab of [m.viewport_diff_tab(), m.viewport_files_tab(), m.viewport_preview_tab()])
       await expect.element(page.getByRole("tab", { name: tab })).toBeDisabled();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(api.interruptSession).not.toHaveBeenCalled();

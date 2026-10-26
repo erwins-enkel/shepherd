@@ -68,7 +68,6 @@
   import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "#lib/scrollAffordance.js";
   import { onPageReturn, pollWhileVisible } from "#lib/visibility.js";
   import TodoPanel from "#lib/components/TodoPanel.svelte";
-  import ActivityFeed from "#lib/components/ActivityFeed.svelte";
   import ChatView from "#lib/components/chat/ChatView.svelte";
   import SubagentFanout from "#lib/components/SubagentFanout.svelte";
   import DiffPanel from "#lib/components/DiffPanel.svelte";
@@ -85,7 +84,6 @@
   import AutopilotBadge from "#lib/components/AutopilotBadge.svelte";
   import PlanGateBadge from "#lib/components/PlanGateBadge.svelte";
   import { reviews, planGates, repoConfig } from "#lib/reviews.svelte.js";
-  import { recaps } from "#lib/recaps.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
   import TaskTipAmendments from "#lib/components/TaskTipAmendments.svelte";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -276,7 +274,7 @@
      *  entry drives the auto-merge strip, the terminal dim and the recap relabel. */
     autoMergeTrain?: Record<string, AutoMergeStatus>;
     /** Live per-session sub-agent roster map (the whole store.subagents record);
-     *  the Activity tab's fan-out section reads this session's entry from it. */
+     *  the Chat tab's fan-out section reads this session's entry from it. */
     subagents?: Record<string, SubagentEntry[]>;
     /** "assistant" = the Operator Assistant's bare terminal (#1446): the terminal, its banners,
      *  the touch key bar and the compose sheet only — no identity header, tabs, git/review/CI/
@@ -325,12 +323,6 @@
       !!branchLabel &&
       headerNameSlug(branchLabel) === headerNameSlug(session.name),
   );
-
-  const activityRecap = $derived(recaps.map[session.id]);
-  // settled = the session has stopped working; a recap survives re-activation
-  // (src/recap.ts), so a resumed (running) session must fall back to the live feed.
-  const recapSettled = $derived(session.status === "idle" || session.status === "done");
-  const showInlineRecap = $derived(activityRecap?.state === "ready" && recapSettled);
 
   let el: HTMLDivElement | undefined = $state();
   // root element + live signed offset (px) for the phone horizontal swipe gesture:
@@ -3511,6 +3503,7 @@
     {/if}
     {#if chatOpened && !assistant}
       <div class="panel-wrap chat-wrap" style:display={tab === "chat" ? undefined : "none"}>
+        <SubagentFanout sessionId={session.id} {subagents} />
         {#key session.id}
           <ChatView
             sessionId={session.id}
@@ -3535,24 +3528,6 @@
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
-      </div>
-    {/if}
-    {#if tab === "activity"}
-      <div class="panel-wrap activity-wrap">
-        <SubagentFanout sessionId={session.id} {subagents} />
-        {#if showInlineRecap}
-          <div class="activity-recap-fill">
-            <SessionRecap {session} inline />
-          </div>
-        {:else}
-          {#if activityRecap?.state === "failed"}
-            <!-- compact retry strip: inline SessionRecap renders only the failed+retry row here -->
-            <SessionRecap {session} inline />
-          {/if}
-          <div class="activity-feed-fill">
-            <ActivityFeed sessionId={session.id} />
-          </div>
-        {/if}
       </div>
     {/if}
     {#if tab === "diff"}
@@ -3701,7 +3676,7 @@
     />
   {/if}
 
-  {#if tab !== "activity" && !assistant}
+  {#if !assistant}
     <SessionRecap {session} autoMergeOwned={autoMergeHandsOff} />
   {/if}
 
@@ -4708,22 +4683,6 @@
     display: flex;
     flex-direction: column;
     background: var(--color-bg);
-  }
-  /* Activity tab stacks the sub-agent fan-out (sized to content, self-capped) above
-     the scrolling activity feed, which fills the remaining height. */
-  .activity-wrap {
-    display: flex;
-    flex-direction: column;
-  }
-  .activity-feed-fill {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  .activity-recap-fill {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 8px 10px;
   }
 
   /* live preview pane: the iframe fills the body; a thin footer carries the

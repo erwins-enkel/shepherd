@@ -127,24 +127,8 @@ describe("SessionRecap VisualReview blocks", () => {
   });
 });
 
-describe("SessionRecap inline mode", () => {
-  it("inline: body visible without click, no collapse toggle (no aria-expanded)", async () => {
-    recaps.map = {
-      sr3: recap({
-        sessionId: "sr3",
-        blocks: [{ type: "callout", id: "c2", tone: "info", markdown: "Inline callout content." }],
-      }),
-    };
-    render(SessionRecap, { session: session({ id: "sr3" }), inline: true });
-
-    // VisualReview content visible immediately, no click needed
-    await expect.element(page.getByText("Inline callout content.")).toBeInTheDocument();
-
-    // no collapse toggle — no element with aria-expanded
-    expect(document.querySelector("[aria-expanded]")).toBeNull();
-  });
-
-  it("default (non-inline): body hidden until header clicked", async () => {
+describe("SessionRecap collapse", () => {
+  it("body hidden until header clicked", async () => {
     recaps.map = {
       sr4: recap({
         sessionId: "sr4",

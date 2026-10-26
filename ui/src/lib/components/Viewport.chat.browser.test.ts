@@ -129,6 +129,15 @@ async function mount(props: Record<string, unknown> = {}) {
 }
 
 describe("Viewport Chat tab", () => {
+  it("shows the sub-agent fan-out above the chat; no Activity tab", async () => {
+    await mount({ subagents: { s1: [{ agentId: "a1", agentType: "Explore", startedAt: 0 }] } });
+    expect(page.getByRole("tab", { name: "Activity", exact: true }).query()).toBeNull();
+    await open(m.viewport_chat_tab());
+    const wrap = document.querySelector(".chat-wrap");
+    await vi.waitFor(() => expect(wrap?.querySelector(".fanout")).not.toBeNull());
+    await expect.element(page.getByText("Explore")).toBeVisible();
+  });
+
   it("comes first; desktop opens on the terminal and never reads the transcript", async () => {
     await mount();
     const tabs = page.getByRole("tab").elements();

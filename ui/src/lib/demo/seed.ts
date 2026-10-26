@@ -50,7 +50,6 @@ import type {
   HerdrUpdateStatus,
   CodexUpdateStatus,
   StarPromptStatus,
-  ActivityEntry,
   DiffResult,
   DiffFile,
   DiffHunk,
@@ -1485,51 +1484,10 @@ function buildHolds(): Record<string, HoldReason> {
 }
 
 // ── session-detail tabs (Task 8 sibling audit) ────────────────────────────────────
-// Every GET a Viewport tab fires on open — Activity, Diff, Files, plus the always-on
+// Every GET a Viewport tab fires on open — Diff, Files, plus the always-on
 // usage badge / build-queue panel / slash-command linkifier. Richly seeded for the
 // hero (`coupon`) and its epic sibling (`checkout-child`); every OTHER live session
 // still gets a valid (if empty) response so no tab can throw on a shape mismatch.
-
-/** GET /api/sessions/:id/activity — only sessions actually doing visible work carry a
- *  transcript; a session with no seeded entry falls back to `[]` in state.ts (never `{}`). */
-function buildActivityEntries(): Record<string, ActivityEntry[]> {
-  return {
-    coupon: [
-      {
-        ts: NOW - 6 * MIN,
-        tool: "Read",
-        summary: "src/routes/checkout/+page.svelte",
-        status: "ok",
-      },
-      {
-        ts: NOW - 5 * MIN,
-        tool: "Edit",
-        summary: "src/routes/checkout/CouponField.svelte",
-        status: "ok",
-      },
-      { ts: NOW - 4 * MIN, tool: "Bash", summary: "bun run check", status: "error" },
-      { ts: NOW - 3 * MIN, tool: "Edit", summary: "src/lib/cart/pricing.ts", status: "ok" },
-      { ts: NOW - 2 * MIN, tool: "Bash", summary: "bun test src/lib/cart", status: "ok" },
-      {
-        ts: NOW - 50 * SEC,
-        tool: "Edit",
-        summary: "src/routes/checkout/CouponField.svelte",
-        status: "ok",
-      },
-      { ts: NOW - 20 * SEC, tool: "Read", summary: "src/lib/cart/pricing.ts", status: "ok" },
-    ],
-    "checkout-child": [
-      { ts: NOW - 6 * MIN, tool: "Read", summary: "src/lib/cart/totals.ts", status: "ok" },
-      {
-        ts: NOW - 90 * SEC,
-        tool: "Edit",
-        summary: "src/routes/checkout/ShippingEstimate.svelte",
-        status: "ok",
-      },
-      { ts: NOW - 40 * SEC, tool: "Bash", summary: "bun run check", status: "ok" },
-    ],
-  };
-}
 
 const DIFF_PREFIX = { add: "+", del: "-", ctx: " " } as const;
 
@@ -1961,7 +1919,6 @@ export function buildSeed(): DemoWorld {
   return {
     sessions,
     doneSessions,
-    activityEntries: buildActivityEntries(),
     diffs: buildDiffs(),
     scratchpad: buildScratchpad(),
     sessionUsage: buildSessionUsage(),

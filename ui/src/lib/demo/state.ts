@@ -33,7 +33,6 @@ import type {
   StarPromptStatus,
   PrStatus,
   WsEvent,
-  ActivityEntry,
   DiffResult,
   ScratchListing,
   SessionUsage,
@@ -236,8 +235,6 @@ export const demoState = {
   // ── session-detail tabs (Task 8 sibling audit) ──────────────────────────
   /** GET /api/sessions/done — archived sessions for the Done lens. */
   doneSessions: (): Session[] => world.doneSessions,
-  /** GET /api/sessions/:id/activity — [] (never {}) when the session has no transcript seeded. */
-  activityEntries: (id: string): ActivityEntry[] => world.activityEntries[id] ?? [],
   /** GET /api/sessions/:id/diff — a valid empty DiffResult (never {}) for an unseeded session. */
   diff: (id: string): DiffResult =>
     world.diffs[id] ?? {

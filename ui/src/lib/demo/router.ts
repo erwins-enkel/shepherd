@@ -348,9 +348,6 @@ function handleSessionDetailGet(path: string, url: URL): Response | null {
     const git = demoState.gitState(seg(path, 3));
     return git ? json(git) : new Response(null, { status: 404 });
   }
-  if (/^\/api\/sessions\/[^/]+\/activity$/.test(path)) {
-    return json(demoState.activityEntries(seg(path, 3)));
-  }
   // No demo session was ever steered: an empty log keeps every card's verdict honest.
   if (/^\/api\/sessions\/[^/]+\/steer-log$/.test(path)) return json([]);
   if (/^\/api\/sessions\/[^/]+\/diff$/.test(path)) {

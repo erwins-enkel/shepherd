@@ -11918,13 +11918,10 @@ function epicAutoFixTarget(
   url: URL,
   deps: AppDeps,
 ): { dir: string; parent: number; drain: AutoBlockersDrain } | Response {
-  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  const parent = parseInt(url.searchParams.get("parent") ?? "", 10);
-  if (!Number.isInteger(parent) || parent <= 0)
-    return json({ error: "parent must be a positive integer" }, 400);
+  const target = epicRepoParent(url);
+  if (target instanceof Response) return target;
   if (!deps.drain?.autoBlockers) return json({ error: "drain unavailable" }, 503);
-  return { dir, parent, drain: deps.drain as AutoBlockersDrain };
+  return { ...target, drain: deps.drain as AutoBlockersDrain };
 }
 
 /** The settings fix `id` writes while the model offers it enabled, else null. Switching the CLI
@@ -12132,6 +12129,11 @@ function epicBaseActionTarget(
 ): { dir: string; parent: number } | Response | null {
   if (!(req.method === "POST" && parts[0] === "api" && parts[1] === "epic" && parts[2] === action))
     return null;
+  return epicRepoParent(url);
+}
+
+/** An epic route's `?repo=&parent=`: the validated repo dir and parent, or the 400 to send. */
+function epicRepoParent(url: URL): { dir: string; parent: number } | Response {
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const parent = parseInt(url.searchParams.get("parent") ?? "", 10);

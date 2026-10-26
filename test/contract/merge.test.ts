@@ -277,6 +277,38 @@ test("eight frames, including null-clearing variants, arrive over the socket", a
   }
 });
 
+test("dependabot rebase posts the comment or names why it cannot", async () => {
+  const p = "/api/prs/dependabot-rebase";
+  const savedForge = s.stubs.resolveForge.forge;
+  const comments: [number, string][] = [];
+  const send = async (status: number, body: Record<string, unknown>) => {
+    validateRequest("POST", p, body);
+    return await request("POST", p, status, body);
+  };
+  try {
+    await request("POST", p, 400, { repo: "/outside", number: 12 });
+    await request("POST", p, 400, { repo: s.validRepo });
+    expect(await send(400, { repo: s.validRepo, number: 12 })).toEqual({
+      error: "no comment support",
+    });
+    s.stubs.resolveForge.forge = {
+      comment: async (number: number, body: string) => {
+        comments.push([number, body]);
+      },
+    };
+    expect(await send(200, { repo: s.validRepo, number: 12 })).toEqual({ ok: true });
+    expect(comments).toEqual([[12, "@dependabot rebase"]]);
+    s.stubs.resolveForge.forge = {
+      comment: async () => {
+        throw new Error("locked conversation");
+      },
+    };
+    await send(502, { repo: s.validRepo, number: 12 });
+  } finally {
+    s.stubs.resolveForge.forge = savedForge;
+  }
+});
+
 test("backlog merge validates input, gates takeovers and maps classified failures", async () => {
   const p = "/api/prs/merge";
   const savedForge = s.stubs.resolveForge.forge;

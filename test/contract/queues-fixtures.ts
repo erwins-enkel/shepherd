@@ -1,5 +1,6 @@
 import type { HeldTask, HoldReason, Session, SessionUsageSnapshot } from "../../src/types";
 import type { UpNextSnapshot } from "../../src/up-next-core";
+import type { UpNextPr } from "../../src/up-next-prs";
 import type { SessionUsageDto } from "../../src/server";
 
 export const issueRef = {
@@ -22,6 +23,53 @@ export function held(
     reason,
   };
 }
+/** A waiting PR whose next action is a fix: conflicts and a red job, every optional field set. */
+export function waitingPr(repoPath: string): UpNextPr {
+  return {
+    repoPath,
+    repoSlug: "example/repo",
+    repoLabel: "repo",
+    number: 77,
+    title: "Native parity",
+    url: "https://github.com/example/repo/pull/77",
+    author: "operator",
+    kind: "regular",
+    createdAt: 1799999999000,
+    checks: "failure",
+    mergeable: false,
+    mergeStateStatus: "dirty",
+    latestReview: { state: "commented", author: "reviewer", submittedAt: 1799999999500 },
+    awaitingWorkflowApproval: false,
+    baseRefName: "main",
+    mergeMethod: "squash",
+    closesIssue: issueRef.number,
+    band: "blocked",
+    action: "fix",
+    blockReason: "conflict",
+    headRefName: "feat/native-parity",
+    headSha: "abc123",
+    jobs: [
+      { name: "test", state: "failure", url: "https://github.com/example/repo/actions/1" },
+      { name: "lint", state: "success", startedAt: 1799999999100, completedAt: 1799999999200 },
+    ],
+  };
+}
+/** A CI-running Dependabot row: action null, no optional fields. */
+export const pendingDependabotPr: UpNextPr = {
+  repoPath: "/repo",
+  repoSlug: null,
+  repoLabel: "repo",
+  number: 78,
+  title: "chore(deps): bump",
+  url: "https://github.com/example/repo/pull/78",
+  author: "app/dependabot",
+  kind: "dependabot",
+  createdAt: 1799999998000,
+  checks: "pending",
+  mergeable: null,
+  band: "dependabot",
+  action: null,
+};
 export const snapshot: UpNextSnapshot = {
   generatedAt: 1800000000000,
   repoCount: 1,
@@ -64,6 +112,7 @@ export const snapshot: UpNextSnapshot = {
       forks: { all: 2, own: 1, hide: 0 },
     },
   },
+  pullRequests: [waitingPr("/repo"), pendingDependabotPr],
 };
 export const hold: HoldReason = { code: "halted-error" };
 export const halted: Pick<Session, "id" | "haltReason" | "haltedAt"> = {

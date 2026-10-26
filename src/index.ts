@@ -2755,11 +2755,7 @@ const apiErrorRetry = new ApiErrorRetry({
     store.setHaltReason(id, "error", haltedAt);
     events.emit("session:halt", { id, haltReason: "error", haltedAt });
   },
-  // autopilot.handle's own Operator Assistant skip, applied here since onDone is called directly.
-  handBack: async (id) => {
-    const s = store.get(id);
-    if (s && !isOperatorAssistant(s)) await autopilot.onDone(id);
-  },
+  handBack: (id): Promise<void> => autopilot.onDone(id),
   schedule: (fn, ms) => {
     const t = setTimeout(fn, ms);
     return () => clearTimeout(t);

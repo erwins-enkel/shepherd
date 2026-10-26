@@ -1,6 +1,7 @@
 import { API_RETRY_STEER, transientApiError } from "./api-error-retry-core";
 import type { SessionConsumer } from "./session-router";
 import type { SessionStateChange } from "./session-snapshot";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import type { Session } from "./types";
 
 /** Backoff before attempt n (1-based index n-1). Its length is the attempt cap per error streak. */
@@ -117,6 +118,7 @@ function eligible(s: Session): boolean {
   return (
     s.status !== "archived" &&
     !s.terminal &&
+    !isOperatorAssistant(s) && // operator's own chat: never auto-steered or halted (cf. poller)
     (s.agentProvider ?? "claude") === "claude" &&
     Boolean(s.claudeSessionId)
   );

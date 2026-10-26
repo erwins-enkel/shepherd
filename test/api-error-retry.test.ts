@@ -187,8 +187,13 @@ describe("ApiErrorRetry", () => {
     expect(h.handBacks).toEqual(["s1"]);
   });
 
-  test("non-Claude, terminal and transcript-less sessions are ignored", async () => {
-    for (const p of [{ agentProvider: "codex" }, { terminal: true }, { claudeSessionId: "" }]) {
+  test("non-Claude, terminal, transcript-less and Operator Assistant sessions are ignored", async () => {
+    for (const p of [
+      { agentProvider: "codex" },
+      { terminal: true },
+      { claudeSessionId: "" },
+      { operatorAssistant: true },
+    ]) {
       const h = harness(p as Partial<Session>);
       await h.done();
       expect(h.timers).toEqual([]);

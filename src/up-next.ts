@@ -10,7 +10,10 @@ import { realpathSync } from "node:fs";
 import { mapBounded } from "./map-bounded";
 import { parseEpicBody } from "./epic-parse";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
-import type { GitForge } from "./forge/types";
+import type { GitForge, PullRequest } from "./forge/types";
+import type { OpenPrSnapshotService } from "./open-pr-snapshot";
+import { repoHasNoCiCached } from "./checks-gate";
+import { buildUpNextPrs, type UpNextPrsInFlight } from "./up-next-prs";
 import { reconcileRealPathRecordToRaw, reconcileRealPathsToRaw, type RepoEntry } from "./repos";
 import type { ReadinessScorer, ReadinessInputOf } from "./up-next-readiness";
 import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "./issue-filter";
@@ -101,6 +104,14 @@ export interface UpNextDeps {
   };
   /** The operator's issue filter (#3017), read per build; absent ⇒ the defaults. */
   issueFilter?: () => IssueFilterSettings;
+  /** The shared per-repo open-PR snapshot the Backlog PRs tab reads — fingerprint-gated, so PRs
+   *  cost no GitHub call while they are unchanged. Absent ⇒ the forge's own PR listing. */
+  openPrSnapshot?: Pick<OpenPrSnapshotService, "get">;
+  /** What non-archived sessions hold per repo (`prsHeldBySessions`), keyed by the sessions'
+   *  realpath-space repoPath; read per build so a just-started session drops its PR on refilter. */
+  prsInFlight?: () => ReadonlyMap<string, UpNextPrsInFlight>;
+  /** Whether a repo runs no CI on PRs; injectable for tests. Defaults to `repoHasNoCiCached`. */
+  hasNoCi?: (forgeKind: GitForge["kind"], repoPath: string) => boolean;
 }
 
 /** A just-started item, keyed for the post-start membership check. `repoPath` is in
@@ -227,7 +238,10 @@ export class UpNextService {
       repos.map((r) => ({ path: r.repoPath })),
     );
     const filter = { ...stored, repoOverrides };
-    const raw = buildSnapshot(repos, fetchedAt, null, failedRepoCount, filter);
+    const raw = {
+      ...buildSnapshot(repos, fetchedAt, null, failedRepoCount, filter),
+      pullRequests: buildUpNextPrs(repos, filter, this.heldBy()),
+    };
     this.raw = { snapshot: raw, inputOf };
     const readiness = this.activeReadiness();
     if (!readiness) return this.publish(raw);
@@ -236,6 +250,22 @@ export class UpNextService {
     const snap = this.publish(this.rerank(raw, readiness, inputOf));
     this.scoreInBackground(raw, readiness, inputOf);
     return snap;
+  }
+
+  /** The sessions' holdings by raw repo path: store keys are realpath-space, so a repo listed
+   *  under a symlinked root is matched through its realpath. */
+  private heldBy(): (repoPath: string) => UpNextPrsInFlight | undefined {
+    const held = this.deps.prsInFlight?.();
+    if (!held || held.size === 0) return () => undefined;
+    return (repoPath) => {
+      const direct = held.get(repoPath);
+      if (direct) return direct;
+      try {
+        return held.get(this.realpath(repoPath));
+      } catch {
+        return undefined; // vanished/broken path — only the raw form can match
+      }
+    };
   }
 
   private publish(snap: UpNextSnapshot): UpNextSnapshot {
@@ -374,7 +404,7 @@ export class UpNextService {
       summaries: new Map<number, { total: number; completed: number }>(),
       subIssueNumbers: [],
     };
-    const linkedIssueNumbers = (await forge.listOpenPrClosingIssues?.().catch(() => null)) ?? [];
+    const links = await this.prLinks(forge);
     const blockedByOpen =
       (scan ? await forge.listBlockedByOpen?.().catch(() => null) : null) ??
       new Map<number, number[]>();
@@ -399,8 +429,40 @@ export class UpNextService {
       openIssues,
       epics,
       subIssueNumbers: summaries.subIssueNumbers,
-      linkedIssueNumbers,
+      linkedIssueNumbers: links.issues,
+      openPrs: await this.openPrs(forge),
+      closingIssueByPr: links.closing,
+      noCi: (this.deps.hasNoCi ?? repoHasNoCiCached)(forge.kind, r.repoPath),
     };
+  }
+
+  /** Issues an open PR would close (dropped from the issue list) and each PR's lowest such issue
+   *  (`closesIssue`) — one cached linked-issues query backs both. */
+  private async prLinks(
+    forge: GitForge,
+  ): Promise<{ issues: number[]; closing: Record<number, number> }> {
+    if (!forge.listOpenPrLinkedIssues) {
+      const issues = (await forge.listOpenPrClosingIssues?.().catch(() => null)) ?? [];
+      return { issues, closing: {} };
+    }
+    const linked = (await forge.listOpenPrLinkedIssues().catch(() => null)) ?? new Map();
+    const closing: Record<number, number> = {};
+    for (const [issue, prs] of linked)
+      for (const { prNumber } of prs)
+        closing[prNumber] = Math.min(closing[prNumber] ?? issue, issue);
+    return { issues: [...linked.keys()], closing };
+  }
+
+  /** The repo's open PRs from the query the Backlog PRs tab uses (src/server.ts handlePrsList):
+   *  the shared snapshot, else the forge's listing. A failure lists no PRs for the repo — its
+   *  issues still show. */
+  private async openPrs(forge: GitForge): Promise<PullRequest[] | undefined> {
+    try {
+      const snap = await this.deps.openPrSnapshot?.get(forge, { background: true });
+      return snap ? snap.prs : await forge.listPullRequests();
+    } catch {
+      return undefined;
+    }
   }
 
   /** Whether the operator works in the repo: it has a session or a stored epic run. Store keys

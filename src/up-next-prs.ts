@@ -24,6 +24,7 @@ import type {
   WorkflowJob,
 } from "./forge/types";
 import type { PrKind } from "./forge/pr-kind";
+import type { Session } from "./types";
 import { checksCleared } from "./checks-gate";
 import { isConflicting } from "./pr-conflict";
 import { hiddenByRule, type IssueFilterSettings, type IssueFilterSubject } from "./issue-filter";
@@ -123,6 +124,26 @@ export interface UpNextPrRepo {
 export interface UpNextPrsInFlight {
   heads: ReadonlySet<string>;
   numbers: ReadonlySet<number>;
+}
+
+/** What each repo's non-archived sessions hold, keyed by the sessions' `repoPath`: their own
+ *  branches, the head a fix session (`landingRepair`) pushes back to, and merge-train PRs. Those
+ *  PRs stand in the Herd, so Up Next leaves them out. */
+export function prsHeldBySessions(
+  sessions: readonly Pick<
+    Session,
+    "repoPath" | "branch" | "baseBranch" | "landingRepair" | "mergeTrainPrs"
+  >[],
+): Map<string, { heads: Set<string>; numbers: Set<number> }> {
+  const held = new Map<string, { heads: Set<string>; numbers: Set<number> }>();
+  for (const s of sessions) {
+    let entry = held.get(s.repoPath);
+    if (!entry) held.set(s.repoPath, (entry = { heads: new Set(), numbers: new Set() }));
+    if (s.branch) entry.heads.add(s.branch);
+    if (s.landingRepair) entry.heads.add(s.baseBranch);
+    for (const n of s.mergeTrainPrs ?? []) entry.numbers.add(n);
+  }
+  return held;
 }
 
 type PrFilter = Pick<IssueFilterSettings, "scope" | "forks" | "hiddenLabels"> &

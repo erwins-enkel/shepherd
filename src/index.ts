@@ -170,6 +170,7 @@ import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
 import { BacklogPoller, reposUsedSince, createBacklogBroadcast } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos, upNextChangePublisher } from "./up-next";
+import { prsHeldBySessions } from "./up-next-prs";
 import { ISSUE_FILTER_SETTING, storedIssueFilter } from "./issue-filter";
 import { ReadinessScorer } from "./up-next-readiness";
 import { GreenfieldService } from "./greenfield";
@@ -4145,6 +4146,10 @@ const upNext = new UpNextService({
   onChange: upNextChangePublisher(events),
   // The operator's issue filter (#3017), read per build so a PATCH lands on the next refilter.
   issueFilter: () => storedIssueFilter(store.getSetting(ISSUE_FILTER_SETTING)),
+  // PRs come from the snapshot the Backlog PRs tab and the pr-poller share; PRs a Herd session
+  // holds are left out, read per build so a fix session's start drops its row on refilter.
+  openPrSnapshot,
+  prsInFlight: () => prsHeldBySessions(store.list({ activeOnly: true })),
   // Readiness rerank (#2535): effective only while BOTH the setting and the judge itself are on
   // (which needs a key) — read per compute, so either toggle, or a key saved in Settings, lands on
   // the next refresh.

@@ -11,7 +11,8 @@ import {
   type UpNextSection,
   type UpNextItem,
 } from "../src/up-next-core";
-import type { Issue } from "../src/forge/types";
+import type { Issue, PullRequest } from "../src/forge/types";
+import { buildUpNextPrs } from "../src/up-next-prs";
 import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "../src/issue-filter";
 
 function issue(number: number, over: Partial<Issue> = {}): Issue {
@@ -461,6 +462,21 @@ function makePrioritySection(items: UpNextItem[]): UpNextSection {
   };
 }
 
+function makePr(number: number): PullRequest {
+  return {
+    number,
+    title: `pr${number}`,
+    url: `https://x/pull/${number}`,
+    author: "me",
+    kind: "regular",
+    createdAt: number,
+    isDraft: false,
+    mergeable: true,
+    checks: "success",
+    jobs: [],
+  };
+}
+
 function makeSnap(sections: UpNextSection[], repoCount: number): UpNextSnapshot {
   return {
     generatedAt: 1000,
@@ -523,6 +539,37 @@ describe("excludeHiddenSections", () => {
     const result = excludeHiddenSections(snap, new Set(["/r/z"]));
     expect(result.sections).toHaveLength(1);
     expect(result.repoCount).toBe(1);
+  });
+
+  test("(h) a hidden repo's pull requests are dropped too", () => {
+    const prs = buildUpNextPrs(
+      [
+        {
+          repoPath: "/r/a",
+          repoSlug: "o/a",
+          repoLabel: "a",
+          viewer: "me",
+          isFork: false,
+          openPrs: [makePr(1)],
+        },
+        {
+          repoPath: "/r/b",
+          repoSlug: "o/b",
+          repoLabel: "b",
+          viewer: "me",
+          isFork: false,
+          openPrs: [makePr(2)],
+        },
+      ],
+      DEFAULT_ISSUE_FILTER,
+      () => undefined,
+    );
+    const snap = {
+      ...makeSnap([makeRepoSection("/r/a"), makeRepoSection("/r/b")], 2),
+      pullRequests: prs,
+    };
+    const result = excludeHiddenSections(snap, new Set(["/r/a"]));
+    expect(result.pullRequests!.map((p) => p.repoPath)).toEqual(["/r/b"]);
   });
 });
 

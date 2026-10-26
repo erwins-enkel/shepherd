@@ -5,6 +5,7 @@ import {
   buildUpNextPrs,
   classifyUpNextPr,
   prFixPrompt,
+  prsHeldBySessions,
   type UpNextPr,
   type UpNextPrContext,
   type UpNextPrRepo,
@@ -325,5 +326,38 @@ describe("prFixPrompt", () => {
   test("a steer leads as the operator's instruction", () => {
     const text = prFixPrompt(row({ checks: "failure" }), "main", "  Write a test first.  ");
     expect(text.startsWith("Operator instruction:\nWrite a test first.\n\n")).toBe(true);
+  });
+});
+
+describe("prsHeldBySessions", () => {
+  const session = (over: Partial<Parameters<typeof prsHeldBySessions>[0][number]>) => ({
+    repoPath: "/r/a",
+    branch: null,
+    baseBranch: "main",
+    landingRepair: false,
+    mergeTrainPrs: null,
+    ...over,
+  });
+
+  test("collects each repo's session branches, fix-session bases and train PRs", () => {
+    const held = prsHeldBySessions([
+      session({ branch: "feat/x" }),
+      session({ branch: "shepherd/fix-1", baseBranch: "feat/y", landingRepair: true }),
+      session({ branch: "shepherd/train", mergeTrainPrs: [4, 5] }),
+      session({ repoPath: "/r/b", branch: "feat/z" }),
+    ]);
+    expect([...held.get("/r/a")!.heads].sort()).toEqual([
+      "feat/x",
+      "feat/y",
+      "shepherd/fix-1",
+      "shepherd/train",
+    ]);
+    expect([...held.get("/r/a")!.numbers]).toEqual([4, 5]);
+    expect([...held.get("/r/b")!.heads]).toEqual(["feat/z"]);
+  });
+
+  test("a plain session's base branch does not hold a PR", () => {
+    const held = prsHeldBySessions([session({ branch: "shepherd/a", baseBranch: "feat/y" })]);
+    expect(held.get("/r/a")!.heads.has("feat/y")).toBe(false);
   });
 });

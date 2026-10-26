@@ -8,7 +8,8 @@
 // Epics collapse to ONE unit keyed by their next-actionable child; the unit is AGED BY THE
 // PARENT'S createdAt (the child carries none — SubIssueRef has no createdAt and
 // selectEpicCandidates hard-codes createdAt:0, so child-age would tie all epics at 0).
-import type { Issue } from "./forge/types";
+import type { Issue, PullRequest } from "./forge/types";
+import type { UpNextPr } from "./up-next-prs";
 import { PRIORITY_LABEL, ACTIVE_LABEL } from "./drain-core";
 import { isDependabotAuthor } from "./forge/pr-kind";
 import { BAND_RANK, band } from "./up-next-readiness-core";
@@ -97,6 +98,9 @@ export interface UpNextSnapshot {
    *  be hiding work, so the UI surfaces a load error instead of an "all caught up" empty state. */
   failedRepoCount: number;
   filter: UpNextFilterStats;
+  /** Open PRs waiting on the operator, classified server-side (src/up-next-prs.ts) and ordered.
+   *  Optional on the wire: servers before it omit the field. */
+  pullRequests?: UpNextPr[];
 }
 
 /** A resolved epic, as fed in by the service (after buildEpic + selectEpicCandidates). */
@@ -142,6 +146,12 @@ export interface RepoInput {
   subIssueNumbers: number[];
   /** Issue numbers an open PR would close (best-effort secondary exclusion). */
   linkedIssueNumbers: number[];
+  /** Open PRs from the shared open-PR snapshot; absent when the repo's PR read failed. */
+  openPrs?: PullRequest[];
+  /** PR number → the lowest issue number it would close. */
+  closingIssueByPr?: Record<number, number>;
+  /** The repo runs no CI on PRs (src/checks-gate.ts). */
+  noCi?: boolean;
 }
 
 /** UI display caps (items beyond these reveal via a "show all N" expander). The server
@@ -514,6 +524,9 @@ export function excludeHiddenSections(
     sections,
     repoCount: Math.max(0, snap.repoCount - removedRepoSections),
     filter: withoutHiddenRepos(snap.filter, hiddenRaw),
+    ...(snap.pullRequests && {
+      pullRequests: snap.pullRequests.filter((pr) => !hiddenRaw.has(pr.repoPath)),
+    }),
   };
 }
 

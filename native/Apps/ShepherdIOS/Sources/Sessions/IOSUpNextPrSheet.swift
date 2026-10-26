@@ -215,7 +215,8 @@ struct IOSUpNextPrSheetContent: View {
         case .fix, .review:
             let kind: IOSUpNextPrSessionKind = action == .fix ? .fix : .review
             Task { if await controller.startSession(kind, pr, select: { select(app, $0) }) { finished() } }
-        case .dependabotRebase: Task { await controller.requestRebase(pr) }
+        // `_ =`: a single-expression Task returning Bool crashes Xcode 26.6's IRGen (isolated(any) thunk).
+        case .dependabotRebase: Task { _ = await controller.requestRebase(pr) }
         case .approveOnForge: if let url = URL(string: pr.url) { openURL(url) }
         }
     }

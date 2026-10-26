@@ -140,7 +140,7 @@ struct IOSUpNextPrSection: View {
                     titleVisibility: .visible, presenting: train) { request in
                     Button(L.t("mergetrain_confirm_action")) {
                         let plan = request.plan, app = request.app
-                        Task { await app.extension(IOSUpNextPrController.self)?.startTrain(plan) { select(app, $0) } }
+                        Task { _ = await app.extension(IOSUpNextPrController.self)?.startTrain(plan) { select(app, $0) } }
                     }
                     Button(L.t("common_cancel"), role: .cancel) {}
                 } message: { request in Text(verbatim: request.message) }

@@ -657,6 +657,126 @@ test("dispose stops the reconnect loop", () => {
   expect(made.length).toBe(1);
 });
 
+// ---- offline state (grace + browser online/offline) ----
+
+test("offline: a socket that never opens reads offline after the 3s grace", () => {
+  vi.useFakeTimers({ now: 1_000 });
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { dispose } = connectFake(s);
+  vi.advanceTimersByTime(2_999);
+  expect(s.offline).toBe(false);
+  vi.advanceTimersByTime(1);
+  expect(s.offline).toBe(true);
+  expect(s.offlineSince).toBe(1_000); // never live: since connect start
+  dispose();
+});
+
+test("offline: a drop that reconnects within the grace never shows", () => {
+  vi.useFakeTimers();
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close();
+  vi.advanceTimersByTime(1_000); // backoff reopens
+  made[1].accept();
+  vi.advanceTimersByTime(10_000);
+  expect(s.offline).toBe(false);
+  dispose();
+});
+
+test("offline: a dropped socket reads offline 3s after close, since the close, until onopen", () => {
+  vi.useFakeTimers({ now: 0 });
+  vi.spyOn(Math, "random").mockReturnValue(0.999999);
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  vi.advanceTimersByTime(20_000);
+  made[0].close(); // at t=20s
+  const closes = s.socketCloses;
+  vi.advanceTimersByTime(1_000);
+  made[1].close(); // backoff reopen fails too
+  expect(s.socketCloses).toBe(closes + 1);
+  vi.advanceTimersByTime(2_000);
+  expect(s.offline).toBe(true);
+  expect(s.offlineSince).toBe(20_000);
+  vi.advanceTimersByTime(2_000);
+  made[2].accept();
+  expect(s.offline).toBe(false);
+  expect(s.offlineSince).toBeNull();
+  vi.restoreAllMocks();
+  dispose();
+});
+
+test("offline: the browser offline event shows at once; online clears it on a surviving socket", () => {
+  vi.useFakeTimers({ now: 5_000 });
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  dom.fire("w:", "offline");
+  expect(s.offline).toBe(true);
+  expect(s.offlineSince).toBe(5_000);
+  dom.fire("w:", "online"); // socket survived the blip: no new onopen
+  expect(s.offline).toBe(false);
+  expect(s.offlineSince).toBeNull();
+  expect(made.length).toBe(1); // live socket left alone
+  dispose();
+});
+
+test("offline: the browser online event reconnects a dropped socket at once", () => {
+  vi.useFakeTimers();
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close(); // backoff pending
+  dom.fire("w:", "online");
+  expect(made.length).toBe(2);
+  dispose();
+});
+
+test("reconnectNow replaces even an open socket (browser offline, socket not yet dead)", () => {
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  dom.fire("w:", "offline");
+  const closes = s.socketCloses;
+  s.reconnectNow();
+  expect(made.length).toBe(2);
+  made[1].close(); // the attempt fails: visible to the notice as a close
+  expect(s.socketCloses).toBe(closes + 1);
+  expect(s.offline).toBe(true);
+  dispose();
+});
+
+test("reconnectNow reopens a closed socket and is a no-op after dispose", () => {
+  vi.useFakeTimers();
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close();
+  s.reconnectNow();
+  expect(made.length).toBe(2);
+  dispose();
+  s.reconnectNow();
+  expect(made.length).toBe(2);
+});
+
+test("dispose clears the grace timer", () => {
+  vi.useFakeTimers();
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { dispose } = connectFake(s);
+  dispose();
+  vi.advanceTimersByTime(5_000);
+  expect(s.offline).toBe(false);
+});
+
 // ── drain state ────────────────────────────────────────────────────────────
 
 test("setDrain hydrates the drain map from a list", () => {

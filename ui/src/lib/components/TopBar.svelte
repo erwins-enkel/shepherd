@@ -58,6 +58,7 @@
     sessions,
     nowMs,
     connected = false,
+    offline = false,
     mobile = false,
     touch = false,
     limits = null,
@@ -97,6 +98,8 @@
     sessions: Session[];
     nowMs: number;
     connected?: boolean;
+    /** Down past the reconnect grace (store.offline): the dot becomes a labelled OFFLINE chip. */
+    offline?: boolean;
     mobile?: boolean;
     touch?: boolean;
     limits?: UsageLimits | null;
@@ -343,8 +346,9 @@
   const blocked = $derived(
     sessions.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "blocked").length,
   );
+  const live = $derived(connected && !offline);
   const connText = $derived(
-    connected ? m.topbar_conn_tip_connected() : m.topbar_conn_tip_disconnected(),
+    live ? m.topbar_conn_tip_connected() : m.topbar_conn_tip_disconnected(),
   );
 
   // Three-step ladder (usage-gauges.ts): muted at rest, amber 75–90 (warming),
@@ -961,8 +965,9 @@
         bind:gaugeWrap
       />
     {/if}
-    <div class="conn tip" data-tip={connText} aria-label={connText}>
-      <span class="dot" class:on={connected}>{connected ? "●" : "○"}</span>
+    <div class="conn tip" class:offline data-tip={connText} aria-label={connText}>
+      <span class="dot" class:on={live}>{live ? "●" : "○"}</span>
+      {#if offline}<span class="conn-label">{m.topbar_conn_offline()}</span>{/if}
     </div>
     {#if !mobile && !foldBadges}<TopBarBadges
         {compactBadges}
@@ -1172,6 +1177,27 @@
   .conn .dot.on {
     color: var(--color-ink-bright);
   }
+  /* Offline past the reconnect grace: the dot grows into a static amber chip (in-progress
+     "reconnecting" — red stays the blocked agent's). A readout, not a button: no fill, no pulse;
+     the hollow ○ plus the OFFLINE label carry it without hue. */
+  .conn.offline {
+    box-sizing: border-box;
+    gap: 6px;
+    min-height: var(--topbar-ctl-h);
+    padding: 0 9px;
+    border: 1px solid var(--color-amber);
+    border-radius: var(--radius-chip);
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .conn.offline .dot {
+    color: inherit;
+  }
   /* Touch-wide (unfolded foldable, tablet): same reasoning as .hud.mobile's 5px — every control
      already carries a 44px touch floor, so 12px of vertical padding was only air at the top of a
      short screen. Horizontal padding is unchanged. */
@@ -1222,6 +1248,14 @@
     width: 0;
     display: inline-flex;
     justify-content: center;
+  }
+  /* Offline on a phone: the dot's zero-width cell gives way to the chip's own geometry. */
+  .hud.mobile .conn.offline {
+    min-height: var(--topbar-ctl-h);
+    padding-inline: 9px;
+  }
+  .hud.mobile .conn.offline .dot {
+    width: auto;
   }
   .hud.mobile .rightside {
     flex-wrap: wrap;

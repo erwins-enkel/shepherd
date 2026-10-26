@@ -3159,7 +3159,7 @@
         </button>
       {/if}
       {#if mobile}
-        <!-- connection state, alert-by-exception: a lone red dot only when dropped -->
+        <!-- connection state, alert-by-exception: a lone amber dot only when dropped -->
         {#if !connected}
           <span
             class="vp-offline"
@@ -4253,9 +4253,9 @@
     transform-origin: left;
   }
 
-  /* phone: connection lost — a lone red dot (alert by exception) */
+  /* phone: connection lost — a lone amber dot (alert by exception) */
   .vp-offline {
-    color: var(--color-red);
+    color: var(--color-amber);
     font-size: var(--fs-micro);
     flex-shrink: 0;
   }

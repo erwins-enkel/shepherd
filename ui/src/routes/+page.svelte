@@ -16,6 +16,7 @@
   import { createTabSignal, deriveTabState } from "#lib/tab-signal.svelte.js";
   import { tabTicker } from "#lib/tab-ticker.svelte.js";
   import { appUpdated, checkForUpdate, offerUpdateReload } from "#lib/update-offer.js";
+  import { clearOfflineNotice, showOfflineNotice } from "#lib/offline-notice.js";
   import {
     listSessions,
     listRemoteDispatches,
@@ -1143,6 +1144,15 @@
   // A newer build is live: offer a reload before a code-split panel fails to load.
   $effect(() => {
     if (appUpdated()) untrack(offerUpdateReload);
+  });
+
+  // Can't reach the server: say so, and re-check on every closed socket (a failed Retry re-offers).
+  $effect(() => {
+    const since = store.offlineSince;
+    void store.socketCloses;
+    if (store.offline && since !== null)
+      untrack(() => showOfflineNotice(since, store.reconnectNow));
+    else untrack(clearOfflineNotice);
   });
 
   // Fetch backlog when the overview is empty, or when the operator opens the
@@ -3526,6 +3536,7 @@
 
 <div
   class="shell"
+  class:offline={store.offline}
   class:mobile={mobile.current}
   class:touch-wide={canCollapse}
   class:list={mobileActionBarPresent}
@@ -3548,6 +3559,7 @@
         sessions={store.sessions}
         {nowMs}
         connected={store.connected}
+        offline={store.offline}
         mobile={mobile.current}
         touch={touch.current}
         limits={store.usageLimits}
@@ -4635,6 +4647,24 @@
     display: flex;
     flex-direction: column;
     gap: inherit;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .main-region {
+      transition: opacity 200ms ease-out;
+    }
+  }
+  /* Offline: what's on screen is a frozen snapshot, so it looks like one. The content dims and
+     every animation inside it is removed — motion reads as "live". animation-name (not
+     play-state) so motion-settle's wake can't revive a pulse: it only replays animations the
+     computed style still names. Specific enough to beat components' functional
+     `animation: … !important` pulses. The header (OFFLINE chip) and toasts stay untouched. */
+  .shell.offline .main-region {
+    opacity: 0.6;
+  }
+  .shell.offline .main-region :global(*),
+  .shell.offline .main-region :global(*::before),
+  .shell.offline .main-region :global(*::after) {
+    animation-name: none !important;
   }
 
   /* Daemon-restart mass-strand banner (#1630) — attention-toned, always visible while stranded. */

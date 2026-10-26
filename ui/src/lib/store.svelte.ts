@@ -95,6 +95,21 @@ export class HerdStore {
    *  a mobile freeze kills the socket WITHOUT ever firing `onclose`, so `connected`
    *  never goes false and an edge-watcher would miss the replacement socket. */
   connectionEpoch = $state(0);
+  /** The /events socket has been down past OFFLINE_GRACE_MS (or never opened within it). */
+  #socketStale = $state(false);
+  /** The browser reported `offline` and has not reported `online` since. */
+  #browserOffline = $state(false);
+  /** The UI can't reach the server: what it shows is a frozen snapshot. Derived, never latched,
+   *  so a socket that survived a short blip reads online again on the `online` event. */
+  get offline(): boolean {
+    return this.#browserOffline || this.#socketStale;
+  }
+  /** When the data on screen was last live (ms); null while online. */
+  offlineSince = $state<number | null>(null);
+  /** Counts every socket close — a failed reconnect attempt bumps it too. */
+  socketCloses = $state(0);
+  /** Reconnect the /events socket now on a fresh socket. Set while connect() runs. */
+  reconnectNow: () => void = () => {};
   /** True when THIS tab is focused+visible (the "attended" tier of the attention
    *  ladder — same `active()` notion connect() reports for push suppression). The
    *  ambient tab-signal (tab-signal.svelte.ts) suppresses its title/favicon/badge
@@ -1189,6 +1204,25 @@ export class HerdStore {
     // dies seconds later, and resetting on every open would pin the loop at its 1 s floor.
     let failures = 0;
     let openedAt: number | null = null;
+    // Last moment the stream was live, and the timer that turns a down socket into `offline`.
+    let liveUntil = Date.now();
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    const syncSince = (at: number) => {
+      if (!this.offline) this.offlineSince = null;
+      else if (this.offlineSince === null) this.offlineSince = at;
+    };
+    const armGrace = () => {
+      if (stopped || graceTimer || this.#socketStale) return;
+      graceTimer = setTimeout(() => {
+        graceTimer = null;
+        this.#socketStale = true;
+        syncSince(liveUntil);
+      }, OFFLINE_GRACE_MS);
+    };
+    const clearGrace = () => {
+      if (graceTimer) clearTimeout(graceTimer);
+      graceTimer = null;
+    };
     // Report whether this window is actively in use so the server can suppress
     // push banners while it is (the live UI already shows the change). Page-context
     // focus+visibility is reliable on Android, unlike a SW's WindowClient.focused.
@@ -1231,6 +1265,10 @@ export class HerdStore {
       ws.onopen = () => {
         openedAt = Date.now();
         this.connected = true;
+        clearGrace();
+        // An open socket proves the link, whatever the browser last reported.
+        this.#socketStale = this.#browserOffline = false;
+        syncSince(openedAt);
         this.connectionEpoch += 1;
         upNext.reconnected();
         issueFilterSettings.reconnected();
@@ -1245,7 +1283,10 @@ export class HerdStore {
       };
       ws.onclose = () => {
         this.terminalOwners = null;
+        if (this.connected) liveUntil = Date.now();
         this.connected = false;
+        this.socketCloses += 1;
+        armGrace();
         if (openedAt !== null && Date.now() - openedAt >= STABLE_SOCKET_MS) failures = 0;
         openedAt = null;
         if (!stopped && !reconnectTimer)
@@ -1286,17 +1327,37 @@ export class HerdStore {
       syncAttended();
       if (e.persisted) wake();
     };
+    const onOffline = () => {
+      this.#browserOffline = true;
+      syncSince(ws?.readyState === WebSocket.OPEN ? Date.now() : liveUntil);
+    };
+    // Back online: clear the browser's verdict and reconnect now instead of waiting out the backoff.
+    const onOnline = () => {
+      this.#browserOffline = false;
+      syncSince(Date.now());
+      wake();
+    };
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisible);
       window.addEventListener("focus", onFocus);
       window.addEventListener("blur", onBlur);
       window.addEventListener("pageshow", onPageShow);
+      window.addEventListener("offline", onOffline);
+      window.addEventListener("online", onOnline);
     }
     syncAttended(); // correct initial value before the first open()
+    // Always a fresh socket, even over an OPEN one the browser says is offline: the attempt then
+    // either opens (online again) or closes (socketCloses → the notice re-offers), never nothing.
+    this.reconnectNow = () => {
+      if (!stopped) open();
+    };
+    armGrace();
     open();
     return () => {
       this.terminalOwners = null;
       stopped = true;
+      this.reconnectNow = () => {};
+      clearGrace();
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -1306,6 +1367,8 @@ export class HerdStore {
         window.removeEventListener("focus", onFocus);
         window.removeEventListener("blur", onBlur);
         window.removeEventListener("pageshow", onPageShow);
+        window.removeEventListener("offline", onOffline);
+        window.removeEventListener("online", onOnline);
       }
       ws?.close();
     };
@@ -1319,6 +1382,9 @@ const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
 /** A socket open at least this long counts as a recovered link and resets the backoff. */
 const STABLE_SOCKET_MS = 10_000;
+/** How long the socket may be down before the UI says it is offline: a deploy restart or a tab
+ *  wake reconnects within ~1–2 s and must not flash the notice. */
+const OFFLINE_GRACE_MS = 3_000;
 export function reconnectDelay(attempt: number, rand: () => number = Math.random): number {
   return Math.round(rand() * Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** attempt));
 }

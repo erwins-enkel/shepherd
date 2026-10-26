@@ -4253,7 +4253,7 @@
     transform-origin: left;
   }
 
-  /* phone: connection lost — a lone red dot (alert by exception) */
+  /* phone: connection lost — a lone amber dot (alert by exception) */
   .vp-offline {
     color: var(--color-amber);
     font-size: var(--fs-micro);

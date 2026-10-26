@@ -1249,6 +1249,14 @@
     display: inline-flex;
     justify-content: center;
   }
+  /* Offline on a phone: the dot's zero-width cell gives way to the chip's own geometry. */
+  .hud.mobile .conn.offline {
+    min-height: var(--topbar-ctl-h);
+    padding-inline: 9px;
+  }
+  .hud.mobile .conn.offline .dot {
+    width: auto;
+  }
   .hud.mobile .rightside {
     flex-wrap: wrap;
     justify-content: flex-end;

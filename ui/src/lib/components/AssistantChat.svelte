@@ -15,7 +15,13 @@
   import { handleImagePaste } from "#lib/clipboard.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { clock } from "#lib/activity.js";
-  import { chatEntries, unsettled, yesNoQuestions, type PendingSend } from "#lib/assistant-chat.js";
+  import {
+    assistantChatMessage,
+    chatEntries,
+    unsettled,
+    yesNoQuestions,
+    type PendingSend,
+  } from "#lib/assistant-chat.js";
   import { askToQuestionForm } from "#lib/askForm.js";
   import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
   import MarkdownBody from "./MarkdownBody.svelte";
@@ -75,8 +81,8 @@
   let thread: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
 
-  // Images for the next message: each uploads into the assistant's dir at once; Send appends the
-  // stored paths to the text so the assistant can Read them.
+  // Images for the next message: each uploads into the assistant's dir at once; Send lists the
+  // stored paths after the text (assistantChatMessage) so the assistant can Read them.
   let attachments = $state<Attachment[]>([]);
   let nextAttachmentId = 0;
   let dragging = $state(false);
@@ -281,7 +287,7 @@
     if (!canSend) return;
     const typed = draft.trim();
     const paths = attachments.map((a) => a.path!);
-    const text = [typed, paths.join("\n")].filter(Boolean).join("\n\n");
+    const text = assistantChatMessage(typed, paths);
     if (!send(text, paths.length > 0 ? typed : undefined)) return;
     draft = "";
     attachments = [];

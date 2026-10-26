@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chatEntries, unsettled, viewFocus, yesNoQuestions } from "./assistant-chat";
+import {
+  assistantChatMessage,
+  chatEntries,
+  unsettled,
+  viewFocus,
+  yesNoQuestions,
+} from "./assistant-chat";
 import type { AssistantViewReport } from "./operator-assistant-view";
 
 const user = (text: string, ts = 1000) => ({ role: "user" as const, text, ts });
@@ -201,5 +207,32 @@ describe("yesNoQuestions", () => {
     "1. Welche Farbe?\n\n2. Starten? (Ja/Nein)",
   ])("ignores unsupported content: %s", (text) => {
     expect(yesNoQuestions(text)).toEqual([]);
+  });
+});
+
+describe("assistantChatMessage", () => {
+  // Claude Code's paste handler (2.1.x): split on newlines and on a space before a path, trim,
+  // strip matching quotes, then turn each segment ending in an image extension into an
+  // [Image #N] chip — asynchronously, losing the Enter sent with the paste.
+  const imageSegments = (text: string) =>
+    text
+      .split(/ (?=\/|[A-Za-z]:\\)/)
+      .flatMap((s) => s.split("\n"))
+      .map((s) => s.trim().replace(/^(["'])(.*)\1$/, "$2"))
+      .filter((s) => /\.(png|jpe?g|gif|webp)$/i.test(s));
+
+  it("puts the typed words first, then one line per image", () => {
+    expect(assistantChatMessage("look", ["/a/u1.png", "/a/u2.jpg"])).toBe(
+      "look\n\nAttached image: `/a/u1.png`\nAttached image: `/a/u2.jpg`",
+    );
+    expect(assistantChatMessage("", ["/a/u1.png"])).toBe("Attached image: `/a/u1.png`");
+    expect(assistantChatMessage("just text", [])).toBe("just text");
+  });
+
+  it("leaves Claude Code no pasted image path to convert", () => {
+    expect(imageSegments("look\n\n/a/u1.png\n/a/u2.webp")).toHaveLength(2);
+    expect(imageSegments("Attached image: /a/u1.png")).toHaveLength(1);
+    expect(imageSegments(assistantChatMessage("look", ["/a/u1.png", "/a/u2.webp"]))).toEqual([]);
+    expect(imageSegments(assistantChatMessage("", ["/a/u1.JPEG"]))).toEqual([]);
   });
 });

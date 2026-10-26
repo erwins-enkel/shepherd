@@ -96,6 +96,11 @@ Per-deployment overrides (password, token, repo root, alternate hosts) go in
 `~/.shepherd/env` (`KEY=value` lines), read by the unit if present. See
 [Configuration](/reference/configuration/) for the full list.
 
+The state dir (`~/.shepherd`, or the dir of `SHEPHERD_DB`) is owner-only: 0700, with
+`shepherd.db` (+ SQLite side files) and `shepherd.log*` at 0600. The server tightens them at every
+boot, the unit runs with `UMask=0077`, and `install.sh` / `bun run update` tighten an existing
+install. A path that is a symlink or owned by another user is left alone with a warning.
+
 ## Connect another machine
 
 Another Shepherd, for example the one on your MacBook, can run tasks you start
@@ -126,7 +131,8 @@ On Linux the installer/provision step also enables a **second** systemd user
 timer — `shepherd-backup.timer` (`OnCalendar=hourly`) — that snapshots the SQLite
 state DB out-of-process from the server (read-only `VACUUM INTO` → integrity check
 → gzip → atomic rename → GFS rotation). Snapshots land in `~/.shepherd/backups/`
-by default (override `SHEPHERD_BACKUP_DIR`).
+by default (override `SHEPHERD_BACKUP_DIR`). Backups are owner-only: the backup dir is
+kept at 0700 and every file in it at 0600, tightening files an older run left at 0644.
 
 ```bash
 systemctl --user status shepherd-backup.timer   # check the timer

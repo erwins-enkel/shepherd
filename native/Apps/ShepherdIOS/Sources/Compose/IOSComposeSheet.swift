@@ -145,7 +145,10 @@ struct IOSComposeContent: View {
             .onChange(of: photo) { _, photo in importPhoto(photo) }
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { if voice.capturing { voice.finalize() } else if voice.state == .arming { voice.cancel() } }
+                else { startRequestedDictation() }
             }
+            // A warm launch delivers the quick action before the scene is active again.
+            .onChange(of: IOSQuickActions.shared.dictationRequested, initial: true) { _, _ in startRequestedDictation() }
             .onChange(of: voice.active) { _, active in if active { promptFocused = false } }
             .onChange(of: model.prompt) { _, text in
                 promptChanged?(text)
@@ -492,6 +495,11 @@ struct IOSComposeContent: View {
         }
     }
     private func dismiss() { if let closeSheet { closeSheet() } else { app.sheet = nil } }
+    /// The Home Screen "Dictate Task" starts the same hands-free recording as a tap on the mic.
+    private func startRequestedDictation() {
+        let eligible = scenePhase == .active && current && !voice.active && !submission.busy && !autoStart.armed
+        if IOSQuickActions.shared.consumeDictation(eligible: eligible) { voice.toggle() }
+    }
     private func seedRepo() {
         if model.repoPath.isEmpty || (servers != nil && repo == nil),
            let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path }

@@ -139,3 +139,9 @@ test("forge settings: a mismatch or a read error is red", () => {
   i.forge = "error";
   expect(buildGreenfieldReport(i).mustHavesMissing).toEqual(["forge_settings"]);
 });
+
+test("forge settings: a plan-limited hint doesn't block", () => {
+  const i = full();
+  i.forge = { ...okForge, checks: [{ ...okForge.checks[0]!, state: "hint", reason: "plan" }] };
+  expect(buildGreenfieldReport(i).mustHavesMissing).toEqual([]);
+});

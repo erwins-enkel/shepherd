@@ -1184,6 +1184,20 @@ export class GithubForge implements GitForge {
     };
   }
 
+  /** Whether a fix may push to a PR's head (PullRequest.headPushable): the head lives in the
+   *  clone's `origin` — the fork in fork mode, as the statuses dedup reads it — and is not the
+   *  default branch. Undefined (not false) otherwise, and while the default branch is unknown. */
+  private headPushable(
+    owner: string | null | undefined,
+    head: string | undefined,
+    defaultBranch: string | null,
+  ): true | undefined {
+    const origin = this.forkOwner ?? this.slug.split("/")[0];
+    return (
+      (defaultBranch !== null && !!head && owner === origin && head !== defaultBranch) || undefined
+    );
+  }
+
   private mapRestPullToPullRequest(pr: RestPull, checks: ChecksState): PullRequest {
     const ts = Date.parse(pr.created_at ?? "");
     const author = pr.user?.login ?? "";
@@ -1680,6 +1694,7 @@ export class GithubForge implements GitForge {
       headRefName: p.headRefName,
       baseRefName: p.baseRefName,
       mergeMethod: this.mergeMethod,
+      headPushable: this.headPushable(p.headRepositoryOwner?.login, p.headRefName, defaultBranch),
       // Undefined (not false) when not awaiting, matching the "absent ⇒ false"
       // convention the field documents and keeping it out of golden equality checks.
       awaitingWorkflowApproval:

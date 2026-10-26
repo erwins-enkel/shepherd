@@ -3284,6 +3284,48 @@ test("listOpenPrSnapshot: fork-collision dedup — expectedOwner wins regardless
   }
 });
 
+test("listOpenPrSnapshot: headPushable only for a head in the repo that is not its default branch", async () => {
+  const node = (number: number, headRefName: string, owner: string) => ({
+    number,
+    url: `u${number}`,
+    title: "t",
+    state: "OPEN",
+    createdAt: "2026-01-01T00:00:00Z",
+    headRefName,
+    baseRefName: "release",
+    headRepositoryOwner: { login: owner },
+  });
+  const { run } = fakeRunner({
+    "pr list": JSON.stringify([
+      node(1, "feat/a", "o"),
+      node(2, "main", "someforker"),
+      node(3, "feat/b", "someforker"),
+      node(4, "main", "o"),
+    ]),
+    "repo view": JSON.stringify({ defaultBranchRef: { name: "main" } }),
+  });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(snap.prs.map((p) => p.headPushable)).toEqual([true, undefined, undefined, undefined]);
+});
+
+test("listOpenPrSnapshot: headPushable stays unset while the default branch is unknown", async () => {
+  const { run } = fakeRunner({
+    "pr list": JSON.stringify([
+      {
+        number: 1,
+        url: "u1",
+        title: "t",
+        state: "OPEN",
+        createdAt: "2026-01-01T00:00:00Z",
+        headRefName: "feat/a",
+        headRepositoryOwner: { login: "o" },
+      },
+    ]),
+  });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(snap.prs[0]!.headPushable).toBeUndefined();
+});
+
 test("listOpenPrSnapshot: capped=true when 200 nodes returned", async () => {
   const prs200 = Array.from({ length: 200 }, (_, i) => ({
     number: i + 1,

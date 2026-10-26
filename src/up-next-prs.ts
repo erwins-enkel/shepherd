@@ -77,12 +77,14 @@ export interface UpNextPrContext {
 
 export function classifyUpNextPr(pr: PullRequest, ctx: UpNextPrContext): UpNextPrClass | null {
   if (pr.isDraft || pr.kind === "release") return null;
-  return blockedClass(pr) ?? waitingClass(pr, ctx);
+  const blocked = blockedClass(pr);
+  return blocked === undefined ? waitingClass(pr, ctx) : blocked;
 }
 
-/** Rules 1–5: what keeps the PR from merging, and the action that clears it; null when nothing
- *  blocks it. */
-function blockedClass(pr: PullRequest): UpNextPrClass | null {
+/** Rules 1–5: what keeps the PR from merging, and the action that clears it; undefined when
+ *  nothing blocks it, null when the block isn't the operator's to clear — a fix pushes to the
+ *  head, never to a fork's branch or the default branch (PullRequest.headPushable). */
+function blockedClass(pr: PullRequest): UpNextPrClass | null | undefined {
   const conflict = isConflicting(pr);
   const behind = pr.mergeStateStatus === "behind";
   if (pr.awaitingWorkflowApproval)
@@ -93,10 +95,12 @@ function blockedClass(pr: PullRequest): UpNextPrClass | null {
       action: "dependabot_rebase",
       blockReason: conflict ? "conflict" : "behind",
     };
+  const red = pr.checks === "failure";
+  if (!conflict && !red && !behind) return undefined;
+  if (!pr.headPushable) return null; // the contributor's to fix
   if (conflict) return { band: "blocked", action: "fix", blockReason: "conflict" };
-  if (pr.checks === "failure") return { band: "blocked", action: "fix", blockReason: "ci_failed" };
-  if (behind) return { band: "blocked", action: "fix", blockReason: "behind" };
-  return null;
+  if (red) return { band: "blocked", action: "fix", blockReason: "ci_failed" };
+  return { band: "blocked", action: "fix", blockReason: "behind" };
 }
 
 /** Rules 6–9 for an unblocked PR: whose move it is — null when it waits on someone else. */

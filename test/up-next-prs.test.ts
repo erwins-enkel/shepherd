@@ -27,6 +27,7 @@ function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
     baseRefName: "main",
     headRefName: `b${number}`,
     headSha: `sha${number}`,
+    headPushable: true,
     ...over,
   };
 }
@@ -149,6 +150,23 @@ describe("classifyUpNextPr", () => {
       action: "fix",
       blockReason: "ci_failed",
     });
+  });
+  test("a head the repo cannot push to never gets a fix: a fork's or the default branch", () => {
+    for (const headPushable of [undefined, false]) {
+      expect(classify({ mergeStateStatus: "dirty", headPushable })).toBeNull();
+      expect(classify({ checks: "failure", headPushable })).toBeNull();
+      expect(classify({ mergeStateStatus: "behind", headPushable })).toBeNull();
+      // Neither a Dependabot rebase (a comment) nor a workflow approval pushes anything.
+      expect(classify({ ...DEP, mergeStateStatus: "dirty", headPushable })).toEqual({
+        band: "dependabot",
+        action: "dependabot_rebase",
+        blockReason: "conflict",
+      });
+      expect(classify({ awaitingWorkflowApproval: true, headPushable })?.action).toBe(
+        "approve_on_forge",
+      );
+      expect(classify({ headPushable })).toEqual({ band: "ready", action: "merge" });
+    }
   });
   test("drafts and release PRs are never listed", () => {
     expect(classify({ isDraft: true })).toBeNull();

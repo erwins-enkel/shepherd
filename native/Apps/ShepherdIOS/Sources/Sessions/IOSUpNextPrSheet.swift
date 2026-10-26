@@ -291,7 +291,7 @@ struct IOSUpNextPrMergeSheet: View {
             .sessionFont().foregroundStyle(SessionListStyle.ink).background(SessionListStyle.background)
             .navigationTitle(L.t("prbadge_merge")).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) {
-                Button(L.t("common_cancel"), action: controller.dismissMerge)
+                Button(L.t("common_cancel")) { controller.dismissMerge() }
                     .disabled(controller.busy).accessibilityFocused($cancelFocused)
                     .accessibilityIdentifier("merge-cancel")
             } }
@@ -329,18 +329,19 @@ struct IOSUpNextPrMergeContent: View {
             if rendersStaticFixture {
                 Label(L.t("native_merge_delete_branch"), systemImage: draft.deleteBranch ? "checkmark.square" : "square")
             } else {
-                Picker(L.t("native_merge_method"), selection: Binding(get: { draft.method }, set: controller.setMergeMethod)) {
+                // Closures, not method references: a partially applied @MainActor method as a Binding
+                // setter needs an isolated(any) thunk that crashes Xcode 26.6's IRGen.
+                Picker(L.t("native_merge_method"), selection: Binding(get: { draft.method }, set: { controller.setMergeMethod($0) })) {
                     Text(L.t("native_ios_actions_server_default")).tag(Optional<MergeMethod>.none)
                     ForEach([MergeMethod.squash, .merge, .rebase], id: \.self) { method in
                         Text(verbatim: method.rawValue).tag(Optional(method))
                     }
                 }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("merge-method")
-                Toggle(L.t("native_merge_delete_branch"), isOn: Binding(get: { draft.deleteBranch }, set: controller.setDeleteBranch))
+                Toggle(L.t("native_merge_delete_branch"), isOn: Binding(get: { draft.deleteBranch }, set: { controller.setDeleteBranch($0) }))
                     .frame(minHeight: 44)
             }
             IOSActionFeedback(error: controller.error, busy: controller.busy, rendersStaticFixture: rendersStaticFixture)
             Button {
-                // Explicit Void: a Task whose closure yields a Bool crashes Xcode 26.6's IRGen (isolated(any) thunk).
                 Task<Void, Never> {
                     let done = await controller.confirmMerge()
                     if done { merged() }

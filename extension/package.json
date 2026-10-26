@@ -26,7 +26,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tsconfig/svelte": "^5.0.4",
-    "@types/chrome": "^0.3.5",
+    "@types/chrome": "^0.3.6",
     "eslint": "^10.13.0",
     "eslint-plugin-svelte": "^3.23.1",
     "globals": "^17.13.0",
@@ -34,7 +34,7 @@
     "svelte-check": "^4.7.7",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.72.0",
-    "vite": "^8.3.4",
+    "vite": "^8.3.5",
     "axe-core": "^4.14.0",
     "esbuild": "^0.28.2",
     "vitest": "^5.0.5"

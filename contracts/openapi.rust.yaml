@@ -7630,6 +7630,9 @@ components:
           nullable: true
         canAdminister:
           type: boolean
+        planLimited:
+          description: The repo's plan lacks rulesets and auto-merge (a private repo on GitHub Free); set only when true.
+          type: boolean
     RepoRolesAutoMergeResult:
       type: object
       additionalProperties: true

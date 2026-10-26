@@ -436,6 +436,8 @@ export interface RepoMergeSettings {
   autoMergeAllowed: boolean | null;
   /** The operator may change repo settings (e.g. turn auto-merge on). */
   canAdminister: boolean;
+  /** The repo's plan lacks rulesets and auto-merge (private repo on GitHub Free); set only when true. */
+  planLimited?: boolean;
 }
 
 /** See {@link GitForge.repoForgeSettings} (Readiness → Forge settings, #3106). */
@@ -454,6 +456,8 @@ export interface RepoForgeSettings {
   labelExists: boolean;
   canAdminister: boolean;
   canPush: boolean;
+  /** The repo's plan lacks rulesets and auto-merge (private repo on GitHub Free). */
+  planLimited: boolean;
 }
 
 /** Repo settings {@link GitForge.patchRepoSettings} may change. */

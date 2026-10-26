@@ -309,6 +309,28 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
     await expect.element(page.getByText(m.roles_automerge_enable_failed())).toBeVisible();
   });
 
+  it("names the plan limit instead of offering the switch on a plan-limited repo", async () => {
+    mockRoles.mockResolvedValue({
+      ...roleResult("scoop", "scoop"),
+      pending: pendingPr("Owner", "scoop"),
+      mergeSettings: settings({ planLimited: true }),
+    });
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await expect.element(page.getByText(m.roles_automerge_plan_needed())).toBeVisible();
+    expect(page.getByRole("button", { name: m.roles_automerge_enable() }).query()).toBeNull();
+  });
+
+  it("says so when the host accepts the switch but keeps auto-merge off", async () => {
+    mockRoles.mockResolvedValue({ ...roleResult("scoop", "scoop"), mergeSettings: settings() });
+    mockEnableAutoMerge.mockResolvedValue({ mergeSettings: settings() });
+    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+
+    await page.getByRole("button", { name: m.roles_automerge_enable() }).click();
+    await expect.element(page.getByText(m.roles_automerge_enable_ignored())).toBeVisible();
+    await expect.element(page.getByText(m.roles_automerge_off())).toBeVisible();
+  });
+
   it("stays quiet on a repo that takes direct pushes", async () => {
     mockRoles.mockResolvedValue({
       ...roleResult("scoop", "scoop"),

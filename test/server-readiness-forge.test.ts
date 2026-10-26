@@ -31,6 +31,7 @@ const BAD: RepoForgeSettings = {
   labelExists: false,
   canAdminister: true,
   canPush: true,
+  planLimited: false,
 };
 
 /** A GitHub-shaped forge whose writes flip the in-memory settings. */

@@ -771,6 +771,20 @@ test("POST /api/repo-roles/auto-merge turns the setting on and arms the open rol
   expect(calls.autoMerge).toEqual([[41, "squash"]]);
 });
 
+test("POST /api/repo-roles/auto-merge: a host that ignores the write reports it still off", async () => {
+  const { clone } = remoteWithClone(config.repoRoot);
+  const { forge } = fakeRolesForge({
+    repoMergeSettings: async () => ({ ...SETTINGS_ON, autoMergeAllowed: false, planLimited: true }),
+    enableRepoAutoMerge: async () => {},
+  });
+  const res = await rolesApp(forge)("POST", clone, undefined, "/api/repo-roles/auto-merge");
+  expect(res.status).toBe(200);
+  expect((await res.json()).mergeSettings).toMatchObject({
+    autoMergeAllowed: false,
+    planLimited: true,
+  });
+});
+
 test("POST /api/repo-roles/auto-merge: 502 with a generic error when the host refuses", async () => {
   const { clone } = remoteWithClone(config.repoRoot);
   const { forge } = fakeRolesForge({

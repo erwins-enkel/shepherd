@@ -7222,5 +7222,16 @@
   "feat_new_project_attachments_title": "Attach PRD and design to a new project",
   "feat_new_project_attachments_body": "New Project's Idea field now takes your PRD and design export — attach them, or drop them anywhere on the dialog. Bootstrap is the default kickoff; PRD brief and slash commands moved under Advanced.",
   "native_ios_quick_action_dictate_task": "Dictate Task",
-  "native_ios_quick_action_new_task": "New Task"
+  "native_ios_quick_action_new_task": "New Task",
+  "drain_paused_sandbox_interactive": "Paused: sandbox Standard is interactive-only",
+  "drain_paused_sandbox_provider": "Paused: {cli} starts unattended only under Trusted",
+  "drain_paused_sandbox_backend": "Paused: Autonomous needs bubblewrap, missing on this host",
+  "drain_paused_sandbox_egress": "Paused: Autonomous needs an egress backend, missing on this host",
+  "drain_paused_target_repo_drain_off": "Paused: auto-drain is off in target repo {repo}",
+  "epic_hold_sandbox_interactive": "Held: the sandbox profile Standard runs interactive sessions only. Unattended starts need Autonomous or Trusted — change it in the repo's automation settings.",
+  "epic_hold_sandbox_provider_unconfined": "Held: {cli} runs without a sandbox, so it starts unattended only under the Trusted profile. Switch the repo to Trusted, or run this epic with Claude Code.",
+  "epic_hold_sandbox_backend_unavailable": "Held: the Autonomous sandbox needs bubblewrap, which is not available on this host. Install it, or choose Trusted for this repo.",
+  "epic_hold_sandbox_egress_unavailable": "Held: the Autonomous sandbox needs its network-egress backend (slirp4netns, dnsmasq, nft), which is not available on this host. Install it, or choose Trusted for this repo.",
+  "epic_hold_target_repo_drain_off": "Held: the next task runs in {repo}, where auto-drain is off. Turn it on there to let it start.",
+  "epic_run_next_halted": "starts once the hold is cleared"
 }

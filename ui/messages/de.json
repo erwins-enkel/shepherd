@@ -7222,5 +7222,16 @@
   "feat_new_project_attachments_title": "PRD und Design an ein neues Projekt anhängen",
   "feat_new_project_attachments_body": "Das Ideenfeld von „Neues Projekt“ nimmt jetzt dein PRD und den Design-Export auf — häng sie an oder leg sie irgendwo im Dialog ab. Bootstrap ist jetzt der Standard-Start; PRD-Briefing und Slash-Befehle findest du unter „Erweitert“.",
   "native_ios_quick_action_dictate_task": "Aufgabe diktieren",
-  "native_ios_quick_action_new_task": "Neue Aufgabe"
+  "native_ios_quick_action_new_task": "Neue Aufgabe",
+  "drain_paused_sandbox_interactive": "Pausiert: Sandbox „Standard“ ist nur interaktiv",
+  "drain_paused_sandbox_provider": "Pausiert: {cli} startet unbeaufsichtigt nur unter „Vertraut“",
+  "drain_paused_sandbox_backend": "Pausiert: „Autonom“ braucht bubblewrap, fehlt auf diesem Rechner",
+  "drain_paused_sandbox_egress": "Pausiert: „Autonom“ braucht ein Egress-Backend, fehlt auf diesem Rechner",
+  "drain_paused_target_repo_drain_off": "Pausiert: Backlog-Abarbeitung im Ziel-Repo {repo} ist aus",
+  "epic_hold_sandbox_interactive": "Angehalten: Das Sandbox-Profil „Standard“ lässt nur interaktive Sitzungen zu. Unbeaufsichtigte Starts brauchen „Autonom“ oder „Vertraut“ – änderbar in den Automatisierungs-Einstellungen des Repos.",
+  "epic_hold_sandbox_provider_unconfined": "Angehalten: {cli} läuft ohne Sandbox und startet unbeaufsichtigt nur unter dem Profil „Vertraut“. Stell das Repo auf „Vertraut“ oder lass dieses Epic mit Claude Code laufen.",
+  "epic_hold_sandbox_backend_unavailable": "Angehalten: Die Sandbox „Autonom“ braucht bubblewrap, das auf diesem Rechner fehlt. Installiere es oder wähle „Vertraut“ für dieses Repo.",
+  "epic_hold_sandbox_egress_unavailable": "Angehalten: Die Sandbox „Autonom“ braucht ihr Egress-Backend (slirp4netns, dnsmasq, nft), das auf diesem Rechner fehlt. Installiere es oder wähle „Vertraut“ für dieses Repo.",
+  "epic_hold_target_repo_drain_off": "Angehalten: Die nächste Aufgabe läuft in {repo}, dort ist die Backlog-Abarbeitung aus. Schalte sie dort ein, damit sie startet.",
+  "epic_run_next_halted": "startet, sobald der Halt behoben ist"
 }

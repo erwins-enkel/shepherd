@@ -51,6 +51,8 @@
         return m.epic_run_next_approval();
       case "resume":
         return m.epic_run_next_resume();
+      case "halted":
+        return m.epic_run_next_halted();
       default:
         return m.epic_run_next_soon();
     }

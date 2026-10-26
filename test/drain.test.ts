@@ -178,6 +178,8 @@ function makeHarness(
     bootstrapMustHaves?: (repoPath: string) => string[];
     openPrSnapshot?: ConstructorParameters<typeof DrainService>[0]["openPrSnapshot"];
     now?: () => number;
+    detectBackend?: ConstructorParameters<typeof DrainService>[0]["detectBackend"];
+    detectEgressBackend?: ConstructorParameters<typeof DrainService>[0]["detectEgressBackend"];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -321,6 +323,8 @@ function makeHarness(
     capacity: opts.capacity,
     bootstrapMustHaves: opts.bootstrapMustHaves,
     openPrSnapshot: opts.openPrSnapshot,
+    detectBackend: opts.detectBackend,
+    detectEgressBackend: opts.detectEgressBackend,
     store,
     service,
     resolveForge: () => forge,
@@ -1803,6 +1807,8 @@ describe("drain epic mode", () => {
       model?: string | null;
       effort?: string | null;
       ignoreUsageCeiling?: boolean;
+      detectBackend?: () => "bwrap" | null;
+      detectEgressBackend?: () => "slirp4netns" | null;
     } = {},
   ) {
     const subIssues: SubIssueRef[] = [
@@ -1827,6 +1833,8 @@ describe("drain epic mode", () => {
     const h = makeHarness({
       usagePct: opts.usagePct,
       usageCeilingPct: opts.usageCeilingPct,
+      detectBackend: opts.detectBackend,
+      detectEgressBackend: opts.detectEgressBackend,
       // listIssues returns [] — epic native mode must NOT rely on it
       listIssuesImpl: async () => [],
       getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
@@ -1889,6 +1897,42 @@ describe("drain epic mode", () => {
       epicParent: PARENT,
       usageCeilingPct: 80,
       usageCeilingIgnored: false,
+    });
+  });
+
+  // #3452: a refused spawn is a named hold on the epic's status, not a silent "starts shortly".
+  test("running Codex epic on an autonomous repo with both backends holds: sandbox_provider_unconfined", async () => {
+    const h = epicHarness("running", "auto", {
+      agentProvider: "codex",
+      detectBackend: () => "bwrap",
+      detectEgressBackend: () => "slirp4netns",
+    });
+    h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), sandboxProfile: "autonomous" });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+    expect(h.forgeRec.added).toHaveLength(0); // checked before the claim — no label churn
+    expect(h.statuses.at(-1)).toMatchObject({
+      paused: true,
+      reason: "sandbox_provider_unconfined",
+      detail: "codex",
+      epicParent: PARENT,
+    });
+  });
+
+  test("running epic on a standard repo holds: sandbox_interactive", async () => {
+    const h = epicHarness("running", "auto", {
+      agentProvider: "claude",
+      detectBackend: () => "bwrap",
+      detectEgressBackend: () => "slirp4netns",
+    });
+    h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), sandboxProfile: "standard" });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+    expect(h.statuses.at(-1)).toMatchObject({
+      paused: true,
+      reason: "sandbox_interactive",
+      detail: "standard",
+      epicParent: PARENT,
     });
   });
 
@@ -2956,4 +3000,80 @@ test("drain broadcasts only changed full status, including the all-clear", async
   const n = h.statuses.length;
   await h.drain.pump(REPO);
   expect(h.statuses).toHaveLength(n);
+});
+
+// ── #3452: sandbox / CLI / host refusals are drain holds, not just a log line ───────────────────
+
+describe("#3452: a refused spawn reports its hold on drain:status", () => {
+  function sandboxHarness(
+    profile: "standard" | "autonomous",
+    backend: "bwrap" | null,
+    egress: "slirp4netns" | null,
+  ): Harness {
+    const h = makeHarness({
+      issues: [issue(1)],
+      detectBackend: () => backend,
+      detectEgressBackend: () => egress,
+    });
+    h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), sandboxProfile: profile });
+    return h;
+  }
+
+  /** Run `fn` with the global default CLI set to `provider` (label drain spawns with it). */
+  async function withProvider(provider: "claude" | "codex", fn: () => Promise<void>) {
+    const saved = config.defaultAgentProvider;
+    config.defaultAgentProvider = provider;
+    try {
+      await fn();
+    } finally {
+      config.defaultAgentProvider = saved;
+    }
+  }
+
+  const CASES = [
+    { profile: "standard", backend: "bwrap", egress: "slirp4netns", reason: "sandbox_interactive" },
+    { profile: "autonomous", backend: null, egress: null, reason: "sandbox_backend_unavailable" },
+    { profile: "autonomous", backend: "bwrap", egress: null, reason: "sandbox_egress_unavailable" },
+  ] as const;
+
+  for (const c of CASES) {
+    test(`label drain, ${c.profile} (backend ${c.backend}, egress ${c.egress}) → paused ${c.reason}`, async () => {
+      await withProvider("claude", async () => {
+        const h = sandboxHarness(c.profile, c.backend, c.egress);
+        await h.drain.pump(REPO);
+        expect(h.creates).toHaveLength(0);
+        expect(h.forgeRec.added).toHaveLength(0); // checked before the claim — no label churn
+        expect(h.statuses.at(-1)).toMatchObject({
+          paused: true,
+          reason: c.reason,
+          detail: c.profile,
+          epicParent: null,
+        });
+        // The read-only snapshot names the same hold.
+        expect((await h.drain.snapshot())[0]).toMatchObject({ paused: true, reason: c.reason });
+      });
+    });
+  }
+
+  test("label drain with a Codex default on standard names the CLI, not the profile", async () => {
+    await withProvider("codex", async () => {
+      const h = sandboxHarness("standard", "bwrap", "slirp4netns");
+      await h.drain.pump(REPO);
+      expect(h.creates).toHaveLength(0);
+      expect(h.statuses.at(-1)).toMatchObject({
+        paused: true,
+        reason: "sandbox_provider_unconfined",
+        detail: "codex",
+      });
+    });
+  });
+
+  test("autonomous with both backends + Claude spawns as before — no hold", async () => {
+    await withProvider("claude", async () => {
+      const h = sandboxHarness("autonomous", "bwrap", "slirp4netns");
+      await h.drain.pump(REPO);
+      expect(h.creates).toHaveLength(1);
+      expect(h.statuses.every((s) => !s.reason?.startsWith("sandbox_"))).toBe(true);
+    });
+  });
 });

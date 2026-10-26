@@ -21,6 +21,8 @@ import type { Schedule, ScheduleInput, ScheduleOutcome } from "#lib/types.js";
 class SchedulesStore {
   #lists = new SvelteMap<string, Schedule[]>();
   #all = $state<Schedule[] | null>(null);
+  /** The last every-repo read failed (a list shown before it stays as it was). */
+  #allFailed = $state(false);
 
   listFor(repoPath: string): Schedule[] | null {
     return this.#lists.get(repoPath) ?? null;
@@ -31,12 +33,22 @@ class SchedulesStore {
     return this.#all;
   }
 
+  allFailed(): boolean {
+    return this.#allFailed;
+  }
+
   async loadAll(): Promise<void> {
     try {
       this.#all = await listSchedules();
+      this.#allFailed = false;
     } catch {
-      /* unknown state renders nothing; the next open retries */
+      this.#allFailed = true;
     }
+  }
+
+  /** The every-repo list has been asked for (loaded, or failed and still worth retrying). */
+  get #allWanted(): boolean {
+    return this.#all !== null || this.#allFailed;
   }
 
   async load(repoPath: string): Promise<void> {
@@ -50,7 +62,7 @@ class SchedulesStore {
   /** The server says `repoPath`'s schedules changed: re-read when a view shows them. */
   refresh(repoPath: string): void {
     if (this.#lists.has(repoPath)) void this.load(repoPath);
-    if (this.#all !== null) void this.loadAll();
+    if (this.#allWanted) void this.loadAll();
   }
 
   /** Create (no id) or update a schedule. */
@@ -90,7 +102,7 @@ class SchedulesStore {
   }
 
   async #reload(repoPath: string): Promise<void> {
-    await Promise.all([this.load(repoPath), this.#all !== null && this.loadAll()]);
+    await Promise.all([this.load(repoPath), this.#allWanted && this.loadAll()]);
   }
 }
 

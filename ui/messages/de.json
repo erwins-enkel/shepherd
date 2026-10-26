@@ -7413,5 +7413,6 @@
   "settings_schedules_filter_all": "Alle Repos",
   "settings_schedules_empty": "Noch keine Zeitpläne in einem Repo.",
   "feat_schedules_overview_title": "Alle Zeitpläne an einem Ort",
-  "feat_schedules_overview_body": "Einstellungen → Zeitpläne zeigt die Zeitpläne aller Repos, der nächste Lauf zuerst, mit letztem Ergebnis, Ein/Aus-Schalter, Jetzt ausführen und Bearbeiten."
+  "feat_schedules_overview_body": "Einstellungen → Zeitpläne zeigt die Zeitpläne aller Repos, der nächste Lauf zuerst, mit letztem Ergebnis, Ein/Aus-Schalter, Jetzt ausführen und Bearbeiten.",
+  "settings_schedules_load_failed": "Die Zeitpläne konnten nicht geladen werden."
 }

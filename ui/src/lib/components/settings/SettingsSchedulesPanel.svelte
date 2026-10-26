@@ -38,7 +38,14 @@
 </div>
 <p class="ssp-intro"><HighlightText text={m.settings_schedules_intro()} {query} /></p>
 
-{#if all === null}
+{#if all === null && schedules.allFailed()}
+  <p class="ssp-intro">
+    {m.settings_schedules_load_failed()}
+    <button type="button" class="set-gbtn" onclick={() => void schedules.loadAll()}
+      >{m.common_retry()}</button
+    >
+  </p>
+{:else if all === null}
   <p class="ssp-intro">{m.common_loading()}</p>
 {:else if all.length === 0}
   <p class="ssp-intro">{m.settings_schedules_empty()}</p>

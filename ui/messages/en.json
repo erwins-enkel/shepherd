@@ -7413,5 +7413,6 @@
   "settings_schedules_filter_all": "All repos",
   "settings_schedules_empty": "No schedules in any repo yet.",
   "feat_schedules_overview_title": "All schedules in one place",
-  "feat_schedules_overview_body": "Settings → Schedules lists every repo's schedules, soonest run first, with the last outcome, an on/off switch, Run now and Edit."
+  "feat_schedules_overview_body": "Settings → Schedules lists every repo's schedules, soonest run first, with the last outcome, an on/off switch, Run now and Edit.",
+  "settings_schedules_load_failed": "Couldn't load the schedules."
 }

@@ -102,3 +102,25 @@ describe("schedules store: every-repo list (#3475)", () => {
     await vi.waitFor(() => expect(urls.some((u) => u.endsWith("/api/schedules"))).toBe(true));
   });
 });
+
+describe("schedules store: every-repo list load failure (#3475)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("a failed first read is reported and retried by the next schedules:changed", async () => {
+    vi.resetModules(); // a store that has never loaded the every-repo list
+    const { schedules: fresh } = await import("./schedules.svelte");
+    let ok = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      ok
+        ? new Response(JSON.stringify({ schedules: [sched("a", "/r", "A", 1)] }))
+        : new Response("boom", { status: 500 }),
+    );
+    await fresh.loadAll();
+    expect(fresh.all()).toBeNull();
+    expect(fresh.allFailed()).toBe(true);
+    ok = true;
+    fresh.refresh("/r");
+    await vi.waitFor(() => expect(fresh.all()?.map((s) => s.id)).toEqual(["a"]));
+    expect(fresh.allFailed()).toBe(false);
+  });
+});

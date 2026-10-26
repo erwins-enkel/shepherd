@@ -26,6 +26,15 @@ a dialog with:
 Each row shows the cadence, the next run and the last outcome. It also has an
 on/off switch, **Run now**, **Edit** and **Delete**.
 
+## All schedules
+
+**Settings → Schedules** lists the schedules of every repo in one place, soonest
+run first. Disabled schedules come last. Each row shows the repo, name, cadence,
+next run and last outcome, with the same switch, **Run now**, **Edit** and
+**Delete** as the repo's own list. When more than one repo has schedules, a
+**Repo** filter narrows the list to one. To add a schedule, use the repo's
+**Repo automation** settings.
+
 ## When a schedule runs
 
 - **Times are the Shepherd server's local time.** There is no per-schedule time

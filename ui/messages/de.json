@@ -7406,5 +7406,12 @@
   "upnext_pr_description": "Beschreibung",
   "upnext_pr_body_unavailable": "Die Beschreibung dieses PRs konnte nicht geladen werden.",
   "feat_upnext_prs_title": "Als Nächstes: Pull Requests, die auf dich warten",
-  "feat_upnext_prs_body": "„Als Nächstes“ beginnt jetzt mit deinen offenen Pull Requests, sortiert nach „Bereit zum Mergen“, „Review fällig“, „Blockiert“ und „Dependabot“. Jede Zeile bietet genau einen nächsten Schritt — mergen, reviewen, eine Fix-Session starten, die rebased oder rote CI behebt, Dependabot um einen Rebase bitten oder einen Workflow-Lauf auf GitHub freigeben. Wähle mehrere PRs für einen Merge-Train; das Badge am Tab zählt die merge-bereiten."
+  "feat_upnext_prs_body": "„Als Nächstes“ beginnt jetzt mit deinen offenen Pull Requests, sortiert nach „Bereit zum Mergen“, „Review fällig“, „Blockiert“ und „Dependabot“. Jede Zeile bietet genau einen nächsten Schritt — mergen, reviewen, eine Fix-Session starten, die rebased oder rote CI behebt, Dependabot um einen Rebase bitten oder einen Workflow-Lauf auf GitHub freigeben. Wähle mehrere PRs für einen Merge-Train; das Badge am Tab zählt die merge-bereiten.",
+  "settings_tab_schedules": "Zeitpläne",
+  "settings_schedules_intro": "Die Zeitpläne aller Repos in einer Liste, der nächste Lauf zuerst. Pausierte Zeitpläne stehen am Ende. Neue legst du unter Repo-Automatisierung → Zeitpläne des jeweiligen Repos an.",
+  "settings_schedules_filter_label": "Repo",
+  "settings_schedules_filter_all": "Alle Repos",
+  "settings_schedules_empty": "Noch keine Zeitpläne in einem Repo.",
+  "feat_schedules_overview_title": "Alle Zeitpläne an einem Ort",
+  "feat_schedules_overview_body": "Einstellungen → Zeitpläne zeigt die Zeitpläne aller Repos, der nächste Lauf zuerst, mit letztem Ergebnis, Ein/Aus-Schalter, Jetzt ausführen und Bearbeiten."
 }

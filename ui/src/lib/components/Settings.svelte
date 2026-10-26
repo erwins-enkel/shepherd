@@ -30,6 +30,7 @@
   import SettingsWorkspacePanel from "#lib/components/settings/SettingsWorkspacePanel.svelte";
   import SettingsCodingCliPanel from "#lib/components/settings/SettingsCodingCliPanel.svelte";
   import SettingsSessionPanel from "#lib/components/settings/SettingsSessionPanel.svelte";
+  import SettingsSchedulesPanel from "#lib/components/settings/SettingsSchedulesPanel.svelte";
   import SettingsAssistantPanel from "#lib/components/settings/SettingsAssistantPanel.svelte";
   import SettingsDecisionModelPanel from "#lib/components/settings/SettingsDecisionModelPanel.svelte";
   import SettingsDevicePanel from "#lib/components/settings/SettingsDevicePanel.svelte";
@@ -361,6 +362,8 @@
         return m.settings_tab_plugins();
       case "session":
         return m.settings_tab_session();
+      case "schedules":
+        return m.settings_tab_schedules();
       case "decisionModel":
         return m.settings_tab_decision_model();
       case "assistant":
@@ -564,6 +567,19 @@
           {fableAvailableBusy}
           onToggleFable={toggleFableAvailable}
         />
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-schedules"
+        aria-label={m.settings_tab_schedules()}
+        hidden={active !== "schedules"}
+      >
+        <!-- Mounted only while shown: it loads every repo's schedules, which nobody needs elsewhere. -->
+        {#if active === "schedules" && (!isNarrow || !mobileList)}
+          <SettingsSchedulesPanel {query} />
+        {/if}
       </div>
 
       <div

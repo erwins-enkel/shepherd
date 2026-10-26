@@ -3809,11 +3809,10 @@ export function operatorAssistantUnavailableReason(
 
 // ── Operator schedules (#3469) ──
 
-export async function listSchedules(repoPath: string): Promise<Schedule[]> {
-  const body = await getJson<{ schedules: Schedule[] }>(
-    `/api/schedules?repo=${encodeURIComponent(repoPath)}`,
-    "schedules",
-  );
+/** One repo's schedules, or every repo's when `repoPath` is omitted (#3475). */
+export async function listSchedules(repoPath?: string): Promise<Schedule[]> {
+  const query = repoPath ? `?repo=${encodeURIComponent(repoPath)}` : "";
+  const body = await getJson<{ schedules: Schedule[] }>(`/api/schedules${query}`, "schedules");
   return body.schedules;
 }
 

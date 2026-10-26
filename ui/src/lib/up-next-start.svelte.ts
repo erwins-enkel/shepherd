@@ -14,7 +14,8 @@ import { upNextKey, upNextUi } from "./up-next-ui.svelte";
 /** What starting Up Next work needs from the page: provider capacity and the CLI-picker
  *  settings. Threaded from +page (via Herd for the rail panel). */
 export type UpNextLaunchContext = {
-  store: Pick<HerdStore, "diagnostics" | "usageLimits">;
+  /** `sessions` names the session working on a PR in the PR preview. */
+  store: Pick<HerdStore, "diagnostics" | "usageLimits"> & Partial<Pick<HerdStore, "sessions">>;
   defaultAgentProvider: AgentProvider;
   fableAvailable: boolean;
   upnextSkipCliPicker: boolean;

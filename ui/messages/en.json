@@ -7586,5 +7586,16 @@
   "capacity_hold_off": "Holding is off: new tasks start regardless of usage.",
   "capacity_cli_option": "{provider} · {pct}%",
   "feat_capacity_panel_title": "Usage and held work on one screen",
-  "feat_capacity_panel_body": "The usage gauge and the held-tasks badge are now one control in the top bar. It opens a single panel: usage on the left, everything waiting on capacity on the right — held tasks and auto-drains paused at their ceiling. The hold limit is drawn on the bars, so you see how close you are and what it is holding back."
+  "feat_capacity_panel_body": "The usage gauge and the held-tasks badge are now one control in the top bar. It opens a single panel: usage on the left, everything waiting on capacity on the right — held tasks and auto-drains paused at their ceiling. The hold limit is drawn on the bars, so you see how close you are and what it is holding back.",
+  "drain_paused_sandbox_interactive": "Paused: sandbox Standard is interactive-only",
+  "drain_paused_sandbox_provider": "Paused: {cli} starts unattended only under Trusted",
+  "drain_paused_sandbox_backend": "Paused: Autonomous needs bubblewrap, missing on this host",
+  "drain_paused_sandbox_egress": "Paused: Autonomous needs an egress backend, missing on this host",
+  "drain_paused_target_repo_drain_off": "Paused: auto-drain is off in target repo {repo}",
+  "epic_hold_sandbox_interactive": "Held: the sandbox profile Standard runs interactive sessions only. Unattended starts need Autonomous or Trusted — change it in the repo's automation settings.",
+  "epic_hold_sandbox_provider_unconfined": "Held: {cli} runs without a sandbox, so it starts unattended only under the Trusted profile. Switch the repo to Trusted, or run this epic with Claude Code.",
+  "epic_hold_sandbox_backend_unavailable": "Held: the Autonomous sandbox needs bubblewrap, which is not available on this host. Install it, or choose Trusted for this repo.",
+  "epic_hold_sandbox_egress_unavailable": "Held: the Autonomous sandbox needs its network-egress backend (slirp4netns, dnsmasq, nft), which is not available on this host. Install it, or choose Trusted for this repo.",
+  "epic_hold_target_repo_drain_off": "Held: the next task runs in {repo}, where auto-drain is off. Turn it on there to let it start.",
+  "epic_run_next_halted": "starts once the hold is cleared"
 }

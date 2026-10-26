@@ -7586,5 +7586,16 @@
   "capacity_hold_off": "Zurückhalten ist aus: Neue Aufgaben starten unabhängig von der Auslastung.",
   "capacity_cli_option": "{provider} · {pct} %",
   "feat_capacity_panel_title": "Auslastung und Wartendes auf einem Screen",
-  "feat_capacity_panel_body": "Auslastungsanzeige und das Badge für zurückgehaltene Aufgaben sind in der Top-Bar jetzt ein einziges Element. Es öffnet ein Panel: links die Auslastung, rechts alles, was auf Kapazität wartet – zurückgehaltene Aufgaben und Backlog-Abarbeitungen, die an ihrer Grenze pausieren. Die Grenze ist auf den Balken eingezeichnet, so siehst du, wie nah du dran bist und was sie gerade bremst."
+  "feat_capacity_panel_body": "Auslastungsanzeige und das Badge für zurückgehaltene Aufgaben sind in der Top-Bar jetzt ein einziges Element. Es öffnet ein Panel: links die Auslastung, rechts alles, was auf Kapazität wartet – zurückgehaltene Aufgaben und Backlog-Abarbeitungen, die an ihrer Grenze pausieren. Die Grenze ist auf den Balken eingezeichnet, so siehst du, wie nah du dran bist und was sie gerade bremst.",
+  "drain_paused_sandbox_interactive": "Pausiert: Sandbox „Standard“ ist nur interaktiv",
+  "drain_paused_sandbox_provider": "Pausiert: {cli} startet unbeaufsichtigt nur unter „Vertraut“",
+  "drain_paused_sandbox_backend": "Pausiert: „Autonom“ braucht bubblewrap, fehlt auf diesem Rechner",
+  "drain_paused_sandbox_egress": "Pausiert: „Autonom“ braucht ein Egress-Backend, fehlt auf diesem Rechner",
+  "drain_paused_target_repo_drain_off": "Pausiert: Backlog-Abarbeitung im Ziel-Repo {repo} ist aus",
+  "epic_hold_sandbox_interactive": "Angehalten: Das Sandbox-Profil „Standard“ lässt nur interaktive Sitzungen zu. Unbeaufsichtigte Starts brauchen „Autonom“ oder „Vertraut“ – änderbar in den Automatisierungs-Einstellungen des Repos.",
+  "epic_hold_sandbox_provider_unconfined": "Angehalten: {cli} läuft ohne Sandbox und startet unbeaufsichtigt nur unter dem Profil „Vertraut“. Stell das Repo auf „Vertraut“ oder lass dieses Epic mit Claude Code laufen.",
+  "epic_hold_sandbox_backend_unavailable": "Angehalten: Die Sandbox „Autonom“ braucht bubblewrap, das auf diesem Rechner fehlt. Installiere es oder wähle „Vertraut“ für dieses Repo.",
+  "epic_hold_sandbox_egress_unavailable": "Angehalten: Die Sandbox „Autonom“ braucht ihr Egress-Backend (slirp4netns, dnsmasq, nft), das auf diesem Rechner fehlt. Installiere es oder wähle „Vertraut“ für dieses Repo.",
+  "epic_hold_target_repo_drain_off": "Angehalten: Die nächste Aufgabe läuft in {repo}, dort ist die Backlog-Abarbeitung aus. Schalte sie dort ein, damit sie startet.",
+  "epic_run_next_halted": "startet, sobald der Halt behoben ist"
 }

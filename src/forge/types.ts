@@ -244,6 +244,11 @@ export interface PullRequest {
   headSha?: string;
   /** Head branch name; used to skip PRs already managed by a live session. */
   headRefName?: string;
+  /** Whether a fix may push to the head branch: true when it lives in this clone's `origin` and
+   *  is not the repo's default branch, false when it is a contributor fork's branch or the default
+   *  branch. Absent when the forge can't tell this time (no head repo or default branch in the
+   *  payload). Up Next offers its push-only fix only on true and locks it while absent. */
+  headPushable?: boolean;
   /** True when a GitHub Actions workflow run on this PR's head is awaiting manual
    *  approval to run (`conclusion=action_required` — the fork/outside-contributor &
    *  Actions-bot flavor; deployment-environment `waiting` gates are NOT detected).

@@ -83,13 +83,15 @@ export function formatReadyPrs(prs: Pick<ReadyPr, "number" | "title" | "url">[])
  *  with the most ready PRs (ties → first encountered). A merge train is
  *  inherently per-repo, so PRs in other repos are reported (`otherRepoCount`)
  *  for a fail-loud notice rather than silently folded in. */
-export function pickTrainRepo(prs: ReadyPr[]): {
+export function pickTrainRepo<T extends Pick<ReadyPr, "repoPath">>(
+  prs: T[],
+): {
   repoPath: string | null;
-  prs: ReadyPr[];
+  prs: T[];
   otherRepoCount: number;
 } {
   if (prs.length === 0) return { repoPath: null, prs: [], otherRepoCount: 0 };
-  const byRepo = new Map<string, ReadyPr[]>();
+  const byRepo = new Map<string, T[]>();
   for (const p of prs) {
     const list = byRepo.get(p.repoPath);
     if (list) list.push(p);

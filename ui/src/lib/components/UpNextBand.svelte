@@ -1,60 +1,122 @@
 <script module lang="ts">
-  import type { UpNextItem } from "#lib/types.js";
+  import type { UpNextItem, UpNextPr } from "#lib/types.js";
 
-  /** One tinted band: the cross-repo priority tier, or one label (bug, enhancement, …, none).
-   *  tone is the CSS color the band and its heading are tinted with. */
-  export type UpNextBandGroup = {
+  type BandFrame = {
     id: string;
     title: string;
-    /** The label this band groups by; its rows omit it from their chips. Null for priority/unlabeled. */
-    label: string | null;
+    /** The CSS color the band and its heading are tinted with. */
     tone: string;
-    items: UpNextItem[];
     totalCount: number;
     cap: number;
   };
+  /** One tinted band: the cross-repo priority tier, or one label (bug, enhancement, …, none).
+   *  tone is the CSS color the band and its heading are tinted with. */
+  export type UpNextBandGroup = BandFrame & {
+    kind?: "issue";
+    /** The label this band groups by; its rows omit it from their chips. Null for priority/unlabeled. */
+    label: string | null;
+    items: UpNextItem[];
+  };
+  /** One PR band (ready, review, blocked, dependabot), classified server-side. */
+  export type UpNextPrBandGroup = BandFrame & { kind: "pr"; items: UpNextPr[] };
 </script>
 
 <script lang="ts">
   import { formatAgo } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { upNextKey, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import type { UpNextPrActions } from "#lib/up-next-pr-actions.svelte.js";
+  import { upNextKey, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import IssueLabelChips from "./IssueLabelChips.svelte";
+  import UpNextPrRowStatus from "./UpNextPrRowStatus.svelte";
 
   // One Up Next band: its fold-toggle heading and its rows. A row's checkbox ticks it for the
-  // batch bar; its title opens the issue in the preview (upNextUi.previewKey).
+  // batch bar; its title opens the issue or PR in the preview (upNextUi.previewKey). A PR row
+  // also carries its one next action on the right.
   let {
     group,
     open,
     expanded,
     showRepo,
-    labelsOf,
+    labelsOf = () => [],
     onfold,
     onexpand,
     ontick,
+    prActions = undefined,
   }: {
-    group: UpNextBandGroup;
+    group: UpNextBandGroup | UpNextPrBandGroup;
     /** Rows shown (heading unfolded). */
     open: boolean;
     /** Past the cap ("show all N"). */
     expanded: boolean;
     /** Bands mix repos, so a row names its repo whenever more than one is on screen. */
     showRepo: boolean;
-    labelsOf: (it: UpNextItem) => string[];
+    labelsOf?: (it: UpNextItem) => string[];
     onfold: () => void;
     onexpand: () => void;
-    ontick: (it: UpNextItem) => void;
+    ontick?: (it: UpNextItem) => void;
+    /** Runs a PR row's action; a PR band without it shows its buttons disabled. */
+    prActions?: UpNextPrActions;
   } = $props();
 
   const selected = upNextUi.selected;
-  const shown = $derived(expanded ? group.items : group.items.slice(0, group.cap));
+  const prs = $derived(group.kind === "pr" ? group.items : []);
+  const issues = $derived(group.kind === "pr" ? [] : group.items);
+  const keys = $derived(group.kind === "pr" ? prs.map(upNextPrKey) : issues.map(upNextKey));
+  const shownPrs = $derived(expanded ? prs : prs.slice(0, group.cap));
+  const shown = $derived(expanded ? issues : issues.slice(0, group.cap));
   // Ticked rows a folded band hides — its heading says so, so a batch never starts unseen work.
-  const hidden = $derived(
-    open ? 0 : group.items.filter((it) => selected.has(upNextKey(it))).length,
-  );
+  const hidden = $derived(open ? 0 : keys.filter((key) => selected.has(key)).length);
   const repoBase = (p: string | null) => p?.split("/").filter(Boolean).at(-1) ?? "";
+  const groupLabel = $derived(group.kind === "pr" ? null : group.label);
 </script>
+
+{#snippet tickBox(key: string, label: string, onchange: () => void)}
+  <label class="un-check">
+    <input type="checkbox" checked={selected.has(key)} {onchange} aria-label={label} />
+  </label>
+{/snippet}
+
+{#snippet prRow(pr: UpNextPr)}
+  {@const key = upNextPrKey(pr)}
+  {@const current = upNextUi.previewKey === key}
+  <li class="un-row" class:un-row-selected={selected.has(key)} class:un-row-current={current}>
+    {@render tickBox(key, m.upnext_pr_select_aria({ number: pr.number, title: pr.title }), () =>
+      upNextUi.toggle(key),
+    )}
+    <div class="un-main">
+      <button
+        type="button"
+        class="un-link"
+        aria-current={current ? "true" : undefined}
+        onclick={() => (upNextUi.previewKey = key)}>{pr.title}</button
+      >
+      <UpNextPrRowStatus {pr} {showRepo} actions={prActions} />
+    </div>
+    <span class="un-meta">
+      <span class="un-num unpr-num"
+        ><svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          role="img"
+          aria-label={m.upnext_pr_glyph()}
+          ><circle cx="4" cy="3.5" r="1.75" /><circle cx="4" cy="12.5" r="1.75" /><circle
+            cx="12"
+            cy="12.5"
+            r="1.75"
+          /><path d="M4 5.25v5.5M12 10.75V6.5a2 2 0 0 0-2-2H7" /><path
+            d="M8.5 3 7 4.5 8.5 6"
+          /></svg
+        >#{pr.number}</span
+      >
+      <span class="un-age">{formatAgo(clock.current - pr.createdAt)}</span>
+    </span>
+  </li>
+{/snippet}
 
 <div class="un-section" style:--band={group.tone}>
   <button type="button" class="un-section-head" aria-expanded={open} onclick={onfold}>
@@ -67,21 +129,19 @@
   </button>
   {#if open}
     <ul class="un-list">
+      {#each shownPrs as pr (upNextPrKey(pr))}
+        {@render prRow(pr)}
+      {/each}
       {#each shown as it (upNextKey(it))}
         {@const key = upNextKey(it)}
         {@const labels = labelsOf(it).filter(
-          (label) => label.toLowerCase() !== group.label?.toLowerCase(),
+          (label) => label.toLowerCase() !== groupLabel?.toLowerCase(),
         )}
         {@const current = upNextUi.previewKey === key}
         <li class="un-row" class:un-row-selected={selected.has(key)} class:un-row-current={current}>
-          <label class="un-check">
-            <input
-              type="checkbox"
-              checked={selected.has(key)}
-              onchange={() => ontick(it)}
-              aria-label={m.upnext_select_aria({ number: it.number, title: it.title })}
-            />
-          </label>
+          {@render tickBox(key, m.upnext_select_aria({ number: it.number, title: it.title }), () =>
+            ontick?.(it),
+          )}
           <div class="un-main">
             <!-- The title reads the issue in the preview; GitHub is one click further, from there. -->
             <button
@@ -278,6 +338,12 @@
   }
   .un-age {
     color: var(--color-faint);
+  }
+
+  .unpr-num {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
 
   @media (max-width: 768px), (pointer: coarse) {

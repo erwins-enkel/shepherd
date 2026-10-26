@@ -2799,6 +2799,28 @@ export async function getUpNextBody(repoPath: string, number: number): Promise<{
   );
 }
 
+/** A waiting PR's full description, read on demand for the PR preview. */
+export async function getUpNextPrBody(repoPath: string, number: number): Promise<{ body: string }> {
+  return getJson(
+    `/api/up-next/pr-body?repo=${encodeURIComponent(repoPath)}&number=${number}`,
+    "up next pr body",
+  );
+}
+
+/** Start a push-only fix session for a waiting PR whose action is `fix`. A refusal throws an
+ *  ApiError whose `code` names it: `not_fixable`, `pr_in_flight` or `head_not_in_repo`. */
+export async function startUpNextPrFix(
+  repoPath: string,
+  number: number,
+  steer?: string,
+): Promise<{ session: Session }> {
+  return postJson(
+    "/api/up-next/pr-fix",
+    { repo: repoPath, number, ...(steer !== undefined && { steer }) },
+    "fix pull request",
+  );
+}
+
 /** Force an Up Next recompute (the manual refresh button). */
 export async function refreshUpNext(): Promise<{ ok: boolean }> {
   return postJson("/api/up-next/refresh", {}, "refresh up next");

@@ -8688,7 +8688,9 @@ test("landingRepairDirective: repair-and-push substance, no PR", () => {
   const sp = composeSystemPrompt(false, { landingRepair: true });
   // Anchor on the durable substance from the task brief, not incidental wording.
   expect(sp).toContain("epic LANDING pull request");
-  expect(sp).toContain("scratch branch");
+  // PR-neutral: an Up Next PR fix (POST /api/up-next/pr-fix) runs as the same kind.
+  expect(sp).toContain("repairing an existing pull request");
+  expect(sp).toContain("scratch branch cut from the pull request's head branch");
   // Goal-neutral: the task prompt (CI repair or conflict rework) owns goal + push command.
   expect(sp).toContain("EXACT push command from the task prompt");
   expect(sp).not.toContain("drive the epic integration branch's CI green");

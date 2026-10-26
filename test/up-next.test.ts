@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { UpNextService, startSerially, buildUpNextRepos, type UpNextDeps } from "../src/up-next";
 import { listRepos } from "../src/repos";
 import type { Epic, EpicRun } from "../src/epic-core";
-import type { GitForge, Issue } from "../src/forge/types";
+import type { GitForge, Issue, OpenPrSnapshot, PullRequest } from "../src/forge/types";
 import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "../src/issue-filter";
 
 function issue(number: number, over: Partial<Issue> = {}): Issue {
@@ -975,4 +975,112 @@ test("readiness republish uses newest bodies while older scoring retains its own
     "updated private body",
     "updated private body",
   ]);
+});
+
+describe("UpNextService pull requests", () => {
+  function openPr(number: number, over: Partial<PullRequest> = {}): PullRequest {
+    return {
+      number,
+      title: `pr${number}`,
+      url: `https://x/pull/${number}`,
+      author: "me",
+      kind: "regular",
+      createdAt: number,
+      isDraft: false,
+      mergeable: true,
+      mergeStateStatus: "clean",
+      checks: "success",
+      jobs: [],
+      headRefName: `b${number}`,
+      ...over,
+    };
+  }
+  const snapshotOf = (prs: PullRequest[]): OpenPrSnapshot => ({
+    prs,
+    statuses: new Map(),
+    capped: false,
+  });
+  const prForge = (over: Partial<GitForge> = {}) =>
+    fakeForge({
+      issues: [issue(1), issue(2)],
+      currentUser: async () => "me",
+      listOpenPrLinkedIssues: async () => new Map([[2, [{ prNumber: 10, author: "me" }]]]),
+      ...over,
+    } as Partial<GitForge>);
+
+  test("attaches the shared open-PR snapshot's rows, read as a background read", async () => {
+    const reads: unknown[] = [];
+    const s = svc({
+      resolveForge: () => prForge(),
+      openPrSnapshot: {
+        get: async (_forge, opts) => {
+          reads.push(opts);
+          return snapshotOf([openPr(10), openPr(11, { author: "other" })]);
+        },
+      },
+      hasNoCi: () => false,
+    });
+    const snap = await s.refresh();
+    expect(reads).toEqual([{ background: true }]);
+    expect(snap.pullRequests!.map((p) => [p.number, p.band, p.action, p.closesIssue])).toEqual([
+      [10, "ready", "merge", 2],
+      [11, "review", "review", undefined],
+    ]);
+    // The linked issue still leaves the issue list (same query as before).
+    expect(snap.sections.flatMap((x) => x.items.map((i) => i.number))).toEqual([1]);
+  });
+
+  test("falls back to the forge's PR listing when it has no snapshot", async () => {
+    const s = svc({
+      resolveForge: () => prForge({ listPullRequests: async () => [openPr(12)] }),
+      openPrSnapshot: { get: async () => null },
+      hasNoCi: () => false,
+    });
+    expect((await s.refresh()).pullRequests!.map((p) => p.number)).toEqual([12]);
+  });
+
+  test("a failing PR read keeps the issues and lists no PRs for that repo", async () => {
+    const s = svc({
+      resolveForge: () => prForge(),
+      openPrSnapshot: {
+        get: async () => {
+          throw new Error("rate limited");
+        },
+      },
+      hasNoCi: () => false,
+    });
+    const snap = await s.refresh();
+    expect(snap.pullRequests).toEqual([]);
+    expect(snap.failedRepoCount).toBe(0);
+    expect(snap.sections.flatMap((x) => x.items.map((i) => i.number))).toEqual([1]);
+  });
+
+  test("reads the repo's no-CI state for checks:none", async () => {
+    const s = svc({
+      resolveForge: () => prForge(),
+      openPrSnapshot: { get: async () => snapshotOf([openPr(10, { checks: "none" })]) },
+      hasNoCi: (kind, repoPath) => kind === "github" && repoPath === "/r/a",
+    });
+    expect((await s.refresh()).pullRequests![0]!.action).toBe("merge");
+  });
+
+  test("refilter drops a PR as soon as a session holds it, without a forge read", async () => {
+    let reads = 0;
+    let held = new Map<string, { heads: Set<string>; numbers: Set<number> }>();
+    const s = svc({
+      resolveForge: () => {
+        reads++;
+        return prForge();
+      },
+      openPrSnapshot: { get: async () => snapshotOf([openPr(10), openPr(11)]) },
+      hasNoCi: () => false,
+      prsInFlight: () => held,
+      realpath: (p) => (p === "/r/a" ? "/real/a" : p),
+    });
+    expect((await s.refresh()).pullRequests!.map((p) => p.number)).toEqual([11, 10]);
+    held = new Map([["/real/a", { heads: new Set(["b11"]), numbers: new Set<number>() }]]);
+    s.refilter();
+    expect(reads).toBe(1);
+    expect(s.snapshot()!.pullRequests!.map((p) => p.number)).toEqual([10]);
+  });
 });

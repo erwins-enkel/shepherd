@@ -5074,6 +5074,17 @@ components:
           type: boolean
         confirm:
           $ref: "#/components/schemas/MergeConfirmation"
+    DependabotRebaseBody:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+        - number
+      properties:
+        repo:
+          type: string
+        number:
+          type: integer
     MergeConfirmRefusal:
       type: object
       additionalProperties: true
@@ -5452,6 +5463,132 @@ components:
             $ref: "#/components/schemas/UpNextItem"
         totalCount:
           type: integer
+    PrKind:
+      type: string
+    WorkflowJob:
+      type: object
+      additionalProperties: true
+      description: One CI job or status context of a PR's head commit.
+      required:
+        - name
+        - state
+      properties:
+        name:
+          type: string
+        state:
+          $ref: "#/components/schemas/ChecksState"
+        url:
+          type: string
+        startedAt:
+          type: integer
+        completedAt:
+          type: integer
+        typicalMs:
+          type: integer
+    UpNextPrBand:
+      type: string
+    UpNextPrAction:
+      type: string
+    UpNextPrBlockReason:
+      type: string
+    UpNextPr:
+      type: object
+      additionalProperties: true
+      description: "One open PR waiting on the operator (src/up-next-prs.ts). The server alone classifies it: clients render band and action as given. action null means CI is still running or mergeability is still computing, or — on a blocked row — the server can't yet tell whether a fix may push to the head: the row keeps its band, sorts to its end and its button is disabled. A fix is offered only for a head in the repo that is not its default branch; a fork's blocked PR is not listed. Drafts, release PRs and PRs a session works on never are."
+      required:
+        - repoPath
+        - repoSlug
+        - repoLabel
+        - number
+        - title
+        - url
+        - author
+        - kind
+        - createdAt
+        - checks
+        - mergeable
+        - band
+        - action
+      properties:
+        repoPath:
+          type: string
+        repoSlug:
+          type: string
+          nullable: true
+        repoLabel:
+          type: string
+        number:
+          type: integer
+        title:
+          type: string
+        url:
+          type: string
+        author:
+          type: string
+        kind:
+          $ref: "#/components/schemas/PrKind"
+        createdAt:
+          type: integer
+        checks:
+          $ref: "#/components/schemas/ChecksState"
+        mergeable:
+          type: boolean
+          nullable: true
+          description: null while the forge computes it.
+        mergeStateStatus:
+          $ref: "#/components/schemas/MergeStateStatus"
+        latestReview:
+          $ref: "#/components/schemas/PrReview"
+        awaitingWorkflowApproval:
+          type: boolean
+        baseRefName:
+          type: string
+        mergeMethod:
+          $ref: "#/components/schemas/MergeMethod"
+        closesIssue:
+          type: integer
+          description: The lowest-numbered issue this PR would close.
+        band:
+          $ref: "#/components/schemas/UpNextPrBand"
+        action:
+          allOf:
+            - $ref: "#/components/schemas/UpNextPrAction"
+          nullable: true
+        blockReason:
+          $ref: "#/components/schemas/UpNextPrBlockReason"
+        headRefName:
+          type: string
+          description: The head branch a fix session pushes back to.
+        headSha:
+          type: string
+          description: The head commit a merge confirmation binds to.
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowJob"
+    UpNextPrFixRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+        - number
+      properties:
+        repo:
+          type: string
+        number:
+          type: integer
+          minimum: 1
+        steer:
+          type: string
+          description: An operator instruction that leads the fix prompt.
+    UpNextPrFixResult:
+      type: object
+      additionalProperties: true
+      required:
+        - session
+      properties:
+        session:
+          $ref: "#/components/schemas/Session"
     UpNextSnapshot:
       type: object
       additionalProperties: true
@@ -5479,6 +5616,11 @@ components:
         filter:
           $ref: "#/components/schemas/UpNextFilterStats"
           description: What the operator's issue filter hides (#3017). Absent from servers before it.
+        pullRequests:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpNextPr"
+          description: "Open PRs waiting on the operator, classified server-side and ordered: band (ready, review, blocked, dependabot), then rows with an action before CI-running ones, then newest first. Absent from servers before it."
       description: The Up Next queue, fetched after upnext:changed invalidates the cached snapshot read.
     UpNextCachedSnapshot:
       type: object
@@ -5503,6 +5645,11 @@ components:
         filter:
           $ref: "#/components/schemas/UpNextFilterStats"
           description: What the operator's issue filter hides (#3017). Absent from servers before it.
+        pullRequests:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpNextPr"
+          description: "Open PRs waiting on the operator, classified server-side and ordered: band (ready, review, blocked, dependabot), then rows with an action before CI-running ones, then newest first. Absent from servers before it."
       description: Cached snapshot or JSON null before the first computation; event snapshots remain non-nullable.
     UpNextStartItem:
       type: object
@@ -11605,6 +11752,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MergeBacklogPrError"
+  /api/prs/dependabot-rebase:
+    post:
+      operationId: requestDependabotRebase
+      description: Post the "@dependabot rebase" comment on a Dependabot PR (Up Next's dependabot_rebase action).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DependabotRebaseBody"
+      responses:
+        "200":
+          description: The comment was posted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: error is "invalid repo", "number required" or "no comment support".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: The forge rejected the comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/autopilot:
     parameters:
       - name: id
@@ -12186,6 +12364,105 @@ paths:
                 $ref: "#/components/schemas/Error"
         "503":
           description: Forge or single-issue reads unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/up-next/pr-body:
+    get:
+      operationId: getUpNextPrBody
+      description: Read one waiting PR's full description on demand for the PR preview. Requires full access, like the list.
+      parameters:
+        - in: query
+          name: repo
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: number
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 999999999
+      responses:
+        "200":
+          description: Full PR description; an empty body is a valid result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpNextBody"
+        "400":
+          description: Invalid repository or pull request number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Pull request not found or unreadable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Forge read failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Forge or pull request reads unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/up-next/pr-fix:
+    post:
+      operationId: startUpNextPrFix
+      description: "Start a push-only repair session for a waiting PR whose action is fix: a scratch branch cut from the PR's head that rebases or fixes the red jobs and pushes back to the head, opening no PR of its own. The PR must be in the current Up Next snapshot."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpNextPrFixRequest"
+      responses:
+        "201":
+          description: The fix session was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpNextPrFixResult"
+        "400":
+          description: Invalid repository, number or steer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The PR is not in Up Next or its action is not fix (code not_fixable).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: A session already works on the PR (code pr_in_flight), or first-run setup is pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The head branch is not in this repository, e.g. a fork's PR (code head_not_in_repo).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The base branch could not be read or the session could not be created.
           content:
             application/json:
               schema:

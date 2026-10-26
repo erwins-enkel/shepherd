@@ -20,6 +20,7 @@
   import {
     listSessions,
     listRemoteDispatches,
+    refreshUpNext,
     createSession,
     archiveSession,
     closePr,
@@ -89,6 +90,7 @@
     PluginUpdatesStatus,
     PullRequest,
     SandboxProfile,
+    UpNextPr,
     Session,
     Settings as Settings_,
     Steer,
@@ -113,6 +115,7 @@
   import { recaps } from "#lib/recaps.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
   import { upNext } from "#lib/up-next.svelte.js";
+  import { upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
   import { claudeUsageHoldLikely } from "#lib/provider-capacity.js";
   import { doneSessions } from "#lib/done.svelte.js";
@@ -159,7 +162,7 @@
   } from "#lib/operator-assistant-view.js";
   import { detectTerminalClient } from "#lib/terminal-client.js";
   import { summarizeClearMerged } from "#lib/clear-merged-result.js";
-  import UpNextPreview from "#lib/components/UpNextPreview.svelte";
+  import UpNextReader from "#lib/components/UpNextReader.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
@@ -358,6 +361,8 @@
     upNext.reset();
     issueFilterSettings.clear();
   });
+  // The lens tabs' ready-PR badge reads the cached Up Next snapshot even with the lens closed.
+  onMount(() => upNext.watch());
 
   // Overlays are code-split off the first-boot bundle (#3233); warm the most-opened ones once
   // the boot settles so their first open doesn't wait on the network.
@@ -876,6 +881,8 @@
     nowMs,
     onquick: onquickissue,
     onmanagesteers: () => openSteersEditor(),
+    onreviewpr: onpr,
+    onlaunchtrain: onupnexttrain,
   });
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
@@ -1193,7 +1200,7 @@
   // PRs tab → open a review task seeded with the PR reference. The PR rides in
   // the prompt (a tiny reference line), not the issue-attachment path, since
   // that path is issue-worded server-side.
-  function onpr(repoPath: string, pr: PullRequest) {
+  function onpr(repoPath: string, pr: Pick<PullRequest, "number" | "url">) {
     composeRepoPath = repoPath;
     composeIssue = null;
     composePrompt = m.newtask_pr_review_template({ number: pr.number, url: pr.url });
@@ -1372,15 +1379,19 @@
    *  operator chose these PRs directly, so the kickoff prompt uses the
    *  hand-picked framing. The server marks participant PRs "merging" from the
    *  passed mergeTrainPrs; backlog-only PRs still ride along in the prompt. */
-  function onlaunchtrain(repoPath: string, prs: PullRequest[]) {
-    if (prs.length < 2) return; // UI gates at >=2; defensive guard
+  function onlaunchtrain(
+    repoPath: string,
+    prs: Pick<PullRequest, "number" | "title" | "url" | "mergeGate">[],
+    opts: { otherRepoCount?: number; onlaunched?: () => void } = {},
+  ) {
+    if (prs.length === 0) return; // the surfaces gate at >=2 picked PRs; defensive guard
     // Don't launch yet — open the confirm modal (renders above the still-mounted
     // backlog overlay). The launch body runs on confirm; backlog stays open until then.
     pendingTrain = {
       repoLabel: basename(repoPath),
       items: prs.map((p) => ({ number: p.number, title: p.title, mergeGate: p.mergeGate })),
       handpicked: true,
-      otherRepoCount: 0,
+      otherRepoCount: opts.otherRepoCount ?? 0,
       run: async () => {
         const br = await listBranches(repoPath).catch(() => null);
         const baseBranch = pickBaseBranch(br);
@@ -1389,6 +1400,7 @@
             ...mergeTrainCreateInput(repoPath, baseBranch, prs, true),
             force: true,
           });
+          opts.onlaunched?.();
           if ("held" in r) return;
           selectNewSession(r.id, repoPath);
           showBacklog = false;
@@ -1398,6 +1410,21 @@
         }
       },
     };
+  }
+
+  /** Up Next's "Merge-Train starten": a train is per repo, so the PRs picked across repos are
+   *  scoped to the repo with the most (the confirmation names how many were left out). Once it
+   *  launches, the PRs leave the selection and the lens re-reads — the train now holds them. */
+  function onupnexttrain(prs: UpNextPr[]) {
+    const picked = pickTrainRepo(prs);
+    if (!picked.repoPath) return;
+    onlaunchtrain(picked.repoPath, picked.prs, {
+      otherRepoCount: picked.otherRepoCount,
+      onlaunched: () => {
+        for (const pr of picked.prs) upNextUi.selected.delete(upNextPrKey(pr));
+        void refreshUpNext().catch(() => {});
+      },
+    });
   }
 
   // Mobile layout fires when the viewport is narrow OR short: width ≤768px is the
@@ -3957,7 +3984,7 @@
           />
           {#if herdFilter === "next"}
             <!-- Up Next lens: the rail lists the queue; a clicked title reads here. -->
-            <UpNextPreview launchContext={upNextLaunch} />
+            <UpNextReader launchContext={upNextLaunch} />
           {:else if panelOnlyLens}
             <!-- Owed lens renders its panel inside the rail (left); the main area shows a neutral
                pointer so the right pane never reads as empty. -->

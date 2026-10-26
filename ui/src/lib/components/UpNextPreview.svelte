@@ -10,11 +10,12 @@
   import { upNext } from "#lib/up-next.svelte.js";
   import { findUpNextItem, upNextKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import { UpNextStarter, type UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
+  import { LazyBody } from "#lib/lazy-body.svelte.js";
   import IssueDetailHead from "./issues-panel/IssueDetailHead.svelte";
-  import MarkdownBody from "./MarkdownBody.svelte";
+  import UpNextPreviewBody from "./UpNextPreviewBody.svelte";
+  import UpNextPreviewFrame from "./UpNextPreviewFrame.svelte";
   import UpNextStartPicker from "./UpNextStartPicker.svelte";
   import UpNextSteerMenu from "./UpNextSteerMenu.svelte";
-  import { swipeBack } from "./swipe-back";
 
   // Reading view for the Up Next row whose title was clicked: the issue's head and rendered
   // description, with Start and the batch tick beside it — so the operator reads before
@@ -31,33 +32,10 @@
   const starter = new UpNextStarter(() => launchContext);
   const item = $derived(findUpNextItem(upNext.snapshot, upNextUi.previewKey));
   const key = $derived(item ? upNextKey(item) : null);
-  const previewRepo = $derived(item?.repoPath ?? null);
-  const previewNumber = $derived(item?.issueRef.number ?? null);
-  let body = $state<string | null>(null);
-  let bodyError = $state(false);
-  let bodyRetry = $state(0);
-  $effect(() => {
-    const repo = previewRepo;
-    const number = previewNumber;
-    void bodyRetry;
-    body = null;
-    bodyError = false;
-    if (repo === null || number === null) return;
-    let current = true;
-    void getUpNextBody(repo, number).then(
-      (result) => {
-        if (current) body = result.body;
-      },
-      () => {
-        if (current) bodyError = true;
-      },
-    );
-    return () => {
-      current = false;
-    };
-  });
-  const index = $derived(key ? upNextUi.order.indexOf(key) : -1);
-  const total = $derived(upNextUi.order.length);
+  const loader = new LazyBody(
+    () => (item ? { repo: item.repoPath, number: item.issueRef.number } : null),
+    getUpNextBody,
+  );
   const tag = $derived(
     item?.kind !== "epic"
       ? null
@@ -137,164 +115,95 @@
     };
   }
 
-  function step(by: number) {
-    if (index < 0 || total < 2) return;
-    upNextUi.previewKey = upNextUi.order[(index + by + total) % total]!;
-  }
-  function close() {
-    if (onback) onback();
-    else upNextUi.previewKey = null;
-  }
-  // Phone (`onback` set): a rightward swipe returns to the list, as on a backlog issue.
-  let dragX = $state(0); // rubber-banded display offset (px, ≥ 0)
-  const backSwipe = swipeBack({ onback: () => onback?.(), onoffset: (px) => (dragX = px) });
-
-  // Esc closes the preview while focus is inside it; the CLI picker and the steer menu
-  // handle their own Esc.
-  function onkeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || e.defaultPrevented || starter.picker) return;
-    if (menuOpen) {
-      menuOpen = false;
-      return;
-    }
-    e.preventDefault();
-    close();
+  // Esc closes the preview (UpNextPreviewFrame) — unless the CLI picker or the steer menu has it.
+  function onescape(): boolean {
+    if (starter.picker) return true;
+    if (!menuOpen) return false;
+    menuOpen = false;
+    return true;
   }
 </script>
 
-<!-- Esc closes the preview while focus is inside it (the handler only listens). -->
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<section
-  class="unp"
-  class:swiping={dragX > 0}
-  aria-label={m.upnext_preview_aria()}
-  {onkeydown}
-  {@attach onback ? backSwipe : undefined}
-  style:transform={dragX > 0 ? `translateX(${dragX}px)` : undefined}
+<UpNextPreviewFrame
+  label={m.upnext_preview_aria()}
+  prevLabel={m.upnext_preview_prev()}
+  nextLabel={m.upnext_preview_next()}
+  order={upNextUi.order}
+  current={item ? key : null}
+  {onback}
+  {onescape}
 >
-  <div class="unp-bar">
-    {#if onback}
-      <button type="button" class="unp-back" onclick={onback}>← {m.issuedetail_back()}</button>
-    {:else}
-      <span class="unp-label">{m.upnext_preview_title()}</span>
-    {/if}
-    {#if index >= 0}
-      <span class="unp-pos">{m.upnext_preview_position({ index: index + 1, total })}</span>
-    {/if}
-    <span class="unp-spacer"></span>
-    {#if item}
-      <button
-        type="button"
-        class="icon-btn unp-icon"
-        disabled={total < 2}
-        title={m.upnext_preview_prev()}
-        aria-label={m.upnext_preview_prev()}
-        onclick={() => step(-1)}>‹</button
-      >
-      <button
-        type="button"
-        class="icon-btn unp-icon"
-        disabled={total < 2}
-        title={m.upnext_preview_next()}
-        aria-label={m.upnext_preview_next()}
-        onclick={() => step(1)}>›</button
-      >
-    {/if}
-    {#if item && !onback}
-      <button
-        type="button"
-        class="icon-btn unp-icon"
-        title={m.common_close()}
-        aria-label={m.common_close()}
-        onclick={close}>×</button
-      >
-    {/if}
-  </div>
-
   {#if item && key}
-    <div class="unp-body">
-      <IssueDetailHead
-        {tag}
-        number={item.number}
-        title={item.title}
-        url={item.url}
-        labels={item.labels}
-        labelColors={item.labelColors}
-        createdAt={item.createdAt}
-      />
-      <div class="unp-actions">
-        <span class="unp-start" bind:this={startGroup}>
+    <IssueDetailHead
+      {tag}
+      number={item.number}
+      title={item.title}
+      url={item.url}
+      labels={item.labels}
+      labelColors={item.labelColors}
+      createdAt={item.createdAt}
+    />
+    <div class="unp-actions">
+      <span class="unp-start" bind:this={startGroup}>
+        <button
+          type="button"
+          class="gbtn primary"
+          class:split={overflow}
+          bind:this={startBtn}
+          disabled={starter.starting}
+          onclick={(e) => starter.request([item], e.currentTarget)}>{m.upnext_start()}</button
+        >
+        {#if overflow}
           <button
             type="button"
-            class="gbtn primary"
-            class:split={overflow}
-            bind:this={startBtn}
+            class="gbtn primary unp-more"
+            class:open={menuOpen}
+            aria-label={m.upnext_preview_more()}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             disabled={starter.starting}
-            onclick={(e) => starter.request([item], e.currentTarget)}>{m.upnext_start()}</button
+            onclick={() => (menuOpen = !menuOpen)}>▾</button
           >
-          {#if overflow}
+        {/if}
+      </span>
+      {#if issueSteers.length > 0}
+        <div class="unp-steers" bind:this={steerRow}>
+          <span class="unp-steers-label" class:clipped={fitCount === 0}
+            >{m.upnext_preview_steers_label()}</span
+          >
+          {#each issueSteers as s, i (s.id)}
             <button
               type="button"
-              class="gbtn primary unp-more"
-              class:open={menuOpen}
-              aria-label={m.upnext_preview_more()}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
+              class="gbtn unp-steer"
+              class:clipped={i >= fitCount}
+              aria-label={m.issuespanel_action_aria({ label: s.label })}
               disabled={starter.starting}
-              onclick={() => (menuOpen = !menuOpen)}>▾</button
+              use:statusTip={{
+                text: steerTip(s, item.number),
+                wide: true,
+                stopClickPropagation: false,
+                pinOnClick: false,
+              }}
+              onclick={() => startWith(s)}
+              ><span class="unp-steer-icon" class:glyph={!s.emoji} aria-hidden="true"
+                >{s.emoji || "⇥"}</span
+              ><span>{s.label}</span></button
             >
-          {/if}
-        </span>
-        {#if issueSteers.length > 0}
-          <div class="unp-steers" bind:this={steerRow}>
-            <span class="unp-steers-label" class:clipped={fitCount === 0}
-              >{m.upnext_preview_steers_label()}</span
-            >
-            {#each issueSteers as s, i (s.id)}
-              <button
-                type="button"
-                class="gbtn unp-steer"
-                class:clipped={i >= fitCount}
-                aria-label={m.issuespanel_action_aria({ label: s.label })}
-                disabled={starter.starting}
-                use:statusTip={{
-                  text: steerTip(s, item.number),
-                  wide: true,
-                  stopClickPropagation: false,
-                  pinOnClick: false,
-                }}
-                onclick={() => startWith(s)}
-                ><span class="unp-steer-icon" class:glyph={!s.emoji} aria-hidden="true"
-                  >{s.emoji || "⇥"}</span
-                ><span>{s.label}</span></button
-              >
-            {/each}
-          </div>
-        {/if}
-        <label class="unp-pick">
-          <input
-            type="checkbox"
-            checked={upNextUi.selected.has(key)}
-            onchange={() => upNextUi.toggle(key)}
-          />
-          <span>{m.upnext_preview_select()}</span>
-        </label>
-      </div>
-      {#if bodyError}
-        <div role="alert">
-          <p>{m.issuepeek_unavailable()}</p>
-          <button type="button" class="gbtn" onclick={() => bodyRetry++}>{m.common_retry()}</button>
+          {/each}
         </div>
-      {:else if body === null}
-        <p role="status">{m.common_loading()}</p>
-      {:else}
-        <MarkdownBody source={body} />
       {/if}
+      <label class="unp-pick">
+        <input
+          type="checkbox"
+          checked={upNextUi.selected.has(key)}
+          onchange={() => upNextUi.toggle(key)}
+        />
+        <span>{m.upnext_preview_select()}</span>
+      </label>
     </div>
-  {:else}
-    <p class="unp-empty">{m.upnext_preview_empty()}</p>
+    <UpNextPreviewBody {loader} unavailable={m.issuepeek_unavailable()} />
   {/if}
-</section>
+</UpNextPreviewFrame>
 
 <UpNextStartPicker {starter} />
 {#if menuOpen && item && startGroup}
@@ -318,112 +227,6 @@
 {/if}
 
 <style>
-  .unp {
-    border: 1px solid var(--color-line);
-    background: var(--color-panel);
-    display: flex;
-    flex-direction: column;
-    /* .unp-body scrolls; the bar with ‹ › × stays put. */
-    overflow: hidden;
-    min-height: 0;
-    min-width: 0;
-    flex: 1;
-    transition: transform 0.18s ease-out;
-  }
-  /* Mid swipe-back: follows the finger 1:1, lifted off the shell behind it. */
-  .unp.swiping {
-    transition: none;
-    box-shadow: var(--shadow-popover);
-  }
-
-  .unp-bar {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--color-line);
-  }
-  .unp-label {
-    font-size: var(--fs-meta);
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-ink-bright);
-  }
-  .unp-pos {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-  }
-  .unp-spacer {
-    flex: 1;
-  }
-  .unp-back {
-    padding: 4px 2px;
-    background: none;
-    border: 0;
-    font-family: inherit;
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    cursor: pointer;
-  }
-  .unp-back:hover {
-    color: var(--color-ink);
-  }
-  /* Global .icon-btn recipe (app.css), with the text glyphs ‹ › × sized up. */
-  .unp-icon {
-    font: inherit;
-    font-size: var(--fs-lg);
-    line-height: 1;
-    color: var(--color-muted);
-  }
-
-  .unp-body {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 20px 24px 32px;
-  }
-  .unp-body > :global(*) {
-    max-width: 80ch;
-  }
-  /* The action row is a toolbar, not prose: it takes the pane's full width so more steers
-     fit inline before the ▾ takes over. */
-  .unp-body > .unp-actions {
-    max-width: none;
-  }
-
-  .unp-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    padding-block: 10px;
-    border-block: 1px solid var(--color-line);
-  }
-  .unp-start {
-    flex: none;
-    display: inline-flex;
-  }
-  .gbtn.split {
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-  }
-  /* Compound selectors: these sit above the scoped .gbtn recipe they refine. */
-  .gbtn.primary.unp-more {
-    padding-inline: 8px;
-    border-left-color: var(--color-line-bright);
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-  }
-  .gbtn.primary.unp-more.open {
-    background: var(--color-amber);
-    color: var(--color-bg);
-  }
-
   /* Basis 0: the row takes what Start and the tick leave, and never wraps onto its own line. */
   .unp-steers {
     position: relative;
@@ -465,89 +268,5 @@
   /* Out of view and out of the tab order, but still measured. */
   .clipped {
     visibility: hidden;
-  }
-
-  .unp-pick {
-    flex: none;
-    white-space: nowrap;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-    cursor: pointer;
-  }
-  .unp-pick input {
-    margin: 0;
-    accent-color: var(--color-amber);
-    cursor: pointer;
-  }
-
-  /* Canonical .gbtn recipe (/design-system) — scoped copy, as in IssueTaskBox. */
-  .gbtn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 12px;
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-  }
-  .gbtn.primary {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .gbtn.primary:hover:not(:disabled) {
-    background: var(--color-amber);
-    color: var(--color-bg);
-  }
-  .gbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .gbtn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .unp-empty {
-    flex: 1;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    text-align: center;
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-  }
-
-  @media (max-width: 768px), (pointer: coarse) {
-    .unp-icon,
-    .unp-more {
-      min-width: var(--mobile-actionbar-hit);
-    }
-    .unp-icon {
-      width: var(--mobile-actionbar-hit);
-      height: var(--mobile-actionbar-hit);
-    }
-    .unp-back,
-    .gbtn {
-      min-height: var(--mobile-actionbar-hit);
-    }
-    .unp-pick {
-      min-height: var(--mobile-actionbar-hit);
-    }
-    .unp-body {
-      padding: 14px;
-    }
   }
 </style>

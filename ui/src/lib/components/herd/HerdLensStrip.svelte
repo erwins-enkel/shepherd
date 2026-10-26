@@ -3,6 +3,7 @@
   import { lensGlyph } from "#lib/components/herd/lens-glyphs.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import ReadyPrBadge from "./ReadyPrBadge.svelte";
 
   let {
     filter = $bindable<HerdFilter>(),
@@ -52,6 +53,7 @@
     >
       <span class="ic" aria-hidden="true">{lensGlyph.next}</span>
       <span class="lb">{m.herd_seg_next()}</span>
+      <ReadyPrBadge />
     </button>
     <button
       type="button"
@@ -245,7 +247,8 @@
   }
   /* Anchor for the absolutely-positioned owed count badge so it overlays the segment's
      top-right corner without consuming column width (keeps the 5-lens single-row grid intact). */
-  .lens-owed {
+  .lens-owed,
+  .lens-next {
     position: relative;
   }
   /* Owed count badge (#1257): mirrors UnitRow's .chip-manual-steps recipe (--status-warn border/

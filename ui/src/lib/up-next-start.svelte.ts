@@ -1,4 +1,4 @@
-import type { AgentProvider, Issue, Steer, UpNextItem } from "./types";
+import type { AgentProvider, Issue, PullRequest, Steer, UpNextItem, UpNextPr } from "./types";
 import type { HerdStore } from "./store.svelte";
 import { getUpNextBody, startUpNext, type UpNextStartChoice } from "./api";
 import { toasts } from "./toasts.svelte";
@@ -14,7 +14,8 @@ import { upNextKey, upNextUi } from "./up-next-ui.svelte";
 /** What starting Up Next work needs from the page: provider capacity and the CLI-picker
  *  settings. Threaded from +page (via Herd for the rail panel). */
 export type UpNextLaunchContext = {
-  store: Pick<HerdStore, "diagnostics" | "usageLimits">;
+  /** `sessions` names the session working on a PR in the PR preview. */
+  store: Pick<HerdStore, "diagnostics" | "usageLimits"> & Partial<Pick<HerdStore, "sessions">>;
   defaultAgentProvider: AgentProvider;
   fableAvailable: boolean;
   upnextSkipCliPicker: boolean;
@@ -26,6 +27,10 @@ export type UpNextLaunchContext = {
   onquick?: (repoPath: string, issue: Issue, steer: Steer) => Promise<"created" | "held" | null>;
   /** Open Settings on the steers editor. */
   onmanagesteers?: () => void;
+  /** "+ Review" on a PR: the New Task composer seeded with a review of it (the PRs tab's path). */
+  onreviewpr?: (repoPath: string, pr: Pick<PullRequest, "number" | "url">) => void;
+  /** "Merge-Train starten" for the ticked PRs: the hand-picked train behind its confirmation. */
+  onlaunchtrain?: (prs: UpNextPr[]) => void;
 };
 
 /** An Up Next row as the backlog's Issue shape, for the issue-steer quick-launch. */

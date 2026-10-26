@@ -23,6 +23,7 @@ import {
   restoreAuth,
   startContractServer,
   validateEvent,
+  validateRequest,
   validateResponse,
   withAuth,
   type ContractServer,
@@ -232,6 +233,89 @@ describe("Up Next", () => {
       expect(await check("GET", "/api/up-next/body", 200, path)).toEqual({ body });
     } finally {
       s.deps.resolveForge = saved;
+    }
+  });
+
+  test("PR body read validates success and each declared failure", async () => {
+    const saved = s.deps.resolveForge;
+    const path = `/api/up-next/pr-body?repo=${encodeURIComponent(s.validRepo)}&number=77`;
+    try {
+      await check("GET", "/api/up-next/pr-body", 400, "/api/up-next/pr-body?number=0");
+      s.deps.resolveForge = () => null;
+      await check("GET", "/api/up-next/pr-body", 503, path);
+      s.deps.resolveForge = () => ({ prReviewMeta: async () => null }) as never;
+      await check("GET", "/api/up-next/pr-body", 404, path);
+      s.deps.resolveForge = () =>
+        ({
+          prReviewMeta: async () => {
+            throw new Error("offline");
+          },
+        }) as never;
+      await check("GET", "/api/up-next/pr-body", 502, path);
+      const body = "## Summary\n- ü😀".repeat(200);
+      s.deps.resolveForge = () =>
+        ({
+          prReviewMeta: async () => ({
+            body,
+            baseRefName: "main",
+            isCrossRepository: false,
+            state: "open",
+          }),
+        }) as never;
+      expect(await check("GET", "/api/up-next/pr-body", 200, path)).toEqual({ body });
+    } finally {
+      s.deps.resolveForge = saved;
+    }
+  });
+
+  test("PR fix creates a repair session or names why it cannot", async () => {
+    const p = "/api/up-next/pr-fix";
+    const pr = fx.waitingPr(s.validRepo);
+    const send = (status: number, body: Record<string, unknown>) => {
+      validateRequest("POST", p, body);
+      return check("POST", p, status, undefined, body);
+    };
+    let refilters = 0;
+    s.deps.upNext = {
+      snapshot: () => ({ ...fx.snapshot, pullRequests: [pr] }),
+      refresh: async () => fx.snapshot,
+      refreshIfStale: () => {},
+      recomputeUntilCleared: async () => {},
+      hiddenRepoPathsRaw: () => new Set(),
+      refilter: () => {
+        refilters += 1;
+      },
+    };
+    try {
+      await check("POST", p, 400, undefined, { repo: s.validRepo });
+      await send(404, { repo: s.validRepo, number: 78 });
+      for (const [status, error] of [
+        [422, new WorktreeMissingBaseError(pr.headRefName!)],
+        [502, new Error("spawn failed")],
+      ] as const) {
+        const mock = spyOn(s.deps.service, "create").mockRejectedValueOnce(error);
+        try {
+          await send(status, { repo: s.validRepo, number: 77 });
+        } finally {
+          mock.mockRestore();
+        }
+      }
+      const created = (await send(201, {
+        repo: s.validRepo,
+        number: 77,
+        steer: "Keep the diff small.",
+      })) as { session: import("../../src/types").Session };
+      expect(created.session).toMatchObject({
+        baseBranch: "feat/native-parity",
+        landingRepair: true,
+      });
+      expect(refilters).toBe(1);
+      // The new session now holds the PR's head; a second fix is refused.
+      expect(await send(409, { repo: s.validRepo, number: 77 })).toMatchObject({
+        code: "pr_in_flight",
+      });
+    } finally {
+      delete s.deps.upNext;
     }
   });
 
@@ -476,7 +560,7 @@ describe("restore and usage", () => {
 
 test("all queue operations require authentication", async () => {
   const ops = OPERATIONS.filter((op) => op.endsWith(" 401"));
-  expect(ops).toHaveLength(16);
+  expect(ops).toHaveLength(18);
   for (const op of ops) {
     const [method, template] = op.split(" ") as [string, string, string];
     const res = await request(method, template.replace("{id}", "missing"), undefined, false);

@@ -33,7 +33,7 @@ interface GiteaPr {
   html_url: string;
   user?: { login?: string } | null;
   created_at?: string;
-  head?: { ref?: string; sha: string };
+  head?: { ref?: string; sha: string; repo?: { full_name?: string } | null };
   base?: { ref?: string };
   labels?: Array<{ name?: string }>;
 }
@@ -255,6 +255,15 @@ export class GiteaForge implements GitForge {
     };
   }
 
+  /** Whether a fix may push to a PR's head (PullRequest.headPushable): its repo is this one and
+   *  it is not the default branch. Undefined while either fact is missing. */
+  private headPushable(pr: GiteaPr, defaultBranch: string | null): boolean | undefined {
+    const repo = pr.head?.repo?.full_name;
+    const ref = pr.head?.ref;
+    if (!repo || !ref || !defaultBranch) return undefined;
+    return repo.toLowerCase() === this.slug.toLowerCase() && ref !== defaultBranch;
+  }
+
   async listPullRequests(): Promise<PullRequest[]> {
     // See listIssues: 200 cap vs the unbounded PR count (open_pr_counter).
     // Resolve the default branch concurrently — used to flag non-default-targeting
@@ -300,6 +309,7 @@ export class GiteaForge implements GitForge {
         headRefName: pr.head?.ref,
         baseRefName: base,
         mergeMethod: this.mergeMethod,
+        headPushable: this.headPushable(pr, def),
       } satisfies PullRequest;
     });
   }

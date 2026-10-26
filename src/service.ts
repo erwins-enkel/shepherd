@@ -1434,10 +1434,11 @@ export function epicAuthoringDirective(args: {
 }
 
 /**
- * Injected as the highest-priority directive for an epic-landing-PR REPAIR session
- * (`landingRepair: true`). Spawned by the drain when an epic's landing PR is RED (CI repair) or
- * has a genuine merge conflict with the default branch (conflict rework, #1841) — or manually via
- * the landing card. Goal-NEUTRAL: the task prompt carries the goal and the exact push command
+ * Injected as the highest-priority directive for a PR REPAIR session (`landingRepair: true`).
+ * Spawned by the drain when an epic's landing PR is RED (CI repair) or has a genuine merge
+ * conflict with the default branch (conflict rework, #1841) — or manually via the landing card,
+ * or for any waiting PR via Up Next's "Fix" (POST /api/up-next/pr-fix, a scratch branch cut from
+ * that PR's head). Goal-NEUTRAL: the task prompt carries the goal and the exact push command
  * (plain push for CI repair, `--force-with-lease` after a rebase for conflict rework); this block
  * only fixes the shared rules. It opens NO pull request (the landing PR already exists and its head
  * is the integration branch — the push is the entire deliverable). Like research/epicAuthoring it SUPPRESSES the plan-gate, autopilot, and
@@ -1459,19 +1460,20 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
         "`gh run view <run-id> --log-failed`, `git log`/`git diff` — dispatching " +
         "sub-agents to investigate in parallel if it helps.\n";
   return (
-    "You are repairing an epic LANDING pull request — you are working in a scratch branch " +
-    "cut from the epic integration branch. The task prompt states the goal (e.g. a red CI or a " +
-    "merge conflict with the default branch), names the integration branch, and gives the exact " +
-    "push command.\n" +
+    "You are repairing an existing pull request — an epic LANDING pull request, or another open " +
+    "pull request the operator asked you to fix. You are working in a scratch branch cut from " +
+    "the pull request's head branch (for a landing PR: the epic integration branch). The task " +
+    "prompt states the goal (e.g. a red CI or a merge conflict with the base branch), names the " +
+    "head branch, and gives the exact push command.\n" +
     "- Goal: exactly what the task prompt asks — nothing broader.\n" +
     investigate +
     "- Fix the cause, run the repo's own checks, and commit.\n" +
-    "- Publish by pushing to the epic INTEGRATION branch with the EXACT push command from the " +
-    "task prompt — this updates the open landing PR and re-triggers its CI. A plain `git push` " +
+    "- Publish by pushing to the pull request's head branch with the EXACT push command from the " +
+    "task prompt — this updates the open pull request and re-triggers its CI. A plain `git push` " +
     "will NOT work (your scratch branch has no upstream).\n" +
-    "- When the task prompt allows it and the cause is the landing PR's own metadata (e.g. a check " +
-    "on its title), fix that with `gh pr edit` instead — no commit or push is needed for it.\n" +
-    "- Do NOT open a pull request; do NOT run `gh pr create` — there is no child PR for this work.\n" +
+    "- When the task prompt allows it and the cause is the pull request's own metadata (e.g. a " +
+    "check on its title), fix that with `gh pr edit` instead — no commit or push is needed for it.\n" +
+    "- Do NOT open a pull request; do NOT run `gh pr create` — the pull request already exists.\n" +
     "- Once the task prompt's goal is met, or you have pushed your best fix, you are done."
   );
 }

@@ -2,6 +2,7 @@
   import type { HerdFilter } from "#lib/components/herd-partition.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import ReadyPrBadge from "./ReadyPrBadge.svelte";
 
   let {
     filter = $bindable<HerdFilter>(),
@@ -51,7 +52,7 @@
     onclick={() => {
       filter = "next";
       onstatusfilter?.(null);
-    }}>{m.herd_seg_next()}</button
+    }}>{m.herd_seg_next()}<ReadyPrBadge /></button
   >
   <button
     type="button"
@@ -130,5 +131,9 @@
   .seg-btn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* Anchor for Up Next's ready-PR badge (ReadyPrBadge), overlaid on the segment's corner. */
+  .seg-btn {
+    position: relative;
   }
 </style>

@@ -15,6 +15,7 @@
     onsteer,
     onmanage = undefined,
     onclose,
+    startLabel = undefined,
   }: {
     anchor: HTMLElement;
     /** The issue number, woven into the menu's accessible name. */
@@ -25,6 +26,8 @@
     /** Open Settings on the steers editor; omitted → no "Manage steers" item. */
     onmanage?: () => void;
     onclose: () => void;
+    /** The plain item's label; defaults to Start (a PR's fix passes "Start fix"). */
+    startLabel?: string;
   } = $props();
 
   let el = $state<HTMLDivElement>();
@@ -109,7 +112,7 @@
 >
   <button class="sm-item" type="button" role="menuitem" tabindex="-1" onclick={onstart}>
     <span class="sm-text">
-      <span class="sm-name">{m.upnext_start()}</span>
+      <span class="sm-name">{startLabel ?? m.upnext_start()}</span>
       <span class="sm-hint">{m.upnext_preview_menu_start_hint()}</span>
     </span>
   </button>

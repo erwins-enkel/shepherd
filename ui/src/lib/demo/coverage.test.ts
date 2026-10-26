@@ -383,6 +383,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     // The seeded Framework-majors view can't file a story (canCreateStory: false), so no button.
     "/api/readiness/drift/story",
     "/api/up-next/start",
+    // The demo's Up Next seeds no pull requests, so no PR preview reads a body or starts a fix.
+    "/api/up-next/pr-body",
+    "/api/up-next/pr-fix",
     "/api/prs/merge",
     "/api/prs/dependabot-rebase",
     "/api/actions/rerun",

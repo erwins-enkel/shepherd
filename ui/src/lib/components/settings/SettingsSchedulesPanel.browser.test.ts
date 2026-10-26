@@ -120,20 +120,21 @@ describe("SettingsSchedulesPanel (#3475)", () => {
     await expect.element(page.getByLabelText(m.schedules_field_name())).toHaveValue("Triage");
   });
 
-  it("Escape closes the edit dialog without reaching the Settings card", async () => {
+  it("Tab and Escape in the edit dialog never reach the Settings card", async () => {
     mockApi(LIST);
     render(SettingsSchedulesPanel, {});
     await expect.element(page.getByText("Triage")).toBeVisible();
-    // a11yDialog's Escape listener on the Settings card is native, on an ancestor: here the mount
-    // target, where Svelte's delegated `onkeydown` handlers also run (too late to stop it).
+    // a11yDialog's Escape/Tab listener on the Settings card is native, on an ancestor: here the
+    // mount target, where Svelte's delegated `onkeydown` handlers also run (too late to stop it).
     const card = document.querySelector(".ssp-head")!.parentElement!;
-    const cardEscape = vi.fn();
-    card.addEventListener("keydown", (e) => e.key === "Escape" && cardEscape());
+    const cardKeys: string[] = [];
+    card.addEventListener("keydown", (e) => cardKeys.push(e.key));
     await page.getByRole("button", { name: m.schedules_edit() }).first().click();
     await expect.element(page.getByLabelText(m.schedules_field_name())).toBeVisible();
+    await userEvent.keyboard("{Tab}{Shift>}{Tab}{/Shift}");
     await userEvent.keyboard("{Escape}");
     await expect.element(page.getByLabelText(m.schedules_field_name())).not.toBeInTheDocument();
-    expect(cardEscape).not.toHaveBeenCalled();
+    expect(cardKeys.filter((k) => k === "Tab" || k === "Escape")).toEqual([]);
   });
 
   it("says so when no repo has schedules", async () => {

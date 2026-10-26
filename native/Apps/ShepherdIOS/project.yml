@@ -76,6 +76,14 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        # Home Screen long-press menu; titles are InfoPlist.strings keys (gen-strings.ts).
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: run.shepherd.quick-action.dictate-task
+            UIApplicationShortcutItemTitle: QuickActionDictateTask
+            UIApplicationShortcutItemIconSymbolName: mic.fill
+          - UIApplicationShortcutItemType: run.shepherd.quick-action.new-task
+            UIApplicationShortcutItemTitle: QuickActionNewTask
+            UIApplicationShortcutItemIconSymbolName: plus
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

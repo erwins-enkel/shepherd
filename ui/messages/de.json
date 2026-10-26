@@ -7220,5 +7220,7 @@
   "newproject_advanced_summary": "Erweitert · Starten mit: {choice}",
   "newproject_drop_failed": "Die abgelegten Dateien konnten nicht gelesen werden.",
   "feat_new_project_attachments_title": "PRD und Design an ein neues Projekt anhängen",
-  "feat_new_project_attachments_body": "Das Ideenfeld von „Neues Projekt“ nimmt jetzt dein PRD und den Design-Export auf — häng sie an oder leg sie irgendwo im Dialog ab. Bootstrap ist jetzt der Standard-Start; PRD-Briefing und Slash-Befehle findest du unter „Erweitert“."
+  "feat_new_project_attachments_body": "Das Ideenfeld von „Neues Projekt“ nimmt jetzt dein PRD und den Design-Export auf — häng sie an oder leg sie irgendwo im Dialog ab. Bootstrap ist jetzt der Standard-Start; PRD-Briefing und Slash-Befehle findest du unter „Erweitert“.",
+  "native_ios_quick_action_dictate_task": "Aufgabe diktieren",
+  "native_ios_quick_action_new_task": "Neue Aufgabe"
 }

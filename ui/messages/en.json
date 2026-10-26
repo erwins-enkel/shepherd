@@ -7220,5 +7220,7 @@
   "newproject_advanced_summary": "Advanced · Start with: {choice}",
   "newproject_drop_failed": "Could not read the dropped files.",
   "feat_new_project_attachments_title": "Attach PRD and design to a new project",
-  "feat_new_project_attachments_body": "New Project's Idea field now takes your PRD and design export — attach them, or drop them anywhere on the dialog. Bootstrap is the default kickoff; PRD brief and slash commands moved under Advanced."
+  "feat_new_project_attachments_body": "New Project's Idea field now takes your PRD and design export — attach them, or drop them anywhere on the dialog. Bootstrap is the default kickoff; PRD brief and slash commands moved under Advanced.",
+  "native_ios_quick_action_dictate_task": "Dictate Task",
+  "native_ios_quick_action_new_task": "New Task"
 }

@@ -306,6 +306,13 @@ export interface MembraneInputs {
   /** This session's 0600 ingress spawn files (`--settings`, `--mcp-config`, key — see
    *  assistant-ingress.ts), bound RO at the same path. Not `-try`: the spawn just wrote them. */
   ingressFiles?: string[];
+  /** This spawn's derived tools-only mise config (membrane-state.ts), bound RO at
+   *  {@link MEMBRANE_MISE_CONFIG} and named by `MISE_SYSTEM_CONFIG_FILE`. The host
+   *  `~/.config/mise` is never bound. Absent → no flags, byte-identical. */
+  miseConfigFile?: string | null;
+  /** This spawn's 0600 gh `hosts.yml` carrying a keyring-stored token (membrane-state.ts),
+   *  bound RO over `~/.config/gh/hosts.yml`. Task sessions only. Absent → no flags. */
+  ghHostsFile?: string | null;
 }
 
 // ── codex CLI membrane support ────────────────────────────────────────────────
@@ -463,6 +470,23 @@ function managerRoots(home: string): string[] {
  */
 function managerScratch(home: string): Record<string, string[]> {
   return { [`${home}/.local/share/mise`]: ["shims"] };
+}
+
+/**
+ * Where the derived mise config sits inside the membrane. `--tmpfs $HOME` hides the host's global
+ * config, so a mise-launched `claude` (`mise x claude`) sees a toolset of just `claude` and strips
+ * every other `installs/*` dir — the membrane's own node and bun included — from PATH. A system
+ * config (`MISE_SYSTEM_CONFIG_FILE`) restores the toolset without touching `~/.config/mise`, which
+ * `mise use -g` keeps writing into the throwaway home. Under `/tmp` because bwrap can create the
+ * mountpoint on that tmpfs.
+ */
+export const MEMBRANE_MISE_CONFIG = "/tmp/.shepherd-mise/config.toml";
+
+/** RO bind of the derived mise config; empty when absent. Must follow `--tmpfs /tmp`. */
+function miseConfigFlags(file: string | null | undefined): string[] {
+  return typeof file === "string" && file.length > 0
+    ? ["--ro-bind", file, MEMBRANE_MISE_CONFIG]
+    : [];
 }
 
 /**
@@ -684,11 +708,19 @@ function writableStoreFlags(
 
 /** `~/.gitconfig` (commit identity) + `~/.config/gh` (the gh token) RO — task sessions only. A
  *  reviewer-style role never pushes or calls the forge (the server does), so it gets neither. */
-function forgeIdentityFlags(home: string, reviewer: boolean | undefined): string[] {
+function forgeIdentityFlags(
+  home: string,
+  reviewer: boolean | undefined,
+  ghHostsFile: string | null | undefined,
+): string[] {
   if (reviewer) return [];
   return [
     ...["--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`],
     ...["--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`],
+    // A keyring-stored token never reaches the bound dir; this per-spawn copy carries it.
+    ...(typeof ghHostsFile === "string" && ghHostsFile.length > 0
+      ? ["--ro-bind", ghHostsFile, `${home}/.config/gh/hosts.yml`]
+      : []),
   ];
 }
 
@@ -833,6 +865,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
 
   // ── node toolchain (binary's libs must resolve) ──────────────────────────
   f.push(...nodeToolchainFlags(inputs, exists));
+  f.push(...miseConfigFlags(inputs.miseConfigFile));
 
   // ── codex CLI (codex spawns only — claude flags stay byte-identical) ─────
   // MUST sit after the `--tmpfs home` above so the RW CODEX_HOME bind punches
@@ -840,7 +873,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push(...codexCliFlags(inputs.codex));
 
   // ── commit identity + gh token (task sessions only: a reviewer never pushes) ──
-  f.push(...forgeIdentityFlags(home, inputs.reviewer));
+  f.push(...forgeIdentityFlags(home, inputs.reviewer, inputs.ghHostsFile));
 
   // ── api-key helper (api-key mode only) ────────────────────────────────────
   // Bind the apiKeyHelper script RO at the SAME path so the `apiKeyHelper` entry
@@ -877,6 +910,8 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // dir IS bound above) and lose auth/onboarding state.
   if (claudeDir !== `${home}/.claude`) f.push("--setenv", "CLAUDE_CONFIG_DIR", claudeDir);
   f.push(...codexEnvFlags(home, inputs.codex));
+  if (miseConfigFlags(inputs.miseConfigFile).length > 0)
+    f.push("--setenv", "MISE_SYSTEM_CONFIG_FILE", MEMBRANE_MISE_CONFIG);
   for (const [k, v] of Object.entries(inputs.extraEnv ?? {})
     .filter(([k]) => !(AGENT_SHELL_MARKERS as readonly string[]).includes(k))
     .sort(([a], [b]) => a.localeCompare(b))) {

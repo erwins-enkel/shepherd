@@ -168,6 +168,8 @@ import {
   previewLogFile,
   removeMembraneState,
   sweepMembraneState,
+  type MembraneGhInputs,
+  type MembraneMiseInputs,
   type MembraneStateInputs,
 } from "./membrane-state";
 import type { PreviewLaunch } from "./preview-launch";
@@ -433,6 +435,12 @@ export interface ServiceDeps {
    *  returns the copy path. Absent ⇒ no copy (host file bound RO) — keeps tests off the real
    *  `$HOME`. Wired to `prepareMembraneClaudeState` in index.ts. */
   prepareMembraneState?: (i: MembraneStateInputs) => Promise<string | null>;
+  /** Write a task membrane's derived tools-only mise config; returns its path. Absent ⇒ none.
+   *  Wired to `prepareMembraneMiseConfig` in index.ts. */
+  prepareMembraneMiseConfig?: (i: MembraneMiseInputs) => Promise<string | null>;
+  /** Write a task membrane's gh `hosts.yml` carrying a keyring-stored token; returns its path.
+   *  Absent ⇒ none. Wired to `prepareMembraneGhHosts` in index.ts. */
+  prepareMembraneGhHosts?: (i: MembraneGhInputs) => Promise<string | null>;
   /** Writable host log file for a sandboxed preview launch (seam); default `previewLogFile`. */
   previewLogFile?: (sessionId: string) => string;
   /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
@@ -3451,6 +3459,7 @@ export class SessionService {
           // This session's own ingress spawn files only (#3337) — read by claude at startup.
           ingressFiles: ingress.files,
           claudeJsonCopy: await this.prepareSessionClaudeState(ctx.sessionId, ctx.worktreePath),
+          ...(await this.prepareSessionForgeAndTools(ctx.sessionId, nodeBinReal)),
         }
       : ({} as MembraneInputs);
 
@@ -3579,6 +3588,33 @@ export class SessionService {
       console.warn(`[sandbox] ${sessionId}: could not prepare membrane Claude state:`, err);
       return null;
     }
+  }
+
+  /** This task spawn's derived mise config + gh hosts file. Best-effort like the `.claude.json`
+   *  copy: a failure leaves that field null (no bind) rather than failing the spawn. */
+  private async prepareSessionForgeAndTools(
+    sessionId: string,
+    nodeBinReal: string,
+  ): Promise<{ miseConfigFile: string | null; ghHostsFile: string | null }> {
+    const base = { home: homedir(), sessionId, key: "session" };
+    const attempt = async (label: string, fn: (() => Promise<string | null>) | null) => {
+      if (!fn) return null;
+      try {
+        return await fn();
+      } catch (err) {
+        console.warn(`[sandbox] ${sessionId}: could not prepare membrane ${label}:`, err);
+        return null;
+      }
+    };
+    const mise = this.deps.prepareMembraneMiseConfig;
+    const gh = this.deps.prepareMembraneGhHosts;
+    return {
+      miseConfigFile: await attempt(
+        "mise config",
+        mise ? () => mise({ ...base, pinnedBins: [nodeBinReal, config.bunBin] }) : null,
+      ),
+      ghHostsFile: await attempt("gh hosts", gh ? () => gh(base) : null),
+    };
   }
 
   private resolveSpawnPreflight(

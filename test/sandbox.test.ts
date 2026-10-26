@@ -19,6 +19,7 @@ import {
   collectPassthroughEnv,
   resolveCodexMembrane,
   membraneForArgv,
+  MEMBRANE_MISE_CONFIG,
   type MembraneInputs,
   type CodexMembraneInputs,
 } from "../src/sandbox";
@@ -326,6 +327,40 @@ describe("buildMembraneFlags", () => {
     expect(f.some((v) => v === "/home/me/.shepherd")).toBe(false);
     for (const absent of [undefined, null, ""])
       expect(buildMembraneFlags(fakeMembrane({ browserConfigFile: absent }), detDeps)).toEqual(
+        buildMembraneFlags(fakeMembrane(), detDeps),
+      );
+  });
+
+  test("mise config: RO bind under /tmp + MISE_SYSTEM_CONFIG_FILE after --clearenv; none when absent", () => {
+    const file = "/run/shepherd/membrane/s1/session.mise.toml";
+    const f = buildMembraneFlags(fakeMembrane({ miseConfigFile: file }), detDeps);
+    expect(hasTriple(f, "--ro-bind", file, MEMBRANE_MISE_CONFIG)).toBe(true);
+    const tmpTmpfs = f.findIndex((v, k) => v === "/tmp" && f[k - 1] === "--tmpfs");
+    expect(f.indexOf(file)).toBeGreaterThan(tmpTmpfs);
+    expect(hasTriple(f, "--setenv", "MISE_SYSTEM_CONFIG_FILE", MEMBRANE_MISE_CONFIG)).toBe(true);
+    expect(f.indexOf("MISE_SYSTEM_CONFIG_FILE")).toBeGreaterThan(f.indexOf("--clearenv"));
+    // The host mise config dir is never bound.
+    expect(f.some((v) => v.startsWith("/home/me/.config/mise"))).toBe(false);
+    for (const absent of [undefined, null, ""])
+      expect(buildMembraneFlags(fakeMembrane({ miseConfigFile: absent }), detDeps)).toEqual(
+        buildMembraneFlags(fakeMembrane(), detDeps),
+      );
+  });
+
+  test("gh hosts file: RO bind over hosts.yml after the ~/.config/gh bind; task sessions only", () => {
+    const file = "/run/shepherd/membrane/s1/session.gh-hosts.yml";
+    const hosts = "/home/me/.config/gh/hosts.yml";
+    const f = buildMembraneFlags(fakeMembrane({ ghHostsFile: file }), detDeps);
+    expect(hasTriple(f, "--ro-bind", file, hosts)).toBe(true);
+    const ghDir = f.findIndex(
+      (v, k) => v === "/home/me/.config/gh" && f[k - 1] === "--ro-bind-try",
+    );
+    expect(ghDir).toBeGreaterThanOrEqual(0);
+    expect(f.indexOf(file)).toBeGreaterThan(ghDir);
+    const r = buildMembraneFlags(fakeMembrane({ ghHostsFile: file, reviewer: true }), detDeps);
+    expect(r.includes(file)).toBe(false);
+    for (const absent of [undefined, null, ""])
+      expect(buildMembraneFlags(fakeMembrane({ ghHostsFile: absent }), detDeps)).toEqual(
         buildMembraneFlags(fakeMembrane(), detDeps),
       );
   });

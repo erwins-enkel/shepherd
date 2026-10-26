@@ -12,10 +12,12 @@
  * under the read-only claudeDir/projects binds.
  */
 
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { shepherdRuntimeDir } from "./runtime-dir";
 import { EPHEMERAL_CLAUDE_DIRS } from "./sandbox";
@@ -51,15 +53,157 @@ export async function prepareMembraneClaudeState(i: MembraneStateInputs): Promis
   } catch {
     return null;
   }
-  const dir = join(membraneStateRoot(), i.sessionId);
+  return writeStateFile(i.sessionId, `${i.key}.claude.json`, withTrust(raw, i.cwd));
+}
+
+/** Write one 0600 file into the session's 0700 state dir and return its path. */
+async function writeStateFile(sessionId: string, name: string, content: string): Promise<string> {
+  const dir = join(membraneStateRoot(), sessionId);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700);
-  const copy = join(dir, `${i.key}.claude.json`);
+  const file = join(dir, name);
   // tmp + rename: a still-running earlier spawn keeps the inode it mounted.
-  const tmp = `${copy}.tmp.${randomUUID()}`; // unique: concurrent same-kind spawns share `copy`
-  await writeFile(tmp, withTrust(raw, i.cwd), { mode: 0o600 });
-  await rename(tmp, copy);
-  return copy;
+  const tmp = `${file}.tmp.${randomUUID()}`; // unique: concurrent same-kind spawns share `file`
+  await writeFile(tmp, content, { mode: 0o600 });
+  await rename(tmp, file);
+  return file;
+}
+
+export interface MembraneMiseInputs {
+  home: string;
+  sessionId: string;
+  key: string;
+  /** The membrane's real node/bun binaries (null entries ignored). */
+  pinnedBins: (string | null | undefined)[];
+}
+
+/** `<tool> = <version>` for a bin under `<home>/.local/share/mise/installs/<tool>/<version>/`. */
+function misePins(home: string, bins: (string | null | undefined)[]): Record<string, string> {
+  const prefix = `${home}/.local/share/mise/installs/`;
+  const pins: Record<string, string> = {};
+  for (const bin of bins) {
+    if (typeof bin !== "string" || !bin.startsWith(prefix)) continue;
+    const [tool, version] = bin.slice(prefix.length).split("/");
+    if (tool && version) pins[tool] = version;
+  }
+  return pins;
+}
+
+/** The host global config's `[tools]`, string / string-array values only; {} when unreadable. */
+async function hostMiseTools(home: string): Promise<Record<string, string | string[]>> {
+  let parsed: unknown;
+  try {
+    parsed = Bun.TOML.parse(await readFile(join(home, ".config", "mise", "config.toml"), "utf8"));
+  } catch {
+    return {};
+  }
+  const tools = (parsed as { tools?: unknown } | null)?.tools;
+  if (!tools || typeof tools !== "object" || Array.isArray(tools)) return {};
+  const out: Record<string, string | string[]> = {};
+  for (const [k, v] of Object.entries(tools)) {
+    const isStrings = Array.isArray(v) && v.every((x) => typeof x === "string");
+    if (typeof v === "string" || isStrings) out[k] = v as string | string[];
+  }
+  return out;
+}
+
+/**
+ * This spawn's derived mise config (see `MEMBRANE_MISE_CONFIG` in sandbox.ts): the host's
+ * `[tools]` table ONLY — never `[env]` (operator secrets), `[settings]`, `[hooks]` or `[tasks]` —
+ * with the membrane's own node/bun pinned to their install versions so they stay on PATH whatever
+ * the global config lists. null when there is nothing to write.
+ */
+export async function prepareMembraneMiseConfig(i: MembraneMiseInputs): Promise<string | null> {
+  const tools = { ...(await hostMiseTools(i.home)), ...misePins(i.home, i.pinnedBins) };
+  const entries = Object.entries(tools);
+  if (entries.length === 0) return null;
+  const lines = entries.map(
+    ([k, v]) =>
+      `${JSON.stringify(k)} = ${Array.isArray(v) ? `[${v.map((x) => JSON.stringify(x)).join(", ")}]` : JSON.stringify(v)}`,
+  );
+  return writeStateFile(i.sessionId, `${i.key}.mise.toml`, `[tools]\n${lines.join("\n")}\n`);
+}
+
+const execFileAsync = promisify(execFile);
+
+export interface MembraneGhInputs {
+  home: string;
+  sessionId: string;
+  key: string;
+}
+
+export interface MembraneGhDeps {
+  /** The host's github.com token; default `gh auth token` (async, 5s cap). */
+  ghToken?: () => Promise<string>;
+}
+
+/** Env vars gh prefers over stored credentials (`gh help environment`). */
+const GH_ENV_TOKENS = [
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
+];
+
+/** `env` minus the gh token vars, so `gh auth token` reports only the keyring/config token —
+ *  never a server env secret that `--clearenv` keeps out of the membrane. */
+export function ghStoredTokenEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out = { ...env };
+  for (const k of GH_ENV_TOKENS) delete out[k];
+  return out;
+}
+
+async function defaultGhToken(): Promise<string> {
+  const { stdout } = await execFileAsync("gh", ["auth", "token", "--hostname", "github.com"], {
+    timeout: 5000,
+    env: ghStoredTokenEnv(process.env),
+  });
+  return stdout;
+}
+
+/** A 4-space-indented scalar of the `github.com:` block matching `valid`, or null. */
+function ghHostField(raw: string, field: string, valid: RegExp): string | null {
+  const m = raw.match(new RegExp(`^github\\.com:\\n(?:[ ]{4}.*\\n)*?[ ]{4}${field}: *(\\S+)`, "m"));
+  const v = m?.[1];
+  return v && valid.test(v) ? v : null;
+}
+
+/**
+ * gh keeps its token in the OS keyring when one is available, and the membrane (no D-Bus,
+ * `--clearenv`) cannot reach it — so `gh` and the `gh auth git-credential` helper 401 inside it
+ * even though `~/.config/gh` is bound for exactly that purpose. This writes a per-spawn 0600
+ * github.com `hosts.yml` carrying the token, bound RO over the host file (task sessions only;
+ * same in-membrane readability as a file-stored token, audit R3). null — no override — when the
+ * host file is absent, already holds a token, or the token can't be read (best-effort).
+ */
+export async function prepareMembraneGhHosts(
+  i: MembraneGhInputs,
+  deps: MembraneGhDeps = {},
+): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await readFile(join(i.home, ".config", "gh", "hosts.yml"), "utf8");
+  } catch {
+    return null;
+  }
+  if (/^\s*oauth_token:/m.test(raw)) return null;
+  let token: string;
+  try {
+    token = (await (deps.ghToken ?? defaultGhToken)()).trim();
+  } catch (err) {
+    console.warn("[sandbox] gh token unavailable for the membrane:", err);
+    return null;
+  }
+  // Token text goes into YAML verbatim: accept only gh's token alphabet.
+  if (!/^[A-Za-z0-9_]+$/.test(token)) return null;
+  const user = ghHostField(raw, "user", /^[A-Za-z0-9-]+$/);
+  const protocol = ghHostField(raw, "git_protocol", /^[a-z]+$/);
+  const lines = ["github.com:"];
+  if (user) lines.push("    users:", `        ${user}:`, `            oauth_token: ${token}`);
+  if (protocol) lines.push(`    git_protocol: ${protocol}`);
+  if (user) lines.push(`    user: ${user}`);
+  lines.push(`    oauth_token: ${token}`);
+  return writeStateFile(i.sessionId, `${i.key}.gh-hosts.yml`, `${lines.join("\n")}\n`);
 }
 
 /** `raw` with `projects[cwd].hasTrustDialogAccepted = true`; unparseable input is kept verbatim. */

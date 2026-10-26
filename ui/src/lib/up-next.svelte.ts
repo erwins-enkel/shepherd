@@ -28,6 +28,17 @@ export class UpNextStore {
     };
   }
 
+  /** Passive demand: keep the cached snapshot current with cache-only (`peek`) reads — never a
+   *  recompute — for surfaces outside the lens, like the lens tab's ready-PR badge. */
+  watch(): () => void {
+    const consumer = Symbol();
+    this.consumers.add(consumer);
+    this.changed();
+    return () => {
+      this.consumers.delete(consumer);
+    };
+  }
+
   changed() {
     this.revision++;
     this.dirty = true;

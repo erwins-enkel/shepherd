@@ -3187,6 +3187,41 @@ export interface UpNextSection {
   items: UpNextItem[];
   totalCount: number;
 }
+// PRs in Up Next — classified server-side (src/up-next-prs.ts); the UI renders band and action
+// as given and never re-derives them.
+export type UpNextPrBand = "ready" | "review" | "blocked" | "dependabot";
+export type UpNextPrAction = "merge" | "review" | "fix" | "dependabot_rebase" | "approve_on_forge";
+export type UpNextPrBlockReason = "conflict" | "behind" | "ci_failed" | "workflow_approval";
+/** One open PR waiting on the operator (server: UpNextPr). */
+export interface UpNextPr {
+  repoPath: string;
+  repoSlug: string | null;
+  repoLabel: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  kind: PrKind;
+  createdAt: number;
+  checks: ChecksState;
+  /** null = the forge is still computing it. */
+  mergeable: boolean | null;
+  mergeStateStatus?: MergeStateStatus;
+  latestReview?: PullRequest["latestReview"];
+  awaitingWorkflowApproval?: boolean;
+  baseRefName?: string;
+  mergeMethod?: MergeMethod;
+  /** The lowest-numbered issue this PR would close. */
+  closesIssue?: number;
+  band: UpNextPrBand;
+  /** null = CI still running or mergeability still computing: the button is disabled. */
+  action: UpNextPrAction | null;
+  blockReason?: UpNextPrBlockReason;
+  headRefName?: string;
+  /** The head commit the merge confirmation binds to. */
+  headSha?: string;
+  jobs?: WorkflowJob[];
+}
 export interface UpNextSnapshot {
   generatedAt: number;
   sections: UpNextSection[];
@@ -3197,6 +3232,8 @@ export interface UpNextSnapshot {
   failedRepoCount: number;
   /** What the operator's issue filter hides (#3017). Absent from servers before it. */
   filter?: UpNextFilterStats;
+  /** Open PRs waiting on the operator, in display order. Absent from servers before it. */
+  pullRequests?: UpNextPr[];
 }
 
 /** One measured section of an in-flight spawn (server: src/spawn-progress.ts). */

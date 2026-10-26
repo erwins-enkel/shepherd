@@ -100,6 +100,25 @@ describe("Up Next demand and conditional reads", () => {
     close();
   });
 
+  test("a watcher keeps the cache current with peek reads only and stops when released", async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ modified: true, snapshot, etag: '"one"' })
+      .mockResolvedValue({ modified: false });
+    const store = new UpNextStore(read);
+    const release = store.watch();
+    await settle();
+    expect(read).toHaveBeenNthCalledWith(1, { peek: true, etag: null });
+    expect(store.snapshot).toEqual(snapshot);
+    store.changed();
+    await settle();
+    expect(read).toHaveBeenNthCalledWith(2, { peek: true, etag: '"one"' });
+    release();
+    store.changed();
+    await settle();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   test("reset fences outgoing reads and clears validators", async () => {
     let finish!: (result: UpNextRead) => void;
     const read = vi.fn(

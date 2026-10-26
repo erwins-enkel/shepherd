@@ -85,7 +85,13 @@ export function mergeConfirmFromGit(
 
 /** A backlog PR row → confirmation context. The row's responsibility is server-stamped by the same
  *  function the gate runs (see the PRs route), so no client-side role logic exists. */
-export function mergeConfirmFromPr(pr: PullRequest, repoLabel: string): MergeConfirmContext {
+export function mergeConfirmFromPr(
+  pr: Pick<
+    PullRequest,
+    "number" | "title" | "baseRefName" | "nonDefaultBase" | "mergeMethod" | "headSha" | "mergeGate"
+  >,
+  repoLabel: string,
+): MergeConfirmContext {
   return {
     repoLabel,
     number: pr.number,

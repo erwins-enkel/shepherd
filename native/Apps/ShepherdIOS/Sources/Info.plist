@@ -49,6 +49,25 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>mic.fill</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>QuickActionDictateTask</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>run.shepherd.quick-action.dictate-task</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>plus</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>QuickActionNewTask</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>run.shepherd.quick-action.new-task</string>
+		</dict>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

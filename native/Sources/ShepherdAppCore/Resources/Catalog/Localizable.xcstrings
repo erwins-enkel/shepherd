@@ -18079,6 +18079,40 @@
         }
       }
     },
+    "native_ios_quick_action_dictate_task": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe diktieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictate Task"
+          }
+        }
+      }
+    },
+    "native_ios_quick_action_new_task": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Aufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Task"
+          }
+        }
+      }
+    },
     "native_ios_reconnect_awake": {
       "comment": "%1$@ = server",
       "extractionState": "manual",

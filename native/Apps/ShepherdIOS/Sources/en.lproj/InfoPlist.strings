@@ -1,3 +1,5 @@
 "NSCameraUsageDescription" = "Shepherd uses the camera to attach photos and scan QR codes to connect to your server.";
 "NSMicrophoneUsageDescription" = "Shepherd uses the microphone while you dictate a task. Audio is sent to your Shepherd server when its voice plugin is available.";
 "NSSpeechRecognitionUsageDescription" = "Speech recognition provides live text and fallback dictation. Audio is processed on this device where supported; Apple processing requires your consent.";
+"QuickActionDictateTask" = "Dictate Task";
+"QuickActionNewTask" = "New Task";

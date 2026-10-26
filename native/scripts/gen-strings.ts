@@ -278,6 +278,8 @@ export const KEYS_IOS_CHROME: readonly string[] = [
   "native_ios_attachment_photos",
   "native_ios_attachment_camera",
   "native_ios_attachment_camera_usage",
+  "native_ios_quick_action_dictate_task",
+  "native_ios_quick_action_new_task",
   "native_ios_attachment_files",
   "native_ios_attachment_invalid",
   "native_ios_attachment_remove",
@@ -2719,6 +2721,12 @@ export function buildOutputs(base: string = OUT): Record<string, string> {
             .value,
         NSSpeechRecognitionUsageDescription:
           catalog.strings.native_compose_voice_speech_usage!.localizations[locale].stringUnit.value,
+        // Home Screen quick action titles: Info.plist names these keys.
+        QuickActionDictateTask:
+          catalog.strings.native_ios_quick_action_dictate_task!.localizations[locale].stringUnit
+            .value,
+        QuickActionNewTask:
+          catalog.strings.native_ios_quick_action_new_task!.localizations[locale].stringUnit.value,
       });
     }
   }

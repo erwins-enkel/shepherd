@@ -1051,6 +1051,8 @@
 "native_ios_push_relay_toggle" = "Gespiegelte Rechner über %1$@";
 "native_ios_push_title" = "Benachrichtigungen";
 "native_ios_push_unavailable" = "Auf diesem Server nicht eingerichtet — auf dem Server unter Einstellungen → Benachrichtigungen einrichten";
+"native_ios_quick_action_dictate_task" = "Aufgabe diktieren";
+"native_ios_quick_action_new_task" = "Neue Aufgabe";
 "native_ios_reconnect_awake" = "Ist %1$@ wach und erreichbar?";
 "native_ios_reconnect_check" = "Verbindung erneut prüfen";
 "native_ios_reconnect_checking" = "Prüfe Verbindung …";

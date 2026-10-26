@@ -1051,6 +1051,8 @@
 "native_ios_push_relay_toggle" = "Mirrored machines via %1$@";
 "native_ios_push_title" = "Notifications";
 "native_ios_push_unavailable" = "Not set up on this server — set it up on the server under Settings → Notifications";
+"native_ios_quick_action_dictate_task" = "Dictate Task";
+"native_ios_quick_action_new_task" = "New Task";
 "native_ios_reconnect_awake" = "Is %1$@ awake and reachable?";
 "native_ios_reconnect_check" = "Check connection again";
 "native_ios_reconnect_checking" = "Checking connection …";

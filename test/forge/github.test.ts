@@ -3305,7 +3305,41 @@ test("listOpenPrSnapshot: headPushable only for a head in the repo that is not i
     "repo view": JSON.stringify({ defaultBranchRef: { name: "main" } }),
   });
   const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
-  expect(snap.prs.map((p) => p.headPushable)).toEqual([true, undefined, undefined, undefined]);
+  expect(snap.prs.map((p) => p.headPushable)).toEqual([true, false, false, false]);
+});
+
+test("listOpenPrSnapshot: REST fallback reads headPushable from the pulls payload alone", async () => {
+  const pull = (number: number, ref: string, owner: string) => ({
+    number,
+    html_url: `u${number}`,
+    title: "t",
+    state: "open",
+    created_at: "2026-01-04T00:00:00Z",
+    user: { login: "alice" },
+    head: { ref, sha: `sha${number}`, repo: { owner: { login: owner } } },
+    base: { ref: "release", repo: { default_branch: "main" } },
+  });
+  const run = async (args: string[]): Promise<string> => {
+    if (args[0] === "pr" || args[0] === "repo" || args[0] === "run")
+      throw new Error(`unexpected GraphQL helper: ${args.join(" ")}`);
+    if (args.includes("repos/o/r/pulls"))
+      return JSON.stringify([
+        pull(1, "feat/a", "O"),
+        pull(2, "feat/b", "forker"),
+        pull(3, "main", "o"),
+      ]);
+    if (args.some((a) => a.includes("/status"))) return JSON.stringify({ state: "success" });
+    if (args.some((a) => a.includes("/check-runs")))
+      return JSON.stringify({ total_count: 0, check_runs: [] });
+    return "";
+  };
+  blockGraphql();
+  try {
+    const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+    expect(snap.prs.map((p) => p.headPushable)).toEqual([true, false, false]);
+  } finally {
+    unblockGraphql();
+  }
 });
 
 test("listOpenPrSnapshot: headPushable stays unset while the default branch is unknown", async () => {

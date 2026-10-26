@@ -7339,6 +7339,7 @@
   "upnext_pr_fix_failed": "Couldn't start a fix session for #{number}",
   "upnext_pr_fix_fork": "#{number} comes from a fork — its branch isn't in this repo, so fix it on GitHub",
   "upnext_pr_fix_in_flight": "A session already works on #{number}",
+  "upnext_pr_fix_locked": "Locked: Shepherd can't tell yet whether this branch lives in the repo, and a fix must never push to someone else's branch. The next refresh usually settles it.",
   "upnext_pr_kind_title": "Pull requests",
   "upnext_pr_kind_sub": "waiting on you",
   "upnext_issue_kind_title": "Issues",

@@ -23,7 +23,9 @@ export function readyPrCount(prs: UpNextPr[] | undefined): number {
 
 /** The action a row's single button shows — its band's, disabled, while `action` is null. */
 export function buttonAction(pr: UpNextPr): UpNextPrAction {
-  return pr.action ?? (pr.band === "review" ? "review" : "merge");
+  if (pr.action) return pr.action;
+  if (pr.band === "review") return "review";
+  return pr.band === "blocked" ? "fix" : "merge";
 }
 
 /** Why a PR cannot merge right now, or null when merging is its next action. */

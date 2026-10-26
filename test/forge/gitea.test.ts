@@ -133,6 +133,35 @@ test("GiteaForge.listPullRequests: nonDefaultBase set only for non-default-targe
   expect(prs.map((p) => p.nonDefaultBase)).toEqual([undefined, "epic/foo"]);
 });
 
+test("GiteaForge.listPullRequests: headPushable only for a head in this repo off its default branch", async () => {
+  const pull = (number: number, ref: string, repo: string | undefined) => ({
+    number,
+    title: "t",
+    state: "open",
+    mergeable: true,
+    html_url: `u${number}`,
+    head: { ref, sha: `s${number}`, ...(repo ? { repo: { full_name: repo } } : {}) },
+    base: { ref: "release" },
+  });
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {
+      json: [
+        pull(1, "feat/a", "Team/Proj"),
+        pull(2, "feat/b", "someone/proj"),
+        pull(3, "main", "team/proj"),
+        pull(4, "feat/c", undefined),
+      ],
+    },
+    "GET /api/v1/repos/team/proj/commits/s1/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj/commits/s2/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj/commits/s3/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj/commits/s4/status": { json: { state: "success" } },
+    "GET /api/v1/repos/team/proj": { json: { default_branch: "main" } },
+  });
+  const prs = await new GiteaForge("team/proj", CFG, fn).listPullRequests();
+  expect(prs.map((p) => p.headPushable)).toEqual([true, false, false, undefined]);
+});
+
 test("GiteaForge.listPullRequests: classifies dependabot + release PRs by kind", async () => {
   const { fn } = fakeFetch({
     "GET /api/v1/repos/team/proj/pulls?state=open&limit=200": {

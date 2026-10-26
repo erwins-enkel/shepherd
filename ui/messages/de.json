@@ -7339,6 +7339,7 @@
   "upnext_pr_fix_failed": "Fix-Session für #{number} konnte nicht starten",
   "upnext_pr_fix_fork": "#{number} kommt aus einem Fork — sein Branch liegt nicht in diesem Repo, also auf GitHub beheben",
   "upnext_pr_fix_in_flight": "An #{number} arbeitet schon eine Session",
+  "upnext_pr_fix_locked": "Gesperrt: Shepherd kann gerade nicht sagen, ob dieser Branch im Repo liegt, und ein Fix darf nie auf einen fremden Branch pushen. Meist klärt das die nächste Aktualisierung.",
   "upnext_pr_kind_title": "Pull Requests",
   "upnext_pr_kind_sub": "warten auf dich",
   "upnext_issue_kind_title": "Issues",

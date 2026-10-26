@@ -82,8 +82,9 @@ export function classifyUpNextPr(pr: PullRequest, ctx: UpNextPrContext): UpNextP
 }
 
 /** Rules 1–5: what keeps the PR from merging, and the action that clears it; undefined when
- *  nothing blocks it, null when the block isn't the operator's to clear — a fix pushes to the
- *  head, never to a fork's branch or the default branch (PullRequest.headPushable). */
+ *  nothing blocks it, null when the block isn't the operator's to clear. A fix pushes to the
+ *  head, so it is offered only for a head known to be pushable (PullRequest.headPushable): a
+ *  fork's branch or the default branch leaves the list, an unknown one keeps the fix locked. */
 function blockedClass(pr: PullRequest): UpNextPrClass | null | undefined {
   const conflict = isConflicting(pr);
   const behind = pr.mergeStateStatus === "behind";
@@ -97,10 +98,11 @@ function blockedClass(pr: PullRequest): UpNextPrClass | null | undefined {
     };
   const red = pr.checks === "failure";
   if (!conflict && !red && !behind) return undefined;
-  if (!pr.headPushable) return null; // the contributor's to fix
-  if (conflict) return { band: "blocked", action: "fix", blockReason: "conflict" };
-  if (red) return { band: "blocked", action: "fix", blockReason: "ci_failed" };
-  return { band: "blocked", action: "fix", blockReason: "behind" };
+  if (pr.headPushable === false) return null; // the contributor's to fix
+  const action = pr.headPushable ? "fix" : null;
+  if (conflict) return { band: "blocked", action, blockReason: "conflict" };
+  if (red) return { band: "blocked", action, blockReason: "ci_failed" };
+  return { band: "blocked", action, blockReason: "behind" };
 }
 
 /** Rules 6–9 for an unblocked PR: whose move it is — null when it waits on someone else. */

@@ -57,7 +57,12 @@ export function fixSummary(pr: UpNextPr): string {
 export function actionTip(pr: UpNextPr): TooltipExplanation {
   const action = buttonAction(pr);
   const title = actionLabel(action);
-  if (pr.action === null) return { title, summary: mergeBlockLine(pr) ?? "", sections: [] };
+  if (pr.action === null)
+    return {
+      title,
+      summary: action === "fix" ? m.upnext_pr_fix_locked() : (mergeBlockLine(pr) ?? ""),
+      sections: [],
+    };
   const number = pr.number;
   const [summary, then] =
     action === "merge"

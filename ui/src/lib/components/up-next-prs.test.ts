@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { UpNextPr } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { actionTip } from "./up-next-pr-copy";
 import {
   buttonAction,
   ciShown,
@@ -66,6 +68,10 @@ test("buttonAction shows the band's action, disabled, while CI runs", () => {
   expect(buttonAction(pr(1, { band: "review", action: null }))).toBe("review");
   expect(buttonAction(pr(1, { band: "dependabot", action: null }))).toBe("merge");
   expect(buttonAction(pr(1, { band: "blocked", action: "fix" }))).toBe("fix");
+  // A blocked PR whose head the server can't place keeps its fix, locked.
+  expect(buttonAction(pr(1, { band: "blocked", action: null, blockReason: "conflict" }))).toBe(
+    "fix",
+  );
 });
 
 describe("mergeBlock", () => {
@@ -95,4 +101,10 @@ test("prsInRepos keeps the chip-rail repos, or everything when none is picked", 
   const rows = [pr(1), pr(2, { repoPath: "/r/b" })];
   expect(prsInRepos(rows, new Set()).map((p) => p.number)).toEqual([1, 2]);
   expect(prsInRepos(rows, new Set(["/r/b"])).map((p) => p.number)).toEqual([2]);
+});
+
+test("a locked fix's tip says why it is locked", () => {
+  const tip = actionTip(pr(1, { band: "blocked", action: null, blockReason: "conflict" }));
+  expect(tip.title).toBe(m.upnext_pr_action_fix());
+  expect(tip.summary).toBe(m.upnext_pr_fix_locked());
 });

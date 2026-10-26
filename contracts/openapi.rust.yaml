@@ -5494,7 +5494,7 @@ components:
     UpNextPr:
       type: object
       additionalProperties: true
-      description: "One open PR waiting on the operator (src/up-next-prs.ts). The server alone classifies it: clients render band and action as given. action null means CI is still running or mergeability is still computing — the row keeps its band, sorts to its end and its button is disabled. Drafts, release PRs and PRs a session works on are never listed."
+      description: "One open PR waiting on the operator (src/up-next-prs.ts). The server alone classifies it: clients render band and action as given. action null means CI is still running or mergeability is still computing, or — on a blocked row — the server can't yet tell whether a fix may push to the head: the row keeps its band, sorts to its end and its button is disabled. A fix is offered only for a head in the repo that is not its default branch; a fork's blocked PR is not listed. Drafts, release PRs and PRs a session works on never are."
       required:
         - repoPath
         - repoSlug

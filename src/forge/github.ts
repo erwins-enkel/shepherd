@@ -839,7 +839,10 @@ interface RestPull {
     sha?: string;
     repo?: { full_name?: string | null; owner?: { login?: string | null } | null } | null;
   } | null;
-  base?: { ref?: string | null; repo?: { full_name?: string | null } | null } | null;
+  base?: {
+    ref?: string | null;
+    repo?: { full_name?: string | null; default_branch?: string | null } | null;
+  } | null;
   requested_reviewers?: Array<{ login?: string | null }> | null;
 }
 
@@ -1186,16 +1189,16 @@ export class GithubForge implements GitForge {
 
   /** Whether a fix may push to a PR's head (PullRequest.headPushable): the head lives in the
    *  clone's `origin` — the fork in fork mode, as the statuses dedup reads it — and is not the
-   *  default branch. Undefined (not false) otherwise, and while the default branch is unknown. */
+   *  default branch. Undefined while the head's owner or the default branch is unknown. Logins
+   *  compare case-insensitively: the slug comes from the remote URL as typed. */
   private headPushable(
     owner: string | null | undefined,
     head: string | undefined,
-    defaultBranch: string | null,
-  ): true | undefined {
-    const origin = this.forkOwner ?? this.slug.split("/")[0];
-    return (
-      (defaultBranch !== null && !!head && owner === origin && head !== defaultBranch) || undefined
-    );
+    defaultBranch: string | null | undefined,
+  ): boolean | undefined {
+    if (!owner || !head || !defaultBranch) return undefined;
+    const origin = this.forkOwner ?? this.slug.split("/")[0]!;
+    return owner.toLowerCase() === origin.toLowerCase() && head !== defaultBranch;
   }
 
   private mapRestPullToPullRequest(pr: RestPull, checks: ChecksState): PullRequest {
@@ -1218,6 +1221,12 @@ export class GithubForge implements GitForge {
       headRefName,
       baseRefName: pr.base?.ref ?? undefined,
       mergeMethod: this.mergeMethod,
+      // The pulls payload carries both facts, so the fallback needs no default-branch read.
+      headPushable: this.headPushable(
+        pr.head?.repo?.owner?.login,
+        headRefName,
+        pr.base?.repo?.default_branch,
+      ),
     };
   }
 

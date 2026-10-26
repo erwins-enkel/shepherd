@@ -8,6 +8,7 @@ import type {
   IssueFilterSettings,
   UpNextFilterStats,
   UpNextItem,
+  UpNextPr,
   UpNextSnapshot,
   UsageLimits,
 } from "#lib/types.js";
@@ -15,7 +16,14 @@ import { m } from "#lib/paraglide/messages.js";
 import { upNext } from "#lib/up-next.svelte.js";
 import { upNextUi } from "#lib/up-next-ui.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
-import { getUpNext, putIssueFilter, startUpNext } from "#lib/api.js";
+import {
+  getUpNext,
+  mergeBacklogPr,
+  putIssueFilter,
+  startUpNext,
+  startUpNextPrFix,
+} from "#lib/api.js";
+import { upNextPrKey } from "#lib/up-next-ui.svelte.js";
 import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
 
 // Mock the API so mounting the demand-driven lens makes no real network call.
@@ -30,6 +38,10 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     })),
     refreshUpNext: vi.fn(async () => {}),
     startUpNext: vi.fn(async () => ({ created: [], held: [], errors: [] })),
+    mergeBacklogPr: vi.fn(async () => {}),
+    startUpNextPrFix: vi.fn(async () => ({ session: { id: "fix" } })),
+    requestDependabotRebase: vi.fn(async () => {}),
+    getUpNextPrBody: vi.fn(async () => ({ body: "PR body" })),
     // No issueFilter: the filter UI stays hidden unless a test seeds the store.
     getSettings: vi.fn(async () => ({})),
     putIssueFilter: vi.fn(async (patch: Partial<IssueFilterSettings>) => ({
@@ -1124,5 +1136,221 @@ describe("UpNextPanel default issue filter", () => {
     await page.getByRole("button", { name: m.upnext_filter_close() }).click();
     await expect.element(flyout()).not.toBeInTheDocument();
     expect(document.activeElement).toBe(filterBtn());
+  });
+});
+
+describe("UpNextPanel pull requests", () => {
+  const pr = (number: number, over: Partial<UpNextPr> = {}): UpNextPr => ({
+    repoPath: "~/projects/homeassistant",
+    repoSlug: "o/homeassistant",
+    repoLabel: "homeassistant",
+    number,
+    title: `pr ${number}`,
+    url: `https://example.test/pull/${number}`,
+    author: "me",
+    kind: "regular",
+    createdAt: 0,
+    checks: "success",
+    mergeable: true,
+    baseRefName: "main",
+    headSha: `sha${number}`,
+    band: "ready",
+    action: "merge",
+    ...over,
+  });
+  const PRS: UpNextPr[] = [
+    pr(911),
+    pr(912, { checks: "pending", action: null }),
+    pr(967, { author: "other", band: "review", action: "review" }),
+    pr(985, {
+      mergeable: false,
+      mergeStateStatus: "dirty",
+      band: "blocked",
+      action: "fix",
+      blockReason: "conflict",
+    }),
+    pr(990, { author: "app/dependabot", kind: "dependabot", band: "dependabot" }),
+  ];
+  const withPrs = (prs = PRS): UpNextSnapshot => ({ ...SNAPSHOT, pullRequests: prs });
+  const prRow = (n: number) =>
+    Array.from(document.querySelectorAll<HTMLElement>(".un-row")).find(
+      (row) => row.querySelector(".un-num")?.textContent === `#${n}`,
+    )!;
+  const tick = (n: number) => prRow(n).querySelector<HTMLInputElement>(".un-check input")!.click();
+
+  it("leads with the PR block above the issues, bands in order with their tones", async () => {
+    upNext.snapshot = withPrs();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#911")).toBeInTheDocument();
+    const kinds = Array.from(document.querySelectorAll(".un-kind")).map((el) => el.textContent);
+    expect(kinds[0]).toContain(m.upnext_pr_kind_title());
+    expect(kinds[0]).toContain("5");
+    expect(kinds[1]).toContain(m.upnext_issue_kind_title());
+    const bands = Array.from(document.querySelectorAll<HTMLElement>(".un-section"));
+    expect(bands.slice(0, 4).map((b) => b.querySelector(".un-section-title")?.textContent)).toEqual(
+      [
+        m.upnext_pr_band_ready(),
+        m.upnext_pr_band_review(),
+        m.upnext_pr_band_blocked(),
+        m.upnext_pr_band_dependabot(),
+      ],
+    );
+    expect(bands.slice(0, 4).map((b) => b.style.getPropertyValue("--band"))).toEqual([
+      "var(--color-green)",
+      "var(--color-data-2)",
+      "var(--color-warn)",
+      "var(--color-blue)",
+    ]);
+    expect(bands[4]!.querySelector(".un-section-title")?.textContent).toBe(
+      m.upnext_priority_section(),
+    );
+  });
+
+  it("gives every PR row exactly one action; a CI-running row's button is locked", async () => {
+    upNext.snapshot = withPrs();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#990")).toBeInTheDocument();
+    for (const n of [911, 912, 967, 985, 990]) {
+      expect(prRow(n).querySelectorAll(".unpr-act")).toHaveLength(1);
+    }
+    const act = (n: number) => prRow(n).querySelector<HTMLElement>(".unpr-act")!;
+    expect(act(911).textContent).toBe(m.prspanel_merge_button());
+    expect(act(911).getAttribute("aria-disabled")).toBeNull();
+    expect(act(912).textContent).toBe(m.prspanel_merge_button());
+    expect(act(912).getAttribute("aria-disabled")).toBe("true");
+    expect(act(967).textContent).toBe(m.prspanel_review_button());
+    expect(act(985).textContent).toBe(m.upnext_pr_action_fix());
+    expect(prRow(985).textContent).toContain(m.prspanel_conflicts());
+    // The Dependabot band names neither the bot nor a tag.
+    expect(prRow(990).textContent).not.toContain("dependabot");
+    expect(prRow(911).textContent).toContain("@me");
+  });
+
+  it("merges through the confirmation and hides the merged row", async () => {
+    upNext.snapshot = withPrs();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#911")).toBeInTheDocument();
+    prRow(911).querySelector<HTMLElement>(".unpr-act")!.click();
+    const confirm = page.getByRole("button", { name: m.mergeconfirm_confirm() });
+    await expect.element(confirm).toBeEnabled();
+    await confirm.click();
+    await expect.poll(() => vi.mocked(mergeBacklogPr).mock.calls.length).toBe(1);
+    expect(vi.mocked(mergeBacklogPr).mock.calls[0]).toMatchObject([
+      "~/projects/homeassistant",
+      911,
+      { deleteBranch: true, confirm: { headSha: "sha911", baseRefName: "main" } },
+    ]);
+    await expect.poll(() => prRow(911)).toBeUndefined();
+  });
+
+  it("starts a fix session from a blocked row and hides it", async () => {
+    upNext.snapshot = withPrs();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#985")).toBeInTheDocument();
+    prRow(985).querySelector<HTMLElement>(".unpr-act")!.click();
+    await expect.poll(() => vi.mocked(startUpNextPrFix).mock.calls.length).toBe(1);
+    expect(vi.mocked(startUpNextPrFix).mock.calls[0]).toEqual([
+      "~/projects/homeassistant",
+      985,
+      undefined,
+    ]);
+    await expect.poll(() => prRow(985)).toBeUndefined();
+  });
+
+  it("does nothing for a locked button", async () => {
+    upNext.snapshot = withPrs();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#912")).toBeInTheDocument();
+    prRow(912).querySelector<HTMLElement>(".unpr-act")!.click();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+  });
+
+  it("offers the merge train for picked PRs only, and two buttons for a mixed pick", async () => {
+    upNext.snapshot = withPrs();
+    const onlaunchtrain = vi.fn();
+    render(UpNextPanel, {
+      launchContext: { ...launchContext({ skipCliPicker: true }), onlaunchtrain },
+    });
+    await expect.element(page.getByText("#911")).toBeInTheDocument();
+    tick(911);
+    await expect
+      .element(page.getByText(m.upnext_pr_selected_count({ count: 1 })))
+      .toBeInTheDocument();
+    const train = page.getByRole("button", { name: m.prspanel_launch_train() });
+    await expect.element(train).toBeDisabled();
+    tick(985);
+    await expect.element(train).toBeEnabled();
+    await train.click();
+    expect(onlaunchtrain.mock.calls[0]![0].map((p: UpNextPr) => p.number)).toEqual([911, 985]);
+    expect(startUpNext).not.toHaveBeenCalled();
+
+    // A mixed pick: each button takes only its own kind.
+    tick(2);
+    await expect
+      .element(page.getByText(m.upnext_batch_mixed_count({ issues: 1, prs: 2 })))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.upnext_batch_train({ count: 2 }) }))
+      .toBeEnabled();
+    await page.getByRole("button", { name: m.upnext_batch_start_issues({ count: 1 }) }).click();
+    await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
+    expect(vi.mocked(startUpNext).mock.calls[0]![0].map((it) => it.issueRef.number)).toEqual([2]);
+  });
+
+  it("opens a PR title in the PR preview", async () => {
+    upNext.snapshot = withPrs();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#967")).toBeInTheDocument();
+    prRow(967).querySelector<HTMLButtonElement>(".un-link")!.click();
+    expect(upNextUi.previewKey).toBe(upNextPrKey(PRS[2]!));
+    expect(upNextUi.prOrder).toEqual([911, 912, 967, 985, 990].map((n) => upNextPrKey(pr(n))));
+  });
+
+  it("swaps the PR preview in for the list on the phone", async () => {
+    upNext.snapshot = withPrs();
+    render(UpNextPanel, { flow: true });
+    await expect.element(page.getByText("#967")).toBeInTheDocument();
+    prRow(967).querySelector<HTMLButtonElement>(".un-link")!.click();
+    await expect
+      .element(page.getByRole("region", { name: m.upnext_pr_preview_aria() }))
+      .toBeVisible();
+    expect(document.querySelector(".un-row")).toBeNull();
+  });
+
+  it("keeps PR actions, checkboxes and header icons touch-sized on the phone", async () => {
+    await page.viewport(390, 800);
+    upNext.snapshot = withPrs();
+    issueFilterSettings.apply({
+      scope: "all",
+      forks: "all",
+      hiddenLabels: [],
+      hideActive: false,
+      hideSubIssues: true,
+      hideBlocked: true,
+    });
+    render(UpNextPanel, { flow: true });
+    await expect.element(page.getByText("#911")).toBeInTheDocument();
+    const hit = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
+    );
+    for (const el of [
+      prRow(911).querySelector<HTMLElement>(".unpr-act")!,
+      prRow(911).querySelector<HTMLElement>(".un-check")!,
+      document.querySelector<HTMLElement>(".un-refresh")!,
+      document.querySelector<HTMLElement>(".un-sortbtn")!,
+      document.querySelector<HTMLElement>(".un-filterbtn")!,
+    ]) {
+      const box = el.getBoundingClientRect();
+      expectMinPx(box.height, hit, `${el.className} height`);
+      expectMinPx(box.width, hit, `${el.className} width`);
+    }
+  });
+
+  it("looks as before when no PR waits", async () => {
+    upNext.snapshot = withPrs([]);
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    expect(document.querySelector(".un-kind")).toBeNull();
   });
 });

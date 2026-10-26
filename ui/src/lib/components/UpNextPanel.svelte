@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { UpNextItem, UpNextSection } from "#lib/types.js";
   import { upNext } from "#lib/up-next.svelte.js";
-  import { upNextKey as keyOf, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import { isPrKey, upNextKey as keyOf, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import { UpNextPrActions } from "#lib/up-next-pr-actions.svelte.js";
   import { UpNextStarter, type UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
   import { refreshUpNext } from "#lib/api.js";
   import { formatAgo } from "#lib/format.js";
@@ -10,8 +11,12 @@
   import { SvelteSet } from "svelte/reactivity";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
   import { onMount } from "svelte";
-  import UpNextBand, { type UpNextBandGroup } from "./UpNextBand.svelte";
+  import UpNextBand, { type UpNextBandGroup, type UpNextPrBandGroup } from "./UpNextBand.svelte";
   import UpNextPreview from "./UpNextPreview.svelte";
+  import UpNextPrPreview from "./UpNextPrPreview.svelte";
+  import MergeConfirmHost from "./MergeConfirmHost.svelte";
+  import { PR_BAND_TONE, prBandGroups, prsInRepos } from "./up-next-prs";
+  import { prBandTitle } from "./up-next-pr-copy";
   import UpNextSortMenu from "./UpNextSortMenu.svelte";
   import UpNextStartPicker from "./UpNextStartPicker.svelte";
   import UpNextFilterFlyout from "./UpNextFilterFlyout.svelte";
@@ -118,7 +123,7 @@
       /* storage may be blocked or hold junk */
     }
   }
-  function toggleCollapsed(g: RenderGroup) {
+  function toggleCollapsed(g: Pick<RenderGroup, "id">) {
     if (collapsed.has(g.id)) collapsed.delete(g.id);
     else collapsed.add(g.id);
     try {
@@ -179,11 +184,32 @@
   //     non-empty queue still reads as "empty", not "failed".
   //   - client-side: the GET itself threw AND there is no usable cached work to render — a failed
   //     lens-open after a successful app-load peek keeps painting the cached queue, not the error.
-  const loadFailed = $derived(
-    (computed && (snap?.failedRepoCount ?? 0) > 0 && (snap?.sections.length ?? 0) === 0) ||
-      (upNext.loadError && sections.length === 0),
+  // Waiting PRs (server-classified), scoped by the repo chips like the issues. A PR just merged
+  // or handed to a fix session stays hidden until the server's next snapshot drops it.
+  const prs = $derived(
+    prsInRepos(snap?.pullRequests ?? [], repoFilter).filter(
+      (pr) => !upNextUi.hidesActed(upNextPrKey(pr), clock.current),
+    ),
   );
-  const isEmpty = $derived(computed && !loadFailed && sections.length === 0);
+  const prGroups = $derived(
+    prBandGroups(prs).map((g): UpNextPrBandGroup => ({
+      kind: "pr",
+      id: `pr:${g.band}`,
+      title: prBandTitle(g.band),
+      tone: PR_BAND_TONE[g.band],
+      items: g.items,
+      totalCount: g.items.length,
+      cap: LABEL_CAP,
+    })),
+  );
+  const loadFailed = $derived(
+    (computed &&
+      (snap?.failedRepoCount ?? 0) > 0 &&
+      (snap?.sections.length ?? 0) === 0 &&
+      (snap?.pullRequests?.length ?? 0) === 0) ||
+      (upNext.loadError && sections.length === 0 && prs.length === 0),
+  );
+  const isEmpty = $derived(computed && !loadFailed && sections.length === 0 && prs.length === 0);
 
   // The default issue filter (#3018): the server applies it; the panel shows what it hides.
   const filter = $derived(issueFilterSettings.value);
@@ -209,6 +235,7 @@
   const selected = upNextUi.selected;
   const expanded = new SvelteSet<string>();
   const starter = new UpNextStarter(() => launchContext);
+  const prActions = new UpNextPrActions(() => launchContext);
   let confirmPending = $state(false);
 
   function stableCompare(a: UpNextItem, b: UpNextItem): number {
@@ -289,6 +316,7 @@
     }
     return groups;
   });
+  const issueCount = $derived(renderGroups.reduce((n, g) => n + g.items.length, 0));
   const visibleRepoCount = $derived(
     new Set(sections.flatMap((s) => s.items.map((it) => it.repoPath))).size,
   );
@@ -304,9 +332,10 @@
       return !(it.kind === "epic" && normalized === "epic");
     });
   }
-  // The preview's ‹ › step through the rows in on-screen band order.
+  // The preview's ‹ › step through the rows in on-screen band order — issues and PRs apart.
   $effect(() => {
     upNextUi.order = renderGroups.flatMap((g) => g.items.map(keyOf));
+    upNextUi.prOrder = prGroups.flatMap((g) => g.items.map(upNextPrKey));
   });
 
   // Selected items still present in the current snapshot (a refresh may have dropped some).
@@ -314,12 +343,26 @@
     renderGroups.flatMap((g) => g.items).filter((it) => selected.has(keyOf(it))),
   );
   const selectedCount = $derived(selectedItems.length);
+  const selectedPrs = $derived(prs.filter((pr) => selected.has(upNextPrKey(pr))));
+  const selectedPrCount = $derived(selectedPrs.length);
+  const batchLabel = $derived(
+    selectedPrCount === 0
+      ? m.upnext_selected_count({ count: selectedCount })
+      : selectedCount === 0
+        ? m.upnext_pr_selected_count({ count: selectedPrCount })
+        : m.upnext_batch_mixed_count({ issues: selectedCount, prs: selectedPrCount }),
+  );
+  // Each batch button consumes only its own kind of selection.
+  function launchTrain() {
+    if (selectedPrCount < 2) return;
+    launchContext?.onlaunchtrain?.(selectedPrs);
+  }
 
   function toggle(it: UpNextItem) {
     upNextUi.toggle(keyOf(it));
     confirmPending = false; // selection changed — re-confirm if still over threshold
   }
-  function toggleExpand(g: RenderGroup) {
+  function toggleExpand(g: Pick<RenderGroup, "id">) {
     if (expanded.has(g.id)) expanded.delete(g.id);
     else expanded.add(g.id);
   }
@@ -335,6 +378,7 @@
 
   // On the phone the preview takes the list's place (see `flow`).
   const flowPreview = $derived(flow && upNextUi.previewKey !== null);
+  const prPreview = $derived(isPrKey(upNextUi.previewKey));
 
   let refreshing = $state(false);
   async function refresh() {
@@ -350,7 +394,9 @@
   }
 </script>
 
-{#if flowPreview}
+{#if flowPreview && prPreview}
+  <UpNextPrPreview {launchContext} onback={() => (upNextUi.previewKey = null)} />
+{:else if flowPreview}
   <UpNextPreview {launchContext} onback={() => (upNextUi.previewKey = null)} />
 {:else}
   <section class="upnext" class:flow aria-label={m.upnext_title()} bind:this={panelEl}>
@@ -442,6 +488,38 @@
           {/if}
         </div>
       {:else}
+        {#if prGroups.length > 0}
+          <!-- PRs waiting on the operator lead; the issues follow under their own header. -->
+          <div class="un-kind">
+            <b>{m.upnext_pr_kind_title()}</b><span>{m.upnext_pr_kind_sub()}</span>
+            <span class="un-kind-count">{prs.length}</span>
+          </div>
+          {#each prGroups as g (g.id)}
+            <UpNextBand
+              group={g}
+              open={!collapsed.has(g.id)}
+              expanded={expanded.has(g.id)}
+              showRepo={showRepoContext}
+              onfold={() => toggleCollapsed(g)}
+              onexpand={() => toggleExpand(g)}
+              {prActions}
+            />
+          {/each}
+          {#if renderGroups.length > 0 || hidden > 0}
+            <div class="un-kind">
+              <b>{m.upnext_issue_kind_title()}</b><span>{m.upnext_issue_kind_sub()}</span>
+              <span class="un-kind-count">{issueCount}</span>
+            </div>
+          {/if}
+          {#if renderGroups.length === 0 && hidden > 0}
+            <UpNextFilteredEmpty
+              {hidden}
+              {hiddenBy}
+              onadjust={filter ? () => (filterOpen = true) : undefined}
+              {onbacklog}
+            />
+          {/if}
+        {/if}
         {#each renderGroups as g (g.id)}
           <UpNextBand
             group={g}
@@ -457,7 +535,7 @@
       {/if}
     </div>
 
-    {#if selectedCount > 0}
+    {#if selectedCount > 0 || selectedPrCount > 0}
       <div class="un-batch" role="region" aria-label={m.upnext_batch_aria()}>
         {#if confirmPending}
           <span class="un-confirm-text">{m.upnext_confirm({ count: selectedCount })}</span>
@@ -471,16 +549,33 @@
             >{m.common_cancel()}</button
           >
         {:else}
-          <span class="un-batch-count">{m.upnext_selected_count({ count: selectedCount })}</span>
+          <span class="un-batch-count">{batchLabel}</span>
           <button type="button" class="un-batch-cancel" onclick={() => selected.clear()}
             >{m.upnext_clear_selection()}</button
           >
-          <button
-            type="button"
-            class="un-batch-go"
-            disabled={starter.starting}
-            onclick={startSelected}>{m.upnext_start_selected({ count: selectedCount })}</button
-          >
+          {#if selectedPrCount > 0}
+            <button
+              type="button"
+              class={selectedCount > 0 ? "un-batch-alt" : "un-batch-go"}
+              disabled={selectedPrCount < 2 || !launchContext?.onlaunchtrain}
+              title={selectedPrCount < 2 ? m.upnext_batch_train_min() : undefined}
+              onclick={launchTrain}
+              >{selectedCount > 0
+                ? m.upnext_batch_train({ count: selectedPrCount })
+                : m.prspanel_launch_train()}</button
+            >
+          {/if}
+          {#if selectedCount > 0}
+            <button
+              type="button"
+              class="un-batch-go"
+              disabled={starter.starting}
+              onclick={startSelected}
+              >{selectedPrCount > 0
+                ? m.upnext_batch_start_issues({ count: selectedCount })
+                : m.upnext_start_selected({ count: selectedCount })}</button
+            >
+          {/if}
         {/if}
       </div>
     {/if}
@@ -517,6 +612,7 @@
 {/if}
 
 <UpNextStartPicker {starter} />
+<MergeConfirmHost flow={prActions.mergeFlow} />
 
 <style>
   /* No overflow of its own: the Herd's .units scrolls, so the sticky batch bar binds to that
@@ -569,8 +665,8 @@
     color: var(--color-muted);
   }
   /* Refresh ⟳ and sort ⇅ sit at the header's right edge. Both are compact ~30px
-     controls matching the panel's dense chrome (deliberate sub-44px tap targets —
-     waiver noted in the PR). */
+     controls matching the panel's dense desktop chrome; on the phone (`flow`) they grow
+     to full touch targets (see below). */
   .un-sortwrap {
     flex: none;
     display: inline-flex;
@@ -696,9 +792,49 @@
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
-  .un-batch-go:disabled {
+  .un-batch-go:disabled,
+  .un-batch-alt:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* Mixed selection: the merge train is the secondary of the two batch actions. */
+  .un-batch-alt {
+    min-height: 32px;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-meta);
+    font-weight: 700;
+    padding: 4px 12px;
+    cursor: pointer;
+  }
+  .un-batch-alt:hover:not(:disabled) {
+    border-color: var(--color-ink);
+  }
+  .un-batch-alt:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-ink);
+  }
+
+  /* Super-header over each kind of work: "Pull requests · waiting on you · N". */
+  .un-kind {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 14px 14px 7px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .un-kind b {
+    color: var(--color-ink-bright);
+  }
+  .un-kind-count {
+    margin-left: auto;
+    letter-spacing: 0;
   }
   .un-batch-cancel {
     background: none;
@@ -722,9 +858,17 @@
   }
 
   @media (max-width: 768px), (pointer: coarse) {
-    .un-batch-go {
+    .un-batch-go,
+    .un-batch-alt {
       min-height: var(--mobile-actionbar-hit);
     }
+  }
+  /* Phone: every header icon is a full touch target. */
+  .upnext.flow .un-refresh,
+  .upnext.flow .un-sortbtn,
+  .upnext.flow .un-filterbtn {
+    height: var(--mobile-actionbar-hit);
+    min-width: var(--mobile-actionbar-hit);
   }
 
   .un-muted {

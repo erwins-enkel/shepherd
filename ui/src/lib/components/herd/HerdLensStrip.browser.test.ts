@@ -2,7 +2,11 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
 import HerdLensStrip from "./HerdLensStrip.svelte";
+import HerdSegRow from "./HerdSegRow.svelte";
 import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
+import { m } from "#lib/paraglide/messages.js";
+import { upNext } from "#lib/up-next.svelte.js";
+import type { UpNextPr } from "#lib/types.js";
 
 const base = {
   filter: "all" as const,
@@ -24,6 +28,7 @@ function mount300() {
 
 afterEach(() => {
   overwriteGetLocale(() => "en");
+  upNext.snapshot = null;
   document.body.replaceChildren();
 });
 
@@ -131,5 +136,66 @@ describe("HerdLensStrip OWED count badge (#1257)", () => {
     const owed = frame.querySelector<HTMLElement>(".lens-owed")!;
     const badge = frame.querySelector<HTMLElement>(".owed-badge")!;
     expect(badge.offsetWidth).toBeLessThanOrEqual(owed.offsetWidth);
+  });
+});
+
+describe("Up Next ready-PR badge", () => {
+  const pr = (number: number, over: Partial<UpNextPr>): UpNextPr => ({
+    repoPath: "/r/a",
+    repoSlug: null,
+    repoLabel: "a",
+    number,
+    title: `pr ${number}`,
+    url: "",
+    author: "me",
+    kind: "regular",
+    createdAt: 0,
+    checks: "success",
+    mergeable: true,
+    band: "ready",
+    action: "merge",
+    ...over,
+  });
+  const seed = (pullRequests: UpNextPr[]) => {
+    upNext.snapshot = {
+      generatedAt: 1,
+      sections: [],
+      repoCount: 1,
+      fallback: null,
+      failedRepoCount: 0,
+      pullRequests,
+    };
+  };
+  const PRS = [
+    pr(1, {}),
+    pr(2, {}),
+    pr(3, { checks: "pending", action: null }),
+    pr(4, { band: "dependabot", kind: "dependabot" }),
+  ];
+
+  it("counts the PRs that can merge now on the desktop lens, in green", async () => {
+    seed(PRS);
+    const frame = mount300();
+    const badge = frame.querySelector<HTMLElement>(".lens-next .ready-badge")!;
+    expect(badge.textContent).toBe("2");
+    expect(badge.getAttribute("aria-label")).toBe(m.upnext_pr_ready_badge({ count: 2 }));
+    const probe = document.createElement("span");
+    probe.style.color = "var(--color-green)";
+    document.body.appendChild(probe);
+    expect(getComputedStyle(badge).color).toBe(getComputedStyle(probe).color);
+  });
+
+  it("hides the badge when nothing can merge", async () => {
+    seed([pr(3, { checks: "pending", action: null })]);
+    const frame = mount300();
+    expect(frame.querySelector(".ready-badge")).toBeNull();
+  });
+
+  it("shows the same count on the phone's Nächstes segment", async () => {
+    seed(PRS);
+    render(HerdSegRow, { props: { filter: "all", statusFilter: null } });
+    const badge = document.querySelector<HTMLElement>(".seg-badge")!;
+    expect(badge.textContent).toBe("2");
+    expect(badge.getAttribute("aria-label")).toBe(m.upnext_pr_ready_badge({ count: 2 }));
   });
 });

@@ -214,9 +214,11 @@ struct IOSUpNextPrSheetContent: View {
         case .merge: controller.prepareMerge(pr)
         case .fix, .review:
             let kind: IOSUpNextPrSessionKind = action == .fix ? .fix : .review
-            Task { if await controller.startSession(kind, pr, select: { select(app, $0) }) { finished() } }
-        // `_ =`: a single-expression Task returning Bool crashes Xcode 26.6's IRGen (isolated(any) thunk).
-        case .dependabotRebase: Task { _ = await controller.requestRebase(pr) }
+            Task<Void, Never> {
+                let started = await controller.startSession(kind, pr, select: { select(app, $0) })
+                if started { finished() }
+            }
+        case .dependabotRebase: Task<Void, Never> { _ = await controller.requestRebase(pr) }
         case .approveOnForge: if let url = URL(string: pr.url) { openURL(url) }
         }
     }
@@ -338,7 +340,11 @@ struct IOSUpNextPrMergeContent: View {
             }
             IOSActionFeedback(error: controller.error, busy: controller.busy, rendersStaticFixture: rendersStaticFixture)
             Button {
-                Task { if await controller.confirmMerge() { merged() } }
+                // Explicit Void: a Task whose closure yields a Bool crashes Xcode 26.6's IRGen (isolated(any) thunk).
+                Task<Void, Never> {
+                    let done = await controller.confirmMerge()
+                    if done { merged() }
+                }
             } label: {
                 Text(verbatim: draft.confirmTitle).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
             }

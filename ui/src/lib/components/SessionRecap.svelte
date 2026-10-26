@@ -11,11 +11,9 @@
 
   let {
     session,
-    inline = false,
     autoMergeOwned = false,
   }: {
     session: Session;
-    inline?: boolean;
     /** Full-auto merge carries this PR (TASK-1368): a "needs attention" verdict reads as
      *  "no action needed" — the agent's recap was written before the train took over. */
     autoMergeOwned?: boolean;
@@ -26,7 +24,7 @@
   const recap = $derived(detail.current(session.id, summary) ?? summary);
 
   let expanded = $state(false);
-  const showBody = $derived(inline || expanded);
+  const showBody = $derived(expanded);
   let regenerating = $state(false);
   let regenFailed = $state(false);
 
@@ -99,7 +97,7 @@
   <span class="recap-verdict-chip" style:color={verdictColor(v)}>{verdictLabel(v)}</span>
 {/snippet}
 
-{#snippet inner(isInline: boolean)}
+{#snippet inner()}
   {#if recap.state === "generating"}
     <p class="recap-generating">{m.recap_generating()}</p>
   {:else if recap.state === "failed"}
@@ -113,20 +111,13 @@
       <p class="recap-regen-error">{m.recap_regenerate_failed()}</p>
     {/if}
   {:else if recap.state === "ready"}
-    {#if isInline}
-      <div class="recap-header recap-header-static">
-        {#if recap.verdict}{@render verdictChip(recap.verdict)}{/if}
-        <span class="recap-headline">{recap.headline}</span>
-      </div>
-    {:else}
-      <button class="recap-header" onclick={() => (expanded = !expanded)} aria-expanded={expanded}>
-        {#if recap.verdict}{@render verdictChip(recap.verdict)}{/if}
-        <span class="recap-headline">{recap.headline}</span>
-        <span class="recap-expand-icon" aria-hidden="true"
-          >{expanded ? m.recap_collapse() : m.recap_expand()}</span
-        >
-      </button>
-    {/if}
+    <button class="recap-header" onclick={() => (expanded = !expanded)} aria-expanded={expanded}>
+      {#if recap.verdict}{@render verdictChip(recap.verdict)}{/if}
+      <span class="recap-headline">{recap.headline}</span>
+      <span class="recap-expand-icon" aria-hidden="true"
+        >{expanded ? m.recap_collapse() : m.recap_expand()}</span
+      >
+    </button>
     {#if showBody}
       <div class="recap-body">
         {#if detail.loading}<p role="status">{m.common_loading()}</p>{/if}
@@ -167,16 +158,10 @@
 
 <!-- fallow-ignore-next-line complexity -->
 {#if recap && recap.state !== "empty"}
-  {#if inline}
-    <div class="recap-card panel inline">
-      {@render inner(true)}
-    </div>
-  {:else}
-    <!-- coachTarget id "session-recap" matches FeatureAnnouncement.targetId -->
-    <div class="recap-card panel" use:coachTarget={"session-recap"}>
-      {@render inner(false)}
-    </div>
-  {/if}
+  <!-- coachTarget id "session-recap" matches FeatureAnnouncement.targetId -->
+  <div class="recap-card panel" use:coachTarget={"session-recap"}>
+    {@render inner()}
+  </div>
 {/if}
 
 <style>
@@ -191,14 +176,14 @@
     border-bottom: 1px solid var(--color-line);
   }
 
-  /* Full (non-inline) recap sits at the bottom of the Viewport flex column
+  /* The recap sits at the bottom of the Viewport flex column
      (.viewport is overflow:hidden). Without min-height:0 the flex item can't
      shrink below its expanded content, so a long recap overflows and gets
      clipped with no scroll. min-height:0 lets it shrink within the column;
      overflow-y:auto makes it the scroll container. Explicit --color-inset
      background because the `panel` class has no global rule — the card is
      otherwise transparent over .viewport's --color-inset. */
-  .recap-card:not(.inline) {
+  .recap-card {
     min-height: 0;
     overflow-y: auto;
     background: var(--color-inset);
@@ -206,22 +191,6 @@
        content scrolls *into* the top padding, so any padding-top here would let
        body content peek above the pinned header. The header carries it instead. */
     padding-top: 0;
-  }
-
-  .recap-card.inline {
-    border: none;
-    padding: 0;
-    background: none;
-  }
-
-  .recap-header-static {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    font-size: var(--fs-sm);
-    color: var(--color-text);
-    width: 100%;
-    cursor: default;
   }
 
   .recap-generating {
@@ -260,12 +229,10 @@
     text-decoration: underline;
   }
 
-  /* Keep the collapse toggle reachable while the body scrolls. Scoped to the
-     non-inline path — the inline static header reuses `.recap-header`
-     (recap-header-static) and must stay non-sticky/transparent. Opaque
+  /* Keep the collapse toggle reachable while the body scrolls. Opaque
      --color-inset (matching the card) hides scrolled body content beneath it
      and makes the card's top-padding strip seamless with the header. */
-  .recap-card:not(.inline) .recap-header {
+  .recap-card .recap-header {
     position: sticky;
     top: 0;
     z-index: 1;

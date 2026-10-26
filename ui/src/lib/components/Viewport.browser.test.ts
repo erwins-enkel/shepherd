@@ -811,22 +811,22 @@ describe("Viewport rename affordances", () => {
       openPreviewTick: 0,
     });
 
-    const activityTab = page.getByRole("tab", { name: "Activity", exact: true });
-    await activityTab.click();
-    await expect.element(activityTab).toHaveClass(/active/);
+    const diffTab = page.getByRole("tab", { name: m.viewport_diff_tab() });
+    await diffTab.click();
+    await expect.element(diffTab).toHaveClass(/active/);
 
     const title = container.querySelector<HTMLElement>(".vp-name");
     expect(title, "touch-desktop title").not.toBeNull();
     // two taps inside the double-tap window: tap 1 folds the header (forcing
     // tab back to "term" internally), tap 2 undoes the fold — which must
-    // restore the pre-tap tab (Activity), not leave it on "term" — and opens
+    // restore the pre-tap tab (Diff), not leave it on "term" — and opens
     // rename.
     title!.click();
     title!.click();
 
     const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
     await expect.element(input).toBeInTheDocument();
-    await expect.element(activityTab).toHaveClass(/active/);
+    await expect.element(diffTab).toHaveClass(/active/);
   });
 
   it("clicking the relocated git-toggle chip toggles the rail with aria-expanded", async () => {
@@ -1655,12 +1655,10 @@ describe("Viewport decommission — leftover probes unavailable", () => {
   });
 });
 
-// ── Activity tab A/B switch: live feed vs inline recap ────────────────────────
-// The Activity tab shows ActivityFeed while the session is running (even if a
-// recap exists), and switches to the inline SessionRecap once the session is
-// settled (idle/done) AND the recap state is "ready". The bottom SessionRecap
-// card is suppressed on the Activity tab so the recap never shows twice.
-describe("Viewport Activity tab A/B switch", () => {
+// ── No Activity tab: the recap banner shows on every tab ─────────────────────
+// The Activity tab (live feed + inline recap) is gone — Chat replaces it. A
+// settled session's recap stays the collapsible bottom banner.
+describe("Viewport without an Activity tab", () => {
   const readyRecap = (sessionId: string): Recap => ({
     sessionId,
     state: "ready",
@@ -1680,12 +1678,11 @@ describe("Viewport Activity tab A/B switch", () => {
   });
 
   beforeEach(() => {
-    // clear the recaps store between tests
     recaps.map = {};
   });
 
-  it("settled (idle) + ready recap: shows inline recap, bottom card suppressed", async () => {
-    const id = "ar-idle";
+  it("renders no Activity tab and keeps the recap banner", async () => {
+    const id = "no-activity";
     recaps.map = { [id]: readyRecap(id) };
 
     const { container } = await render(Viewport, {
@@ -1694,47 +1691,11 @@ describe("Viewport Activity tab A/B switch", () => {
       openPreviewTick: 0,
     });
 
-    // Click the Activity tab
-    const activityTab = page.getByRole("tab", { name: "Activity", exact: true });
-    await expect.element(activityTab).toBeInTheDocument();
-    await activityTab.click();
-    await expect.element(activityTab).toHaveClass(/active/);
-
-    // Inline recap headline must appear
-    await expect.element(page.getByText("Inline recap body")).toBeInTheDocument();
-
-    // Bottom collapsed-card toggle must NOT exist on the Activity tab:
-    // the non-inline SessionRecap renders a button.recap-header; it must be absent.
-    const bottomCard = container.querySelector("button.recap-header");
-    expect(bottomCard, "bottom recap card toggle absent on Activity tab").toBeNull();
-  });
-
-  it("running + ready recap: shows live feed, NOT the inline recap", async () => {
-    const id = "ar-running";
-    recaps.map = { [id]: readyRecap(id) };
-
-    const { container } = await render(Viewport, {
-      session: session({ id, status: "running" }),
-      previewPort: null,
-      openPreviewTick: 0,
-    });
-
-    // Click the Activity tab
-    const activityTab = page.getByRole("tab", { name: "Activity", exact: true });
-    await activityTab.click();
-    await expect.element(activityTab).toHaveClass(/active/);
-
-    // The live feed must be present (.activity-feed-fill wrapper)
-    await vi.waitFor(() => {
-      const feedEl = container.querySelector(".activity-feed-fill");
-      expect(feedEl, "activity-feed-fill should render while running").not.toBeNull();
-    });
-
-    // The inline recap headline must NOT appear
-    expect(
-      container.querySelector(".activity-recap-fill"),
-      "activity-recap-fill absent while running",
-    ).toBeNull();
+    await expect
+      .element(page.getByRole("tab", { name: m.viewport_diff_tab() }))
+      .toBeInTheDocument();
+    expect(page.getByRole("tab", { name: "Activity", exact: true }).query()).toBeNull();
+    await vi.waitFor(() => expect(container.querySelector("button.recap-header")).not.toBeNull());
   });
 });
 
@@ -2629,7 +2590,7 @@ describe("Viewport desktop header — clusters, name width, danger split (#2263)
       openPreviewTick: 0,
     });
     const head = desktopHead(container);
-    await page.getByRole("tab", { name: m.viewport_activity_tab() }).click();
+    await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
     await vi.waitFor(() => expect(head.querySelector(".vp-redraw")).toBeNull());
     expect(head.querySelector(".vp-resume")).toBeNull();
     const items = rowItems(head);

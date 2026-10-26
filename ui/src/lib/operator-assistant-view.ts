@@ -1,8 +1,7 @@
 import type { Session, TerminalClientInfo } from "./types";
 
 /** The tabs of a session's Viewport (its `tab` state). */
-export type ViewTab =
-  "chat" | "term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser";
+export type ViewTab = "chat" | "term" | "todo" | "diff" | "files" | "preview" | "browser";
 
 /**
  * What the Operator Assistant learns about the operator's window with each message (#3161): sent

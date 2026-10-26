@@ -10,7 +10,6 @@
   import MachineBadge from "./MachineBadge.svelte";
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import RemoteTerminal from "./RemoteTerminal.svelte";
-  import ActivityFeed from "./ActivityFeed.svelte";
   import DiffPanel from "./DiffPanel.svelte";
   import FilesPanel from "./viewport/FilesPanel.svelte";
   import SessionStatusBar from "./SessionStatusBar.svelte";
@@ -70,10 +69,9 @@
   const branchLabel = $derived(session.branch?.replace(/^shepherd\//, ""));
   const showBranch = $derived(!!branchLabel && slug(branchLabel) !== slug(session.name));
 
-  type Tab = "term" | "activity" | "diff" | "files" | "preview";
+  type Tab = "term" | "diff" | "files" | "preview";
   const TABS: { id: Tab; label: () => string }[] = [
     { id: "term", label: m.viewport_terminal_tab },
-    { id: "activity", label: m.viewport_activity_tab },
     { id: "diff", label: m.viewport_diff_tab },
     { id: "files", label: m.viewport_files_tab },
     { id: "preview", label: m.viewport_preview_tab },
@@ -170,9 +168,7 @@
         {/key}
       </div>
     {/if}
-    {#if tab === "activity"}
-      <ActivityFeed sessionId={session.id} />
-    {:else if tab === "diff"}
+    {#if tab === "diff"}
       <DiffPanel sessionId={session.id} />
     {:else if tab === "files"}
       <FilesPanel sessionId={session.id} />

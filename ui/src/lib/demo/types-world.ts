@@ -30,7 +30,6 @@ import type {
   HerdrUpdateStatus,
   CodexUpdateStatus,
   StarPromptStatus,
-  ActivityEntry,
   DiffResult,
   ScratchListing,
   SessionUsage,
@@ -84,9 +83,7 @@ export interface DemoWorld {
   // ── session-detail tabs (per-session GETs, Task 8 sibling audit) ─────────
   /** GET /api/sessions/done (Done lens) — archived sessions, distinct from `sessions`. */
   doneSessions: Session[];
-  /** GET /api/sessions/:id/activity (Activity tab). */
-  activityEntries: Record<string, ActivityEntry[]>;
-  /** GET /api/sessions/:id/diff (Diff tab + Activity tab's file-tree section). */
+  /** GET /api/sessions/:id/diff (Diff tab). */
   diffs: Record<string, DiffResult>;
   /** GET /api/sessions/:id/scratchpad (Files tab, root listing only). */
   scratchpad: Record<string, ScratchListing>;

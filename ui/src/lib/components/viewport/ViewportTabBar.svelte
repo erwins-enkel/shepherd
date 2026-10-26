@@ -89,16 +89,6 @@
     {/if}
     <button
       class="tab-btn"
-      class:active={tab === "activity"}
-      role="tab"
-      id={tabId("activity")}
-      aria-selected={tab === "activity"}
-      aria-controls={vpBodyId}
-      use:coachTarget={"activity-tab"}
-      onclick={() => (tab = "activity")}>{m.viewport_activity_tab()}</button
-    >
-    <button
-      class="tab-btn"
       class:active={tab === "diff"}
       role="tab"
       id={tabId("diff")}

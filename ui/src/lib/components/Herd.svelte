@@ -371,7 +371,7 @@
         : m.topbar_blocked_label(),
   );
   // within the shown set, top→bottom by lifecycle stage: active rows first, then
-  // PR-CI-running and critic-reviewing / plan-gate-reviewing in-flight groups, then
+  // critic-reviewing / plan-gate-reviewing and PR-CI-running in-flight groups, then
   // the parked ready-to-merge (green) and landed merged (blue) groups at the bottom.
   // reviews.reviewing and planGates.reviewing are both $state, so this re-derives on
   // `session:reviewing` and `session:plangate-reviewing` events respectively.
@@ -575,20 +575,6 @@
         headClass: null,
         withPreview: true,
       },
-      partition.ciRunning.length > 0 && {
-        key: GROUP_KEY_BY_STAGE.ciRunning,
-        sessions: partition.ciRunning,
-        headClass: "ci-head",
-        countLabel: m.herd_ci_running_group({ count: partition.ciRunning.length }),
-        withPreview: true,
-      },
-      partition.ciFailed.length > 0 && {
-        key: GROUP_KEY_BY_STAGE.ciFailed,
-        sessions: partition.ciFailed,
-        headClass: "ci-failed-head",
-        countLabel: m.herd_ci_failed_group({ count: partition.ciFailed.length }),
-        withPreview: true,
-      },
       partition.reviewerRunning.length > 0 && {
         key: GROUP_KEY_BY_STAGE.reviewerRunning,
         sessions: partition.reviewerRunning,
@@ -601,6 +587,20 @@
         sessions: partition.reworkRunning,
         headClass: "rework-head",
         countLabel: m.herd_rework_running_group({ count: partition.reworkRunning.length }),
+        withPreview: true,
+      },
+      partition.ciRunning.length > 0 && {
+        key: GROUP_KEY_BY_STAGE.ciRunning,
+        sessions: partition.ciRunning,
+        headClass: "ci-head",
+        countLabel: m.herd_ci_running_group({ count: partition.ciRunning.length }),
+        withPreview: true,
+      },
+      partition.ciFailed.length > 0 && {
+        key: GROUP_KEY_BY_STAGE.ciFailed,
+        sessions: partition.ciFailed,
+        headClass: "ci-failed-head",
+        countLabel: m.herd_ci_failed_group({ count: partition.ciFailed.length }),
         withPreview: true,
       },
       partition.needsRework.length > 0 && {

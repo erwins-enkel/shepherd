@@ -43,8 +43,8 @@ import { inMergeQueue, isMerging } from "./merge-train";
  *  yet) stays in `active` to avoid flicker into the "Your turn" group before CI registers
  *  as pending — UNLESS the repo has no CI at all (`g.noCi`, GitHub + zero workflows), where
  *  `none` is terminal and the PR is handed off like a green one. The groups render top→bottom as
- *  active → ciRunning → ciFailed →
- *  reviewerRunning → reworkRunning → waitingOnReviewer → waitingOnMerger →
+ *  active → reviewerRunning → reworkRunning →
+ *  ciRunning → ciFailed → needsRework → branchProtectionBlocked → waitingOnReviewer → waitingOnMerger →
  *  draftAwaitingSignoff → awaitingMerge → ready → merging → merged (Herd.svelte's template
  *  order, mirrored by herd-keynav's railOrder via flattenByStage), tracking the session
  *  lifecycle. `isReviewing` is injected so this stays a pure function (the caller wires it to
@@ -237,10 +237,10 @@ function stageOf(
  *  through `flattenByStage` rather than importing the order array directly. */
 const STAGE_ORDER = [
   "active",
-  "ciRunning",
-  "ciFailed",
   "reviewerRunning",
   "reworkRunning",
+  "ciRunning",
+  "ciFailed",
   "needsRework",
   "branchProtectionBlocked",
   "waitingOnReviewer",

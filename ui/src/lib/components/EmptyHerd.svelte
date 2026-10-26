@@ -38,12 +38,12 @@
         <span class="flow-desc">{m.herd_help_active()}</span>
       </li>
       <li class="flow-step">
-        <span class="flow-stage micro">{m.herd_stage_name_ci_running()}</span>
-        <span class="flow-desc">{m.herd_help_ci_running()}</span>
-      </li>
-      <li class="flow-step">
         <span class="flow-stage micro">{m.herd_stage_name_reviewing()}</span>
         <span class="flow-desc">{m.herd_help_reviewing()}</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-stage micro">{m.herd_stage_name_ci_running()}</span>
+        <span class="flow-desc">{m.herd_help_ci_running()}</span>
       </li>
       <li class="flow-step">
         <span class="flow-stage micro">{m.herd_stage_name_your_turn()}</span>

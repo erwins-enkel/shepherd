@@ -12970,7 +12970,8 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerStateDirectoryTests\",\"stateDirectoryIsTightenedToOwnerOnly() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchivesAtOnceOnlyWithNothingToReap() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchiveFailureKeepsTheSessionAndExplains() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseOpensNoSheetForASessionTheOperatorLeft() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseOpensNoSheetForASessionTheOperatorLeft() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HerdPartitionTests.swift\",\"CoreSeamTests.HerdPartitionTests\",\"reviewBlockRendersAboveCiBlock()\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

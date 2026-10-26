@@ -330,11 +330,13 @@ test("idle changes-requested with failed CI stays in ciFailed, not reworkRunning
   expect(ciFailed.map((s) => s.id)).toEqual(["idle"]);
 });
 
-test("flattenByStage places reworkRunning after reviewerRunning and before waiting groups", () => {
+test("flattenByStage places reviewing → rework above CI running → CI failed, before waiting groups", () => {
   const list = [
     session("wait", false, "idle"),
     session("branch", false, "idle"),
     session("needs", false, "idle"),
+    session("fail", false, "idle"),
+    session("ci"),
     session("rework"),
     session("review"),
     session("active"),
@@ -342,6 +344,8 @@ test("flattenByStage places reworkRunning after reviewerRunning and before waiti
   const p = partitionSessions(
     list,
     {
+      ci: git("open", "pending"),
+      fail: git("open", "failure"),
       wait: gitHandoff("reviewer", "scoop"),
       needs: {
         ...git("open", "success"),
@@ -356,6 +360,8 @@ test("flattenByStage places reworkRunning after reviewerRunning and before waiti
     "active",
     "review",
     "rework",
+    "ci",
+    "fail",
     "needs",
     "branch",
     "wait",

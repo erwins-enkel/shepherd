@@ -249,7 +249,7 @@ runs it as an unrecognized model, with auto-compact capping the context at 200k 
 A Claude turn can end on a transient API error instead of a real stop — `API Error: Connection
 lost mid-response…` or `API Error: 529 Overloaded…` once Claude Code's own retries run out. The
 agent then sits idle. Shepherd spots that error as the last message of the transcript and types
-a "continue where you left off" message for you, in every Claude session, attended or autopilot:
+a "continue where you left off" message for you, in every Claude session, attended or autopilot (except the Operator Assistant's own chat):
 after 20 seconds, then 60, then 180 if the error keeps coming back. After the third failed retry
 it stops and flags the session **halted on an error**. A turn that ends normally resets the count.
 Autopilot holds off while a retry is pending, and takes over as usual if the retry is called off.

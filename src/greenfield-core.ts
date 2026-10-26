@@ -116,7 +116,9 @@ function hooksPrePush(i: GreenfieldInputs): GreenfieldItem {
 function forgeSettings(i: GreenfieldInputs): GreenfieldItem | null {
   if (i.forge === "error") return item("forge_settings", "must", []);
   if (!i.forge.supported) return null;
-  const ok = i.forge.checks.every((c) => c.state === "ok");
+  // A check the repo's plan can't have (private repo on GitHub Free) can't block: the drain's
+  // merge train merges by itself and never needs host auto-merge.
+  const ok = i.forge.checks.every((c) => c.state === "ok" || c.reason === "plan");
   return item("forge_settings", "must", [`${i.forge.checks.length} forge checks ok`], ok);
 }
 

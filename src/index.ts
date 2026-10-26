@@ -2542,7 +2542,13 @@ onSessionGit(({ id, git }) => deliveryFacts.onGit(id, git));
 const turnEndBackstop = new TurnEndBackstopService({
   store,
   considerPlan: (s) => planGate.consider(s),
-  autopilotDone: (id) => autopilot.onDone(id),
+  // Through the API-error retry first: a recovered edge never reached the router's consumer, and
+  // autopilot.onDone stands down while the retry it arms is pending.
+  autopilotDone: async (id) => {
+    const s = store.get(id);
+    if (s) await apiErrorRetry.onTurnEnd(s);
+    await autopilot.onDone(id);
+  },
   // Same helper attachPush() uses on the real edge, so the recovered push is the one the operator
   // missed (same kind/tag/cooldown key) rather than a second, separate notification.
   notifyDone: (id) => notifySessionDone(push, store, id),

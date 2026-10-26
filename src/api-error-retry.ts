@@ -58,7 +58,13 @@ export class ApiErrorRetry implements SessionConsumer {
 
   async handle(change: SessionStateChange): Promise<void> {
     if (change.kind !== "status" || change.status !== "done") return;
-    const s = change.snapshot.session;
+    await this.onTurnEnd(change.snapshot.session);
+  }
+
+  /** A turn end — the router's done edge, or one the TurnEndBackstop recovered (herdr clears
+   *  `done` to `idle` on a viewed pane, so the router never sees it). Repeat triggers for the same
+   *  error are no-ops. */
+  async onTurnEnd(s: Session): Promise<void> {
     if (!eligible(s)) return;
     const err = transientApiError((await this.deps.readTranscript(s)) ?? "");
     if (!err) {

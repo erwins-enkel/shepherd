@@ -205,6 +205,14 @@ describe("ApiErrorRetry", () => {
     expect(h.steers).toEqual([]);
   });
 
+  test("a recovered turn end on an idle pane arms the retry; a later edge is a no-op", async () => {
+    const h = harness({ status: "idle" });
+    await h.retry.onTurnEnd({ id: "s1", status: "idle", claudeSessionId: "c1" } as Session);
+    expect(h.retry.pending("s1")).toBe(true);
+    await h.done();
+    expect(h.timers).toHaveLength(1);
+  });
+
   test("non-done status edges are ignored", async () => {
     const h = harness();
     await h.retry.handle({

@@ -7,6 +7,7 @@ pub mod intake;
 pub mod login;
 pub mod merge;
 pub mod read;
+pub mod schedule;
 pub mod settings;
 pub mod upnext;
 pub mod wait;

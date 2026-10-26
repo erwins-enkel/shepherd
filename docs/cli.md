@@ -101,11 +101,11 @@ token is exempt.
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                                                                                                                                                                                                                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git` (all sessions), `reviews`, `events tail`, `wait` (active sessions), `login`                                                                                                                                                                                                                       |
-| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                                                                                                                                              |
-| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `messages`, `git <session>`, `diff`, `cat`, `sessions list --all`, `sessions show` or `wait` of an archived session, and the `awaitingInput`/`pendingQuestion` fields of `sessions show` |
+| Scope    | Commands                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git` (all sessions), `reviews`, `events tail`, `wait` (active sessions), `login`                                                                                                                                                                                                                                   |
+| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                                                                                                                                                          |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `schedule`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `messages`, `git <session>`, `diff`, `cat`, `sessions list --all`, `sessions show` or `wait` of an archived session, and the `awaitingInput`/`pendingQuestion` fields of `sessions show` |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -120,8 +120,8 @@ The server's `403` doesn't say which scope was missing. The CLI names it for you
 - **NDJSON** from `events tail`, always.
 - Errors and warnings go to **stderr** only, so stdout stays machine-readable.
 
-The CLI never prompts. It reads stdin only when you pass `-` as the text argument of `new` or
-`steer`.
+The CLI never prompts. It reads stdin only when you pass `-` as the text argument of `new`,
+`steer` or `schedule add`.
 
 ## Exit codes
 
@@ -504,6 +504,46 @@ The server keeps one epic run per repo, so `pause`, `stop` and `approve-next` fi
 epic and exit `6` unless its own run is in the right state: running for `pause`, running or paused
 for `stop`, running and attended for `approve-next`.
 A server without the drain answers `503`, so these exit `8`.
+
+### Schedules
+
+A schedule runs a prompt or `/skill` as a fresh session in one repo, on chosen weekdays at
+**server-local** times.
+
+| Command                                     | Route                         | Scope  |
+| ------------------------------------------- | ----------------------------- | ------ |
+| `shepherd schedule ls [--repo]`             | `GET /api/schedules?repo=`    | `full` |
+| `shepherd schedule add [flags] <prompt\|->` | `POST /api/schedules`         | `full` |
+| `shepherd schedule run <schedule> [--repo]` | `POST /api/schedules/:id/run` | `full` |
+
+`schedule ls` (also `schedule list`) lists every repo's schedules, or one repo's with `--repo`,
+with the cadence, whether each is on, its next firing and its last run.
+
+Flags for `schedule add`:
+
+- `--name <name>` (required): 1–80 characters.
+- `--at <HH:MM>` (required, repeatable, up to 12): a server-local time to fire at.
+- `--days <days>`: comma-separated `mon`…`sun`, `weekdays`, `weekends` or `daily` (the default),
+  e.g. `--days mon,wed,fri`.
+- `--repo <path>`: defaults to the current directory's git toplevel, as for `new`.
+- `--disabled`: create it switched off.
+- `--provider`, `--model`, `--effort`, `--autopilot`, `--plan-gate`, `--base <branch>`: launch
+  options for every firing, as for `new`. Omitted, they resolve when the schedule fires: the
+  server's defaults, attended (no autopilot), the repo's plan-gate setting and its default branch.
+
+A malformed `--at` or `--days` exits `2` before anything is sent. Slots already past when you add
+a schedule never fire.
+
+`schedule run` fires a schedule now, even a disabled one. `<schedule>` is its id, or its exact
+name when that names one schedule (`--repo` narrows the lookup); an unknown name exits `5` and a
+name several schedules share exits `2`. It prints the run, then exits `0` when the run spawned a
+session or was held by the usage hold, `6` when it was skipped (its previous run is still open)
+and `1` when the launch failed; the reason is on stderr.
+
+```bash
+shepherd schedule add --repo ~/Work/my-repo --name triage --days weekdays --at 09:00 /triage-feedback
+shepherd schedule run triage
+```
 
 ### Settings and diagnostics
 

@@ -77,13 +77,17 @@ export interface UpNextPrContext {
 
 export function classifyUpNextPr(pr: PullRequest, ctx: UpNextPrContext): UpNextPrClass | null {
   if (pr.isDraft || pr.kind === "release") return null;
-  const dependabot = pr.kind === "dependabot";
+  return blockedClass(pr) ?? waitingClass(pr, ctx);
+}
+
+/** Rules 1–5: what keeps the PR from merging, and the action that clears it; null when nothing
+ *  blocks it. */
+function blockedClass(pr: PullRequest): UpNextPrClass | null {
   const conflict = isConflicting(pr);
   const behind = pr.mergeStateStatus === "behind";
-
   if (pr.awaitingWorkflowApproval)
     return { band: "blocked", action: "approve_on_forge", blockReason: "workflow_approval" };
-  if (dependabot && (conflict || behind))
+  if (pr.kind === "dependabot" && (conflict || behind))
     return {
       band: "dependabot",
       action: "dependabot_rebase",
@@ -92,11 +96,14 @@ export function classifyUpNextPr(pr: PullRequest, ctx: UpNextPrContext): UpNextP
   if (conflict) return { band: "blocked", action: "fix", blockReason: "conflict" };
   if (pr.checks === "failure") return { band: "blocked", action: "fix", blockReason: "ci_failed" };
   if (behind) return { band: "blocked", action: "fix", blockReason: "behind" };
+  return null;
+}
 
+/** Rules 6–9 for an unblocked PR: whose move it is — null when it waits on someone else. */
+function waitingClass(pr: PullRequest, ctx: UpNextPrContext): UpNextPrClass | null {
   const ciGreen = checksCleared(pr.checks, ctx.noCi);
   const mergeReady = ciGreen && pr.mergeable === true;
-  if (dependabot) return { band: "dependabot", action: mergeReady ? "merge" : null };
-
+  if (pr.kind === "dependabot") return { band: "dependabot", action: mergeReady ? "merge" : null };
   const review = pr.latestReview?.state;
   if (review === "changes_requested") return null; // the author owes the next move
   const mine = ctx.viewer == null || pr.author === ctx.viewer;

@@ -475,7 +475,7 @@ import { parseTargetRepo, resolveTargetRepo, sessionIssue } from "./target-repo"
 import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
-import { prFixPrompt, prsHeldBySessions } from "./up-next-prs";
+import { prFixPrompt, prsHeldBySessions, type UpNextPr } from "./up-next-prs";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
@@ -2350,25 +2350,30 @@ async function loadUpNextBody(
   }
 }
 
-async function handleUpNextBody(url: URL, deps: AppDeps): Promise<Response> {
+/** The `repo` + `number` an Up Next body read names, or the 400 refusing them. */
+function upNextReadTarget(url: URL, what: string): { dir: string; number: number } | Response {
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const number = url.searchParams.get("number") ?? "";
-  if (!/^[1-9][0-9]{0,8}$/.test(number)) return json({ error: "invalid issue number" }, 400);
-  const result = await loadUpNextBody(deps.resolveForge?.(dir) ?? null, Number(number));
+  if (!/^[1-9][0-9]{0,8}$/.test(number)) return json({ error: `invalid ${what} number` }, 400);
+  return { dir, number: Number(number) };
+}
+
+async function handleUpNextBody(url: URL, deps: AppDeps): Promise<Response> {
+  const target = upNextReadTarget(url, "issue");
+  if (target instanceof Response) return target;
+  const result = await loadUpNextBody(deps.resolveForge?.(target.dir) ?? null, target.number);
   return "error" in result ? json({ error: result.error }, result.status) : json(result);
 }
 
 /** GET /api/up-next/pr-body — a waiting PR's full description for the PR preview. */
 async function handleUpNextPrBody(url: URL, deps: AppDeps): Promise<Response> {
-  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  const number = url.searchParams.get("number") ?? "";
-  if (!/^[1-9][0-9]{0,8}$/.test(number)) return json({ error: "invalid pull request number" }, 400);
-  const forge = deps.resolveForge?.(dir) ?? null;
+  const target = upNextReadTarget(url, "pull request");
+  if (target instanceof Response) return target;
+  const forge = deps.resolveForge?.(target.dir) ?? null;
   if (!forge?.prReviewMeta) return json({ error: "pull request reads unavailable for repo" }, 503);
   try {
-    const meta = await forge.prReviewMeta(Number(number));
+    const meta = await forge.prReviewMeta(target.number);
     return meta
       ? json({ body: meta.body })
       : json({ error: "pull request not found or unreadable" }, 404);
@@ -2384,14 +2389,16 @@ const MAX_FIX_STEER_CHARS = 20_000;
  *  is `fix`: a scratch branch cut from the PR's head that publishes by pushing back to it and opens
  *  no PR of its own (the `landingRepair` kind, src/service.ts). The PR must be in the current Up
  *  Next snapshot, so the server — not the client — decides that it needs a fix and what it is. */
-async function handleUpNextPrFix(req: Request, deps: AppDeps): Promise<Response> {
-  const blocked = firstRunBlock();
-  if (blocked) return blocked;
+/** The waiting PR a fix request names — it must be in the current Up Next snapshot with `fix` as
+ *  its action and no live session on it — or the response refusing the request. */
+async function resolveFixablePr(
+  req: Request,
+  deps: AppDeps,
+): Promise<{ dir: string; pr: UpNextPr & { headRefName: string }; steer?: string } | Response> {
   const body = await readJsonObject(req);
   if (body instanceof Response) return body;
   const dir = typeof body.repo === "string" ? safeRepoDir(body.repo, config.repoRoot) : null;
-  const number = body.number;
-  const steer = body.steer;
+  const { number, steer } = body;
   if (!dir || !Number.isSafeInteger(number) || (number as number) <= 0)
     return json({ error: "repo and a positive pull request number are required" }, 400);
   if (steer !== undefined && (typeof steer !== "string" || steer.length > MAX_FIX_STEER_CHARS))
@@ -2408,30 +2415,54 @@ async function handleUpNextPrFix(req: Request, deps: AppDeps): Promise<Response>
       { error: "a session already works on this pull request", code: "pr_in_flight" },
       409,
     );
+  return { dir, pr: { ...pr, headRefName: pr.headRefName }, steer: steer as string | undefined };
+}
+
+/** The fix session's create input: repo default model and effort, as an Up Next start uses. */
+function prFixInput(
+  dir: string,
+  pr: UpNextPr & { headRefName: string },
+  base: string,
+  steer: string | undefined,
+  deps: AppDeps,
+): StandardCreateInput {
   const rc = deps.store.getRepoConfig(dir);
   const provider = config.defaultAgentProvider;
+  return {
+    repoPath: dir,
+    baseBranch: pr.headRefName,
+    prompt: prFixPrompt(pr, base, steer),
+    model: drainSpawnModel(
+      resolveProviderDefaultModelSetting(
+        rc.defaultModel,
+        provider,
+        config.defaultModel,
+        config.defaultCodexModel,
+      ),
+    ),
+    effort: drainSpawnEffort(
+      resolveDefaultEffortSetting(rc.defaultEffort, engineDefaultEffortSetting(provider, config)),
+    ),
+    images: [],
+    auto: false,
+    landingRepair: true,
+  };
+}
+
+/** POST /api/up-next/pr-fix — start a push-only repair session for a waiting PR whose next action
+ *  is `fix`: a scratch branch cut from the PR's head that publishes by pushing back to it and opens
+ *  no PR of its own (the `landingRepair` kind, src/service.ts). The PR must be in the current Up
+ *  Next snapshot, so the server — not the client — decides that it needs a fix and what it is. */
+async function handleUpNextPrFix(req: Request, deps: AppDeps): Promise<Response> {
+  const blocked = firstRunBlock();
+  if (blocked) return blocked;
+  const target = await resolveFixablePr(req, deps);
+  if (target instanceof Response) return target;
+  const { dir, pr, steer } = target;
   try {
     const base = pr.baseRefName ?? (await deps.resolveForge?.(dir)?.defaultBranch());
     if (!base) return json({ error: "the pull request's base branch is unknown" }, 502);
-    const session = await deps.service.create({
-      repoPath: dir,
-      baseBranch: pr.headRefName,
-      prompt: prFixPrompt(pr, base, steer as string | undefined),
-      model: drainSpawnModel(
-        resolveProviderDefaultModelSetting(
-          rc.defaultModel,
-          provider,
-          config.defaultModel,
-          config.defaultCodexModel,
-        ),
-      ),
-      effort: drainSpawnEffort(
-        resolveDefaultEffortSetting(rc.defaultEffort, engineDefaultEffortSetting(provider, config)),
-      ),
-      images: [],
-      auto: false,
-      landingRepair: true,
-    });
+    const session = await deps.service.create(prFixInput(dir, pr, base, steer, deps));
     deps.events.emit("session:new", session);
     deps.upNext?.refilter(); // the new session holds the PR: drop its row without a forge read
     return json({ session }, 201);
@@ -2448,6 +2479,14 @@ async function handleUpNextPrFix(req: Request, deps: AppDeps): Promise<Response>
   }
 }
 
+/** The Up Next PR routes: the PR preview's body read and the fix action. */
+async function handleUpNextPrs({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "up-next" || parts[3]) return null;
+  if (req.method === "GET" && parts[2] === "pr-body") return handleUpNextPrBody(url, deps);
+  if (req.method === "POST" && parts[2] === "pr-fix") return handleUpNextPrFix(req, deps);
+  return null;
+}
+
 async function handleUpNext(ctx: Ctx): Promise<Response | null> {
   const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "up-next")) return null;
@@ -2455,12 +2494,6 @@ async function handleUpNext(ctx: Ctx): Promise<Response | null> {
   if (req.method === "GET" && !parts[2]) return handleUpNextGet(req, url, deps);
 
   if (req.method === "GET" && parts[2] === "body" && !parts[3]) return handleUpNextBody(url, deps);
-
-  if (req.method === "GET" && parts[2] === "pr-body" && !parts[3])
-    return handleUpNextPrBody(url, deps);
-
-  if (req.method === "POST" && parts[2] === "pr-fix" && !parts[3])
-    return handleUpNextPrFix(req, deps);
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);
@@ -12618,6 +12651,7 @@ const ROUTE_HANDLERS = [
   handleSpawnNotices,
   handleRecaps,
   handleAmendments,
+  handleUpNextPrs,
   handleUpNext,
   handleDrainClaimResolve,
   handleDrain,

@@ -172,6 +172,7 @@ export type EpicRunKind =
   | "waiting_slot"
   | "awaiting_approval"
   | "halted"
+  | "halted_sandbox"
   | "nothing"
   | "running";
 
@@ -212,6 +213,15 @@ const HALT_REASONS = new Set([
   "disabled",
 ]);
 
+/** #3452 spawn gates the #3453 auto-fix model covers: the repo's sandbox, the epic's CLI or this
+ *  host keeps the next child from starting unattended. The run reads "halted · sandbox". */
+export const SANDBOX_HALT_REASONS: ReadonlySet<string> = new Set([
+  "sandbox_interactive",
+  "sandbox_provider_unconfined",
+  "sandbox_backend_unavailable",
+  "sandbox_egress_unavailable",
+]);
+
 /** The region's live state. `drain` is the REPO's status; its hold reason only counts while it
  *  belongs to this epic (`drain.epicParent === parent`), as for the former hold line. */
 export function epicRunState(
@@ -234,7 +244,8 @@ export function epicRunState(
   if (reason === "cap") return { ...base, kind: "waiting_slot", tone: "run" };
   if (reason === "awaiting_approval") return { ...base, kind: "awaiting_approval", tone: "run" };
   if (reason != null && HALT_REASONS.has(reason)) {
-    return { ...base, kind: "halted", tone: "halt", note: epicHoldLine(own, true, epic.children) };
+    const kind = SANDBOX_HALT_REASONS.has(reason) ? "halted_sandbox" : "halted";
+    return { ...base, kind, tone: "halt", note: epicHoldLine(own, true, epic.children) };
   }
   const inFlight = epic.children.some((c) => c.state === "running" || c.state === "in-review");
   if (reason === "empty" && !inFlight) return { ...base, kind: "nothing", tone: "quiet" };
@@ -333,6 +344,7 @@ export function epicRunStateLabel(
     waiting_slot: m.epic_run_state_waiting_slot,
     awaiting_approval: m.epic_run_state_awaiting_approval,
     halted: m.epic_run_state_halted,
+    halted_sandbox: m.epic_run_state_halted_sandbox,
     nothing: m.epic_run_state_nothing,
     running: m.epic_run_state_running,
   };

@@ -330,10 +330,28 @@ describe("epicRunState", () => {
     ]) {
       const d = drain({ reason, detail: "x", paused: true, epicParent: B, runSummary: summary() });
       const s = epicRunState(epicB(), B, d);
-      expect(s).toMatchObject({ kind: "halted", tone: "halt" });
+      expect(s.tone).toBe("halt");
       expect(s.note).toBeTruthy();
       expect(s.note).toBe(epicHoldLine(d, true, epicB().children));
     }
+  });
+
+  it("sandbox, CLI and host gates read 'halted · sandbox'; a target repo's stays 'halted' (#3454)", () => {
+    const kind = (reason: string) =>
+      epicRunState(
+        epicB(),
+        B,
+        drain({ reason, detail: "x", paused: true, epicParent: B, runSummary: summary() }),
+      ).kind;
+    for (const reason of [
+      "sandbox_interactive",
+      "sandbox_provider_unconfined",
+      "sandbox_backend_unavailable",
+      "sandbox_egress_unavailable",
+    ])
+      expect(kind(reason)).toBe("halted_sandbox");
+    expect(kind("target_repo_drain_off")).toBe("halted");
+    expect(kind("blocked")).toBe("halted");
   });
 
   it("empty with nothing in flight reads 'nothing startable'; with something in flight 'running'", () => {
@@ -355,6 +373,7 @@ describe("epicRunStateLabel", () => {
     expect(epicRunStateLabel("winding", "#7")).toBe(m.epic_run_state_winding({ inflight: "#7" }));
     expect(epicRunStateLabel("superseded", "")).toBe(m.epic_run_state_superseded());
     expect(epicRunStateLabel("ended", "")).toBe(m.epic_run_state_ended());
+    expect(epicRunStateLabel("halted_sandbox", "")).toBe(m.epic_run_state_halted_sandbox());
   });
 });
 

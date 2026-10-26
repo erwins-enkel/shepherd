@@ -1581,6 +1581,57 @@ export interface EpicDiagnosis {
   additionalWarnings: string[];
 }
 
+// ── epic auto-fix (GET|POST /api/epic/auto-fix, #3453) — mirrors src/auto-blockers.ts ──
+// Ids and codes are open enums: a newer server may send one this client doesn't know yet.
+export type EpicAutoBlockerCode =
+  | "sandbox_interactive"
+  | "sandbox_provider_unconfined"
+  | "sandbox_backend_unavailable"
+  | "sandbox_egress_unavailable"
+  | (string & {});
+/** Where a cause lives: the repo's settings, this epic's settings, or this machine. */
+export type EpicAutoBlockerScope = "repo" | "epic" | "host" | (string & {});
+export type EpicAutoFixOptionId = "autonomous" | "autonomous_claude" | "trusted" | (string & {});
+export type EpicAutoFixCheckId = "cli" | "bwrap" | "egress" | "remote_https" | (string & {});
+export interface EpicAutoBlockerCause {
+  code: EpicAutoBlockerCode;
+  scope: EpicAutoBlockerScope;
+  /** The sandbox profile, or the CLI for `sandbox_provider_unconfined`. */
+  detail: string;
+}
+export interface EpicAutoFixCheck {
+  id: EpicAutoFixCheckId;
+  ok: boolean;
+}
+export interface EpicAutoFixOption {
+  id: EpicAutoFixOptionId;
+  /** The repo's sandbox profile and/or the epic's CLI this fix sets. */
+  changes: { sandboxProfile?: SandboxProfile; agentProvider?: AgentProvider };
+  /** Every check passes — applying it starts the epic's children. */
+  enabled: boolean;
+  /** The first failing check, when disabled. */
+  why?: EpicAutoFixCheckId;
+  checks: EpicAutoFixCheck[];
+}
+export interface EpicAutoBlockers {
+  causes: EpicAutoBlockerCause[];
+  /** Empty when nothing blocks. Confined fixes first. */
+  options: EpicAutoFixOption[];
+  /** The option to preselect; null without options. */
+  preselect: EpicAutoFixOptionId | null;
+}
+/** The settings a fix wrote, as they were before — what Undo sends back as `restore`. */
+export interface EpicAutoFixState {
+  sandboxProfile?: RepoSandboxSetting;
+  agentProvider?: AgentProvider | null;
+  model?: string | null;
+  effort?: string | null;
+}
+export interface EpicAutoFixResult {
+  previous: EpicAutoFixState;
+  blockers: EpicAutoBlockers;
+}
+
 /** One child issue in a completed epic record.
  *  Carried inside CompletedEpic; mirrors the server-side CompletedEpicChild shape. */
 export interface CompletedEpicChild {

@@ -51,6 +51,7 @@ const ALLOWED_KEYS = new Set([
   "agentProvider",
   "model",
   "effort",
+  "executionEffort",
   "images",
   "attachmentNames",
   "issueRef",
@@ -572,6 +573,10 @@ export function validateCreate(
   const effort = validateEffort(obj.effort);
   if (!effort.ok) return effort;
 
+  // #3434: same tier space as effort; null = inherit (no mid-session switch at Go).
+  const executionEffort = validateEffort(obj.executionEffort);
+  if (!executionEffort.ok) return executionEffort;
+
   const root = resolve(expandHome(repoRoot));
   const launch = validateCreateLaunchFields(obj, root, opts.remote === true);
   if (!launch.ok) return launch;
@@ -588,6 +593,7 @@ export function validateCreate(
       agentProvider: agentProvider.value,
       model: model.value,
       effort: effort.value,
+      executionEffort: executionEffort.value,
       images: launch.value.images,
       attachmentNames: launch.value.attachmentNames,
       issueRef: launch.value.issueRef,
@@ -941,6 +947,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "agentProvider",
   "model",
   "effort",
+  "executionEffort",
   "planGateEnabled",
   "autopilotEnabled",
   "research",
@@ -988,6 +995,7 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "agentProvider", apply: () => validateAgentProvider(obj.agentProvider) },
     { key: "model", apply: () => validateModel(obj.model, out.agentProvider) },
     { key: "effort", apply: () => validateEffort(obj.effort) },
+    { key: "executionEffort", apply: () => validateEffort(obj.executionEffort) },
     { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
     { key: "autopilotEnabled", apply: () => validateAutopilotEnabled(obj.autopilotEnabled) },
     { key: "research", apply: () => validateResearch(obj.research) },

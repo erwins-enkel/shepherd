@@ -5,7 +5,7 @@ import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
 import type { PlanGate, Session } from "#lib/types.js";
 import { planGates, spawnNotices } from "#lib/reviews.svelte.js";
-import { reviewPlan, retrySpawnNotice, getPlanDraft } from "#lib/api.js";
+import { reviewPlan, retrySpawnNotice, getPlanDraft, releasePlanGate } from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
 import { DOCS_URL } from "#lib/build-info.js";
 
@@ -15,7 +15,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
-    releasePlanGate: vi.fn(async () => {}),
+    releasePlanGate: vi.fn(async () => ({ ok: true })),
     reviewPlan: vi.fn(async () => "skipped"),
     getPlanDraft: vi.fn(async () => null),
     retrySpawnNotice: vi.fn(async () => ({ cleared: true })),
@@ -102,6 +102,8 @@ afterEach(() => {
   vi.mocked(reviewPlan).mockResolvedValue("skipped");
   vi.mocked(getPlanDraft).mockReset();
   vi.mocked(getPlanDraft).mockResolvedValue(null);
+  vi.mocked(releasePlanGate).mockReset();
+  vi.mocked(releasePlanGate).mockResolvedValue({ ok: true });
   vi.unstubAllGlobals();
 });
 
@@ -1067,5 +1069,78 @@ describe("#1944 spawn-failure block", () => {
     await userEvent.click(page.getByRole("button", { name: m.spawnnotice_retry() }));
     expect(vi.mocked(retrySpawnNotice)).toHaveBeenCalledWith("s1", "plan");
     await expect.element(page.getByText(m.spawnnotice_retry_queued())).toBeInTheDocument();
+  });
+});
+
+describe("PlanPanel effort switch (#3434)", () => {
+  it("shows the effort in force, not the planning selection, in the Plan environment", async () => {
+    const id = "s-active";
+    planGates.map = { [id]: gate(id) };
+    render(PlanPanel, {
+      props: {
+        session: session({ id, agentProvider: "claude", effort: "xhigh", activeEffort: "low" }),
+        onclose: vi.fn(),
+      },
+    });
+    await expect.element(page.getByText("Claude Code · default · Low")).toBeVisible();
+  });
+
+  it("warns on a withheld Go and offers Retry Go + Go at planning effort", async () => {
+    const id = "s-withheld";
+    planGates.map = { [id]: gate(id, { effortSwitchError: "unconfirmed" }) };
+    const onclose = vi.fn();
+    render(PlanPanel, {
+      props: { session: session({ id, effort: "xhigh", executionEffort: "medium" }), onclose },
+    });
+    await expect
+      .element(page.getByText(m.effort_switch_withheld_unconfirmed({ effort: "Medium" })))
+      .toBeVisible();
+
+    await userEvent.click(page.getByRole("button", { name: m.effort_switch_retry_go() }));
+    expect(releasePlanGate).toHaveBeenLastCalledWith(id);
+    await userEvent.click(page.getByRole("button", { name: m.effort_switch_go_planning() }));
+    expect(releasePlanGate).toHaveBeenLastCalledWith(id, { skipEffortSwitch: true });
+    expect(onclose).toHaveBeenCalled();
+  });
+
+  it("keeps the panel open and shows the warning when Go answers 409 busy", async () => {
+    const id = "s-busy";
+    planGates.map = { [id]: gate(id) };
+    vi.mocked(releasePlanGate).mockResolvedValue({ ok: false, code: "busy" });
+    const onclose = vi.fn();
+    render(PlanPanel, {
+      props: { session: session({ id, executionEffort: "low" }), onclose },
+    });
+    await userEvent.click(page.getByRole("button", { name: m.planpanel_go() }));
+    await expect
+      .element(page.getByText(m.effort_switch_withheld_busy({ effort: "Low" })))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.effort_switch_go_planning() }))
+      .toBeVisible();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it("shows an action-free notice when the planning effort was not restored", async () => {
+    const id = "s-restore";
+    planGates.map = {
+      [id]: gate(id, {
+        approved: false,
+        decision: "changes_requested",
+        effortSwitchError: "restore_skipped",
+      }),
+    };
+    render(PlanPanel, {
+      props: {
+        session: session({ id, effort: "xhigh", activeEffort: "medium" }),
+        onclose: vi.fn(),
+      },
+    });
+    await expect
+      .element(page.getByText(m.effort_switch_not_restored({ effort: "Medium" })))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.effort_switch_retry_go() }))
+      .not.toBeInTheDocument();
   });
 });

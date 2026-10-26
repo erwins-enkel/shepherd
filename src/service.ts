@@ -45,7 +45,7 @@ import {
 } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import {
-  createSerializer,
+  createKeyedSerializer,
   HERDR_AGENT_NAME_MAX,
   matchAgents,
   needsAccountRedrive,
@@ -78,6 +78,7 @@ import type {
   Session,
   SessionArchiveReason,
   SessionLaunchMetadata,
+  EffortSwitchError,
 } from "./types";
 import {
   copyStagedIntoWorktree,
@@ -104,6 +105,13 @@ import {
 import { readCodexAuthMode } from "./codex-auth";
 import { codexNoDaemonArgs } from "./codex-cli-capabilities";
 import { drainSpawnEffort, effortForSpawn, engineDefaultEffortSetting } from "./default-effort";
+import {
+  countMatches,
+  effortSwitchSteps,
+  inForceEffort,
+  effortForProvider,
+  phaseEffort,
+} from "./effort-switch";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -344,7 +352,8 @@ export interface ServiceDeps {
     | "paneForegroundProcs"
     | "startShellTab"
     | "closeTab"
-  >;
+  > &
+    Partial<Pick<HerdrDriver, "readAsync">>; // effort-switch confirmation (#3434); absent → never confirms
   namer: (prompt: string) => string | Promise<string>;
   /** Background namer: comprehends the prompt into a slug (null = keep heuristic). Absent → no refine. */
   refineName?: (args: { taskText: string; label: string }) => Promise<string | null>;
@@ -1911,6 +1920,52 @@ const PLAN_GO_QUEUE_CODEX =
   `${PLAN_GO_QUEUE_LEAD} via the build-queue API from your instructions; if you have, keep it. ` +
   "Mark each step `active` when you start it and `done` when you finish it via that API, as you go.";
 
+/** `p`, or `fallback` once `ms` passes first. The timer never keeps the process alive. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+    timer.unref?.();
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Runs inside a steer's critical section right before its paste (#3434); false aborts the steer. */
+type SteerPrelude = (s: Session) => Promise<boolean>;
+
+interface SteerOpts {
+  automatic?: boolean;
+  prelude?: SteerPrelude;
+}
+
+/**
+ * The effort fields a replace-agent persists (#3434), keeping the #1418 invariant: a later resume
+ * of this row re-emits exactly `spawned`, the tier the replacement runs at (so `phaseEffort` must
+ * yield it). The operator's choice belongs to the CURRENT phase: an executing session with an
+ * execution effort takes a tier as its execution effort and keeps its planning effort; a
+ * provider-default choice there (null) cannot be an execution effort — null means "inherit" — so
+ * both phases fall back to the provider default. Anything else takes the choice as its (planning)
+ * effort. Carried tiers are re-clamped to the replacement's provider.
+ */
+export function replacedEffortFields(
+  s: Session,
+  provider: AgentProvider,
+  spawned: string | null,
+): Pick<Session, "effort" | "executionEffort" | "activeEffort"> {
+  const executing = s.planPhase === "executing" && !!s.executionEffort;
+  if (!executing)
+    return {
+      effort: spawned,
+      executionEffort: effortForProvider(provider, s.executionEffort),
+      activeEffort: spawned,
+    };
+  return {
+    effort: spawned === null ? null : effortForProvider(provider, s.effort),
+    executionEffort: spawned,
+    activeEffort: spawned,
+  };
+}
+
 /** Returns the plan-go steer: base text, then the build-queue clause when `queue` is given (the
  *  session has a queue), then the draft-mode note when `draftMode` is true. */
 export function planGoSteer(draftMode: boolean, queue?: { agentProvider: AgentProvider }): string {
@@ -2372,6 +2427,14 @@ function pickOverride<T>(override: T | undefined, original: T): T {
   return override !== undefined ? override : original;
 }
 
+/** The execution effort (#3434) a relaunch carries: the override when present, else the original's. */
+function carriedExecutionEffort(
+  original: Session,
+  overrides: RelaunchOverrides | undefined,
+): string | null | undefined {
+  return pickOverride(overrides?.executionEffort, original.executionEffort);
+}
+
 /** Epic-child identity (#2067) carried across a relaunch — but ONLY when the relaunch keeps both
  *  the repo and the base branch. The fact is stamped at spawn from the drain's epic decision, which
  *  a relaunch never re-runs, so a relaunch that re-points either one is no longer that child and
@@ -2763,10 +2826,11 @@ export class SessionService {
    * the two writes of one steer no longer reach the PTY as an uninterruptible unit: without this,
    * two overlapping steers to the same pane (an autopilot nudge landing mid-broadcast, say) can
    * interleave as paste-A → paste-B → CR-A → CR-B, submitting a corrupted merge of both texts.
-   * A single global FIFO — not per-target — because steers are low-volume and human-paced, and one
-   * chain keeps the invariant obvious; see `createSerializer`.
+   * Keyed per SESSION (#3434): one pane never interleaves, while a long in-lock sequence (the
+   * effort switch's pane-read polls) holds up only its own session — never another session's steer
+   * or e-stop ESC. Sessions never share a pane, so per-session ordering is the whole invariant.
    */
-  #serializeSteer = createSerializer();
+  #serializeSteer = createKeyedSerializer();
 
   /**
    * Build the human-turn prompt: the user's text plus any attached files, the issue
@@ -4019,7 +4083,7 @@ export class SessionService {
       ),
     );
     this.pushModelFlag(argv, s.model);
-    this.pushEffortFlag(argv, s.effort, "claude");
+    this.pushEffortFlag(argv, phaseEffort(s), "claude");
     return argv;
   }
 
@@ -4031,7 +4095,7 @@ export class SessionService {
   ): Promise<string[]> {
     if (isOperatorAssistant(s)) return this.operatorAssistantArgv(s, true);
     return provider === "codex"
-      ? this.buildCodexResumeArgv(s.model, s.effort, codexSessionId!)
+      ? this.buildCodexResumeArgv(s.model, phaseEffort(s), codexSessionId!)
       : this.buildClaudeResumeArgv(s, trim);
   }
 
@@ -4167,7 +4231,11 @@ export class SessionService {
       herdrAgentId: outcome.terminalId,
       status: "running",
       lastState: "idle",
+      // #3434: the resume argv carried the phase's effort — that is now the tier in force, and
+      // any earlier switch failure is moot for the fresh process.
+      activeEffort: phaseEffort(session),
     });
+    this.deps.store.setPlanGateEffortSwitchError(session.id, null);
     this.deps.store.setSandboxState(session.id, {
       applied: outcome.applied,
       degraded: outcome.degraded,
@@ -4747,6 +4815,10 @@ export class SessionService {
         agentProvider,
         model: resolvedInput.model,
         effort: spawnInput.effort ?? null,
+        // #3434: only a plan-gated session has an execution phase to switch into.
+        executionEffort: planGateOn
+          ? effortForProvider(agentProvider, spawnInput.executionEffort)
+          : null,
         auto: spawnInput.auto ?? false,
         ...this.sessionIssueFields(spawnInput),
         // Epic-child identity (#2067) — set only by the drain's epic spawn path. Passed through
@@ -5302,6 +5374,8 @@ export class SessionService {
       model,
       // Preserve explicit effort across relaunch; the CLI decides support for the resolved model.
       effort: pickOverride(overrides?.effort, original.effort),
+      // #3434: create() re-clamps it to the (possibly new) provider and drops it without a gate.
+      executionEffort: carriedExecutionEffort(original, overrides),
       planGateEnabled: pickOverride(overrides?.planGateEnabled, original.planGateEnabled),
       // Apply the effective Autopilot value at spawn time (NOT redundant with the store write
       // below): create()'s build-queue pre-approval reads it and is never re-evaluated after.
@@ -5430,7 +5504,7 @@ export class SessionService {
         // Mirror the create path (#1418): persist the effort actually spawned with, so a later
         // resume of this same row (post-crash) re-emits the effort the operator chose here rather
         // than reverting to whatever was stored before the replace.
-        effort: launch.spawnInput.effort ?? null,
+        ...replacedEffortFields(s, agentProvider, launch.spawnInput.effort ?? null),
         status: "running",
         lastState: "idle",
         readyToMerge: false,
@@ -5449,6 +5523,7 @@ export class SessionService {
         egressApplied: outcome.egressApplied,
         egressDegraded: outcome.egressDegraded,
       });
+      this.deps.store.setPlanGateEffortSwitchError(s.id, null);
       const updated = this.deps.store.get(s.id);
       if (updated) this.persistSpawnIdentity(updated, outcome);
     } catch (e) {
@@ -6336,17 +6411,20 @@ export class SessionService {
    * as a REJECTED promise rather than a sync throw; the callers that already guarded that race
    * with try/catch now guard it with try/await.)
    */
-  async reply(id: string, text: string, opts: { automatic?: boolean } = {}): Promise<boolean> {
-    return this.replyToLive(id, text, await this.liveTerminalIds(), text, opts.automatic);
+  async reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    return this.replyToLive(
+      id,
+      text,
+      await this.liveTerminalIds(),
+      text,
+      opts.automatic,
+      opts.prelude,
+    );
   }
 
   /** Deliver an internal task steer, reviving an exited planner by exact identity first.
    * A listed shell is not a live agent; never paste implementation instructions into it. */
-  async resumeAndReply(
-    id: string,
-    text: string,
-    opts: { automatic?: boolean } = {},
-  ): Promise<boolean> {
+  async resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !this.hasConversation(s)) return false;
     if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
@@ -6798,7 +6876,7 @@ export class SessionService {
     // the ids already match. Null means the row vanished mid-call: don't send.
     if (!this.adoptLiveResumeAgent(s, agent)) return false;
     try {
-      await this.#serializeSteer(() => this.deps.herdr.send(target, "\x1b"));
+      await this.#serializeSteer(s.id, () => this.deps.herdr.send(target, "\x1b"));
     } catch {
       return false; // pane died between list and send
     }
@@ -6830,7 +6908,7 @@ export class SessionService {
     }
     if (!agent || !this.adoptLiveResumeAgent(s, agent)) return false;
     const target = agent.terminalId;
-    return this.#serializeSteer(async () => {
+    return this.#serializeSteer(s.id, async () => {
       for (const [i, w] of writes.entries()) {
         if (i > 0) await new Promise((r) => setTimeout(r, gapMs));
         // Checked AFTER the gap, right before the write: a local answer landing during the sleep
@@ -6865,6 +6943,7 @@ export class SessionService {
     live: Set<string>,
     signalPayload: string = text,
     automatic = false,
+    prelude?: SteerPrelude,
   ): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
@@ -6876,8 +6955,7 @@ export class SessionService {
     // Shepherd's own directive — mirrors the #1405 epic-notice precedent.
     const delivered =
       text + operatorLanguageSteerSuffix(s.agentProvider ?? "claude", config.operatorLanguage);
-    await this.sendSteerTo(s, delivered, signalPayload);
-    return true;
+    return this.sendSteerTo(s, delivered, signalPayload, prelude);
   }
 
   /** Deliver a human-style steer to an already-resolved, live session: record the reply
@@ -6889,24 +6967,38 @@ export class SessionService {
    *  steerWithEpicNotice (#1405) passes the RAW operator text here while `text` carries the
    *  operator text PLUS the injected epic-authoring notice — the notice reaches the PTY but the
    *  recorded `reply` signal stays the operator's words alone. */
-  private async sendSteerTo(s: Session, text: string, signalPayload: string = text): Promise<void> {
+  private async sendSteerTo(
+    s: Session,
+    text: string,
+    signalPayload: string = text,
+    prelude?: SteerPrelude,
+  ): Promise<boolean> {
     // FUNNEL GUARD — the herdr.send invariant: every steer in the codebase (reply, broadcast,
     // retry-halted, autopilot, plan-gate, build-queue, …) flows through here, so this single
     // check makes "a clean-terminal session never receives herdr.send" hold for every present
     // and FUTURE call site. (haltAll bypasses this funnel by design and carries its own filter.)
     this.assertNotTerminal(s, "steer");
-    this.deps.store.addSignal({
-      repoPath: s.repoPath,
-      sessionId: s.id,
-      kind: "reply",
-      payload: signalPayload,
-    });
+    const signal = () =>
+      this.deps.store.addSignal({
+        repoPath: s.repoPath,
+        sessionId: s.id,
+        kind: "reply",
+        payload: signalPayload,
+      });
+    if (!prelude) signal();
     const safe = sanitizeSteerText(text);
     // The CR must reach the PTY only after the paste has landed, and no other steer may slip
     // between them — the paste-end marker is what makes this CR unambiguously Enter (#1567).
-    await this.#serializeSteer(async () => {
+    // A `prelude` runs in the same critical section, so nothing lands between it and the paste;
+    // false aborts the steer (nothing pasted, no signal recorded).
+    return this.#serializeSteer(s.id, async () => {
+      if (prelude) {
+        if (!(await prelude(s))) return false;
+        signal();
+      }
       await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
       await this.deps.herdr.send(s.herdrAgentId, "\r");
+      return true;
     });
   }
 
@@ -6923,7 +7015,10 @@ export class SessionService {
     signalPayload: string = text,
   ): Promise<void> {
     const combined = this.#epicNoticeSteered.has(s.id) ? null : composeEpicSteer(text);
-    if (!combined) return this.sendSteerTo(s, text, signalPayload);
+    if (!combined) {
+      await this.sendSteerTo(s, text, signalPayload);
+      return;
+    }
     // Claim the one-shot BEFORE the await, not after: the send is async now (#1567), so two
     // concurrent epic-intent steers to one session would both see an unmarked set and inject the
     // notice twice. Roll the claim back if delivery throws, preserving "mark only on success".
@@ -6963,9 +7058,15 @@ export class SessionService {
    * session cannot receive the instruction or its approval no longer holds. Used by the /go route (interactive)
    * and by PlanGateService for an auto session's auto-release on approval.
    */
-  async releasePlanGate(id: string, opts: { automatic?: boolean } = {}): Promise<boolean> {
+  async releasePlanGate(
+    id: string,
+    opts: { automatic?: boolean; skipEffortSwitch?: boolean } = {},
+  ): Promise<boolean> {
     const pending = this.planReleaseInFlight.get(id);
     if (pending) return pending;
+    // "Go at planning effort" (#3434): drop the execution selection, then a plain Go.
+    if (opts.skipEffortSwitch && this.deps.store.get(id)?.executionEffort)
+      this.deps.store.update(id, { executionEffort: null });
     const release = this.releasePlanGateInner(id, opts).finally(() =>
       this.planReleaseInFlight.delete(id),
     );
@@ -6984,7 +7085,12 @@ export class SessionService {
     const hasQueue = buildQueueEnabled && !isNonCodeMode(s);
     const queue = hasQueue ? { agentProvider: s.agentProvider ?? "claude" } : undefined;
     const steer = planGoSteer(draftMode, queue);
-    const delivered = await this.resumeAndReply(id, steer, opts);
+    const effortSwitch = this.#goEffortSwitch(s);
+    const delivered = await this.resumeAndReply(id, steer, {
+      automatic: opts.automatic,
+      prelude: effortSwitch.prelude,
+    });
+    effortSwitch.settle();
     if (!delivered) return false;
     // A re-review, archive or agent replacement during delivery must keep its newer state.
     const current = this.deps.store.get(id);
@@ -7039,11 +7145,123 @@ export class SessionService {
     if (!gate || gate.approved) return false;
     this.deps.store.setPlanPhase(id, "planning");
     this.deps.events?.emit("session:plangate", { id, planPhase: "planning" });
+    // #3434: restore the planning effort in the stop steer's critical section — only on an idle
+    // agent TUI (a working agent or a shell pane gets no keys and no ESC). A restore that cannot
+    // happen never blocks the re-gate; the next respawn converges via phaseEffort.
+    const restoreNeeded = inForceEffort(s) !== s.effort;
+    let restoreError: EffortSwitchError | null = restoreNeeded ? "restore_skipped" : null;
+    const prelude: SteerPrelude = async (live) => {
+      if (inForceEffort(live) === live.effort) restoreError = null;
+      else if (live.effort !== null) {
+        const r = await this.#switchEffortInLock(live, live.effort);
+        restoreError = r === "ok" ? null : r === "busy" ? "restore_skipped" : "restore_unconfirmed";
+      }
+      return true;
+    };
     // Awaited for the same reason releasePlanGate awaits its steer: the phase flip is only honest
     // once the "stop implementing" instruction has actually reached the pane. A dead pane still
     // transitions the phase — the operator sees a re-gated session either way.
-    await this.reply(id, PLAN_REGATE_STEER);
+    await this.reply(id, PLAN_REGATE_STEER, restoreNeeded ? { prelude } : {});
+    if (restoreNeeded) this.#setEffortSwitchError(id, restoreError);
     return true;
+  }
+
+  /**
+   * The Go steer's effort switch (#3434): a prelude that switches to the execution effort in the
+   * steer's own critical section (after any resume, before the paste), refusing the paste when
+   * the switch is unconfirmed — and `settle()`, which records that outcome on the gate.
+   */
+  #goEffortSwitch(s: Session): { prelude?: SteerPrelude; settle: () => void } {
+    const tier = s.executionEffort ?? null;
+    let switchError: EffortSwitchError | null = null;
+    const settle = () => {
+      if (tier || this.deps.store.getPlanGate(s.id)?.effortSwitchError)
+        this.#setEffortSwitchError(s.id, switchError);
+    };
+    if (!tier) return { settle };
+    const prelude: SteerPrelude = async (live) => {
+      if (inForceEffort(live) === tier) return true;
+      const r = await this.#switchEffortInLock(live, tier);
+      if (r === "ok") return true;
+      switchError = r;
+      return false;
+    };
+    return { prelude, settle };
+  }
+
+  /** Bounds for the in-lock effort switch (#3434). Mutable so tests can shrink them. */
+  static effortSwitchTiming = { readMs: 1500, stepMs: 3000, pollMs: 250 };
+
+  /**
+   * Switch a running agent to `tier` for this session only (#3434). MUST run inside the session's
+   * steer lock (a prelude). Sends nothing unless the pane is a live, IDLE agent TUI (`busy`).
+   * Each step's marker must newly appear in the visible pane within the step deadline; otherwise a
+   * lone ESC closes whatever opened (`unconfirmed`). On success `activeEffort` becomes `tier`.
+   */
+  async #switchEffortInLock(s: Session, tier: string): Promise<"ok" | "busy" | "unconfirmed"> {
+    const steps = effortSwitchSteps(s.agentProvider ?? "claude", tier);
+    if (!steps) return "unconfirmed";
+    const { readMs } = SessionService.effortSwitchTiming;
+    if (!(await withTimeout(this.#isIdleAgentTui(s.id), readMs, false))) return "busy";
+    const target = s.herdrAgentId;
+    try {
+      for (const step of steps) {
+        const before = await this.#readVisible(target);
+        if (before === null) return "unconfirmed"; // nothing sent yet — nothing to close
+        if (step.kind === "paste") {
+          await this.deps.herdr.send(target, `${PASTE_START}${step.text}${PASTE_END}`);
+          await this.deps.herdr.send(target, "\r");
+        } else await this.deps.herdr.send(target, step.text);
+        if (!(await this.#awaitMarker(target, step.confirm, countMatches(before, step.confirm)))) {
+          await this.deps.herdr.send(target, "\x1b");
+          return "unconfirmed";
+        }
+      }
+    } catch {
+      return "unconfirmed"; // pane died mid-sequence
+    }
+    this.deps.store.update(s.id, { activeEffort: tier });
+    return "ok";
+  }
+
+  /** A live, idle agent TUI: listed, not `working`, foreground not just a shell. */
+  async #isIdleAgentTui(id: string): Promise<boolean> {
+    try {
+      const agent = await this.liveAgentFor(id);
+      if (!agent || agent.agentStatus === "working") return false;
+      const procs = await this.deps.herdr.paneForegroundProcs(agent.paneId);
+      return procs.length > 0 && !procs.every((proc) => SHELLS.has(proc));
+    } catch {
+      return false;
+    }
+  }
+
+  /** The visible pane, or null when the read fails or outlasts `readMs`. */
+  async #readVisible(target: string): Promise<string | null> {
+    const reader = this.deps.herdr.readAsync;
+    if (!reader) return null;
+    const read = reader.call(this.deps.herdr, target, "visible").catch(() => null);
+    return withTimeout(read, SessionService.effortSwitchTiming.readMs, null);
+  }
+
+  /** Poll until `re` occurs more often than `baseline`, or the step deadline passes. */
+  async #awaitMarker(target: string, re: RegExp, baseline: number): Promise<boolean> {
+    const { stepMs, pollMs } = SessionService.effortSwitchTiming;
+    const deadline = Date.now() + stepMs;
+    for (;;) {
+      const screen = await this.#readVisible(target);
+      if (screen !== null && countMatches(screen, re) > baseline) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+  }
+
+  /** Persist + broadcast the gate's effort-switch problem (null clears); no-op when unchanged. */
+  #setEffortSwitchError(id: string, code: EffortSwitchError | null): void {
+    if ((this.deps.store.getPlanGate(id)?.effortSwitchError ?? null) === code) return;
+    this.deps.store.setPlanGateEffortSwitchError(id, code);
+    const gate = this.deps.store.getPlanGate(id);
+    if (gate) this.deps.events?.emit("session:plangate", { id, gate });
   }
 
   /**

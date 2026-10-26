@@ -200,6 +200,7 @@ function makeHarness(
     sandboxProfile: "trusted",
     defaultModel: opts.repoDefaultModel ?? "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
@@ -451,6 +452,32 @@ test("drain spawns with the active engine's own default effort (e.g. during a Co
     config.defaultEffort = saved.global;
     config.defaultClaudeEffort = saved.claude;
     config.defaultCodexEffort = saved.codex;
+  }
+});
+
+// #3434: drain resolves the execution effort repo override → global default ("default" → null).
+test("drain spawns carry the resolved execution effort", async () => {
+  const saved = config.defaultExecutionEffort;
+  try {
+    config.defaultExecutionEffort = "default";
+    const none = makeHarness({ issues: [issue(1)], maxAuto: 1 });
+    await none.drain.pump(REPO);
+    expect(none.creates[0]?.executionEffort).toBeNull();
+
+    config.defaultExecutionEffort = "medium";
+    const global = makeHarness({ issues: [issue(1)], maxAuto: 1 });
+    await global.drain.pump(REPO);
+    expect(global.creates[0]?.executionEffort).toBe("medium");
+
+    const repo = makeHarness({ issues: [issue(1)], maxAuto: 1 });
+    repo.store.setRepoConfig(REPO, {
+      ...repo.store.getRepoConfig(REPO),
+      defaultExecutionEffort: "low",
+    });
+    await repo.drain.pump(REPO);
+    expect(repo.creates[0]?.executionEffort).toBe("low");
+  } finally {
+    config.defaultExecutionEffort = saved;
   }
 });
 
@@ -1210,6 +1237,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
@@ -1242,6 +1270,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
@@ -2435,6 +2464,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",

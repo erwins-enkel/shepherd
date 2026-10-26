@@ -183,6 +183,7 @@ function makeHarness(
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",

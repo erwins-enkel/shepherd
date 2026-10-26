@@ -423,6 +423,7 @@ function setRepoAutopilot(store: SessionStore, on: boolean, repoPath = "/repo") 
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
@@ -673,6 +674,7 @@ test("createSession: codex plan-gate + build-queue + autopilot → build queue s
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
@@ -3725,6 +3727,41 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
   ]);
 });
 
+// #3434: a resume spawns with the CURRENT phase's effort and records it as the tier in force.
+test.each([
+  ["planning", "xhigh"],
+  ["executing", "medium"],
+] as const)("resume of a %s plan-gated session spawns --effort %s", async (phase, expected) => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    transcriptExists: () => true,
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, argv: string[]) => {
+        calls.argv = inlineSpawnFiles(argv);
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      listAsync: async () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  const s = resumable(store, { effort: "xhigh", executionEffort: "medium", planPhase: phase });
+  expect(store.get(s.id)?.activeEffort).toBe("xhigh"); // a fresh row runs at its spawn effort
+  await svc.resume(s.id);
+  expect(calls.argv.slice(-2)).toEqual(["--effort", expected]);
+  expect(store.get(s.id)?.activeEffort).toBe(expected);
+  expect(store.get(s.id)?.effort).toBe("xhigh"); // the planning selection is never overwritten
+});
+
 test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async (effort) => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
@@ -5353,6 +5390,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
@@ -6322,6 +6360,7 @@ function buildQueueDeps(
       sandboxProfile: "trusted",
       defaultModel: "inherit",
       defaultEffort: "inherit",
+      defaultExecutionEffort: "inherit",
       previewOpenMode: "ask",
       egressExtraHosts: [],
       repoMode: "forge",
@@ -8750,6 +8789,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     sandboxProfile: "autonomous",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
@@ -8802,6 +8842,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     sandboxProfile: "autonomous",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",

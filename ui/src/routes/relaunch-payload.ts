@@ -7,6 +7,7 @@ export function relaunchOverrides(input: {
   prompt: string;
   model: string | null;
   effort: string | null;
+  executionEffort?: string | null;
   images: string[];
   attachmentNames?: string[];
   launchUiState?: LaunchUiState;
@@ -19,6 +20,7 @@ export function relaunchOverrides(input: {
     prompt: input.prompt,
     model: input.model,
     effort: input.effort,
+    executionEffort: input.executionEffort,
     planGateEnabled: input.planGateEnabled,
     autopilotEnabled: input.autopilotEnabled,
     images: input.images,

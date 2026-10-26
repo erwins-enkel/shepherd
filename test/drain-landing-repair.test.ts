@@ -161,6 +161,7 @@ function makeHarness(opts: {
     sandboxProfile: "trusted",
     defaultModel: opts.repoDefaultModel ?? "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",

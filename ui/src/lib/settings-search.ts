@@ -112,6 +112,7 @@ export function codingCliRows(): {
     defaults: [
       [m.settings_default_agent_provider_title(), m.settings_default_cli_desc()],
       [m.settings_default_effort_title(), m.settings_default_effort_hint()],
+      [m.settings_execution_effort_title(), m.settings_execution_effort_hint()],
       [m.settings_operator_language_title(), m.settings_operator_language_hint()],
       [m.settings_upnext_skip_cli_picker_label(), m.settings_upnext_skip_cli_picker_hint()],
     ],

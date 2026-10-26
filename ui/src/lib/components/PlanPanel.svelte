@@ -27,6 +27,9 @@
   import { environmentLabel } from "#lib/reviewer-env.js";
   import { DOCS_URL } from "#lib/build-info.js";
   import VisualReview from "./VisualReview.svelte";
+  import EffortSwitchNotice from "./EffortSwitchNotice.svelte";
+  import { effortSwitchState } from "#lib/effort-switch.js";
+  import { sessionEnvironment } from "#lib/session-env.js";
 
   let { session, onclose }: { session: Session; onclose: () => void } = $props();
 
@@ -136,7 +139,12 @@
   let envOpen = $state(false);
 
   const planEnv = $derived(
-    environmentLabel(session.agentProvider ?? "claude", session.model, session.effort),
+    // The tier actually in force (#3434): observed → active → planning selection.
+    environmentLabel(
+      session.agentProvider ?? "claude",
+      session.model,
+      sessionEnvironment(session).effortTier,
+    ),
   );
   // Live reviewer env for the in-flight run — carried on the reviewing signal (+ bootstrap), so the
   // CLI/model identity is known before a gate exists (notably the FIRST review). Prefer it when its
@@ -270,12 +278,29 @@
     return () => clearTimeout(t);
   });
 
-  async function go() {
+  // A Go the server withheld (#3434): its 409 code bridges until the gate update carrying the same
+  // `effortSwitchError` arrives over WS. Any other refusal gets the generic failure note.
+  let goRefusal = $state<"busy" | "unconfirmed" | "error" | null>(null);
+  const effortSwitch = $derived(
+    effortSwitchState(
+      session,
+      gate,
+      goRefusal === "busy" || goRefusal === "unconfirmed" ? goRefusal : null,
+    ),
+  );
+
+  async function go(skipEffortSwitch = false) {
     if (busy || !releasable) return;
     busy = true;
+    goRefusal = null;
     try {
-      await releasePlanGate(session.id);
-      onclose();
+      const res = skipEffortSwitch
+        ? await releasePlanGate(session.id, { skipEffortSwitch: true })
+        : await releasePlanGate(session.id);
+      if (res.ok) onclose();
+      else goRefusal = res.code ?? "error";
+    } catch {
+      goRefusal = "error";
     } finally {
       busy = false;
     }
@@ -558,6 +583,12 @@
 
       <SpawnFailureNotice notice={spawnFailure} />
 
+      {#if effortSwitch}
+        <EffortSwitchNotice state={effortSwitch} {busy} ongo={(skip) => void go(skip)} />
+      {:else if goRefusal === "error"}
+        <p class="note err" role="alert">{m.hold_cta_go_failed()}</p>
+      {/if}
+
       {#if planStalled}
         <div class="quota-actions" aria-describedby={statusNote ? statusNoteId : undefined}>
           <button
@@ -625,7 +656,7 @@
         <button
           type="button"
           class="go"
-          onclick={go}
+          onclick={() => go()}
           disabled={goDisabled}
           aria-describedby={describedBy}
         >

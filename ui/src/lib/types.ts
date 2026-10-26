@@ -415,6 +415,9 @@ export interface Settings {
   /** Per-engine default effort ("inherit"|"default"|<tier>); "inherit" follows `defaultEffort`. */
   defaultClaudeEffort: string;
   defaultCodexEffort: string;
+  /** Global default execution effort for plan-gated sessions ("default"|<tier>); "default" =
+   *  same as planning, no switch at Go (#3434). Absent from older servers. */
+  defaultExecutionEffort?: string;
   /** Language spawned agents use to talk to the operator ("en" | "de"). Independent of the
    *  interface language — set only from the Settings page. */
   operatorLanguage: string;
@@ -975,8 +978,14 @@ export interface PlanGate {
   // Operator dismissed / took over this stalled rework; the rework classification skips it.
   // Absent ⇒ false.
   dismissed?: boolean;
+  // Why the effort switch at Go (or the restore at re-gate) did not happen (#3434). busy /
+  // unconfirmed: Go was withheld. restore_*: planning effort not restored. Absent ⇒ none.
+  effortSwitchError?: EffortSwitchError | null;
   updatedAt: number;
 }
+
+/** Plan-gate effort-switch failure codes (#3434). */
+export type EffortSwitchError = "busy" | "unconfirmed" | "restore_skipped" | "restore_unconfirmed";
 
 /** A reviewer's resolved CLI + model + effort for the currently in-flight run. Carried on the
  *  review start signal and `/inflight` bootstrap so the UI can identify Plan Gate and critic jobs
@@ -1245,6 +1254,9 @@ export interface RepoConfig {
   defaultModel: string;
   /** Per-repo default-effort override; "inherit" (default) defers to the global default. */
   defaultEffort: string;
+  /** Per-repo execution-effort override (#3434): "inherit" (→ global) | "default" (same as
+   *  planning) | <tier>. Absent from older servers. */
+  defaultExecutionEffort?: string;
   maxAuto: number;
   autoLabel: string;
   /** Additional priority labels; absent from older servers means none. */
@@ -1778,6 +1790,12 @@ export interface Session {
   // (`s.effort ?? "default"` when seeding the relaunch composer) tolerates its absence,
   // so test fixtures need not set it.
   effort?: string | null;
+  /** Plan-gated execution effort (#3434): the tier Shepherd switches to at Go. null = same as
+   *  planning (no switch). `effort` above stays the PLANNING selection. Absent on older servers. */
+  executionEffort?: string | null;
+  /** The tier Shepherd last put in force — the spawn flag or a CONFIRMED mid-session switch.
+   *  null = provider default. Absent on older servers. Read through `sessionEnvironment()`. */
+  activeEffort?: string | null;
   /** OBSERVED runtime identity (#1823) — what the agent ACTUALLY ran, read out of its
    *  transcript/rollout server-side. Distinct from `model`/`effort` above, which are what the
    *  operator CONFIGURED and are null whenever the pickers were left on default (no flag is passed
@@ -3386,6 +3404,8 @@ export interface RelaunchOverrides {
   agentProvider?: AgentProvider;
   model?: string | null;
   effort?: string | null;
+  /** Plan-gated execution effort (#3434); absent → keep the original's. */
+  executionEffort?: string | null;
   planGateEnabled?: boolean | null;
   /** Per-task Autopilot override; null → inherit the destination repo default. */
   autopilotEnabled?: boolean | null;
@@ -3459,6 +3479,7 @@ export interface StandardCreateInput {
   agentProvider?: AgentProvider;
   model: string | null;
   effort?: string | null; // reasoning-effort tier; null/absent → provider default (no effort flag)
+  executionEffort?: string | null; // plan-gated execution tier (#3434); null/absent → same as planning
   images?: string[]; // absolute staged upload paths from /api/uploads
   attachmentNames?: string[];
   issueRef?: IssueRef; // optional attached issue; body appended server-side

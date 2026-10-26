@@ -56,6 +56,15 @@ export function effortSettingFor(
   return own && own !== "inherit" ? own : (defaults.effort ?? "default");
 }
 
+/** Effective plan-gated EXECUTION effort SETTING (#3434): the repo override wins, else the global
+ *  default. No per-engine split. "default" (= same as planning) is the fall-through. */
+export function executionEffortSettingFor(
+  repoOverride: string,
+  globalDefault: string | undefined,
+): string {
+  return repoOverride !== "inherit" ? repoOverride : (globalDefault ?? "default");
+}
+
 /** Effort SETTING ("default" | "inherit" | <tier>) → picker value. */
 export function preselectEffort(setting: string | undefined): string {
   return setting && setting !== "default" && setting !== "inherit" ? setting : "default";

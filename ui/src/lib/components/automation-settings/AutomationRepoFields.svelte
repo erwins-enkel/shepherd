@@ -210,6 +210,7 @@
   const defaultModel = $derived(repoConfig.defaultModelFor(repoPath));
   const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
   const defaultEffort = $derived(repoConfig.defaultEffortFor(repoPath));
+  const defaultExecutionEffort = $derived(repoConfig.defaultExecutionEffortFor(repoPath));
   const previewOpenMode = $derived(repoConfig.previewOpenModeFor(repoPath));
 </script>
 
@@ -256,6 +257,27 @@
     </select>
   </label>
   <div class="signoff-note">{m.automation_default_effort_hint()}</div>
+
+  <label class="drain-field">
+    <span class="drain-label">{m.automation_execution_effort_label()}</span>
+    <select
+      class="afield-num model-select"
+      aria-label={m.automation_execution_effort_label()}
+      value={defaultExecutionEffort}
+      onchange={(e) =>
+        repoConfig.setDefaultExecutionEffort(
+          repoPath,
+          (e.currentTarget as HTMLSelectElement).value,
+        )}
+    >
+      <option value="inherit">{m.automation_default_effort_inherit()}</option>
+      <option value="default">{m.execution_effort_same_as_planning()}</option>
+      {#each EFFORTS as tier (tier)}
+        <option value={tier}>{effortLabel(tier)}</option>
+      {/each}
+    </select>
+  </label>
+  <div class="signoff-note">{m.automation_execution_effort_hint()}</div>
 
   <label class="drain-field">
     <span class="drain-label">{m.automation_preview_open_mode_label()}</span>

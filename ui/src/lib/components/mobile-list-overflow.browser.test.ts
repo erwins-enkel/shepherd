@@ -23,7 +23,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     ...actual,
     getReviews: vi.fn(async () => ({})),
     getReviewingIds: vi.fn(async () => []),
-    releasePlanGate: vi.fn(async () => true),
+    releasePlanGate: vi.fn(async () => ({ ok: true })),
     reviewPlan: vi.fn(async (): Promise<import("#lib/api.js").PlanReviewTrigger> => "started"),
     resumeQuota: vi.fn(async () => ({ status: "resumed" as const })),
     retryCi: vi.fn(async () => ({ ok: true }) as { ok: boolean }),

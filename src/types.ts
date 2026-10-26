@@ -62,6 +62,12 @@ export interface Session {
 
   model: string | null; // selected CLI --model alias; null = provider default (no flag)
   effort: string | null; // reasoning-effort tier; null = provider default (no effort flag)
+  /** Plan-gated sessions (#3434): the effort to switch the running agent to at Go. null = inherit
+   *  (no switch). `effort` stays the PLANNING selection and is never overwritten by a switch. */
+  executionEffort?: string | null;
+  /** The tier Shepherd last put in force for the running agent — the spawn flag, or a CONFIRMED
+   *  mid-session switch (#3434). null = provider default. Never a requested-but-unconfirmed tier. */
+  activeEffort?: string | null;
   /** OBSERVED runtime identity (#1823) — what the agent ACTUALLY ran, read out of its
    *  transcript/rollout by the poller and persisted so it survives the session going idle and the
    *  server restarting. Distinct from `model`/`effort` above: those are what the operator
@@ -388,6 +394,8 @@ export interface StandardCreateInput {
   agentProvider?: AgentProvider;
   model: string | null; // null = provider default (no --model flag)
   effort?: string | null; // reasoning effort tier; null/absent = provider default (no effort flag)
+  /** Execution-phase effort for a plan-gated task (#3434); null/absent = inherit (no switch). */
+  executionEffort?: string | null;
   images: string[]; // absolute paths to staged attachments (may be empty)
   attachmentNames?: string[]; // display-only names, index-aligned with images
   issueRef?: IssueRef; // optional attached issue; body appended out-of-band
@@ -470,6 +478,8 @@ export interface RelaunchOverrides {
   /** Reasoning-effort override; absent → keep original, present (incl. `null`) → replace.
    *  When `agentProvider` changes, `relaunch` re-clamps a now-incompatible effort. */
   effort?: string | null;
+  /** Execution-effort override (#3434); absent → keep original, present (incl. `null`) → replace. */
+  executionEffort?: string | null;
   planGateEnabled?: boolean | null;
   /** Per-task Autopilot override; null → inherit the destination repo default. */
   autopilotEnabled?: boolean | null;
@@ -936,8 +946,14 @@ export interface PlanGate {
   // this verdict as active rework (REWORK RUNNING / review banner / critic-rework signal). Reset to
   // false on any new verdict (buildGate) and on resume(). Absent ⇒ false.
   dismissed?: boolean;
+  /** Why the last mid-session effort switch (#3434) did not happen: `busy`/`unconfirmed` withheld
+   *  Go; `restore_skipped`/`restore_unconfirmed` mean a re-gate kept the execution effort. Cleared
+   *  by a successful Go/skip/restore or any respawn. Absent/null ⇒ no problem. */
+  effortSwitchError?: EffortSwitchError | null;
   updatedAt: number;
 }
+
+export type EffortSwitchError = "busy" | "unconfirmed" | "restore_skipped" | "restore_unconfirmed";
 
 // ── critic-on-PR review verdict ─────────────────────────────────────────────
 export type ReviewDecision = "changes_requested" | "commented" | "error";

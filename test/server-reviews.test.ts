@@ -123,6 +123,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     previewStartScript: null,
@@ -210,6 +211,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     previewStartScript: null,
@@ -251,6 +253,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     previewStartScript: null,
@@ -302,6 +305,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     previewStartScript: null,

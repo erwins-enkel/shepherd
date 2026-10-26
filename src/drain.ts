@@ -4008,6 +4008,7 @@ export class DrainService {
         prompt: input.prompt,
         model: cfgModel,
         effort: cfgEffort,
+        executionEffort: drainExecutionEffort(cfg.defaultExecutionEffort),
         images: [],
         auto: true,
         landingRepair: true,
@@ -5252,6 +5253,7 @@ export class DrainService {
                 engineDefaultEffortSetting(config.defaultAgentProvider, config),
               ),
             ),
+        executionEffort: drainExecutionEffort(rc.defaultExecutionEffort),
         images: [],
         auto: true,
         issueRef: { number, url, title, body },
@@ -5660,4 +5662,10 @@ export class DrainService {
       .filter((c) => !state.mappedIssueNumbers.has(c.number))
       .map((c) => ({ number: c.number, title: c.title, url: c.url }));
   }
+}
+
+/** The execution effort (#3434) a drain spawn carries: the repo override, else the global
+ *  default; "default" → null (no switch). create() drops it when the plan gate is off. */
+function drainExecutionEffort(repoSetting: string | undefined): string | null {
+  return drainSpawnEffort(resolveDefaultEffortSetting(repoSetting, config.defaultExecutionEffort));
 }

@@ -191,6 +191,33 @@ The engine's default is what you get in these places:
 - **Role agents** on CLI `inherit` with effort `default` follow the effort of the engine they
   run on.
 
+### Execution effort for plan-gated sessions
+
+A plan-gated session can plan at one effort and execute the approved plan at another. Its
+**Effort** is the planning effort. **Execution effort** (shown in New task while Plan gate is
+on) is the effort the agent switches to at **Go**. **Same as planning** means no switch, which
+is the default. The New task preselect comes from the repo's override in the automation pane,
+then **Settings → Coding CLI**. Drain and autopilot starts use the same two settings. There is
+no environment variable.
+
+At Go, Shepherd switches the running agent's effort for **this session only**. It never writes
+your Claude Code or Codex settings. Claude Code gets its `/effort` picker; Codex gets
+`/model --reasoning=<tier>`. Shepherd then waits for the CLI's confirmation before sending
+the Go:
+
+- **Agent busy:** Shepherd sends nothing and holds the Go back.
+- **No confirmation:** Shepherd presses Esc to close what it opened and holds the Go back.
+- In both cases the plan panel offers **Retry Go** and **Go at planning effort**; the second
+  drops the execution effort and starts as before. An auto-released session waits for you here.
+- **The plan is re-gated:** Shepherd switches back to the planning effort, but only on an
+  idle agent. If the agent is working, or the planning effort is the CLI default, which
+  cannot be restored for one session, it keeps the execution effort. The panel says so; the
+  next restart of the agent spawns at the planning effort.
+- **Resume or restore** spawns at the effort of the session's current phase.
+- **Replace** spawns at the effort you pick in its dialog, which becomes the current phase's
+  effort. If the session is executing and you pick the CLI default, both phases fall back to
+  the CLI default.
+
 ## Role agents
 
 Shepherd's background roles are ordinary agent spawns, each with its own **CLI / model /

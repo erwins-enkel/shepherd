@@ -118,6 +118,7 @@
     composePrompt,
     composeModel,
     composeEffort,
+    composeExecutionEffort = null,
     composeAgentProvider,
     composePlanGate,
     composeAutopilot,
@@ -262,6 +263,8 @@
     composePrompt: string | null;
     composeModel: string | null;
     composeEffort: string | null;
+    /** Relaunch/edit-held seed for the execution-effort picker (#3434); null = default chain. */
+    composeExecutionEffort?: string | null;
     composeAgentProvider: AgentProvider | null;
     composePlanGate: boolean | null;
     composeAutopilot: boolean | null;
@@ -407,6 +410,7 @@
   // Relaunch/edit-held carry the original session's effort into the composer's picker (parity with
   // composeModel → initialModel); undefined lets NewTask preselect from the repo/global default.
   const newTaskInitialEffort = $derived(composeEffort ?? undefined);
+  const newTaskInitialExecutionEffort = $derived(composeExecutionEffort ?? undefined);
   // Only a plain open (nothing seeded: no repo, issue, prompt, model or attachment, not a
   // relaunch/edit) brings back a draft the operator dismissed moments ago.
   const newTaskRestoreDraft = $derived(
@@ -425,6 +429,7 @@
   const newTaskDefaultEffort = $derived(settings?.defaultEffort);
   const newTaskDefaultClaudeEffort = $derived(settings?.defaultClaudeEffort);
   const newTaskDefaultCodexEffort = $derived(settings?.defaultCodexEffort);
+  const newTaskDefaultExecutionEffort = $derived(settings?.defaultExecutionEffort);
   const newTaskDefaultCodexModel = $derived(settings?.defaultCodexModel);
   // Onboarding folder-picker inputs, hoisted out of the template so the markup stays branch-free.
   const onboardingRepoRoot = $derived(settings?.repoRoot ?? null);
@@ -591,6 +596,7 @@
             initialPrompt={newTaskInitialPrompt}
             initialModel={newTaskInitialModel}
             initialEffort={newTaskInitialEffort}
+            initialExecutionEffort={newTaskInitialExecutionEffort}
             initialAgentProvider={composeAgentProvider ?? undefined}
             initialPlanGate={composePlanGate}
             initialAutopilot={composeAutopilot}
@@ -607,6 +613,7 @@
             defaultEffort={newTaskDefaultEffort}
             defaultClaudeEffort={newTaskDefaultClaudeEffort}
             defaultCodexEffort={newTaskDefaultCodexEffort}
+            defaultExecutionEffort={newTaskDefaultExecutionEffort}
             fableAvailable={newTaskFableAvailable}
             {holdLikely}
             onclose={onnewclose}

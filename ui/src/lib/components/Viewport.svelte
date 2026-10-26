@@ -892,6 +892,19 @@
       ? effortLabel((session.effort ?? launch?.resolvedLaunch.effort)!)
       : m.effort_default(),
   );
+  // #3434: the tier in force (observed → active → stored) and the plan-gated execution tier, which
+  // can each differ from the stored (planning) effort above.
+  const activeEffortTier = $derived(
+    session.runtimeEffort ??
+      (session.activeEffort !== undefined ? session.activeEffort : session.effort) ??
+      null,
+  );
+  const activeEffortDisplay = $derived(
+    activeEffortTier ? effortLabel(activeEffortTier) : m.effort_default(),
+  );
+  const executionEffortDisplay = $derived(
+    session.executionEffort ? effortLabel(session.executionEffort) : null,
+  );
   function sandboxDisplay(profile: string | null | undefined): string {
     if (profile === "autonomous") return m.session_sandbox_autonomous_label();
     if (profile === "standard") return m.session_sandbox_standard_label();
@@ -2827,6 +2840,16 @@
       <span class="dp-row">
         <span class="dp-k">{m.tasktip_effort_stored()}</span>
         <span class="dp-v">{storedEffortDisplay}</span>
+      </span>
+      {#if executionEffortDisplay}
+        <span class="dp-row">
+          <span class="dp-k">{m.tasktip_effort_execution()}</span>
+          <span class="dp-v">{executionEffortDisplay}</span>
+        </span>
+      {/if}
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_effort_active()}</span>
+        <span class="dp-v">{activeEffortDisplay}</span>
       </span>
       <span class="dp-row">
         <span class="dp-k">{m.tasktip_sandbox_submitted()}</span>

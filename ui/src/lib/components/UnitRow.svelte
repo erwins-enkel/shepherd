@@ -61,6 +61,12 @@
   import { formatUnits } from "#lib/components/usage/format.js";
   import { isColdResume } from "#lib/cold-resume.js";
   import { sessionEnvironment } from "#lib/session-env.js";
+  import {
+    effortSwitchExplanation,
+    effortSwitchLine,
+    effortSwitchState,
+    goFailedMessage,
+  } from "#lib/effort-switch.js";
   import { coldResumeExplanation, epicRunStoppedExplanation } from "#lib/tooltips/explanations.js";
   import type { TooltipContent } from "#lib/tooltips/content.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
@@ -446,6 +452,8 @@
   const planGate = $derived(planGates.map[session.id]);
   const planReviewing = $derived(planGates.isReviewing(session.id));
   const holdRow = $derived(rowHold(session, planGate, planReviewing, hold));
+  // #3434: a withheld Go (effort switch busy/unconfirmed) or an unrestored planning effort.
+  const effortSwitch = $derived(effortSwitchState(session, planGate));
 
   // Go two-step arm (distinct names from decommission's armTimer/disarm above): releasing an
   // approved plan gate is irreversible (starts execution), so the first click only arms.
@@ -519,13 +527,16 @@
     else if (a.kind === "browser") (onopenbrowser ?? onselect)(session.id);
   }
 
-  async function doGo() {
+  async function doGo(skipEffortSwitch = false) {
     if (ctaBusy) return;
     ctaBusy = true;
     try {
-      const ok = await releasePlanGate(session.id); // false on 409, no throw; rejects on network error
-      if (!ok)
-        toasts.info(m.hold_cta_go_failed(), {
+      // !ok on 409, no throw; rejects on network error. A withheld Go (#3434) names its cause.
+      const res = skipEffortSwitch
+        ? await releasePlanGate(session.id, { skipEffortSwitch: true })
+        : await releasePlanGate(session.id);
+      if (!res.ok)
+        toasts.info(goFailedMessage(res.code), {
           alert: true,
           key: `hold-cta:go:${session.id}`,
         });
@@ -770,6 +781,68 @@
     };
     return a.kind === "browser" ? [primary, popoutAction()] : [primary];
   };
+  // The withheld-Go line's two actions: plain Retry Go, or Go at planning effort (#3434). Both
+  // release the plan gate, so each arms on its first click exactly like the row's Go CTA. A
+  // restore notice is informational and carries none.
+  let effortGoArmed = $state<"retry" | "planning" | null>(null);
+  let effortGoArmTimer: ReturnType<typeof setTimeout> | undefined;
+  function disarmEffortGo() {
+    clearTimeout(effortGoArmTimer);
+    effortGoArmed = null;
+  }
+  function onEffortGo(e: MouseEvent, which: "retry" | "planning") {
+    e.stopPropagation();
+    if (effortGoArmed !== which) {
+      effortGoArmed = which;
+      clearTimeout(effortGoArmTimer);
+      effortGoArmTimer = setTimeout(disarmEffortGo, 3000);
+      return;
+    }
+    disarmEffortGo();
+    void doGo(which === "planning");
+  }
+  const effortSwitchActions = (): SublineAction[] =>
+    effortSwitch?.kind === "withheld"
+      ? [
+          {
+            cls: "hold-cta--go",
+            title: m.effort_switch_retry_go_body(),
+            label:
+              effortGoArmed === "retry"
+                ? m.effort_switch_retry_go_arm()
+                : m.effort_switch_retry_go(),
+            run: (e) => onEffortGo(e, "retry"),
+            disabled: ctaBusy,
+          },
+          {
+            cls: "hold-cta--go-planning",
+            title: m.effort_switch_go_planning_body(),
+            label:
+              effortGoArmed === "planning"
+                ? m.effort_switch_go_planning_arm()
+                : m.effort_switch_go_planning(),
+            run: (e) => onEffortGo(e, "planning"),
+            disabled: ctaBusy,
+          },
+        ]
+      : [];
+  // The effort-switch line never masks a hold line that carries its own state or CTA (revising,
+  // question, re-review, blocked, …): a withheld Go replaces only the plain Go line it stands in
+  // for, and the not-restored notice shows only when the row has no hold line at all.
+  const effortSwitchShown = $derived(
+    !!effortSwitch &&
+      (!holdRow.line || (effortSwitch.kind === "withheld" && holdRow.action?.kind === "go")),
+  );
+  const effortSwitchView = $derived(
+    effortSwitch && effortSwitchShown
+      ? {
+          line: effortSwitchLine(effortSwitch),
+          actions: effortSwitchActions(),
+          stranded: false,
+          tip: effortSwitchExplanation(effortSwitch),
+        }
+      : null,
+  );
   const sublineView = $derived(
     stranded
       ? {
@@ -785,9 +858,10 @@
           ],
           stranded: true,
         }
-      : holdRow.line
-        ? { line: holdRow.line, actions: holdActions(), stranded: false, tip: holdTip }
-        : null,
+      : (effortSwitchView ??
+          (holdRow.line
+            ? { line: holdRow.line, actions: holdActions(), stranded: false, tip: holdTip }
+            : null)),
   );
   // Cold-resume marker (#2042). The Herd is where the operator PICKS which session to resume, so
   // the cost belongs here, before the click — not only in the status bar they reach afterwards.

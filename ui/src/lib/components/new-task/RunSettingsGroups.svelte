@@ -2,7 +2,10 @@
   import type { Snippet } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
-  import { sandboxOverrideExplanation } from "#lib/tooltips/explanations.js";
+  import {
+    executionEffortExplanation,
+    sandboxOverrideExplanation,
+  } from "#lib/tooltips/explanations.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { modelOptionLabel } from "#lib/model-guidance.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
@@ -33,6 +36,7 @@
     agentProvider,
     model,
     effort,
+    executionEffort,
     sandboxProfile,
     planGate,
     autopilot,
@@ -53,6 +57,7 @@
     onProviderChange,
     onModelChange,
     onEffortChange,
+    onExecutionEffortChange,
     onSandboxChange,
     onPlanGateChange,
     onAutopilotChange,
@@ -68,6 +73,8 @@
     agentProvider: AgentProvider;
     model: string;
     effort: string;
+    /** Plan-gated execution effort (#3434); "default" = same as planning. */
+    executionEffort: string;
     sandboxProfile: "default" | SandboxProfile;
     planGate: boolean;
     autopilot: boolean;
@@ -92,6 +99,7 @@
     onProviderChange: (provider: AgentProvider) => void;
     onModelChange: (model: string) => void;
     onEffortChange: (effort: string) => void;
+    onExecutionEffortChange: (effort: string) => void;
     onSandboxChange: (profile: "default" | SandboxProfile) => void;
     onPlanGateChange: (checked: boolean) => void;
     onAutopilotChange: (checked: boolean) => void;
@@ -243,6 +251,31 @@
         </div>
       </div>
     </div>
+    {#if planGate && !modeLocked}
+      <div class="field">
+        <span class="field-label">{m.newtask_execution_effort_label()}</span>
+        <div class="field-select">
+          <select
+            id="nt-execution-effort"
+            aria-label={m.newtask_execution_effort_label()}
+            use:statusTip={{
+              text: executionEffortExplanation(),
+              still: true,
+              stopClickPropagation: false,
+              pinOnClick: false,
+            }}
+            value={executionEffort}
+            onchange={(e) => onExecutionEffortChange(e.currentTarget.value)}
+          >
+            <option value="default">{m.execution_effort_same_as_planning()}</option>
+            {#each provEfforts as tier (tier)}
+              <option value={tier}>{effortLabel(tier)}</option>
+            {/each}
+          </select>
+          <span class="chev" aria-hidden="true">▾</span>
+        </div>
+      </div>
+    {/if}
     {#if research}
       <p class="field-note">{m.newtask_research_sandbox_note()}</p>
     {/if}

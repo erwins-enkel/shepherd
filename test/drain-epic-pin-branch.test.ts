@@ -85,6 +85,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",

@@ -1,6 +1,7 @@
 import type { Issue } from "../../src/forge/types";
 import type { SlashCommand } from "../../src/commands";
 import type { Epic, EpicRun } from "../../src/epic-core";
+import { autoBlockers, type AutoBlockers } from "../../src/auto-blockers";
 
 /** Every field the picker and the filter pipeline read, across four rows that exercise each
  *  filter stage: one plain, one assigned to somebody else, one labelled shepherd:active, one
@@ -238,3 +239,11 @@ export function epic(run: EpicRun): Epic {
     },
   };
 }
+
+/** GET /api/epic/auto-fix for a standard repo whose epic runs Codex (#3453, the design's case A):
+ *  two causes, an enabled and a disabled confined fix, Trusted. Built by the server's own model. */
+export const autoBlockersCaseA: AutoBlockers = autoBlockers(
+  { agentProvider: "codex" },
+  { profile: "standard", remoteHttps: true },
+  { bwrap: true, egress: true },
+);

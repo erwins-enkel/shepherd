@@ -180,6 +180,7 @@ function makeHarness(
     now?: () => number;
     detectBackend?: ConstructorParameters<typeof DrainService>[0]["detectBackend"];
     detectEgressBackend?: ConstructorParameters<typeof DrainService>[0]["detectEgressBackend"];
+    originUrl?: ConstructorParameters<typeof DrainService>[0]["originUrl"];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -325,6 +326,7 @@ function makeHarness(
     openPrSnapshot: opts.openPrSnapshot,
     detectBackend: opts.detectBackend,
     detectEgressBackend: opts.detectEgressBackend,
+    originUrl: opts.originUrl,
     store,
     service,
     resolveForge: () => forge,
@@ -3074,6 +3076,107 @@ describe("#3452: a refused spawn reports its hold on drain:status", () => {
       await h.drain.pump(REPO);
       expect(h.creates).toHaveLength(1);
       expect(h.statuses.every((s) => !s.reason?.startsWith("sandbox_"))).toBe(true);
+    });
+  });
+});
+
+// ── #3453: the spawn gate as a model — causes and fixes for any epic ───────────────────────────
+
+describe("#3453: DrainService.autoBlockers", () => {
+  function blockersHarness(
+    profile: "inherit" | "trusted" | "standard" | "autonomous",
+    opts: { backend?: "bwrap" | null; egress?: "slirp4netns" | null; origin?: string | null } = {},
+  ) {
+    const probes = { backend: 0, egress: 0, origin: 0 };
+    const h = makeHarness({
+      detectBackend: () => {
+        probes.backend++;
+        return opts.backend === undefined ? "bwrap" : opts.backend;
+      },
+      detectEgressBackend: () => {
+        probes.egress++;
+        return opts.egress === undefined ? "slirp4netns" : opts.egress;
+      },
+      originUrl: () => {
+        probes.origin++;
+        return opts.origin === undefined ? "https://github.com/o/r.git" : opts.origin;
+      },
+    });
+    h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), sandboxProfile: profile });
+    return { h, probes };
+  }
+
+  async function withDefaults(
+    provider: "claude" | "codex",
+    profile: "trusted" | "standard" | "autonomous" | null,
+    fn: () => void | Promise<void>,
+  ) {
+    const saved = [config.defaultAgentProvider, config.sandboxDefaultProfileOverride] as const;
+    config.defaultAgentProvider = provider;
+    config.sandboxDefaultProfileOverride = profile;
+    try {
+      await fn();
+    } finally {
+      [config.defaultAgentProvider, config.sandboxDefaultProfileOverride] = saved;
+    }
+  }
+
+  test("an inherit repo resolves through the default profile; the CLI falls back to the global default", async () => {
+    await withDefaults("codex", null, () => {
+      const { h } = blockersHarness("inherit");
+      const r = h.drain.autoBlockers(REPO, { agentProvider: null });
+      expect(r.causes).toEqual([
+        { code: "sandbox_interactive", scope: "repo", detail: "standard" },
+        { code: "sandbox_provider_unconfined", scope: "epic", detail: "codex" },
+      ]);
+      expect(r.preselect).toBe("autonomous_claude");
+    });
+  });
+
+  test("the epic's own CLI wins over the global default", async () => {
+    await withDefaults("codex", null, () => {
+      const { h } = blockersHarness("standard");
+      const r = h.drain.autoBlockers(REPO, { agentProvider: "claude" });
+      expect(r.causes.map((c) => c.code)).toEqual(["sandbox_interactive"]);
+      expect(r.preselect).toBe("autonomous");
+    });
+  });
+
+  test("a trusted repo reports nothing and runs neither probe nor the git read", async () => {
+    await withDefaults("claude", null, () => {
+      const { h, probes } = blockersHarness("trusted", { backend: null, egress: null });
+      expect(h.drain.autoBlockers(REPO, { agentProvider: "codex" })).toEqual({
+        causes: [],
+        options: [],
+        preselect: null,
+      });
+      expect(probes).toEqual({ backend: 0, egress: 0, origin: 0 });
+    });
+  });
+
+  test("host probes and the origin remote feed the checks", async () => {
+    await withDefaults("claude", null, () => {
+      const { h } = blockersHarness("standard", {
+        backend: null,
+        origin: "git@github.com:o/r.git",
+      });
+      const r = h.drain.autoBlockers(REPO, { agentProvider: null });
+      expect(r.causes.map((c) => [c.code, c.scope])).toEqual([
+        ["sandbox_interactive", "repo"],
+        ["sandbox_backend_unavailable", "host"],
+      ]);
+      expect(r.options[0]).toMatchObject({
+        id: "autonomous",
+        enabled: false,
+        why: "bwrap",
+        checks: [
+          { id: "cli", ok: true },
+          { id: "bwrap", ok: false },
+          { id: "egress", ok: true },
+          { id: "remote_https", ok: false },
+        ],
+      });
+      expect(r.preselect).toBe("trusted");
     });
   });
 });

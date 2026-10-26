@@ -201,7 +201,11 @@ import { PluginAgentService } from "./plugin-agents";
 import { FIRST_PASS_RANGE } from "./maintain-core";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
-import { prepareMembraneClaudeState } from "./membrane-state";
+import {
+  prepareMembraneClaudeState,
+  prepareMembraneGhHosts,
+  prepareMembraneMiseConfig,
+} from "./membrane-state";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { HookIngest, toolUseSince, type HookEvent } from "./hooks-ingest";
@@ -1001,6 +1005,8 @@ const service = new SessionService({
   capacity: (s) => (s.agentProvider !== "codex" ? Promise.resolve(true) : codexReady()),
   store,
   prepareMembraneState: prepareMembraneClaudeState,
+  prepareMembraneMiseConfig,
+  prepareMembraneGhHosts,
   readCodexAuthMode,
   worktree,
   herdr,

@@ -49,7 +49,20 @@ The membrane keeps two token surfaces readable to any in-membrane tool call
   The api-key helper script is instead bound RO at its own path so the
   `apiKeyHelper` settings entry resolves inside the sandbox.
 - `~/.config/gh` — bound **RO** (the gh token, needed to `git push` /
-  `gh pr create`). **Task sessions only.**
+  `gh pr create`). **Task sessions only.** When the host keeps the token in the
+  OS keyring (`hosts.yml` has no `oauth_token`), the membrane cannot reach it (no
+  D-Bus, `--clearenv`), so `prepareMembraneGhHosts` (`src/membrane-state.ts`)
+  reads it host-side with `gh auth token` and writes a per-spawn 0600 github.com
+  `hosts.yml` bound RO over the host file — the same readability as a file-stored
+  token.
+
+Not a token surface: task sessions also get a derived mise config
+(`prepareMembraneMiseConfig`) bound RO at `/tmp/.shepherd-mise/config.toml` and
+named by `MISE_SYSTEM_CONFIG_FILE`. `--tmpfs $HOME` hides the host global config,
+and a mise-launched `claude` would otherwise strip every mise install dir (bun,
+node, gh) from PATH. It holds only the host's string-valued `[tools]` plus the
+membrane's node/bun pinned to their install versions — never `[env]`,
+`[settings]`, `[hooks]` or `[tasks]`; the host `~/.config/mise` is never bound.
 
 `--clearenv` strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,

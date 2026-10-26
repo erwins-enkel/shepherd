@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { DrainService } from "../src/drain";
-import type { SandboxBackend } from "../src/sandbox";
+import { MEMBRANE_MISE_CONFIG, type SandboxBackend } from "../src/sandbox";
 import type { EgressBackend } from "../src/egress";
 import { CLAUDEAI_CONNECTOR_EGRESS_HOST, egressTmpDir } from "../src/egress";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -57,6 +57,12 @@ function makeService(opts: {
   detectEgressBackend?: () => EgressBackend;
   egressProbed?: { called: boolean };
   prepareMembraneState?: ConstructorParameters<typeof SessionService>[0]["prepareMembraneState"];
+  prepareMembraneMiseConfig?: ConstructorParameters<
+    typeof SessionService
+  >[0]["prepareMembraneMiseConfig"];
+  prepareMembraneGhHosts?: ConstructorParameters<
+    typeof SessionService
+  >[0]["prepareMembraneGhHosts"];
   previewLogFile?: (sessionId: string) => string;
 }) {
   return new SessionService({
@@ -67,6 +73,8 @@ function makeService(opts: {
     herdr: herdrStub(opts.record),
     detectBackend: opts.detectBackend,
     prepareMembraneState: opts.prepareMembraneState,
+    prepareMembraneMiseConfig: opts.prepareMembraneMiseConfig,
+    prepareMembraneGhHosts: opts.prepareMembraneGhHosts,
     previewLogFile: opts.previewLogFile ?? ((id) => `/run/membrane/${id}/preview-start.log`),
     // Default the egress seam to null so an autonomous test never falls through to the real
     // (slow, host-dependent) self-test. Tests that want egress ON inject "slirp4netns".
@@ -199,6 +207,41 @@ test("create + standard + bwrap → binds the per-spawn .claude.json copy, never
     if (a[k] === "--bind" || a[k] === "--bind-try")
       expect(a[k + 1]).not.toMatch(/\/\.claude\.json$/);
   }
+});
+
+test("create + standard + bwrap → binds the derived mise config + gh hosts file; failures skip", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+  const record: { argv?: string[] } = {};
+  let pinned: unknown;
+  const service = makeService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    prepareMembraneMiseConfig: async (i) => ((pinned = i.pinnedBins), "/run/membrane/s.mise.toml"),
+    prepareMembraneGhHosts: async () => "/run/membrane/s.gh-hosts.yml",
+  });
+  await service.create(baseInput());
+  const a = record.argv!;
+  expect(a[a.indexOf("/run/membrane/s.mise.toml") + 1]).toBe(MEMBRANE_MISE_CONFIG);
+  expect(a[a.indexOf("/run/membrane/s.gh-hosts.yml") + 1]).toMatch(/\/\.config\/gh\/hosts\.yml$/);
+  expect(Array.isArray(pinned) && pinned.length).toBe(2);
+
+  const record2: { argv?: string[] } = {};
+  const failing = makeService({
+    store,
+    record: record2,
+    detectBackend: () => "bwrap",
+    prepareMembraneMiseConfig: async () => {
+      throw new Error("EACCES");
+    },
+    prepareMembraneGhHosts: async () => {
+      throw new Error("EACCES");
+    },
+  });
+  await failing.create(baseInput());
+  expect(record2.argv).toContain("bwrap");
+  expect(record2.argv).not.toContain(MEMBRANE_MISE_CONFIG);
 });
 
 test("create + standard + bwrap: a failing state prep degrades to the RO host bind", async () => {

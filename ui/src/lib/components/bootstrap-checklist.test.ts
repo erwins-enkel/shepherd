@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { RepoBootstrapView } from "#lib/api.js";
-import { checklistAction, checklistStepKind, checklistSteps } from "./bootstrap-checklist";
+import {
+  checklistAction,
+  checklistMustHaves,
+  checklistStepKind,
+  checklistSteps,
+} from "./bootstrap-checklist";
 import { pickedDocs } from "./new-project/project-docs";
 
 const view = (phase: number, next: RepoBootstrapView["next"]): RepoBootstrapView => ({
@@ -20,6 +25,22 @@ describe("checklistSteps (#3112)", () => {
     expect(states(3)).toEqual(["done", "current", "todo", "todo"]);
     expect(states(4)).toEqual(["done", "done", "current", "todo"]);
     expect(states(5)).toEqual(["done", "done", "done", "current"]);
+  });
+
+  it("a held CI advance (#3411) marks the current row held", () => {
+    const held = (p: number) => checklistSteps(p, true).map((s) => s.state);
+    expect(held(1)).toEqual(["held", "todo", "todo", "todo"]);
+    expect(held(3)).toEqual(["done", "held", "todo", "todo"]);
+  });
+});
+
+describe("checklistMustHaves", () => {
+  it("keeps the red must-haves and the pending placeholder, drops the phases", () => {
+    const missing = ["P4", "forge_settings", "readiness_pending"];
+    expect(checklistMustHaves({ ...view(4, null), missing })).toEqual([
+      "forge_settings",
+      "readiness_pending",
+    ]);
   });
 });
 

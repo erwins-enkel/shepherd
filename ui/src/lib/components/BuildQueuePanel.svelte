@@ -164,7 +164,8 @@
   }
 
   function commitTitle(step: BuildStep, newTitle: string) {
-    const t = newTitle.trim();
+    // A pasted newline would have been stripped by the old <input>; keep it single-line.
+    const t = newTitle.replace(/\s*\n\s*/g, " ").trim();
     if (!t) return; // revert: server rejects empty titles; don't send
     if (t === step.title) return; // no change
     void commit(steps.map((s) => (s.id === step.id ? { ...s, title: t } : s)));
@@ -327,23 +328,28 @@
           <div class="bqp-edit">
             <div class="bqp-edit-row">
               <span class="bqp-num" aria-hidden="true">{stepNum(i)}</span>
-              <input
+              <!-- A textarea for the same reason as the detail below: on a phone the
+                   16px zoom guard made a single-line input clip the title mid-word.
+                   The VALUE stays single-line — Enter commits. -->
+              <textarea
                 class="bqp-input bqp-title-input"
-                type="text"
+                rows="1"
                 value={step.title}
                 aria-label={`${m.buildqueue_step_title_aria()} ${i + 1}`}
                 placeholder={m.buildqueue_new_step()}
                 onblur={(e) => {
-                  commitTitle(step, (e.currentTarget as HTMLInputElement).value);
+                  commitTitle(step, (e.currentTarget as HTMLTextAreaElement).value);
                 }}
                 onkeydown={(e) => {
-                  if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-                  if (e.key === "Escape") {
-                    (e.currentTarget as HTMLInputElement).value = step.title;
-                    (e.currentTarget as HTMLInputElement).blur();
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLTextAreaElement).blur();
                   }
-                }}
-              />
+                  if (e.key === "Escape") {
+                    (e.currentTarget as HTMLTextAreaElement).value = step.title;
+                    (e.currentTarget as HTMLTextAreaElement).blur();
+                  }
+                }}></textarea>
             </div>
             <!-- A textarea, not an input: the detail runs to a sentence or two and
                  a single-line field clipped it mid-word exactly while the operator
@@ -958,7 +964,12 @@
   .bqp-title-input {
     font-size: var(--fs-base);
     font-weight: 500;
+    line-height: 1.35;
     color: var(--color-ink-bright);
+    resize: none;
+    field-sizing: content;
+    min-height: 1lh;
+    max-height: 4lh;
   }
 
   .bqp-detail-input {
@@ -1012,8 +1023,12 @@
     color: var(--color-muted);
   }
 
+  /* Top-aligned, not stretched: a stretched column turned each button into a
+     row-tall bar, eating width the step text needs on a phone. */
   .bqp-row-actions {
     display: flex;
+    align-self: flex-start;
+    align-items: flex-start;
     gap: 3px;
     flex-shrink: 0;
   }

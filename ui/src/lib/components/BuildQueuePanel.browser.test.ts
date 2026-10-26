@@ -507,7 +507,7 @@ describe("BuildQueuePanel — curation state (unapproved, with steps)", () => {
       onbootstrap: noop,
     });
     // both step title inputs should be present
-    const inputs = document.querySelectorAll<HTMLInputElement>("input.bqp-title-input");
+    const inputs = document.querySelectorAll<HTMLTextAreaElement>("textarea.bqp-title-input");
     expect(inputs.length).toBe(2);
     expect(inputs[0].value).toBe("Install deps");
     expect(inputs[1].value).toBe("Run tests");
@@ -638,7 +638,7 @@ describe("BuildQueuePanel — title commit guards", () => {
   beforeEach(() => vi.mocked(putBuildQueue).mockClear());
 
   function blurTitleWith(value: string) {
-    const input = document.querySelector<HTMLInputElement>("input.bqp-title-input")!;
+    const input = document.querySelector<HTMLTextAreaElement>("textarea.bqp-title-input")!;
     input.value = value;
     input.dispatchEvent(new FocusEvent("blur"));
   }
@@ -675,6 +675,18 @@ describe("BuildQueuePanel — title commit guards", () => {
     blurTitleWith("Install dependencies");
     expect(putBuildQueue).toHaveBeenCalledTimes(1);
     expect(vi.mocked(putBuildQueue).mock.calls[0][1][0].title).toBe("Install dependencies");
+  });
+
+  // The title is a wrapping textarea on phones; a pasted newline must not reach the value.
+  it("collapses a pasted newline in the title to a space", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+    blurTitleWith("Install\n  deps now");
+    expect(vi.mocked(putBuildQueue).mock.calls[0][1][0].title).toBe("Install deps now");
   });
 
   // The detail field is a textarea so a two-sentence detail wraps instead of being
@@ -755,7 +767,7 @@ describe("BuildQueuePanel — approved/running state", () => {
       onbootstrap: noop,
     });
     // no editable inputs in approved mode
-    const inputs = document.querySelectorAll<HTMLInputElement>("input.bqp-title-input");
+    const inputs = document.querySelectorAll<HTMLTextAreaElement>("textarea.bqp-title-input");
     expect(inputs.length).toBe(0);
     // but step titles ARE visible as text
     await expect.element(page.getByText("Install deps")).toBeInTheDocument();
@@ -1025,7 +1037,7 @@ describe("BuildQueuePanel — collapse/expand", () => {
     expect(content!.offsetParent, "wrapper hidden (offsetParent null)").toBeNull();
 
     // each curation input is physically inside the hidden wrapper → not visible
-    const inputs = document.querySelectorAll<HTMLInputElement>("input.bqp-title-input");
+    const inputs = document.querySelectorAll<HTMLTextAreaElement>("textarea.bqp-title-input");
     expect(inputs.length, "inputs still in DOM").toBe(2);
     for (const input of inputs) {
       // offsetParent is null for elements that are not rendered (display:none on self or ancestor)

@@ -466,8 +466,9 @@ export interface StandardCreateInput {
   carriedAmendments?: readonly TaskAmendment[];
   /** #3469: the operator schedule this firing belongs to. Server-set ONLY (the scheduler) — not a
    *  create-body key — and carried through a held task's stored input, so a released hold still
-   *  links its session to the schedule. Persisted as `Session.scheduleId`. */
-  scheduleId?: string;
+   *  links its session to the schedule. Persisted as `Session.scheduleId`. Carried by a relaunch
+   *  and by a held-task edit, so the run stays linked (overlap skip, badge). */
+  scheduleId?: string | null;
 }
 
 /**

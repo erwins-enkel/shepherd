@@ -481,6 +481,33 @@ test("PATCH /api/held/:id preserves merge-train membership the composer can't ed
   expect(updated?.input.mergeTrainPrs).toEqual([11, 22]);
 });
 
+test("PATCH /api/held/:id keeps the schedule a held run fired for (#3469)", async () => {
+  const { app, store } = harness();
+  store.addHeldTask({
+    id: "held-1",
+    repoPath: repoDir,
+    input: {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "/triage-feedback",
+      model: null,
+      images: [],
+      scheduleId: "sched-1",
+    },
+    createdAt: 1000,
+    reason: "usage",
+  });
+  const res = await patchHeld(app, "held-1", {
+    repoPath: repoDir,
+    baseBranch: "main",
+    prompt: "/triage-feedback (edited)",
+    model: null,
+    images: [],
+  });
+  expect(res.status).toBe(200);
+  expect(store.getHeldTask("held-1")?.input.scheduleId).toBe("sched-1");
+});
+
 test("PATCH /api/held/:id with unknown id → 404", async () => {
   const { app } = harness();
   const res = await patchHeld(app, "no-such-id", {

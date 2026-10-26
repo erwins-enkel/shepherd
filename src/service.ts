@@ -5430,6 +5430,8 @@ export class SessionService {
       epicParent: carriedEpicParent(original, overrides),
       // #3191: an incremental epic child stays one across a relaunch (same repoint rule).
       incrementalEpicParent: carriedEpicParent(original, overrides, "incrementalEpicParent"),
+      // #3469: the replacement is still that schedule's run — the overlap skip and badge follow it.
+      scheduleId: original.scheduleId,
       // #3245: a routed session's replacement stays routed (the issue is dropped when repointed).
       ...carriedRouting(original, overrides),
       // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.

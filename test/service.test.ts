@@ -8999,6 +8999,18 @@ test("#3191: relaunch carries incrementalEpicParent; re-pointing the base drops 
   expect(moved.incrementalEpicParent ?? null).toBeNull();
 });
 
+test("#3469: relaunch keeps the schedule link (overlap skip + badge follow the run)", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store, { scheduleId: "sched-1" });
+  expect(orig.scheduleId).toBe("sched-1");
+
+  const fresh = await service.relaunch(orig.id);
+  expect(fresh.scheduleId).toBe("sched-1");
+  expect(fresh.launchMetadata?.sourceKind).toBe("scheduled");
+  expect(store.hasOpenScheduledSession("sched-1")).toBe(true);
+});
+
 // ── agent base-URL selection (issue #711 Task 4) ────────────────────────────────
 // The URL baked into a spawn's hooks (and build-queue) calls: an egress-confined autonomous
 // spawn on a host-loopback-capable slirp with a known ingress port reaches Shepherd via the

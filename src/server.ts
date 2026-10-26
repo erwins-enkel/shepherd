@@ -9643,6 +9643,8 @@ async function heldUpdate(
   value.afterSessionId = existing.input.afterSessionId;
   // The record of the machine choice (#2772) is the placer's, never an edit's: carried forward.
   value.placement = existing.input.placement;
+  // Nor the schedule it fired for (#3469, server-set only): the overlap skip and link follow it.
+  value.scheduleId = existing.input.scheduleId;
   const profileErr = tokenProfileError(token, value, deps);
   if (profileErr) return profileErr;
   deps.store.updateHeldTask(id, value);

@@ -2394,7 +2394,7 @@ components:
           description: Epoch ms the message was sent.
         kind:
           type: string
-          description: The channel, read off Shepherd's fixed steer wording — go, plan_review, ci_fix, rebase, open_pr, nudge, review, queue, or operator. Treat an unknown value as operator.
+          description: The channel, read off Shepherd's fixed steer wording — go, plan_review, ci_fix, rebase, open_pr, nudge, review, queue, api_retry, or operator. Treat an unknown value as operator.
     SteerLogList:
       type: array
       description: Oldest first, since the session was created.

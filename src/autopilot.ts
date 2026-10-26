@@ -249,6 +249,10 @@ export interface AutopilotDeps {
    *  path treats it like running: the agent will resume on its own when the shell exits.
    *  Omitted → never busy. */
   isBackgroundBusy?: (id: string) => boolean;
+  /** An API-error auto-retry is armed for this session (ApiErrorRetry.pending): the stop was a
+   *  transient API error, not a real turn end — stand down; ApiErrorRetry hands back via onDone
+   *  if the retry ends without steering. */
+  apiRetryPending?: (id: string) => boolean;
   /** #3426: a critic run on this head is in flight (ReviewService.ciSteerHeld). Its red CI is
    *  held — the critic's findings steer carries it, or its settle releases it to the tick. Omitted
    *  → never held. */
@@ -645,6 +649,7 @@ export class AutopilotService {
       this.authPending.add(id);
       return;
     }
+    if (this.deps.apiRetryPending?.(id)) return;
     // Kick a PR refresh up front: an agent that just ran `gh pr create` then idled may not
     // be in the cached PR snapshot yet. Firing it here puts the poll in flight during classify,
     // so the post-classify eligible()/hasPr re-check in consider() usually sees the fresh PR.

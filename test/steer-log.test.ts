@@ -7,6 +7,7 @@ import {
   openPrSteer,
   rebaseSteer,
 } from "../src/autopilot";
+import { API_RETRY_STEER } from "../src/api-error-retry-core";
 import { RECONCILE_STEER } from "../src/build-queue-reminder";
 import { planAnswerSteerText } from "../src/plan-gate";
 import { amendmentSteerText } from "../src/task-amendments";
@@ -22,6 +23,7 @@ test("classifySteer reads the channel off Shepherd's own steer texts", () => {
   expect(classifySteer(RESEARCH_PROCEED_STEER)).toBe("nudge");
   expect(classifySteer(EMPTY_COMPLETION_STEER)).toBe("nudge");
   expect(classifySteer(RECONCILE_STEER)).toBe("queue");
+  expect(classifySteer(API_RETRY_STEER)).toBe("api_retry");
   expect(classifySteer(planAnswerSteerText([]))).toBe("plan_review");
 });
 

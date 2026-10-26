@@ -132,6 +132,7 @@ const EVENT: Record<TimelineKind, { label: () => string; tone: TooltipRow["tone"
   nudge: { label: m.pulse_event_nudge, tone: "idle" },
   review: { label: m.pulse_event_review, tone: "warn" },
   queue: { label: m.pulse_event_queue, tone: "idle" },
+  api_retry: { label: m.pulse_event_api_retry, tone: "warn" },
   operator: { label: m.pulse_event_operator, tone: "idle" },
 };
 

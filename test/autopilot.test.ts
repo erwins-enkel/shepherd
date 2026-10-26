@@ -128,6 +128,8 @@ function harness(opts: {
   toolUseSince?: () => boolean | null;
   /** The isBackgroundBusy dep (resting with a background shell still running); omit = unset. */
   backgroundBusy?: () => boolean;
+  /** The apiRetryPending dep (an API-error auto-retry is armed); omit = unset. */
+  apiRetryPending?: () => boolean;
   /** The criticReviewing dep (#3426: a critic run holds this head's CI steer); omit = unset. */
   criticReviewing?: (id: string, headSha: string) => boolean;
 }) {
@@ -238,6 +240,7 @@ function harness(opts: {
     stepCap: 10,
     toolUseSince: opts.toolUseSince,
     isBackgroundBusy: opts.backgroundBusy,
+    apiRetryPending: opts.apiRetryPending,
     criticReviewing: opts.criticReviewing,
     rebaseCap: opts.rebaseCap ?? 5,
     now: () => opts.now ?? 0,
@@ -477,6 +480,27 @@ test("onDone while background-busy → refreshPr kicked, no classify, no steer",
   expect(h.classifyCount()).toBe(0);
   expect(h.events.some((e) => "steer" in e)).toBe(false);
   expect(h.events).toContainEqual({ refreshPr: "s1" });
+});
+
+test("onDone while an API-error retry is pending → no classify, no steer", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "question", summary: "API error" },
+    apiRetryPending: () => true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.some((e) => "steer" in e || "pause" in e)).toBe(false);
+});
+
+test("onDone with no API-error retry pending → classifies as usual", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    apiRetryPending: () => false,
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(1);
 });
 
 test("onDone once the background shell is gone → classifies as usual", async () => {

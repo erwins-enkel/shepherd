@@ -5450,6 +5450,7 @@
   "pulse_event_nudge": "Autopilot nudge",
   "pulse_event_review": "Critic findings",
   "pulse_event_queue": "Queue reconcile",
+  "pulse_event_api_retry": "API error retry",
   "pulse_event_operator": "Your message",
   "pulse_event_earlier": "… {count} earlier",
   "pulse_section_loop": "Loop check",

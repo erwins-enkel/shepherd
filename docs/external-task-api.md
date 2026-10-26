@@ -635,7 +635,7 @@ underneath are:
 - `GET /api/sessions/:id/steer-log` — every message typed into the session since it
   started, oldest first, as `[{ "ts", "kind" }]`: time and channel only, never the
   text. `kind` is read off Shepherd's fixed steer wording — `go`, `plan_review`,
-  `ci_fix`, `rebase`, `open_pr`, `nudge`, `review`, `queue` — and anything else is
+  `ci_fix`, `rebase`, `open_pr`, `nudge`, `review`, `queue`, `api_retry` — and anything else is
   `operator`. Powers the session status panel's history and loop check.
 - `GET /api/sessions/:id/prompt-budget` — what that spawn's assembled system
   prompt cost, block by block: `delivery` (`append-system-prompt` for Claude,

@@ -728,7 +728,7 @@ describe("AssistantChat attachments", () => {
     await composer().fill("what is this?");
     await sendButton().click();
     expect(p.onsend).toHaveBeenCalledExactlyOnceWith(
-      "what is this?\n\n/a/.shepherd-uploads/u1.png",
+      "what is this?\n\nAttached image: `/a/.shepherd-uploads/u1.png`",
     );
     await expect.element(remove()).not.toBeInTheDocument();
   });
@@ -745,7 +745,9 @@ describe("AssistantChat attachments", () => {
     paste(transfer(png()));
     await expect.element(sendButton()).toBeEnabled();
     await sendButton().click();
-    expect(p.onsend).toHaveBeenCalledExactlyOnceWith("/a/.shepherd-uploads/u1.png");
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(
+      "Attached image: `/a/.shepherd-uploads/u1.png`",
+    );
   });
 
   it("holds Send while uploading and blocks it on a failed upload until removed", async () => {

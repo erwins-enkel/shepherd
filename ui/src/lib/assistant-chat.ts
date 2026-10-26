@@ -58,6 +58,14 @@ export function chatEntries(messages: AgentMessage[]): ChatEntry[] {
   return out;
 }
 
+/** The composer's message: the typed words, then one line per attached image for the assistant to
+ *  Read. Each path sits in backticks: Claude Code turns a pasted segment ending in an image
+ *  extension into an [Image #N] chip asynchronously and drops the Enter sent with the paste. */
+export function assistantChatMessage(typed: string, paths: readonly string[]): string {
+  const images = paths.map((p) => `Attached image: \`${p}\``).join("\n");
+  return [typed, images].filter(Boolean).join("\n\n");
+}
+
 /** A message the operator sent from the composer, shown until the transcript logs it. */
 export interface PendingSend {
   text: string;

@@ -261,6 +261,8 @@ import {
 } from "./sandbox";
 import { defaultSandboxProfile } from "./sandbox-default";
 import { detectEgressBackend, type EgressBackend } from "./egress";
+import { autoBlockers, remoteIsHttps, type AutoBlockers } from "./auto-blockers";
+import { remoteUrl } from "./forge/index";
 import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
 import { parseTargetRepo, resolveTargetRepo, sessionIssue, targetsOtherRepo } from "./target-repo";
 import { isShelved } from "./shelve";
@@ -464,6 +466,9 @@ export interface DrainDeps {
    *  with an FS backend, so a drain-spawned autonomous session is refused-loud when egress
    *  is unavailable. */
   detectEgressBackend?: () => EgressBackend;
+  /** #3453: a repo's `origin` URL, or null without one (tests inject); defaults to
+   *  `git remote get-url origin`, read fresh so a switched remote shows at once. */
+  originUrl?: (repoPath: string) => string | null;
   /** Live Codex auth mode; read per model resolution because login mode can change at runtime. */
   readCodexAuthMode?: () => CodexAuthMode;
   /** #1071: maximum genuine rebase attempts (cap budget). Wired from config.autoMergeRebaseCap
@@ -5129,6 +5134,27 @@ export class DrainService {
       egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
     const code = autoHoldCode(profile, backend, egressBackend);
     return code ? { code, detail: profile } : null;
+  }
+
+  /** #3453: what keeps `run`'s children from starting unattended in this repo and which settings
+   *  changes would start them — the drain's spawn gate as a model. Independent of the run's status,
+   *  so a queued or not-yet-started epic gets the same answer (the pre-check). Reads the same
+   *  profile and CLI as {@link spawnSandboxHold}; a trusted repo skips the probes and the git read,
+   *  which autoBlockers ignores there. */
+  autoBlockers(repoPath: string, run: Pick<EpicRun, "agentProvider">): AutoBlockers {
+    const rc = this.deps.store.getRepoConfig(repoPath);
+    const profile = resolveProfile(undefined, rc.sandboxProfile, this.defaultProfile);
+    const agentProvider = run.agentProvider ?? config.defaultAgentProvider;
+    const trusted = profile === "trusted";
+    const originUrl = this.deps.originUrl ?? ((path: string) => remoteUrl(path, "origin"));
+    return autoBlockers(
+      { agentProvider },
+      { profile, remoteHttps: !trusted && remoteIsHttps(originUrl(repoPath)) },
+      {
+        bwrap: !trusted && this.detectBackend() !== null,
+        egress: !trusted && this.detectEgressBackend() !== null,
+      },
+    );
   }
 
   /** #3452: why a spawn into `spawnRepo` must not start unattended, or null — #3325's target-repo

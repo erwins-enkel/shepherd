@@ -4367,6 +4367,7 @@ const appDeps: AppDeps = {
     buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
     issueListingFailed: (repoPath) => drain.issueListingFailed(repoPath),
     diagnoseEpic: (repoPath, run) => drain.diagnoseEpic(repoPath, run),
+    autoBlockers: (repoPath, run) => drain.autoBlockers(repoPath, run),
     approveEpicNext: (repoPath) => drain.approveEpicNext(repoPath),
     promoteQueuedEpic: (repoPath) => drain.promoteQueuedEpic(repoPath),
     resolveLandingConflict: (repoPath, parent) => drain.resolveLandingConflict(repoPath, parent),

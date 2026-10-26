@@ -2,7 +2,7 @@ import { classifyClaim, type ClaimDiagnostic } from "./drain-claims";
 import type { CapacityCheck } from "./codex-capacity";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EpicStructure, GitForge, GitState, Issue, PrStatus } from "./forge/types";
-import type { CreateSessionInput, Session, SessionArchiveReason } from "./types";
+import type { AgentProvider, CreateSessionInput, Session, SessionArchiveReason } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
 import type { TelemetryService } from "./telemetry";
@@ -23,10 +23,12 @@ import {
   mappedIssueSet,
   needsOpenPrCheck,
   ARCHIVED_MAPPING_GRACE_MS,
+  nextCandidate,
   type AutoSessionView,
   type MappedSessionView,
   type DrainDecision,
   type DrainRepoState,
+  type HoldReason,
   type RunSummary,
 } from "./drain-core";
 import { bootstrapMissing } from "./bootstrap";
@@ -249,7 +251,7 @@ import {
 import { homedir } from "node:os";
 import {
   resolveProfile,
-  autoHoldReason,
+  autoHoldCode,
   codexAutoHoldReason,
   egressApplies,
   detectBackend,
@@ -1421,6 +1423,7 @@ export class DrainService {
         epicUnreadable: stall.epicUnreadable,
         ...this.epicBaseHoldState(repoPath, builtEpic, epicIntegrationBranch),
         bootstrapMissing: this.bootstrapHoldFor(repoPath),
+        spawnHold: this.nextSpawnHold(repoPath, candidates, mappedIssueNumbers, spawnAgentProvider),
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -2214,6 +2217,13 @@ export class DrainService {
         "epic_unreadable",
         // #3105: the repo is still bootstrapping — nothing spawns until it is done or overridden.
         "bootstrap_incomplete",
+        // #3452: the next spawn's sandbox, CLI, host or target repo refuses unattended work —
+        // stuck until the operator changes the setting (or the host gains the backend).
+        "sandbox_interactive",
+        "sandbox_provider_unconfined",
+        "sandbox_backend_unavailable",
+        "sandbox_egress_unavailable",
+        "target_repo_drain_off",
       ].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {
@@ -5043,14 +5053,9 @@ export class DrainService {
    *  `Target repo:` marker names. Null when the marker names no registered repo: the ticket is
    *  refused (no claim, no spawn) and the operator told once per process. */
   private spawnRepoFor(repoPath: string, issue: number, body: string): string | null {
-    const slug = parseTargetRepo(body);
-    if (!slug) return repoPath;
-    const target = resolveTargetRepo(slug, repoPath, {
-      listRepoPaths: this.deps.repos,
-      resolveForge: this.deps.resolveForge,
-    });
-    if (target.kind === "self") return repoPath;
-    if (target.kind === "routed") return target.repoPath;
+    const spawnRepo = this.spawnRepoOf(repoPath, body);
+    if (spawnRepo !== null) return spawnRepo;
+    const slug = parseTargetRepo(body)!;
     console.warn(`[drain] issue #${issue} held — target repo ${slug} is not registered`);
     const key = `${repoPath}#${issue}`;
     if (!this.unregisteredTargetSignaled.has(key)) {
@@ -5058,6 +5063,18 @@ export class DrainService {
       this.deps.onTargetRepoUnregistered?.({ repoPath, issue, slug });
     }
     return null;
+  }
+
+  /** {@link spawnRepoFor} without the refusal's log and signal — safe for buildState. */
+  private spawnRepoOf(repoPath: string, body: string): string | null {
+    const slug = parseTargetRepo(body);
+    if (!slug) return repoPath;
+    const target = resolveTargetRepo(slug, repoPath, {
+      listRepoPaths: this.deps.repos,
+      resolveForge: this.deps.resolveForge,
+    });
+    if (target.kind === "self") return repoPath;
+    return target.kind === "routed" ? target.repoPath : null;
   }
 
   /** Base, prompt and epic stamps for a spawn. #3245: a ROUTED child (spawnRepo ≠ repoPath) bases
@@ -5088,30 +5105,61 @@ export class DrainService {
     };
   }
 
-  /** The sandbox auto-gate pre-check for a drain spawn: the reason create() would refuse it, or
-   *  null. Asked BEFORE claiming so a held issue doesn't churn the claim label every tick. */
+  /** The sandbox auto-gate pre-check for a drain spawn: why create() would refuse it, or null.
+   *  Asked BEFORE claiming so a held issue doesn't churn the claim label every tick. */
   private spawnSandboxHold(
     repoProfile: string | null | undefined,
-    decision: Extract<DrainDecision, { kind: "spawn" }>,
-  ): string | null {
+    provider: AgentProvider,
+  ): HoldReason | null {
     const profile = resolveProfile(undefined, repoProfile, this.defaultProfile);
-    // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
+    // F12: the provider that will actually run (epic's, else the global default) can be refused
+    // by create() regardless of backends — hold it here too, before claiming. Checked first
+    // (#3452): Codex runs unconfined whatever the host can confine, so it names the real blocker.
+    if (codexAutoHoldReason(provider, profile))
+      return { code: "sandbox_provider_unconfined", detail: provider };
+    // backend is backend-independent for trusted (autoHoldCode → null), so skip the real
     // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.
     const backend = profile === "trusted" ? null : this.detectBackend();
     // Probe egress only for an autonomous repo with an FS backend, so a drain-spawned
     // autonomous session is also refused-loud (EGRESS_UNAVAILABLE_REASON) when egress is
-    // unavailable. Undefined elsewhere → autoHoldReason's 2-arg semantics (egress not considered).
+    // unavailable. Undefined elsewhere → autoHoldCode's 2-arg semantics (egress not considered).
     const egressBackend =
       egressApplies(profile) && backend !== null ? this.detectEgressBackend() : undefined;
-    // F12: the provider that will actually run (epic's, else the global default) can be refused
-    // by create() regardless of backends — hold it here too, before claiming.
-    return (
-      autoHoldReason(profile, backend, egressBackend) ??
-      codexAutoHoldReason(
-        decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider,
-        profile,
-      )
-    );
+    const code = autoHoldCode(profile, backend, egressBackend);
+    return code ? { code, detail: profile } : null;
+  }
+
+  /** #3452: why a spawn into `spawnRepo` must not start unattended, or null — #3325's target-repo
+   *  opt-in, then the sandbox auto-gate. No side effects: buildState asks it for the next candidate
+   *  (snapshot() included), and doSpawn re-asks it before claiming. */
+  private spawnGate(
+    repoPath: string,
+    spawnRepo: string,
+    provider: AgentProvider,
+  ): HoldReason | null {
+    const rc = this.deps.store.getRepoConfig(spawnRepo);
+    // #3325: an auto spawn routed into another repo needs THAT repo's own auto-drain opt-in —
+    // a ticket in A must not start unattended work in a repo the operator never opted in.
+    if (spawnRepo !== repoPath && !rc.autoDrainEnabled) {
+      const detail = this.deps.resolveForge(spawnRepo)?.slug ?? spawnRepo;
+      return { code: "target_repo_drain_off", detail };
+    }
+    return this.spawnSandboxHold(rc.sandboxProfile, provider);
+  }
+
+  /** #3452: the {@link spawnGate} hold of the candidate `computeNext` would spawn next, so it holds
+   *  there and drain:status names it. An unregistered target repo is doSpawn's refusal, not this. */
+  private nextSpawnHold(
+    repoPath: string,
+    candidates: Issue[],
+    mappedIssueNumbers: Set<number>,
+    provider: AgentProvider,
+  ): DrainRepoState["spawnHold"] {
+    const next = nextCandidate({ candidates, mappedIssueNumbers });
+    if (!next) return null;
+    const spawnRepo = this.spawnRepoOf(repoPath, next.body);
+    const reason = spawnRepo === null ? null : this.spawnGate(repoPath, spawnRepo, provider);
+    return reason ? { issue: next.number, reason } : null;
   }
 
   /** #2069: a STACKED child bases on its chain predecessor's live PR head. `ensureBranch` is
@@ -5178,18 +5226,15 @@ export class DrainService {
     if (spawnRepo === null) return;
     // The session runs in spawnRepo, so ITS sandbox profile and model defaults apply.
     const rc = this.deps.store.getRepoConfig(spawnRepo);
-    // #3325: an auto spawn routed into another repo needs THAT repo's own auto-drain opt-in —
-    // a ticket in A must not start unattended work in a repo the operator never opted in.
-    if (spawnRepo !== repoPath && !rc.autoDrainEnabled) {
-      console.warn(`[drain] issue #${number} held — target repo ${spawnRepo} has auto-drain off`);
+    // #3452: computeNext already holds on this gate (spawnHold); re-checked in case the config
+    // changed since buildState.
+    const provider = decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider;
+    const hold = this.spawnGate(repoPath, spawnRepo, provider);
+    if (hold) {
+      console.warn(`[drain] issue #${number} held — ${hold.code} (${hold.detail})`);
       return;
     }
     if (!(await this.spawnCapacity(repoPath, decision, rc.defaultModel))) return;
-    const hold = this.spawnSandboxHold(rc.sandboxProfile, decision);
-    if (hold) {
-      console.warn(`[drain] issue #${number} held — ${hold}`);
-      return;
-    }
     // Pre-spawn claim re-check (closes the stale-cache race). The candidate came
     // from the short-TTL issuesCache, which can be up to issuesTtlMs old — long
     // enough for a SECOND instance to have stamped ACTIVE_LABEL since. A fresh,

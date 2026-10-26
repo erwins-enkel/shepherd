@@ -1,8 +1,9 @@
-import type { AutoMergeStatus, DrainStatus, Session } from "../types";
+import type { AgentProvider, AutoMergeStatus, DrainStatus, Session } from "../types";
 import { m } from "#lib/paraglide/messages.js";
 import { sortBlocked, type BlockState } from "../triage";
 import { displayStatus } from "../display-status";
 import { bootstrapMissingLabel } from "./readiness-greenfield-view";
+import { providerLabel } from "#lib/reviewer-env.js";
 
 /** Enabled drains only, sorted by repo path — the per-repo drain lookup feeding repoChipRows. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
@@ -202,9 +203,26 @@ export function bootstrapMissingText(detail: string): string {
   return detail.split(",").filter(Boolean).map(bootstrapMissingLabel).join(", ");
 }
 
+/** A `sandbox_provider_unconfined` hold's detail (the CLI id, #3452) as its display name. */
+export function holdCliLabel(detail: string): string {
+  return providerLabel(detail as AgentProvider);
+}
+
+/** #3452: banner lines for the spawn gates — the next spawn's sandbox, CLI, host or target repo
+ *  refuses unattended work. `detail` is the profile (implied by the code), the CLI or the repo. */
+const SPAWN_GATE_PAUSED: Record<string, (detail: string) => string> = {
+  sandbox_interactive: () => m.drain_paused_sandbox_interactive(),
+  sandbox_provider_unconfined: (cli) => m.drain_paused_sandbox_provider({ cli: holdCliLabel(cli) }),
+  sandbox_backend_unavailable: () => m.drain_paused_sandbox_backend(),
+  sandbox_egress_unavailable: () => m.drain_paused_sandbox_egress(),
+  target_repo_drain_off: (repo) => m.drain_paused_target_repo_drain_off({ repo }),
+};
+
 /** Localized banner line for a paused drain, mapped from its reason + detail. */
 export function pausedText(d: DrainStatus): string {
   const desig = d.detail ?? "";
+  const gate = SPAWN_GATE_PAUSED[d.reason ?? ""];
+  if (gate) return gate(desig);
   switch (d.reason) {
     case "claim_check_failed":
       return m.drain_claims_load_failed();

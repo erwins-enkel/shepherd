@@ -4,6 +4,7 @@ import {
   isSandboxProfile,
   resolveProfile,
   autoHoldReason,
+  autoHoldCode,
   codexAutoHoldReason,
   effectiveDefaultProfile,
   isRepoSandboxSetting,
@@ -166,6 +167,19 @@ describe("autoHoldReason", () => {
   test("omitting egressBackend (undefined) is identical to 2-arg for autonomous+backend", () => {
     // undefined means "not considered" — must not trigger egress refuse
     expect(autoHoldReason("autonomous", "bwrap", undefined)).toBeNull();
+  });
+});
+
+describe("autoHoldCode (#3452)", () => {
+  test("names each refusal cause as the drain's hold code", () => {
+    expect(autoHoldCode("standard", "bwrap", "slirp4netns")).toBe("sandbox_interactive");
+    expect(autoHoldCode("autonomous", null, null)).toBe("sandbox_backend_unavailable");
+    expect(autoHoldCode("autonomous", "bwrap", null)).toBe("sandbox_egress_unavailable");
+  });
+  test("no cause where an unattended spawn may start", () => {
+    expect(autoHoldCode("trusted", null, null)).toBeNull();
+    expect(autoHoldCode("autonomous", "bwrap", "slirp4netns")).toBeNull();
+    expect(autoHoldCode("autonomous", "bwrap")).toBeNull();
   });
 });
 

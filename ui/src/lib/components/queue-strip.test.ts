@@ -86,6 +86,28 @@ describe("pausedText", () => {
     ).toBe(m.drain_paused_bootstrap({ missing: "P2, P3, P4" }));
   });
 
+  it("maps the spawn gates to the profile, CLI or target repo (#3452)", () => {
+    expect(
+      pausedText(drain({ paused: true, reason: "sandbox_interactive", detail: "standard" })),
+    ).toBe(m.drain_paused_sandbox_interactive());
+    expect(
+      pausedText(drain({ paused: true, reason: "sandbox_provider_unconfined", detail: "codex" })),
+    ).toBe(m.drain_paused_sandbox_provider({ cli: m.agent_provider_codex() }));
+    expect(
+      pausedText(
+        drain({ paused: true, reason: "sandbox_backend_unavailable", detail: "autonomous" }),
+      ),
+    ).toBe(m.drain_paused_sandbox_backend());
+    expect(
+      pausedText(
+        drain({ paused: true, reason: "sandbox_egress_unavailable", detail: "autonomous" }),
+      ),
+    ).toBe(m.drain_paused_sandbox_egress());
+    expect(
+      pausedText(drain({ paused: true, reason: "target_repo_drain_off", detail: "org/b" })),
+    ).toBe(m.drain_paused_target_repo_drain_off({ repo: "org/b" }));
+  });
+
   it("maps epic_unreadable to its own copy, not the generic pause", () => {
     expect(pausedText(drain({ paused: true, reason: "epic_unreadable" }))).toBe(
       m.drain_paused_epic_unreadable(),

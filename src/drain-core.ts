@@ -43,6 +43,11 @@ export interface HoldReason {
     | "epic_predecessor_unlanded" // epic: another epic's landing PR is still open — don't cut from a stale default (#3101)
     | "bootstrap_incomplete" // repo in active project-bootstrap (#3105); detail = missing phases/must-haves
     | "epic_unreadable" // epic: the forge's open-issue listing failed (e.g. a rate limit) — no epic this round, retrying
+    | "sandbox_interactive" // next spawn's repo is on `standard` (interactive-only) (#3452); detail = profile
+    | "sandbox_provider_unconfined" // next spawn's CLI runs unconfined, allowed only under `trusted` (#3452); detail = CLI
+    | "sandbox_backend_unavailable" // `autonomous` but no bwrap on this host (#3452); detail = profile
+    | "sandbox_egress_unavailable" // `autonomous` but no egress backend on this host (#3452); detail = profile
+    | "target_repo_drain_off" // next spawn routes to a repo with auto-drain off (#3325, #3452); detail = target repo
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
   detail?: string;
@@ -207,6 +212,18 @@ export interface DrainRepoState {
    *  red must-haves); null/undefined when the repo is not bootstrapping, is done, or the operator
    *  overrode the hold. See src/bootstrap.ts → bootstrapMissing. */
   bootstrapMissing?: readonly string[] | null;
+  /** #3452: the refusal the {@link nextCandidate}'s spawn would hit — its sandbox profile, CLI or
+   *  host, or a routed target repo without auto-drain (#3325). Checked upstream BEFORE the claim,
+   *  so a held issue churns no label; keyed by issue so it can never hold another candidate.
+   *  Null/undefined when the next candidate may start. */
+  spawnHold?: { issue: number; reason: HoldReason } | null;
+}
+
+/** The candidate the drain spawns next: the first one no session maps yet. */
+export function nextCandidate(
+  state: Pick<DrainRepoState, "candidates" | "mappedIssueNumbers">,
+): Issue | undefined {
+  return state.candidates.find((c) => !state.mappedIssueNumbers.has(c.number));
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -397,6 +414,13 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   const epic = epicHold(state);
   if (epic) return { kind: "hold", reason: epic };
 
+  // 2d. Spawn gate (#3452): the next candidate cannot start unattended — its sandbox, CLI or host,
+  // or a routed target repo without auto-drain. It needs the operator and never clears on its own,
+  // so it outranks the self-clearing cap and usage holds.
+  const next = nextCandidate(state);
+  const gate = spawnGateHold(state, next);
+  if (gate) return { kind: "hold", reason: gate };
+
   // 3. Concurrency cap. In draftMode, if a session is retireable-but-unsigned it's the reason
   //    the slot stays taken — relabel the hold `awaiting_signoff` (with that session's desig) so
   //    the operator sees WHY the drain is stuck, not a bare `cap`. Relabel is CAP-ONLY by design:
@@ -410,7 +434,6 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   if (usage) return { kind: "hold", reason: usage };
 
   // 5. Next un-mapped candidate.
-  const next = state.candidates.find((c) => !state.mappedIssueNumbers.has(c.number));
   if (!next) return { kind: "hold", reason: { code: "empty" } };
 
   // Epic attended mode: hold the next spawn until the operator approves it.
@@ -427,6 +450,12 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     stackedBase: state.epicStackBases?.get(next.number),
     incrementalEpicParent: state.epicIncrementalParent ?? undefined,
   };
+}
+
+/** #3452: the spawn-gate hold for `next`, when {@link DrainRepoState.spawnHold} names it. */
+function spawnGateHold(state: DrainRepoState, next: Issue | undefined): HoldReason | null {
+  const hold = state.spawnHold;
+  return next && hold?.issue === next.number ? hold.reason : null;
 }
 
 /** The epic-only holds of {@link computeNext}, in priority order (after retire, trouble and

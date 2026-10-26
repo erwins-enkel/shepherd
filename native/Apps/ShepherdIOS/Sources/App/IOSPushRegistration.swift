@@ -306,6 +306,18 @@ final class IOSAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationC
         return true
     }
 
+    /// A cold launch from the Home Screen menu delivers its quick action here; warm launches
+    /// reach ``IOSSceneDelegate``.
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if let type = options.shortcutItem?.type {
+            MainActor.assumeIsolated { _ = IOSQuickActions.shared.receive(type: type) }
+        }
+        let configuration = UISceneConfiguration(name: nil, sessionRole: session.role)
+        configuration.delegateClass = IOSSceneDelegate.self
+        return configuration
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
         MainActor.assumeIsolated { IOSPushRegistration.shared.didRegister(deviceToken: token) }
     }

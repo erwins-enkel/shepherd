@@ -75,6 +75,12 @@ struct RootView: View {
             }
             Button(L.t("common_cancel"), role: .cancel) { IOSPushRegistration.shared.cancelNotification() }
         }
+        // A Home Screen quick action waits here until a server can show the composer.
+        .onChange(of: IOSQuickActions.shared.pending, initial: true) { _, _ in IOSQuickActions.shared.route(hub) }
+        // Short-circuits: the compose model is only observed while an action is pending.
+        .onChange(of: IOSQuickActions.shared.pending != nil && hub.composeModel != nil) { _, _ in
+            IOSQuickActions.shared.route(hub)
+        }
         .onChange(of: hub.selection) { _, selected in
             path = selected.map { [$0] } ?? []
         }
@@ -86,6 +92,7 @@ struct RootView: View {
             Task { await badge.update(count, enabled: !launch.configuration.isIsolated) }
         }
         .onChange(of: phase) { _, phase in
+            if phase == .background { IOSQuickActions.shared.reset() }
             if phase == .active || phase == .background {
                 Task { await badge.update(badgeCount, enabled: !launch.configuration.isIsolated,
                     background: phase == .background) }

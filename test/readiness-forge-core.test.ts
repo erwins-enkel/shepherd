@@ -11,6 +11,7 @@ const OK: RepoForgeSettings = {
   labelExists: true,
   canAdminister: true,
   canPush: true,
+  planLimited: false,
 };
 
 const byId = (s: RepoForgeSettings, derived: string[] = []) =>
@@ -132,6 +133,27 @@ describe("forgeChecks", () => {
       state: "hint",
       reason: "no_push",
     });
+  });
+
+  test("plan-limited → auto-merge and required checks hint plan, no Apply", () => {
+    const c = byId({ ...OK, autoMergeAllowed: false, requiredChecks: null, planLimited: true }, [
+      "lint",
+    ]);
+    expect(c.auto_merge).toEqual({
+      id: "auto_merge",
+      state: "hint",
+      current: false,
+      target: true,
+      reason: "plan",
+    });
+    expect(c.required_checks).toEqual({
+      id: "required_checks",
+      state: "hint",
+      current: [],
+      target: ["lint"],
+      reason: "plan",
+    });
+    expect(c.merge_methods!.state).toBe("ok");
   });
 
   test("no CI → required checks hint no_ci", () => {

@@ -1745,6 +1745,8 @@ export interface RepoMergeSettings {
   /** null when the host did not say. */
   autoMergeAllowed: boolean | null;
   canAdminister: boolean;
+  /** The repo's plan lacks auto-merge (private repo on GitHub Free); set only when true. */
+  planLimited?: boolean;
 }
 
 export interface RepoRolesResult {
@@ -2914,7 +2916,7 @@ export type ForgeCheckId =
   "merge_methods" | "auto_merge" | "delete_branch_on_merge" | "required_checks" | "auto_label";
 /** ok = matches; fix = Apply offered; hint = mismatch without Apply; unknown = host withheld it. */
 export type ForgeCheckState = "ok" | "fix" | "hint" | "unknown";
-export type ForgeCheckReason = "no_admin" | "no_push" | "no_ci";
+export type ForgeCheckReason = "no_admin" | "no_push" | "no_ci" | "plan";
 export interface ForgeCheck {
   id: ForgeCheckId;
   state: ForgeCheckState;

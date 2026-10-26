@@ -489,6 +489,14 @@ function isGhNotFound(e: unknown): boolean {
   return /HTTP 404|Not Found/.test(String((e as { stderr?: unknown })?.stderr ?? e));
 }
 
+/** A `gh api` 403 for a feature the repo's plan lacks (rulesets, branch protection, auto-merge on
+ *  a private repo under GitHub Free): "Upgrade to GitHub Pro or make this repository public…". */
+function isGhPlanLimited(e: unknown): boolean {
+  return /Upgrade to GitHub|make this repository public/.test(
+    String((e as { stderr?: unknown })?.stderr ?? e),
+  );
+}
+
 /** A conditional `gh api` read GitHub answered `304 Not Modified` (gh exits 1 on it). */
 function isGhNotModified(e: unknown): boolean {
   return /HTTP 304/.test(String((e as { stderr?: unknown })?.stderr ?? ""));
@@ -2865,14 +2873,24 @@ export class GithubForge implements GitForge {
     };
     const branch = repo.default_branch || (await this.defaultBranch());
     // Active rulesets that apply to the branch. A `pull_request` rule refuses direct pushes.
-    const rules = JSON.parse(
-      (await this.run(["api", `repos/${this.slug}/rules/branches/${branch}?per_page=100`])) || "[]",
-    ) as { type?: string }[];
+    // A plan without rulesets can't enforce any, so it reads as none.
+    let rules: { type?: string }[] = [];
+    let planLimited = false;
+    try {
+      rules = JSON.parse(
+        (await this.run(["api", `repos/${this.slug}/rules/branches/${branch}?per_page=100`])) ||
+          "[]",
+      ) as { type?: string }[];
+    } catch (e) {
+      if (!isGhPlanLimited(e)) throw e;
+      planLimited = true;
+    }
     return {
       requiresPr: rules.some((r) => r.type === "pull_request"),
       // Only returned to callers with push access; absent ⇒ unknown, not "off".
       autoMergeAllowed: typeof repo.allow_auto_merge === "boolean" ? repo.allow_auto_merge : null,
       canAdminister: repo.permissions?.admin === true,
+      ...(planLimited ? { planLimited } : {}),
     };
   }
 
@@ -2912,7 +2930,7 @@ export class GithubForge implements GitForge {
     const branch = repo.default_branch || (await this.defaultBranch());
     const flags = [repo.allow_merge_commit, repo.allow_squash_merge, repo.allow_rebase_merge];
     const bool = (v: unknown) => (typeof v === "boolean" ? v : null);
-    const [requiredChecks, labelExists] = await Promise.all([
+    const [{ checks: requiredChecks, planLimited }, labelExists] = await Promise.all([
       this.requiredChecks(branch),
       this.labelExists(label),
     ]);
@@ -2927,21 +2945,25 @@ export class GithubForge implements GitForge {
       labelExists,
       canAdminister: repo.permissions?.admin === true,
       canPush: repo.permissions?.push === true,
+      planLimited,
     };
   }
 
   /** Required status-check contexts on `branch` from active rulesets plus classic branch
-   *  protection; null when either is unreadable. */
-  private async requiredChecks(branch: string): Promise<string[] | null> {
+   *  protection; null when either is unreadable. `planLimited` when the repo's plan has
+   *  neither (private repo on GitHub Free). */
+  private async requiredChecks(
+    branch: string,
+  ): Promise<{ checks: string[] | null; planLimited: boolean }> {
     const ref = encodeURIComponent(branch);
     try {
       const [rules, classic] = await Promise.all([
         this.rulesetChecks(ref),
         this.classicChecks(ref),
       ]);
-      return [...new Set([...rules, ...classic])].sort();
-    } catch {
-      return null;
+      return { checks: [...new Set([...rules, ...classic])].sort(), planLimited: false };
+    } catch (e) {
+      return { checks: null, planLimited: isGhPlanLimited(e) };
     }
   }
 

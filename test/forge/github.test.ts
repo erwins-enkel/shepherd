@@ -4106,7 +4106,58 @@ test("GithubForge.repoForgeSettings: flags, rules ∪ classic checks, label, per
     labelExists: false,
     canAdminister: false,
     canPush: true,
+    planLimited: false,
   });
+});
+
+const PLAN_403 =
+  "gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)";
+
+/** Runner whose rules/protection reads fail like a private repo on GitHub Free. */
+function planLimitedRunner(responses: Record<string, string>) {
+  return async (args: string[]) => {
+    const key = args.join(" ");
+    if (key.includes("/rules/") || key.includes("/protection"))
+      throw Object.assign(new Error("gh failed"), { stderr: PLAN_403 });
+    return responses[key] ?? "";
+  };
+}
+
+test("GithubForge.repoForgeSettings: plan 403 on rules → planLimited, checks unknown", async () => {
+  const run = planLimitedRunner({
+    "api repos/o/r": JSON.stringify({ default_branch: "main", allow_auto_merge: false }),
+    "api repos/o/r/labels/x": "{}",
+  });
+  expect(await new GithubForge("o/r", {}, run).repoForgeSettings!("x")).toMatchObject({
+    autoMergeAllowed: false,
+    requiredChecks: null,
+    planLimited: true,
+  });
+});
+
+test("GithubForge.repoMergeSettings: plan 403 on rules → no PR rule, planLimited", async () => {
+  const run = planLimitedRunner({
+    "api repos/o/r": JSON.stringify({
+      default_branch: "main",
+      allow_auto_merge: false,
+      permissions: { admin: true },
+    }),
+  });
+  expect(await new GithubForge("o/r", {}, run).repoMergeSettings!()).toEqual({
+    requiresPr: false,
+    autoMergeAllowed: false,
+    canAdminister: true,
+    planLimited: true,
+  });
+});
+
+test("GithubForge.repoMergeSettings: other rules errors still throw", async () => {
+  const run = async (args: string[]) => {
+    if (args.join(" ").includes("/rules/"))
+      throw Object.assign(new Error("gh failed"), { stderr: "HTTP 500" });
+    return JSON.stringify({ default_branch: "main" });
+  };
+  await expect(new GithubForge("o/r", {}, run).repoMergeSettings!()).rejects.toThrow();
 });
 
 test("GithubForge.repoForgeSettings: withheld flags → null, unprotected branch → []", async () => {

@@ -33,6 +33,8 @@
   let mergeSettings = $state<RepoMergeSettings | null>(null);
   let enablingAutoMerge = $state(false);
   let autoMergeEnableFailed = $state(false);
+  /** The host accepted the switch but kept auto-merge off (e.g. a private repo on GitHub Free). */
+  let autoMergeEnableIgnored = $state(false);
   let rolesMe = $state<string | null>(null);
   let collaboratorsMe = $state<string | null>(null);
   let collaborators = $state<string[]>([]);
@@ -109,6 +111,7 @@
     mergeSettings = null;
     enablingAutoMerge = false;
     autoMergeEnableFailed = false;
+    autoMergeEnableIgnored = false;
     rolesMe = null;
     collaboratorsMe = null;
     collaborators = [];
@@ -189,9 +192,11 @@
     const repo = repoPath;
     enablingAutoMerge = true;
     autoMergeEnableFailed = false;
+    autoMergeEnableIgnored = false;
     try {
       const res = await enableRepoRolesAutoMerge(repo);
       if (token !== generation) return;
+      autoMergeEnableIgnored = res.mergeSettings?.autoMergeAllowed === false;
       // The setting is on even when the follow-up read came back empty.
       mergeSettings =
         res.mergeSettings ?? (mergeSettings && { ...mergeSettings, autoMergeAllowed: true });
@@ -359,7 +364,9 @@
       <span>{m.roles_automerge_failed()}</span>
     {:else if autoMerge === "off"}
       <span>{m.roles_automerge_off()}</span>
-      {#if mergeSettings?.canAdminister}
+      {#if mergeSettings?.planLimited}
+        <span>{m.roles_automerge_plan_needed()}</span>
+      {:else if mergeSettings?.canAdminister}
         <button
           class="gbtn"
           type="button"
@@ -374,6 +381,8 @@
       {/if}
       {#if autoMergeEnableFailed}
         <span class="roles-err" role="alert">{m.roles_automerge_enable_failed()}</span>
+      {:else if autoMergeEnableIgnored}
+        <span class="roles-err" role="alert">{m.roles_automerge_enable_ignored()}</span>
       {/if}
     {/if}
   </div>

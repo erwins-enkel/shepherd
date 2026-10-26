@@ -59,6 +59,8 @@
         return m.readiness_forge_hint_no_push();
       case "no_ci":
         return m.readiness_forge_hint_no_ci();
+      case "plan":
+        return m.readiness_forge_hint_plan();
       default:
         return null;
     }
@@ -88,7 +90,9 @@
           key: "readiness-forge-applied",
         });
       } else {
-        toasts.info(m.readiness_forge_apply_error(), {
+        // The write went through but GitHub kept the old value — on a private repo that is
+        // usually a plan limit, not a permissions problem.
+        toasts.info(m.readiness_forge_apply_ignored(), {
           alert: true,
           key: "readiness-forge-fail",
         });

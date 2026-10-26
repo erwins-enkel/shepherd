@@ -17,8 +17,9 @@ export type ForgeCheckId = (typeof FORGE_CHECK_IDS)[number];
 
 /** ok = matches; fix = Apply offered; hint = mismatch without Apply; unknown = host withheld it. */
 export type ForgeCheckState = "ok" | "fix" | "hint" | "unknown";
-/** Why a mismatch is only a hint. */
-export type ForgeCheckReason = "no_admin" | "no_push" | "no_ci";
+/** Why a mismatch is only a hint. `plan`: the repo's plan lacks the feature (private repo on
+ *  GitHub Free). */
+export type ForgeCheckReason = "no_admin" | "no_push" | "no_ci" | "plan";
 
 export interface ForgeCheck {
   id: ForgeCheckId;
@@ -143,6 +144,13 @@ function adminCheck(id: ForgeCheckId, current: boolean | null, canAdminister: bo
     : { id, state: "hint", current, target: true, reason: "no_admin" };
 }
 
+/** GitHub Free keeps auto-merge off on private repos (a PATCH is accepted but ignored). */
+function autoMergeCheck(s: RepoForgeSettings): ForgeCheck {
+  if (s.planLimited && s.autoMergeAllowed === false)
+    return { id: "auto_merge", state: "hint", current: false, target: true, reason: "plan" };
+  return adminCheck("auto_merge", s.autoMergeAllowed, s.canAdminister);
+}
+
 function mergeMethodsCheck(s: RepoForgeSettings, mergeMethod: MergeMethod): ForgeCheck {
   const target = [mergeMethod];
   if (!s.mergeMethods) return { id: "merge_methods", state: "unknown", current: null, target };
@@ -155,6 +163,8 @@ function mergeMethodsCheck(s: RepoForgeSettings, mergeMethod: MergeMethod): Forg
 }
 
 function requiredChecksCheck(s: RepoForgeSettings, derived: string[]): ForgeCheck {
+  if (s.planLimited)
+    return { id: "required_checks", state: "hint", current: [], target: derived, reason: "plan" };
   const current = s.requiredChecks;
   if (current === null)
     return { id: "required_checks", state: "unknown", current, target: derived };
@@ -180,7 +190,7 @@ export function forgeChecks(
 ): ForgeCheck[] {
   return [
     mergeMethodsCheck(s, o.mergeMethod),
-    adminCheck("auto_merge", s.autoMergeAllowed, s.canAdminister),
+    autoMergeCheck(s),
     adminCheck("delete_branch_on_merge", s.deleteBranchOnMerge, s.canAdminister),
     requiredChecksCheck(s, o.derivedChecks),
     labelCheck(s),

@@ -38,6 +38,17 @@ action is hidden during isolated live read-only runs and disabled without a stor
 The session-list composer UI tests activate a reserved fixture profile, intercept
 its HTTP requests, and tap the same production action; no debug-only button is used.
 
+Long-pressing the app icon offers two Home Screen quick actions, declared statically in
+`Info.plist` (titles from the EN/DE catalogs via `InfoPlist.strings`): **Dictate Task**
+opens the composer with hands-free dictation already recording, as after a tap on the mic,
+and **New Task** opens it without recording. Neither submits anything. `IOSQuickActions`
+holds the action until a server can show the composer (a cold launch delivers it through
+`IOSAppDelegate` before any store exists, a warm launch through `IOSSceneDelegate`),
+reuses an open composer, and drops the action without a connected server or when the app
+leaves the foreground. Recording starts only once the scene is active. The cold-launch UI
+test replays **New Task** with the isolated `-ShepherdQuickAction <type>` launch argument;
+dictation is covered by unit tests, since the session-list composer uses the real microphone.
+
 ## Local simulator workflow
 
 For the fast incremental dev loop, from the repository root:
